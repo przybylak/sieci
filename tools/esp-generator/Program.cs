@@ -29,6 +29,7 @@ public static class Vanilla
     public static readonly FormKey CarryWeight = Fo4(0x0002DC);
     public static readonly FormKey Pipboy = Fo4(0x021B3B);
     public static readonly FormKey AnimArchetypePlayer = Fo4(0x06B508);
+    public static readonly FormKey AmmoFlamerFuel = Fo4(0x0CAC78);
 
     // Record types of the vanilla forms above, for the property type check.
     public static string Describe(FormKey key) =>
@@ -38,6 +39,7 @@ public static class Vanilla
         : key == SpeedMult || key == CarryWeight ? "ActorValueInformation"
         : key == Pipboy ? "Armor"
         : key == AnimArchetypePlayer ? "Keyword"
+        : key == AmmoFlamerFuel ? "Ammunition"
         : "unknown";
 }
 
@@ -51,6 +53,12 @@ public static class Program
     public const string ParkedBikeModel = @"CMB\CMB_BikeParked.nif";
     public const string WornBikeModel = @"CMB\CMB_BikeWorn.nif";
     public const string KeysModel = @"CMB\CMB_Keys.nif";
+
+    // Biped slot the worn bike occupies; whatever else uses it gets unequipped
+    // while riding. 58 clashed with Eli's Armour Compendium bags. 57 is an
+    // "Unnamed" slot (60 would also be free in some setups, but it's the
+    // slot named "Pipboy"). Change it here if another mod of yours uses 57.
+    public const BipedObjectFlag BikeSlot = BipedObjectFlag.Unnamed57;
 
     public static int Main(string[] args)
     {
@@ -84,13 +92,20 @@ public static class Program
 
         // --- Settings (console: set <name> to <value>) ---
         var gSpeed = Global(mod, "CMB_SpeedPercent", 250);
-        var gCompanionMode = Global(mod, "CMB_CompanionMode", 1);
+        // Run alongside by default: hiding companions is riskier during their quests and scenes.
+        var gCompanionMode = Global(mod, "CMB_CompanionMode", 0);
         var gAllowCombat = Global(mod, "CMB_AllowCombat", 0);
         var gThirdPerson = Global(mod, "CMB_ForceThirdPerson", 1);
         var gRiderPose = Global(mod, "CMB_UseRiderPose", 0);
         var gCatchUp = Global(mod, "CMB_CatchUpDistance", 2500);
         var gBagCapacity = Global(mod, "CMB_BagCapacity", 60);
         var gHotkey = Global(mod, "CMB_HotkeyCode", 48);
+        var gUseFuel = Global(mod, "CMB_UseFuel", 1);
+        var gFuelDistance = Global(mod, "CMB_FuelDistance", 4096); // one cell (~58 m) per unit
+
+        // --- What the bike burns ---
+        var fuelItems = mod.FormLists.AddNew("CMB_FuelItems");
+        fuelItems.Items.Add(new FormLink<IFallout4MajorRecordGetter>(Vanilla.AmmoFlamerFuel));
 
         // --- Keyword for the experimental rider pose ---
         var kwRider = mod.Keywords.AddNew("CMB_AnimArchetypeRider");
@@ -108,7 +123,7 @@ public static class Program
 
         // --- Worn bike ---
         var arma = mod.ArmorAddons.AddNew("CMB_BikeRiderAA");
-        arma.BodyTemplate = new BodyTemplate { FirstPersonFlags = BipedObjectFlag.Unnamed58 };
+        arma.BodyTemplate = new BodyTemplate { FirstPersonFlags = BikeSlot };
         arma.Race.SetTo(Vanilla.HumanRace);
         arma.Priority = new GenderedItem<byte>(0, 0);
         arma.WeightSliderEnabled = new GenderedItem<bool>(false, false);
@@ -120,7 +135,7 @@ public static class Program
         armor.MajorFlags |= Armor.MajorFlag.NonPlayable;
         armor.Name = "Motorbike";
         armor.ObjectBounds = new ObjectBounds();
-        armor.BipedBodyTemplate = new BipedBodyTemplate { FirstPersonFlags = BipedObjectFlag.Unnamed58 };
+        armor.BipedBodyTemplate = new BipedBodyTemplate { FirstPersonFlags = BikeSlot };
         armor.Race.SetTo(Vanilla.HumanRace);
         armor.Armatures.Add(new ArmorAddonModel { AddonIndex = 0, ArmorAddon = arma.ToNullableLink() });
         armor.Value = 0;
@@ -213,12 +228,15 @@ public static class Program
             Obj("SpeedMult", Vanilla.SpeedMult),
             Obj("CarryWeight", Vanilla.CarryWeight),
             Obj("Pipboy", Vanilla.Pipboy),
+            Obj("CMB_FuelItems", fuelItems),
             Obj("CMB_SpeedPercent", gSpeed),
             Obj("CMB_CompanionMode", gCompanionMode),
             Obj("CMB_AllowCombat", gAllowCombat),
             Obj("CMB_ForceThirdPerson", gThirdPerson),
             Obj("CMB_UseRiderPose", gRiderPose),
             Obj("CMB_CatchUpDistance", gCatchUp),
+            Obj("CMB_UseFuel", gUseFuel),
+            Obj("CMB_FuelDistance", gFuelDistance),
             Obj("CMB_AnimArchetypeRider", kwRider),
             Obj("AnimArchetypePlayer", Vanilla.AnimArchetypePlayer));
         // Optional: only does anything with F4SE and the compiled CMB_HotkeyF4SE.pex.

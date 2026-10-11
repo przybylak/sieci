@@ -11,6 +11,8 @@ bool Function IsInInterior() native
 Function MoveTo(ObjectReference akTarget, float afXOffset = 0.0, float afYOffset = 0.0, float afZOffset = 0.0, bool abMatchRotation = true) native
 float Function GetDistance(ObjectReference akOther) native
 float Function GetAngleZ() native
+float Function GetPositionX() native
+float Function GetPositionY() native
 Form Function GetBaseObject() native
 float Function GetValue(ActorValue akAV) native
 Function ModValue(ActorValue akAV, float afAmount) native

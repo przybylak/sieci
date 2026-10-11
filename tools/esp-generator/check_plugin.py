@@ -24,6 +24,7 @@ COMPATIBLE = {
     "actorvalue": {"ActorValueInformation"},
     "sound": {"SoundDescriptor"},
     "quest": {"Quest"},
+    "formlist": {"FormList"},
 }
 
 PROPERTY = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_:]*(?:\[\])?)\s+Property\s+(\w+)\b(.*)$", re.IGNORECASE)

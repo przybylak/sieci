@@ -11,10 +11,13 @@ All files go in `Data\Meshes\CMB\` (see `Data/Meshes/CMB/PUT_MESHES_HERE.txt`).
 
 ### Find and extract the vanilla motorcycle
 
-Fallout 4 has the bike as `Motorcycle01_Static` (Static, form ID `0017935A`), and also as a movable `Motorcycle01` (`00188D4C`). **Use the Static's model.** It has fixed collision; a movable static's physics could make the parked bike tip over.
+Fallout 4 has two motorcycle models: the rusted one and a clean pre-war one. Each comes as a Static
+(`Motorcycle01_Static` `0017935A`, `Motorcycle01_Prewar_Static` `0017AD86`) and as a movable static
+(`Motorcycle01` `00188D4C`, `Motorcycle01_Prewar` `00188D2A`). **Use a Static's model**, either look; it has
+fixed collision, while a movable static's physics could make the parked bike tip over. Use the same model for both copies below.
 
-1. Get its model path: in the CK, Object Window → `WorldObjects → Static`, filter `Motorcycle01_Static`, open it and read the model path.
-   In xEdit: `Fallout4.esm → Static → Motorcycle01_Static → Model → MODL`.
+1. Get its model path: in the CK, Object Window → `WorldObjects → Static`, filter `Motorcycle01`, open the one you want and read the model path.
+   In xEdit: `Fallout4.esm → Static → Motorcycle01_Static` (or `_Prewar_Static`) → `Model → MODL`.
 2. Extract that nif from `Data\Fallout4 - Meshes.ba2` with Archive2 (`<Fallout 4>\Tools\Archive2\Archive2.exe`, open the ba2, find the path, Extract).
    If it isn't there, try `Fallout4 - MeshesExtra.ba2`.
    Bethesda Archive Extractor (BAE) works too and has a search box: search for `motorcycle`.
@@ -85,17 +88,12 @@ So:
 3. That folder holds copies of a single **vanilla seated loop** saved under the names of the walk/run/turn/idle clips.
    No animation authoring is needed, just file copies.
 
-### First, check the `AnimsMotorcycle` lead
+### Why this is the only route
 
-`Fallout4.esm` contains a keyword called **`AnimsMotorcycle`** (`000AB732`), filed with the animation-subgraph keywords.
-Nothing on the web documents it, so it may be a cut feature. If anything still uses it, the game may ship real
-sit-on-a-motorcycle animations, which would beat a bar-stool pose by far. In the CK, right-click the keyword → **Use Info**
-(or in xEdit, select it → *Referenced By*) and check:
-
-- a HumanRace subgraph entry that lists it, which tells you its animation folder (look inside for riding clips);
-- furniture or idle records that use it.
-
-Tell me what you find; it decides how Stage 2 should work.
+The game has no motorcycle riding animations to borrow. `Fallout4.esm` does contain a keyword called `AnimsMotorcycle`
+(`000AB732`), but nothing in the game uses it, and the animation archives contain no motorcycle clips. The only
+motorcycle assets are the two parked-bike models (the rusted `Motorcycle01` and the clean pre-war `Motorcycle01_Prewar`).
+So it's this file-copy trick or new animation work.
 
 ### Steps
 
@@ -110,8 +108,10 @@ which the Creation Kit is awkward about.
    Open `Fallout4.esm → Race → HumanRace` and look through its subgraph data for the entry whose
    Actor Keywords contain `AnimArchetypePlayer`, with Perspective *3rd* and Role *MT*. Note its **Paths**.
 2. **Make the patch.** Right-click `HumanRace` → *Copy as override into…* → new file `CMB_RiderPose.esp`
-   (accept `CommonwealthMotorbike.esp` as a master; flag it ESL if offered). If other mods in your load order edit
-   HumanRace, copy *their* version instead so their changes are kept.
+   (accept `CommonwealthMotorbike.esp` as a master; flag it ESL if offered).
+   **Start from the winning HumanRace, not the vanilla one.** If another mod edits HumanRace (for example LooksMenu
+   Customization Compendium), right-click *that mod's* HumanRace row in the comparison view and copy it as the override,
+   so its changes are kept. Load the patch after it. If that mod later updates its HumanRace, redo this step.
 3. **Add the entry.** In the override, duplicate the entry from step 1. In the copy:
    - replace `AnimArchetypePlayer` with `CMB_AnimArchetypeRider` in Actor Keywords (keep any other keywords);
    - add `Actors\Character\Animations\CMB_Rider\` as the **first** path, and keep the original paths after it.

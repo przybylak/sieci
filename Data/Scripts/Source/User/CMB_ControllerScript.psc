@@ -33,13 +33,15 @@ Group Required_Forms
 	ActorValue Property CarryWeight Auto Const Mandatory
 	Armor Property Pipboy Auto Const Mandatory
 	{Vanilla Pip-Boy (00021B3B). The keys are only handed out once the player has one, i.e. after leaving Vault 111.}
+	FormList Property CMB_FuelItems Auto Const Mandatory
+	{What the bike burns. Flamer Fuel (000CAC78) by default; add items in xEdit to accept more.}
 EndGroup
 
 Group Settings
 	GlobalVariable Property CMB_SpeedPercent Auto Const Mandatory
 	{Riding speed as a percentage of the rider's current speed. Default 250.}
 	GlobalVariable Property CMB_CompanionMode Auto Const Mandatory
-	{0 = companions run alongside (same speed boost, pulled along if left behind). 1 = companions ride along (hidden while riding). Default 1.}
+	{0 = companions run alongside (same speed boost, pulled along if left behind). 1 = companions ride along (hidden while riding). Default 0: hiding companions is riskier during their quests and scenes.}
 	GlobalVariable Property CMB_AllowCombat Auto Const Mandatory
 	{1 = weapons and VATS stay usable while riding. Default 0.}
 	GlobalVariable Property CMB_ForceThirdPerson Auto Const Mandatory
@@ -48,6 +50,10 @@ Group Settings
 	{1 = swap to the seated rider animation set while riding (needs the optional rider pose files). Default 0.}
 	GlobalVariable Property CMB_CatchUpDistance Auto Const Mandatory
 	{Companions running alongside further away than this are moved up behind the player. 0 = never. Default 2500.}
+	GlobalVariable Property CMB_UseFuel Auto Const Mandatory
+	{1 = riding burns fuel (CMB_FuelItems), from the side bag first, then the player. Default 1.}
+	GlobalVariable Property CMB_FuelDistance Auto Const Mandatory
+	{Distance ridden per unit of fuel, in game units (4096 = one cell, about 58 m). Default 4096.}
 EndGroup
 
 Group Optional
@@ -74,6 +80,9 @@ float Property CallAheadDistance = 220.0 AutoReadOnly
 float Property FollowerScanRange = 4000.0 AutoReadOnly
 float Property MinSpeedPercent = 100.0 AutoReadOnly
 float Property MaxSpeedPercent = 500.0 AutoReadOnly
+float Property MaxTickDistance = 5000.0 AutoReadOnly
+{More than this between two ticks is a teleport (door, fast travel), not riding, so it burns no fuel.}
+int Property LowFuelWarning = 3 AutoReadOnly
 int Property KeysStackSize = 2 AutoReadOnly
 {Two keys, so using one never empties the stack and the favorites hotkey survives.}
 
@@ -87,6 +96,10 @@ bool keysDelivered = false
 bool riderPoseApplied = false
 float playerSpeedDelta = 0.0
 InputEnableLayer rideLayer
+float fuelDistance = 0.0
+float lastX = 0.0
+float lastY = 0.0
+bool hasLastPos = false
 Actor[] stowedFollowers
 Actor[] boostedFollowers
 float[] boostedDeltas
@@ -104,6 +117,7 @@ EndEvent
 Function OnGameReloaded()
 	EnsureArrays()
 	busy = false
+	hasLastPos = false
 	if keysDelivered
 		GiveKeysIfMissing(true)
 	else
@@ -227,6 +241,7 @@ Function Mount()
 	HandleFollowersOnMount()
 
 	riding = true
+	hasLastPos = false
 	RegisterForPlayerTeleport()
 	StartTimer(TickInterval, TimerTick)
 	PlaySound(CMB_EngineStartSound)
@@ -234,6 +249,9 @@ Function Mount()
 
 	Game.FadeOutGame(false, true, 0.0, 0.35)
 	busy = false
+	if FuelEnabled()
+		Debug.Notification("Fuel: " + CountFuel())
+	endif
 EndFunction
 
 Function Dismount()
@@ -317,6 +335,7 @@ EndEvent
 
 Event OnPlayerTeleport()
 	if riding
+		hasLastPos = false
 		RideTick()
 	elseif !keysDelivered
 		TryDeliverKeys()
@@ -353,13 +372,16 @@ Function RideTick()
 	; Things the bike can't follow you into. The bike has been shadowing the
 	; player, so it's left at the last outdoor spot we saw.
 	if PlayerRef.IsInInterior()
-		AutoDismount("You leave the motorbike parked outside.")
+		AutoDismount("You leave the motorbike parked outside.", false)
 		return
 	elseif PlayerRef.IsInPowerArmor()
-		AutoDismount("You can't ride in power armor. The motorbike is parked nearby.")
+		AutoDismount("You can't ride in power armor. The motorbike is parked nearby.", false)
 		return
 	elseif PlayerRef.GetSitState() != 0
-		AutoDismount("The motorbike is parked nearby.")
+		AutoDismount("The motorbike is parked nearby.", false)
+		return
+	elseif !BurnFuel()
+		AutoDismount("Your motorbike ran out of fuel.", true)
 		return
 	endif
 
@@ -383,6 +405,8 @@ string Function GetMountBlocker()
 		return "There's no room to ride in here."
 	elseif PlayerRef.GetSitState() != 0
 		return "You need to stand up first."
+	elseif FuelEnabled() && CountFuel() < 1
+		return "Your motorbike is out of fuel. It runs on Flamer Fuel (carried or in the side bag)."
 	endif
 	return ""
 EndFunction
@@ -410,9 +434,15 @@ Function FinishRide()
 	riding = false
 EndFunction
 
-Function AutoDismount(string asMessage)
+; abParkBesidePlayer: park next to the player (they're outdoors and standing).
+; Otherwise the bike stays at the last outdoor spot it shadowed.
+Function AutoDismount(string asMessage, bool abParkBesidePlayer)
 	busy = true
-	BikeRef.Enable()
+	if abParkBesidePlayer
+		ParkBesidePlayer()
+	else
+		BikeRef.Enable()
+	endif
 	FinishRide()
 	busy = false
 	Debug.Notification(asMessage)
@@ -441,12 +471,7 @@ Function ApplyControls()
 	; activate, journalTabs, VATS, favorites, running.
 	rideLayer.DisablePlayerControls(false, noCombat, false, false, true, false, false, false, noCombat, false, false)
 	rideLayer.EnableJumping(false)
-	; EnableSprinting isn't in the official function list, so it's called by
-	; name: if it doesn't exist that only logs an error instead of breaking
-	; the compile, and sprinting simply stays allowed.
-	Var[] sprintArgs = new Var[1]
-	sprintArgs[0] = false
-	rideLayer.CallFunction("EnableSprinting", sprintArgs)
+	rideLayer.EnableSprinting(false)
 EndFunction
 
 Function ReleaseControls()
@@ -538,8 +563,9 @@ Function HandleFollowersOnMount()
 	int i = 0
 	while i < followers.Length
 		Actor follower = followers[i]
-		; Companions in power armor can't be tucked away safely, so they run instead.
-		if rideAlong && !follower.IsInPowerArmor()
+		; Companions in power armor or in a scene (their quest, a conversation)
+		; can't be tucked away safely, so they run alongside instead.
+		if rideAlong && !follower.IsInPowerArmor() && !follower.IsInScene()
 			follower.Disable()
 			follower.MoveTo(HoldingMarkerRef)
 			stowedFollowers.Add(follower)
@@ -589,11 +615,83 @@ Function CatchUpFollowers()
 	int i = 0
 	while i < boostedFollowers.Length
 		Actor runner = boostedFollowers[i]
-		if runner && !runner.IsDead() && !runner.IsDisabled() && runner.GetDistance(PlayerRef) > maxDistance
+		if runner && !runner.IsDead() && !runner.IsDisabled() && !runner.IsInScene() && runner.GetDistance(PlayerRef) > maxDistance
 			runner.MoveTo(PlayerRef, OffsetX(angle, -300.0, -100.0), OffsetY(angle, -300.0, -100.0), 0.0, true)
 		endif
 		i += 1
 	endwhile
+EndFunction
+
+; ---------------------------------------------------------------------------
+; Fuel
+; ---------------------------------------------------------------------------
+
+bool Function FuelEnabled()
+	return CMB_UseFuel.GetValue() > 0.0
+EndFunction
+
+int Function CountFuel()
+	return SideBagRef.GetItemCount(CMB_FuelItems) + PlayerRef.GetItemCount(CMB_FuelItems)
+EndFunction
+
+; Burns fuel for the distance ridden since the last tick.
+; Returns false when the tank ran dry.
+bool Function BurnFuel()
+	if !FuelEnabled()
+		return true
+	endif
+	float x = PlayerRef.GetPositionX()
+	float y = PlayerRef.GetPositionY()
+	if hasLastPos
+		float dx = x - lastX
+		float dy = y - lastY
+		float stepDistance = Math.Sqrt(dx * dx + dy * dy)
+		if stepDistance < MaxTickDistance
+			fuelDistance += stepDistance
+		endif
+	endif
+	lastX = x
+	lastY = y
+	hasLastPos = true
+
+	float perUnit = CMB_FuelDistance.GetValue()
+	if perUnit <= 0.0
+		return true
+	endif
+	bool burned = false
+	while fuelDistance >= perUnit
+		if !ConsumeOneFuel()
+			fuelDistance = 0.0
+			return false
+		endif
+		fuelDistance -= perUnit
+		burned = true
+	endwhile
+	if burned
+		int left = CountFuel()
+		if left <= LowFuelWarning
+			Debug.Notification("Motorbike fuel low: " + left + " left.")
+		endif
+	endif
+	return true
+EndFunction
+
+; Takes one unit of fuel, from the side bag first, then the player.
+bool Function ConsumeOneFuel()
+	int size = CMB_FuelItems.GetSize()
+	int i = 0
+	while i < size
+		Form fuel = CMB_FuelItems.GetAt(i)
+		if fuel && SideBagRef.GetItemCount(fuel) > 0
+			SideBagRef.RemoveItem(fuel, 1, true)
+			return true
+		elseif fuel && PlayerRef.GetItemCount(fuel) > 0
+			PlayerRef.RemoveItem(fuel, 1, true)
+			return true
+		endif
+		i += 1
+	endwhile
+	return false
 EndFunction
 
 ; ---------------------------------------------------------------------------

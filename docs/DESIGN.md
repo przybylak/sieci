@@ -25,7 +25,8 @@ because Vertibird rides use it, and several existing mods build on that (see the
                     enabled in the world               Player wears CMB_BikeRiderArmor
                                                        SpeedMult × CMB_SpeedPercent
                                                        InputEnableLayer: no jump/sprint/sneak(/combat)
-                                                       Companions hidden (mode 1) or boosted (mode 0)
+                                                       Companions boosted (mode 0, default) or hidden (mode 1)
+                                                       Flamer Fuel burned per distance ridden
                                               ◄ Dismount / interior / power armor / furniture
 ```
 
@@ -33,7 +34,9 @@ because Vertibird rides use it, and several existing mods build on that (see the
 - **Parked bike:** a persistent Activator reference. It lives in a holding cell until first called, then wherever you leave it.
 - **While riding:** the parked reference is disabled and moved next to the player every second. If you go indoors, the bike is simply re-enabled where you last were outside.
 - **Speed:** `ModValue(SpeedMult, delta)` with the exact delta remembered and removed later, so other speed effects stay intact. A ±0.1 carry-weight nudge forces the engine to apply the new speed (a known SpeedMult quirk).
-- **Companions:** mode 1 disables them and parks them in the holding cell, then puts them back behind you on dismount. Mode 0 gives them the same speed boost and teleports them up if they fall behind. Companions in power armor always use mode 0.
+- **Companions:** mode 0 (default) gives them the same speed boost and moves them up behind you if they fall behind. Mode 1 (opt-in) disables them and parks them in the holding cell, then puts them back behind you on dismount. That's riskier: disabling a companion during their quest or a scene (Heather, Dogmeat, Sim Settlements 2 characters…) can break it. So companions in a scene or in power armor are never hidden or teleported, whatever the mode.
+- **Fuel:** every tick, the horizontal distance since the last tick is added up (jumps over 5000 units are teleports and don't count). Every `CMB_FuelDistance` units (default 4096, one cell, ~58 m) one item from `CMB_FuelItems` is used, from the side bag first, then the player. The list holds Flamer Fuel by default. Running dry parks the bike where you stand; with no fuel you can't get on. Fast travel costs nothing, and Survival disables it anyway.
+- **Worn bike slot:** biped slot 57. Whatever else is worn in that slot comes off while riding and isn't put back, because vanilla Papyrus can't read what's in a slot. 58 clashed with Eli's Armour Compendium bags, and 60 is the slot named "Pipboy", so 57 it is.
 - **Side bag:** a container in the holding cell, opened remotely with `Activate`. Capacity is checked in `OnItemAdded`. F4SE's `Form.GetWeight()` is called *by name* (`CallFunction`), so F4SE stays optional; without it the cap counts items via `GetItemCount(None)`.
 - **Save/load:** a player alias forwards `OnPlayerLoadGame`, and the controller re-applies the input layer, speed refresh and timer.
 - **Threading:** Papyrus lets other threads into a script whenever it calls another object, so every entry point claims the `busy` flag *before* its first such call. Keys, hotkey, activation and the ride timer then can't interleave.
@@ -50,8 +53,9 @@ because Vertibird rides use it, and several existing mods build on that (see the
 
 | Risk | Mitigation |
 |---|---|
-| `EnableSprinting` isn't in the official function list | Called by name (`CallFunction`): if it's missing, only a log line, and sprinting stays allowed |
-| Hiding a companion during their own quest scene | Use `CMB_CompanionMode 0` during companion quests |
+| Another mod's gear in slot 57 comes off while riding | Check with FO4Edit, change `BikeSlot` in the generator (see BUILD_GUIDE) |
+| Hiding a companion during their own quest or a scene | Run-alongside is the default; even in ride-along mode, companions in a scene are left alone |
+| The rider runs in place over the bike | The game has no riding animations (`AnimsMotorcycle` is unused, no motorcycle clips in the archives); Stage 2's seated pose is the only fix without new animations |
 | Remote `Activate` of the bag container doesn't open the menu | Fallback: move the container next to the bike when opening it (small script change) |
 | Rider pose breaks animations | Off by default; `CMB_UseRiderPose 0` + emergency reset |
 | Uninstalling mid-ride | Documented: dismount or reset first |
@@ -66,6 +70,6 @@ because Vertibird rides use it, and several existing mods build on that (see the
 | Vanilla form IDs | Mutagen's FormKey list generated from the real `Fallout4.esm` | all match |
 | Plugin properties vs scripts | `check_plugin.py`: names, record types, Mandatory properties | ok |
 | Papyrus syntax and types | Caprica against hand-written API stubs | ok |
-| Engine functions used | the less common ones checked one by one on the Fallout 4 CK wiki (input layers, teleport events, `GetSitState`, `GetPlayerFollowers`, `CallFunction`, inventory filters, archetypes…); the rest are core functions vanilla scripts use everywhere. `EnableSprinting` is unconfirmed, so it's called by name | ok |
+| Engine functions used | the less common ones checked one by one on the Fallout 4 CK wiki (input layers, teleport events, `GetSitState`, `GetPlayerFollowers`, `CallFunction`, inventory filters, archetypes…); the rest are core functions vanilla scripts use everywhere. `EnableSprinting` confirmed present in the target game version | ok |
 
 **Not verified:** anything only the game can show. That covers whether it loads, the speed feel, how the worn mesh lines up, companion hiding, opening the bag remotely, and save/load behaviour.

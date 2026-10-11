@@ -3,7 +3,8 @@
 A rideable motorbike for Fallout 4:
 
 - **faster than on foot**: 250% of your speed by default, adjustable from the console
-- **companions come along**: they ride with you (hidden while riding) or run alongside at the same speed
+- **companions come along**: they run alongside at the same speed (or, opt-in, ride along hidden)
+- **runs on Flamer Fuel**: about one unit per 58 m ridden, taken from the side bag first, so it isn't a free speed boost in Survival
 - **side bag**: small storage, size adjustable from the console
 - **park it, call it, ride it**: activate the bike or use its keys (favorite them to a hotkey); optional F4SE hotkey
 
@@ -32,6 +33,11 @@ There's no vehicle physics in Fallout 4's engine for the player, so the bike is 
 4. jumping, sprinting and (by default) combat are blocked.
 
 Getting off reverses all of that and parks the bike next to you. Indoors, power armor and furniture automatically park it outside.
+
+> **What it looks like:** the game has no motorcycle riding animations. Its archives hold only two parked-bike
+> models, and the `AnimsMotorcycle` keyword in `Fallout4.esm` isn't used by anything. So out of the box your
+> character **runs in place over a sliding bike**. The experimental seated pose (Stage 2 in
+> [ASSETS.md](docs/ASSETS.md#stage-2-experimental-seated-rider-pose)) is the only route to sitting on it.
 
 ## What's needed
 
@@ -70,7 +76,9 @@ Details for every step: [docs/BUILD_GUIDE.md](docs/BUILD_GUIDE.md).
 |---|---|
 | `set CMB_SpeedPercent to <100–500>` | 250 |
 | `set CMB_BagCapacity to <n>` (lbs with F4SE, items without; 0 = unlimited) | 60 |
-| `set CMB_CompanionMode to <0 run alongside / 1 ride along>` | 1 |
+| `set CMB_CompanionMode to <0 run alongside / 1 ride along>` | 0 |
+| `set CMB_UseFuel to <0/1>` | 1 |
+| `set CMB_FuelDistance to <units per fuel>` (4096 = one cell, ~58 m; lower = thirstier) | 4096 |
 | `set CMB_AllowCombat to <0/1>` | 0 |
 | `cqf CMB_ControllerQuest EmergencyReset` | undo everything if stuck |
 | `cqf CMB_ControllerQuest ForceGiveKeys` | keys, if an alternative-start mod skipped the Pip-Boy |
@@ -101,5 +109,5 @@ tools/make_rider_pose.py      builds the experimental seated-pose animation fold
 ## Roadmap
 
 1. **Stage 1 (this):** working ride / park / call / side bag / companions.
-2. **Stage 2:** seated rider pose from vanilla clips (experimental, [ASSETS.md](docs/ASSETS.md#stage-2-experimental-seated-rider-pose)).
+2. **Stage 2:** seated rider pose from vanilla clips (experimental, [ASSETS.md](docs/ASSETS.md#stage-2-experimental-seated-rider-pose)). The game ships no riding animations, so this is the only way to sit on the bike short of new animation work.
 3. **Stage 3:** real riding animations, a visible pillion passenger, engine sounds tied to speed. Possibly a v2 built on the engine's mount system instead ([DESIGN.md](docs/DESIGN.md)).
