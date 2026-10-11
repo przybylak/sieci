@@ -29,6 +29,7 @@ public static class Vanilla
     public static readonly FormKey CarryWeight = Fo4(0x0002DC);
     public static readonly FormKey Pipboy = Fo4(0x021B3B);
     public static readonly FormKey AnimArchetypePlayer = Fo4(0x06B508);
+    public static readonly FormKey HumanRaceSubGraphData = Fo4(0x166729);
     public static readonly FormKey AmmoFlamerFuel = Fo4(0x0CAC78);
 
     // Record types of the vanilla forms above, for the property type check.
@@ -47,9 +48,9 @@ public static class Program
 {
     public const string PluginName = "CommonwealthMotorbike.esp";
 
-    // Paths are relative to Data\Meshes. The user provides both files (docs/ASSETS.md):
-    // the parked bike is an unmodified copy of the vanilla motorcycle, the worn
-    // one is that mesh skinned to the Root bone in Outfit Studio.
+    // Paths are relative to Data\Meshes. tools/rider/build_bike_meshes.py makes both from
+    // the vanilla motorcycle (docs/ASSETS.md): the parked bike is an unmodified copy, the
+    // worn one is that mesh turned to face forward and skinned to the AnimObjectA bone.
     public const string ParkedBikeModel = @"CMB\CMB_BikeParked.nif";
     public const string WornBikeModel = @"CMB\CMB_BikeWorn.nif";
     public const string KeysModel = @"CMB\CMB_Keys.nif";
@@ -67,6 +68,19 @@ public static class Program
             Dump(args[1]);
             return 0;
         }
+        if (args.Length == 2 && args[0] == "--rider-template")
+        {
+            if (Path.GetFileName(args[1]) != RiderPluginName)
+            {
+                Console.Error.WriteLine($"The template must be called {RiderPluginName}.");
+                return 1;
+            }
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(args[1]))!);
+            BuildRiderTemplate().WriteToBinary(args[1]);
+            Console.WriteLine($"Wrote {args[1]}");
+            Dump(args[1]);
+            return 0;
+        }
         var output = args.Length == 1 ? args[0] : PluginName;
         if (Path.GetFileName(output) != PluginName)
         {
@@ -79,6 +93,45 @@ public static class Program
         Console.WriteLine($"Wrote {output}");
         Dump(output);
         return 0;
+    }
+
+    // The seated rider pose lives in its own small master, built on the player's PC by
+    // tools/rider/make_rider_plugin.py from this template: it copies the player's own
+    // third-person MT subgraph entries out of their Fallout4.esm in place of the
+    // placeholder below. A separate .esm because the Creation Kit only generates
+    // animation data (-GenerateAnimInfo) for master files.
+    public const string RiderPluginName = "CMB_RiderPose.esm";
+    public const string RiderFolder = @"Actors\Character\Animations\MT\CMB_Rider\";
+    public const string TemplatePlaceholderGraph = "CMB_TEMPLATE_PLACEHOLDER";
+
+    static Fallout4Mod BuildRiderTemplate()
+    {
+        var mod = new Fallout4Mod(ModKey.FromFileName(RiderPluginName), Fallout4Release.Fallout4);
+        mod.ModHeader.Stats.NextFormID = 0x800;
+        mod.ModHeader.Author = "Commonwealth Motorbike";
+        mod.ModHeader.Description = "Seated riding animations for Commonwealth Motorbike.";
+        mod.ModHeader.Flags |= Fallout4ModHeader.HeaderFlag.Master;
+        mod.IsSmallMaster = true;
+
+        // Form ID 0x800: the controller script looks it up with GetFormFromFile.
+        var flavor = mod.Keywords.AddNew("CMB_AnimFlavorRider");
+        flavor.Type = Keyword.TypeEnum.AnimFlavor;
+        flavor.Color = System.Drawing.Color.FromArgb(0, 0, 0, 0); // CNAM is a required field
+
+        // Additive race: its subgraph entries are added to HumanRaceSubGraphData (where the
+        // human animation setup lives) the way the DLCs add theirs; HumanRace isn't edited.
+        var race = mod.Races.AddNew("CMB_RiderSubgraphData");
+        race.SubgraphAdditiveRace.SetTo(Vanilla.HumanRaceSubGraphData);
+        var placeholder = new Subgraph
+        {
+            BehaviorGraph = TemplatePlaceholderGraph,
+            Role = Subgraph.SubgraphRole.MT,
+        };
+        placeholder.ActorKeywords.Add(new FormLink<IKeywordGetter>(Vanilla.AnimArchetypePlayer));
+        placeholder.ActorKeywords.Add(flavor);
+        placeholder.AnimationPaths.Add(RiderFolder);
+        race.Subgraphs.Add(placeholder);
+        return mod;
     }
 
     static Fallout4Mod Build()
@@ -96,7 +149,8 @@ public static class Program
         var gCompanionMode = Global(mod, "CMB_CompanionMode", 0);
         var gAllowCombat = Global(mod, "CMB_AllowCombat", 0);
         var gThirdPerson = Global(mod, "CMB_ForceThirdPerson", 1);
-        var gRiderPose = Global(mod, "CMB_UseRiderPose", 0);
+        // 1 = seated riding animations when CMB_RiderPose.esm is installed, 0 = never.
+        var gRiderPose = Global(mod, "CMB_UseRiderPose", 1);
         var gCatchUp = Global(mod, "CMB_CatchUpDistance", 2500);
         var gBagCapacity = Global(mod, "CMB_BagCapacity", 60);
         var gHotkey = Global(mod, "CMB_HotkeyCode", 48);
@@ -106,11 +160,6 @@ public static class Program
         // --- What the bike burns ---
         var fuelItems = mod.FormLists.AddNew("CMB_FuelItems");
         fuelItems.Items.Add(new FormLink<IFallout4MajorRecordGetter>(Vanilla.AmmoFlamerFuel));
-
-        // --- Keyword for the experimental rider pose ---
-        var kwRider = mod.Keywords.AddNew("CMB_AnimArchetypeRider");
-        kwRider.Type = Keyword.TypeEnum.AnimArchetype;
-        kwRider.Color = System.Drawing.Color.FromArgb(0, 0, 0, 0); // CNAM is a required field
 
         // --- Menus (button order matters: the scripts read the index) ---
         var msgParked = MessageBox(mod, "CMB_ParkedMenu", "Motorbike", "What do you want to do?",
@@ -236,9 +285,7 @@ public static class Program
             Obj("CMB_UseRiderPose", gRiderPose),
             Obj("CMB_CatchUpDistance", gCatchUp),
             Obj("CMB_UseFuel", gUseFuel),
-            Obj("CMB_FuelDistance", gFuelDistance),
-            Obj("CMB_AnimArchetypeRider", kwRider),
-            Obj("AnimArchetypePlayer", Vanilla.AnimArchetypePlayer));
+            Obj("CMB_FuelDistance", gFuelDistance));
         // Optional: only does anything with F4SE and the compiled CMB_HotkeyF4SE.pex.
         var hotkey = Script("CMB_HotkeyF4SE",
             Obj("Controller", quest),
@@ -392,6 +439,15 @@ public static class Program
             if (vmad != null)
                 foreach (var s in vmad.Scripts)
                     PrintScript(s, "      ", types);
+            if (rec is IRaceGetter race)
+            {
+                if (!race.SubgraphAdditiveRace.IsNull)
+                    Console.WriteLine($"      additive to {race.SubgraphAdditiveRace.FormKey}");
+                foreach (var sg in race.Subgraphs)
+                    Console.WriteLine($"      subgraph {sg.Role} {sg.Perspective} [{string.Join(", ", sg.ActorKeywords.Select(k => k.FormKey))}] " +
+                                      $"targets [{string.Join(", ", sg.TargetKeywords.Select(k => k.FormKey))}] " +
+                                      $"{sg.BehaviorGraph} paths [{string.Join(", ", sg.AnimationPaths)}]");
+            }
             if (rec is IQuestGetter quest && quest.VirtualMachineAdapter != null)
                 foreach (var alias in quest.VirtualMachineAdapter.Aliases)
                 {

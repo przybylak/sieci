@@ -47,7 +47,7 @@ Group Settings
 	GlobalVariable Property CMB_ForceThirdPerson Auto Const Mandatory
 	{1 = switch to third person when getting on, so the bike is visible. Default 1.}
 	GlobalVariable Property CMB_UseRiderPose Auto Const Mandatory
-	{1 = swap to the seated rider animation set while riding (needs the optional rider pose files). Default 0.}
+	{1 = seated riding animations while riding, when CMB_RiderPose.esm is installed. 0 = never. Default 1.}
 	GlobalVariable Property CMB_CatchUpDistance Auto Const Mandatory
 	{Companions running alongside further away than this are moved up behind the player. 0 = never. Default 2500.}
 	GlobalVariable Property CMB_UseFuel Auto Const Mandatory
@@ -57,10 +57,6 @@ Group Settings
 EndGroup
 
 Group Optional
-	Keyword Property CMB_AnimArchetypeRider Auto Const
-	{Animation archetype keyword for the rider pose. Only used when CMB_UseRiderPose is 1.}
-	Keyword Property AnimArchetypePlayer Auto Const
-	{Vanilla player archetype (0006B508). Restored after riding when the rider pose was used.}
 	Sound Property CMB_EngineStartSound Auto Const
 	Sound Property CMB_EngineStopSound Auto Const
 EndGroup
@@ -80,9 +76,13 @@ float Property CallAheadDistance = 220.0 AutoReadOnly
 float Property FollowerScanRange = 4000.0 AutoReadOnly
 float Property MinSpeedPercent = 100.0 AutoReadOnly
 float Property MaxSpeedPercent = 500.0 AutoReadOnly
+float Property ParkedModelYaw = 180.0 AutoReadOnly
 float Property MaxTickDistance = 5000.0 AutoReadOnly
 {More than this between two ticks is a teleport (door, fast travel), not riding, so it burns no fuel.}
 int Property LowFuelWarning = 3 AutoReadOnly
+string Property RiderPosePlugin = "CMB_RiderPose.esm" AutoReadOnly
+int Property RiderFlavorID = 0x800 AutoReadOnly
+{CMB_AnimFlavorRider in CMB_RiderPose.esm.}
 int Property KeysStackSize = 2 AutoReadOnly
 {Two keys, so using one never empties the stack and the favorites hotkey survives.}
 
@@ -135,7 +135,8 @@ Function OnGameReloaded()
 		ApplyControls()
 		RefreshMovement(PlayerRef)
 		if riderPoseApplied
-			PlayerRef.AttemptAnimationSetSwitch()
+			riderPoseApplied = false
+			ApplyRiderPose()
 		endif
 		RegisterForPlayerTeleport()
 		StartTimer(TickInterval, TimerTick)
@@ -282,9 +283,8 @@ Function CallBike()
 		Debug.Notification("You can only call your motorbike outdoors.")
 		return
 	endif
-	float angle = PlayerRef.GetAngleZ()
 	BikeRef.Disable()
-	BikeRef.MoveTo(PlayerRef, OffsetX(angle, CallAheadDistance, 60.0), OffsetY(angle, CallAheadDistance, 60.0), 0.0, true)
+	PlaceBike(CallAheadDistance, 60.0)
 	BikeRef.Enable(true)
 	PlaySound(CMB_EngineStopSound)
 	busy = false
@@ -310,6 +310,11 @@ Function EmergencyReset()
 		BikeRef.Enable()
 	endif
 	FinishRide()
+	; Clear the riding flavour even if the script lost track of it.
+	if Game.IsPluginInstalled(RiderPosePlugin)
+		PlayerRef.ChangeAnimFlavor()
+		PlayerRef.AttemptAnimationSetSwitch()
+	endif
 	busy = false
 	Game.FadeOutGame(false, true, 0.0, 0.1)
 	Log("Emergency reset.")
@@ -450,14 +455,20 @@ Function AutoDismount(string asMessage, bool abParkBesidePlayer)
 EndFunction
 
 Function ParkBesidePlayer()
-	float angle = PlayerRef.GetAngleZ()
-	BikeRef.MoveTo(PlayerRef, OffsetX(angle, 0.0, ParkSideOffset), OffsetY(angle, 0.0, ParkSideOffset), 0.0, true)
+	PlaceBike(0.0, ParkSideOffset)
 	BikeRef.Enable()
 EndFunction
 
 Function ShadowPlayer()
+	PlaceBike(0.0, ParkSideOffset)
+EndFunction
+
+; Puts the parked bike forward/right of the player, facing the way they face.
+; The game's motorcycle model points along -Y, hence the half turn.
+Function PlaceBike(float afForward, float afRight)
 	float angle = PlayerRef.GetAngleZ()
-	BikeRef.MoveTo(PlayerRef, OffsetX(angle, 0.0, ParkSideOffset), OffsetY(angle, 0.0, ParkSideOffset), 0.0, true)
+	BikeRef.MoveTo(PlayerRef, OffsetX(angle, afForward, afRight), OffsetY(angle, afForward, afRight), 0.0, false)
+	BikeRef.SetAngle(0.0, 0.0, angle + ParkedModelYaw)
 EndFunction
 
 Function ApplyControls()
@@ -512,9 +523,18 @@ Function RefreshMovement(Actor akActor)
 	akActor.ModValue(CarryWeight, -0.1)
 EndFunction
 
+; The seated pose is an animation flavour: the player keeps its own archetype
+; (and so every other animation). CMB_RiderPose.esm adds subgraph entries that
+; also need the flavour keyword and search the CMB_Rider clip folder first.
+; It's built on the player's PC (tools/rider/make_rider_plugin.py), so the
+; keyword is looked up by file rather than filled in as a property.
 Function ApplyRiderPose()
-	if CMB_UseRiderPose.GetValue() > 0.0 && CMB_AnimArchetypeRider && AnimArchetypePlayer
-		PlayerRef.ChangeAnimArchetype(CMB_AnimArchetypeRider)
+	if CMB_UseRiderPose.GetValue() < 1.0 || !Game.IsPluginInstalled(RiderPosePlugin)
+		return
+	endif
+	Keyword flavor = Game.GetFormFromFile(RiderFlavorID, RiderPosePlugin) as Keyword
+	if flavor
+		PlayerRef.ChangeAnimFlavor(flavor)
 		PlayerRef.AttemptAnimationSetSwitch()
 		riderPoseApplied = true
 	endif
@@ -522,8 +542,7 @@ EndFunction
 
 Function ClearRiderPose()
 	if riderPoseApplied
-		; The player's normal archetype is AnimArchetypePlayer, not "none".
-		PlayerRef.ChangeAnimArchetype(AnimArchetypePlayer)
+		PlayerRef.ChangeAnimFlavor() ; None clears the flavour
 		PlayerRef.AttemptAnimationSetSwitch()
 		riderPoseApplied = false
 	endif

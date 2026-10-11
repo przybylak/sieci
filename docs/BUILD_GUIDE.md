@@ -1,29 +1,31 @@
 # Install guide
 
-The plugin (`Data/CommonwealthMotorbike.esp`) is **already built**: all records, scripts and properties are in it. You don't need to touch the Creation Kit's editor. What's left is a mesh, a script compile and a copy.
+The plugin (`Data/CommonwealthMotorbike.esp`) is **already built**: all records, scripts and properties are in it. You don't need to touch the Creation Kit's editor. What's left is building the game-derived files, a script compile and a copy.
 
 | Step | Time | Tool |
 |---|---|---|
-| 1. Make the two bike meshes | ~30 min the first time | Archive2 (comes with the CK), Outfit Studio, NifSkope |
-| 2. Compile the scripts | 1 min | `compile_scripts.bat` (uses the Creation Kit's compiler) |
+| 1. Build the bike meshes and riding clips | ~30 min the first time | Archive2 (comes with the CK), Python + PyNifly |
+| 2. Compile the scripts, build the rider-pose plugin | 2 min | `compile_scripts.bat`, `make_rider_pose.bat` |
 | 3. Install | 2 min | copy, or zip for your mod manager |
-| 4. Test | 15 min | [TESTING.md](TESTING.md) |
+| 4. Index the riding clips | 2 min | `generate_anim_info.bat` (Creation Kit) |
+| 5. Test | 15 min | [TESTING.md](TESTING.md) |
 
 ## What you need
 
 - Fallout 4 on PC, any current version (the plugin is ESL-flagged, which needs 1.10 or later, i.e. any version since 2017).
-- **Fallout 4: Creation Kit** (free on Steam, Library → Tools). It's only needed for its script compiler and Archive2.
-- Outfit Studio (part of BodySlide) and NifSkope, for step 1.
+- **Fallout 4: Creation Kit** (free on Steam, Library → Tools), for its script compiler, Archive2 and the animation index.
+- Python 3 with numpy, and [PyNifly](https://github.com/BadDogSkyrim/PyNifly) 29.1+ (no Blender needed), for step 1.
 - *Optional:* F4SE, for the dedicated hotkey and the weight-based side bag.
 
-## 1. Meshes
+## 1. Meshes and riding clips
 
 Follow [ASSETS.md](ASSETS.md). You end up with:
 
 ```
 Data\Meshes\CMB\CMB_BikeParked.nif   (unmodified copy of the vanilla motorcycle)
-Data\Meshes\CMB\CMB_BikeWorn.nif     (same mesh, skinned to the Root bone)
+Data\Meshes\CMB\CMB_BikeWorn.nif     (same model, facing forward, skinned to AnimObjectA)
 Data\Meshes\CMB\CMB_Keys.nif         (optional: copy of a vanilla key)
+Data\Meshes\Actors\Character\Animations\MT\CMB_Rider\   (riding clips, with a Female subfolder)
 ```
 
 ## 2. Compile the scripts
@@ -36,13 +38,18 @@ Double-click **`compile_scripts.bat`** in the repository root.
 - It compiles the five core scripts into `Data\Scripts\*.pex`. If F4SE's script sources are installed, it also compiles the optional hotkey script; otherwise it skips it, and the mod works without it.
 - If anything fails, the window stays open: copy all of its text and send it to me.
 
+Then double-click **`make_rider_pose.bat`**. It reads your `Fallout4.esm` and writes `Data\CMB_RiderPose.esm`, the small
+plugin that switches to the riding clips while you ride ([how it works](ASSETS.md#4-the-rider-pose-plugin)).
+
 ## 3. Install
 
-**Mod manager (recommended):** zip the *contents* of the repository's `Data` folder (`CommonwealthMotorbike.esp`, `Scripts`, `Meshes`), then install that zip like any other mod and enable `CommonwealthMotorbike.esp`.
+**Mod manager (recommended):** zip the *contents* of the repository's `Data` folder (`CommonwealthMotorbike.esp`, `CMB_RiderPose.esm`, `Scripts`, `Meshes`), then install that zip like any other mod and enable both plugins.
 
-**Manual:** copy the contents of `Data` into `<Fallout 4>\Data`, then enable the plugin (`plugins.txt` line `*CommonwealthMotorbike.esp`, or the in-game Mods menu).
+**Manual:** copy the contents of `Data` into `<Fallout 4>\Data`, then enable both plugins (`plugins.txt` lines `*CMB_RiderPose.esm` and `*CommonwealthMotorbike.esp`, or the in-game Mods menu).
 
-Load order doesn't matter: the plugin doesn't edit any vanilla record.
+Load order doesn't matter: neither plugin edits a vanilla record. `CMB_RiderPose.esm` adds an additive race, the way the DLCs add animations, so it doesn't conflict with HumanRace mods such as LooksMenu Customization Compendium.
+
+**Then index the riding clips:** run `generate_anim_info.bat`. With Mod Organizer 2, start it from MO2 and move the new files from *Overwrite* into the mod ([details](ASSETS.md#animation-data-creation-kit)).
 
 ## 4. Test
 
@@ -71,15 +78,17 @@ tools/build.sh
 
 This regenerates `Data/CommonwealthMotorbike.esp`. It then checks that every property in the plugin exists in the matching script with a compatible type, and that every `Mandatory` property is filled. Finally it runs the Papyrus syntax check (`tools/syntax-check`). Needs the .NET 8 SDK. The output is deterministic, so an unchanged generator gives a byte-identical plugin.
 
-The vanilla form IDs the plugin uses (PlayerRef, XMarker, HumanRace, SpeedMult, CarryWeight, Pip-Boy, AnimArchetypePlayer) were checked against Mutagen's FormKey list generated from the real `Fallout4.esm`. The record layouts were also compared field by field with xEdit's Fallout 4 definitions.
+`tools/build.sh` also writes `tools/rider/template/CMB_RiderPose.esm`, the skeleton `make_rider_plugin.py` fills in.
+
+The vanilla form IDs the plugins use (PlayerRef, XMarker, HumanRace, HumanRaceSubGraphData, SpeedMult, CarryWeight, Pip-Boy, AnimArchetypePlayer) were checked against Mutagen's FormKey list generated from the real `Fallout4.esm`. The record layouts were also compared field by field with xEdit's Fallout 4 definitions.
 
 ## Appendix: building the plugin by hand in the Creation Kit
 
 You only need this if the generated plugin turns out to have a problem and you'd rather rebuild it in the editor. Every EditorID starts with `CMB_`, and the values below mirror the generator.
 
-1. **Globals** (Float): `CMB_SpeedPercent` 250, `CMB_CompanionMode` 0, `CMB_AllowCombat` 0, `CMB_ForceThirdPerson` 1, `CMB_UseRiderPose` 0, `CMB_CatchUpDistance` 2500, `CMB_BagCapacity` 60, `CMB_HotkeyCode` 48, `CMB_UseFuel` 1, `CMB_FuelDistance` 21000.
+1. **Globals** (Float): `CMB_SpeedPercent` 250, `CMB_CompanionMode` 0, `CMB_AllowCombat` 0, `CMB_ForceThirdPerson` 1, `CMB_UseRiderPose` 1, `CMB_CatchUpDistance` 2500, `CMB_BagCapacity` 60, `CMB_HotkeyCode` 48, `CMB_UseFuel` 1, `CMB_FuelDistance` 21000.
    **FormList** `CMB_FuelItems` containing Flamer Fuel (`AmmoFlamerFuel`, 000CAC78).
-2. **Keyword** `CMB_AnimArchetypeRider`, type *Anim Archetype*.
+2. *(no keyword: `CMB_AnimFlavorRider` lives in `CMB_RiderPose.esm`)*
 3. **Messages** (tick *Message Box*; button order matters):
    `CMB_ParkedMenu` "Motorbike" / "What do you want to do?" with buttons `Ride`, `Open side bag`, `Cancel`.
    `CMB_KeysMenu` "Motorbike" / "Your motorbike isn't nearby." with buttons `Call it here`, `Open side bag`, `Cancel`.
@@ -94,4 +103,4 @@ You only need this if the generated plugin turns out to have a problem and you'd
 8. **Quest** `CMB_ControllerQuest`: *Start Game Enabled*, priority 50.
    - Reference alias `Player` (Specific Reference: PlayerRef) with script `CMB_PlayerAliasScript`.
    - Scripts `CMB_ControllerScript` and, optionally, `CMB_HotkeyF4SE`.
-9. **Properties:** fill every *Mandatory* property ("Auto-Fill All" gets the vanilla ones). Script-typed properties called `Controller` point at `CMB_ControllerQuest`. `Pipboy` is the vanilla Pip-Boy armor (00021B3B). `AnimArchetypePlayer` is the vanilla keyword (0006B508).
+9. **Properties:** fill every *Mandatory* property ("Auto-Fill All" gets the vanilla ones). Script-typed properties called `Controller` point at `CMB_ControllerQuest`. `Pipboy` is the vanilla Pip-Boy armor (00021B3B).

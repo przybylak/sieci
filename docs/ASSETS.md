@@ -1,143 +1,160 @@
-# Assets
+# Assets: bike meshes, riding animations, rider-pose plugin
 
-The mod needs no new art. It reuses Fallout 4's own (rusted) motorcycle. Two stages:
+The mod reuses Fallout 4's own motorcycle model and adds its own riding animations. **None of it is in this
+repository**, because it's all derived from Bethesda's files. The tools in `tools/rider` build it on your PC from
+your own copy of the game:
 
-- **Stage 1 (required):** two copies of the motorcycle mesh, one to park and one to wear.
-- **Stage 2 (experimental, optional):** a seated pose, so the rider sits instead of running in place over the bike.
+| File (under `Data\`) | Built by | What it is |
+|---|---|---|
+| `Meshes\CMB\CMB_BikeParked.nif` | `build_bike_meshes.py` | unmodified copy of the vanilla motorcycle (keeps its collision) |
+| `Meshes\CMB\CMB_BikeWorn.nif` | `build_bike_meshes.py` | the same model as wearable armor: faces forward, seat over the origin, skinned to the `AnimObjectA` bone |
+| `Meshes\Actors\Character\Animations\MT\CMB_Rider\*.hkx` and `...\CMB_Rider\Female\*.hkx` | `riding_anims.py` | seated riding versions of the holstered walk/run/turn/start/stop/idle clips |
+| `CMB_RiderPose.esm` | `make_rider_pose.bat` | small plugin that makes the game use those clips while you ride |
+| `Meshes\AnimTextData\...` | `generate_anim_info.bat` (Creation Kit) | the game's index of clip timing and root motion, regenerated to include the riding clips |
+| `Meshes\CMB\CMB_Keys.nif` (optional) | you: copy any vanilla key mesh | 3D preview of the keys in the Pip-Boy |
 
-All files go in `Data\Meshes\CMB\` (see `Data/Meshes/CMB/PUT_MESHES_HERE.txt`).
+If someone already handed you the meshes and the `CMB_Rider` folder, skip to
+[the rider-pose plugin](#4-the-rider-pose-plugin). That step always runs on your own PC.
 
-## Stage 1: the bike meshes
+## 1. Tools
 
-### Find and extract the vanilla motorcycle
+- **Python 3.10+** with numpy (`pip install numpy`; add `matplotlib` for preview images).
+  `make_rider_plugin.py` needs nothing beyond Python itself.
+- **PyNifly 29.1 or newer** ([BadDogSkyrim/PyNifly](https://github.com/BadDogSkyrim/PyNifly) releases). Unzip the
+  release and pass its `io_scene_nifly` folder as `--pynifly`. Blender isn't needed: the scripts use PyNifly's nif
+  library (`NiflyDLL.dll` ships in the zip) and its Fallout 4 HKX reader/writer directly.
+- **Archive2** (comes with the Creation Kit, `<Fallout 4>\Tools\Archive2`) or Bethesda Archive Extractor, to pull
+  files out of the game's `.ba2` archives.
 
-Fallout 4 has two motorcycle models: the rusted one and a clean pre-war one. Each comes as a Static
-(`Motorcycle01_Static` `0017935A`, `Motorcycle01_Prewar_Static` `0017AD86`) and as a movable static
-(`Motorcycle01` `00188D4C`, `Motorcycle01_Prewar` `00188D2A`). **Use a Static's model**, either look; it has
-fixed collision, while a movable static's physics could make the parked bike tip over. Use the same model for both copies below.
+## 2. Extract the game files
 
-1. Get its model path: in the CK, Object Window → `WorldObjects → Static`, filter `Motorcycle01`, open the one you want and read the model path.
-   In xEdit: `Fallout4.esm → Static → Motorcycle01_Static` (or `_Prewar_Static`) → `Model → MODL`.
-2. Extract that nif from `Data\Fallout4 - Meshes.ba2` with Archive2 (`<Fallout 4>\Tools\Archive2\Archive2.exe`, open the ba2, find the path, Extract).
-   If it isn't there, try `Fallout4 - MeshesExtra.ba2`.
-   Bethesda Archive Extractor (BAE) works too and has a search box: search for `motorcycle`.
+Into one work folder (say `C:\CMBwork`), keeping the archive paths:
 
-### The parked bike: just a copy
-
-Save an **unmodified** copy as `Data\Meshes\CMB\CMB_BikeParked.nif`. Its textures and materials point at vanilla files, which the game already has.
-
-### The worn bike: convert it
-
-The *worn* copy has to be converted. Armor meshes in Fallout 4 must be **skinned** (every vertex weighted to a skeleton bone); an unweighted mesh on an armor will crash the game.
-
-### Convert it in Outfit Studio
-
-1. Start Outfit Studio, `File → New Project`. Use any Fallout 4 reference/template if it asks; it only provides the skeleton. Then `File → Import → From NIF…` → the motorcycle nif.
-2. **Orientation and position.** Actors face **+Y** and stand at the origin.
-   - Rotate the bike so the front wheel points to +Y (`Shape → Rotate`/`Transform`, usually 90° around Z if it points along X).
-   - Move it so the wheels touch Z = 0 and the seat sits roughly over X = 0, Y = 0.
-   - A standing player's pelvis is ~70 units up, and the vanilla bike's seat is lower. That's fine; the seated pose in Stage 2 brings the rider down.
-3. **Skinning.** In the Bones tab, add the bone **`Root`** (right-click → Add Bone). With `Root` selected, paint the *whole* mesh at full strength until everything is fully weighted.
-   Do this for every shape in the nif (frame, wheels, glass, …).
-   - `Root` follows the actor's position and heading but not the animation's bobbing, so the bike stays planted.
-     If `Root` isn't offered, use `COM` (the bike will bob a little with the run cycle).
-4. Delete any reference body shape so only the bike shapes remain.
-5. `File → Export → To NIF…` → `Data\Meshes\CMB\CMB_BikeWorn.nif`.
-
-### The keys (optional)
-
-Copy any vanilla key mesh to `Data\Meshes\CMB\CMB_Keys.nif`; it's only used for the 3D preview in the Pip-Boy.
-Without it the keys work fine and just have no preview.
-
-### Check it in NifSkope
-
-Open `CMB_BikeWorn.nif` and confirm:
-
-- each shape is a `BSTriShape`/`BSSubIndexTriShape` with a `BSSkin::Instance` (it's skinned);
-- each shape's `BSLightingShaderProperty` **Name** still holds the original `.bgsm` material path.
-  If it's empty, copy it from the original nif, otherwise the bike renders pink or untextured;
-- there is no collision object left over (`bhkNPCollisionObject`). Delete it if there is.
-
-### Quick in-game look before scripting
-
-`help CMB 4` in the console shows your forms. Then `player.equipitem <CMB_BikeRiderArmor form id>` lets you look at the worn bike directly:
-
-| Symptom | Fix |
+| From | Files |
 |---|---|
-| bike rotated 90°/180° | rotate in Outfit Studio and export again |
-| bike floats / sinks | adjust Z in Outfit Studio |
-| invisible | the ARMA race isn't HumanRace, or ARMA and ARMO slots don't match |
-| pink / white | material path lost, see NifSkope step |
-| CTD when equipping | unweighted vertices: weight *every* shape fully |
+| `Fallout4 - Meshes.ba2` | `meshes\setdressing\vehicles\motorcycle\motorcycle_clean.nif` (or `motorcycle_dirty.nif`) |
+| | `meshes\actors\character\characterassets\skeleton.nif`, `malebody.nif`, `femalebody.nif` |
+| `Fallout4 - Animations.ba2` | `meshes\actors\character\characterassets\skeleton.hkx` |
+| | everything in `meshes\actors\character\animations\mt\player\` and `...\mt\neutral\` (with their `female` subfolders) |
 
-Unequip with `player.unequipitem <id>` and remove with `player.removeitem <id> 1`.
+Use the bodies your game actually shows (for example the CBBE `femalebody.nif`): they're only used to sit the hips
+exactly on the seat. Skeleton replacers that keep the vanilla body bones (Community Fixes' `skeleton.nif`, Combined
+Arms' `skeleton.hkx`, which only adds weapon bones) are fine.
 
-## Stage 2 (experimental): seated rider pose
+## 3. Meshes and clips
 
-> **Status: untested idea.** It's based on how Fallout 4's animation subgraphs are documented to work, but nobody has confirmed it in game for this mod yet. The mod is fully usable without it (keep `CMB_UseRiderPose` at 0).
+```
+set PYN=C:\Tools\PyNifly\io_scene_nifly
+set W=C:\CMBwork\meshes\actors\character
+set OUT=<repository>\Data\Meshes
 
-### How it's meant to work
+python tools\rider\build_bike_meshes.py --pynifly %PYN% ^
+    --model C:\CMBwork\meshes\setdressing\vehicles\motorcycle\motorcycle_clean.nif --out %OUT%\CMB
 
-Fallout 4 picks animation folders through *subgraph data* on the race. An actor with an extra archetype keyword can be pointed at an extra folder searched *before* the vanilla one, and any clip found there replaces the vanilla clip with the same name.
+python tools\rider\riding_anims.py --pynifly %PYN% --vanilla %W% ^
+    --body %W%\characterassets\malebody.nif --female-body %W%\characterassets\femalebody.nif ^
+    --out %OUT%\Actors\Character\Animations\MT\CMB_Rider
 
-So:
+python tools\rider\verify_clips.py --pynifly %PYN% --vanilla %W% --clips %OUT%\Actors\Character\Animations\MT\CMB_Rider
+python tools\rider\verify_clips.py --pynifly %PYN% --vanilla %W% --clips %OUT%\Actors\Character\Animations\MT\CMB_Rider\Female --female
+```
 
-1. While riding, the controller calls `ChangeAnimArchetype(CMB_AnimArchetypeRider)` and `AttemptAnimationSetSwitch()` on the player.
-   On dismount it restores `AnimArchetypePlayer`.
-2. A new HumanRace subgraph entry for that keyword searches `Actors\Character\Animations\CMB_Rider\` first.
-3. That folder holds copies of a single **vanilla seated loop** saved under the names of the walk/run/turn/idle clips.
-   No animation authoring is needed, just file copies.
+Generating the clips takes a while (around 15 minutes for both sets).
 
-### Why this is the only route
+**How the worn bike works.** Armor meshes must be skinned. The bike is weighted 100% to `AnimObjectA`, a bone that
+sits on the ground at the character's origin and that walking and running never move. So the bike stays planted
+under you, and the riding clips can lean it, with the rider, in turns. The script also turns the parked bike round,
+because the vanilla model points backwards.
 
-The game has no motorcycle riding animations to borrow. `Fallout4.esm` does contain a keyword called `AnimsMotorcycle`
-(`000AB732`), but nothing in the game uses it, and the animation archives contain no motorcycle clips. The only
-motorcycle assets are the two parked-bike models (the rusted `Motorcycle01` and the clean pre-war `Motorcycle01_Prewar`).
-So it's this file-copy trick or new animation work.
+**How the clips are made.** Every clip the game plays for holstered movement gets a seated version with **the same
+file name, length, root motion and control events** as the vanilla clip it stands in for. Only the body pose changes,
+so the game's speed and turning logic is untouched. Footstep sounds are dropped. The pose is fitted to the bike: hips
+on the seat, hands on the grips (exact, via IK), feet on the pegs, leaning forward more with speed and into turns. At a
+standstill the left foot goes down and the bike tips onto it. `verify_clips.py` checks all of that against the vanilla
+files. `preview.py` renders still images if you want to look before going in game.
 
-### Steps
+**Female clips** go in `CMB_Rider\Female`, timed from the vanilla female clips where those exist.
 
-The keyword `CMB_AnimArchetypeRider` (type Anim Archetype) is already in the plugin and wired to the controller,
-together with the vanilla `AnimArchetypePlayer`. What's missing is the race edit and the animation files.
+**Weapon drawn.** There are no riding clips for that: with combat allowed (`CMB_AllowCombat 1`), drawing a weapon
+shows the normal standing weapon poses. The game also has no backwards or sideways clips with the weapon holstered.
+The character turns round instead, so riding never needs them.
 
-The race edit goes in a **separate small patch plugin** made with **FO4Edit (xEdit)**, not in the Creation Kit.
-That keeps the main plugin conflict-free. xEdit also has no trouble using the light-flagged main plugin as a master,
-which the Creation Kit is awkward about.
+### Still missing
 
-1. **Find the player's third-person MT entry.** In FO4Edit, load `Fallout4.esm` + `CommonwealthMotorbike.esp`.
-   Open `Fallout4.esm → Race → HumanRace` and look through its subgraph data for the entry whose
-   Actor Keywords contain `AnimArchetypePlayer`, with Perspective *3rd* and Role *MT*. Note its **Paths**.
-2. **Make the patch.** Right-click `HumanRace` → *Copy as override into…* → new file `CMB_RiderPose.esp`
-   (accept `CommonwealthMotorbike.esp` as a master; flag it ESL if offered).
-   **Start from the winning HumanRace, not the vanilla one.** If another mod edits HumanRace (for example LooksMenu
-   Customization Compendium), right-click *that mod's* HumanRace row in the comparison view and copy it as the override,
-   so its changes are kept. Load the patch after it. If that mod later updates its HumanRace, redo this step.
-3. **Add the entry.** In the override, duplicate the entry from step 1. In the copy:
-   - replace `AnimArchetypePlayer` with `CMB_AnimArchetypeRider` in Actor Keywords (keep any other keywords);
-   - add `Actors\Character\Animations\CMB_Rider\` as the **first** path, and keep the original paths after it.
-4. **Extract animations:** Archive2 → `Fallout4 - Animations.ba2` → extract the folders named in the Paths from step 1.
-5. **Pick a seated loop.** A bar-stool sitting idle works best, because its hips are about as high as a motorcycle seat.
-   A chair-sitting idle is the fallback. They live under the furniture animation folders. Preview candidates in the CK's preview window if unsure.
-6. **Generate the folder:**
+| Clips | Why | What to do |
+|---|---|---|
+| `walk_to_stand_l45/l90/l180/r/r45/r90/r180` | the vanilla files weren't in the first batch | extract `mt\neutral\walk_to_stand_*.hkx` (and `mt\neutral\female\...`), run `riding_anims.py` again. Until then, stopping while turning shows a standing stop |
+| idle, idle flavours, dialogue (`posea_*`) | same | made without a vanilla reference ("provisional": guessed lengths, no events). Extract `mt\player\posea_*.hkx` (and `female\`) and run again to time them like the originals |
 
-   ```
-   python tools/make_rider_pose.py --vanilla-dir <extracted folder from step 1> --pose <seated clip.hkx> --out "<Data>/Meshes/Actors/Character/Animations/CMB_Rider" --dry-run
-   ```
+`riding_anims.py` prints the exact paths of anything it couldn't build.
 
-   Check the list (only walk/run/turn/idle clips), then run it again without `--dry-run`.
-7. Enable `CMB_RiderPose.esp` after `CommonwealthMotorbike.esp` and after anything else that edits HumanRace.
-8. In game: `set CMB_UseRiderPose to 1` and get on the bike.
+## 4. The rider-pose plugin
 
-> **Don't** set `CMB_UseRiderPose` to 1 without the patch from step 3. Switching the player to an archetype
-> that has no subgraph entry can leave them unable to walk properly (reported by other modders).
-> If that happens, set it back to 0 and run the emergency reset.
+```
+make_rider_pose.bat
+```
 
-### If it doesn't work
+It reads your own `Fallout4.esm` and writes `Data\CMB_RiderPose.esm` (light, about 2 KB). Under the hood:
+`python tools\rider\make_rider_plugin.py --fallout4 <Fallout 4>\Data\Fallout4.esm --out Data\CMB_RiderPose.esm`.
+
+**How it works.** While you ride, the controller script gives the player the animation flavour keyword
+`CMB_AnimFlavorRider` (`ChangeAnimFlavor`). The plugin holds that keyword and an **additive race**. That is how the
+DLCs add animations to humans without touching HumanRace: their races (`DLC03HumanRaceAdditiveSubgraphData` and
+so on) add subgraph entries to `HumanRaceSubGraphData`. Ours adds a copy of each of the player's third-person
+holstered entries, with the keyword added and `MT\CMB_Rider\` searched first (`MT\CMB_Rider\Female\` first for
+the female entries). The game uses the entry whose keywords all match and that matches the most of them, so the
+copies only win while the keyword is on. Anything the folder doesn't have (jumping, swimming, staggering) comes
+from the usual folders.
+
+**HumanRace isn't edited.** LooksMenu, LooksMenu Customization Compendium and other race mods keep working without a
+patch, whatever the load order. `CMB_RiderPose.esm` loads with the masters (it's an `.esm`) and is light-flagged,
+so it doesn't take a load-order slot.
+
+**Why it's built on your PC.** The copied entries come from your `Fallout4.esm`; their folder lists are Bethesda's
+data, and guessing them would break every animation the riding folder doesn't cover. The rest of the plugin comes
+from `tools/rider/template/CMB_RiderPose.esm`, which `tools/build.sh` generates.
+
+### Animation data (Creation Kit)
+
+The game reads clip timing and root motion from `Meshes\AnimTextData`, not from the `.hkx` files, so it has to be
+regenerated once the clips and `CMB_RiderPose.esm` are installed:
+
+- **Without a mod manager:** double-click `generate_anim_info.bat`.
+- **Mod Organizer 2:** the Creation Kit must see MO2's virtual Data folder. In MO2: *Executables* (the gears icon)
+  → add one with Binary `C:\Windows\System32\cmd.exe`, Arguments `/c "<repository>\generate_anim_info.bat"`,
+  Start in `<Fallout 4>`. Run it from MO2. The new `Meshes\AnimTextData` files land in MO2's *Overwrite*; move them
+  into the motorbike mod.
+
+Either way it runs `CreationKit.exe -GenerateAnimInfo:CMB_RiderPose.esm "<Fallout 4>\Data" "<Fallout 4>\Data"`.
+The plugin is an `.esm` with no spaces in its name because this command only accepts that.
+
+> Some Creation Kit updates have reportedly broken `-GenerateAnimInfo` (Nexus threads around the 2024 next-gen
+> update). If no `AnimTextData` folder appears, send the window's text; the fallback is writing those files directly,
+> which needs a few vanilla `AnimTextData` files to copy the format from.
+
+### Turning it off
+
+`set CMB_UseRiderPose to 0` (back on: `1`). Or untick `CMB_RiderPose.esm`. Without it the mod still works, and you
+run in place over the bike as before.
+
+## Quick in-game look at the worn bike
+
+`help CMB 4` lists the mod's forms. `player.equipitem <CMB_BikeRiderArmor form id>` shows the worn bike without
+riding; `player.unequipitem <id>` and `player.removeitem <id> 1` undo it.
 
 | Symptom | Likely cause |
 |---|---|
-| no change at all | subgraph entry not matching (keyword type, perspective or role differs), or the folder path is wrong |
-| T-pose / frozen player | the copied clip doesn't fit the graph. Try a different seated clip, or narrow the file list |
-| stuck in pose after getting off | `AnimArchetypePlayer` property not filled. Run the emergency reset from TESTING.md |
+| bike missing, armor equipped | `CMB_BikeWorn.nif` not at `Data\Meshes\CMB\` |
+| pink / white bike | the vanilla motorcycle textures/materials aren't loading (they come from the base game archives) |
+| bike pops out at screen edges | an old `CMB_BikeWorn.nif` with a small culling sphere; rebuild it |
+| standing rider over the bike while riding | rider pose off, `CMB_RiderPose.esm` not active, or animation data not generated |
+| rider seated but slides / clips misbehave | `AnimTextData` missing or outdated: run `generate_anim_info.bat` again |
+| standing pose for a moment when stopping in a turn | the `walk_to_stand_*` clips (see *Still missing*) |
 
-The proper long-term answer is real riding animations (lean, idle with a foot down, mount/dismount). That needs an animator and a Fallout 4 Havok pipeline (3ds Max + Havok Content Tools, or a Blender HKX workflow). See the roadmap in the README.
+## Background: why custom clips
+
+The game has no motorcycle riding animations to borrow. `Fallout4.esm` does contain a keyword called
+`AnimsMotorcycle` (`000AB732`), but nothing uses it, and the animation archives hold no motorcycle clips. The only
+motorcycle assets are the two parked-bike models (the rusted `Motorcycle01` and the clean pre-war
+`Motorcycle01_Prewar`). Open Animation Replacer isn't needed, and this doesn't use it: the subgraph system above is
+the game's own way of swapping animation folders.

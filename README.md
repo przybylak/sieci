@@ -34,10 +34,12 @@ There's no vehicle physics in Fallout 4's engine for the player, so the bike is 
 
 Getting off reverses all of that and parks the bike next to you. Indoors, power armor and furniture automatically park it outside.
 
-> **What it looks like:** the game has no motorcycle riding animations. Its archives hold only two parked-bike
-> models, and the `AnimsMotorcycle` keyword in `Fallout4.esm` isn't used by anything. So out of the box your
-> character **runs in place over a sliding bike**. The experimental seated pose (Stage 2 in
-> [ASSETS.md](docs/ASSETS.md#stage-2-experimental-seated-rider-pose)) is the only route to sitting on it.
+> **What it looks like:** the game has no motorcycle riding animations (the `AnimsMotorcycle` keyword in
+> `Fallout4.esm` is unused, and the archives hold only two parked-bike models). So the mod brings its own: a
+> seated set of the holstered walk/run/turn/start/stop/idle clips, generated from the vanilla ones with the same
+> timing and root motion, and the bike leans with you in turns. They're switched on while you ride by
+> `CMB_RiderPose.esm`, which adds animation entries the way the DLCs do, without editing HumanRace.
+> Without it you run in place over the bike. See [ASSETS.md](docs/ASSETS.md).
 
 ## What's needed
 
@@ -45,7 +47,8 @@ Getting off reverses all of that and parks the bike next to you. Indoors, power 
 |---|---|
 | Fallout 4 on PC, any version from 1.10 (2017) on | the plugin is light (ESL) and edits no vanilla records |
 | **Creation Kit** (free on Steam) | only for its script compiler (`compile_scripts.bat` runs it) and Archive2 |
-| **Outfit Studio** + NifSkope | one-time conversion of the vanilla motorcycle into a wearable mesh |
+| **Python 3** + [PyNifly](https://github.com/BadDogSkyrim/PyNifly) | builds the bike meshes and riding clips from your game files, and `CMB_RiderPose.esm` from your `Fallout4.esm` (none of it can be shipped) |
+| **Creation Kit** again | regenerates the animation index for the riding clips (`generate_anim_info.bat`) |
 | F4SE (optional) | dedicated hotkey and weight-based side bag; without it you favorite the keys for a hotkey, and the bag counts items |
 | Testing in game + Papyrus log | I can't run the game; the log and screenshots are how fixes happen |
 
@@ -53,10 +56,11 @@ Getting off reverses all of that and parks the bike next to you. Indoors, power 
 
 The plugin is already built (`Data/CommonwealthMotorbike.esp`). You need to:
 
-1. Make the two bike meshes: [docs/ASSETS.md](docs/ASSETS.md)
-2. Double-click `compile_scripts.bat`
-3. Copy the contents of `Data` into the game's `Data` folder, or zip them for your mod manager, and enable the plugin
-4. Test: [docs/TESTING.md](docs/TESTING.md)
+1. Build the bike meshes and riding clips: [docs/ASSETS.md](docs/ASSETS.md)
+2. Double-click `compile_scripts.bat`, then `make_rider_pose.bat`
+3. Copy the contents of `Data` into the game's `Data` folder, or zip them for your mod manager, and enable both plugins
+4. Run `generate_anim_info.bat` (through MO2 if you use it)
+5. Test: [docs/TESTING.md](docs/TESTING.md)
 
 Details for every step: [docs/BUILD_GUIDE.md](docs/BUILD_GUIDE.md).
 
@@ -80,6 +84,7 @@ Details for every step: [docs/BUILD_GUIDE.md](docs/BUILD_GUIDE.md).
 | `set CMB_UseFuel to <0/1>` | 1 |
 | `set CMB_FuelDistance to <units per fuel>` (about 70 units = 1 m; lower = thirstier) | 21000 (~300 m) |
 | `set CMB_AllowCombat to <0/1>` | 0 |
+| `set CMB_UseRiderPose to <0/1>` (seated riding animations, needs `CMB_RiderPose.esm`) | 1 |
 | `cqf CMB_ControllerQuest EmergencyReset` | undo everything if stuck |
 | `cqf CMB_ControllerQuest ForceGiveKeys` | keys, if an alternative-start mod skipped the Pip-Boy |
 
@@ -97,17 +102,22 @@ Data/                         mirrors the game's Data folder
     CMB_SideBagScript         capacity-limited side bag
     CMB_PlayerAliasScript     save/load hook
     CMB_HotkeyF4SE            optional F4SE hotkey
-  Meshes/CMB/                 your bike meshes go here
+  Meshes/CMB/                 the bike meshes go here (built by tools/rider)
 compile_scripts.bat           compiles the scripts with the Creation Kit's compiler
+make_rider_pose.bat           builds Data/CMB_RiderPose.esm from your Fallout4.esm
+generate_anim_info.bat        has the Creation Kit index the riding clips
 docs/                         install, assets, testing and design notes
 tools/build.sh                regenerates the plugin and runs all offline checks
 tools/esp-generator/          C# (Mutagen) plugin generator + plugin/script cross-check
 tools/syntax-check/           compile-checks the scripts on Linux without the CK
-tools/make_rider_pose.py      builds the experimental seated-pose animation folder
+tools/rider/                  bike meshes, riding clips, rider-pose plugin (Python + PyNifly)
 ```
 
 ## Roadmap
 
-1. **Stage 1 (this):** working ride / park / call / side bag / companions.
-2. **Stage 2:** seated rider pose from vanilla clips (experimental, [ASSETS.md](docs/ASSETS.md#stage-2-experimental-seated-rider-pose)). The game ships no riding animations, so this is the only way to sit on the bike short of new animation work.
-3. **Stage 3:** real riding animations, a visible pillion passenger, engine sounds tied to speed. Possibly a v2 built on the engine's mount system instead ([DESIGN.md](docs/DESIGN.md)).
+1. **Done, untested in game:** ride / park / call / side bag / companions / fuel, worn and parked bike meshes,
+   seated riding animations with lean.
+2. **Next:** MCM settings menu, engine sound, putting slot-57 gear back on after a ride (F4SE), wheel spin,
+   the remaining vanilla-timed stop and idle clips.
+3. **Later:** a visible pillion passenger, mount/dismount animations. Possibly a v2 built on the engine's mount
+   system instead ([DESIGN.md](docs/DESIGN.md)).

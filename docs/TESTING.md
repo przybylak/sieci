@@ -27,8 +27,10 @@ and, if you have one, a bag or other gear that sits in an unusual slot.
 | 1 | Load the save while outdoors | "Motorbike Keys (2)" added (Aid tab), plus a hint. On a new game this happens when you first step outside Vault 111 |
 | 2 | Use the keys | menu "Your motorbike isn't nearby." |
 | 3 | Pick "Call it here" | the bike appears a few steps ahead, facing your way (invisible = `CMB_BikeParked.nif` missing) |
-| 4 | Activate the bike → "Ride" | short fade; you're in 3rd person, bike under you, "Fuel: N" shown, your bag still on (no bike under you = `CMB_BikeWorn.nif` missing) |
-| 5 | Run around | clearly faster than on foot (~2.5×), no jumping, no sprinting, weapons holstered; your companion keeps up running alongside |
+| 4 | Activate the bike → "Ride" | short fade; you're in 3rd person, **seated** on the bike, hands on the bars, left foot down; "Fuel: N" shown; your bag still on (no bike under you = `CMB_BikeWorn.nif` missing; standing over the bike = see row 4b) |
+| 4b | *(only if you stand over the bike)* `help CMB_RiderPose 4`, check `CMB_RiderPose.esm` is active | then the seated clips aren't playing: plugin missing, or `generate_anim_info.bat` not run (send the log and a screenshot) |
+| 5 | Run around, turn | clearly faster than on foot (~2.5×), feet up on the pegs, leaning forward, bike and rider lean into turns; no jumping, no sprinting, weapons holstered; your companion keeps up running alongside |
+| 5b | Stop, turn on the spot, start again; talk to someone while seated | foot goes down when stopped, smooth start/stop; dialogue keeps you seated (stops while turning may briefly show a standing stop: those clips aren't generated yet) |
 | 6 | Use the keys again (or favorite them and press the hotkey) | fade; the bike is parked to your right; after 300 m or more of riding, Flamer Fuel went down by about one per 300 m |
 | 7 | Activate the bike → "Open side bag" | a container opens; put stuff in |
 | 8 | Overfill the bag (default 60 lbs with F4SE, or 60 items without) | extra items bounce back with "The side bag is full" |
@@ -51,6 +53,7 @@ and, if you have one, a bag or other gear that sits in an unusual slot.
 | `set CMB_FuelDistance to 10500` | twice as thirsty (default 21000 = one Flamer Fuel per ~300 m) |
 | `set CMB_AllowCombat to 1` | shooting while riding (takes effect next time you get on) |
 | `set CMB_ForceThirdPerson to 0` | stay in your current camera |
+| `set CMB_UseRiderPose to 0` | no seated animations (run in place over the bike); `1` to turn them back on, next time you get on |
 | `set CMB_HotkeyCode to 34` | F4SE hotkey (DirectX scan code, 34 = G); save and reload afterwards |
 
 Speed changes apply the next time you get on.
@@ -76,7 +79,8 @@ cqf CMB_ControllerQuest EmergencyReset
 ```
 
 If the console rejects that, try `cqf CMB_ControllerQuest "CMB_ControllerScript.EmergencyReset"`.
-It removes the worn bike, restores speed and controls, brings hidden companions back and parks the bike next to you.
+It removes the worn bike, restores speed and controls, clears the riding animations, brings hidden companions back and parks the bike next to you.
+Still seated after getting off? `player.caf` (ChangeAnimFlavor with no keyword) clears the riding animation flavour by hand.
 
 **Before uninstalling:** get off the bike (or run the reset), then save. Uninstalling mid-ride would leave the speed bonus on you and companions hidden in the holding cell.
 
@@ -85,4 +89,5 @@ It removes the worn bike, restores speed and controls, brings hidden companions 
 1. Which step number failed and what happened instead
 2. `Papyrus.0.log` (look for `[CMB]` and `error`)
 3. Any Creation Kit compile errors, full text
-4. Your mod list if it might be a conflict (anything touching HumanRace, companions or movement speed)
+4. Your mod list if it might be a conflict (anything touching player animations, companions or movement speed)
+5. For animation problems: the text `make_rider_pose.bat` and `generate_anim_info.bat` printed

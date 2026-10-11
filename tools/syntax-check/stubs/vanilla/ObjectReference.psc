@@ -24,3 +24,4 @@ Event OnItemRemoved(Form akBaseItem, int aiItemCount, ObjectReference akItemRefe
 EndEvent
 Event OnLoad()
 EndEvent
+Function SetAngle(float afXAngle, float afYAngle, float afZAngle) native

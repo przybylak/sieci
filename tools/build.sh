@@ -14,6 +14,9 @@ echo "== Generating plugin"
 dotnet build -c Release "$GEN/EspGenerator.csproj" -o "$GEN/bin/out" >/dev/null
 dotnet "$GEN/bin/out/EspGenerator.dll" "$ESP" >/dev/null
 echo "wrote $ESP"
+TEMPLATE="$ROOT/tools/rider/template/CMB_RiderPose.esm"
+dotnet "$GEN/bin/out/EspGenerator.dll" --rider-template "$TEMPLATE" >/dev/null
+echo "wrote $TEMPLATE"
 
 echo "== Plugin vs scripts"
 dotnet "$GEN/bin/out/EspGenerator.dll" --dump "$ESP" | python3 -I "$GEN/check_plugin.py" "$ROOT/Data/Scripts/Source/User"

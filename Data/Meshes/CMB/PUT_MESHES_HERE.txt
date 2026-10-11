@@ -1,8 +1,9 @@
-Put these files in this folder (see docs/ASSETS.md for how to make them):
+Put these files in this folder (tools/rider/build_bike_meshes.py makes the first two,
+see docs/ASSETS.md):
 
   CMB_BikeParked.nif   REQUIRED  an unmodified copy of the vanilla motorcycle mesh
                                  (the parked bike you walk up to)
-  CMB_BikeWorn.nif     REQUIRED  the same mesh skinned to the "Root" bone in Outfit Studio
+  CMB_BikeWorn.nif     REQUIRED  the same model facing forward, skinned to the AnimObjectA bone
                                  (the bike drawn under you while riding)
   CMB_Keys.nif         optional  a copy of any vanilla key mesh (the keys' 3D preview)
 
