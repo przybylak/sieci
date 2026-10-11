@@ -102,7 +102,7 @@ game's AnimTextData uses (checked against the Creation Kit's own output for 80 v
 0.6°).
 
 **Weapon drawn.** There are no riding clips for that: with combat allowed (`CMB_AllowCombat 1`), drawing a weapon
-shows the normal standing weapon poses. The game also has no backwards or sideways clips with the weapon holstered.
+while riding shows the normal standing weapon poses. Getting on with a weapon out is refused. The game also has no backwards or sideways clips with the weapon holstered.
 The character turns round instead, so riding never needs them.
 
 ### Stand-ins

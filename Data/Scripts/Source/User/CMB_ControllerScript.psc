@@ -42,7 +42,8 @@ Group Required_Forms
 	FormList Property CMB_FuelItems Auto Const Mandatory
 	{What the bike burns. Flamer Fuel (000CAC78) by default; add items in xEdit to accept more.}
 	Spell Property CMB_SwimWatchAbility Auto Const Mandatory
-	{Hidden ability with an IsSwimming condition: its effect reports swimming (SetSwimming).}
+	{Hidden ability whose effects report swimming (IsSwimming, SetSwimming) and being in
+	water at all (IsInWater, SetInWater).}
 	ActorValue Property FallingDamageMod Auto Const Mandatory
 	{Vanilla (000BA43D). Percent less fall damage, as the Acrobat's legendary effect uses.}
 	ActorValue Property Health Auto Const Mandatory
@@ -107,6 +108,13 @@ float Property HitGraceTime = 3.0 AutoReadOnly
 float Property ShoreDelay = 3.0 AutoReadOnly
 {After a swim, the bike rolls up this long after you're out of deep water.}
 float Property ShoreRetryInterval = 10.0 AutoReadOnly
+int Property MaxShoreWaits = 10 AutoReadOnly
+{Still in water after this many ShoreDelays (30 s): bring the bike anyway.}
+float Property ShoreBikeDistance = 200.0 AutoReadOnly
+{How far past the player, away from the water, the bike rolls up.}
+int Property TimerReloadPose = 9 AutoReadOnly
+float Property ReloadPoseDelay = 1.0 AutoReadOnly
+{After loading a save mid-ride: the player's animation graph may not be ready at once.}
 int Property TimerCleanup = 7 AutoReadOnly
 float Property CleanupDelay = 1.5 AutoReadOnly
 {After any dismount: by then a ride tick that was already running has finished.}
@@ -157,7 +165,12 @@ float lastX = 0.0
 float lastY = 0.0
 bool hasLastPos = false
 bool swimming = false
+bool inWater = false
 bool bikeWaitsForShore = false
+int shoreWaits = 0
+float swimExitX = 0.0
+float swimExitY = 0.0
+bool footstepsWatched = false
 bool hitGrace = false
 float healthMark = 1.0
 bool poseRetryWaiting = false
@@ -206,8 +219,10 @@ Function OnGameReloaded()
 		ApplyControls()
 		RefreshMovement(PlayerRef)
 		if riderPoseApplied
-			riderPoseApplied = false
-			ApplyRiderPose()
+			; Right after a load the flavour can be refused (the graph isn't up yet),
+			; so put it back on once the game is running.
+			footstepsWatched = false
+			StartTimer(ReloadPoseDelay, TimerReloadPose)
 		endif
 		RegisterForPlayerTeleport()
 		hitGrace = false
@@ -429,6 +444,7 @@ Function EmergencyReset()
 	; Restart the swim watch: its effect ends (not swimming) and starts again if you are.
 	PlayerRef.RemoveSpell(CMB_SwimWatchAbility)
 	swimming = false
+	inWater = false
 	WatchSwimming()
 	; Clear the riding flavour even if the script lost track of it.
 	if Game.IsPluginInstalled(RiderPosePlugin)
@@ -460,6 +476,11 @@ Event OnTimer(int aiTimerID)
 		CleanUpAfterRide()
 	elseif aiTimerID == TimerPoseRetry
 		poseRetryWaiting = false
+	elseif aiTimerID == TimerReloadPose
+		if riding && riderPoseApplied && !busy
+			SwitchToRiderFlavor("after loading")
+			WatchFootsteps()
+		endif
 	elseif aiTimerID == TimerTick && riding
 		RideTick()
 		if riding
@@ -519,6 +540,11 @@ Function RideTick()
 		; Normally SetSwimming has done this already.
 		DismountIntoWater()
 		return
+	elseif CMB_AllowCombat.GetValue() == 0.0 && PlayerRef.IsWeaponDrawn()
+		; Weapons are off while riding, so this shouldn't happen; if something drew one
+		; anyway, holstering is blocked too. Get off rather than stay stuck like that.
+		AutoDismount("You can't ride with your weapon out.", true)
+		return
 	endif
 	; Every call below lets other threads run, and one of them can end the ride
 	; (deep water, a hit, the keys). So check again before each step that changes
@@ -554,6 +580,9 @@ Function RideTick()
 	if riderPoseApplied
 		; The graph can switch it back on (dialogue, for one).
 		PlayerRef.SetAnimationVariableBool(HeadTrackingVariable, false)
+		if !footstepsWatched
+			WatchFootsteps()
+		endif
 	endif
 	CombatHint()
 	; Damage is counted from here: what one hit, or a quick run of them, took.
@@ -577,6 +606,10 @@ string Function GetMountBlocker()
 		return "You need to stand up first."
 	elseif swimming
 		return DeepWaterMessage
+	elseif PlayerRef.IsWeaponDrawn()
+		; Fighting controls are off while riding, so the weapon couldn't be put away:
+		; you'd ride standing with it out (the weapon animations have no seated version).
+		return "Put your weapon away first."
 	elseif FuelEnabled() && CountFuel() < 1
 		return "Your motorbike is out of fuel. It runs on Flamer Fuel (carried or in the side bag)."
 	endif
@@ -593,6 +626,7 @@ Function FinishRide()
 	StopEngineLoops()
 	UnregisterForHitEvent(PlayerRef)
 	UnregisterForAnimationEvent(PlayerRef, FootstepEvent)
+	footstepsWatched = false
 
 	RemoveBikeArmor()
 	CallGearRestore("RestoreSlot")
@@ -786,7 +820,23 @@ Function SetSwimming(bool abSwimming)
 	swimming = abSwimming
 	if abSwimming && riding && !busy
 		DismountIntoWater()
-	elseif !abSwimming && bikeWaitsForShore
+	elseif !abSwimming
+		; Where deep water ended: the bike rolls up on the far side of the player from here.
+		swimExitX = PlayerRef.GetPositionX()
+		swimExitY = PlayerRef.GetPositionY()
+		if bikeWaitsForShore
+			shoreWaits = 0
+			StartTimer(ShoreDelay, TimerShore)
+		endif
+	endif
+EndFunction
+
+; Called by CMB_SwimWatchEffectScript on CMB_WadeWatchEffect: in water at any depth.
+; Riding through shallow water is fine; this only decides when the bike comes back.
+Function SetInWater(bool abInWater)
+	inWater = abInWater
+	if !abInWater && bikeWaitsForShore && !swimming
+		; Out of the water: a few seconds on dry land, then the bike.
 		StartTimer(ShoreDelay, TimerShore)
 	endif
 EndFunction
@@ -816,12 +866,28 @@ Function BringBikeAfterSwim()
 		StartTimer(ShoreRetryInterval, TimerShore)
 		return
 	endif
+	if inWater && shoreWaits < MaxShoreWaits
+		; Still wading: wait for dry land (SetInWater restarts this), checking now and then
+		; in case the in-water report never comes.
+		shoreWaits += 1
+		StartTimer(ShoreDelay, TimerShore)
+		return
+	endif
 	busy = true
 	bikeWaitsForShore = false
-	PlaceBike(CallAheadDistance, 60.0)
+	; Past the player, away from where they came out of deep water: that side is land.
+	float dx = PlayerRef.GetPositionX() - swimExitX
+	float dy = PlayerRef.GetPositionY() - swimExitY
+	float away = Math.Sqrt(dx * dx + dy * dy)
+	if away > 50.0
+		BikeRef.MoveTo(PlayerRef, dx / away * ShoreBikeDistance, dy / away * ShoreBikeDistance, 0.0, false)
+		BikeRef.SetAngle(0.0, 0.0, PlayerRef.GetAngleZ() + ParkedModelYaw)
+	else
+		PlaceBike(CallAheadDistance, 60.0)
+	endif
 	BikeRef.Enable(true)
 	busy = false
-	Log("Bike brought back after a swim.")
+	Log("Bike brought back after a swim (" + away + " units from the deep water, in water: " + inWater + ").")
 	Debug.Notification("Your motorbike rolls up.")
 EndFunction
 
@@ -902,7 +968,8 @@ EndFunction
 ; couple of seconds, a few times at most.
 Function WatchFootsteps()
 	if riding && riderPoseApplied
-		RegisterForAnimationEvent(PlayerRef, FootstepEvent)
+		; Fails while the player's 3D isn't loaded; the ride tick tries again.
+		footstepsWatched = RegisterForAnimationEvent(PlayerRef, FootstepEvent)
 	endif
 EndFunction
 
@@ -918,12 +985,7 @@ Event OnAnimationEvent(ObjectReference akSource, string asEventName)
 	poseRetryWaiting = true
 	StartTimer(PoseRetryInterval, TimerPoseRetry)
 	poseRetries += 1
-	Log("Standing footsteps while riding: applying the rider pose again (" + poseRetries + ").")
-	Keyword flavor = Game.GetFormFromFile(RiderFlavorID, RiderPosePlugin) as Keyword
-	if flavor
-		PlayerRef.ChangeAnimFlavor(flavor)
-	endif
-	PlayerRef.AttemptAnimationSetSwitch()
+	SwitchToRiderFlavor("standing footsteps while riding: applying the rider pose again, try " + poseRetries)
 EndEvent
 
 ; Once per fight, when weapons are off while riding: say how to get off.
@@ -947,16 +1009,28 @@ Function ApplyRiderPose()
 	if CMB_UseRiderPose.GetValue() < 1.0 || !Game.IsPluginInstalled(RiderPosePlugin)
 		return
 	endif
-	Keyword flavor = Game.GetFormFromFile(RiderFlavorID, RiderPosePlugin) as Keyword
-	if flavor
-		if !PlayerRef.ChangeAnimFlavor(flavor)
-			Log("ChangeAnimFlavor refused the rider flavour.")
-		endif
-		PlayerRef.AttemptAnimationSetSwitch()
+	if SwitchToRiderFlavor("getting on")
 		riderPoseApplied = true
-		; Looking at people twists the chest and pulls the hands off the grips.
-		PlayerRef.SetAnimationVariableBool(HeadTrackingVariable, false)
 	endif
+EndFunction
+
+; Puts the rider flavour on and asks the graph to switch. Clearing it first makes
+; it a change even when the save already carried the flavour.
+bool Function SwitchToRiderFlavor(string asWhy)
+	Keyword flavor = Game.GetFormFromFile(RiderFlavorID, RiderPosePlugin) as Keyword
+	if !flavor
+		return false
+	endif
+	PlayerRef.ChangeAnimFlavor()
+	if PlayerRef.ChangeAnimFlavor(flavor)
+		Log("Rider pose applied (" + asWhy + ").")
+	else
+		Log("ChangeAnimFlavor refused the rider flavour (" + asWhy + "; weapon out " + PlayerRef.IsWeaponDrawn() + ", 3D loaded " + PlayerRef.Is3DLoaded() + ").")
+	endif
+	PlayerRef.AttemptAnimationSetSwitch()
+	; Looking at people twists the chest and pulls the hands off the grips.
+	PlayerRef.SetAnimationVariableBool(HeadTrackingVariable, false)
+	return true
 EndFunction
 
 Function ClearRiderPose()

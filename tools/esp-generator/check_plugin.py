@@ -27,6 +27,7 @@ COMPATIBLE = {
     "formlist": {"FormList"},
     "spell": {"Spell"},
     "int": {"Int"},
+    "bool": {"Bool"},
     "float": {"Float"},
 }
 

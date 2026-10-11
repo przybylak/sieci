@@ -119,7 +119,8 @@ You only need this if the generated plugin turns out to have a problem and you'd
    Flags: No Duration, No Magnitude, No Area, Hide in UI, Painless. Script: `CMB_KeysEffectScript`.
    **Potion** `CMB_BikeKeys`: name "Motorbike Keys", model `CMB\CMB_Keys.nif`, weight 0, value 0, No Auto Calc, effect `CMB_BikeKeysEffect` (0/0/0).
    **Magic Effect** `CMB_SwimWatchEffect`: archetype Script, Constant Effect, Self, casting sound level Silent, the same flags plus No Hit Event. Script: `CMB_SwimWatchEffectScript`.
-   **Spell** `CMB_SwimWatchAbility`: type Ability, Constant Effect, Self, effect `CMB_SwimWatchEffect` (0/0/0) with the condition `IsSwimming == 1` (Subject).
+   **Magic Effect** `CMB_WadeWatchEffect`: the same, with the script's `Wading` property ticked.
+   **Spell** `CMB_SwimWatchAbility`: type Ability, Constant Effect, Self, two effects (0/0/0): `CMB_SwimWatchEffect` with the condition `IsSwimming == 1` and `CMB_WadeWatchEffect` with `IsInWater == 1` (both Subject).
 6. **Activator** `CMB_BikeActivator`: name "Motorbike", activate text "Use", model `CMB\CMB_BikeParked.nif`, script `CMB_BikeActivatorScript`.
    **Container** `CMB_SideBagContainer`: name "Side Bag", model `CMB\CMB_BikeParked.nif`, script `CMB_SideBagScript`.
 7. **Interior cell** `CMB_HoldingCell` holding three *persistent* references: `CMB_BikeRef` (the activator), `CMB_SideBagRef` (the container), `CMB_HoldingMarkerRef` (an XMarker). (The generated plugin also has an unused `CMB_DrySpotMarkerRef`, kept only so form IDs don't move.)

@@ -342,16 +342,7 @@ public static class Program
         var armorFrame = WornBike(mod, "CMB_BikeRiderFrameAA", "CMB_BikeRiderArmorFrame", WornBikeModel, WornBikeModel);
 
         // A hidden ability whose effect runs while the player is swimming (deep water only).
-        var swimEffect = mod.MagicEffects.AddNew("CMB_SwimWatchEffect");
-        swimEffect.Name = "Motorbike swim watch";
-        swimEffect.Flags = MagicEffect.Flag.NoDuration | MagicEffect.Flag.NoMagnitude | MagicEffect.Flag.NoArea
-            | MagicEffect.Flag.HideInUI | MagicEffect.Flag.Painless | MagicEffect.Flag.NoHitEvent;
-        swimEffect.Archetype = new MagicEffectArchetype { Type = MagicEffectArchetype.TypeEnum.Script };
-        swimEffect.CastType = CastType.ConstantEffect;
-        swimEffect.TargetType = TargetType.Self;
-        swimEffect.CastingSoundLevel = SoundLevel.Silent;
-        swimEffect.DualCastScale = 1;
-        swimEffect.VirtualMachineAdapter = Vmad(Script("CMB_SwimWatchEffectScript", Obj("Controller", quest)));
+        var swimEffect = WatchEffect(mod, "CMB_SwimWatchEffect", "Motorbike swim watch", quest, wading: false);
 
         var swimAbility = mod.Spells.AddNew("CMB_SwimWatchAbility");
         swimAbility.Name = "Motorbike swim watch";
@@ -360,24 +351,7 @@ public static class Program
         swimAbility.CastType = CastType.ConstantEffect;
         swimAbility.TargetType = TargetType.Self;
         swimAbility.Flags = SpellDataFlag.ManualCostCalc;
-        swimAbility.Effects.Add(new Effect
-        {
-            BaseEffect = swimEffect.ToNullableLink(),
-            Data = new EffectData { Magnitude = 0, Area = 0, Duration = 0 },
-            Conditions = new ExtendedList<Condition>
-            {
-                new ConditionFloat
-                {
-                    Data = new FunctionConditionData
-                    {
-                        Function = Condition.Function.IsSwimming,
-                        RunOnType = Condition.RunOnType.Subject,
-                    },
-                    CompareOperator = CompareOperator.EqualTo,
-                    ComparisonValue = 1,
-                },
-            },
-        });
+        swimAbility.Effects.Add(WatchEntry(swimEffect, Condition.Function.IsSwimming));
 
         // No longer used (the bike now rolls up after a swim instead of trailing the player),
         // but kept so the form IDs after it don't move.
@@ -387,6 +361,11 @@ public static class Program
         var gKnockOff = Global(mod, "CMB_KnockOffDamage", 10);
         // Falls while riding costing less than this percent of max health cost nothing.
         var gFreeFall = Global(mod, "CMB_FreeFallDamage", 20);
+
+        // Second swim-watch effect: in water at any depth (IsInWater), so the bike rolls up
+        // once the player is on dry land rather than while they're still wading.
+        var wadeEffect = WatchEffect(mod, "CMB_WadeWatchEffect", "Motorbike wade watch", quest, wading: true);
+        swimAbility.Effects.Add(WatchEntry(wadeEffect, Condition.Function.IsInWater));
 
         // --- Controller quest ---
         quest.Name = "Commonwealth Motorbike";
@@ -490,6 +469,40 @@ public static class Program
         mod.Globals.Add(global);
         return global;
     }
+
+    // A hidden constant script effect for CMB_SwimWatchAbility (CMB_SwimWatchEffectScript).
+    static MagicEffect WatchEffect(Fallout4Mod mod, string editorId, string name, Quest quest, bool wading)
+    {
+        var effect = mod.MagicEffects.AddNew(editorId);
+        effect.Name = name;
+        effect.Flags = MagicEffect.Flag.NoDuration | MagicEffect.Flag.NoMagnitude | MagicEffect.Flag.NoArea
+            | MagicEffect.Flag.HideInUI | MagicEffect.Flag.Painless | MagicEffect.Flag.NoHitEvent;
+        effect.Archetype = new MagicEffectArchetype { Type = MagicEffectArchetype.TypeEnum.Script };
+        effect.CastType = CastType.ConstantEffect;
+        effect.TargetType = TargetType.Self;
+        effect.CastingSoundLevel = SoundLevel.Silent;
+        effect.DualCastScale = 1;
+        effect.VirtualMachineAdapter = wading
+            ? Vmad(Script("CMB_SwimWatchEffectScript", Obj("Controller", quest), Bool("Wading", true)))
+            : Vmad(Script("CMB_SwimWatchEffectScript", Obj("Controller", quest)));
+        return effect;
+    }
+
+    // The ability's entry for a watch effect: it runs while `function` == 1 on the player.
+    static Effect WatchEntry(MagicEffect effect, Condition.Function function) => new()
+    {
+        BaseEffect = effect.ToNullableLink(),
+        Data = new EffectData { Magnitude = 0, Area = 0, Duration = 0 },
+        Conditions = new ExtendedList<Condition>
+        {
+            new ConditionFloat
+            {
+                Data = new FunctionConditionData { Function = function, RunOnType = Condition.RunOnType.Subject },
+                CompareOperator = CompareOperator.EqualTo,
+                ComparisonValue = 1,
+            },
+        },
+    };
 
     // A non-playable armor in the bike's slot showing one of the worn bike meshes.
     static Armor WornBike(Fallout4Mod mod, string addonId, string armorId, string maleModel, string femaleModel)
@@ -597,6 +610,13 @@ public static class Program
         Data = value,
     };
 
+    static ScriptBoolProperty Bool(string name, bool value) => new()
+    {
+        Name = name,
+        Flags = ScriptProperty.Flag.Edited,
+        Data = value,
+    };
+
     static SoundDescriptor EngineSound(Fallout4Mod mod, string editorId, string file, bool loop)
     {
         var sound = mod.SoundDescriptors.AddNew(editorId);
@@ -675,6 +695,7 @@ public static class Program
                     $"{o.Object.FormKey} (alias {o.Alias}) {types.GetValueOrDefault(o.Object.FormKey, Vanilla.Describe(o.Object.FormKey))}",
                 IScriptFloatPropertyGetter f => $"{f.Data} Float",
                 IScriptIntPropertyGetter i => $"{i.Data} Int",
+                IScriptBoolPropertyGetter b => $"{b.Data} Bool",
                 _ => p.GetType().Name,
             };
             Console.WriteLine($"{indent}  {p.Name} = {value}");
