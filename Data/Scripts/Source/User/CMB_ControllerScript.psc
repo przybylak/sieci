@@ -53,7 +53,7 @@ Group Settings
 	GlobalVariable Property CMB_UseFuel Auto Const Mandatory
 	{1 = riding burns fuel (CMB_FuelItems), from the side bag first, then the player. Default 1.}
 	GlobalVariable Property CMB_FuelDistance Auto Const Mandatory
-	{Distance ridden per unit of fuel, in game units (4096 = one cell, about 58 m). Default 4096.}
+	{Distance ridden per unit of fuel, in game units (about 70 units = 1 m). Default 21000, about 300 m.}
 EndGroup
 
 Group Optional

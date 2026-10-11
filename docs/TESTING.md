@@ -29,7 +29,7 @@ and, if you have one, a bag or other gear that sits in an unusual slot.
 | 3 | Pick "Call it here" | the bike appears a few steps ahead, facing your way (invisible = `CMB_BikeParked.nif` missing) |
 | 4 | Activate the bike → "Ride" | short fade; you're in 3rd person, bike under you, "Fuel: N" shown, your bag still on (no bike under you = `CMB_BikeWorn.nif` missing) |
 | 5 | Run around | clearly faster than on foot (~2.5×), no jumping, no sprinting, weapons holstered; your companion keeps up running alongside |
-| 6 | Use the keys again (or favorite them and press the hotkey) | fade; the bike is parked to your right; Flamer Fuel went down by about one per 58 m ridden |
+| 6 | Use the keys again (or favorite them and press the hotkey) | fade; the bike is parked to your right; after 300 m or more of riding, Flamer Fuel went down by about one per 300 m |
 | 7 | Activate the bike → "Open side bag" | a container opens; put stuff in |
 | 8 | Overfill the bag (default 60 lbs with F4SE, or 60 items without) | extra items bounce back with "The side bag is full" |
 | 9 | Ride up to a building door and go inside | auto-dismount; outside again, the bike is parked by the door |
@@ -48,7 +48,7 @@ and, if you have one, a bag or other gear that sits in an unusual slot.
 | `set CMB_BagCapacity to 200` | bigger side bag (lbs with F4SE, items without; 0 = unlimited) |
 | `set CMB_CompanionMode to 0` / `1` | companions run alongside (default) / ride along hidden (riskier during companion quests and scenes) |
 | `set CMB_UseFuel to 0` | free riding, no fuel |
-| `set CMB_FuelDistance to 2048` | twice as thirsty (default 4096 = one Flamer Fuel per ~58 m) |
+| `set CMB_FuelDistance to 10500` | twice as thirsty (default 21000 = one Flamer Fuel per ~300 m) |
 | `set CMB_AllowCombat to 1` | shooting while riding (takes effect next time you get on) |
 | `set CMB_ForceThirdPerson to 0` | stay in your current camera |
 | `set CMB_HotkeyCode to 34` | F4SE hotkey (DirectX scan code, 34 = G); save and reload afterwards |

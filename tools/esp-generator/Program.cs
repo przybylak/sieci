@@ -101,7 +101,7 @@ public static class Program
         var gBagCapacity = Global(mod, "CMB_BagCapacity", 60);
         var gHotkey = Global(mod, "CMB_HotkeyCode", 48);
         var gUseFuel = Global(mod, "CMB_UseFuel", 1);
-        var gFuelDistance = Global(mod, "CMB_FuelDistance", 4096); // one cell (~58 m) per unit
+        var gFuelDistance = Global(mod, "CMB_FuelDistance", 21000); // ~300 m per unit (about 70 units = 1 m)
 
         // --- What the bike burns ---
         var fuelItems = mod.FormLists.AddNew("CMB_FuelItems");
