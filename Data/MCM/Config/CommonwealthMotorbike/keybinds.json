@@ -1,0 +1,16 @@
+{
+  "modName": "CommonwealthMotorbike",
+  "keybinds": [
+    {
+      "id": "ToggleRide",
+      "desc": "Motorbike: get on / off / call",
+      "action": {
+        "type": "CallFunction",
+        "form": "CommonwealthMotorbike.esp|80D",
+        "scriptName": "CMB_ControllerScript",
+        "function": "HotkeyPressed",
+        "params": []
+      }
+    }
+  ]
+}

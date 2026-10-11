@@ -31,6 +31,8 @@ public static class Vanilla
     public static readonly FormKey AnimArchetypePlayer = Fo4(0x06B508);
     public static readonly FormKey HumanRaceSubGraphData = Fo4(0x166729);
     public static readonly FormKey AmmoFlamerFuel = Fo4(0x0CAC78);
+    public static readonly FormKey AudioCategorySFX = Fo4(0x0172A1);
+    public static readonly FormKey SOMMono02000 = Fo4(0x07E5DC);
 
     // Record types of the vanilla forms above, for the property type check.
     public static string Describe(FormKey key) =>
@@ -41,6 +43,8 @@ public static class Vanilla
         : key == Pipboy ? "Armor"
         : key == AnimArchetypePlayer ? "Keyword"
         : key == AmmoFlamerFuel ? "Ammunition"
+        : key == AudioCategorySFX ? "SoundCategory"
+        : key == SOMMono02000 ? "SoundOutputModel"
         : "unknown";
 }
 
@@ -60,6 +64,8 @@ public static class Program
     // "Unnamed" slot (60 would also be free in some setups, but it's the
     // slot named "Pipboy"). Change it here if another mod of yours uses 57.
     public const BipedObjectFlag BikeSlot = BipedObjectFlag.Unnamed57;
+    // F4SE counts slots from 30: slot 57 is index 27, the flag's bit number.
+    public static int BikeSlotIndex => System.Numerics.BitOperations.TrailingZeroCount((uint)BikeSlot);
 
     public static int Main(string[] args)
     {
@@ -88,9 +94,11 @@ public static class Program
             return 1;
         }
         var mod = Build();
-        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(output))!);
+        var dataDir = Path.GetDirectoryName(Path.GetFullPath(output))!;
+        Directory.CreateDirectory(dataDir);
         mod.WriteToBinary(output);
         Console.WriteLine($"Wrote {output}");
+        WriteMcm(mod, dataDir);
         Dump(output);
         return 0;
     }
@@ -132,6 +140,82 @@ public static class Program
         placeholder.AnimationPaths.Add(RiderFolder);
         race.Subgraphs.Add(placeholder);
         return mod;
+    }
+
+    // Mod Configuration Menu (needs MCM + F4SE; harmless without). Written from the same
+    // build as the plugin so the form IDs always match.
+    static void WriteMcm(Fallout4Mod mod, string dataDir)
+    {
+        const string modName = "CommonwealthMotorbike";
+        string Form(IMajorRecordGetter r) => $"{PluginName}|{r.FormKey.ID:X}";
+        IMajorRecordGetter Rec(string editorId) => mod.EnumerateMajorRecords().First(r => r.EditorID == editorId);
+        var quest = Form(Rec("CMB_ControllerQuest"));
+        object Global(string editorId) => new { sourceType = "GlobalValue", sourceForm = Form(Rec(editorId)) };
+        object Slider(string text, string help, string global, float min, float max, float step) => new
+        {
+            type = "slider", text, help,
+            valueOptions = new { min, max, step, sourceType = "GlobalValue", sourceForm = Form(Rec(global)) },
+        };
+        object Switcher(string text, string help, string global) => new { type = "switcher", text, help, valueOptions = Global(global) };
+        object Section(string text) => new { type = "section", text };
+        object Call(string function) => new { type = "CallFunction", form = quest, scriptName = "CMB_ControllerScript", function, @params = Array.Empty<object>() };
+        object Button(string text, string help, string function) => new { type = "button", text, help, action = Call(function) };
+
+        var config = new
+        {
+            modName,
+            displayName = "Commonwealth Motorbike",
+            minMcmVersion = 2,
+            pluginRequirements = new[] { PluginName },
+            content = new object[]
+            {
+                Section("Riding"),
+                Slider("Speed (%)", "Riding speed as a percentage of your normal speed. Takes effect the next time you get on. Above about 350 the world may not load in fast enough.",
+                    "CMB_SpeedPercent", 100, 500, 10),
+                Switcher("Seated riding animations", "Needs CMB_RiderPose.esm (make_rider_pose.bat). Off: you run in place over the bike. Takes effect the next time you get on.", "CMB_UseRiderPose"),
+                Switcher("Switch to third person", "Switch to third person when getting on, so you see the bike.", "CMB_ForceThirdPerson"),
+                Switcher("Allow combat while riding", "Weapons and VATS stay usable while riding. Takes effect the next time you get on.", "CMB_AllowCombat"),
+                Section("Fuel"),
+                Switcher("Use fuel", "Riding burns Flamer Fuel, from the side bag first, then your inventory.", "CMB_UseFuel"),
+                Slider("Distance per Flamer Fuel", "In game units; about 70 units = 1 m. 21000 = about 300 m. Lower = thirstier.",
+                    "CMB_FuelDistance", 3500, 70000, 3500),
+                Section("Companions"),
+                new
+                {
+                    type = "stepper", text = "Companions",
+                    help = "Run alongside: they get the same speed boost. Ride along: they're hidden while you ride (riskier during their quests and scenes).",
+                    valueOptions = new { options = new[] { "Run alongside", "Ride along (hidden)" }, sourceType = "GlobalValue", sourceForm = Form(Rec("CMB_CompanionMode")) },
+                },
+                Slider("Catch-up distance", "Companions running alongside further away than this are moved up behind you. 0 = never.",
+                    "CMB_CatchUpDistance", 0, 10000, 250),
+                Section("Side bag"),
+                Slider("Side bag capacity", "Pounds with F4SE (items without it). 0 = unlimited.", "CMB_BagCapacity", 0, 500, 10),
+                Section("Sound"),
+                Slider("Engine volume", "0 = silent. The engine loops pick it up the next time you get on.", "CMB_EngineVolume", 0, 100, 5),
+                Section("Hotkeys"),
+                new { type = "hotkey", id = "ToggleRide", text = "Get on / off / call the bike", help = "If you use this, set the built-in hotkey below to 0 so the key doesn't fire twice." },
+                Slider("Built-in hotkey (scan code)", "The F4SE hotkey that works without MCM. 48 = B, 34 = G, 47 = V, 0 = off. Press Apply after changing it.",
+                    "CMB_HotkeyCode", 0, 211, 1),
+                Button("Apply built-in hotkey", "Re-registers the built-in hotkey after changing it.", "RefreshHotkey"),
+                Section("Troubleshooting"),
+                Button("Give me the keys", "For alternative starts that skip the Pip-Boy: hands over the Motorbike Keys now.", "ForceGiveKeys"),
+                Button("Emergency reset", "Gets you off the bike and undoes everything riding changed: speed, controls, animations, hidden companions.", "EmergencyReset"),
+            },
+        };
+        var keybinds = new
+        {
+            modName,
+            keybinds = new object[]
+            {
+                new { id = "ToggleRide", desc = "Motorbike: get on / off / call", action = Call("HotkeyPressed") },
+            },
+        };
+        var dir = Path.Combine(dataDir, "MCM", "Config", modName);
+        Directory.CreateDirectory(dir);
+        var json = new System.Text.Json.JsonSerializerOptions { WriteIndented = true };
+        File.WriteAllText(Path.Combine(dir, "config.json"), System.Text.Json.JsonSerializer.Serialize(config, json) + "\n");
+        File.WriteAllText(Path.Combine(dir, "keybinds.json"), System.Text.Json.JsonSerializer.Serialize(keybinds, json) + "\n");
+        Console.WriteLine($"Wrote {dir}");
     }
 
     static Fallout4Mod Build()
@@ -248,6 +332,14 @@ public static class Program
         var markerRef = Placed(mod, cell, "CMB_HoldingMarkerRef", Vanilla.XMarker, new P3Float(0, 400, 0));
         AddInteriorCell(mod, cell);
 
+        // --- Engine sounds (added last so earlier form IDs stay put) ---
+        // tools/sound/make_engine_sounds.py writes the files to Data\Sound\FX\CMB.
+        var sndStart = EngineSound(mod, "CMB_EngineStartSD", "CMB_EngineStart.wav", loop: false);
+        var sndStop = EngineSound(mod, "CMB_EngineStopSD", "CMB_EngineStop.wav", loop: false);
+        var sndIdle = EngineSound(mod, "CMB_EngineIdleLPSD", "CMB_EngineIdleLP.wav", loop: true);
+        var sndCruise = EngineSound(mod, "CMB_EngineCruiseLPSD", "CMB_EngineCruiseLP.wav", loop: true);
+        var gEngineVolume = Global(mod, "CMB_EngineVolume", 70);
+
         // --- Controller quest ---
         quest.Name = "Commonwealth Motorbike";
         quest.Data = new QuestData
@@ -285,17 +377,26 @@ public static class Program
             Obj("CMB_UseRiderPose", gRiderPose),
             Obj("CMB_CatchUpDistance", gCatchUp),
             Obj("CMB_UseFuel", gUseFuel),
-            Obj("CMB_FuelDistance", gFuelDistance));
+            Obj("CMB_FuelDistance", gFuelDistance),
+            Obj("CMB_EngineStartSound", sndStart),
+            Obj("CMB_EngineStopSound", sndStop),
+            Obj("CMB_EngineIdleSound", sndIdle),
+            Obj("CMB_EngineCruiseSound", sndCruise),
+            Obj("CMB_EngineVolume", gEngineVolume));
         // Optional: only does anything with F4SE and the compiled CMB_HotkeyF4SE.pex.
         var hotkey = Script("CMB_HotkeyF4SE",
             Obj("Controller", quest),
             Obj("CMB_HotkeyCode", gHotkey));
+        // Optional too: puts slot-57 gear back on after a ride (F4SE's GetWornItem).
+        var gear = Script("CMB_GearRestoreF4SE",
+            Obj("CMB_BikeRiderArmor", armor),
+            Int("BikeSlotIndex", BikeSlotIndex));
 
         quest.VirtualMachineAdapter = new QuestAdapter
         {
             Version = 6,
             ObjectFormat = 2,
-            Scripts = new ExtendedList<ScriptEntry> { controller, hotkey },
+            Scripts = new ExtendedList<ScriptEntry> { controller, hotkey, gear },
             Aliases = new ExtendedList<QuestFragmentAlias>
             {
                 new QuestFragmentAlias
@@ -407,6 +508,27 @@ public static class Program
 
     // Alias must be -1 for a plain object: with 0, a property pointing at a quest
     // would be read as that quest's alias 0 instead of the quest itself.
+    static ScriptIntProperty Int(string name, int value) => new()
+    {
+        Name = name,
+        Flags = ScriptProperty.Flag.Edited,
+        Data = value,
+    };
+
+    static SoundDescriptor EngineSound(Fallout4Mod mod, string editorId, string file, bool loop)
+    {
+        var sound = mod.SoundDescriptors.AddNew(editorId);
+        sound.Category.SetTo(Vanilla.AudioCategorySFX);
+        sound.OutputModel.SetTo(Vanilla.SOMMono02000); // mono, heard up to ~2000 units away
+        sound.SoundFiles.Add($@"FX\CMB\{file}");     // relative to Data\Sound
+        sound.Data = new SoundDescriptorStandardData { Priority = 128 };
+        sound.LoopAndRumble = new SoundLoopAndRumble
+        {
+            Loop = loop ? SoundDescriptor.LoopType.Loop : SoundDescriptor.LoopType.None,
+        };
+        return sound;
+    }
+
     static ScriptObjectProperty Obj(string name, FormKey target) => new()
     {
         Name = name,
@@ -469,7 +591,8 @@ public static class Program
             {
                 IScriptObjectPropertyGetter o =>
                     $"{o.Object.FormKey} (alias {o.Alias}) {types.GetValueOrDefault(o.Object.FormKey, Vanilla.Describe(o.Object.FormKey))}",
-                IScriptFloatPropertyGetter f => f.Data.ToString(),
+                IScriptFloatPropertyGetter f => $"{f.Data} Float",
+                IScriptIntPropertyGetter i => $"{i.Data} Int",
                 _ => p.GetType().Name,
             };
             Console.WriteLine($"{indent}  {p.Name} = {value}");

@@ -75,21 +75,24 @@ for %%S in (CMB_ControllerScript CMB_BikeActivatorScript CMB_KeysEffectScript CM
   )
 )
 
-rem --- Optional hotkey script (needs F4SE's script sources) -----------------
+rem --- Optional F4SE scripts (need F4SE's script sources) --------------------
 set "F4SE_SRC="
 if exist "!FO4!\Data\Scripts\Source\F4SE\F4SE.psc" set "F4SE_SRC=!FO4!\Data\Scripts\Source\F4SE"
 if exist "!FO4!\Data\Scripts\Source\User\F4SE.psc" set "F4SE_SRC=!FO4!\Data\Scripts\Source\User"
 if exist "!BASE!\F4SE.psc" set "F4SE_SRC=!BASE!"
 echo.
 if defined F4SE_SRC (
-  echo Compiling CMB_HotkeyF4SE ^(F4SE sources: !F4SE_SRC!^)...
-  "!COMPILER!" "!SRC!\CMB_HotkeyF4SE.psc" -f="!FLAGS!" -i="!F4SE_SRC!;!SRC!;!BASE!" -o="!OUT!"
-  if !errorlevel! neq 0 (
-    echo *** CMB_HotkeyF4SE FAILED - the mod still works without it ***
+  for %%S in (CMB_HotkeyF4SE CMB_GearRestoreF4SE) do (
+    echo Compiling %%S ^(F4SE sources: !F4SE_SRC!^)...
+    "!COMPILER!" "!SRC!\%%S.psc" -f="!FLAGS!" -i="!F4SE_SRC!;!SRC!;!BASE!" -o="!OUT!"
+    if !errorlevel! neq 0 (
+      echo *** %%S FAILED - the mod still works without it ***
+    )
   )
 ) else (
-  echo F4SE script sources not found: skipping the optional hotkey script.
-  echo The mod works without it - favorite the Motorbike Keys for a hotkey instead.
+  echo F4SE script sources not found: skipping the optional F4SE scripts.
+  echo The mod works without them - favorite the Motorbike Keys for a hotkey instead,
+  echo and re-equip gear from slot 57 by hand after a ride.
 )
 
 echo.

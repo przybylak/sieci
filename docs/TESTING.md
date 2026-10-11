@@ -41,6 +41,9 @@ and, if you have one, a bag or other gear that sits in an unusual slot.
 | 13a | Put all your Flamer Fuel in the side bag, ride | fuel is taken from the bag first |
 | 13b | Ride until the fuel runs out | "Your motorbike ran out of fuel." and the bike is parked next to you; getting back on is refused until you have fuel |
 | 14 | Try riding in power armor | refused with a message |
+| 15 | Get on, sit still, then ride off and stop | engine start, idle while standing, louder/higher while moving, run-down when you get off (silent = see the engine-sound note in DESIGN.md) |
+| 16 | *(F4SE)* wear something in slot 57, ride, get off | it comes off while riding and goes back on afterwards |
+| 17 | *(MCM)* Mod Config → Commonwealth Motorbike | every setting there; change the speed, get on: the new speed applies |
 
 ## Console settings
 
@@ -54,7 +57,8 @@ and, if you have one, a bag or other gear that sits in an unusual slot.
 | `set CMB_AllowCombat to 1` | shooting while riding (takes effect next time you get on) |
 | `set CMB_ForceThirdPerson to 0` | stay in your current camera |
 | `set CMB_UseRiderPose to 0` | no seated animations (run in place over the bike); `1` to turn them back on, next time you get on |
-| `set CMB_HotkeyCode to 34` | F4SE hotkey (DirectX scan code, 34 = G); save and reload afterwards |
+| `set CMB_HotkeyCode to 34` | F4SE hotkey (DirectX scan code, 34 = G, 0 = off); save and reload afterwards |
+| `set CMB_EngineVolume to 40` | quieter engine (0–100, 0 = silent) |
 
 Speed changes apply the next time you get on.
 

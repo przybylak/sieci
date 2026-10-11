@@ -2,8 +2,8 @@ Scriptname CMB_HotkeyF4SE extends Quest
 {OPTIONAL - needs F4SE (and F4SE's script sources to compile).
 Attach to CMB_ControllerQuest next to CMB_ControllerScript.
 Press the hotkey to get on or off; if the bike is far away it gets called over.
-Change the key with:  set CMB_HotkeyCode to <DirectX scan code>
-then save and reload. Default 48 (0x30) = B.}
+Change the key with:  set CMB_HotkeyCode to <DirectX scan code> (0 = off)
+then save and reload, or use the MCM menu. Default 48 (0x30) = B.}
 
 CMB_ControllerScript Property Controller Auto Const Mandatory
 {CMB_ControllerQuest}
@@ -28,8 +28,7 @@ Function RegisterHotkey()
 EndFunction
 
 Event OnKeyDown(int keyCode)
-	; Menus (including the console) pause the game; dialogue doesn't, so check scenes too.
-	if keyCode == registeredKey && !Utility.IsInMenuMode() && !Controller.PlayerRef.IsInScene()
-		Controller.ToggleRide()
+	if keyCode == registeredKey
+		Controller.HotkeyPressed()
 	endif
 EndEvent

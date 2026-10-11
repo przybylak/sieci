@@ -1,0 +1,201 @@
+{
+  "modName": "CommonwealthMotorbike",
+  "displayName": "Commonwealth Motorbike",
+  "minMcmVersion": 2,
+  "pluginRequirements": [
+    "CommonwealthMotorbike.esp"
+  ],
+  "content": [
+    {
+      "type": "section",
+      "text": "Riding"
+    },
+    {
+      "type": "slider",
+      "text": "Speed (%)",
+      "help": "Riding speed as a percentage of your normal speed. Takes effect the next time you get on. Above about 350 the world may not load in fast enough.",
+      "valueOptions": {
+        "min": 100,
+        "max": 500,
+        "step": 10,
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|800"
+      }
+    },
+    {
+      "type": "switcher",
+      "text": "Seated riding animations",
+      "help": "Needs CMB_RiderPose.esm (make_rider_pose.bat). Off: you run in place over the bike. Takes effect the next time you get on.",
+      "valueOptions": {
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|804"
+      }
+    },
+    {
+      "type": "switcher",
+      "text": "Switch to third person",
+      "help": "Switch to third person when getting on, so you see the bike.",
+      "valueOptions": {
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|803"
+      }
+    },
+    {
+      "type": "switcher",
+      "text": "Allow combat while riding",
+      "help": "Weapons and VATS stay usable while riding. Takes effect the next time you get on.",
+      "valueOptions": {
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|802"
+      }
+    },
+    {
+      "type": "section",
+      "text": "Fuel"
+    },
+    {
+      "type": "switcher",
+      "text": "Use fuel",
+      "help": "Riding burns Flamer Fuel, from the side bag first, then your inventory.",
+      "valueOptions": {
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|808"
+      }
+    },
+    {
+      "type": "slider",
+      "text": "Distance per Flamer Fuel",
+      "help": "In game units; about 70 units = 1 m. 21000 = about 300 m. Lower = thirstier.",
+      "valueOptions": {
+        "min": 3500,
+        "max": 70000,
+        "step": 3500,
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|809"
+      }
+    },
+    {
+      "type": "section",
+      "text": "Companions"
+    },
+    {
+      "type": "stepper",
+      "text": "Companions",
+      "help": "Run alongside: they get the same speed boost. Ride along: they\u0027re hidden while you ride (riskier during their quests and scenes).",
+      "valueOptions": {
+        "options": [
+          "Run alongside",
+          "Ride along (hidden)"
+        ],
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|801"
+      }
+    },
+    {
+      "type": "slider",
+      "text": "Catch-up distance",
+      "help": "Companions running alongside further away than this are moved up behind you. 0 = never.",
+      "valueOptions": {
+        "min": 0,
+        "max": 10000,
+        "step": 250,
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|805"
+      }
+    },
+    {
+      "type": "section",
+      "text": "Side bag"
+    },
+    {
+      "type": "slider",
+      "text": "Side bag capacity",
+      "help": "Pounds with F4SE (items without it). 0 = unlimited.",
+      "valueOptions": {
+        "min": 0,
+        "max": 500,
+        "step": 10,
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|806"
+      }
+    },
+    {
+      "type": "section",
+      "text": "Sound"
+    },
+    {
+      "type": "slider",
+      "text": "Engine volume",
+      "help": "0 = silent. The engine loops pick it up the next time you get on.",
+      "valueOptions": {
+        "min": 0,
+        "max": 100,
+        "step": 5,
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|81C"
+      }
+    },
+    {
+      "type": "section",
+      "text": "Hotkeys"
+    },
+    {
+      "type": "hotkey",
+      "id": "ToggleRide",
+      "text": "Get on / off / call the bike",
+      "help": "If you use this, set the built-in hotkey below to 0 so the key doesn\u0027t fire twice."
+    },
+    {
+      "type": "slider",
+      "text": "Built-in hotkey (scan code)",
+      "help": "The F4SE hotkey that works without MCM. 48 = B, 34 = G, 47 = V, 0 = off. Press Apply after changing it.",
+      "valueOptions": {
+        "min": 0,
+        "max": 211,
+        "step": 1,
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|807"
+      }
+    },
+    {
+      "type": "button",
+      "text": "Apply built-in hotkey",
+      "help": "Re-registers the built-in hotkey after changing it.",
+      "action": {
+        "type": "CallFunction",
+        "form": "CommonwealthMotorbike.esp|80D",
+        "scriptName": "CMB_ControllerScript",
+        "function": "RefreshHotkey",
+        "params": []
+      }
+    },
+    {
+      "type": "section",
+      "text": "Troubleshooting"
+    },
+    {
+      "type": "button",
+      "text": "Give me the keys",
+      "help": "For alternative starts that skip the Pip-Boy: hands over the Motorbike Keys now.",
+      "action": {
+        "type": "CallFunction",
+        "form": "CommonwealthMotorbike.esp|80D",
+        "scriptName": "CMB_ControllerScript",
+        "function": "ForceGiveKeys",
+        "params": []
+      }
+    },
+    {
+      "type": "button",
+      "text": "Emergency reset",
+      "help": "Gets you off the bike and undoes everything riding changed: speed, controls, animations, hidden companions.",
+      "action": {
+        "type": "CallFunction",
+        "form": "CommonwealthMotorbike.esp|80D",
+        "scriptName": "CMB_ControllerScript",
+        "function": "EmergencyReset",
+        "params": []
+      }
+    }
+  ]
+}

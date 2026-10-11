@@ -26,10 +26,10 @@ run_caprica() { # <output dir> <import dirs (colon separated)> <input dir>
   "$CAPRICA" -q -g fallout4 -f "$HERE/Fallout4_Flags.flg" "${imports[@]}" -o "$1" "$3"
 }
 
-# Core scripts: vanilla API only. The F4SE hotkey script is checked separately.
+# Core scripts: vanilla API only. The optional *F4SE.psc scripts are checked separately.
 CORE="$OUT/core"
 mkdir -p "$CORE" "$OUT/pex"
-find "$SRC" -maxdepth 1 -name '*.psc' ! -name 'CMB_HotkeyF4SE.psc' -exec cp {} "$CORE"/ \;
+find "$SRC" -maxdepth 1 -name '*.psc' ! -name '*F4SE.psc' -exec cp {} "$CORE"/ \;
 
 status=0
 if run_caprica "$OUT/pex" "$HERE/stubs/vanilla" "$CORE"; then
@@ -38,17 +38,21 @@ else
   echo "FAIL  core scripts"; status=1
 fi
 
-# Hotkey script: vanilla + F4SE stubs, with the core scripts importable.
+# F4SE scripts: vanilla + F4SE stubs, with the core scripts importable.
 F4SE_STUBS="$OUT/stubs-f4se"
-HOTKEY="$OUT/hotkey"
-mkdir -p "$F4SE_STUBS" "$HOTKEY"
+mkdir -p "$F4SE_STUBS"
 cp "$HERE"/stubs/vanilla/*.psc "$F4SE_STUBS"/
 cp "$HERE"/stubs/f4se/*.psc "$F4SE_STUBS"/
-cp "$SRC/CMB_HotkeyF4SE.psc" "$HOTKEY"/
-if run_caprica "$OUT/pex" "$F4SE_STUBS:$CORE" "$HOTKEY"; then
-  echo "ok    CMB_HotkeyF4SE.psc (with F4SE stubs)"
-else
-  echo "FAIL  CMB_HotkeyF4SE.psc"; status=1
-fi
+for script in "$SRC"/*F4SE.psc; do
+  name="$(basename "$script")"
+  one="$OUT/f4se-${name%.psc}"
+  mkdir -p "$one"
+  cp "$script" "$one"/
+  if run_caprica "$OUT/pex" "$F4SE_STUBS:$CORE" "$one"; then
+    echo "ok    $name (with F4SE stubs)"
+  else
+    echo "FAIL  $name"; status=1
+  fi
+done
 
 exit $status

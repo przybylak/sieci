@@ -7,6 +7,8 @@ A rideable motorbike for Fallout 4:
 - **runs on Flamer Fuel**: one unit per 300 m ridden, taken from the side bag first, so it isn't a free speed boost in Survival
 - **side bag**: small storage, size adjustable from the console
 - **park it, call it, ride it**: activate the bike or use its keys (favorite them to a hotkey); optional F4SE hotkey
+- **seated riding animations** with lean in turns, and an **engine sound** that follows your speed
+- **MCM menu** for every setting (with MCM installed); with F4SE, gear in the bike's slot goes back on after a ride
 
 > **Status: never run in game.** The plugin is generated and verified offline: its structure, every script property
 > and the vanilla form IDs are checked, and the scripts compile cleanly against stand-in versions of the
@@ -49,7 +51,7 @@ Getting off reverses all of that and parks the bike next to you. Indoors, power 
 | **Creation Kit** (free on Steam) | only for its script compiler (`compile_scripts.bat` runs it) and Archive2 |
 | **Python 3** + [PyNifly](https://github.com/BadDogSkyrim/PyNifly) | builds the bike meshes and riding clips from your game files, and `CMB_RiderPose.esm` from your `Fallout4.esm` (none of it can be shipped) |
 | **Creation Kit** again | regenerates the animation index for the riding clips (`generate_anim_info.bat`) |
-| F4SE (optional) | dedicated hotkey and weight-based side bag; without it you favorite the keys for a hotkey, and the bag counts items |
+| F4SE (optional) | dedicated hotkey, weight-based side bag, slot-57 gear put back on after a ride, MCM menu; without it you favorite the keys for a hotkey and the bag counts items |
 | Testing in game + Papyrus log | I can't run the game; the log and screenshots are how fixes happen |
 
 ## Getting started
@@ -85,8 +87,11 @@ Details for every step: [docs/BUILD_GUIDE.md](docs/BUILD_GUIDE.md).
 | `set CMB_FuelDistance to <units per fuel>` (about 70 units = 1 m; lower = thirstier) | 21000 (~300 m) |
 | `set CMB_AllowCombat to <0/1>` | 0 |
 | `set CMB_UseRiderPose to <0/1>` (seated riding animations, needs `CMB_RiderPose.esm`) | 1 |
+| `set CMB_EngineVolume to <0–100>` | 70 |
 | `cqf CMB_ControllerQuest EmergencyReset` | undo everything if stuck |
 | `cqf CMB_ControllerQuest ForceGiveKeys` | keys, if an alternative-start mod skipped the Pip-Boy |
+
+With MCM installed, all of these are in *Mod Config → Commonwealth Motorbike* instead.
 
 The keys turn up the first time you're outdoors with a Pip-Boy, so a new game's intro and Vault 111 are left alone.
 
@@ -102,7 +107,10 @@ Data/                         mirrors the game's Data folder
     CMB_SideBagScript         capacity-limited side bag
     CMB_PlayerAliasScript     save/load hook
     CMB_HotkeyF4SE            optional F4SE hotkey
+    CMB_GearRestoreF4SE       optional (F4SE): puts slot-57 gear back on after a ride
   Meshes/CMB/                 the bike meshes go here (built by tools/rider)
+  Sound/FX/CMB/               engine sounds (synthesised by tools/sound)
+  MCM/Config/                 MCM menu and hotkey (written by the generator)
 compile_scripts.bat           compiles the scripts with the Creation Kit's compiler
 make_rider_pose.bat           builds Data/CMB_RiderPose.esm from your Fallout4.esm
 generate_anim_info.bat        has the Creation Kit index the riding clips
@@ -111,13 +119,14 @@ tools/build.sh                regenerates the plugin and runs all offline checks
 tools/esp-generator/          C# (Mutagen) plugin generator + plugin/script cross-check
 tools/syntax-check/           compile-checks the scripts on Linux without the CK
 tools/rider/                  bike meshes, riding clips, rider-pose plugin (Python + PyNifly)
+tools/sound/                  engine sound synthesiser (Python + numpy)
 ```
 
 ## Roadmap
 
 1. **Done, untested in game:** ride / park / call / side bag / companions / fuel, worn and parked bike meshes,
    seated riding animations with lean.
-2. **Next:** MCM settings menu, engine sound, putting slot-57 gear back on after a ride (F4SE), wheel spin,
-   the remaining vanilla-timed stop and idle clips.
+2. **Next:** in-game testing; the remaining vanilla-timed stop and idle clips. MCM menu, engine sound and
+   gear restore are in, untested. Wheel spin isn't possible with the game's skeleton (see DESIGN.md).
 3. **Later:** a visible pillion passenger, mount/dismount animations. Possibly a v2 built on the engine's mount
    system instead ([DESIGN.md](docs/DESIGN.md)).

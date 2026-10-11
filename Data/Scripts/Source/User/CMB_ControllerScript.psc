@@ -59,6 +59,12 @@ EndGroup
 Group Optional
 	Sound Property CMB_EngineStartSound Auto Const
 	Sound Property CMB_EngineStopSound Auto Const
+	Sound Property CMB_EngineIdleSound Auto Const
+	{Looping. Crossfaded with the cruise loop by how fast you're going.}
+	Sound Property CMB_EngineCruiseSound Auto Const
+	{Looping.}
+	GlobalVariable Property CMB_EngineVolume Auto Const
+	{Engine volume, 0-100. Default 70.}
 EndGroup
 
 ; ---------------------------------------------------------------------------
@@ -68,6 +74,11 @@ EndGroup
 int Property TimerTick = 1 AutoReadOnly
 int Property TimerKeys = 2 AutoReadOnly
 int Property TimerDelivery = 3 AutoReadOnly
+int Property TimerEngine = 4 AutoReadOnly
+float Property EngineStartLength = 2.4 AutoReadOnly
+{The start sound ends on idle; the loops take over after it.}
+float Property CruiseSpeed = 700.0 AutoReadOnly
+{Units per second at which only the cruise loop is heard.}
 float Property TickInterval = 1.0 AutoReadOnly
 float Property DeliveryRetryInterval = 20.0 AutoReadOnly
 float Property MountRange = 350.0 AutoReadOnly
@@ -92,6 +103,8 @@ int Property KeysStackSize = 2 AutoReadOnly
 
 bool riding = false
 bool busy = false
+int engineIdle = 0
+int engineCruise = 0
 bool keysDelivered = false
 bool riderPoseApplied = false
 float playerSpeedDelta = 0.0
@@ -140,13 +153,29 @@ Function OnGameReloaded()
 		endif
 		RegisterForPlayerTeleport()
 		StartTimer(TickInterval, TimerTick)
+		; Sounds don't survive a load, and their old instance numbers mean nothing now.
+		engineIdle = 0
+		engineCruise = 0
+		StartEngineLoops()
 	endif
+	RefreshHotkey()
+EndFunction
 
-	; The optional F4SE hotkey script lives on this quest too. Looking it up by
-	; name keeps this script compiling and running without F4SE.
+; The optional F4SE scripts live on this quest too. Looking them up by name
+; keeps this script compiling and running without F4SE.
+Function RefreshHotkey()
 	ScriptObject hotkey = CastAs("CMB_HotkeyF4SE")
 	if hotkey
 		hotkey.CallFunction("RegisterHotkey", new Var[0])
+	endif
+EndFunction
+
+Function CallGearRestore(string asFunction)
+	ScriptObject gear = CastAs("CMB_GearRestoreF4SE")
+	if gear
+		Var[] params = new Var[1]
+		params[0] = PlayerRef
+		gear.CallFunction(asFunction, params)
 	endif
 EndFunction
 
@@ -195,6 +224,14 @@ Function RequestKeysAction()
 	StartTimer(0.1, TimerKeys)
 EndFunction
 
+; F4SE and MCM hotkeys. Menus (including the console) pause the game; dialogue
+; doesn't, so check scenes too.
+Function HotkeyPressed()
+	if !Utility.IsInMenuMode() && !PlayerRef.IsInScene()
+		ToggleRide()
+	endif
+EndFunction
+
 ; Hotkey behaviour: get off, get on, or call the bike over if it's not nearby.
 Function ToggleRide()
 	; Nothing to ride before the keys turn up (pre-war intro, Vault 111).
@@ -235,6 +272,7 @@ Function Mount()
 	if PlayerRef.GetItemCount(CMB_BikeRiderArmor) == 0
 		PlayerRef.AddItem(CMB_BikeRiderArmor, 1, true)
 	endif
+	CallGearRestore("RememberSlot")
 	PlayerRef.EquipItem(CMB_BikeRiderArmor, true, true)
 	ApplyRiderPose()
 	ApplyControls()
@@ -246,6 +284,7 @@ Function Mount()
 	RegisterForPlayerTeleport()
 	StartTimer(TickInterval, TimerTick)
 	PlaySound(CMB_EngineStartSound)
+	StartTimer(EngineStartLength, TimerEngine)
 	Log("Mounted. SpeedMult +" + playerSpeedDelta + ", stowed " + stowedFollowers.Length + ", running " + boostedFollowers.Length)
 
 	Game.FadeOutGame(false, true, 0.0, 0.35)
@@ -330,6 +369,8 @@ Event OnTimer(int aiTimerID)
 		TryDeliverKeys()
 	elseif aiTimerID == TimerKeys
 		HandleKeys()
+	elseif aiTimerID == TimerEngine && riding
+		StartEngineLoops()
 	elseif aiTimerID == TimerTick && riding
 		RideTick()
 		if riding
@@ -385,10 +426,13 @@ Function RideTick()
 	elseif PlayerRef.GetSitState() != 0
 		AutoDismount("The motorbike is parked nearby.", false)
 		return
-	elseif !BurnFuel()
+	endif
+	float stepDistance = TrackMovement()
+	if !BurnFuel(stepDistance)
 		AutoDismount("Your motorbike ran out of fuel.", true)
 		return
 	endif
+	UpdateEngineSound(stepDistance)
 
 	; The disabled bike follows the player, so it can be dropped here at any moment.
 	ShadowPlayer()
@@ -422,11 +466,15 @@ Function FinishRide()
 	CancelTimer(TimerTick)
 	UnregisterForPlayerTeleport()
 
+	CancelTimer(TimerEngine)
+	StopEngineLoops()
+
 	int armorCount = PlayerRef.GetItemCount(CMB_BikeRiderArmor)
 	if armorCount > 0
 		PlayerRef.UnequipItem(CMB_BikeRiderArmor, false, true)
 		PlayerRef.RemoveItem(CMB_BikeRiderArmor, armorCount, true)
 	endif
+	CallGearRestore("RestoreSlot")
 	ClearRiderPose()
 	ReleaseControls()
 	RemoveSpeed(PlayerRef, playerSpeedDelta)
@@ -655,23 +703,30 @@ EndFunction
 
 ; Burns fuel for the distance ridden since the last tick.
 ; Returns false when the tank ran dry.
-bool Function BurnFuel()
-	if !FuelEnabled()
-		return true
-	endif
+; Horizontal distance since the last tick; 0 for the first tick and for teleports.
+float Function TrackMovement()
 	float x = PlayerRef.GetPositionX()
 	float y = PlayerRef.GetPositionY()
+	float stepDistance = 0.0
 	if hasLastPos
 		float dx = x - lastX
 		float dy = y - lastY
-		float stepDistance = Math.Sqrt(dx * dx + dy * dy)
-		if stepDistance < MaxTickDistance
-			fuelDistance += stepDistance
+		stepDistance = Math.Sqrt(dx * dx + dy * dy)
+		if stepDistance >= MaxTickDistance
+			stepDistance = 0.0
 		endif
 	endif
 	lastX = x
 	lastY = y
 	hasLastPos = true
+	return stepDistance
+EndFunction
+
+bool Function BurnFuel(float afStepDistance)
+	if !FuelEnabled()
+		return true
+	endif
+	fuelDistance += afStepDistance
 
 	float perUnit = CMB_FuelDistance.GetValue()
 	if perUnit <= 0.0
@@ -749,8 +804,65 @@ Function Log(string asMessage)
 EndFunction
 
 Function PlaySound(Sound akSound)
-	if akSound
-		akSound.Play(PlayerRef)
+	float volume = EngineVolume()
+	if akSound && volume > 0.0
+		int instance = akSound.Play(PlayerRef)
+		if instance > 0
+			Sound.SetInstanceVolume(instance, volume)
+		endif
+	endif
+EndFunction
+
+float Function EngineVolume()
+	if !CMB_EngineVolume
+		return 0.7
+	endif
+	float volume = CMB_EngineVolume.GetValue() / 100.0
+	if volume < 0.0
+		return 0.0
+	elseif volume > 1.0
+		return 1.0
+	endif
+	return volume
+EndFunction
+
+; Two loops play while riding: idle and cruise, crossfaded by speed each tick.
+Function StartEngineLoops()
+	StopEngineLoops()
+	if EngineVolume() <= 0.0
+		return
+	endif
+	if CMB_EngineIdleSound
+		engineIdle = CMB_EngineIdleSound.Play(PlayerRef)
+	endif
+	if CMB_EngineCruiseSound
+		engineCruise = CMB_EngineCruiseSound.Play(PlayerRef)
+	endif
+	UpdateEngineSound(0.0)
+EndFunction
+
+Function StopEngineLoops()
+	if engineIdle > 0
+		Sound.StopInstance(engineIdle)
+	endif
+	if engineCruise > 0
+		Sound.StopInstance(engineCruise)
+	endif
+	engineIdle = 0
+	engineCruise = 0
+EndFunction
+
+Function UpdateEngineSound(float afStepDistance)
+	float volume = EngineVolume()
+	float load = afStepDistance / (CruiseSpeed * TickInterval)
+	if load > 1.0
+		load = 1.0
+	endif
+	if engineIdle > 0
+		Sound.SetInstanceVolume(engineIdle, volume * (1.0 - 0.85 * load))
+	endif
+	if engineCruise > 0
+		Sound.SetInstanceVolume(engineCruise, volume * load)
 	endif
 EndFunction
 
