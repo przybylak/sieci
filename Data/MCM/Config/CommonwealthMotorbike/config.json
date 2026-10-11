@@ -83,6 +83,18 @@
       }
     },
     {
+      "type": "slider",
+      "text": "Free small falls (% of max health)",
+      "help": "Falls while riding that would cost less than this much of your max health cost nothing. Bigger falls still hurt (less, by the setting above). 0 = off. Every fall while riding is logged.",
+      "valueOptions": {
+        "min": 0,
+        "max": 100,
+        "step": 5,
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|826"
+      }
+    },
+    {
       "type": "switcher",
       "text": "Bike turns with the rider",
       "help": "On: the bike hangs off the seated rider, so it turns with you on the spot and in conversations. Off: it stays planted on the ground (the rider can twist on it). Takes effect the next time you get on.",

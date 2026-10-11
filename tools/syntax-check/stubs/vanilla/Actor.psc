@@ -18,3 +18,5 @@ bool Function IsHostileToActor(Actor akActor) native
 bool Function IsWeaponDrawn() native
 bool Function AddSpell(Spell akSpell, bool abVerbose = true) native
 bool Function RemoveSpell(Spell akSpell) native
+Event OnPlayerFallLongDistance(float afDamage)
+EndEvent

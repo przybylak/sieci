@@ -407,7 +407,8 @@ def jump_specs():
     """Jumping, falling and landing (MT\\Neutral, female versions where they exist).
     Only built from the vanilla clips (duration 0): the landing states wait for their
     events, so a guessed clip could hold the rider in place. The hard landings take the
-    soft landings' timing when their events match, so they don't stop you as long."""
+    soft landings' timing when those have the hard landing's events (JumpDown), so they
+    don't stop you as long."""
     specs = []
     for kind, speed in (("inplace", "walk"), ("walk", "walk"), ("run", "run")):
         specs += [ClipSpec(f"jump{kind}", takeoff(speed)),
@@ -428,20 +429,21 @@ def find_clip(vanilla_root: Path, name: str, female: bool):
 
 
 def control_events(A, path: Path):
-    return sorted({a.text.lower() for a in A.load_fo4_animation(str(path)).annotations
-                   if not a.text.lower().startswith("foot")})
+    """Events the behaviour graph acts on: footstep sounds and foot-sync markers aside."""
+    return {a.text.lower() for a in A.load_fo4_animation(str(path)).annotations
+            if not a.text.lower().startswith(("foot", "sync"))}
 
 
 def source_path(vanilla_root: Path, spec: ClipSpec, female: bool, A=None):
     """The extracted vanilla clip whose timing, events and root motion a riding clip
     copies: the clip itself from the first folder the player searches, else a stand-in.
-    A spec's `timing` clip is preferred when it has the same control events as the clip
-    itself (needs the animation module A to check)."""
+    A spec's `timing` clip is preferred when it has at least the control events of the
+    clip itself (needs the animation module A to check)."""
     own = find_clip(vanilla_root, spec.name, female)
     if A is not None and own is not None:
         for name in spec.timing:
             alt = find_clip(vanilla_root, name, female)
-            if alt is not None and control_events(A, alt) == control_events(A, own):
+            if alt is not None and control_events(A, alt) >= control_events(A, own):
                 return alt
     if own is not None:
         return own

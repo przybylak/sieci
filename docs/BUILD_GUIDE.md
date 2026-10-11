@@ -106,7 +106,7 @@ The vanilla form IDs the plugins use (PlayerRef, XMarker, HumanRace, HumanRaceSu
 
 You only need this if the generated plugin turns out to have a problem and you'd rather rebuild it in the editor. Every EditorID starts with `CMB_`, and the values below mirror the generator.
 
-1. **Globals** (Float): `CMB_SpeedPercent` 250, `CMB_CompanionMode` 0, `CMB_AllowCombat` 0, `CMB_ForceThirdPerson` 1, `CMB_UseRiderPose` 1, `CMB_CatchUpDistance` 2500, `CMB_BagCapacity` 60, `CMB_HotkeyCode` 48, `CMB_UseFuel` 1, `CMB_FuelDistance` 21000, `CMB_EngineVolume` 70, `CMB_FallDamageCut` 75, `CMB_DismountOnHit` 1, `CMB_BikeFollowsRider` 1, `CMB_KnockOffDamage` 10.
+1. **Globals** (Float): `CMB_SpeedPercent` 250, `CMB_CompanionMode` 0, `CMB_AllowCombat` 0, `CMB_ForceThirdPerson` 1, `CMB_UseRiderPose` 1, `CMB_CatchUpDistance` 2500, `CMB_BagCapacity` 60, `CMB_HotkeyCode` 48, `CMB_UseFuel` 1, `CMB_FuelDistance` 21000, `CMB_EngineVolume` 70, `CMB_FallDamageCut` 75, `CMB_DismountOnHit` 1, `CMB_BikeFollowsRider` 1, `CMB_KnockOffDamage` 10, `CMB_FreeFallDamage` 20.
    **FormList** `CMB_FuelItems` containing Flamer Fuel (`AmmoFlamerFuel`, 000CAC78).
 2. *(no keyword: `CMB_AnimFlavorRider` lives in `CMB_RiderPose.esp`)*
 3. **Messages** (tick *Message Box*; button order matters):

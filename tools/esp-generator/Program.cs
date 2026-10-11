@@ -184,6 +184,8 @@ public static class Program
                     "CMB_KnockOffDamage", 0, 50, 5),
                 Slider("Less fall damage (%)", "How much less fall damage you take while riding. 100 = none. Takes effect the next time you get on.",
                     "CMB_FallDamageCut", 0, 100, 5),
+                Slider("Free small falls (% of max health)", "Falls while riding that would cost less than this much of your max health cost nothing. Bigger falls still hurt (less, by the setting above). 0 = off. Every fall while riding is logged.",
+                    "CMB_FreeFallDamage", 0, 100, 5),
                 Switcher("Bike turns with the rider", "On: the bike hangs off the seated rider, so it turns with you on the spot and in conversations. Off: it stays planted on the ground (the rider can twist on it). Takes effect the next time you get on.", "CMB_BikeFollowsRider"),
                 Section("Fuel"),
                 Switcher("Use fuel", "Riding burns Flamer Fuel, from the side bag first, then your inventory.", "CMB_UseFuel"),
@@ -383,6 +385,8 @@ public static class Program
 
         // Percent of max health a hit (or a quick run of hits) must take to knock you off.
         var gKnockOff = Global(mod, "CMB_KnockOffDamage", 10);
+        // Falls while riding costing less than this percent of max health cost nothing.
+        var gFreeFall = Global(mod, "CMB_FreeFallDamage", 20);
 
         // --- Controller quest ---
         quest.Name = "Commonwealth Motorbike";
@@ -434,7 +438,8 @@ public static class Program
             Obj("CMB_FallDamageCut", gFallCut),
             Obj("CMB_DismountOnHit", gDismountOnHit),
             Obj("CMB_BikeFollowsRider", gFollowsRider),
-            Obj("CMB_KnockOffDamage", gKnockOff));
+            Obj("CMB_KnockOffDamage", gKnockOff),
+            Obj("CMB_FreeFallDamage", gFreeFall));
         // Optional: only does anything with F4SE and the compiled CMB_HotkeyF4SE.pex.
         var hotkey = Script("CMB_HotkeyF4SE",
             Obj("Controller", quest),

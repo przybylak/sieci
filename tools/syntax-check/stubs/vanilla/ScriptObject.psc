@@ -22,3 +22,9 @@ Function RegisterForHitEvent(ScriptObject akTarget, ScriptObject akAggressorFilt
 Function UnregisterForHitEvent(ScriptObject akTarget, ScriptObject akAggressorFilter = None, Form akSourceFilter = None, Form akProjectileFilter = None, int aiPowerFilter = -1, int aiSneakFilter = -1, int aiBashFilter = -1, int aiBlockFilter = -1, bool abMatch = true) native
 Event OnHit(ObjectReference akTarget, ObjectReference akAggressor, Form akSource, Projectile akProjectile, bool abPowerAttack, bool abSneakAttack, bool abBashAttack, bool abHitBlocked, string apMaterial)
 EndEvent
+bool Function RegisterForAnimationEvent(ObjectReference akSender, string asEventName) native
+Function UnregisterForAnimationEvent(ObjectReference akSender, string asEventName) native
+bool Function RegisterForRemoteEvent(ScriptObject akEventSource, string asEventName) native
+Function UnregisterForRemoteEvent(ScriptObject akEventSource, string asEventName) native
+Event OnAnimationEvent(ObjectReference akSource, string asEventName)
+EndEvent

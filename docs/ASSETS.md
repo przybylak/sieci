@@ -83,8 +83,10 @@ files. `preview.py` renders still images if you want to look before going in gam
 
 Two exceptions to "the same root motion". The 180° reversals while moving (`walk_to_walk_l180`/`r180`,
 `run_to_run_l180`/`r180`) follow a leaning arc instead of vanilla's stop-and-spin, with the same length, total turn
-and distance. And the hard landings (`JumpImpactLand`, `JumpRunImpactLand`) take the soft landing's timing when the
-events match, so a drop doesn't stop you as long. The jump, fall and landing clips are only built from the vanilla ones
+and distance. And the hard landings (`JumpImpactLand`, `JumpRunImpactLand`) take the soft landing's timing when that
+has the hard landing's events (`JumpDown`; foot-sync markers aside), so a drop doesn't stop you as long: in place
+1.27 s instead of 1.77, running 0.5 s instead of 0.7 and straight into the run (`jumpEndToRun`). The female running
+landing has no `JumpDown`, so the female hard running landing keeps its own 0.7 s. The jump, fall and landing clips are only built from the vanilla ones
 (a guessed length could hold the rider in a landing): if they weren't extracted, `riding_anims.py` skips them and
 jumps and landings show the standing clips. Those 11 are every clip the movement graph (`MTBehavior.hkx`) plays while
 you're in the air, including the brief falls over bumps. Their timing can't come from the game's AnimTextData

@@ -70,6 +70,9 @@ Group Settings
 	{Percent less fall damage while riding (0-100, 100 = none). Default 75.}
 	GlobalVariable Property CMB_DismountOnHit Auto Const Mandatory
 	{1 = a big enough hit from an enemy knocks you off the bike. Default 1.}
+	GlobalVariable Property CMB_FreeFallDamage Auto Const Mandatory
+	{Falls while riding that cost less than this percent of your max health cost nothing
+	(the health comes straight back). 0 = off. Default 20.}
 	GlobalVariable Property CMB_KnockOffDamage Auto Const Mandatory
 	{How big: percent of your max health, from one hit or several within about a second.
 	Power attacks and explosions always count. 0 = any hit. Default 10.}
@@ -104,6 +107,14 @@ float Property HitGraceTime = 3.0 AutoReadOnly
 float Property ShoreDelay = 3.0 AutoReadOnly
 {After a swim, the bike rolls up this long after you're out of deep water.}
 float Property ShoreRetryInterval = 10.0 AutoReadOnly
+int Property TimerCleanup = 7 AutoReadOnly
+float Property CleanupDelay = 1.5 AutoReadOnly
+{After any dismount: by then a ride tick that was already running has finished.}
+int Property TimerPoseRetry = 8 AutoReadOnly
+float Property PoseRetryInterval = 2.0 AutoReadOnly
+int Property MaxPoseRetries = 10 AutoReadOnly
+string Property FootstepEvent = "FootLeft" AutoReadOnly
+{Standing walk/run clips send it; the seated riding clips don't.}
 float Property EngineStartLength = 2.4 AutoReadOnly
 {The start sound ends on idle; the loops take over after it.}
 float Property CruiseSpeed = 700.0 AutoReadOnly
@@ -149,6 +160,8 @@ bool swimming = false
 bool bikeWaitsForShore = false
 bool hitGrace = false
 float healthMark = 1.0
+bool poseRetryWaiting = false
+int poseRetries = 0
 bool combatHinted = false
 float fallDamageDelta = 0.0
 Actor[] stowedFollowers
@@ -162,6 +175,7 @@ float[] boostedDeltas
 Event OnInit()
 	EnsureArrays()
 	WatchSwimming()
+	WatchFalls()
 	TryDeliverKeys()
 EndEvent
 
@@ -171,6 +185,7 @@ Function OnGameReloaded()
 	busy = false
 	hasLastPos = false
 	WatchSwimming()
+	WatchFalls()
 	if bikeWaitsForShore && !swimming
 		StartTimer(ShoreDelay, TimerShore)
 	endif
@@ -198,6 +213,7 @@ Function OnGameReloaded()
 		hitGrace = false
 		healthMark = PlayerRef.GetValuePercentage(Health)
 		WatchForHits()
+		WatchFootsteps()
 		StartTimer(TickInterval, TimerTick)
 		; Sounds don't survive a load, and their old instance numbers mean nothing now.
 		engineIdle = 0
@@ -334,6 +350,9 @@ Function Mount()
 	hitGrace = true
 	StartTimer(HitGraceTime, TimerHitGrace)
 	WatchForHits()
+	poseRetries = 0
+	poseRetryWaiting = false
+	WatchFootsteps()
 	StartTimer(TickInterval, TimerTick)
 	PlaySound(CMB_EngineStartSound)
 	StartTimer(EngineStartLength, TimerEngine)
@@ -437,6 +456,10 @@ Event OnTimer(int aiTimerID)
 		BringBikeAfterSwim()
 	elseif aiTimerID == TimerHitGrace
 		hitGrace = false
+	elseif aiTimerID == TimerCleanup
+		CleanUpAfterRide()
+	elseif aiTimerID == TimerPoseRetry
+		poseRetryWaiting = false
 	elseif aiTimerID == TimerTick && riding
 		RideTick()
 		if riding
@@ -497,7 +520,14 @@ Function RideTick()
 		DismountIntoWater()
 		return
 	endif
+	; Every call below lets other threads run, and one of them can end the ride
+	; (deep water, a hit, the keys). So check again before each step that changes
+	; something: a tick that carried on would put the bike back on, or move the
+	; parked bike indoors.
 	float stepDistance = TrackMovement()
+	if !StillRiding()
+		return
+	endif
 	if !BurnFuel(stepDistance)
 		AutoDismount("Your motorbike ran out of fuel.", true)
 		return
@@ -505,11 +535,22 @@ Function RideTick()
 	UpdateEngineSound(stepDistance)
 
 	; The disabled bike follows the player, so it can be dropped here at any moment.
+	if !StillRiding()
+		return
+	endif
 	ShadowPlayer()
 	CatchUpFollowers()
 
 	; Also swaps between the two bikes when a weapon is drawn or put away.
+	if !StillRiding()
+		return
+	endif
 	EquipBike()
+	if !riding
+		; The ride ended while the bike was going on: take it off again.
+		RemoveBikeArmor()
+		return
+	endif
 	if riderPoseApplied
 		; The graph can switch it back on (dialogue, for one).
 		PlayerRef.SetAnimationVariableBool(HeadTrackingVariable, false)
@@ -522,6 +563,10 @@ EndFunction
 ; ---------------------------------------------------------------------------
 ; Riding setup and teardown
 ; ---------------------------------------------------------------------------
+
+bool Function StillRiding()
+	return riding && !busy
+EndFunction
 
 string Function GetMountBlocker()
 	if PlayerRef.IsInPowerArmor()
@@ -547,9 +592,9 @@ Function FinishRide()
 	CancelTimer(TimerEngine)
 	StopEngineLoops()
 	UnregisterForHitEvent(PlayerRef)
+	UnregisterForAnimationEvent(PlayerRef, FootstepEvent)
 
-	RemoveArmor(CMB_BikeRiderArmor)
-	RemoveArmor(CMB_BikeRiderArmorFrame)
+	RemoveBikeArmor()
 	CallGearRestore("RestoreSlot")
 	ClearRiderPose()
 	ReleaseControls()
@@ -562,11 +607,26 @@ Function FinishRide()
 		PlaySound(CMB_EngineStopSound)
 	endif
 	riding = false
+	StartTimer(CleanupDelay, TimerCleanup)
+EndFunction
+
+; Safety net after every dismount: whatever a ride tick that was still running
+; did, the bike comes off and head tracking is back on.
+Function CleanUpAfterRide()
+	if riding || busy
+		return
+	endif
+	RemoveBikeArmor()
+	PlayerRef.SetAnimationVariableBool(HeadTrackingVariable, true)
 EndFunction
 
 ; abParkBesidePlayer: park next to the player (they're outdoors and standing).
 ; Otherwise the bike stays at the last outdoor spot it shadowed.
 Function AutoDismount(string asMessage, bool abParkBesidePlayer)
+	; Another thread may have ended the ride since the caller checked.
+	if busy || !riding
+		return
+	endif
 	busy = true
 	if abParkBesidePlayer
 		ParkBesidePlayer()
@@ -697,6 +757,11 @@ Function EquipBike()
 	RemoveArmor(other)
 EndFunction
 
+Function RemoveBikeArmor()
+	RemoveArmor(CMB_BikeRiderArmor)
+	RemoveArmor(CMB_BikeRiderArmorFrame)
+EndFunction
+
 Function RemoveArmor(Armor akArmor)
 	int count = PlayerRef.GetItemCount(akArmor)
 	if count > 0
@@ -730,6 +795,9 @@ EndFunction
 ; a moment ago can be mid-air (riding off a ledge into a lake), so instead it
 ; rolls up next to the player once they're out of the water (BringBikeAfterSwim).
 Function DismountIntoWater()
+	if busy || !riding
+		return
+	endif
 	busy = true
 	FinishRide()
 	bikeWaitsForShore = true
@@ -796,6 +864,68 @@ Event OnHit(ObjectReference akTarget, ObjectReference akAggressor, Form akSource
 	endif
 EndEvent
 
+; Falls while riding: every one is logged (for tuning), and small ones cost
+; nothing: under CMB_FreeFallDamage percent of max health comes straight back.
+; Bigger ones still hurt, less by CMB_FallDamageCut.
+Function WatchFalls()
+	RegisterForRemoteEvent(PlayerRef, "OnPlayerFallLongDistance")
+EndFunction
+
+Event Actor.OnPlayerFallLongDistance(Actor akSender, float afDamage)
+	if !riding || afDamage <= 0.0
+		return
+	endif
+	float fraction = PlayerRef.GetValuePercentage(Health)
+	if fraction <= 0.0
+		return
+	endif
+	float percent = afDamage / (PlayerRef.GetValue(Health) / fraction) * 100.0
+	float free = CMB_FreeFallDamage.GetValue()
+	Log("Fall while riding: " + afDamage + " damage, " + percent + "% of max health" + Ternary(percent < free, ", given back", ""))
+	if percent < free
+		; Let the damage land first: restoring before it does would do nothing.
+		Utility.Wait(0.2)
+		PlayerRef.RestoreValue(Health, afDamage)
+	endif
+EndEvent
+
+string Function Ternary(bool abCondition, string asYes, string asNo)
+	if abCondition
+		return asYes
+	endif
+	return asNo
+EndFunction
+
+; The seated clips have no footsteps; the standing ones do. Footsteps while the
+; rider pose should be on mean the switch to the seated clips hasn't happened
+; (seen once after getting on straight out of the water), so try it again, every
+; couple of seconds, a few times at most.
+Function WatchFootsteps()
+	if riding && riderPoseApplied
+		RegisterForAnimationEvent(PlayerRef, FootstepEvent)
+	endif
+EndFunction
+
+Event OnAnimationEvent(ObjectReference akSource, string asEventName)
+	if !riding || busy || !riderPoseApplied || poseRetryWaiting || PlayerRef.IsWeaponDrawn()
+		return
+	endif
+	if poseRetries >= MaxPoseRetries
+		UnregisterForAnimationEvent(PlayerRef, FootstepEvent)
+		Log("Rider pose still not showing after " + poseRetries + " tries; giving up for this ride.")
+		return
+	endif
+	poseRetryWaiting = true
+	StartTimer(PoseRetryInterval, TimerPoseRetry)
+	poseRetries += 1
+	Log("Standing footsteps while riding: applying the rider pose again (" + poseRetries + ").")
+	Keyword flavor = Game.GetFormFromFile(RiderFlavorID, RiderPosePlugin) as Keyword
+	if flavor
+		PlayerRef.ChangeAnimFlavor(flavor)
+	endif
+	PlayerRef.AttemptAnimationSetSwitch()
+EndEvent
+
 ; Once per fight, when weapons are off while riding: say how to get off.
 Function CombatHint()
 	if !PlayerRef.IsInCombat()
@@ -819,7 +949,9 @@ Function ApplyRiderPose()
 	endif
 	Keyword flavor = Game.GetFormFromFile(RiderFlavorID, RiderPosePlugin) as Keyword
 	if flavor
-		PlayerRef.ChangeAnimFlavor(flavor)
+		if !PlayerRef.ChangeAnimFlavor(flavor)
+			Log("ChangeAnimFlavor refused the rider flavour.")
+		endif
 		PlayerRef.AttemptAnimationSetSwitch()
 		riderPoseApplied = true
 		; Looking at people twists the chest and pulls the hands off the grips.
