@@ -27,6 +27,7 @@ public static class Vanilla
     public static readonly FormKey HumanRace = Fo4(0x013746);
     public static readonly FormKey SpeedMult = Fo4(0x0002DA);
     public static readonly FormKey CarryWeight = Fo4(0x0002DC);
+    public static readonly FormKey FallingDamageMod = Fo4(0x0BA43D);
     public static readonly FormKey Pipboy = Fo4(0x021B3B);
     public static readonly FormKey AnimArchetypePlayer = Fo4(0x06B508);
     public static readonly FormKey HumanRaceSubGraphData = Fo4(0x166729);
@@ -39,7 +40,7 @@ public static class Vanilla
         key == PlayerRef ? "PlacedNpc"
         : key == XMarker ? "Static"
         : key == HumanRace ? "Race"
-        : key == SpeedMult || key == CarryWeight ? "ActorValueInformation"
+        : key == SpeedMult || key == CarryWeight || key == FallingDamageMod ? "ActorValueInformation"
         : key == Pipboy ? "Armor"
         : key == AnimArchetypePlayer ? "Keyword"
         : key == AmmoFlamerFuel ? "Ammunition"
@@ -52,11 +53,14 @@ public static class Program
 {
     public const string PluginName = "CommonwealthMotorbike.esp";
 
-    // Paths are relative to Data\Meshes. tools/rider/build_bike_meshes.py makes both from
+    // Paths are relative to Data\Meshes. tools/rider/build_bike_meshes.py makes them from
     // the vanilla motorcycle (docs/ASSETS.md): the parked bike is an unmodified copy, the
-    // worn one is that mesh turned to face forward and skinned to the AnimObjectA bone.
+    // worn ones are that mesh turned to face forward and skinned to the rider's COM bone
+    // (male and female seat heights) or to the AnimObjectA bone on the ground.
     public const string ParkedBikeModel = @"CMB\CMB_BikeParked.nif";
     public const string WornBikeModel = @"CMB\CMB_BikeWorn.nif";
+    public const string RiderBikeModel = @"CMB\CMB_BikeWornRider.nif";
+    public const string RiderBikeModelFemale = @"CMB\CMB_BikeWornRiderF.nif";
     public const string KeysModel = @"CMB\CMB_Keys.nif";
 
     // Biped slot the worn bike occupies; whatever else uses it gets unequipped
@@ -174,6 +178,10 @@ public static class Program
                 Switcher("Seated riding animations", "Needs CMB_RiderPose.esp (make_rider_pose.bat). Off: you run in place over the bike. Takes effect the next time you get on.", "CMB_UseRiderPose"),
                 Switcher("Switch to third person", "Switch to third person when getting on, so you see the bike.", "CMB_ForceThirdPerson"),
                 Switcher("Allow combat while riding", "Weapons and VATS stay usable while riding. Takes effect the next time you get on.", "CMB_AllowCombat"),
+                Switcher("Thrown off when hit", "An enemy's hit knocks you off the bike, so you can fight back. Off: you keep riding; a hint says how to get off when a fight starts.", "CMB_DismountOnHit"),
+                Slider("Less fall damage (%)", "How much less fall damage you take while riding. 100 = none. Takes effect the next time you get on.",
+                    "CMB_FallDamageCut", 0, 100, 5),
+                Switcher("Bike turns with the rider", "On: the bike hangs off the seated rider, so it turns with you on the spot and in conversations. Off: it stays planted on the ground (the rider can twist on it). Takes effect the next time you get on.", "CMB_BikeFollowsRider"),
                 Section("Fuel"),
                 Switcher("Use fuel", "Riding burns Flamer Fuel, from the side bag first, then your inventory.", "CMB_UseFuel"),
                 Slider("Distance per Flamer Fuel", "In game units; about 70 units = 1 m. 21000 = about 300 m. Lower = thirstier.",
@@ -253,25 +261,8 @@ public static class Program
         // --- Controller quest (created early so other records can point at it) ---
         var quest = mod.Quests.AddNew("CMB_ControllerQuest");
 
-        // --- Worn bike ---
-        var arma = mod.ArmorAddons.AddNew("CMB_BikeRiderAA");
-        arma.BodyTemplate = new BodyTemplate { FirstPersonFlags = BikeSlot };
-        arma.Race.SetTo(Vanilla.HumanRace);
-        arma.Priority = new GenderedItem<byte>(0, 0);
-        arma.WeightSliderEnabled = new GenderedItem<bool>(false, false);
-        arma.WorldModel = new GenderedItem<Model?>(
-            new Model { File = WornBikeModel },
-            new Model { File = WornBikeModel });
-
-        var armor = mod.Armors.AddNew("CMB_BikeRiderArmor");
-        armor.MajorFlags |= Armor.MajorFlag.NonPlayable;
-        armor.Name = "Motorbike";
-        armor.ObjectBounds = new ObjectBounds();
-        armor.BipedBodyTemplate = new BipedBodyTemplate { FirstPersonFlags = BikeSlot };
-        armor.Race.SetTo(Vanilla.HumanRace);
-        armor.Armatures.Add(new ArmorAddonModel { AddonIndex = 0, ArmorAddon = arma.ToNullableLink() });
-        armor.Value = 0;
-        armor.Weight = 0;
+        // --- Worn bike: hangs off the seated rider (the ground-planted one is further down) ---
+        var armor = WornBike(mod, "CMB_BikeRiderAA", "CMB_BikeRiderArmor", RiderBikeModel, RiderBikeModelFemale);
 
         // --- Keys: aid item + script effect ---
         var keysEffect = mod.MagicEffects.AddNew("CMB_BikeKeysEffect");
@@ -339,6 +330,53 @@ public static class Program
         var sndCruise = EngineSound(mod, "CMB_EngineCruiseLPSD", "CMB_EngineCruiseLP.wav", loop: true);
         var gEngineVolume = Global(mod, "CMB_EngineVolume", 70);
 
+        // --- Riding safety and the ground-planted bike (also last, for the same reason) ---
+        var gFallCut = Global(mod, "CMB_FallDamageCut", 75);   // percent less fall damage while riding
+        var gDismountOnHit = Global(mod, "CMB_DismountOnHit", 1);
+        var gFollowsRider = Global(mod, "CMB_BikeFollowsRider", 1);
+        var armorFrame = WornBike(mod, "CMB_BikeRiderFrameAA", "CMB_BikeRiderArmorFrame", WornBikeModel, WornBikeModel);
+
+        // A hidden ability whose effect runs while the player is swimming (deep water only).
+        var swimEffect = mod.MagicEffects.AddNew("CMB_SwimWatchEffect");
+        swimEffect.Name = "Motorbike swim watch";
+        swimEffect.Flags = MagicEffect.Flag.NoDuration | MagicEffect.Flag.NoMagnitude | MagicEffect.Flag.NoArea
+            | MagicEffect.Flag.HideInUI | MagicEffect.Flag.Painless | MagicEffect.Flag.NoHitEvent;
+        swimEffect.Archetype = new MagicEffectArchetype { Type = MagicEffectArchetype.TypeEnum.Script };
+        swimEffect.CastType = CastType.ConstantEffect;
+        swimEffect.TargetType = TargetType.Self;
+        swimEffect.CastingSoundLevel = SoundLevel.Silent;
+        swimEffect.DualCastScale = 1;
+        swimEffect.VirtualMachineAdapter = Vmad(Script("CMB_SwimWatchEffectScript", Obj("Controller", quest)));
+
+        var swimAbility = mod.Spells.AddNew("CMB_SwimWatchAbility");
+        swimAbility.Name = "Motorbike swim watch";
+        swimAbility.ObjectBounds = new ObjectBounds();
+        swimAbility.Type = SpellType.Ability;
+        swimAbility.CastType = CastType.ConstantEffect;
+        swimAbility.TargetType = TargetType.Self;
+        swimAbility.Flags = SpellDataFlag.ManualCostCalc;
+        swimAbility.Effects.Add(new Effect
+        {
+            BaseEffect = swimEffect.ToNullableLink(),
+            Data = new EffectData { Magnitude = 0, Area = 0, Duration = 0 },
+            Conditions = new ExtendedList<Condition>
+            {
+                new ConditionFloat
+                {
+                    Data = new FunctionConditionData
+                    {
+                        Function = Condition.Function.IsSwimming,
+                        RunOnType = Condition.RunOnType.Subject,
+                    },
+                    CompareOperator = CompareOperator.EqualTo,
+                    ComparisonValue = 1,
+                },
+            },
+        });
+
+        // Where the bike would have parked a tick ago (see ShadowPlayer in the controller).
+        var drySpotRef = Placed(mod, cell, "CMB_DrySpotMarkerRef", Vanilla.XMarker, new P3Float(0, -400, 0));
+
         // --- Controller quest ---
         quest.Name = "Commonwealth Motorbike";
         quest.Data = new QuestData
@@ -362,7 +400,11 @@ public static class Program
             Obj("BikeRef", bikeRef),
             Obj("SideBagRef", bagRef),
             Obj("HoldingMarkerRef", markerRef),
+            Obj("DrySpotMarkerRef", drySpotRef),
             Obj("CMB_BikeRiderArmor", armor),
+            Obj("CMB_BikeRiderArmorFrame", armorFrame),
+            Obj("CMB_SwimWatchAbility", swimAbility),
+            Obj("FallingDamageMod", Vanilla.FallingDamageMod),
             Obj("CMB_BikeKeys", keys),
             Obj("CMB_KeysMenu", msgKeys),
             Obj("SpeedMult", Vanilla.SpeedMult),
@@ -381,7 +423,10 @@ public static class Program
             Obj("CMB_EngineStopSound", sndStop),
             Obj("CMB_EngineIdleSound", sndIdle),
             Obj("CMB_EngineCruiseSound", sndCruise),
-            Obj("CMB_EngineVolume", gEngineVolume));
+            Obj("CMB_EngineVolume", gEngineVolume),
+            Obj("CMB_FallDamageCut", gFallCut),
+            Obj("CMB_DismountOnHit", gDismountOnHit),
+            Obj("CMB_BikeFollowsRider", gFollowsRider));
         // Optional: only does anything with F4SE and the compiled CMB_HotkeyF4SE.pex.
         var hotkey = Script("CMB_HotkeyF4SE",
             Obj("Controller", quest),
@@ -389,6 +434,7 @@ public static class Program
         // Optional too: puts slot-57 gear back on after a ride (F4SE's GetWornItem).
         var gear = Script("CMB_GearRestoreF4SE",
             Obj("CMB_BikeRiderArmor", armor),
+            Obj("CMB_BikeRiderArmorFrame", armorFrame),
             Int("BikeSlotIndex", BikeSlotIndex));
 
         quest.VirtualMachineAdapter = new QuestAdapter
@@ -430,6 +476,30 @@ public static class Program
         };
         mod.Globals.Add(global);
         return global;
+    }
+
+    // A non-playable armor in the bike's slot showing one of the worn bike meshes.
+    static Armor WornBike(Fallout4Mod mod, string addonId, string armorId, string maleModel, string femaleModel)
+    {
+        var arma = mod.ArmorAddons.AddNew(addonId);
+        arma.BodyTemplate = new BodyTemplate { FirstPersonFlags = BikeSlot };
+        arma.Race.SetTo(Vanilla.HumanRace);
+        arma.Priority = new GenderedItem<byte>(0, 0);
+        arma.WeightSliderEnabled = new GenderedItem<bool>(false, false);
+        arma.WorldModel = new GenderedItem<Model?>(
+            new Model { File = maleModel },
+            new Model { File = femaleModel });
+
+        var armor = mod.Armors.AddNew(armorId);
+        armor.MajorFlags |= Armor.MajorFlag.NonPlayable;
+        armor.Name = "Motorbike";
+        armor.ObjectBounds = new ObjectBounds();
+        armor.BipedBodyTemplate = new BipedBodyTemplate { FirstPersonFlags = BikeSlot };
+        armor.Race.SetTo(Vanilla.HumanRace);
+        armor.Armatures.Add(new ArmorAddonModel { AddonIndex = 0, ArmorAddon = arma.ToNullableLink() });
+        armor.Value = 0;
+        armor.Weight = 0;
+        return armor;
     }
 
     static Message MessageBox(Fallout4Mod mod, string editorId, string title, string text, params string[] buttons)

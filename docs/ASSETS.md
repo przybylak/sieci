@@ -7,9 +7,11 @@ your own copy of the game:
 | File (under `Data\`) | Built by | What it is |
 |---|---|---|
 | `Meshes\CMB\CMB_BikeParked.nif` | `build_bike_meshes.py` | unmodified copy of the vanilla motorcycle (keeps its collision) |
-| `Meshes\CMB\CMB_BikeWorn.nif` | `build_bike_meshes.py` | the same model as wearable armor: faces forward, seat over the origin, skinned to the `AnimObjectA` bone |
-| `Meshes\Actors\Character\Animations\MT\CMB_Rider\*.hkx` and `...\CMB_Rider\Female\*.hkx` | `riding_anims.py` | seated riding versions of the holstered walk/run/turn/start/stop/idle clips |
+| `Meshes\CMB\CMB_BikeWornRider.nif`, `CMB_BikeWornRiderF.nif` | `build_bike_meshes.py --seat` | the same model as wearable armor: faces forward, seat over the origin, hanging off the rider's `COM` bone (male and female seat heights) |
+| `Meshes\CMB\CMB_BikeWorn.nif` | `build_bike_meshes.py` | the same again, skinned to the `AnimObjectA` bone on the ground: used when the rider isn't seated |
+| `Meshes\Actors\Character\Animations\MT\CMB_Rider\*.hkx` and `...\CMB_Rider\Female\*.hkx` | `riding_anims.py` | seated riding versions of the holstered walk/run/turn/start/stop/idle clips, and of the jump/fall/land clips when those were extracted |
 | `...\CMB_Rider\CMB_RiderClips.json` (and `Female\`) | `riding_anims.py` | each clip's root motion and events, for the step below |
+| `...\CMB_Rider\CMB_RiderSeat.json` (and `Female\`) | `riding_anims.py` | where the seated rider's `COM` bone sits, for the bike that hangs off it |
 | `CMB_RiderPose.esp` + `Meshes\AnimTextData\...` | `make_rider_pose.bat` | small plugin that makes the game use those clips while you ride, and the animation data it needs. Built from your load order; no Creation Kit |
 | `Meshes\CMB\CMB_Keys.nif` (optional) | you: copy any vanilla key mesh | 3D preview of the keys in the Pip-Boy |
 
@@ -36,6 +38,7 @@ Into one work folder (say `C:\CMBwork`), keeping the archive paths:
 | | `meshes\actors\character\characterassets\skeleton.nif`, `malebody.nif`, `femalebody.nif` |
 | `Fallout4 - Animations.ba2` | `meshes\actors\character\characterassets\skeleton.hkx` |
 | | everything in `meshes\actors\character\animations\mt\player\`, `...\mt\confident\` and `...\mt\neutral\` (with their `female` subfolders) |
+| | in particular the jump clips: `mt\neutral\jump*.hkx` and `mt\neutral\female\jump*.hkx` (`JumpInPlace`, `JumpWalk`, `JumpRun`, their `Fall` and `Land` clips, `JumpImpactLand`, `JumpRunImpactLand`) |
 
 Use the bodies your game actually shows (for example the CBBE `femalebody.nif`): they're only used to sit the hips
 exactly on the seat. Skeleton replacers that keep the vanilla body bones (Community Fixes' `skeleton.nif`, Combined
@@ -48,23 +51,28 @@ set PYN=C:\Tools\PyNifly\io_scene_nifly
 set W=C:\CMBwork\meshes\actors\character
 set OUT=<repository>\Data\Meshes
 
-python tools\rider\build_bike_meshes.py --pynifly %PYN% ^
-    --model C:\CMBwork\meshes\setdressing\vehicles\motorcycle\motorcycle_clean.nif --out %OUT%\CMB
-
 python tools\rider\riding_anims.py --pynifly %PYN% --vanilla %W% ^
     --body %W%\characterassets\malebody.nif --female-body %W%\characterassets\femalebody.nif ^
     --out %OUT%\Actors\Character\Animations\MT\CMB_Rider
+
+python tools\rider\build_bike_meshes.py --pynifly %PYN% ^
+    --model C:\CMBwork\meshes\setdressing\vehicles\motorcycle\motorcycle_clean.nif --out %OUT%\CMB ^
+    --seat %OUT%\Actors\Character\Animations\MT\CMB_Rider
 
 python tools\rider\verify_clips.py --pynifly %PYN% --vanilla %W% --clips %OUT%\Actors\Character\Animations\MT\CMB_Rider
 python tools\rider\verify_clips.py --pynifly %PYN% --vanilla %W% --clips %OUT%\Actors\Character\Animations\MT\CMB_Rider\Female --female
 ```
 
-Generating the clips takes a while (around 15 minutes for both sets).
+Generating the clips takes a while (around 25 minutes for both sets). The meshes come second because the bike
+that hangs off the rider needs to know where the seated rider sits (`CMB_RiderSeat.json`).
 
-**How the worn bike works.** Armor meshes must be skinned. The bike is weighted 100% to `AnimObjectA`, a bone that
-sits on the ground at the character's origin and that walking and running never move. So the bike stays planted
-under you, and the riding clips can lean it, with the rider, in turns. The script also turns the parked bike round,
-because the vanilla model points backwards.
+**How the worn bike works.** Armor meshes must be skinned. While you're seated, the bike is weighted 100% to `COM`,
+the bone the whole body hangs from, at exactly where `COM` sits in the riding clips. So it's under you where it
+should be, leans with you in turns, and turns with you when the game twists the body on the spot or in dialogue
+(DESIGN.md has the details). The second copy, `CMB_BikeWorn.nif`, is weighted to `AnimObjectA`, a bone that sits on
+the ground at the character's origin and that walking and running never move: the controller uses it when the rider
+isn't seated (no rider pose, weapon drawn, or `CMB_BikeFollowsRider 0`), so the bike stays planted. The script also
+turns the bike round, because the vanilla model points backwards.
 
 **How the clips are made.** Every clip the game plays for holstered movement gets a seated version with **the same
 file name, length, root motion and control events** as the vanilla clip it stands in for. Only the body pose changes,
@@ -72,6 +80,13 @@ so the game's speed and turning logic is untouched. Footstep sounds are dropped.
 on the seat, hands on the grips (exact, via IK), feet on the pegs, leaning forward more with speed and into turns. At a
 standstill the left foot goes down and the bike tips onto it. `verify_clips.py` checks all of that against the vanilla
 files. `preview.py` renders still images if you want to look before going in game.
+
+Two exceptions to "the same root motion". The 180° reversals while moving (`walk_to_walk_l180`/`r180`,
+`run_to_run_l180`/`r180`) follow a leaning arc instead of vanilla's stop-and-spin, with the same length, total turn
+and distance. And the hard landings (`JumpImpactLand`, `JumpRunImpactLand`) take the soft landing's timing when the
+events match, so a drop doesn't stop you as long. The jump, fall and landing clips are only built from the vanilla ones
+(a guessed length could hold the rider in a landing): if they weren't extracted, `riding_anims.py` skips them and
+jumps and landings show the standing clips.
 
 **Which vanilla clip.** The player's holstered animations come from `MT\Player`, then `MT\Confident`, then
 `MT\Neutral` (female: the `Female` subfolders of those first). That order was read off the game's own AnimTextData
@@ -116,8 +131,8 @@ to `HumanRaceSubGraphData`. Ours is a copy of every third-person holstered entry
 `HumanRaceSubGraphData` itself and from every additive race in your load order, each with the keyword added and
 `MT\CMB_Rider` searched first (`MT\CMB_Rider\Female` first for female entries). The game uses the entry whose keywords
 all match and that matches the most of them, so with the keyword on, a copy always beats the entry it copies,
-including the Unofficial Patch's crippled-limb entries. Anything without a riding version (jumping, swimming,
-staggering) comes from the usual folders.
+including the Unofficial Patch's crippled-limb entries. Anything without a riding version (swimming, staggering,
+and jumping and landing unless those clips were extracted) comes from the usual folders.
 
 **Masters.** Always `Fallout4.esm`, plus any plugin whose keywords the copied entries use (for example
 `Unofficial Fallout 4 Patch.esp`). Rebuild it if you remove one of those.
@@ -146,12 +161,14 @@ run in place over the bike.
 
 ## Quick in-game look at the worn bike
 
-`help CMB 4` lists the mod's forms. `player.equipitem <CMB_BikeRiderArmor form id>` shows the worn bike without
-riding; `player.unequipitem <id>` and `player.removeitem <id> 1` undo it.
+`help CMB 4` lists the mod's forms. `player.equipitem <CMB_BikeRiderArmorFrame form id>` shows the worn bike without
+riding (the seated version, `CMB_BikeRiderArmor`, only lines up when seated); `player.unequipitem <id>` and
+`player.removeitem <id> 1` undo it.
 
 | Symptom | Likely cause |
 |---|---|
-| bike missing, armor equipped | `CMB_BikeWorn.nif` not at `Data\Meshes\CMB\` |
+| bike missing, armor equipped | `CMB_BikeWornRider.nif` / `CMB_BikeWornRiderF.nif` (seated) or `CMB_BikeWorn.nif` (otherwise) not at `Data\Meshes\CMB\` |
+| bike sunk into the ground or floating while seated | the `CMB_BikeWornRider` meshes were built from an older clip set: build the clips, then the meshes with `--seat` |
 | pink / white bike | the vanilla motorcycle textures/materials aren't loading (they come from the base game archives) |
 | bike pops out at screen edges | an old `CMB_BikeWorn.nif` with a small culling sphere; rebuild it |
 | standing rider over the bike while riding | rider pose off, `CMB_RiderPose.esp` not active, or its AnimTextData missing (the mod folder from `make_rider_pose.bat` not enabled) |

@@ -72,11 +72,13 @@ class RideParams:
 
 
 # Speed-dependent settings (lean, bounce amplitude, roll for the Lean* clips)
+# Bounce moves COM, and the worn bike hangs off COM, so it's kept to a few millimetres:
+# a hint of suspension rather than the rider bouncing on the seat.
 SPEEDS = {
-    "walk":   dict(lean=14.0, bounce=0.35, lean_roll=8.0),
-    "jog":    dict(lean=17.0, bounce=0.55, lean_roll=12.0),
-    "run":    dict(lean=20.0, bounce=0.75, lean_roll=16.0),
-    "sprint": dict(lean=24.0, bounce=0.85, lean_roll=18.0),
+    "walk":   dict(lean=14.0, bounce=0.15, lean_roll=8.0),
+    "jog":    dict(lean=17.0, bounce=0.2, lean_roll=12.0),
+    "run":    dict(lean=20.0, bounce=0.3, lean_roll=16.0),
+    "sprint": dict(lean=24.0, bounce=0.35, lean_roll=18.0),
 }
 IDLE = RideParams(lean=7.0, roll=-9.0, foot_down=1.0)
 
@@ -237,9 +239,78 @@ def standing(_t):
     return IDLE
 
 
+def takeoff(speed):
+    """Leaving the ground: weight back a little, feet stay on the pegs."""
+    s = SPEEDS[speed]
+
+    def at(t):
+        return RideParams(lean=s["lean"] - 8.0 * math.sin(math.pi * t))
+    return at
+
+
+def airborne(speed):
+    s = SPEEDS[speed]
+
+    def at(t):
+        return RideParams(lean=s["lean"] - 4.0)
+    return at
+
+
+def landing(speed, hard=False):
+    """Touchdown: absorb it with the upper body (COM stays put: the bike hangs off it)."""
+    s = SPEEDS[speed]
+    depth = 14.0 if hard else 8.0
+
+    def at(t):
+        return RideParams(lean=s["lean"] + depth * math.sin(math.pi * min(t / 0.45, 1.0)))
+    return at
+
+
+class UTurn:
+    """The 180-degree reversals (walk_to_walk_l180 etc.) ridden as an arc. Vanilla's
+    root motion brakes to a stop, spins round and sets off the other way, like a person
+    turning round. This keeps going at the entry speed while the heading swings round,
+    so the path is a U, leaning into it. The turn's direction comes from the vanilla
+    clip's own yaw (MT\\Neutral's walk_to_walk_l180 actually turns right), and the
+    heading is round by `startAllowRotation`, like vanilla's, so the game's steering
+    takes over at the same moment."""
+
+    def __init__(self, speed, peak):
+        self.speed, self.peak = speed, peak
+
+    def plan(self, vanilla, duration, events):
+        """(vanilla root-motion samples, clip length, annotations) -> (samples, motion)."""
+        n = len(vanilla)
+        dt = duration / (n - 1)
+        total = vanilla[-1][3]
+        sign = 1.0 if total > 0 else -1.0                 # positive yaw turns left
+        allow = [a.time for a in events if a.text.lower() == "startallowrotation"]
+        share = min(max((allow[0] if allow else 0.75 * duration) / duration, 0.2), 0.9)
+        # Vanilla's average pace (it brakes into the spin and speeds up out of it), so
+        # the clip covers the same distance in the same time.
+        speed = sum(math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(vanilla, vanilla[1:])) / duration
+
+        def heading(u):
+            return total * ease(u / share)
+        out, x, y = [(0.0, 0.0, 0.0, 0.0)], 0.0, 0.0
+        for i in range(1, n):
+            h = heading((i - 0.5) / (n - 1))              # midpoint of the step
+            x += -math.sin(h) * speed * dt
+            y += math.cos(h) * speed * dt
+            out.append((x, y, 0.0, heading(i / (n - 1))))
+        s = SPEEDS[self.speed]
+        roll = -sign * self.peak                          # lean into it: left turn, roll left
+
+        def motion(t):
+            return RideParams(lean=s["lean"], roll=roll * math.sin(math.pi * min(t / share, 1.0)),
+                              bounce=s["bounce"] * math.sin(4 * math.pi * t))
+        return out, motion
+
+
 # Root motion and events of every clip, for the AnimTextData that make_rider_plugin.py
 # writes (the game reads those from AnimTextData, not from the .hkx).
 CLIP_DATA_FILE = "CMB_RiderClips.json"
+SEAT_FILE = "CMB_RiderSeat.json"      # where COM sits when seated, for build_bike_meshes.py
 
 # Folders the player's holstered (MT) subgraph entries search, in order: what
 # vanilla's AnimTextData resolves every clip name to (checked for all 193 male and
@@ -255,14 +326,16 @@ class ClipSpec:
     name: str                 # clip name = output file name (no extension)
     motion: object            # function t -> RideParams
     stand_ins: tuple = ()     # clips whose timing can stand in if this one wasn't extracted
-    duration: float = 0.0     # length if no vanilla clip is found at all (provisional)
+    duration: float = 0.0     # length if no vanilla clip is found at all (provisional); 0 = skip
+    timing: tuple = ()        # clips to take the timing from instead, if their events match
+    root_motion: object = None  # e.g. UTurn: reshapes vanilla's path (and picks the motion to fit)
 
 
 def seated_gesture(kind, seed):
     """Standing-still clips (idle, idle flavours, dialogue): seated, hands on the bars,
     with a little head movement so it doesn't look frozen."""
     def at(t):
-        breath = 0.25 * math.sin(2 * math.pi * t)
+        breath = 0.1 * math.sin(2 * math.pi * t)
         if kind == "nod":
             turn, look = 0.0, 6.0 * math.sin(4 * math.pi * t) ** 2
         elif kind == "shake":
@@ -307,10 +380,10 @@ def clip_table():
         ClipSpec("sprintforward", riding("sprint")),
         ClipSpec("sprintleanleft", riding("sprint", -lean["sprint"]), ("sprintforward",)),
         ClipSpec("sprintleanright", riding("sprint", lean["sprint"]), ("sprintforward",)),
-        ClipSpec("walk_to_walk_l180", turning("walk", "l", 12.0)),
-        ClipSpec("walk_to_walk_r180", turning("walk", "r", 12.0)),
-        ClipSpec("run_to_run_l180", turning("run", "l", 18.0)),
-        ClipSpec("run_to_run_r180", turning("run", "r", 18.0)),
+        ClipSpec("walk_to_walk_l180", turning("walk", "l", 12.0), root_motion=UTurn("walk", 12.0)),
+        ClipSpec("walk_to_walk_r180", turning("walk", "r", 12.0), root_motion=UTurn("walk", 12.0)),
+        ClipSpec("run_to_run_l180", turning("run", "l", 18.0), root_motion=UTurn("run", 18.0)),
+        ClipSpec("run_to_run_r180", turning("run", "r", 18.0), root_motion=UTurn("run", 18.0)),
         ClipSpec("walk_to_stand", stopping("walk")),
         ClipSpec("walk_to_stand_r", stopping("walk")),
         ClipSpec("run_to_stand", stopping("run")),
@@ -327,18 +400,55 @@ def clip_table():
         for angle in ("45", "90", "180"):
             for fast in ("", "_fast"):
                 specs.append(ClipSpec(f"turninplace{d}{angle}{fast}", standing))
-    return specs + idle_specs()
+    return specs + idle_specs() + jump_specs()
 
 
-def source_path(vanilla_root: Path, spec: ClipSpec, female: bool):
-    """The extracted vanilla clip whose timing, events and root motion a riding clip
-    copies: the clip itself from the first folder the player searches, else a stand-in."""
+def jump_specs():
+    """Jumping, falling and landing (MT\\Neutral, female versions where they exist).
+    Only built from the vanilla clips (duration 0): the landing states wait for their
+    events, so a guessed clip could hold the rider in place. The hard landings take the
+    soft landings' timing when their events match, so they don't stop you as long."""
+    specs = []
+    for kind, speed in (("inplace", "walk"), ("walk", "walk"), ("run", "run")):
+        specs += [ClipSpec(f"jump{kind}", takeoff(speed)),
+                  ClipSpec(f"jump{kind}fall", airborne(speed)),
+                  ClipSpec(f"jump{kind}land", landing(speed))]
+    specs += [ClipSpec("jumpimpactland", landing("walk", hard=True), timing=("jumpinplaceland",)),
+              ClipSpec("jumprunimpactland", landing("run", hard=True), timing=("jumprunland",))]
+    return specs
+
+
+def find_clip(vanilla_root: Path, name: str, female: bool):
     anims = vanilla_root / "animations"
-    for name in (spec.name,) + tuple(spec.stand_ins):
-        for folder in SEARCH_ORDER[female]:
-            p = anims / folder / (name + ".hkx")
-            if p.exists():
-                return p
+    for folder in SEARCH_ORDER[female]:
+        p = anims / folder / (name + ".hkx")
+        if p.exists():
+            return p
+    return None
+
+
+def control_events(A, path: Path):
+    return sorted({a.text.lower() for a in A.load_fo4_animation(str(path)).annotations
+                   if not a.text.lower().startswith("foot")})
+
+
+def source_path(vanilla_root: Path, spec: ClipSpec, female: bool, A=None):
+    """The extracted vanilla clip whose timing, events and root motion a riding clip
+    copies: the clip itself from the first folder the player searches, else a stand-in.
+    A spec's `timing` clip is preferred when it has the same control events as the clip
+    itself (needs the animation module A to check)."""
+    own = find_clip(vanilla_root, spec.name, female)
+    if A is not None and own is not None:
+        for name in spec.timing:
+            alt = find_clip(vanilla_root, name, female)
+            if alt is not None and control_events(A, alt) == control_events(A, own):
+                return alt
+    if own is not None:
+        return own
+    for name in spec.stand_ins:
+        p = find_clip(vanilla_root, name, female)
+        if p is not None:
+            return p
     return None
 
 
@@ -389,13 +499,21 @@ def reference_frame_samples(A, data: bytes):
 def write_clip(A, rider: Rider, spec: ClipSpec, vanilla_root: Path, out_dir: Path, female=False):
     """Writes the clip; returns (path, poses, vanilla source or None if provisional)."""
     rig = rider.rig
-    src_path = source_path(vanilla_root, spec, female)
+    src_path = source_path(vanilla_root, spec, female, A)
     if src_path is None:
+        if spec.duration <= 0:
+            return None, None, None
         return write_provisional(A, rider, spec, out_dir) + (None,)
     src = A.load_fo4_animation(str(src_path))
     n = src.num_frames
+    # The vanilla root motion is copied so the game's speed and turning maths stay
+    # identical, or reshaped with the same heading timing (the ridden U-turn).
+    samples, _ = reference_frame_samples(A, src_path.read_bytes())
+    motion = spec.motion
+    if spec.root_motion:
+        samples, motion = spec.root_motion.plan(samples, src.duration, src.annotations)
 
-    poses = [rider.pose(spec.motion(i / max(1, n - 1))) for i in range(n)]
+    poses = [rider.pose(motion(i / max(1, n - 1))) for i in range(n)]
     tracks = []
     for b in range(len(rig.names)):
         tracks.append(A.TrackData(
@@ -418,8 +536,6 @@ def write_clip(A, rider: Rider, spec: ClipSpec, vanilla_root: Path, out_dir: Pat
     out = out_dir / (spec.name + ".hkx")
     A.write_fo4_animation(str(out), anim)
 
-    # Copy the vanilla root motion so the game's speed and turning maths stay identical.
-    samples, _ = reference_frame_samples(A, src_path.read_bytes())
     data = bytearray(out.read_bytes())
     ours, start = reference_frame_samples(A, bytes(data))
     if len(ours) != len(samples):
@@ -478,6 +594,8 @@ def main() -> int:
     ap.add_argument("--female-body", type=Path,
                     help="female body nif (e.g. CBBE femalebody.nif); also writes the Female subfolder")
     ap.add_argument("--only", nargs="*", help="only these clip names")
+    ap.add_argument("--female-only", action="store_true",
+                    help="only the Female set (e.g. after switching body mods); needs --female-body")
     ap.add_argument("--game-files", type=Path,
                     help="list of the archive's character animation files, to report clips that "
                          "weren't extracted from the folder the game uses")
@@ -488,7 +606,9 @@ def main() -> int:
     A = load_anim_module(args.pynifly)
     rig = Rig.from_hkx(A.load_fo4_skeleton(str(args.vanilla / "characterassets" / "skeleton.hkx")))
 
-    sets = [("male", args.body, args.out, False)]
+    if args.female_only and not args.female_body:
+        ap.error("--female-only needs --female-body")
+    sets = [] if args.female_only else [("male", args.body, args.out, False)]
     if args.female_body:
         sets.append(("female", args.female_body, args.out / "Female", True))
     wanted = set()
@@ -497,13 +617,22 @@ def main() -> int:
         rider.seat(seat_probe(rig, body_nif, args.vanilla) if body_nif else None)
         print(f"{label}: seat height COM z = {rider.hip_z:.1f}")
         out_dir.mkdir(parents=True, exist_ok=True)
+        write_seat(rider, out_dir / SEAT_FILE)
         records_path = out_dir / CLIP_DATA_FILE
         records = json.loads(records_path.read_text()) if args.only and records_path.exists() else {}
         written = provisional = 0
+        missing = []
         for spec in clip_table():
             if args.only and spec.name not in args.only:
                 continue
             out, _, src = write_clip(A, rider, spec, args.vanilla, out_dir, female)
+            if out is None:
+                missing.append(spec.name)
+                records.pop(spec.name, None)
+                game = game_source(game_files, spec, female) if game_files else None
+                if game:
+                    wanted.add(game)
+                continue
             rel = src.relative_to(args.vanilla / "animations").with_suffix("").as_posix() if src else None
             records[spec.name] = dict(clip_data(A, out), source=rel)
             written += 1
@@ -513,11 +642,26 @@ def main() -> int:
                 wanted.add(game)
         records_path.write_text(json.dumps(records, indent=1, sort_keys=True) + "\n")
         print(f"{label}: wrote {written} clips ({provisional} provisional) and {CLIP_DATA_FILE} to {out_dir}")
+        if missing:
+            print(f"{label}: skipped {len(missing)} clips that are only built from the vanilla ones "
+                  f"(not extracted): {', '.join(missing)}")
     if wanted:
-        print("timed from a stand-in; for the exact vanilla timing extract these and run again:")
+        print("timed from a stand-in or skipped; for the exact vanilla timing and the jump clips, "
+              "extract these and run again:")
         for m in sorted(wanted):
             print(f"  meshes/actors/character/animations/{m}.hkx")
     return 0
+
+
+def write_seat(rider: Rider, path: Path):
+    """COM's model-space transform with the rider seated upright and still: the bind
+    pose of the worn bike that hangs off COM (build_bike_meshes.py --seat). Every clip
+    keeps COM there apart from the lean roll and a few millimetres of bounce."""
+    com = rider.rig.index("COM")
+    g = rider.pose(RideParams()).globals()[com]
+    path.write_text(json.dumps(dict(bone="COM", hip_z=round(rider.hip_z, 4),
+                                    transform=[[round(float(v), 7) for v in row] for row in g]),
+                               indent=1) + "\n")
 
 
 def seat_probe(rig, body_nif: Path, vanilla_root: Path):

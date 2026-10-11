@@ -6,6 +6,8 @@ remembers it and puts it back on when you get off. Without F4SE that gear
 just stays in your inventory.}
 
 Armor Property CMB_BikeRiderArmor Auto Const Mandatory
+Armor Property CMB_BikeRiderArmorFrame Auto Const
+{The ground-planted version of the worn bike.}
 int Property BikeSlotIndex Auto Const Mandatory
 {The bike's biped slot minus 30 (slot 57 = 27). Filled by the plugin generator from BikeSlot.}
 
@@ -14,7 +16,7 @@ Form rememberedItem = None
 Function RememberSlot(Actor akActor)
 	rememberedItem = None
 	Actor:WornItem worn = akActor.GetWornItem(BikeSlotIndex)
-	if worn && worn.item && worn.item != CMB_BikeRiderArmor
+	if worn && worn.item && worn.item != CMB_BikeRiderArmor && worn.item != CMB_BikeRiderArmorFrame
 		rememberedItem = worn.item
 	endif
 EndFunction

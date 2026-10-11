@@ -7,7 +7,8 @@ A rideable motorbike for Fallout 4:
 - **runs on Flamer Fuel**: one unit per 300 m ridden, taken from the side bag first, so it isn't a free speed boost in Survival
 - **side bag**: small storage, size adjustable from the console
 - **park it, call it, ride it**: activate the bike or use its keys (favorite them to a hotkey); optional F4SE hotkey
-- **seated riding animations** with lean in turns, and an **engine sound** that follows your speed
+- **seated riding animations** with lean in turns and ridden U-turns; the bike turns with you on the spot and in conversations; an **engine sound** that follows your speed
+- **rides like a vehicle, not a person**: 75% less fall damage while riding (adjustable), deep water ends the ride and leaves the bike on the bank, and an enemy's hit knocks you off (optional)
 - **MCM menu** for every setting (with MCM installed); with F4SE, gear in the bike's slot goes back on after a ride
 
 > **Status: never run in game.** The plugin is generated and verified offline: its structure, every script property
@@ -34,7 +35,7 @@ There's no vehicle physics in Fallout 4's engine for the player, so the bike is 
 3. your speed is multiplied;
 4. jumping, sprinting and (by default) combat are blocked.
 
-Getting off reverses all of that and parks the bike next to you. Indoors, power armor and furniture automatically park it outside.
+Getting off reverses all of that and parks the bike next to you. Indoors, power armor and furniture automatically park it outside; deep water leaves it on the bank.
 
 > **What it looks like:** the game has no motorcycle riding animations (the `AnimsMotorcycle` keyword in
 > `Fallout4.esm` is unused, and the archives hold only two parked-bike models). So the mod brings its own: a
@@ -104,6 +105,7 @@ Data/                         mirrors the game's Data folder
     CMB_ControllerScript      the brain: mount, dismount, speed, companions, parking
     CMB_BikeActivatorScript   parked bike menu
     CMB_KeysEffectScript      keys aid item
+    CMB_SwimWatchEffectScript tells the controller when you start and stop swimming
     CMB_SideBagScript         capacity-limited side bag
     CMB_PlayerAliasScript     save/load hook
     CMB_HotkeyF4SE            optional F4SE hotkey

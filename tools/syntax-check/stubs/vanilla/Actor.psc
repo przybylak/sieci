@@ -13,3 +13,8 @@ Function AttemptAnimationSetSwitch() native
 Function EvaluatePackage(bool abResetAI) native
 Event OnPlayerLoadGame()
 EndEvent
+bool Function IsInCombat() native
+bool Function IsHostileToActor(Actor akActor) native
+bool Function IsWeaponDrawn() native
+bool Function AddSpell(Spell akSpell, bool abVerbose = true) native
+bool Function RemoveSpell(Spell akSpell) native

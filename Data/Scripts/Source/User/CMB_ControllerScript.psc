@@ -6,7 +6,9 @@ riding, companions, parking, calling the bike and the side bag.
 There is no real vehicle physics here. While riding, the player wears the bike
 as a non-playable armor piece, moves faster through SpeedMult and has jumping,
 sprinting and (optionally) combat disabled. The parked bike is a normal
-Activator reference that gets moved around and enabled/disabled.}
+Activator reference that gets moved around and enabled/disabled.
+Riding also cuts fall damage, ends in deep water and (optionally) when an enemy
+hits you.}
 
 ; ---------------------------------------------------------------------------
 ; Properties (filled in the Creation Kit, see docs/BUILD_GUIDE.md)
@@ -20,11 +22,17 @@ Group Required_References
 	{The side bag: a persistent CMB_SideBagContainer reference placed in CMB_HoldingCell.}
 	ObjectReference Property HoldingMarkerRef Auto Const Mandatory
 	{An XMarker in CMB_HoldingCell. Companions riding along wait here while hidden.}
+	ObjectReference Property DrySpotMarkerRef Auto Const Mandatory
+	{An XMarker in CMB_HoldingCell. While riding it marks where the bike would park a moment ago.}
 EndGroup
 
 Group Required_Forms
 	Armor Property CMB_BikeRiderArmor Auto Const Mandatory
-	{Non-playable armor that shows the bike under the player while riding.}
+	{Non-playable armor that shows the bike under the player while riding. It hangs off the
+	rider's COM bone, so it turns with the seated rider.}
+	Armor Property CMB_BikeRiderArmorFrame Auto Const Mandatory
+	{The same bike planted on the ground (AnimObjectA bone): for riding without the seated
+	pose, with a weapon drawn, or when CMB_BikeFollowsRider is 0.}
 	Potion Property CMB_BikeKeys Auto Const Mandatory
 	{The keys aid item. Favorite it to a hotkey to get on and off quickly.}
 	Message Property CMB_KeysMenu Auto Const Mandatory
@@ -35,6 +43,10 @@ Group Required_Forms
 	{Vanilla Pip-Boy (00021B3B). The keys are only handed out once the player has one, i.e. after leaving Vault 111.}
 	FormList Property CMB_FuelItems Auto Const Mandatory
 	{What the bike burns. Flamer Fuel (000CAC78) by default; add items in xEdit to accept more.}
+	Spell Property CMB_SwimWatchAbility Auto Const Mandatory
+	{Hidden ability with an IsSwimming condition: its effect reports swimming (SetSwimming).}
+	ActorValue Property FallingDamageMod Auto Const Mandatory
+	{Vanilla (000BA43D). Percent less fall damage, as the Acrobat's legendary effect uses.}
 EndGroup
 
 Group Settings
@@ -54,6 +66,13 @@ Group Settings
 	{1 = riding burns fuel (CMB_FuelItems), from the side bag first, then the player. Default 1.}
 	GlobalVariable Property CMB_FuelDistance Auto Const Mandatory
 	{Distance ridden per unit of fuel, in game units (about 70 units = 1 m). Default 21000, about 300 m.}
+	GlobalVariable Property CMB_FallDamageCut Auto Const Mandatory
+	{Percent less fall damage while riding (0-100, 100 = none). Default 75.}
+	GlobalVariable Property CMB_DismountOnHit Auto Const Mandatory
+	{1 = an enemy's hit knocks you off the bike. Default 1.}
+	GlobalVariable Property CMB_BikeFollowsRider Auto Const Mandatory
+	{1 = the worn bike hangs off the seated rider and turns with them. 0 = it stays planted on the
+	ground (the older look: the rider can twist on it). Default 1.}
 EndGroup
 
 Group Optional
@@ -96,6 +115,9 @@ int Property RiderFlavorID = 0x800 AutoReadOnly
 {CMB_AnimFlavorRider in CMB_RiderPose.esp.}
 int Property KeysStackSize = 2 AutoReadOnly
 {Two keys, so using one never empties the stack and the favorites hotkey survives.}
+string Property DeepWaterMessage = "The motorbike can't go into deep water." AutoReadOnly
+string Property HeadTrackingVariable = "bAllowHeadTracking" AutoReadOnly
+{Behaviour graph switch for looking at people: it twists the chest, pulling the hands off the grips.}
 
 ; ---------------------------------------------------------------------------
 ; Runtime state
@@ -113,6 +135,10 @@ float fuelDistance = 0.0
 float lastX = 0.0
 float lastY = 0.0
 bool hasLastPos = false
+bool hasDrySpot = false
+bool swimming = false
+bool combatHinted = false
+float fallDamageDelta = 0.0
 Actor[] stowedFollowers
 Actor[] boostedFollowers
 float[] boostedDeltas
@@ -123,6 +149,7 @@ float[] boostedDeltas
 
 Event OnInit()
 	EnsureArrays()
+	WatchSwimming()
 	TryDeliverKeys()
 EndEvent
 
@@ -131,6 +158,8 @@ Function OnGameReloaded()
 	EnsureArrays()
 	busy = false
 	hasLastPos = false
+	hasDrySpot = false
+	WatchSwimming()
 	if keysDelivered
 		GiveKeysIfMissing(true)
 	else
@@ -152,6 +181,7 @@ Function OnGameReloaded()
 			ApplyRiderPose()
 		endif
 		RegisterForPlayerTeleport()
+		WatchForHits()
 		StartTimer(TickInterval, TimerTick)
 		; Sounds don't survive a load, and their old instance numbers mean nothing now.
 		engineIdle = 0
@@ -194,8 +224,10 @@ Function TryDeliverKeys()
 	if keysDelivered
 		return
 	endif
+	; Claim the delivery before calling anything: OnInit, a teleport and the retry
+	; timer can all get here at once, and every call below lets another one run.
+	keysDelivered = true
 	if PlayerRef.GetItemCount(Pipboy) > 0 && !PlayerRef.IsInInterior()
-		keysDelivered = true
 		CancelTimer(TimerDelivery)
 		if !riding
 			UnregisterForPlayerTeleport()
@@ -204,6 +236,7 @@ Function TryDeliverKeys()
 		Debug.Notification("Use the Motorbike Keys (Aid) to call your motorbike.")
 		Log("Keys delivered.")
 	else
+		keysDelivered = false
 		RegisterForPlayerTeleport()
 		StartTimer(DeliveryRetryInterval, TimerDelivery)
 	endif
@@ -269,19 +302,20 @@ Function Mount()
 		Game.ForceThirdPerson()
 	endif
 	BikeRef.Disable()
-	if PlayerRef.GetItemCount(CMB_BikeRiderArmor) == 0
-		PlayerRef.AddItem(CMB_BikeRiderArmor, 1, true)
-	endif
 	CallGearRestore("RememberSlot")
-	PlayerRef.EquipItem(CMB_BikeRiderArmor, true, true)
 	ApplyRiderPose()
+	EquipBike()
 	ApplyControls()
 	playerSpeedDelta = ApplySpeed(PlayerRef)
+	ApplyFallDamageCut()
 	HandleFollowersOnMount()
 
 	riding = true
 	hasLastPos = false
+	hasDrySpot = false
+	combatHinted = false
 	RegisterForPlayerTeleport()
+	WatchForHits()
 	StartTimer(TickInterval, TimerTick)
 	PlaySound(CMB_EngineStartSound)
 	StartTimer(EngineStartLength, TimerEngine)
@@ -321,6 +355,10 @@ Function CallBike()
 		busy = false
 		Debug.Notification("You can only call your motorbike outdoors.")
 		return
+	elseif swimming
+		busy = false
+		Debug.Notification(DeepWaterMessage)
+		return
 	endif
 	BikeRef.Disable()
 	PlaceBike(CallAheadDistance, 60.0)
@@ -349,6 +387,10 @@ Function EmergencyReset()
 		BikeRef.Enable()
 	endif
 	FinishRide()
+	; Restart the swim watch: its effect ends (not swimming) and starts again if you are.
+	PlayerRef.RemoveSpell(CMB_SwimWatchAbility)
+	swimming = false
+	WatchSwimming()
 	; Clear the riding flavour even if the script lost track of it.
 	if Game.IsPluginInstalled(RiderPosePlugin)
 		PlayerRef.ChangeAnimFlavor()
@@ -382,6 +424,7 @@ EndEvent
 Event OnPlayerTeleport()
 	if riding
 		hasLastPos = false
+		hasDrySpot = false
 		RideTick()
 	elseif !keysDelivered
 		TryDeliverKeys()
@@ -426,6 +469,10 @@ Function RideTick()
 	elseif PlayerRef.GetSitState() != 0
 		AutoDismount("The motorbike is parked nearby.", false)
 		return
+	elseif swimming
+		; Normally SetSwimming has done this already.
+		AutoDismount(DeepWaterMessage, false)
+		return
 	endif
 	float stepDistance = TrackMovement()
 	if !BurnFuel(stepDistance)
@@ -438,9 +485,13 @@ Function RideTick()
 	ShadowPlayer()
 	CatchUpFollowers()
 
-	if !PlayerRef.IsEquipped(CMB_BikeRiderArmor)
-		PlayerRef.EquipItem(CMB_BikeRiderArmor, true, true)
+	; Also swaps between the two bikes when a weapon is drawn or put away.
+	EquipBike()
+	if riderPoseApplied
+		; The graph can switch it back on (dialogue, for one).
+		PlayerRef.SetAnimationVariableBool(HeadTrackingVariable, false)
 	endif
+	CombatHint()
 EndFunction
 
 ; ---------------------------------------------------------------------------
@@ -454,6 +505,8 @@ string Function GetMountBlocker()
 		return "There's no room to ride in here."
 	elseif PlayerRef.GetSitState() != 0
 		return "You need to stand up first."
+	elseif swimming
+		return DeepWaterMessage
 	elseif FuelEnabled() && CountFuel() < 1
 		return "Your motorbike is out of fuel. It runs on Flamer Fuel (carried or in the side bag)."
 	endif
@@ -468,17 +521,16 @@ Function FinishRide()
 
 	CancelTimer(TimerEngine)
 	StopEngineLoops()
+	UnregisterForHitEvent(PlayerRef)
 
-	int armorCount = PlayerRef.GetItemCount(CMB_BikeRiderArmor)
-	if armorCount > 0
-		PlayerRef.UnequipItem(CMB_BikeRiderArmor, false, true)
-		PlayerRef.RemoveItem(CMB_BikeRiderArmor, armorCount, true)
-	endif
+	RemoveArmor(CMB_BikeRiderArmor)
+	RemoveArmor(CMB_BikeRiderArmorFrame)
 	CallGearRestore("RestoreSlot")
 	ClearRiderPose()
 	ReleaseControls()
 	RemoveSpeed(PlayerRef, playerSpeedDelta)
 	playerSpeedDelta = 0.0
+	RemoveFallDamageCut()
 	HandleFollowersOnDismount()
 
 	if riding
@@ -507,8 +559,19 @@ Function ParkBesidePlayer()
 	BikeRef.Enable()
 EndFunction
 
+; The disabled bike shadows the player a tick behind: each tick it goes where it
+; would have parked on the last one. So when the player starts swimming it's
+; left on the last dry ground rather than in the water.
 Function ShadowPlayer()
-	PlaceBike(0.0, ParkSideOffset)
+	if hasDrySpot
+		BikeRef.MoveTo(DrySpotMarkerRef)
+	else
+		PlaceBike(0.0, ParkSideOffset)
+	endif
+	float angle = PlayerRef.GetAngleZ()
+	DrySpotMarkerRef.MoveTo(PlayerRef, OffsetX(angle, 0.0, ParkSideOffset), OffsetY(angle, 0.0, ParkSideOffset), 0.0, false)
+	DrySpotMarkerRef.SetAngle(0.0, 0.0, angle + ParkedModelYaw)
+	hasDrySpot = true
 EndFunction
 
 ; Puts the parked bike forward/right of the player, facing the way they face.
@@ -571,6 +634,115 @@ Function RefreshMovement(Actor akActor)
 	akActor.ModValue(CarryWeight, -0.1)
 EndFunction
 
+; Percent less fall damage while riding: the bike's suspension takes the drops
+; the riding speed makes you take. Exactly what was added comes off again.
+Function ApplyFallDamageCut()
+	float cut = CMB_FallDamageCut.GetValue()
+	if cut < 0.0
+		cut = 0.0
+	elseif cut > 100.0
+		cut = 100.0
+	endif
+	if cut > 0.0
+		PlayerRef.ModValue(FallingDamageMod, cut)
+	endif
+	fallDamageDelta = cut
+EndFunction
+
+Function RemoveFallDamageCut()
+	if fallDamageDelta != 0.0
+		PlayerRef.ModValue(FallingDamageMod, -fallDamageDelta)
+	endif
+	fallDamageDelta = 0.0
+EndFunction
+
+; Two versions of the worn bike. CMB_BikeRiderArmor hangs off the rider's COM
+; bone, so it turns with them when the game twists the body away from the root
+; (turning on the spot, talking), but it only lines up with the seated pose.
+; CMB_BikeRiderArmorFrame stands on the ground (AnimObjectA): for riding without
+; the seated pose, with a weapon drawn (standing poses), or by choice.
+Armor Function WantedBikeArmor()
+	if riderPoseApplied && CMB_BikeFollowsRider.GetValue() > 0.0 && !PlayerRef.IsWeaponDrawn()
+		return CMB_BikeRiderArmor
+	endif
+	return CMB_BikeRiderArmorFrame
+EndFunction
+
+Function EquipBike()
+	Armor wanted = WantedBikeArmor()
+	Armor other = CMB_BikeRiderArmor
+	if wanted == CMB_BikeRiderArmor
+		other = CMB_BikeRiderArmorFrame
+	endif
+	if !PlayerRef.IsEquipped(wanted)
+		if PlayerRef.GetItemCount(wanted) == 0
+			PlayerRef.AddItem(wanted, 1, true)
+		endif
+		PlayerRef.EquipItem(wanted, true, true)
+	endif
+	RemoveArmor(other)
+EndFunction
+
+Function RemoveArmor(Armor akArmor)
+	int count = PlayerRef.GetItemCount(akArmor)
+	if count > 0
+		PlayerRef.UnequipItem(akArmor, false, true)
+		PlayerRef.RemoveItem(akArmor, count, true)
+	endif
+EndFunction
+
+; ---------------------------------------------------------------------------
+; Swimming, hits and fights
+; ---------------------------------------------------------------------------
+
+; The ability's effect runs while its IsSwimming condition holds. Adding it again
+; does nothing, so this is safe on every load (and covers saves from before it existed).
+Function WatchSwimming()
+	PlayerRef.AddSpell(CMB_SwimWatchAbility, false)
+EndFunction
+
+; Called by CMB_SwimWatchEffectScript when the player starts and stops swimming.
+; Shallow water doesn't count: riding through it is fine.
+Function SetSwimming(bool abSwimming)
+	swimming = abSwimming
+	if abSwimming && riding && !busy
+		; The bike is left where it shadowed the player a moment ago, on dry ground.
+		AutoDismount(DeepWaterMessage, false)
+	endif
+EndFunction
+
+; Hit events are one-shot: OnHit registers again for the next one.
+Function WatchForHits()
+	if riding && CMB_DismountOnHit.GetValue() > 0.0
+		RegisterForHitEvent(PlayerRef)
+	endif
+EndFunction
+
+Event OnHit(ObjectReference akTarget, ObjectReference akAggressor, Form akSource, Projectile akProjectile, \
+		bool abPowerAttack, bool abSneakAttack, bool abBashAttack, bool abHitBlocked, string apMaterial)
+	if !riding
+		return
+	endif
+	Actor attacker = akAggressor as Actor
+	if attacker && attacker != PlayerRef && !busy && attacker.IsHostileToActor(PlayerRef)
+		AutoDismount("You're knocked off the motorbike.", true)
+	else
+		WatchForHits()
+	endif
+EndEvent
+
+; Once per fight, when weapons are off while riding: say how to get off.
+Function CombatHint()
+	if !PlayerRef.IsInCombat()
+		combatHinted = false
+	elseif !combatHinted
+		combatHinted = true
+		if CMB_AllowCombat.GetValue() == 0.0
+			Debug.Notification("You're in a fight! Use the Motorbike Keys (or your hotkey) to get off.")
+		endif
+	endif
+EndFunction
+
 ; The seated pose is an animation flavour: the player keeps its own archetype
 ; (and so every other animation). CMB_RiderPose.esp adds subgraph entries that
 ; also need the flavour keyword and search the CMB_Rider clip folder first.
@@ -585,6 +757,8 @@ Function ApplyRiderPose()
 		PlayerRef.ChangeAnimFlavor(flavor)
 		PlayerRef.AttemptAnimationSetSwitch()
 		riderPoseApplied = true
+		; Looking at people twists the chest and pulls the hands off the grips.
+		PlayerRef.SetAnimationVariableBool(HeadTrackingVariable, false)
 	endif
 EndFunction
 
@@ -592,6 +766,7 @@ Function ClearRiderPose()
 	if riderPoseApplied
 		PlayerRef.ChangeAnimFlavor() ; None clears the flavour
 		PlayerRef.AttemptAnimationSetSwitch()
+		PlayerRef.SetAnimationVariableBool(HeadTrackingVariable, true) ; the graph's default
 		riderPoseApplied = false
 	endif
 EndFunction

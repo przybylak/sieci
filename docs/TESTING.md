@@ -27,11 +27,12 @@ and, if you have one, a bag or other gear that sits in an unusual slot.
 | 1 | Load the save while outdoors | "Motorbike Keys (2)" added (Aid tab), plus a hint. On a new game this happens when you first step outside Vault 111 |
 | 2 | Use the keys | menu "Your motorbike isn't nearby." |
 | 3 | Pick "Call it here" | the bike appears a few steps ahead, facing your way (invisible = `CMB_BikeParked.nif` missing) |
-| 4 | Activate the bike → "Ride" | short fade; you're in 3rd person, **seated** on the bike, hands on the bars, left foot down; "Fuel: N" shown; your bag still on (no bike under you = `CMB_BikeWorn.nif` missing; standing over the bike = see row 4b) |
+| 4 | Activate the bike → "Ride" | short fade; you're in 3rd person, **seated** on the bike, hands on the bars, left foot down; "Fuel: N" shown; your bag still on (no bike under you = `CMB_BikeWornRider.nif`/`CMB_BikeWornRiderF.nif` missing; standing over the bike = see row 4b) |
 | 4b | *(only if you stand over the bike)* check `CMB_RiderPose.esp` is active (and, with MO2, the *Rider Pose* mod) | then the seated clips aren't playing: send the log, a screenshot, and what `make_rider_pose.bat` printed |
 | 4c | Cripple a leg or an arm (Survival), ride | still seated (the crippled-limb entries are copied too) |
 | 5 | Run around, turn | clearly faster than on foot (~2.5×), feet up on the pegs, leaning forward, bike and rider lean into turns; no jumping, no sprinting, weapons holstered; your companion keeps up running alongside |
-| 5b | Stop, turn on the spot, start again; talk to someone while seated | foot goes down when stopped, smooth start/stop; dialogue keeps you seated (stops while turning may briefly show a standing stop: those clips aren't generated yet) |
+| 5b | Stop, turn on the spot, start again; talk to someone while seated | foot goes down when stopped, smooth start/stop; the bike turns with you on the spot and stays lined up in dialogue, hands on the grips. `set CMB_BikeFollowsRider to 0` and get on again for the old planted bike, to compare |
+| 5c | While riding, hold the key for the opposite direction (a U-turn) | you swing round in a short leaning arc and keep going, instead of stopping, spinning and setting off backwards |
 | 6 | Use the keys again (or favorite them and press the hotkey) | fade; the bike is parked to your right; after 300 m or more of riding, Flamer Fuel went down by about one per 300 m |
 | 7 | Activate the bike → "Open side bag" | a container opens; put stuff in |
 | 8 | Overfill the bag (default 60 lbs with F4SE, or 60 items without) | extra items bounce back with "The side bag is full" |
@@ -45,6 +46,10 @@ and, if you have one, a bag or other gear that sits in an unusual slot.
 | 15 | Get on, sit still, then ride off and stop | engine start, idle while standing, louder/higher while moving, run-down when you get off (silent = see the engine-sound note in DESIGN.md) |
 | 16 | *(F4SE)* wear something in slot 57, ride, get off | it comes off while riding and goes back on afterwards |
 | 17 | *(MCM)* Mod Config → Commonwealth Motorbike | every setting there; change the speed, get on: the new speed applies |
+| 18 | Ride off a drop that hurts on foot (try the same drop on foot first) | about 75% less damage (`CMB_FallDamageCut`); in Survival, a drop that cripples your legs on foot shouldn't while riding (please check: the cut is on fall damage, and leg damage from falls should follow it). Landing still shows the standing clips unless the jump clips were extracted (ASSETS.md) |
+| 19 | Ride into a lake or a river until you'd swim | "The motorbike can't go into deep water."; you're off and swimming, the bike is parked on the bank where you were a moment ago. Using the keys while swimming is refused. Shallow water (paddling depth) rides normally |
+| 20 | Let an enemy hit you while riding | "You're knocked off the motorbike.", the bike parked next to you. With `set CMB_DismountOnHit to 0` you stay on, and when a fight starts (weapons off while riding) a hint says how to get off |
+| 21 | Load a save from before the keys arrived (or a new game), go outside | exactly two keys and one hint, even right after a load or a door |
 
 ## Console settings
 
@@ -60,6 +65,9 @@ and, if you have one, a bag or other gear that sits in an unusual slot.
 | `set CMB_UseRiderPose to 0` | no seated animations (run in place over the bike); `1` to turn them back on, next time you get on |
 | `set CMB_HotkeyCode to 34` | F4SE hotkey (DirectX scan code, 34 = G, 0 = off); save and reload afterwards |
 | `set CMB_EngineVolume to 40` | quieter engine (0–100, 0 = silent) |
+| `set CMB_FallDamageCut to 100` | no fall damage while riding (0–100, default 75 = 75% less) |
+| `set CMB_DismountOnHit to 0` | enemies' hits don't knock you off (default 1) |
+| `set CMB_BikeFollowsRider to 0` | the worn bike stays planted on the ground instead of turning with the seated rider (default 1) |
 
 Speed changes apply the next time you get on.
 

@@ -50,6 +50,36 @@
       }
     },
     {
+      "type": "switcher",
+      "text": "Thrown off when hit",
+      "help": "An enemy\u0027s hit knocks you off the bike, so you can fight back. Off: you keep riding; a hint says how to get off when a fight starts.",
+      "valueOptions": {
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|81E"
+      }
+    },
+    {
+      "type": "slider",
+      "text": "Less fall damage (%)",
+      "help": "How much less fall damage you take while riding. 100 = none. Takes effect the next time you get on.",
+      "valueOptions": {
+        "min": 0,
+        "max": 100,
+        "step": 5,
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|81D"
+      }
+    },
+    {
+      "type": "switcher",
+      "text": "Bike turns with the rider",
+      "help": "On: the bike hangs off the seated rider, so it turns with you on the spot and in conversations. Off: it stays planted on the ground (the rider can twist on it). Takes effect the next time you get on.",
+      "valueOptions": {
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|81F"
+      }
+    },
+    {
       "type": "section",
       "text": "Fuel"
     },

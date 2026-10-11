@@ -25,9 +25,10 @@ Follow [ASSETS.md](ASSETS.md). You end up with:
 
 ```
 Data\Meshes\CMB\CMB_BikeParked.nif   (unmodified copy of the vanilla motorcycle)
-Data\Meshes\CMB\CMB_BikeWorn.nif     (same model, facing forward, skinned to AnimObjectA)
+Data\Meshes\CMB\CMB_BikeWornRider.nif, CMB_BikeWornRiderF.nif   (same model, facing forward, hanging off the seated rider's COM)
+Data\Meshes\CMB\CMB_BikeWorn.nif     (same model, facing forward, skinned to AnimObjectA on the ground)
 Data\Meshes\CMB\CMB_Keys.nif         (optional: copy of a vanilla key)
-Data\Meshes\Actors\Character\Animations\MT\CMB_Rider\   (riding clips + CMB_RiderClips.json, with a Female subfolder)
+Data\Meshes\Actors\Character\Animations\MT\CMB_Rider\   (riding clips + CMB_RiderClips.json + CMB_RiderSeat.json, with a Female subfolder)
 ```
 
 ## 2. Compiled scripts
@@ -99,27 +100,30 @@ This regenerates `Data/CommonwealthMotorbike.esp` and the MCM menu files (`Data/
 
 `tools/build.sh` also writes `tools/rider/template/CMB_RiderPose.esp`, the skeleton `make_rider_plugin.py` fills in.
 
-The vanilla form IDs the plugins use (PlayerRef, XMarker, HumanRace, HumanRaceSubGraphData, SpeedMult, CarryWeight, Pip-Boy, AnimArchetypePlayer) were checked against Mutagen's FormKey list generated from the real `Fallout4.esm`. The record layouts were also compared field by field with xEdit's Fallout 4 definitions.
+The vanilla form IDs the plugins use (PlayerRef, XMarker, HumanRace, HumanRaceSubGraphData, SpeedMult, CarryWeight, FallingDamageMod, Pip-Boy, AnimArchetypePlayer) were checked against Mutagen's FormKey list generated from the real `Fallout4.esm`. The record layouts were also compared field by field with xEdit's Fallout 4 definitions.
 
 ## Appendix: building the plugin by hand in the Creation Kit
 
 You only need this if the generated plugin turns out to have a problem and you'd rather rebuild it in the editor. Every EditorID starts with `CMB_`, and the values below mirror the generator.
 
-1. **Globals** (Float): `CMB_SpeedPercent` 250, `CMB_CompanionMode` 0, `CMB_AllowCombat` 0, `CMB_ForceThirdPerson` 1, `CMB_UseRiderPose` 1, `CMB_CatchUpDistance` 2500, `CMB_BagCapacity` 60, `CMB_HotkeyCode` 48, `CMB_UseFuel` 1, `CMB_FuelDistance` 21000.
+1. **Globals** (Float): `CMB_SpeedPercent` 250, `CMB_CompanionMode` 0, `CMB_AllowCombat` 0, `CMB_ForceThirdPerson` 1, `CMB_UseRiderPose` 1, `CMB_CatchUpDistance` 2500, `CMB_BagCapacity` 60, `CMB_HotkeyCode` 48, `CMB_UseFuel` 1, `CMB_FuelDistance` 21000, `CMB_EngineVolume` 70, `CMB_FallDamageCut` 75, `CMB_DismountOnHit` 1, `CMB_BikeFollowsRider` 1.
    **FormList** `CMB_FuelItems` containing Flamer Fuel (`AmmoFlamerFuel`, 000CAC78).
 2. *(no keyword: `CMB_AnimFlavorRider` lives in `CMB_RiderPose.esp`)*
 3. **Messages** (tick *Message Box*; button order matters):
    `CMB_ParkedMenu` "Motorbike" / "What do you want to do?" with buttons `Ride`, `Open side bag`, `Cancel`.
    `CMB_KeysMenu` "Motorbike" / "Your motorbike isn't nearby." with buttons `Call it here`, `Open side bag`, `Cancel`.
-4. **Armor Addon** `CMB_BikeRiderAA`: race HumanRace, biped slot 57, male+female model `CMB\CMB_BikeWorn.nif`.
+4. **Armor Addon** `CMB_BikeRiderAA`: race HumanRace, biped slot 57, male model `CMB\CMB_BikeWornRider.nif`, female model `CMB\CMB_BikeWornRiderF.nif`.
    **Armor** `CMB_BikeRiderArmor`: name "Motorbike", *Non-Playable*, slot 57, race HumanRace, addon `CMB_BikeRiderAA`, everything else 0.
+   The same pair again as `CMB_BikeRiderFrameAA` (male+female model `CMB\CMB_BikeWorn.nif`) and `CMB_BikeRiderArmorFrame`.
 5. **Magic Effect** `CMB_BikeKeysEffect`: archetype Script, Fire and Forget, Self, casting sound level Silent.
    Flags: No Duration, No Magnitude, No Area, Hide in UI, Painless. Script: `CMB_KeysEffectScript`.
    **Potion** `CMB_BikeKeys`: name "Motorbike Keys", model `CMB\CMB_Keys.nif`, weight 0, value 0, No Auto Calc, effect `CMB_BikeKeysEffect` (0/0/0).
+   **Magic Effect** `CMB_SwimWatchEffect`: archetype Script, Constant Effect, Self, casting sound level Silent, the same flags plus No Hit Event. Script: `CMB_SwimWatchEffectScript`.
+   **Spell** `CMB_SwimWatchAbility`: type Ability, Constant Effect, Self, effect `CMB_SwimWatchEffect` (0/0/0) with the condition `IsSwimming == 1` (Subject).
 6. **Activator** `CMB_BikeActivator`: name "Motorbike", activate text "Use", model `CMB\CMB_BikeParked.nif`, script `CMB_BikeActivatorScript`.
    **Container** `CMB_SideBagContainer`: name "Side Bag", model `CMB\CMB_BikeParked.nif`, script `CMB_SideBagScript`.
-7. **Interior cell** `CMB_HoldingCell` holding three *persistent* references: `CMB_BikeRef` (the activator), `CMB_SideBagRef` (the container), `CMB_HoldingMarkerRef` (an XMarker).
+7. **Interior cell** `CMB_HoldingCell` holding four *persistent* references: `CMB_BikeRef` (the activator), `CMB_SideBagRef` (the container), `CMB_HoldingMarkerRef` and `CMB_DrySpotMarkerRef` (XMarkers).
 8. **Quest** `CMB_ControllerQuest`: *Start Game Enabled*, priority 50.
    - Reference alias `Player` (Specific Reference: PlayerRef) with script `CMB_PlayerAliasScript`.
    - Scripts `CMB_ControllerScript` and, optionally, `CMB_HotkeyF4SE`.
-9. **Properties:** fill every *Mandatory* property ("Auto-Fill All" gets the vanilla ones). Script-typed properties called `Controller` point at `CMB_ControllerQuest`. `Pipboy` is the vanilla Pip-Boy armor (00021B3B).
+9. **Properties:** fill every *Mandatory* property ("Auto-Fill All" gets the vanilla ones). Script-typed properties called `Controller` point at `CMB_ControllerQuest`. `Pipboy` is the vanilla Pip-Boy armor (00021B3B), `FallingDamageMod` the vanilla actor value (000BA43D).

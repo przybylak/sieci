@@ -25,6 +25,7 @@ COMPATIBLE = {
     "sound": {"SoundDescriptor"},
     "quest": {"Quest"},
     "formlist": {"FormList"},
+    "spell": {"Spell"},
     "int": {"Int"},
     "float": {"Float"},
 }
