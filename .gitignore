@@ -4,7 +4,7 @@ tools/esp-generator/obj/
 __pycache__/
 *.pex
 # Built on your own PC from the game's files (tools/rider), not redistributable
-Data/CMB_RiderPose.esm
+Data/CMB_RiderPose.esp
 Data/Meshes/CMB/*.nif
 Data/Meshes/Actors/
 Data/Meshes/AnimTextData/

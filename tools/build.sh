@@ -14,7 +14,7 @@ echo "== Generating plugin"
 dotnet build -c Release "$GEN/EspGenerator.csproj" -o "$GEN/bin/out" >/dev/null
 dotnet "$GEN/bin/out/EspGenerator.dll" "$ESP" >/dev/null
 echo "wrote $ESP"
-TEMPLATE="$ROOT/tools/rider/template/CMB_RiderPose.esm"
+TEMPLATE="$ROOT/tools/rider/template/CMB_RiderPose.esp"
 dotnet "$GEN/bin/out/EspGenerator.dll" --rider-template "$TEMPLATE" >/dev/null
 echo "wrote $TEMPLATE"
 

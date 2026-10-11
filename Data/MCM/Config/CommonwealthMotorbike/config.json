@@ -25,7 +25,7 @@
     {
       "type": "switcher",
       "text": "Seated riding animations",
-      "help": "Needs CMB_RiderPose.esm (make_rider_pose.bat). Off: you run in place over the bike. Takes effect the next time you get on.",
+      "help": "Needs CMB_RiderPose.esp (make_rider_pose.bat). Off: you run in place over the bike. Takes effect the next time you get on.",
       "valueOptions": {
         "sourceType": "GlobalValue",
         "sourceForm": "CommonwealthMotorbike.esp|804"

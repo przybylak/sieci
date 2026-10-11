@@ -40,7 +40,8 @@ Getting off reverses all of that and parks the bike next to you. Indoors, power 
 > `Fallout4.esm` is unused, and the archives hold only two parked-bike models). So the mod brings its own: a
 > seated set of the holstered walk/run/turn/start/stop/idle clips, generated from the vanilla ones with the same
 > timing and root motion, and the bike leans with you in turns. They're switched on while you ride by
-> `CMB_RiderPose.esm`, which adds animation entries the way the DLCs do, without editing HumanRace.
+> `CMB_RiderPose.esp`, which adds animation entries the way the DLCs do, without editing HumanRace, and
+> comes with the animation data the Creation Kit would otherwise have to generate.
 > Without it you run in place over the bike. See [ASSETS.md](docs/ASSETS.md).
 
 ## What's needed
@@ -48,9 +49,9 @@ Getting off reverses all of that and parks the bike next to you. Indoors, power 
 | Need | Why |
 |---|---|
 | Fallout 4 on PC, any version from 1.10 (2017) on | the plugin is light (ESL) and edits no vanilla records |
-| **Creation Kit** (free on Steam) | only for its script compiler (`compile_scripts.bat` runs it) and Archive2 |
-| **Python 3** + [PyNifly](https://github.com/BadDogSkyrim/PyNifly) | builds the bike meshes and riding clips from your game files, and `CMB_RiderPose.esm` from your `Fallout4.esm` (none of it can be shipped) |
-| **Creation Kit** again | regenerates the animation index for the riding clips (`generate_anim_info.bat`) |
+| **Python 3** | `make_rider_pose.bat` builds `CMB_RiderPose.esp` and its animation data from your load order and game files |
+| Python + [PyNifly](https://github.com/BadDogSkyrim/PyNifly), Bethesda Archive Extractor | only to build the bike meshes and riding clips yourself (they're derived from the game's files, so they aren't in the repository) |
+| Creation Kit (optional) | not needed: the scripts can be compiled with Caprica (`tools/syntax-check`); `compile_scripts.bat` uses the Creation Kit's compiler if you have it |
 | F4SE (optional) | dedicated hotkey, weight-based side bag, slot-57 gear put back on after a ride, MCM menu; without it you favorite the keys for a hotkey and the bag counts items |
 | Testing in game + Papyrus log | I can't run the game; the log and screenshots are how fixes happen |
 
@@ -58,11 +59,10 @@ Getting off reverses all of that and parks the bike next to you. Indoors, power 
 
 The plugin is already built (`Data/CommonwealthMotorbike.esp`). You need to:
 
-1. Build the bike meshes and riding clips: [docs/ASSETS.md](docs/ASSETS.md)
-2. Double-click `compile_scripts.bat`, then `make_rider_pose.bat`
-3. Copy the contents of `Data` into the game's `Data` folder, or zip them for your mod manager, and enable both plugins
-4. Run `generate_anim_info.bat` (through MO2 if you use it)
-5. Test: [docs/TESTING.md](docs/TESTING.md)
+1. Get the bike meshes, riding clips and compiled scripts (build them: [docs/ASSETS.md](docs/ASSETS.md), [BUILD_GUIDE](docs/BUILD_GUIDE.md))
+2. Copy the contents of `Data` into the game's `Data` folder, or zip them for your mod manager, and enable `CommonwealthMotorbike.esp`
+3. Run `make_rider_pose.bat` (with MO2: `make_rider_pose.bat "<MO2 folder>" <profile>`) and enable `CMB_RiderPose.esp`
+4. Test: [docs/TESTING.md](docs/TESTING.md)
 
 Details for every step: [docs/BUILD_GUIDE.md](docs/BUILD_GUIDE.md).
 
@@ -86,7 +86,7 @@ Details for every step: [docs/BUILD_GUIDE.md](docs/BUILD_GUIDE.md).
 | `set CMB_UseFuel to <0/1>` | 1 |
 | `set CMB_FuelDistance to <units per fuel>` (about 70 units = 1 m; lower = thirstier) | 21000 (~300 m) |
 | `set CMB_AllowCombat to <0/1>` | 0 |
-| `set CMB_UseRiderPose to <0/1>` (seated riding animations, needs `CMB_RiderPose.esm`) | 1 |
+| `set CMB_UseRiderPose to <0/1>` (seated riding animations, needs `CMB_RiderPose.esp`) | 1 |
 | `set CMB_EngineVolume to <0–100>` | 70 |
 | `cqf CMB_ControllerQuest EmergencyReset` | undo everything if stuck |
 | `cqf CMB_ControllerQuest ForceGiveKeys` | keys, if an alternative-start mod skipped the Pip-Boy |
@@ -112,13 +112,12 @@ Data/                         mirrors the game's Data folder
   Sound/FX/CMB/               engine sounds (synthesised by tools/sound)
   MCM/Config/                 MCM menu and hotkey (written by the generator)
 compile_scripts.bat           compiles the scripts with the Creation Kit's compiler
-make_rider_pose.bat           builds Data/CMB_RiderPose.esm from your Fallout4.esm
-generate_anim_info.bat        has the Creation Kit index the riding clips
+make_rider_pose.bat           builds CMB_RiderPose.esp + its AnimTextData from your load order
 docs/                         install, assets, testing and design notes
 tools/build.sh                regenerates the plugin and runs all offline checks
 tools/esp-generator/          C# (Mutagen) plugin generator + plugin/script cross-check
 tools/syntax-check/           compile-checks the scripts on Linux without the CK
-tools/rider/                  bike meshes, riding clips, rider-pose plugin (Python + PyNifly)
+tools/rider/                  bike meshes, riding clips (Python + PyNifly), rider-pose plugin and AnimTextData (Python)
 tools/sound/                  engine sound synthesiser (Python + numpy)
 ```
 

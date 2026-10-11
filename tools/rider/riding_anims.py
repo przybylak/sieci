@@ -12,22 +12,27 @@ hands on the grips, feet on the forward pegs; at a standstill the left foot is
 put down and the bike tips onto it. The worn bike is skinned to AnimObjectA, so
 the clips also lean the bike, together with the rider, in turns.
 
-Standing-still clips (idle, idle flavours, dialogue) are seated too. Until their
-vanilla files are supplied they are "provisional": in place, guessed lengths.
+Standing-still clips (idle, idle flavours, dialogue) are seated too. A clip with
+no vanilla file at all is "provisional": in place, with a guessed length.
 
-Female characters look in a Female subfolder first, so --female-body also writes
-CMB_Rider/Female, timed from the vanilla female clips where those exist.
+The vanilla clip each one copies is the one the player would play: the clip name
+looked up in the player's folders in the game's order (SEARCH_ORDER), falling back
+to a stand-in if that file wasn't extracted. --female-body also writes
+CMB_Rider/Female from the female folders. Next to the clips goes CMB_RiderClips.json
+with their root motion and events for the AnimTextData (make_rider_plugin.py).
 
 Needs PyNifly's io_scene_nifly folder (its anim_fo4.py writes the clips) and the
 vanilla clips/skeleton extracted from Fallout4 - Animations.ba2 / Meshes.ba2:
 
   python riding_anims.py --pynifly <io_scene_nifly> --vanilla <...>/meshes/actors/character \
       --body <...>/malebody.nif --female-body <...>/femalebody.nif \
-      --out <Data>/Meshes/Actors/Character/Animations/MT/CMB_Rider
+      --out <Data>/Meshes/Actors/Character/Animations/MT/CMB_Rider \
+      [--game-files vanilla_character_animation_list.txt]
 """
 
 import argparse
 import importlib.util
+import json
 import math
 import struct
 import sys
@@ -232,12 +237,25 @@ def standing(_t):
     return IDLE
 
 
+# Root motion and events of every clip, for the AnimTextData that make_rider_plugin.py
+# writes (the game reads those from AnimTextData, not from the .hkx).
+CLIP_DATA_FILE = "CMB_RiderClips.json"
+
+# Folders the player's holstered (MT) subgraph entries search, in order: what
+# vanilla's AnimTextData resolves every clip name to (checked for all 193 male and
+# 191 female names). A riding clip copies the timing of the clip it replaces.
+SEARCH_ORDER = {
+    False: ("mt/player", "mt/confident", "mt/neutral"),
+    True: ("mt/player/female", "mt/confident/female", "mt/neutral/female", "mt/player", "mt/confident", "mt/neutral"),
+}
+
+
 @dataclass
 class ClipSpec:
-    name: str              # output file name (no extension)
-    source: str            # vanilla clip to mirror (relative to the animations folder), or None
-    motion: object         # function t -> RideParams
-    duration: float = 0.0  # only for clips without a vanilla source (provisional)
+    name: str                 # clip name = output file name (no extension)
+    motion: object            # function t -> RideParams
+    stand_ins: tuple = ()     # clips whose timing can stand in if this one wasn't extracted
+    duration: float = 0.0     # length if no vanilla clip is found at all (provisional)
 
 
 def seated_gesture(kind, seed):
@@ -260,61 +278,87 @@ def seated_gesture(kind, seed):
     return at
 
 
-def provisional_specs():
-    """Clips the zip didn't include (no vanilla reference yet): standing idle, idle
-    flavours and dialogue. Timings are guesses; regenerate with the vanilla files to match."""
-    # Names are the player's own MT clips (mt\player): idle flavours 1-9, dialogue idles 1-6,
-    # talk s/m/l 1-8. The female folder has fewer of each, so this covers both.
-    specs = [ClipSpec("posea_idle1", None, seated_gesture("still", 0), 4.0)]
-    specs += [ClipSpec(f"posea_idleflavor{i}", None, seated_gesture("look", i), 6.0) for i in range(1, 10)]
-    specs += [ClipSpec(f"posea_idledialogue{i}", None, seated_gesture("still", i), 5.0) for i in range(1, 7)]
-    specs += [ClipSpec(f"posea_listen{i}", None, seated_gesture("still", i), 4.0) for i in range(1, 3)]
+def idle_specs():
+    """The player's standing idle, idle flavours and dialogue clips (mt\\player), seated.
+    The female folder lacks idledialogue6 and idleflavor9; those fall back to the male ones."""
+    specs = [ClipSpec("posea_idle1", seated_gesture("still", 0), duration=4.0)]
+    specs += [ClipSpec(f"posea_idleflavor{i}", seated_gesture("look", i), duration=6.0) for i in range(1, 10)]
+    specs += [ClipSpec(f"posea_idledialogue{i}", seated_gesture("still", i), duration=5.0) for i in range(1, 7)]
+    specs += [ClipSpec(f"posea_listen{i}", seated_gesture("still", i), duration=4.0) for i in range(1, 3)]
     for size, length in (("s", 2.5), ("m", 4.0), ("l", 6.0)):
-        specs += [ClipSpec(f"posea_talk_{size}{i}", None, seated_gesture("talk", i), length) for i in range(1, 9)]
-    specs += [ClipSpec("posea_agree1", None, seated_gesture("nod", 0), 1.8),
-              ClipSpec("posea_disagree1", None, seated_gesture("shake", 0), 1.8)]
+        specs += [ClipSpec(f"posea_talk_{size}{i}", seated_gesture("talk", i), duration=length) for i in range(1, 9)]
+    specs += [ClipSpec("posea_agree1", seated_gesture("nod", 0), duration=1.8),
+              ClipSpec("posea_disagree1", seated_gesture("shake", 0), duration=1.8)]
     return specs
 
 
 def clip_table():
-    P, N = "mt/player/", "mt/neutral/"
+    lean = {s: SPEEDS[s]["lean_roll"] for s in SPEEDS}
     specs = [
-        ClipSpec("walkforward", P + "walkforward", riding("walk")),
-        ClipSpec("walkleanleft", P + "walkleanleft", riding("walk", -SPEEDS["walk"]["lean_roll"])),
-        ClipSpec("walkleanright", P + "walkleanright", riding("walk", SPEEDS["walk"]["lean_roll"])),
-        ClipSpec("jogforward", N + "jogforward", riding("jog")),
-        ClipSpec("jogleanleft", N + "jogforward", riding("jog", -SPEEDS["jog"]["lean_roll"])),
-        ClipSpec("jogleanright", N + "jogforward", riding("jog", SPEEDS["jog"]["lean_roll"])),
-        ClipSpec("runforward", N + "runforward", riding("run")),
-        ClipSpec("runleanleft", P + "runleanleft", riding("run", -SPEEDS["run"]["lean_roll"])),
-        ClipSpec("runleanright", P + "runleanright", riding("run", SPEEDS["run"]["lean_roll"])),
-        ClipSpec("sprintforward", N + "sprintforward", riding("sprint")),
-        ClipSpec("sprintleanleft", N + "sprintforward", riding("sprint", -SPEEDS["sprint"]["lean_roll"])),
-        ClipSpec("sprintleanright", N + "sprintforward", riding("sprint", SPEEDS["sprint"]["lean_roll"])),
-        ClipSpec("walk_to_walk_l180", P + "walk_to_walk_l180", turning("walk", "l", 12.0)),
-        ClipSpec("walk_to_walk_r180", P + "walk_to_walk_r180", turning("walk", "r", 12.0)),
-        ClipSpec("run_to_run_l180", P + "run_to_run_l180", turning("run", "l", 18.0)),
-        ClipSpec("run_to_run_r180", P + "run_to_run_r180", turning("run", "r", 18.0)),
-        ClipSpec("walk_to_stand", N + "walk_to_stand", stopping("walk")),
-        ClipSpec("walk_to_stand_r", N + "walk_to_stand_r", stopping("walk")),
-        ClipSpec("run_to_stand", N + "run_to_stand", stopping("run")),
+        ClipSpec("walkforward", riding("walk")),
+        ClipSpec("walkleanleft", riding("walk", -lean["walk"])),
+        ClipSpec("walkleanright", riding("walk", lean["walk"])),
+        ClipSpec("jogforward", riding("jog")),
+        ClipSpec("jogleanleft", riding("jog", -lean["jog"]), ("jogforward",)),
+        ClipSpec("jogleanright", riding("jog", lean["jog"]), ("jogforward",)),
+        ClipSpec("runforward", riding("run")),
+        ClipSpec("runleanleft", riding("run", -lean["run"])),
+        ClipSpec("runleanright", riding("run", lean["run"])),
+        ClipSpec("sprintforward", riding("sprint")),
+        ClipSpec("sprintleanleft", riding("sprint", -lean["sprint"]), ("sprintforward",)),
+        ClipSpec("sprintleanright", riding("sprint", lean["sprint"]), ("sprintforward",)),
+        ClipSpec("walk_to_walk_l180", turning("walk", "l", 12.0)),
+        ClipSpec("walk_to_walk_r180", turning("walk", "r", 12.0)),
+        ClipSpec("run_to_run_l180", turning("run", "l", 18.0)),
+        ClipSpec("run_to_run_r180", turning("run", "r", 18.0)),
+        ClipSpec("walk_to_stand", stopping("walk")),
+        ClipSpec("walk_to_stand_r", stopping("walk")),
+        ClipSpec("run_to_stand", stopping("run")),
     ]
     for speed in ("walk", "run"):
-        specs.append(ClipSpec(f"stand_to_{speed}", P + f"stand_to_{speed}", starting(speed)))
+        specs.append(ClipSpec(f"stand_to_{speed}", starting(speed)))
         for d in ("l", "r"):
             for angle, peak in (("30", 5.0), ("90", 9.0), ("180", 12.0)):
-                specs.append(ClipSpec(f"stand_to_{speed}_{d}{angle}", P + f"stand_to_{speed}_{d}{angle}",
-                                      starting(speed, d, peak)))
+                specs.append(ClipSpec(f"stand_to_{speed}_{d}{angle}", starting(speed, d, peak)))
     for d in ("l", "r"):
         for angle, peak in (("45", 5.0), ("90", 8.0), ("180", 10.0)):
-            specs.append(ClipSpec(f"walk_to_stand_{d}{angle}", N + f"walk_to_stand_{d}{angle}",
-                                  stopping("walk", d, peak)))
+            specs.append(ClipSpec(f"walk_to_stand_{d}{angle}", stopping("walk", d, peak)))
     for d in ("left", "right"):
         for angle in ("45", "90", "180"):
             for fast in ("", "_fast"):
-                name = f"turninplace{d}{angle}{fast}"
-                specs.append(ClipSpec(name, N + name, standing))
-    return specs
+                specs.append(ClipSpec(f"turninplace{d}{angle}{fast}", standing))
+    return specs + idle_specs()
+
+
+def source_path(vanilla_root: Path, spec: ClipSpec, female: bool):
+    """The extracted vanilla clip whose timing, events and root motion a riding clip
+    copies: the clip itself from the first folder the player searches, else a stand-in."""
+    anims = vanilla_root / "animations"
+    for name in (spec.name,) + tuple(spec.stand_ins):
+        for folder in SEARCH_ORDER[female]:
+            p = anims / folder / (name + ".hkx")
+            if p.exists():
+                return p
+    return None
+
+
+def game_source(game_files, spec: ClipSpec, female: bool):
+    """Where the game itself takes the clip from, given the archive's file list."""
+    for folder in SEARCH_ORDER[female]:
+        if f"{folder}/{spec.name}" in game_files:
+            return f"{folder}/{spec.name}"
+    return None
+
+
+def read_game_files(path: Path):
+    """vanilla_character_animation_list.txt -> {"mt/player/walkforward", ...}"""
+    prefix = "meshes\\actors\\character\\animations\\"
+    out = set()
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        l = line.strip().lower()
+        if l.startswith(prefix) and l.endswith(".hkx"):
+            out.add(l[len(prefix):-4].replace("\\", "/"))
+    return out
 
 
 # --------------------------------------------------------------------------
@@ -342,29 +386,12 @@ def reference_frame_samples(A, data: bytes):
     return samples, start
 
 
-def source_path(vanilla_root: Path, spec: ClipSpec, female: bool):
-    """The vanilla clip whose timing, events and root motion a riding clip copies.
-
-    Female characters look in a Female subfolder first, so the female set follows
-    mt/player/female or mt/neutral/female where those exist. None if not supplied.
-    """
-    if spec.source is None:
-        return None
-    anims = vanilla_root / "animations"
-    folder, name = spec.source.rsplit("/", 1)
-    candidates = [anims / (spec.source + ".hkx")]
-    if female:
-        candidates[:0] = [anims / "mt/player/female" / (name + ".hkx"), anims / "mt/neutral/female" / (name + ".hkx")]
-    return next((c for c in candidates if c.exists()), None)
-
-
 def write_clip(A, rider: Rider, spec: ClipSpec, vanilla_root: Path, out_dir: Path, female=False):
+    """Writes the clip; returns (path, poses, vanilla source or None if provisional)."""
     rig = rider.rig
-    if spec.source is None:
-        return write_provisional(A, rider, spec, out_dir)
     src_path = source_path(vanilla_root, spec, female)
     if src_path is None:
-        return None
+        return write_provisional(A, rider, spec, out_dir) + (None,)
     src = A.load_fo4_animation(str(src_path))
     n = src.num_frames
 
@@ -400,7 +427,24 @@ def write_clip(A, rider: Rider, spec: ClipSpec, vanilla_root: Path, out_dir: Pat
     for i, s in enumerate(samples):
         struct.pack_into("<4f", data, start + 16 * i, *s)
     out.write_bytes(bytes(data))
-    return out, poses
+    return out, poses, src_path
+
+
+def clip_data(A, path: Path):
+    """Root motion and events of a written clip, as the AnimTextData record the game
+    reads instead of the .hkx (see animtextdata.py)."""
+    import animtextdata
+    anim = A.load_fo4_animation(str(path))
+    try:
+        samples, _ = reference_frame_samples(A, path.read_bytes())
+    except (StopIteration, KeyError, struct.error):
+        samples = []
+    if len(samples) < 2:
+        samples = [(0.0, 0.0, 0.0, 0.0)] * 2
+    events = sorted((round(a.time, 6), a.text) for a in anim.annotations)
+    rec = animtextdata.clip_record(path.stem, anim.duration, samples, events)
+    return dict(duration=rec["duration"], translations=rec["translations"],
+                rotations=rec["rotations"], events=rec["events"])
 
 
 def write_provisional(A, rider: Rider, spec: ClipSpec, out_dir: Path):
@@ -434,7 +478,11 @@ def main() -> int:
     ap.add_argument("--female-body", type=Path,
                     help="female body nif (e.g. CBBE femalebody.nif); also writes the Female subfolder")
     ap.add_argument("--only", nargs="*", help="only these clip names")
+    ap.add_argument("--game-files", type=Path,
+                    help="list of the archive's character animation files, to report clips that "
+                         "weren't extracted from the folder the game uses")
     args = ap.parse_args()
+    game_files = read_game_files(args.game_files) if args.game_files else None
 
     sys.path.insert(0, str(args.pynifly))
     A = load_anim_module(args.pynifly)
@@ -443,25 +491,31 @@ def main() -> int:
     sets = [("male", args.body, args.out, False)]
     if args.female_body:
         sets.append(("female", args.female_body, args.out / "Female", True))
-    missing = set()
+    wanted = set()
     for label, body_nif, out_dir, female in sets:
         rider = Rider(rig)
         rider.seat(seat_probe(rig, body_nif, args.vanilla) if body_nif else None)
         print(f"{label}: seat height COM z = {rider.hip_z:.1f}")
         out_dir.mkdir(parents=True, exist_ok=True)
-        written = 0
-        for spec in clip_table() + provisional_specs():
+        records_path = out_dir / CLIP_DATA_FILE
+        records = json.loads(records_path.read_text()) if args.only and records_path.exists() else {}
+        written = provisional = 0
+        for spec in clip_table():
             if args.only and spec.name not in args.only:
                 continue
-            if write_clip(A, rider, spec, args.vanilla, out_dir, female) is None:
-                folder, name = spec.source.rsplit("/", 1)
-                missing.add(f"{folder}/female/{name}" if female else spec.source)
-                continue
+            out, _, src = write_clip(A, rider, spec, args.vanilla, out_dir, female)
+            rel = src.relative_to(args.vanilla / "animations").with_suffix("").as_posix() if src else None
+            records[spec.name] = dict(clip_data(A, out), source=rel)
             written += 1
-        print(f"{label}: wrote {written} clips to {out_dir}")
-    if missing:
-        print("not generated, vanilla clip not supplied (extract it and run again):")
-        for m in sorted(missing):
+            provisional += src is None
+            game = game_source(game_files, spec, female) if game_files else None
+            if game and game != rel:
+                wanted.add(game)
+        records_path.write_text(json.dumps(records, indent=1, sort_keys=True) + "\n")
+        print(f"{label}: wrote {written} clips ({provisional} provisional) and {CLIP_DATA_FILE} to {out_dir}")
+    if wanted:
+        print("timed from a stand-in; for the exact vanilla timing extract these and run again:")
+        for m in sorted(wanted):
             print(f"  meshes/actors/character/animations/{m}.hkx")
     return 0
 

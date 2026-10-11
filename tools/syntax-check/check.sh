@@ -4,7 +4,10 @@
 #
 # This catches typos, wrong argument counts and type errors. It does NOT prove
 # the scripts work in game, and the stubs are hand-written from the Creation Kit
-# wiki, not Bethesda's real sources - the Creation Kit compile is the real test.
+# wiki, not Bethesda's real sources.
+#
+# PEX_OUT=<folder> also keeps the compiled .pex files (Caprica targets Fallout 4's
+# script format): a way to get working scripts without the Creation Kit.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -55,4 +58,9 @@ for script in "$SRC"/*F4SE.psc; do
   fi
 done
 
+if [ -n "${PEX_OUT:-}" ] && [ $status -eq 0 ]; then
+  mkdir -p "$PEX_OUT"
+  cp "$OUT"/pex/*.pex "$PEX_OUT"/
+  echo "pex   $(ls "$OUT"/pex | wc -l) compiled scripts in $PEX_OUT"
+fi
 exit $status

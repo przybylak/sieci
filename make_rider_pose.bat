@@ -1,15 +1,21 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 rem ===========================================================================
-rem  Builds CMB_RiderPose.esm (the seated riding animations) from YOUR
-rem  Fallout4.esm, into the Data folder next to this file.
+rem  Builds CMB_RiderPose.esp and its AnimTextData (the seated riding
+rem  animations) from YOUR game and load order. No Creation Kit needed.
 rem
-rem  Needs: Python 3 (python.org, "Add to PATH"). Nothing else.
-rem  Afterwards run generate_anim_info.bat (through Mod Organizer if you use it).
+rem  Needs: Python 3 (python.org, tick "Add python.exe to PATH"), the riding
+rem  clips installed (Meshes\Actors\Character\Animations\MT\CMB_Rider).
 rem
-rem  If Fallout 4 isn't found automatically, run it as:
-rem     set FO4=D:\Games\Fallout 4
-rem     make_rider_pose.bat
+rem  Mod Organizer 2:   make_rider_pose.bat "C:\Modding\MO2" [profile]
+rem      Reads that profile's load order and mods, and writes a new mod,
+rem      "Commonwealth Motorbike - Rider Pose", to enable in MO2.
+rem  No mod manager:   make_rider_pose.bat
+rem      Reads %LOCALAPPDATA%\Fallout4\plugins.txt and writes into Data.
+rem
+rem  Run it again after adding, removing or updating mods that add player
+rem  animations (the Unofficial Fallout 4 Patch, for example).
+rem  If Fallout 4 isn't found automatically:  set FO4=D:\Games\Fallout 4
 rem ===========================================================================
 
 set "HERE=%~dp0"
@@ -34,12 +40,29 @@ if not defined PY (
   goto fail
 )
 
-!PY! "!HERE!tools\rider\make_rider_plugin.py" --fallout4 "!FO4!\Data\Fallout4.esm" --out "!HERE!Data\CMB_RiderPose.esm"
+set "MO2=%~1"
+set "PROFILE=%~2"
+if not defined PROFILE set "PROFILE=Default"
+if defined MO2 (
+  if "!MO2:~-1!"=="\" set "MO2=!MO2:~0,-1!"
+  if not exist "!MO2!\profiles\!PROFILE!\modlist.txt" (
+    echo No MO2 profile at "!MO2!\profiles\!PROFILE!". Check the folder and profile name.
+    goto fail
+  )
+  set "OUT=!MO2!\mods\Commonwealth Motorbike - Rider Pose\CMB_RiderPose.esp"
+  !PY! "!HERE!tools\rider\make_rider_plugin.py" --data "!FO4!\Data" --mo2 "!MO2!" --profile "!PROFILE!" --out "!OUT!"
+) else (
+  set "OUT=!FO4!\Data\CMB_RiderPose.esp"
+  !PY! "!HERE!tools\rider\make_rider_plugin.py" --data "!FO4!\Data" --plugins-txt "%LOCALAPPDATA%\Fallout4\plugins.txt" --out "!OUT!"
+)
 if !errorlevel! neq 0 goto fail
 
 echo.
-echo Next: install/copy the Data folder as usual, then run generate_anim_info.bat
-echo ^(with Mod Organizer: run it through MO2, see docs\ASSETS.md^).
+if defined MO2 (
+  echo Done. In MO2: refresh, enable the mod "Commonwealth Motorbike - Rider Pose" and the plugin CMB_RiderPose.esp.
+) else (
+  echo Done. Enable CMB_RiderPose.esp ^(in-game Mods menu or plugins.txt^).
+)
 echo.
 pause
 exit /b 0

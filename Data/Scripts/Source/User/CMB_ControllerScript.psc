@@ -47,7 +47,7 @@ Group Settings
 	GlobalVariable Property CMB_ForceThirdPerson Auto Const Mandatory
 	{1 = switch to third person when getting on, so the bike is visible. Default 1.}
 	GlobalVariable Property CMB_UseRiderPose Auto Const Mandatory
-	{1 = seated riding animations while riding, when CMB_RiderPose.esm is installed. 0 = never. Default 1.}
+	{1 = seated riding animations while riding, when CMB_RiderPose.esp is installed. 0 = never. Default 1.}
 	GlobalVariable Property CMB_CatchUpDistance Auto Const Mandatory
 	{Companions running alongside further away than this are moved up behind the player. 0 = never. Default 2500.}
 	GlobalVariable Property CMB_UseFuel Auto Const Mandatory
@@ -91,9 +91,9 @@ float Property ParkedModelYaw = 180.0 AutoReadOnly
 float Property MaxTickDistance = 5000.0 AutoReadOnly
 {More than this between two ticks is a teleport (door, fast travel), not riding, so it burns no fuel.}
 int Property LowFuelWarning = 3 AutoReadOnly
-string Property RiderPosePlugin = "CMB_RiderPose.esm" AutoReadOnly
+string Property RiderPosePlugin = "CMB_RiderPose.esp" AutoReadOnly
 int Property RiderFlavorID = 0x800 AutoReadOnly
-{CMB_AnimFlavorRider in CMB_RiderPose.esm.}
+{CMB_AnimFlavorRider in CMB_RiderPose.esp.}
 int Property KeysStackSize = 2 AutoReadOnly
 {Two keys, so using one never empties the stack and the favorites hotkey survives.}
 
@@ -572,7 +572,7 @@ Function RefreshMovement(Actor akActor)
 EndFunction
 
 ; The seated pose is an animation flavour: the player keeps its own archetype
-; (and so every other animation). CMB_RiderPose.esm adds subgraph entries that
+; (and so every other animation). CMB_RiderPose.esp adds subgraph entries that
 ; also need the flavour keyword and search the CMB_Rider clip folder first.
 ; It's built on the player's PC (tools/rider/make_rider_plugin.py), so the
 ; keyword is looked up by file rather than filled in as a property.

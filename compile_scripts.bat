@@ -79,6 +79,8 @@ rem --- Optional F4SE scripts (need F4SE's script sources) --------------------
 set "F4SE_SRC="
 if exist "!FO4!\Data\Scripts\Source\F4SE\F4SE.psc" set "F4SE_SRC=!FO4!\Data\Scripts\Source\F4SE"
 if exist "!FO4!\Data\Scripts\Source\User\F4SE.psc" set "F4SE_SRC=!FO4!\Data\Scripts\Source\User"
+rem The "F4SE Scripts" mod puts them straight into Data\Scripts\Source (with MO2, run this from MO2).
+if exist "!FO4!\Data\Scripts\Source\F4SE.psc" set "F4SE_SRC=!FO4!\Data\Scripts\Source"
 if exist "!BASE!\F4SE.psc" set "F4SE_SRC=!BASE!"
 echo.
 if defined F4SE_SRC (

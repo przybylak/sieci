@@ -9,12 +9,12 @@ your own copy of the game:
 | `Meshes\CMB\CMB_BikeParked.nif` | `build_bike_meshes.py` | unmodified copy of the vanilla motorcycle (keeps its collision) |
 | `Meshes\CMB\CMB_BikeWorn.nif` | `build_bike_meshes.py` | the same model as wearable armor: faces forward, seat over the origin, skinned to the `AnimObjectA` bone |
 | `Meshes\Actors\Character\Animations\MT\CMB_Rider\*.hkx` and `...\CMB_Rider\Female\*.hkx` | `riding_anims.py` | seated riding versions of the holstered walk/run/turn/start/stop/idle clips |
-| `CMB_RiderPose.esm` | `make_rider_pose.bat` | small plugin that makes the game use those clips while you ride |
-| `Meshes\AnimTextData\...` | `generate_anim_info.bat` (Creation Kit) | the game's index of clip timing and root motion, regenerated to include the riding clips |
+| `...\CMB_Rider\CMB_RiderClips.json` (and `Female\`) | `riding_anims.py` | each clip's root motion and events, for the step below |
+| `CMB_RiderPose.esp` + `Meshes\AnimTextData\...` | `make_rider_pose.bat` | small plugin that makes the game use those clips while you ride, and the animation data it needs. Built from your load order; no Creation Kit |
 | `Meshes\CMB\CMB_Keys.nif` (optional) | you: copy any vanilla key mesh | 3D preview of the keys in the Pip-Boy |
 
 If someone already handed you the meshes and the `CMB_Rider` folder, skip to
-[the rider-pose plugin](#4-the-rider-pose-plugin). That step always runs on your own PC.
+[the rider-pose plugin](#4-the-rider-pose-plugin-and-animation-data). That step always runs on your own PC.
 
 ## 1. Tools
 
@@ -23,8 +23,8 @@ If someone already handed you the meshes and the `CMB_Rider` folder, skip to
 - **PyNifly 29.1 or newer** ([BadDogSkyrim/PyNifly](https://github.com/BadDogSkyrim/PyNifly) releases). Unzip the
   release and pass its `io_scene_nifly` folder as `--pynifly`. Blender isn't needed: the scripts use PyNifly's nif
   library (`NiflyDLL.dll` ships in the zip) and its Fallout 4 HKX reader/writer directly.
-- **Archive2** (comes with the Creation Kit, `<Fallout 4>\Tools\Archive2`) or Bethesda Archive Extractor, to pull
-  files out of the game's `.ba2` archives.
+- **Bethesda Archive Extractor** (or Archive2, which comes with the Creation Kit) to pull files out of the game's
+  `.ba2` archives.
 
 ## 2. Extract the game files
 
@@ -35,7 +35,7 @@ Into one work folder (say `C:\CMBwork`), keeping the archive paths:
 | `Fallout4 - Meshes.ba2` | `meshes\setdressing\vehicles\motorcycle\motorcycle_clean.nif` (or `motorcycle_dirty.nif`) |
 | | `meshes\actors\character\characterassets\skeleton.nif`, `malebody.nif`, `femalebody.nif` |
 | `Fallout4 - Animations.ba2` | `meshes\actors\character\characterassets\skeleton.hkx` |
-| | everything in `meshes\actors\character\animations\mt\player\` and `...\mt\neutral\` (with their `female` subfolders) |
+| | everything in `meshes\actors\character\animations\mt\player\`, `...\mt\confident\` and `...\mt\neutral\` (with their `female` subfolders) |
 
 Use the bodies your game actually shows (for example the CBBE `femalebody.nif`): they're only used to sit the hips
 exactly on the seat. Skeleton replacers that keep the vanilla body bones (Community Fixes' `skeleton.nif`, Combined
@@ -73,69 +73,76 @@ on the seat, hands on the grips (exact, via IK), feet on the pegs, leaning forwa
 standstill the left foot goes down and the bike tips onto it. `verify_clips.py` checks all of that against the vanilla
 files. `preview.py` renders still images if you want to look before going in game.
 
-**Female clips** go in `CMB_Rider\Female`, timed from the vanilla female clips where those exist.
+**Which vanilla clip.** The player's holstered animations come from `MT\Player`, then `MT\Confident`, then
+`MT\Neutral` (female: the `Female` subfolders of those first). That order was read off the game's own AnimTextData
+(all 193 male and 191 female clip names agree), and each riding clip copies the timing of the clip the game would
+otherwise play. Female clips go in `CMB_Rider\Female`.
+
+`riding_anims.py` also writes `CMB_RiderClips.json` next to the clips: their root motion and events in the form the
+game's AnimTextData uses (checked against the Creation Kit's own output for 80 vanilla clips: within 1 unit and
+0.6°).
 
 **Weapon drawn.** There are no riding clips for that: with combat allowed (`CMB_AllowCombat 1`), drawing a weapon
 shows the normal standing weapon poses. The game also has no backwards or sideways clips with the weapon holstered.
 The character turns round instead, so riding never needs them.
 
-### Still missing
+### Stand-ins
 
-| Clips | Why | What to do |
-|---|---|---|
-| `walk_to_stand_l45/l90/l180/r/r45/r90/r180` | the vanilla files weren't in the first batch | extract `mt\neutral\walk_to_stand_*.hkx` (and `mt\neutral\female\...`), run `riding_anims.py` again. Until then, stopping while turning shows a standing stop |
-| idle, idle flavours, dialogue (`posea_*`) | same | made without a vanilla reference ("provisional": guessed lengths, no events). Extract `mt\player\posea_*.hkx` (and `female\`) and run again to time them like the originals |
+If a clip wasn't extracted from the folder the game uses, the nearest one stands in for its timing (for example
+`MT\Neutral` for `MT\Confident`, or `JogForward` for `JogLeanLeft`). Pass the archive's file list with
+`--game-files` and `riding_anims.py` lists exactly which files would make the timing exact. The animation data
+always describes the clip as built, so a stand-in only means the turn or lean takes slightly different time
+than vanilla's.
 
-`riding_anims.py` prints the exact paths of anything it couldn't build.
-
-## 4. The rider-pose plugin
+## 4. The rider-pose plugin and animation data
 
 ```
-make_rider_pose.bat
+make_rider_pose.bat "C:\Modding\MO2" Default      (Mod Organizer 2: instance folder and profile)
+make_rider_pose.bat                                 (no mod manager)
 ```
 
-It reads your own `Fallout4.esm` and writes `Data\CMB_RiderPose.esm` (light, about 2 KB). Under the hood:
-`python tools\rider\make_rider_plugin.py --fallout4 <Fallout 4>\Data\Fallout4.esm --out Data\CMB_RiderPose.esm`.
+It reads your load order and game files and writes `CMB_RiderPose.esp` (light, a few KB) and its
+`Meshes\AnimTextData`. With MO2 both go into a new mod, *Commonwealth Motorbike - Rider Pose*: enable it and the
+plugin. Under the hood: `python tools\rider\make_rider_plugin.py --data <Fallout 4>\Data --mo2 <MO2> --profile <name>
+--out <...>\CMB_RiderPose.esp`.
+
+**Run it again** whenever you add, remove or update a mod that adds animation entries for the player (the
+Unofficial Fallout 4 Patch does), or the riding clips change.
 
 **How it works.** While you ride, the controller script gives the player the animation flavour keyword
-`CMB_AnimFlavorRider` (`ChangeAnimFlavor`). The plugin holds that keyword and an **additive race**. That is how the
-DLCs add animations to humans without touching HumanRace: their races (`DLC03HumanRaceAdditiveSubgraphData` and
-so on) add subgraph entries to `HumanRaceSubGraphData`. Ours adds a copy of each of the player's third-person
-holstered entries, with the keyword added and `MT\CMB_Rider\` searched first (`MT\CMB_Rider\Female\` first for
-the female entries). The game uses the entry whose keywords all match and that matches the most of them, so the
-copies only win while the keyword is on. Anything the folder doesn't have (jumping, swimming, staggering) comes
-from the usual folders.
+`CMB_AnimFlavorRider` (`ChangeAnimFlavor`). The plugin holds that keyword and an **additive race**, the way the DLCs,
+Sim Settlements 2 and Combined Arms add animations to humans without touching HumanRace: subgraph entries added
+to `HumanRaceSubGraphData`. Ours is a copy of every third-person holstered entry for the player, from
+`HumanRaceSubGraphData` itself and from every additive race in your load order, each with the keyword added and
+`MT\CMB_Rider` searched first (`MT\CMB_Rider\Female` first for female entries). The game uses the entry whose keywords
+all match and that matches the most of them, so with the keyword on, a copy always beats the entry it copies,
+including the Unofficial Patch's crippled-limb entries. Anything without a riding version (jumping, swimming,
+staggering) comes from the usual folders.
+
+**Masters.** Always `Fallout4.esm`, plus any plugin whose keywords the copied entries use (for example
+`Unofficial Fallout 4 Patch.esp`). Rebuild it if you remove one of those.
 
 **HumanRace isn't edited.** LooksMenu, LooksMenu Customization Compendium and other race mods keep working without a
-patch, whatever the load order. `CMB_RiderPose.esm` loads with the masters (it's an `.esm`) and is light-flagged,
-so it doesn't take a load-order slot.
+patch, whatever the load order.
 
-**Why it's built on your PC.** The copied entries come from your `Fallout4.esm`; their folder lists are Bethesda's
-data, and guessing them would break every animation the riding folder doesn't cover. The rest of the plugin comes
-from `tools/rider/template/CMB_RiderPose.esm`, which `tools/build.sh` generates.
+### Animation data without the Creation Kit
 
-### Animation data (Creation Kit)
+The game doesn't look for clips at run time. For every subgraph entry, `Meshes\AnimTextData` holds what the Creation
+Kit's `-GenerateAnimInfo` worked out in advance: which file each clip name resolves to, each clip's length, root
+motion and events, and the graph's speed and stance data. The files are named after the entry:
+`(CRC32 of the folder list << 32) | CRC32 of the behaviour graph` (lowercase, Bethesda's CRC: zero start, no final
+xor). That formula reproduces the file names of a Creation Kit-built mod exactly.
 
-The game reads clip timing and root motion from `Meshes\AnimTextData`, not from the `.hkx` files, so it has to be
-regenerated once the clips and `CMB_RiderPose.esm` are installed:
-
-- **Without a mod manager:** double-click `generate_anim_info.bat`.
-- **Mod Organizer 2:** the Creation Kit must see MO2's virtual Data folder. In MO2: *Executables* (the gears icon)
-  → add one with Binary `C:\Windows\System32\cmd.exe`, Arguments `/c "<repository>\generate_anim_info.bat"`,
-  Start in `<Fallout 4>`. Run it from MO2. The new `Meshes\AnimTextData` files land in MO2's *Overwrite*; move them
-  into the motorbike mod.
-
-Either way it runs `CreationKit.exe -GenerateAnimInfo:CMB_RiderPose.esm "<Fallout 4>\Data" "<Fallout 4>\Data"`.
-The plugin is an `.esm` with no spaces in its name because this command only accepts that.
-
-> Some Creation Kit updates have reportedly broken `-GenerateAnimInfo` (Nexus threads around the 2024 next-gen
-> update). If no `AnimTextData` folder appears, send the window's text; the fallback is writing those files directly,
-> which needs a few vanilla `AnimTextData` files to copy the format from.
+`make_rider_plugin.py` writes the files for each copied entry from the entry it copies: the game's own files, read from
+your `Fallout4 - Animations.ba2` (or loose files, or `--animtextdata <folder>` with extracted ones), with every clip we
+provide pointed at `CMB_Rider` and given our clip's length, root motion and events (`CMB_RiderClips.json`). Speed and
+stance data don't name clips and are copied. Footstep events are left out, as in the clips. The vanilla persistent
+list (`PersistantSubgraphInfoAndOffsetData.txt`) isn't touched: holstered entries aren't in it.
 
 ### Turning it off
 
-`set CMB_UseRiderPose to 0` (back on: `1`). Or untick `CMB_RiderPose.esm`. Without it the mod still works, and you
-run in place over the bike as before.
+`set CMB_UseRiderPose to 0` (back on: `1`). Or untick `CMB_RiderPose.esp`. Without it the mod still works, and you
+run in place over the bike.
 
 ## Quick in-game look at the worn bike
 
@@ -147,9 +154,9 @@ riding; `player.unequipitem <id>` and `player.removeitem <id> 1` undo it.
 | bike missing, armor equipped | `CMB_BikeWorn.nif` not at `Data\Meshes\CMB\` |
 | pink / white bike | the vanilla motorcycle textures/materials aren't loading (they come from the base game archives) |
 | bike pops out at screen edges | an old `CMB_BikeWorn.nif` with a small culling sphere; rebuild it |
-| standing rider over the bike while riding | rider pose off, `CMB_RiderPose.esm` not active, or animation data not generated |
-| rider seated but slides / clips misbehave | `AnimTextData` missing or outdated: run `generate_anim_info.bat` again |
-| standing pose for a moment when stopping in a turn | the `walk_to_stand_*` clips (see *Still missing*) |
+| standing rider over the bike while riding | rider pose off, `CMB_RiderPose.esp` not active, or its AnimTextData missing (the mod folder from `make_rider_pose.bat` not enabled) |
+| standing poses only with a crippled limb | an animation mod added player entries after the plugin was built: run `make_rider_pose.bat` again |
+| rider seated but slides / clips misbehave | `AnimTextData` outdated: run `make_rider_pose.bat` again after rebuilding clips |
 
 ## Background: why custom clips
 

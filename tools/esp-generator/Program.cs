@@ -103,13 +103,13 @@ public static class Program
         return 0;
     }
 
-    // The seated rider pose lives in its own small master, built on the player's PC by
-    // tools/rider/make_rider_plugin.py from this template: it copies the player's own
-    // third-person MT subgraph entries out of their Fallout4.esm in place of the
-    // placeholder below. A separate .esm because the Creation Kit only generates
-    // animation data (-GenerateAnimInfo) for master files.
-    public const string RiderPluginName = "CMB_RiderPose.esm";
-    public const string RiderFolder = @"Actors\Character\Animations\MT\CMB_Rider\";
+    // The seated rider pose lives in its own small light plugin, built on the player's PC
+    // by tools/rider/make_rider_plugin.py from this template: it copies the player's
+    // third-person MT subgraph entries from their load order in place of the placeholder
+    // below, and writes the matching AnimTextData. Separate because its masters depend
+    // on the load order (e.g. the Unofficial Patch's keywords).
+    public const string RiderPluginName = "CMB_RiderPose.esp";
+    public const string RiderFolder = @"Actors\Character\Animations\MT\CMB_Rider";
     public const string TemplatePlaceholderGraph = "CMB_TEMPLATE_PLACEHOLDER";
 
     static Fallout4Mod BuildRiderTemplate()
@@ -118,7 +118,6 @@ public static class Program
         mod.ModHeader.Stats.NextFormID = 0x800;
         mod.ModHeader.Author = "Commonwealth Motorbike";
         mod.ModHeader.Description = "Seated riding animations for Commonwealth Motorbike.";
-        mod.ModHeader.Flags |= Fallout4ModHeader.HeaderFlag.Master;
         mod.IsSmallMaster = true;
 
         // Form ID 0x800: the controller script looks it up with GetFormFromFile.
@@ -172,7 +171,7 @@ public static class Program
                 Section("Riding"),
                 Slider("Speed (%)", "Riding speed as a percentage of your normal speed. Takes effect the next time you get on. Above about 350 the world may not load in fast enough.",
                     "CMB_SpeedPercent", 100, 500, 10),
-                Switcher("Seated riding animations", "Needs CMB_RiderPose.esm (make_rider_pose.bat). Off: you run in place over the bike. Takes effect the next time you get on.", "CMB_UseRiderPose"),
+                Switcher("Seated riding animations", "Needs CMB_RiderPose.esp (make_rider_pose.bat). Off: you run in place over the bike. Takes effect the next time you get on.", "CMB_UseRiderPose"),
                 Switcher("Switch to third person", "Switch to third person when getting on, so you see the bike.", "CMB_ForceThirdPerson"),
                 Switcher("Allow combat while riding", "Weapons and VATS stay usable while riding. Takes effect the next time you get on.", "CMB_AllowCombat"),
                 Section("Fuel"),
@@ -233,7 +232,7 @@ public static class Program
         var gCompanionMode = Global(mod, "CMB_CompanionMode", 0);
         var gAllowCombat = Global(mod, "CMB_AllowCombat", 0);
         var gThirdPerson = Global(mod, "CMB_ForceThirdPerson", 1);
-        // 1 = seated riding animations when CMB_RiderPose.esm is installed, 0 = never.
+        // 1 = seated riding animations when CMB_RiderPose.esp is installed, 0 = never.
         var gRiderPose = Global(mod, "CMB_UseRiderPose", 1);
         var gCatchUp = Global(mod, "CMB_CatchUpDistance", 2500);
         var gBagCapacity = Global(mod, "CMB_BagCapacity", 60);
