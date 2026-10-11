@@ -100,7 +100,7 @@ included) or a scrolling-texture wheel (always spinning, even standing still). N
 | Compiled scripts | Caprica, Fallout 4 target: header v3.9, game 2, for all 8 scripts | ok; not yet loaded in game |
 | Riding clips | `verify_clips.py`: length, frames, control events and root motion identical to each vanilla clip (U-turns: same length, total turn and distance); all 95 bones; unit rotations. Hands on the grips exactly (IK); hips on the seat for the male and CBBE bodies | ok |
 | Worn bike mesh | posed with the clips and rendered with the skinned body (`preview.py`) | lines up |
-| Bike on COM | the skin read back and posed at the seated `COM` transform lands on the model (0.0000); posed through whole clips next to the `AnimObjectA` bike | apart by at most the bounce: 0.15 (walk) to 0.29 units (run) |
+| Bike on COM | the skin read back and posed at the seated `COM` transform lands on the model (0.0000); posed through all 95 clips of both sets next to the `AnimObjectA` bike | apart by at most the bounce: 0.35 units (5 mm, sprinting) |
 | Head-tracking default | `bAllowHeadTracking`'s initial value read from `MTBehavior.hkx`'s variable set | 1 (on) |
 | Script data (VMAD) | independent decoder: every property, alias -1 on object properties, alias script on the Player alias | ok |
 | Vanilla form IDs | Mutagen's FormKey list generated from the real `Fallout4.esm` | all match |
