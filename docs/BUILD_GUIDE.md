@@ -31,6 +31,14 @@ Data\Meshes\CMB\CMB_Keys.nif         (optional: copy of a vanilla key)
 Data\Meshes\Actors\Character\Animations\MT\CMB_Rider\   (riding clips + CMB_RiderClips.json + CMB_RiderSeat.json, with a Female subfolder)
 ```
 
+## 1b. The slope plugin (optional, F4SE)
+
+`Data\F4SE\Plugins\CMB_Slope.dll` is built from `tools/f4se-slope/CMB_Slope.c` with MinGW-w64
+(`tools/f4se-slope/build.sh`; on Debian/Ubuntu `apt-get install gcc-mingw-w64-x86-64`, on Windows MSYS2's
+`mingw-w64-x86_64-gcc`). `tools/f4se-slope/test/run.sh` runs it under Wine against a stand-in for the game. It's
+for Fallout 4 1.11.240 with F4SE 0.7.9 only; a new game version needs the addresses at the top of the source updated
+from F4SE's source for that version.
+
 ## 2. Compiled scripts
 
 The scripts need to be compiled to `Data\Scripts\*.pex`. Two ways:

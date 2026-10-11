@@ -94,6 +94,11 @@ Group Optional
 	GlobalVariable Property CMB_RidingCameraDistance Auto Const
 	{How far back the third-person camera sits while riding, in game units (the game's own
 	is about 150). Needs F4SE and CMB_CameraF4SE. 0 = leave the camera alone. Default 300.}
+	GlobalVariable Property CMB_MaxSlope Auto Const
+	{Steepest slope you can ride up, in degrees. Needs F4SE and the CMB_Slope.dll plugin.
+	0 = the game's own limit. Default 60.}
+	GlobalVariable Property CMB_SlopeLive Auto Const
+	{What CMB_Slope.dll reads: CMB_MaxSlope while riding, 0 otherwise. Set by this script.}
 EndGroup
 
 ; ---------------------------------------------------------------------------
@@ -229,6 +234,7 @@ Function OnGameReloaded()
 		endif
 		; The camera setting isn't saved: a restarted game has the player's own again.
 		CallCamera(true)
+		SetSlopeLive(true)
 		RegisterForPlayerTeleport()
 		hitGrace = false
 		healthMark = PlayerRef.GetValuePercentage(Health)
@@ -249,6 +255,18 @@ Function RefreshHotkey()
 	ScriptObject hotkey = CastAs("CMB_HotkeyF4SE")
 	if hotkey
 		hotkey.CallFunction("RegisterHotkey", new Var[0])
+	endif
+EndFunction
+
+; Steeper slopes (optional, F4SE plugin CMB_Slope.dll): it watches CMB_SlopeLive and
+; raises the player's slope limit while it isn't 0.
+Function SetSlopeLive(bool abRiding)
+	if CMB_SlopeLive
+		float degrees = 0.0
+		if abRiding && CMB_MaxSlope
+			degrees = CMB_MaxSlope.GetValue()
+		endif
+		CMB_SlopeLive.SetValue(degrees)
 	endif
 EndFunction
 
@@ -398,6 +416,7 @@ Function Mount()
 	poseRetries = 0
 	poseRetryWaiting = false
 	WatchFootsteps()
+	SetSlopeLive(true)
 	StartTimer(TickInterval, TimerTick)
 	PlaySound(CMB_EngineStartSound)
 	StartTimer(EngineStartLength, TimerEngine)
@@ -661,6 +680,7 @@ Function FinishRide()
 	RemoveBikeArmor()
 	CallGearRestore("RestoreSlot")
 	CallCamera(false)
+	SetSlopeLive(false)
 	ClearRiderPose()
 	ReleaseControls()
 	RemoveSpeed(PlayerRef, playerSpeedDelta)

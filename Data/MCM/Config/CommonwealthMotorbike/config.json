@@ -42,6 +42,18 @@
     },
     {
       "type": "slider",
+      "text": "Steepest slope while riding",
+      "help": "How steep a slope you can ride up, in degrees. Needs F4SE and the CMB_Slope.dll plugin. 0 = the same as on foot. Takes effect the next time you get on.",
+      "valueOptions": {
+        "min": 0,
+        "max": 80,
+        "step": 5,
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|829"
+      }
+    },
+    {
+      "type": "slider",
       "text": "Riding camera distance",
       "help": "How far back the third-person camera sits while riding (the game\u0027s own is about 150). Needs F4SE. 0 = leave the camera alone. Takes effect the next time you get on.",
       "valueOptions": {
