@@ -47,8 +47,8 @@ and, if you have one, a bag or other gear that sits in an unusual slot.
 | 16 | *(F4SE)* wear something in slot 57, ride, get off | it comes off while riding and goes back on afterwards |
 | 17 | *(MCM)* Mod Config → Commonwealth Motorbike | every setting there; change the speed, get on: the new speed applies |
 | 18 | Ride off a drop that hurts on foot (try the same drop on foot first) | about 75% less damage (`CMB_FallDamageCut`); in Survival, a drop that cripples your legs on foot shouldn't while riding (please check: the cut is on fall damage, and leg damage from falls should follow it). Landing still shows the standing clips unless the jump clips were extracted (ASSETS.md) |
-| 19 | Ride into a lake or a river until you'd swim | "The motorbike can't go into deep water."; you're off and swimming, the bike is parked on the bank where you were a moment ago. Using the keys while swimming is refused. Shallow water (paddling depth) rides normally |
-| 20 | Let an enemy hit you while riding | "You're knocked off the motorbike.", the bike parked next to you. With `set CMB_DismountOnHit to 0` you stay on, and when a fight starts (weapons off while riding) a hint says how to get off |
+| 19 | Ride into a lake or a river until you'd swim, also off a ledge into deep water | "The motorbike can't go into deep water."; you're off and swimming, no bike in sight. Using the keys while swimming is refused. Climb out: about 3 s later "Your motorbike rolls up." and it's a few steps ahead of you, on the ground. Shallow water (paddling depth) rides normally |
+| 20 | Get on next to an enemy; let a bloatfly sting you; take a big hit (a shotgun blast, a power attack, a grenade) | nothing in the first 3 s; small stings don't knock you off; the big hit does: "You're knocked off the motorbike.", bike parked next to you (the log says how much health it took). `set CMB_KnockOffDamage to 25` needs bigger hits; with `set CMB_DismountOnHit to 0` you stay on, and when a fight starts (weapons off while riding) a hint says how to get off |
 | 21 | Load a save from before the keys arrived (or a new game), go outside | exactly two keys and one hint, even right after a load or a door |
 
 ## Console settings
@@ -67,6 +67,7 @@ and, if you have one, a bag or other gear that sits in an unusual slot.
 | `set CMB_EngineVolume to 40` | quieter engine (0–100, 0 = silent) |
 | `set CMB_FallDamageCut to 100` | no fall damage while riding (0–100, default 75 = 75% less) |
 | `set CMB_DismountOnHit to 0` | enemies' hits don't knock you off (default 1) |
+| `set CMB_KnockOffDamage to 25` | only hits taking 25% of your max health knock you off (default 10; power attacks and explosions always do; 0 = any hit) |
 | `set CMB_BikeFollowsRider to 0` | the worn bike stays planted on the ground instead of turning with the seated rider (default 1) |
 
 Speed changes apply the next time you get on.

@@ -86,7 +86,9 @@ Two exceptions to "the same root motion". The 180° reversals while moving (`wal
 and distance. And the hard landings (`JumpImpactLand`, `JumpRunImpactLand`) take the soft landing's timing when the
 events match, so a drop doesn't stop you as long. The jump, fall and landing clips are only built from the vanilla ones
 (a guessed length could hold the rider in a landing): if they weren't extracted, `riding_anims.py` skips them and
-jumps and landings show the standing clips.
+jumps and landings show the standing clips. Those 11 are every clip the movement graph (`MTBehavior.hkx`) plays while
+you're in the air, including the brief falls over bumps. Their timing can't come from the game's AnimTextData
+instead: it only keeps records for clips with root motion, and these have none.
 
 **Which vanilla clip.** The player's holstered animations come from `MT\Player`, then `MT\Confident`, then
 `MT\Neutral` (female: the `Female` subfolders of those first). That order was read off the game's own AnimTextData

@@ -28,6 +28,7 @@ public static class Vanilla
     public static readonly FormKey SpeedMult = Fo4(0x0002DA);
     public static readonly FormKey CarryWeight = Fo4(0x0002DC);
     public static readonly FormKey FallingDamageMod = Fo4(0x0BA43D);
+    public static readonly FormKey Health = Fo4(0x0002D4);
     public static readonly FormKey Pipboy = Fo4(0x021B3B);
     public static readonly FormKey AnimArchetypePlayer = Fo4(0x06B508);
     public static readonly FormKey HumanRaceSubGraphData = Fo4(0x166729);
@@ -40,7 +41,7 @@ public static class Vanilla
         key == PlayerRef ? "PlacedNpc"
         : key == XMarker ? "Static"
         : key == HumanRace ? "Race"
-        : key == SpeedMult || key == CarryWeight || key == FallingDamageMod ? "ActorValueInformation"
+        : key == SpeedMult || key == CarryWeight || key == FallingDamageMod || key == Health ? "ActorValueInformation"
         : key == Pipboy ? "Armor"
         : key == AnimArchetypePlayer ? "Keyword"
         : key == AmmoFlamerFuel ? "Ammunition"
@@ -178,7 +179,9 @@ public static class Program
                 Switcher("Seated riding animations", "Needs CMB_RiderPose.esp (make_rider_pose.bat). Off: you run in place over the bike. Takes effect the next time you get on.", "CMB_UseRiderPose"),
                 Switcher("Switch to third person", "Switch to third person when getting on, so you see the bike.", "CMB_ForceThirdPerson"),
                 Switcher("Allow combat while riding", "Weapons and VATS stay usable while riding. Takes effect the next time you get on.", "CMB_AllowCombat"),
-                Switcher("Thrown off when hit", "An enemy's hit knocks you off the bike, so you can fight back. Off: you keep riding; a hint says how to get off when a fight starts.", "CMB_DismountOnHit"),
+                Switcher("Thrown off when hit", "A big hit from an enemy knocks you off the bike, so you can fight back. Off: you keep riding; a hint says how to get off when a fight starts.", "CMB_DismountOnHit"),
+                Slider("Big hit (% of max health)", "How much of your max health a hit (or several within about a second) must take to knock you off. Power attacks and explosions always do. 0 = any hit. Not in the first 3 seconds after getting on.",
+                    "CMB_KnockOffDamage", 0, 50, 5),
                 Slider("Less fall damage (%)", "How much less fall damage you take while riding. 100 = none. Takes effect the next time you get on.",
                     "CMB_FallDamageCut", 0, 100, 5),
                 Switcher("Bike turns with the rider", "On: the bike hangs off the seated rider, so it turns with you on the spot and in conversations. Off: it stays planted on the ground (the rider can twist on it). Takes effect the next time you get on.", "CMB_BikeFollowsRider"),
@@ -374,8 +377,12 @@ public static class Program
             },
         });
 
-        // Where the bike would have parked a tick ago (see ShadowPlayer in the controller).
-        var drySpotRef = Placed(mod, cell, "CMB_DrySpotMarkerRef", Vanilla.XMarker, new P3Float(0, -400, 0));
+        // No longer used (the bike now rolls up after a swim instead of trailing the player),
+        // but kept so the form IDs after it don't move.
+        Placed(mod, cell, "CMB_DrySpotMarkerRef", Vanilla.XMarker, new P3Float(0, -400, 0));
+
+        // Percent of max health a hit (or a quick run of hits) must take to knock you off.
+        var gKnockOff = Global(mod, "CMB_KnockOffDamage", 10);
 
         // --- Controller quest ---
         quest.Name = "Commonwealth Motorbike";
@@ -400,11 +407,11 @@ public static class Program
             Obj("BikeRef", bikeRef),
             Obj("SideBagRef", bagRef),
             Obj("HoldingMarkerRef", markerRef),
-            Obj("DrySpotMarkerRef", drySpotRef),
             Obj("CMB_BikeRiderArmor", armor),
             Obj("CMB_BikeRiderArmorFrame", armorFrame),
             Obj("CMB_SwimWatchAbility", swimAbility),
             Obj("FallingDamageMod", Vanilla.FallingDamageMod),
+            Obj("Health", Vanilla.Health),
             Obj("CMB_BikeKeys", keys),
             Obj("CMB_KeysMenu", msgKeys),
             Obj("SpeedMult", Vanilla.SpeedMult),
@@ -426,7 +433,8 @@ public static class Program
             Obj("CMB_EngineVolume", gEngineVolume),
             Obj("CMB_FallDamageCut", gFallCut),
             Obj("CMB_DismountOnHit", gDismountOnHit),
-            Obj("CMB_BikeFollowsRider", gFollowsRider));
+            Obj("CMB_BikeFollowsRider", gFollowsRider),
+            Obj("CMB_KnockOffDamage", gKnockOff));
         // Optional: only does anything with F4SE and the compiled CMB_HotkeyF4SE.pex.
         var hotkey = Script("CMB_HotkeyF4SE",
             Obj("Controller", quest),

@@ -22,8 +22,6 @@ Group Required_References
 	{The side bag: a persistent CMB_SideBagContainer reference placed in CMB_HoldingCell.}
 	ObjectReference Property HoldingMarkerRef Auto Const Mandatory
 	{An XMarker in CMB_HoldingCell. Companions riding along wait here while hidden.}
-	ObjectReference Property DrySpotMarkerRef Auto Const Mandatory
-	{An XMarker in CMB_HoldingCell. While riding it marks where the bike would park a moment ago.}
 EndGroup
 
 Group Required_Forms
@@ -47,6 +45,8 @@ Group Required_Forms
 	{Hidden ability with an IsSwimming condition: its effect reports swimming (SetSwimming).}
 	ActorValue Property FallingDamageMod Auto Const Mandatory
 	{Vanilla (000BA43D). Percent less fall damage, as the Acrobat's legendary effect uses.}
+	ActorValue Property Health Auto Const Mandatory
+	{Vanilla (000002D4).}
 EndGroup
 
 Group Settings
@@ -69,7 +69,10 @@ Group Settings
 	GlobalVariable Property CMB_FallDamageCut Auto Const Mandatory
 	{Percent less fall damage while riding (0-100, 100 = none). Default 75.}
 	GlobalVariable Property CMB_DismountOnHit Auto Const Mandatory
-	{1 = an enemy's hit knocks you off the bike. Default 1.}
+	{1 = a big enough hit from an enemy knocks you off the bike. Default 1.}
+	GlobalVariable Property CMB_KnockOffDamage Auto Const Mandatory
+	{How big: percent of your max health, from one hit or several within about a second.
+	Power attacks and explosions always count. 0 = any hit. Default 10.}
 	GlobalVariable Property CMB_BikeFollowsRider Auto Const Mandatory
 	{1 = the worn bike hangs off the seated rider and turns with them. 0 = it stays planted on the
 	ground (the older look: the rider can twist on it). Default 1.}
@@ -94,6 +97,13 @@ int Property TimerTick = 1 AutoReadOnly
 int Property TimerKeys = 2 AutoReadOnly
 int Property TimerDelivery = 3 AutoReadOnly
 int Property TimerEngine = 4 AutoReadOnly
+int Property TimerShore = 5 AutoReadOnly
+int Property TimerHitGrace = 6 AutoReadOnly
+float Property HitGraceTime = 3.0 AutoReadOnly
+{Hits don't knock you off for this long after getting on.}
+float Property ShoreDelay = 3.0 AutoReadOnly
+{After a swim, the bike rolls up this long after you're out of deep water.}
+float Property ShoreRetryInterval = 10.0 AutoReadOnly
 float Property EngineStartLength = 2.4 AutoReadOnly
 {The start sound ends on idle; the loops take over after it.}
 float Property CruiseSpeed = 700.0 AutoReadOnly
@@ -135,8 +145,10 @@ float fuelDistance = 0.0
 float lastX = 0.0
 float lastY = 0.0
 bool hasLastPos = false
-bool hasDrySpot = false
 bool swimming = false
+bool bikeWaitsForShore = false
+bool hitGrace = false
+float healthMark = 1.0
 bool combatHinted = false
 float fallDamageDelta = 0.0
 Actor[] stowedFollowers
@@ -158,8 +170,10 @@ Function OnGameReloaded()
 	EnsureArrays()
 	busy = false
 	hasLastPos = false
-	hasDrySpot = false
 	WatchSwimming()
+	if bikeWaitsForShore && !swimming
+		StartTimer(ShoreDelay, TimerShore)
+	endif
 	if keysDelivered
 		GiveKeysIfMissing(true)
 	else
@@ -181,6 +195,8 @@ Function OnGameReloaded()
 			ApplyRiderPose()
 		endif
 		RegisterForPlayerTeleport()
+		hitGrace = false
+		healthMark = PlayerRef.GetValuePercentage(Health)
 		WatchForHits()
 		StartTimer(TickInterval, TimerTick)
 		; Sounds don't survive a load, and their old instance numbers mean nothing now.
@@ -312,9 +328,11 @@ Function Mount()
 
 	riding = true
 	hasLastPos = false
-	hasDrySpot = false
 	combatHinted = false
 	RegisterForPlayerTeleport()
+	healthMark = PlayerRef.GetValuePercentage(Health)
+	hitGrace = true
+	StartTimer(HitGraceTime, TimerHitGrace)
 	WatchForHits()
 	StartTimer(TickInterval, TimerTick)
 	PlaySound(CMB_EngineStartSound)
@@ -363,6 +381,7 @@ Function CallBike()
 	BikeRef.Disable()
 	PlaceBike(CallAheadDistance, 60.0)
 	BikeRef.Enable(true)
+	bikeWaitsForShore = false
 	PlaySound(CMB_EngineStopSound)
 	busy = false
 	Log("Bike called to the player.")
@@ -387,6 +406,7 @@ Function EmergencyReset()
 		BikeRef.Enable()
 	endif
 	FinishRide()
+	bikeWaitsForShore = false
 	; Restart the swim watch: its effect ends (not swimming) and starts again if you are.
 	PlayerRef.RemoveSpell(CMB_SwimWatchAbility)
 	swimming = false
@@ -413,6 +433,10 @@ Event OnTimer(int aiTimerID)
 		HandleKeys()
 	elseif aiTimerID == TimerEngine && riding
 		StartEngineLoops()
+	elseif aiTimerID == TimerShore
+		BringBikeAfterSwim()
+	elseif aiTimerID == TimerHitGrace
+		hitGrace = false
 	elseif aiTimerID == TimerTick && riding
 		RideTick()
 		if riding
@@ -424,7 +448,6 @@ EndEvent
 Event OnPlayerTeleport()
 	if riding
 		hasLastPos = false
-		hasDrySpot = false
 		RideTick()
 	elseif !keysDelivered
 		TryDeliverKeys()
@@ -471,7 +494,7 @@ Function RideTick()
 		return
 	elseif swimming
 		; Normally SetSwimming has done this already.
-		AutoDismount(DeepWaterMessage, false)
+		DismountIntoWater()
 		return
 	endif
 	float stepDistance = TrackMovement()
@@ -492,6 +515,8 @@ Function RideTick()
 		PlayerRef.SetAnimationVariableBool(HeadTrackingVariable, false)
 	endif
 	CombatHint()
+	; Damage is counted from here: what one hit, or a quick run of them, took.
+	healthMark = PlayerRef.GetValuePercentage(Health)
 EndFunction
 
 ; ---------------------------------------------------------------------------
@@ -559,19 +584,8 @@ Function ParkBesidePlayer()
 	BikeRef.Enable()
 EndFunction
 
-; The disabled bike shadows the player a tick behind: each tick it goes where it
-; would have parked on the last one. So when the player starts swimming it's
-; left on the last dry ground rather than in the water.
 Function ShadowPlayer()
-	if hasDrySpot
-		BikeRef.MoveTo(DrySpotMarkerRef)
-	else
-		PlaceBike(0.0, ParkSideOffset)
-	endif
-	float angle = PlayerRef.GetAngleZ()
-	DrySpotMarkerRef.MoveTo(PlayerRef, OffsetX(angle, 0.0, ParkSideOffset), OffsetY(angle, 0.0, ParkSideOffset), 0.0, false)
-	DrySpotMarkerRef.SetAngle(0.0, 0.0, angle + ParkedModelYaw)
-	hasDrySpot = true
+	PlaceBike(0.0, ParkSideOffset)
 EndFunction
 
 ; Puts the parked bike forward/right of the player, facing the way they face.
@@ -706,9 +720,41 @@ EndFunction
 Function SetSwimming(bool abSwimming)
 	swimming = abSwimming
 	if abSwimming && riding && !busy
-		; The bike is left where it shadowed the player a moment ago, on dry ground.
-		AutoDismount(DeepWaterMessage, false)
+		DismountIntoWater()
+	elseif !abSwimming && bikeWaitsForShore
+		StartTimer(ShoreDelay, TimerShore)
 	endif
+EndFunction
+
+; Deep water ends the ride. The bike stays hidden: where it shadowed the player
+; a moment ago can be mid-air (riding off a ledge into a lake), so instead it
+; rolls up next to the player once they're out of the water (BringBikeAfterSwim).
+Function DismountIntoWater()
+	busy = true
+	FinishRide()
+	bikeWaitsForShore = true
+	busy = false
+	Debug.Notification(DeepWaterMessage)
+	Log("Auto-dismounted: " + DeepWaterMessage)
+EndFunction
+
+; A few seconds out of deep water: bring the bike over, the way calling it does.
+; Indoors it waits until the player is outside again.
+Function BringBikeAfterSwim()
+	if !bikeWaitsForShore || riding || swimming
+		return
+	endif
+	if busy || PlayerRef.IsInInterior()
+		StartTimer(ShoreRetryInterval, TimerShore)
+		return
+	endif
+	busy = true
+	bikeWaitsForShore = false
+	PlaceBike(CallAheadDistance, 60.0)
+	BikeRef.Enable(true)
+	busy = false
+	Log("Bike brought back after a swim.")
+	Debug.Notification("Your motorbike rolls up.")
 EndFunction
 
 ; Hit events are one-shot: OnHit registers again for the next one.
@@ -718,13 +764,32 @@ Function WatchForHits()
 	endif
 EndFunction
 
+; Only a big hit from an enemy knocks you off: a power attack, an explosion, or
+; at least CMB_KnockOffDamage percent of your max health since the last tick
+; (one hit, or several close together). Not in the first seconds after getting on.
 Event OnHit(ObjectReference akTarget, ObjectReference akAggressor, Form akSource, Projectile akProjectile, \
 		bool abPowerAttack, bool abSneakAttack, bool abBashAttack, bool abHitBlocked, string apMaterial)
 	if !riding
 		return
 	endif
 	Actor attacker = akAggressor as Actor
-	if attacker && attacker != PlayerRef && !busy && attacker.IsHostileToActor(PlayerRef)
+	if busy || hitGrace || !attacker || attacker == PlayerRef || !attacker.IsHostileToActor(PlayerRef)
+		WatchForHits()
+		return
+	endif
+	; Let the damage land before reading health.
+	Utility.Wait(0.1)
+	if !riding
+		return
+	elseif busy
+		WatchForHits()
+		return
+	endif
+	float lost = (healthMark - PlayerRef.GetValuePercentage(Health)) * 100.0
+	float threshold = CMB_KnockOffDamage.GetValue()
+	bool explosion = akSource as Explosion
+	if abPowerAttack || explosion || threshold <= 0.0 || lost >= threshold
+		Log("Knocked off: lost " + lost + "% health, power attack " + abPowerAttack + ", explosion " + explosion)
 		AutoDismount("You're knocked off the motorbike.", true)
 	else
 		WatchForHits()

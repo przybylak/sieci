@@ -52,10 +52,22 @@
     {
       "type": "switcher",
       "text": "Thrown off when hit",
-      "help": "An enemy\u0027s hit knocks you off the bike, so you can fight back. Off: you keep riding; a hint says how to get off when a fight starts.",
+      "help": "A big hit from an enemy knocks you off the bike, so you can fight back. Off: you keep riding; a hint says how to get off when a fight starts.",
       "valueOptions": {
         "sourceType": "GlobalValue",
         "sourceForm": "CommonwealthMotorbike.esp|81E"
+      }
+    },
+    {
+      "type": "slider",
+      "text": "Big hit (% of max health)",
+      "help": "How much of your max health a hit (or several within about a second) must take to knock you off. Power attacks and explosions always do. 0 = any hit. Not in the first 3 seconds after getting on.",
+      "valueOptions": {
+        "min": 0,
+        "max": 50,
+        "step": 5,
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|825"
       }
     },
     {

@@ -27,3 +27,4 @@ EndEvent
 Function SetAngle(float afXAngle, float afYAngle, float afZAngle) native
 Function SetAnimationVariableBool(string asVariableName, bool abNewValue) native
 bool Function GetAnimationVariableBool(string asVariableName) native
+float Function GetValuePercentage(ActorValue akAV) native
