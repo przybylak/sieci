@@ -2,18 +2,30 @@
 
 The mod needs no new art. It reuses Fallout 4's own (rusted) motorcycle. Two stages:
 
-- **Stage 1 (required):** a *wearable* copy of the motorcycle mesh, so the bike can be drawn under the player while riding.
+- **Stage 1 (required):** two copies of the motorcycle mesh, one to park and one to wear.
 - **Stage 2 (experimental, optional):** a seated pose, so the rider sits instead of running in place over the bike.
 
-## Stage 1: the worn bike mesh
+All files go in `Data\Meshes\CMB\` (see `Data/Meshes/CMB/PUT_MESHES_HERE.txt`).
 
-The parked bike uses the vanilla motorcycle nif unchanged. The *worn* copy has to be converted. Armor meshes in Fallout 4 must be **skinned** (every vertex weighted to a skeleton bone); an unweighted mesh on an armor will crash the game.
+## Stage 1: the bike meshes
 
-### Extract the vanilla mesh
+### Find and extract the vanilla motorcycle
 
-1. In the CK, find the motorcycle static (Object Window → `WorldObjects → Static`, filter `motorcycle`) and note its model path.
-2. Extract that nif from `Data\Fallout4 - Meshes.ba2` with Archive2 (`Tools\Archive2\Archive2.exe` → open the ba2 → find the path → Extract).
+Fallout 4 has the bike as `Motorcycle01_Static` (Static, form ID `0017935A`), and also as a movable `Motorcycle01` (`00188D4C`). **Use the Static's model.** It has fixed collision; a movable static's physics could make the parked bike tip over.
+
+1. Get its model path: in the CK, Object Window → `WorldObjects → Static`, filter `Motorcycle01_Static`, open it and read the model path.
+   In xEdit: `Fallout4.esm → Static → Motorcycle01_Static → Model → MODL`.
+2. Extract that nif from `Data\Fallout4 - Meshes.ba2` with Archive2 (`<Fallout 4>\Tools\Archive2\Archive2.exe`, open the ba2, find the path, Extract).
    If it isn't there, try `Fallout4 - MeshesExtra.ba2`.
+   Bethesda Archive Extractor (BAE) works too and has a search box: search for `motorcycle`.
+
+### The parked bike: just a copy
+
+Save an **unmodified** copy as `Data\Meshes\CMB\CMB_BikeParked.nif`. Its textures and materials point at vanilla files, which the game already has.
+
+### The worn bike: convert it
+
+The *worn* copy has to be converted. Armor meshes in Fallout 4 must be **skinned** (every vertex weighted to a skeleton bone); an unweighted mesh on an armor will crash the game.
 
 ### Convert it in Outfit Studio
 
@@ -28,6 +40,11 @@ The parked bike uses the vanilla motorcycle nif unchanged. The *worn* copy has t
      If `Root` isn't offered, use `COM` (the bike will bob a little with the run cycle).
 4. Delete any reference body shape so only the bike shapes remain.
 5. `File → Export → To NIF…` → `Data\Meshes\CMB\CMB_BikeWorn.nif`.
+
+### The keys (optional)
+
+Copy any vanilla key mesh to `Data\Meshes\CMB\CMB_Keys.nif`; it's only used for the 3D preview in the Pip-Boy.
+Without it the keys work fine and just have no preview.
 
 ### Check it in NifSkope
 
@@ -68,27 +85,52 @@ So:
 3. That folder holds copies of a single **vanilla seated loop** saved under the names of the walk/run/turn/idle clips.
    No animation authoring is needed, just file copies.
 
+### First, check the `AnimsMotorcycle` lead
+
+`Fallout4.esm` contains a keyword called **`AnimsMotorcycle`** (`000AB732`), filed with the animation-subgraph keywords.
+Nothing on the web documents it, so it may be a cut feature. If anything still uses it, the game may ship real
+sit-on-a-motorcycle animations, which would beat a bar-stool pose by far. In the CK, right-click the keyword → **Use Info**
+(or in xEdit, select it → *Referenced By*) and check:
+
+- a HumanRace subgraph entry that lists it, which tells you its animation folder (look inside for riding clips);
+- furniture or idle records that use it.
+
+Tell me what you find; it decides how Stage 2 should work.
+
 ### Steps
 
-1. **Keyword:** `Miscellaneous → Keyword → New`, `CMB_AnimArchetypeRider`, type **Anim Archetype**.
-   Set it (and the vanilla `AnimArchetypePlayer`) on the controller script's properties.
-2. **Find the player's third-person MT entry.** Open `HumanRace`, go to the subgraph/behaviour data section, and find the entry with
-   Actor Keywords containing `AnimArchetypePlayer`, Perspective *3rd*, Role *MT*. Note its **Paths** list.
-3. **Duplicate that entry.** Change its Actor Keywords to `CMB_AnimArchetypeRider` (plus whatever non-archetype keywords the original had), and add
-   `Actors\Character\Animations\CMB_Rider\` as the *first* path, keeping the original paths after it.
-   > This edits the vanilla `HumanRace`, which many mods also touch. If something stops animating, check for a
-   > race conflict in xEdit and forward the other mod's changes.
-4. **Extract animations:** Archive2 → `Fallout4 - Animations.ba2` → extract the folders named in the Paths from step 2.
+The keyword `CMB_AnimArchetypeRider` (type Anim Archetype) is already in the plugin and wired to the controller,
+together with the vanilla `AnimArchetypePlayer`. What's missing is the race edit and the animation files.
+
+The race edit goes in a **separate small patch plugin** made with **FO4Edit (xEdit)**, not in the Creation Kit.
+That keeps the main plugin conflict-free. xEdit also has no trouble using the light-flagged main plugin as a master,
+which the Creation Kit is awkward about.
+
+1. **Find the player's third-person MT entry.** In FO4Edit, load `Fallout4.esm` + `CommonwealthMotorbike.esp`.
+   Open `Fallout4.esm → Race → HumanRace` and look through its subgraph data for the entry whose
+   Actor Keywords contain `AnimArchetypePlayer`, with Perspective *3rd* and Role *MT*. Note its **Paths**.
+2. **Make the patch.** Right-click `HumanRace` → *Copy as override into…* → new file `CMB_RiderPose.esp`
+   (accept `CommonwealthMotorbike.esp` as a master; flag it ESL if offered). If other mods in your load order edit
+   HumanRace, copy *their* version instead so their changes are kept.
+3. **Add the entry.** In the override, duplicate the entry from step 1. In the copy:
+   - replace `AnimArchetypePlayer` with `CMB_AnimArchetypeRider` in Actor Keywords (keep any other keywords);
+   - add `Actors\Character\Animations\CMB_Rider\` as the **first** path, and keep the original paths after it.
+4. **Extract animations:** Archive2 → `Fallout4 - Animations.ba2` → extract the folders named in the Paths from step 1.
 5. **Pick a seated loop.** A bar-stool sitting idle works best, because its hips are about as high as a motorcycle seat.
    A chair-sitting idle is the fallback. They live under the furniture animation folders. Preview candidates in the CK's preview window if unsure.
 6. **Generate the folder:**
 
    ```
-   python tools/make_rider_pose.py --vanilla-dir <extracted folder from step 2> --pose <seated clip.hkx> --out "<Data>/Meshes/Actors/Character/Animations/CMB_Rider" --dry-run
+   python tools/make_rider_pose.py --vanilla-dir <extracted folder from step 1> --pose <seated clip.hkx> --out "<Data>/Meshes/Actors/Character/Animations/CMB_Rider" --dry-run
    ```
 
    Check the list (only walk/run/turn/idle clips), then run it again without `--dry-run`.
-7. In game: `set CMB_UseRiderPose to 1` and get on the bike.
+7. Enable `CMB_RiderPose.esp` after `CommonwealthMotorbike.esp` and after anything else that edits HumanRace.
+8. In game: `set CMB_UseRiderPose to 1` and get on the bike.
+
+> **Don't** set `CMB_UseRiderPose` to 1 without the patch from step 3. Switching the player to an archetype
+> that has no subgraph entry can leave them unable to walk properly (reported by other modders).
+> If that happens, set it back to 0 and run the emergency reset.
 
 ### If it doesn't work
 

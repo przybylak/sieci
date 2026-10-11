@@ -3,8 +3,6 @@ bool Function Activate(ObjectReference akActivator, bool abDefaultProcessingOnly
 Function AddItem(Form akItemToAdd, int aiCount = 1, bool abSilent = false) native
 Function RemoveItem(Form akItemToRemove, int aiCount = 1, bool abSilent = false, ObjectReference akOtherContainer = None) native
 int Function GetItemCount(Form akItem = None) native
-Function AddInventoryEventFilter(Form akFilter) native
-Function RemoveAllInventoryEventFilters() native
 Function Enable(bool abFadeIn = false) native
 Function Disable(bool abFadeOut = false) native
 bool Function IsDisabled() native

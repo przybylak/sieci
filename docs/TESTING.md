@@ -23,10 +23,10 @@ Use a throwaway save in an open area (e.g. outside Sanctuary), with a companion 
 
 | # | Do | Expect |
 |---|---|---|
-| 1 | Load the save | "Motorbike Keys (2)" added (Aid tab) |
+| 1 | Load the save while outdoors | "Motorbike Keys (2)" added (Aid tab), plus a hint. On a new game this happens when you first step outside Vault 111 |
 | 2 | Use the keys | menu "Your motorbike isn't nearby." |
-| 3 | Pick "Call it here" | the bike appears a few steps ahead, facing your way |
-| 4 | Activate the bike → "Ride" | short fade; you're in 3rd person, bike under you, companion gone |
+| 3 | Pick "Call it here" | the bike appears a few steps ahead, facing your way (invisible = `CMB_BikeParked.nif` missing) |
+| 4 | Activate the bike → "Ride" | short fade; you're in 3rd person, bike under you, companion gone (no bike under you = `CMB_BikeWorn.nif` missing) |
 | 5 | Run around | clearly faster than on foot (~2.5×), no jumping, no sprinting, weapons holstered |
 | 6 | Use the keys again (or favorite them and press the hotkey) | fade; the bike is parked to your right, companion steps out behind you |
 | 7 | Activate the bike → "Open side bag" | a container opens; put stuff in |
@@ -49,6 +49,18 @@ Use a throwaway save in an open area (e.g. outside Sanctuary), with a companion 
 | `set CMB_HotkeyCode to 34` | F4SE hotkey (DirectX scan code, 34 = G); save and reload afterwards |
 
 Speed changes apply the next time you get on.
+
+## Finding the mod's forms in the console
+
+The plugin is light (ESL), so its form IDs start with `FE` and depend on your load order. Find them with
+`help "Motorbike" 4` (or `help CMB_ 4`). For example, to look at the worn bike directly:
+`player.equipitem <CMB_BikeRiderArmor id>`.
+
+**Keys never arrived?** They wait until you're outdoors *with a Pip-Boy*. Alternative-start mods sometimes skip the Pip-Boy. Then:
+
+```
+cqf CMB_ControllerQuest ForceGiveKeys
+```
 
 ## Emergency reset
 

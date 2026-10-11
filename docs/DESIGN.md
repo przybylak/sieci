@@ -29,12 +29,14 @@ because Vertibird rides use it, and several existing mods build on that (see the
                                               ◄ Dismount / interior / power armor / furniture
 ```
 
+- **Keys:** handed out the first time the player is outdoors with a Pip-Boy, so a new game's pre-war intro and Vault 111 are left alone. The player keeps two keys, so using one never empties the stack (an empty stack would lose its favorites hotkey).
 - **Parked bike:** a persistent Activator reference. It lives in a holding cell until first called, then wherever you leave it.
 - **While riding:** the parked reference is disabled and moved next to the player every second. If you go indoors, the bike is simply re-enabled where you last were outside.
 - **Speed:** `ModValue(SpeedMult, delta)` with the exact delta remembered and removed later, so other speed effects stay intact. A ±0.1 carry-weight nudge forces the engine to apply the new speed (a known SpeedMult quirk).
 - **Companions:** mode 1 disables them and parks them in the holding cell, then puts them back behind you on dismount. Mode 0 gives them the same speed boost and teleports them up if they fall behind. Companions in power armor always use mode 0.
 - **Side bag:** a container in the holding cell, opened remotely with `Activate`. Capacity is checked in `OnItemAdded`. F4SE's `Form.GetWeight()` is called *by name* (`CallFunction`), so F4SE stays optional; without it the cap counts items via `GetItemCount(None)`.
 - **Save/load:** a player alias forwards `OnPlayerLoadGame`, and the controller re-applies the input layer, speed refresh and timer.
+- **Threading:** Papyrus lets other threads into a script whenever it calls another object, so every entry point claims the `busy` flag *before* its first such call. Keys, hotkey, activation and the ride timer then can't interleave.
 - **Hotkeys:** without F4SE, favorite the keys (an aid item) and use the favorites hotkey. With F4SE, `CMB_HotkeyF4SE` adds a real key. The controller finds it with `CastAs` by name, so the core scripts don't depend on F4SE.
 
 ## Engine limits to keep in mind
@@ -48,8 +50,22 @@ because Vertibird rides use it, and several existing mods build on that (see the
 
 | Risk | Mitigation |
 |---|---|
-| `EnableSprinting` might not exist on `InputEnableLayer` | Remove the line if the CK rejects it (see BUILD_GUIDE) |
+| `EnableSprinting` isn't in the official function list | Called by name (`CallFunction`): if it's missing, only a log line, and sprinting stays allowed |
 | Hiding a companion during their own quest scene | Use `CMB_CompanionMode 0` during companion quests |
 | Remote `Activate` of the bag container doesn't open the menu | Fallback: move the container next to the bike when opening it (small script change) |
 | Rider pose breaks animations | Off by default; `CMB_UseRiderPose 0` + emergency reset |
 | Uninstalling mid-ride | Documented: dismount or reset first |
+
+## What has been verified without the game
+
+| Check | How | Result |
+|---|---|---|
+| Plugin file structure | independent byte-level parser (group/record/subrecord sizes) | ok |
+| Record layouts | compared field by field with xEdit's `wbDefinitionsFO4.pas` (MGEF, QUST VMAD, GLOB, KYWD, MESG, ALCH, ARMO, ARMA) | match after fixing GLOB `FNAM` and KYWD `CNAM` |
+| Script data (VMAD) | independent decoder: every property, alias -1 on object properties, alias script on the Player alias | ok |
+| Vanilla form IDs | Mutagen's FormKey list generated from the real `Fallout4.esm` | all match |
+| Plugin properties vs scripts | `check_plugin.py`: names, record types, Mandatory properties | ok |
+| Papyrus syntax and types | Caprica against hand-written API stubs | ok |
+| Engine functions used | the less common ones checked one by one on the Fallout 4 CK wiki (input layers, teleport events, `GetSitState`, `GetPlayerFollowers`, `CallFunction`, inventory filters, archetypes…); the rest are core functions vanilla scripts use everywhere. `EnableSprinting` is unconfirmed, so it's called by name | ok |
+
+**Not verified:** anything only the game can show. That covers whether it loads, the speed feel, how the worn mesh lines up, companion hiding, opening the bag remotely, and save/load behaviour.

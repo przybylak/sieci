@@ -1,162 +1,85 @@
-# Build guide (Creation Kit)
+# Install guide
 
-This guide turns the scripts in `Scripts/Source/User/` into a working plugin,
-`CommonwealthMotorbike.esp`. Expect 1–2 hours the first time. Every EditorID
-starts with `CMB_` so you can find the mod's records by filtering on that.
+The plugin (`Data/CommonwealthMotorbike.esp`) is **already built**: all records, scripts and properties are in it. You don't need to touch the Creation Kit's editor. What's left is a mesh, a script compile and a copy.
 
-Do the steps in order: properties can only be filled once the records they
-point to exist.
-
-## 0. Prerequisites
-
-| What | Why | Where |
+| Step | Time | Tool |
 |---|---|---|
-| Fallout 4 (PC) | - | Steam / GOG / Xbox PC |
-| **Creation Kit for Fallout 4** | builds the plugin and compiles Papyrus | Steam → Library → Tools → "Fallout 4: Creation Kit" |
-| Script sources | the compiler needs them | the CK ships `Data\Scripts\Source\Base\Base.zip`. Unzip it into `Data\Scripts\Source\Base\` if the CK hasn't already |
-| F4SE (optional) | hotkey + weight-based side bag | f4se.silverlock.org. For the hotkey script you also need F4SE's script sources (`Data\Scripts\Source\F4SE` or merged into `Base`) |
-| Outfit Studio (BodySlide) + NifSkope | turns the motorcycle into a wearable mesh | Nexus, see [ASSETS.md](ASSETS.md) |
-| Archive2 | extracts vanilla meshes | ships with the CK in `Tools\Archive2\` |
+| 1. Make the two bike meshes | ~30 min the first time | Archive2 (comes with the CK), Outfit Studio, NifSkope |
+| 2. Compile the scripts | 1 min | `compile_scripts.bat` (uses the Creation Kit's compiler) |
+| 3. Install | 2 min | copy, or zip for your mod manager |
+| 4. Test | 15 min | [TESTING.md](TESTING.md) |
 
-## 1. Copy the scripts
+## What you need
 
-Copy every `.psc` from `Scripts/Source/User/` into
-`<Fallout 4>\Data\Scripts\Source\User\`.
+- Fallout 4 on PC, any current version (the plugin is ESL-flagged, which needs 1.10 or later, i.e. any version since 2017).
+- **Fallout 4: Creation Kit** (free on Steam, Library → Tools). It's only needed for its script compiler and Archive2.
+- Outfit Studio (part of BodySlide) and NifSkope, for step 1.
+- *Optional:* F4SE, for the dedicated hotkey and the weight-based side bag.
 
-Skip `CMB_HotkeyF4SE.psc` if you don't use F4SE. It won't compile without F4SE's sources, and nothing else depends on it.
+## 1. Meshes
 
-## 2. Create the plugin
-
-1. Start the CK, `File → Data…`, tick only `Fallout4.esm`, click OK.
-2. Save right away as `CommonwealthMotorbike.esp`.
-
-## 3. Globals (console-tweakable settings)
-
-`Miscellaneous → Global → New`. Make every global **Float**, *not* Constant:
-
-| EditorID | Value | Meaning |
-|---|---|---|
-| `CMB_SpeedPercent` | 250 | riding speed in % of the rider's current speed (script clamps to 100–500) |
-| `CMB_CompanionMode` | 1 | 1 = companions ride along (hidden while riding), 0 = they run alongside with the same speed boost |
-| `CMB_AllowCombat` | 0 | 1 = weapons and VATS stay usable while riding |
-| `CMB_ForceThirdPerson` | 1 | switch to 3rd person when getting on |
-| `CMB_UseRiderPose` | 0 | 1 = use the experimental seated animation set ([ASSETS.md](ASSETS.md#stage-2-experimental-seated-rider-pose)) |
-| `CMB_CatchUpDistance` | 2500 | runners further than this (units) get moved up behind you; 0 = off |
-| `CMB_BagCapacity` | 60 | side bag limit: lbs with F4SE, item count without; 0 = unlimited |
-| `CMB_HotkeyCode` | 48 | F4SE hotkey, DirectX scan code (48 = B) |
-
-## 4. Messages
-
-`Miscellaneous → Message → New`. Tick **Message Box** for both. Button order matters, because the scripts read the button index.
-
-**`CMB_ParkedMenu`**: title `Motorbike`, text `What do you want to do?`
-Buttons: `Ride`, `Open side bag`, `Cancel`
-
-**`CMB_KeysMenu`**: title `Motorbike`, text `Your motorbike isn't nearby.`
-Buttons: `Call it here`, `Open side bag`, `Cancel`
-
-## 5. Keys (aid item + effect)
-
-1. **Magic effect** `CMB_BikeKeysEffect` (`Magic → Magic Effect → New`):
-   - Effect Archetype: **Script**, Casting Type: **Fire and Forget**, Delivery: **Self**
-   - Flags: *No Duration*, *No Magnitude*, *No Area*, *Painless*, and *Hide in UI* if your CK shows it
-   - Papyrus Scripts → Add → `CMB_KeysEffectScript`.
-     Fill the property `Controller` later (step 9), because the quest doesn't exist yet.
-2. **Aid item** `CMB_BikeKeys` (`Items → Potion → New`):
-   - Name `Motorbike Keys`, Weight 0, Value 0
-   - Model: copy the model path from any vanilla key (`Items → Key`, open one, copy the model path)
-   - Not Food/Medicine, no addiction
-   - Effects: add `CMB_BikeKeysEffect`, magnitude 0, duration 0
-   - Leave the "consume" sound empty, or pick a quiet one
-3. *(optional)* **Recipe** `CMB_co_BikeKeys` (`Items → Constructible Object → New`) in case
-   the keys are ever lost:
-   - Created Object `CMB_BikeKeys`, count 2, workbench keyword `WorkbenchChemlab`, components e.g. 1 Steel + 1 Copper
-
-The mod hands out the keys automatically, and tops you back up to two whenever one is used. Two keys means the stack never runs out, so a favorites hotkey bound to them keeps working.
-
-## 6. The worn bike (armor)
-
-You need the converted mesh from [ASSETS.md](ASSETS.md#stage-1-the-worn-bike-mesh) first.
-
-1. **Armor Addon** `CMB_BikeRiderAA` (`Items → ArmorAddon → New`):
-   - Race: `HumanRace`
-   - Biped slot: **58** (an "unnamed" slot; pick another unnamed slot if one of your mods uses it)
-   - Male & Female world model: `CMB\CMB_BikeWorn.nif`
-   - No first-person model
-2. **Armor** `CMB_BikeRiderArmor` (`Items → Armor → New`):
-   - Name `Motorbike`, untick **Playable** (flag *Non-Playable*), so it never shows in your inventory
-   - Biped slot 58 (the same slot as the addon), Armor Addons: `CMB_BikeRiderAA`
-   - Weight 0, Value 0, Rating 0
-
-## 7. The parked bike and side bag
-
-1. **Activator** `CMB_BikeActivator` (`WorldObjects → Activator → New`):
-   - Name `Motorbike`, Activate Text Override `Ride`
-   - Model: the **vanilla motorcycle** nif as-is, since this one keeps its collision.
-     Find it with the Object Window filter `motorcycle` under `WorldObjects → Static`, open it and copy its model path.
-   - Papyrus Scripts → Add → `CMB_BikeActivatorScript`.
-     Fill the properties in step 9.
-2. **Container** `CMB_SideBagContainer` (`WorldObjects → Container → New`):
-   - Name `Side Bag`, any small vanilla model (nobody ever sees it), not respawning
-   - Papyrus Scripts → Add → `CMB_SideBagScript`, properties:
-     `CMB_BagCapacity` → the global, `PlayerRef` → `PlayerRef` (Cell `(any)`, Ref `PlayerRef ('Player')`)
-
-## 8. Holding cell
-
-1. `World → Cell View`, pick Interiors, then `File → New Cell`: EditorID **`CMB_HoldingCell`** (no lighting template needed).
-2. Drag into it from the Object Window:
-   - `CMB_BikeActivator` → double-click the reference, Reference EditorID **`CMB_BikeRef`**, tick **Persistent**
-   - `CMB_SideBagContainer` → Reference EditorID **`CMB_SideBagRef`**, tick **Persistent**
-   - `XMarker` (`WorldObjects → Static → XMarker`) → Reference EditorID **`CMB_HoldingMarkerRef`**, tick **Persistent**
-
-The bike starts out in this cell. In game you call it over with the keys the first time.
-
-## 9. Controller quest
-
-1. `Character → Quest → New`, ID **`CMB_ControllerQuest`**, name `Commonwealth Motorbike`
-   - Tick **Start Game Enabled**; untick *Run Once*. Priority 50 is fine.
-   - Click OK, then reopen it so the other tabs work.
-2. **Quest Aliases** tab → right-click → New Reference Alias:
-   - Name `Player`, **Specific Reference**: Cell `(any)`, Ref `PlayerRef ('Player')`
-   - Alias Scripts → Add → `CMB_PlayerAliasScript` (no properties)
-3. **Scripts** tab → Add → `CMB_ControllerScript`. Fill the properties. Every *Mandatory* one must be set:
-
-   | Property | Value |
-   |---|---|
-   | `PlayerRef` | Cell `(any)`, Ref `PlayerRef ('Player')` (try **Auto-Fill All** first) |
-   | `BikeRef` | Cell `CMB_HoldingCell`, Ref `CMB_BikeRef` |
-   | `SideBagRef` | `CMB_SideBagRef` |
-   | `HoldingMarkerRef` | `CMB_HoldingMarkerRef` |
-   | `CMB_BikeRiderArmor`, `CMB_BikeKeys`, `CMB_KeysMenu` | the records with those names |
-   | `SpeedMult`, `CarryWeight` | the vanilla actor values (Auto-Fill finds them) |
-   | all `CMB_*` globals | the matching globals |
-   | `AnimArchetypePlayer` | vanilla keyword `AnimArchetypePlayer` (0006B508), needed only for the rider pose |
-   | `CMB_AnimArchetypeRider` | only for the rider pose, see ASSETS.md |
-   | `CMB_EngineStartSound` / `CMB_EngineStopSound` | optional, any vanilla sound descriptor you like |
-
-4. *(F4SE only)* Scripts tab → Add → `CMB_HotkeyF4SE`: `Controller` → `CMB_ControllerQuest`, `CMB_HotkeyCode` → the global.
-5. Now go back and fill the remaining properties:
-   - `CMB_BikeKeysEffect` → `CMB_KeysEffectScript.Controller` = `CMB_ControllerQuest`
-   - `CMB_BikeActivator` → `CMB_BikeActivatorScript.Controller` = `CMB_ControllerQuest`, `CMB_ParkedMenu` = the message
-
-## 10. Compile and save
-
-- The CK compiles a script when you add it or edit it (`Gameplay → Papyrus Script Manager`, right-click → Compile).
-  If anything fails, copy the full error text from the CK's output window. That's the most useful thing you can send back.
-- **Possible compile issue:** `EnableSprinting` on `InputEnableLayer` is the one call I couldn't confirm in the
-  official docs. If the compiler says it doesn't exist, delete that line from `ApplyControls()` in
-  `CMB_ControllerScript.psc`. Sprinting then stays possible while riding, which is harmless but very fast.
-- Save. Optionally flag the plugin as ESL (light) in xEdit to save a load-order slot. The mod has very few records, so that's safe.
-
-## 11. Install
-
-Copy into `Data\`:
+Follow [ASSETS.md](ASSETS.md). You end up with:
 
 ```
-CommonwealthMotorbike.esp
-Scripts\CMB_*.pex                (the CK writes these to Data\Scripts\ when compiling)
-Meshes\CMB\CMB_BikeWorn.nif
-Meshes\Actors\Character\Animations\CMB_Rider\...   (only if you built the rider pose)
+Data\Meshes\CMB\CMB_BikeParked.nif   (unmodified copy of the vanilla motorcycle)
+Data\Meshes\CMB\CMB_BikeWorn.nif     (same mesh, skinned to the Root bone)
+Data\Meshes\CMB\CMB_Keys.nif         (optional: copy of a vanilla key)
 ```
 
-Enable the plugin in your mod manager, or in `plugins.txt` with a leading `*`. Then follow [TESTING.md](TESTING.md).
+## 2. Compile the scripts
+
+Double-click **`compile_scripts.bat`** in the repository root.
+
+- It finds Fallout 4 through the registry. If it doesn't, open a command prompt and run
+  `set FO4=D:\path\to\Fallout 4` before `compile_scripts.bat`.
+- The first time, it offers to unzip the vanilla script sources (`Base.zip`) the compiler needs. The Creation Kit does the same on first start.
+- It compiles the five core scripts into `Data\Scripts\*.pex`. If F4SE's script sources are installed, it also compiles the optional hotkey script; otherwise it skips it, and the mod works without it.
+- If anything fails, the window stays open: copy all of its text and send it to me.
+
+## 3. Install
+
+**Mod manager (recommended):** zip the *contents* of the repository's `Data` folder (`CommonwealthMotorbike.esp`, `Scripts`, `Meshes`), then install that zip like any other mod and enable `CommonwealthMotorbike.esp`.
+
+**Manual:** copy the contents of `Data` into `<Fallout 4>\Data`, then enable the plugin (`plugins.txt` line `*CommonwealthMotorbike.esp`, or the in-game Mods menu).
+
+Load order doesn't matter: the plugin doesn't edit any vanilla record.
+
+## 4. Test
+
+[TESTING.md](TESTING.md). The keys arrive the first time you're **outdoors with a Pip-Boy**: right after leaving Vault 111 on a new game, or straight away on an existing save.
+
+---
+
+## For developers: regenerating the plugin
+
+The plugin is generated by `tools/esp-generator` (C#, [Mutagen](https://github.com/Mutagen-Modding/Mutagen)). After changing a script's properties or a record:
+
+```
+tools/build.sh
+```
+
+This regenerates `Data/CommonwealthMotorbike.esp`. It then checks that every property in the plugin exists in the matching script with a compatible type, and that every `Mandatory` property is filled. Finally it runs the Papyrus syntax check (`tools/syntax-check`). Needs the .NET 8 SDK. The output is deterministic, so an unchanged generator gives a byte-identical plugin.
+
+The vanilla form IDs the plugin uses (PlayerRef, XMarker, HumanRace, SpeedMult, CarryWeight, Pip-Boy, AnimArchetypePlayer) were checked against Mutagen's FormKey list generated from the real `Fallout4.esm`. The record layouts were also compared field by field with xEdit's Fallout 4 definitions.
+
+## Appendix: building the plugin by hand in the Creation Kit
+
+You only need this if the generated plugin turns out to have a problem and you'd rather rebuild it in the editor. Every EditorID starts with `CMB_`, and the values below mirror the generator.
+
+1. **Globals** (Float): `CMB_SpeedPercent` 250, `CMB_CompanionMode` 1, `CMB_AllowCombat` 0, `CMB_ForceThirdPerson` 1, `CMB_UseRiderPose` 0, `CMB_CatchUpDistance` 2500, `CMB_BagCapacity` 60, `CMB_HotkeyCode` 48.
+2. **Keyword** `CMB_AnimArchetypeRider`, type *Anim Archetype*.
+3. **Messages** (tick *Message Box*; button order matters):
+   `CMB_ParkedMenu` "Motorbike" / "What do you want to do?" with buttons `Ride`, `Open side bag`, `Cancel`.
+   `CMB_KeysMenu` "Motorbike" / "Your motorbike isn't nearby." with buttons `Call it here`, `Open side bag`, `Cancel`.
+4. **Armor Addon** `CMB_BikeRiderAA`: race HumanRace, biped slot 58, male+female model `CMB\CMB_BikeWorn.nif`.
+   **Armor** `CMB_BikeRiderArmor`: name "Motorbike", *Non-Playable*, slot 58, race HumanRace, addon `CMB_BikeRiderAA`, everything else 0.
+5. **Magic Effect** `CMB_BikeKeysEffect`: archetype Script, Fire and Forget, Self, casting sound level Silent.
+   Flags: No Duration, No Magnitude, No Area, Hide in UI, Painless. Script: `CMB_KeysEffectScript`.
+   **Potion** `CMB_BikeKeys`: name "Motorbike Keys", model `CMB\CMB_Keys.nif`, weight 0, value 0, No Auto Calc, effect `CMB_BikeKeysEffect` (0/0/0).
+6. **Activator** `CMB_BikeActivator`: name "Motorbike", activate text "Use", model `CMB\CMB_BikeParked.nif`, script `CMB_BikeActivatorScript`.
+   **Container** `CMB_SideBagContainer`: name "Side Bag", model `CMB\CMB_BikeParked.nif`, script `CMB_SideBagScript`.
+7. **Interior cell** `CMB_HoldingCell` holding three *persistent* references: `CMB_BikeRef` (the activator), `CMB_SideBagRef` (the container), `CMB_HoldingMarkerRef` (an XMarker).
+8. **Quest** `CMB_ControllerQuest`: *Start Game Enabled*, priority 50.
+   - Reference alias `Player` (Specific Reference: PlayerRef) with script `CMB_PlayerAliasScript`.
+   - Scripts `CMB_ControllerScript` and, optionally, `CMB_HotkeyF4SE`.
+9. **Properties:** fill every *Mandatory* property ("Auto-Fill All" gets the vanilla ones). Script-typed properties called `Controller` point at `CMB_ControllerQuest`. `Pipboy` is the vanilla Pip-Boy armor (00021B3B). `AnimArchetypePlayer` is the vanilla keyword (0006B508).

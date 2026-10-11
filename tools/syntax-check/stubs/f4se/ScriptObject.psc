@@ -9,6 +9,8 @@ Function StartTimer(float afInterval, int aiTimerID = 0) native
 Function CancelTimer(int aiTimerID = 0) native
 Function RegisterForPlayerTeleport() native
 Function UnregisterForPlayerTeleport() native
+Function AddInventoryEventFilter(Form akFilter) native
+Function RemoveAllInventoryEventFilters() native
 
 ; F4SE
 Function RegisterForKey(int key) native

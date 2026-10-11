@@ -9,7 +9,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
-SRC="$ROOT/Scripts/Source/User"
+SRC="$ROOT/Data/Scripts/Source/User"
 CAPRICA="${CAPRICA:-$HERE/.caprica/src/build/Caprica/Caprica}"
 OUT="$(mktemp -d)"
 trap 'rm -rf "$OUT"' EXIT

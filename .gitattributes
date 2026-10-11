@@ -1,0 +1,4 @@
+*.bat text eol=crlf
+*.esp binary
+*.nif binary
+*.hkx binary

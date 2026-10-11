@@ -31,6 +31,8 @@ Group Required_Forms
 	{Shown when the keys are used and the bike is not nearby. Buttons: Call it here / Open side bag / Cancel.}
 	ActorValue Property SpeedMult Auto Const Mandatory
 	ActorValue Property CarryWeight Auto Const Mandatory
+	Armor Property Pipboy Auto Const Mandatory
+	{Vanilla Pip-Boy (00021B3B). The keys are only handed out once the player has one, i.e. after leaving Vault 111.}
 EndGroup
 
 Group Settings
@@ -63,7 +65,9 @@ EndGroup
 
 int Property TimerTick = 1 AutoReadOnly
 int Property TimerKeys = 2 AutoReadOnly
+int Property TimerDelivery = 3 AutoReadOnly
 float Property TickInterval = 1.0 AutoReadOnly
+float Property DeliveryRetryInterval = 20.0 AutoReadOnly
 float Property MountRange = 350.0 AutoReadOnly
 float Property ParkSideOffset = 110.0 AutoReadOnly
 float Property CallAheadDistance = 220.0 AutoReadOnly
@@ -79,6 +83,7 @@ int Property KeysStackSize = 2 AutoReadOnly
 
 bool riding = false
 bool busy = false
+bool keysDelivered = false
 bool riderPoseApplied = false
 float playerSpeedDelta = 0.0
 InputEnableLayer rideLayer
@@ -92,14 +97,18 @@ float[] boostedDeltas
 
 Event OnInit()
 	EnsureArrays()
-	GiveKeysIfMissing(false)
+	TryDeliverKeys()
 EndEvent
 
 ; Called by CMB_PlayerAliasScript every time a save is loaded.
 Function OnGameReloaded()
 	EnsureArrays()
 	busy = false
-	GiveKeysIfMissing(true)
+	if keysDelivered
+		GiveKeysIfMissing(true)
+	else
+		TryDeliverKeys()
+	endif
 
 	CMB_SideBagScript bag = SideBagRef as CMB_SideBagScript
 	if bag
@@ -134,6 +143,36 @@ bool Function IsRiding()
 	return riding
 EndFunction
 
+; The keys arrive the first time the player is outdoors with a Pip-Boy, so a new
+; game's pre-war intro and Vault 111 are left alone. Existing saves get them
+; the next time the player is outside.
+Function TryDeliverKeys()
+	if keysDelivered
+		return
+	endif
+	if PlayerRef.GetItemCount(Pipboy) > 0 && !PlayerRef.IsInInterior()
+		keysDelivered = true
+		CancelTimer(TimerDelivery)
+		if !riding
+			UnregisterForPlayerTeleport()
+		endif
+		GiveKeysIfMissing(false)
+		Debug.Notification("Use the Motorbike Keys (Aid) to call your motorbike.")
+		Log("Keys delivered.")
+	else
+		RegisterForPlayerTeleport()
+		StartTimer(DeliveryRetryInterval, TimerDelivery)
+	endif
+EndFunction
+
+; Console fallback, e.g. for alternative-start mods without a Pip-Boy:
+;   cqf CMB_ControllerQuest ForceGiveKeys
+Function ForceGiveKeys()
+	keysDelivered = true
+	CancelTimer(TimerDelivery)
+	GiveKeysIfMissing(false)
+EndFunction
+
 ; Called by the keys' magic effect. Work is deferred to a timer so the effect
 ; can finish right away, and so a menu opened from the Pip-Boy shows after it closes.
 Function RequestKeysAction()
@@ -143,7 +182,8 @@ EndFunction
 
 ; Hotkey behaviour: get off, get on, or call the bike over if it's not nearby.
 Function ToggleRide()
-	if busy
+	; Nothing to ride before the keys turn up (pre-war intro, Vault 111).
+	if busy || !keysDelivered
 		return
 	endif
 	if riding
@@ -159,12 +199,15 @@ Function Mount()
 	if riding || busy
 		return
 	endif
+	; Claim the lock before calling anything on other objects: those calls let
+	; other threads (hotkey, timer, activation) run in between.
+	busy = true
 	string blocker = GetMountBlocker()
 	if blocker != ""
+		busy = false
 		Debug.Notification(blocker)
 		return
 	endif
-	busy = true
 	EnsureArrays()
 
 	Game.FadeOutGame(true, true, 0.0, 0.25, true)
@@ -174,7 +217,9 @@ Function Mount()
 		Game.ForceThirdPerson()
 	endif
 	BikeRef.Disable()
-	PlayerRef.AddItem(CMB_BikeRiderArmor, 1, true)
+	if PlayerRef.GetItemCount(CMB_BikeRiderArmor) == 0
+		PlayerRef.AddItem(CMB_BikeRiderArmor, 1, true)
+	endif
 	PlayerRef.EquipItem(CMB_BikeRiderArmor, true, true)
 	ApplyRiderPose()
 	ApplyControls()
@@ -213,11 +258,12 @@ Function CallBike()
 	if riding || busy
 		return
 	endif
+	busy = true
 	if PlayerRef.IsInInterior()
+		busy = false
 		Debug.Notification("You can only call your motorbike outdoors.")
 		return
 	endif
-	busy = true
 	float angle = PlayerRef.GetAngleZ()
 	BikeRef.Disable()
 	BikeRef.MoveTo(PlayerRef, OffsetX(angle, CallAheadDistance, 60.0), OffsetY(angle, CallAheadDistance, 60.0), 0.0, true)
@@ -257,7 +303,9 @@ EndFunction
 ; ---------------------------------------------------------------------------
 
 Event OnTimer(int aiTimerID)
-	if aiTimerID == TimerKeys
+	if aiTimerID == TimerDelivery
+		TryDeliverKeys()
+	elseif aiTimerID == TimerKeys
 		HandleKeys()
 	elseif aiTimerID == TimerTick && riding
 		RideTick()
@@ -270,10 +318,15 @@ EndEvent
 Event OnPlayerTeleport()
 	if riding
 		RideTick()
+	elseif !keysDelivered
+		TryDeliverKeys()
 	endif
 EndEvent
 
 Function HandleKeys()
+	; Wait doesn't count time spent in menus, so this also waits for the
+	; Pip-Boy to close when the keys were used from there.
+	Utility.Wait(0.1)
 	if busy
 		return
 	endif
@@ -342,6 +395,7 @@ Function FinishRide()
 
 	int armorCount = PlayerRef.GetItemCount(CMB_BikeRiderArmor)
 	if armorCount > 0
+		PlayerRef.UnequipItem(CMB_BikeRiderArmor, false, true)
 		PlayerRef.RemoveItem(CMB_BikeRiderArmor, armorCount, true)
 	endif
 	ClearRiderPose()
@@ -387,7 +441,12 @@ Function ApplyControls()
 	; activate, journalTabs, VATS, favorites, running.
 	rideLayer.DisablePlayerControls(false, noCombat, false, false, true, false, false, false, noCombat, false, false)
 	rideLayer.EnableJumping(false)
-	rideLayer.EnableSprinting(false)
+	; EnableSprinting isn't in the official function list, so it's called by
+	; name: if it doesn't exist that only logs an error instead of breaking
+	; the compile, and sprinting simply stays allowed.
+	Var[] sprintArgs = new Var[1]
+	sprintArgs[0] = false
+	rideLayer.CallFunction("EnableSprinting", sprintArgs)
 EndFunction
 
 Function ReleaseControls()
@@ -503,7 +562,7 @@ Function HandleFollowersOnDismount()
 			; Step off behind the player, on the opposite side to the parked bike.
 			rider.MoveTo(PlayerRef, OffsetX(angle, -120.0, -90.0 - 60.0 * i), OffsetY(angle, -120.0, -90.0 - 60.0 * i), 0.0, true)
 			rider.Enable()
-			rider.EvaluatePackage()
+			rider.EvaluatePackage(false)
 		endif
 		i += 1
 	endwhile

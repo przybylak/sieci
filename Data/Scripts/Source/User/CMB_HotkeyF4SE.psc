@@ -28,7 +28,8 @@ Function RegisterHotkey()
 EndFunction
 
 Event OnKeyDown(int keyCode)
-	if keyCode == registeredKey && !Utility.IsInMenuMode()
+	; Menus (including the console) pause the game; dialogue doesn't, so check scenes too.
+	if keyCode == registeredKey && !Utility.IsInMenuMode() && !Controller.PlayerRef.IsInScene()
 		Controller.ToggleRide()
 	endif
 EndEvent

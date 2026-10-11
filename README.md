@@ -7,9 +7,10 @@ A rideable motorbike for Fallout 4:
 - **side bag**: small storage, size adjustable from the console
 - **park it, call it, ride it**: activate the bike or use its keys (favorite them to a hotkey); optional F4SE hotkey
 
-> **Status: never run in game.** The scripts compile cleanly against stand-in versions of the Fallout 4
-> scripting API (see `tools/syntax-check`), but nobody has built the plugin in the Creation Kit or
-> tested it in game yet. Expect a round or two of fixes. [TESTING.md](docs/TESTING.md) says what to send back.
+> **Status: never run in game.** The plugin is generated and verified offline: its structure, every script property
+> and the vanilla form IDs are checked, and the scripts compile cleanly against stand-in versions of the
+> Fallout 4 scripting API. Nobody has loaded it in the game yet, so expect a round or two of fixes.
+> [TESTING.md](docs/TESTING.md) says what to send back.
 
 ## Already exists?
 
@@ -32,22 +33,26 @@ There's no vehicle physics in Fallout 4's engine for the player, so the bike is 
 
 Getting off reverses all of that and parks the bike next to you. Indoors, power armor and furniture automatically park it outside.
 
-## What's needed to build it
+## What's needed
 
-| Need | Who | Notes |
-|---|---|---|
-| Fallout 4 on PC + **Creation Kit** (free on Steam) | you | builds the `.esp` and compiles the scripts |
-| **Outfit Studio** + NifSkope | you | one-time conversion of the vanilla motorcycle into a wearable mesh ([ASSETS.md](docs/ASSETS.md)) |
-| Archive2 (comes with the CK) | you | extracts the vanilla mesh |
-| F4SE | optional | dedicated hotkey and weight-based side bag; without it you use a favorites hotkey and an item-count bag |
-| Testing in game + Papyrus log | you | I can't run the game; the log and screenshots are how fixes happen |
-| An animator (or lots of patience) | later | real riding animations, see roadmap |
+| Need | Why |
+|---|---|
+| Fallout 4 on PC, any version from 1.10 (2017) on | the plugin is light (ESL) and edits no vanilla records |
+| **Creation Kit** (free on Steam) | only for its script compiler (`compile_scripts.bat` runs it) and Archive2 |
+| **Outfit Studio** + NifSkope | one-time conversion of the vanilla motorcycle into a wearable mesh |
+| F4SE (optional) | dedicated hotkey and weight-based side bag; without it you favorite the keys for a hotkey, and the bag counts items |
+| Testing in game + Papyrus log | I can't run the game; the log and screenshots are how fixes happen |
 
 ## Getting started
 
-1. Build it: [docs/BUILD_GUIDE.md](docs/BUILD_GUIDE.md) (Creation Kit, step by step)
-2. Make the worn bike mesh: [docs/ASSETS.md](docs/ASSETS.md)
-3. Test it: [docs/TESTING.md](docs/TESTING.md)
+The plugin is already built (`Data/CommonwealthMotorbike.esp`). You need to:
+
+1. Make the two bike meshes: [docs/ASSETS.md](docs/ASSETS.md)
+2. Double-click `compile_scripts.bat`
+3. Copy the contents of `Data` into the game's `Data` folder, or zip them for your mod manager, and enable the plugin
+4. Test: [docs/TESTING.md](docs/TESTING.md)
+
+Details for every step: [docs/BUILD_GUIDE.md](docs/BUILD_GUIDE.md).
 
 ## Controls
 
@@ -68,20 +73,29 @@ Getting off reverses all of that and parks the bike next to you. Indoors, power 
 | `set CMB_CompanionMode to <0 run alongside / 1 ride along>` | 1 |
 | `set CMB_AllowCombat to <0/1>` | 0 |
 | `cqf CMB_ControllerQuest EmergencyReset` | undo everything if stuck |
+| `cqf CMB_ControllerQuest ForceGiveKeys` | keys, if an alternative-start mod skipped the Pip-Boy |
+
+The keys turn up the first time you're outdoors with a Pip-Boy, so a new game's intro and Vault 111 are left alone.
 
 ## Repository layout
 
 ```
-Scripts/Source/User/      Papyrus sources (copy into Data\Scripts\Source\User)
-  CMB_ControllerScript    the brain: mount, dismount, speed, companions, parking
-  CMB_BikeActivatorScript parked bike menu
-  CMB_KeysEffectScript    keys aid item
-  CMB_SideBagScript       capacity-limited side bag
-  CMB_PlayerAliasScript   save/load hook
-  CMB_HotkeyF4SE          optional F4SE hotkey
-docs/                     build, assets, testing and design notes
-tools/make_rider_pose.py  builds the experimental seated-pose animation folder
-tools/syntax-check/       compile-checks the scripts on Linux without the CK
+Data/                         mirrors the game's Data folder
+  CommonwealthMotorbike.esp   the plugin (generated, ESL-flagged)
+  Scripts/Source/User/        Papyrus sources; compiled .pex land in Data/Scripts
+    CMB_ControllerScript      the brain: mount, dismount, speed, companions, parking
+    CMB_BikeActivatorScript   parked bike menu
+    CMB_KeysEffectScript      keys aid item
+    CMB_SideBagScript         capacity-limited side bag
+    CMB_PlayerAliasScript     save/load hook
+    CMB_HotkeyF4SE            optional F4SE hotkey
+  Meshes/CMB/                 your bike meshes go here
+compile_scripts.bat           compiles the scripts with the Creation Kit's compiler
+docs/                         install, assets, testing and design notes
+tools/build.sh                regenerates the plugin and runs all offline checks
+tools/esp-generator/          C# (Mutagen) plugin generator + plugin/script cross-check
+tools/syntax-check/           compile-checks the scripts on Linux without the CK
+tools/make_rider_pose.py      builds the experimental seated-pose animation folder
 ```
 
 ## Roadmap

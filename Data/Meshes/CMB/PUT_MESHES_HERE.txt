@@ -1,0 +1,11 @@
+Put these files in this folder (see docs/ASSETS.md for how to make them):
+
+  CMB_BikeParked.nif   REQUIRED  an unmodified copy of the vanilla motorcycle mesh
+                                 (the parked bike you walk up to)
+  CMB_BikeWorn.nif     REQUIRED  the same mesh skinned to the "Root" bone in Outfit Studio
+                                 (the bike drawn under you while riding)
+  CMB_Keys.nif         optional  a copy of any vanilla key mesh (the keys' 3D preview)
+
+Without CMB_BikeParked.nif the parked bike is invisible.
+Without CMB_BikeWorn.nif riding still works, you just don't see the bike under you.
+Never point the worn bike at an UNconverted mesh: unweighted armor meshes crash the game.

@@ -1,3 +1,5 @@
 tools/syntax-check/.caprica/
+tools/esp-generator/bin/
+tools/esp-generator/obj/
 __pycache__/
 *.pex
