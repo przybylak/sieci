@@ -1,0 +1,32 @@
+/*
+	User flags for Fallout 4 Papyrus, in the format Caprica reads.
+	Mirrors the flags the Creation Kit compiler knows about.
+*/
+Flag Hidden 0
+{
+	Script
+	Property
+	StructVar
+}
+Flag Conditional 1
+{
+	Script
+	Variable
+}
+Flag Default 2
+{
+	Script
+}
+Flag CollapsedOnRef 3
+{
+	Group
+}
+Flag CollapsedOnBase 4
+{
+	Group
+}
+Flag Collapsed CollapsedOnRef & CollapsedOnBase
+Flag Mandatory 5
+{
+	Property
+}

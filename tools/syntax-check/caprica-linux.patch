@@ -1,0 +1,891 @@
+diff --git a/Caprica/common/ByteSwap.h b/Caprica/common/ByteSwap.h
+index c7873a4..300d3ea 100644
+--- a/Caprica/common/ByteSwap.h
++++ b/Caprica/common/ByteSwap.h
+@@ -4,21 +4,21 @@
+ // These are backported from STL C++23
+ namespace caprica {
+ constexpr uint16_t _Byteswap_ushort(const uint16_t _Val) noexcept {
+-  if (std::_Is_constant_evaluated())
++  if (std::is_constant_evaluated())
+     return static_cast<unsigned short>((_Val << 8) | (_Val >> 8));
+   else
+     return _byteswap_ushort(_Val);
+ }
+ 
+ constexpr uint32_t _Byteswap_ulong(const uint32_t _Val) noexcept {
+-  if (std::_Is_constant_evaluated())
++  if (std::is_constant_evaluated())
+     return (_Val << 24) | ((_Val << 8) & 0x00FF'0000) | ((_Val >> 8) & 0x0000'FF00) | (_Val >> 24);
+   else
+     return _byteswap_ulong(_Val);
+ }
+ 
+ constexpr uint64_t _Byteswap_uint64(const uint64_t _Val) noexcept {
+-  if (std::_Is_constant_evaluated()) {
++  if (std::is_constant_evaluated()) {
+     return (_Val << 56) | ((_Val << 40) & 0x00FF'0000'0000'0000) | ((_Val << 24) & 0x0000'FF00'0000'0000) |
+            ((_Val << 8) & 0x0000'00FF'0000'0000) | ((_Val >> 8) & 0x0000'0000'FF00'0000) |
+            ((_Val >> 24) & 0x0000'0000'00FF'0000) | ((_Val >> 40) & 0x0000'0000'0000'FF00) | (_Val >> 56);
+diff --git a/Caprica/common/CapricaJobManager.h b/Caprica/common/CapricaJobManager.h
+index 115b8d4..186338f 100644
+--- a/Caprica/common/CapricaJobManager.h
++++ b/Caprica/common/CapricaJobManager.h
+@@ -9,7 +9,7 @@
+ 
+ namespace caprica {
+ 
+-struct CapricaJob abstract {
++struct CapricaJob {
+   CapricaJob() = default;
+   CapricaJob(const CapricaJob& other) = delete;
+   CapricaJob(CapricaJob&& other) = delete;
+diff --git a/Caprica/common/CapricaReportingContext.h b/Caprica/common/CapricaReportingContext.h
+index f2dfffe..4502e8a 100644
+--- a/Caprica/common/CapricaReportingContext.h
++++ b/Caprica/common/CapricaReportingContext.h
+@@ -7,6 +7,36 @@
+ #include <string>
+ #include <vector>
+ 
++#include <string_view>
++#include <type_traits>
++#include <utility>
++
++namespace caprica { namespace fmt_detail {
++// Non-MSVC: std::string / std::string_view / identifier_ref can't go through
++// C varargs into %s (different layouts), so turn them into C strings first.
++template <typename T>
++struct has_to_string_view {
++  template <typename U>
++  static auto test(int) -> decltype(std::declval<const U&>().to_string_view(), std::true_type {});
++  template <typename>
++  static std::false_type test(...);
++  static constexpr bool value = decltype(test<T>(0))::value;
++};
++template <typename T>
++inline auto conv(T&& v) {
++  using D = std::decay_t<T>;
++  if constexpr (std::is_same_v<D, std::string> || std::is_same_v<D, std::string_view>)
++    return std::string(v);
++  else if constexpr (has_to_string_view<D>::value)
++    return std::string(v.to_string_view());
++  else
++    return D(v);
++}
++inline const char* pass(const std::string& s) { return s.c_str(); }
++template <typename T>
++inline T pass(const T& v) { return v; }
++}}
++
+ #include <common/allocators/FileOffsetPool.h>
+ #include <common/CapricaFileLocation.h>
+ #include <common/UtilMacros.h>
+@@ -63,9 +93,9 @@ struct CapricaReportingContext final {
+   NEVER_INLINE static std::string formatString(const char* msg, Args&&... args) {
+     constexpr bool haveArgs = sizeof...(args) != 0;
+     if (haveArgs) {
+-      size_t size = std::snprintf(nullptr, 0, msg, std::forward<Args>(args)...) + 1;
++      size_t size = std::snprintf(nullptr, 0, msg, fmt_detail::pass(fmt_detail::conv(args))...) + 1;
+       std::unique_ptr<char[]> buf(new char[size]);
+-      std::snprintf(buf.get(), size, msg, std::forward<Args>(args)...);
++      std::snprintf(buf.get(), size, msg, fmt_detail::pass(fmt_detail::conv(args))...);
+       return std::string(buf.get(), buf.get() + size - 1);
+     } else {
+       return msg;
+diff --git a/Caprica/common/CaselessStringComparer.cpp b/Caprica/common/CaselessStringComparer.cpp
+index 443db12..41cd950 100644
+--- a/Caprica/common/CaselessStringComparer.cpp
++++ b/Caprica/common/CaselessStringComparer.cpp
+@@ -57,8 +57,7 @@ bool pathEq(const identifier_ref& a, const identifier_ref& b) {
+   return caselessEq(std::string_view(a.data(), a.size()), std::string_view(b.data(), b.size()));
+ }
+ 
+-alignas(128) static const __m128i spaces { ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ',
+-                                           ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ' };
++alignas(128) static const __m128i spaces = _mm_set1_epi8(' ');
+ 
+ template <bool isNullTerminated>
+ ALWAYS_INLINE bool CaselessIdentifierEqual::equal(const char* a, const char* b, size_t len) {
+diff --git a/Caprica/common/FSUtils.cpp b/Caprica/common/FSUtils.cpp
+index 0ab5eb0..bcb349b 100644
+--- a/Caprica/common/FSUtils.cpp
++++ b/Caprica/common/FSUtils.cpp
+@@ -61,15 +61,15 @@ std::string canonical(const std::string& path) {
+   } else {
+     std::filesystem::path result;
+     for (auto it = absPath.begin(); it != absPath.end(); ++it) {
+-      if (!wcscmp(it->c_str(), L"..")) {
++      if (!strcmp(it->c_str(), "..")) {
+         // /a/b/../.. is not /a/b/.. under most circumstances
+         // We can end up with ..s in our result because of symbolic links
+-        if (!wcscmp(result.filename().c_str(), L".."))
++        if (!strcmp(result.filename().c_str(), ".."))
+           result /= *it;
+         // Otherwise it should be safe to resolve the parent
+         else
+           result = result.parent_path();
+-      } else if (!wcscmp(it->c_str(), L".")) {
++      } else if (!strcmp(it->c_str(), ".")) {
+         // Ignore
+       } else {
+         // Just cat other path entries
+diff --git a/Caprica/common/IntrusiveLinkedList.h b/Caprica/common/IntrusiveLinkedList.h
+index 1c8e183..1ba13f9 100644
+--- a/Caprica/common/IntrusiveLinkedList.h
++++ b/Caprica/common/IntrusiveLinkedList.h
+@@ -75,7 +75,7 @@ private:
+ 
+     bool operator!=(const ConstIterator& other) const { return !(*this == other); }
+ 
+-  private:
++  public:
+     friend IntrusiveLinkedList;
+     const T* cur { nullptr };
+ 
+@@ -103,7 +103,7 @@ private:
+ 
+     bool operator!=(const Iterator& other) const { return !(*this == other); }
+ 
+-  private:
++  public:
+     friend IntrusiveLinkedList;
+     T* cur { nullptr };
+ 
+@@ -149,9 +149,7 @@ public:
+       cur.other = otherFront;
+     }
+ 
+-  private:
+-    friend LockstepIteratorWrapper<T2>;
+-    friend ConstLockstepIteratorWrapper<T2>;
++  public:
+     struct {
+       T* self { nullptr };
+       T2* other { nullptr };
+@@ -171,7 +169,7 @@ private:
+ 
+     LockstepIterator<T2> end() { return LockstepIterator<T2>(); }
+ 
+-  private:
++  public:
+     friend IntrusiveLinkedList;
+     IntrusiveLinkedList& self;
+     IntrusiveLinkedList<T2>& other;
+@@ -190,7 +188,7 @@ private:
+ 
+     LockstepIterator<const T2> end() { return LockstepIterator<const T2>(); }
+ 
+-  private:
++  public:
+     friend IntrusiveLinkedList;
+     IntrusiveLinkedList& self;
+     const IntrusiveLinkedList<T2>& other;
+@@ -217,7 +215,7 @@ private:
+ 
+     bool operator!=(const InsertableIterator& other) const { return !(*this == other); }
+ 
+-  private:
++  public:
+     friend IntrusiveLinkedList;
+     T* cur { nullptr };
+     T* prev { nullptr };
+diff --git a/Caprica/common/UtilMacros.h b/Caprica/common/UtilMacros.h
+index 19c4171..6577f5b 100644
+--- a/Caprica/common/UtilMacros.h
++++ b/Caprica/common/UtilMacros.h
+@@ -6,5 +6,6 @@
+ #define NEVER_INLINE __declspec(noinline)
+ 
+ #else
+-#error TODO: Add appropriate defines for GCC/Clang.
++#define ALWAYS_INLINE inline __attribute__((always_inline))
++#define NEVER_INLINE __attribute__((noinline))
+ #endif
+diff --git a/Caprica/main.cpp b/Caprica/main.cpp
+index 4cbea50..eead832 100644
+--- a/Caprica/main.cpp
++++ b/Caprica/main.cpp
+@@ -74,14 +74,14 @@ bool addFilesFromDirectory(const std::string& f,
+   // last write time, and filesize, all without any extra processing.
+   auto absBaseDir = caprica::FSUtils::canonical(f);
+   std::vector<std::string> dirs {};
+-  dirs.push_back("\\");
++  dirs.push_back("/");
+ 
+   while (dirs.size()) {
+     HANDLE hFind;
+     WIN32_FIND_DATA data;
+     auto curDir = dirs.back();
+     dirs.pop_back();
+-    auto curSearchPattern = absBaseDir + curDir + "\\*";
++    auto curSearchPattern = absBaseDir + curDir + "/*";
+     caprica::caseless_unordered_identifier_ref_map<PapyrusCompilationNode*> namespaceMap {};
+     namespaceMap.reserve(8000);
+ 
+@@ -96,10 +96,10 @@ bool addFilesFromDirectory(const std::string& f,
+       if (filenameRef != std::string_view(".") && filenameRef != std::string_view("..")) {
+         if (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+           if (recursive) {
+-            if (curDir == "\\")
++            if (curDir == "/")
+               dirs.push_back(curDir + data.cFileName);
+             else
+-              dirs.push_back(curDir + "\\" + data.cFileName);
++              dirs.push_back(curDir + "/" + data.cFileName);
+           }
+         } else {
+           auto ext = FSUtils::extensionAsRef(filenameRef);
+@@ -137,7 +137,7 @@ bool addFilesFromDirectory(const std::string& f,
+ 
+     if (conf::Papyrus::game > GameID::Skyrim) {
+       auto namespaceName = curDir;
+-      std::replace(namespaceName.begin(), namespaceName.end(), '\\', ':');
++      std::replace(namespaceName.begin(), namespaceName.end(), '/', ':');
+       namespaceName = namespaceName.substr(1);
+       caprica::papyrus::PapyrusCompilationContext::pushNamespaceFullContents(namespaceName, std::move(namespaceMap));
+     } else {
+@@ -156,19 +156,19 @@ PapyrusCompilationNode* getNode(const PapyrusCompilationNode::NodeType& nodeType
+                                 time_t lastModTime,
+                                 size_t fileSize) {
+   std::string curDirFull;
+-  if (curDir == "\\" || curDir == "")
++  if (curDir == "/" || curDir == "")
+     curDirFull = absBaseDir;
+   else
+     curDirFull = absBaseDir + curDir;
+ 
+-  std::string sourceFilePath = curDirFull + "\\" + fileName;
++  std::string sourceFilePath = curDirFull + "/" + fileName;
+   std::string filenameToDisplay;
+   std::string outputDir;
+-  if (curDir == "\\" || curDir == "") {
++  if (curDir == "/" || curDir == "") {
+     filenameToDisplay = fileName;
+     outputDir = baseOutputDir;
+   } else {
+-    filenameToDisplay = curDir.substr(1) + "\\" + fileName;
++    filenameToDisplay = curDir.substr(1) + "/" + fileName;
+     outputDir = baseOutputDir + curDir;
+   }
+   if (nodeType == PapyrusCompilationNode::NodeType::PapyrusImport ||
+@@ -253,14 +253,14 @@ bool addSingleFile(const std::string& f,
+     return false;
+   }
+ 
+-  std::string namespaceDir = "\\";
++  std::string namespaceDir = "/";
+   auto path = std::filesystem::path(f);
+   auto filename = std::string(caprica::FSUtils::filenameAsRef(f));
+   std::string absBaseDir = std::filesystem::absolute(f).parent_path().string();
+   if (!path.is_absolute())
+     namespaceDir = caprica::FSUtils::parentPathAsRef(f);
+   auto namespaceName = namespaceDir;
+-  std::replace(namespaceName.begin(), namespaceName.end(), '\\', ':');
++  std::replace(namespaceName.begin(), namespaceName.end(), '/', ':');
+   namespaceName = namespaceName.substr(1);
+   std::cout << "Adding file '" << filename << "' to namespace '" << namespaceName << "'." << std::endl;
+   auto node = getNode(nodeType,
+diff --git a/Caprica/main_options.cpp b/Caprica/main_options.cpp
+index a2f38f8..30cbccf 100644
+--- a/Caprica/main_options.cpp
++++ b/Caprica/main_options.cpp
+@@ -239,16 +239,16 @@ bool parseCommandLineArguments(int argc, char* argv[], caprica::CapricaJobManage
+     std::string confFilePath = vm["config-file"].as<std::string>();
+     auto progamBasePath = filesystem::absolute(filesystem::path(argv[0]).parent_path()).string();
+     bool loadedConfigFile = false;
+-    if (filesystem::exists(progamBasePath + "\\" + confFilePath)) {
++    if (filesystem::exists(progamBasePath + "/" + confFilePath)) {
+       loadedConfigFile = true;
+-      std::ifstream ifs(progamBasePath + "\\" + confFilePath);
++      std::ifstream ifs(progamBasePath + "/" + confFilePath);
+       po::store(po::parse_config_file(ifs, commandLineDesc), vm);
+       po::notify(vm);
+     }
+     if (filesystem::exists(confFilePath) &&
+         _stricmp(filesystem::current_path().string().c_str(), progamBasePath.c_str())) {
+       loadedConfigFile = true;
+-      std::ifstream ifs(progamBasePath + "\\" + confFilePath);
++      std::ifstream ifs(progamBasePath + "/" + confFilePath);
+       po::store(po::parse_config_file(ifs, commandLineDesc), vm);
+       po::notify(vm);
+     }
+@@ -371,13 +371,13 @@ bool parseCommandLineArguments(int argc, char* argv[], caprica::CapricaJobManage
+           return flagsPath;
+ 
+         for (auto& i : conf::Papyrus::importDirectories)
+-          if (filesystem::exists(i + "\\" + flagsPath))
+-            return i + "\\" + flagsPath;
++          if (filesystem::exists(i + "/" + flagsPath))
++            return i + "/" + flagsPath;
+ 
+-        if (filesystem::exists(baseOutputDir + "\\" + flagsPath))
+-          return baseOutputDir + "\\" + flagsPath;
+-        if (filesystem::exists(progamBasePath + "\\" + flagsPath))
+-          return progamBasePath + "\\" + flagsPath;
++        if (filesystem::exists(baseOutputDir + "/" + flagsPath))
++          return baseOutputDir + "/" + flagsPath;
++        if (filesystem::exists(progamBasePath + "/" + flagsPath))
++          return progamBasePath + "/" + flagsPath;
+ 
+         return "";
+       };
+diff --git a/Caprica/papyrus/PapyrusCFG.h b/Caprica/papyrus/PapyrusCFG.h
+index 5ebfab9..c498dba 100644
+--- a/Caprica/papyrus/PapyrusCFG.h
++++ b/Caprica/papyrus/PapyrusCFG.h
+@@ -38,7 +38,7 @@ struct PapyrusControlFlowNode final {
+ 
+   void dumpNode(int currentDepth);
+ 
+-private:
++public:
+   friend IntrusiveLinkedList<PapyrusControlFlowNode>;
+   PapyrusControlFlowNode* next { nullptr };
+   friend IntrusiveStack<PapyrusControlFlowNode>;
+diff --git a/Caprica/papyrus/PapyrusCompilationContext.cpp b/Caprica/papyrus/PapyrusCompilationContext.cpp
+index 57b3d37..7a2d91f 100644
+--- a/Caprica/papyrus/PapyrusCompilationContext.cpp
++++ b/Caprica/papyrus/PapyrusCompilationContext.cpp
+@@ -189,7 +189,7 @@ void PapyrusCompilationNode::FileCompileJob::run() {
+           auto containingDir = std::filesystem::path(parent->outputDirectory);
+           if (!std::filesystem::exists(containingDir))
+             std::filesystem::create_directories(containingDir);
+-          std::ofstream asmStrm(parent->outputDirectory + "\\" + std::string(parent->baseName) + ".pas",
++          std::ofstream asmStrm(parent->outputDirectory + "/" + std::string(parent->baseName) + ".pas",
+                                 std::ofstream::binary);
+           asmStrm.exceptions(std::ifstream::badbit | std::ifstream::failbit);
+           pex::PexAsmWriter asmWtr(asmStrm);
+@@ -206,7 +206,7 @@ void PapyrusCompilationNode::FileCompileJob::run() {
+       auto containingDir = std::filesystem::path(parent->outputDirectory);
+       if (!std::filesystem::exists(containingDir))
+         std::filesystem::create_directories(containingDir);
+-      std::ofstream asmStrm(parent->outputDirectory + "\\" + std::string(parent->baseName) + ".pas",
++      std::ofstream asmStrm(parent->outputDirectory + "/" + std::string(parent->baseName) + ".pas",
+                             std::ofstream::binary);
+       asmStrm.exceptions(std::ifstream::badbit | std::ifstream::failbit);
+       caprica::pex::PexAsmWriter asmWtr(asmStrm);
+@@ -248,7 +248,7 @@ void PapyrusCompilationNode::FileWriteJob::run() {
+         auto containingDir = std::filesystem::path(parent->outputDirectory);
+         if (!std::filesystem::exists(containingDir))
+           std::filesystem::create_directories(containingDir);
+-        std::ofstream destFile { parent->outputDirectory + "\\" + baseFileName + ".pex", std::ifstream::binary };
++        std::ofstream destFile { parent->outputDirectory + "/" + baseFileName + ".pex", std::ifstream::binary };
+         destFile.exceptions(std::ifstream::badbit | std::ifstream::failbit);
+         parent->pexWriter->applyToBuffers([&](const char* data, size_t size) { destFile.write(data, size); });
+       }
+diff --git a/Caprica/papyrus/PapyrusCustomEvent.h b/Caprica/papyrus/PapyrusCustomEvent.h
+index d0635ef..f40317f 100644
+--- a/Caprica/papyrus/PapyrusCustomEvent.h
++++ b/Caprica/papyrus/PapyrusCustomEvent.h
+@@ -22,7 +22,7 @@ struct PapyrusCustomEvent final {
+ 
+   void semantic2(PapyrusResolutionContext* ctx);
+ 
+-private:
++public:
+   friend IntrusiveLinkedList<PapyrusCustomEvent>;
+   PapyrusCustomEvent* next { nullptr };
+ };
+diff --git a/Caprica/papyrus/PapyrusFunction.h b/Caprica/papyrus/PapyrusFunction.h
+index 414f362..d0d58d8 100644
+--- a/Caprica/papyrus/PapyrusFunction.h
++++ b/Caprica/papyrus/PapyrusFunction.h
+@@ -67,7 +67,7 @@ struct PapyrusFunction final {
+   bool hasSameSignature(const PapyrusFunction* other) const;
+   std::string prettySignature() const;
+ 
+-private:
++public:
+   friend IntrusiveLinkedList<PapyrusFunction>;
+   PapyrusFunction* next { nullptr };
+ };
+diff --git a/Caprica/papyrus/PapyrusFunctionParameter.h b/Caprica/papyrus/PapyrusFunctionParameter.h
+index eeff622..191538f 100644
+--- a/Caprica/papyrus/PapyrusFunctionParameter.h
++++ b/Caprica/papyrus/PapyrusFunctionParameter.h
+@@ -42,7 +42,7 @@ struct PapyrusFunctionParameter final {
+     defaultValue = ctx->coerceDefaultValue(defaultValue, type);
+   }
+ 
+-private:
++public:
+   friend IntrusiveLinkedList<PapyrusFunctionParameter>;
+   template <typename T>
+   friend struct IntrusiveLinkedList;
+diff --git a/Caprica/papyrus/PapyrusGuard.h b/Caprica/papyrus/PapyrusGuard.h
+index 64dc406..8b75a69 100644
+--- a/Caprica/papyrus/PapyrusGuard.h
++++ b/Caprica/papyrus/PapyrusGuard.h
+@@ -27,7 +27,7 @@ struct PapyrusGuard final {
+ 
+   void semantic2(PapyrusResolutionContext* ctx);
+ 
+-private:
++public:
+   friend IntrusiveLinkedList<PapyrusGuard>;
+   PapyrusGuard* next { nullptr };
+ };
+diff --git a/Caprica/papyrus/PapyrusLockParameter.h b/Caprica/papyrus/PapyrusLockParameter.h
+index 686e2bb..cfc033f 100644
+--- a/Caprica/papyrus/PapyrusLockParameter.h
++++ b/Caprica/papyrus/PapyrusLockParameter.h
+@@ -35,7 +35,7 @@ struct PapyrusLockParameter final {
+     // guard = const_cast<PapyrusGuard*>(id.res.guard);
+   }
+ 
+-private:
++public:
+   friend IntrusiveLinkedList<PapyrusLockParameter>;
+   PapyrusLockParameter* next { nullptr };
+ };
+diff --git a/Caprica/papyrus/PapyrusProperty.h b/Caprica/papyrus/PapyrusProperty.h
+index 50b6555..6e02bcb 100644
+--- a/Caprica/papyrus/PapyrusProperty.h
++++ b/Caprica/papyrus/PapyrusProperty.h
+@@ -52,7 +52,7 @@ struct PapyrusProperty final {
+   void semantic(PapyrusResolutionContext* ctx);
+   void semantic2(PapyrusResolutionContext* ctx);
+ 
+-private:
++public:
+   friend IntrusiveLinkedList<PapyrusProperty>;
+   PapyrusProperty* next { nullptr };
+ };
+diff --git a/Caprica/papyrus/PapyrusPropertyGroup.h b/Caprica/papyrus/PapyrusPropertyGroup.h
+index ad375c9..3b6ee83 100644
+--- a/Caprica/papyrus/PapyrusPropertyGroup.h
++++ b/Caprica/papyrus/PapyrusPropertyGroup.h
+@@ -52,7 +52,7 @@ struct PapyrusPropertyGroup final {
+       p->semantic2(ctx);
+   }
+ 
+-private:
++public:
+   friend IntrusiveLinkedList<PapyrusPropertyGroup>;
+   PapyrusPropertyGroup* next { nullptr };
+ };
+diff --git a/Caprica/papyrus/PapyrusResolutionContext.h b/Caprica/papyrus/PapyrusResolutionContext.h
+index 205ba9d..1cf3a43 100644
+--- a/Caprica/papyrus/PapyrusResolutionContext.h
++++ b/Caprica/papyrus/PapyrusResolutionContext.h
+@@ -134,7 +134,7 @@ private:
+     LocalScopeVariableNode(const identifier_ref& nm, statements::PapyrusDeclareStatement* decl)
+         : name(nm), declareStatement(decl) { }
+ 
+-  private:
++  public:
+     friend IntrusiveLinkedList<LocalScopeVariableNode>;
+     LocalScopeVariableNode* next { nullptr };
+   };
+diff --git a/Caprica/papyrus/PapyrusState.h b/Caprica/papyrus/PapyrusState.h
+index dca5e9e..2a8f4df 100644
+--- a/Caprica/papyrus/PapyrusState.h
++++ b/Caprica/papyrus/PapyrusState.h
+@@ -118,7 +118,7 @@ struct PapyrusState final {
+   void semantic(PapyrusResolutionContext* ctx);
+   void semantic2(PapyrusResolutionContext* ctx);
+ 
+-private:
++public:
+   friend IntrusiveLinkedList<PapyrusState>;
+   PapyrusState* next { nullptr };
+ };
+diff --git a/Caprica/papyrus/PapyrusStruct.h b/Caprica/papyrus/PapyrusStruct.h
+index 4e594aa..375bdbb 100644
+--- a/Caprica/papyrus/PapyrusStruct.h
++++ b/Caprica/papyrus/PapyrusStruct.h
+@@ -50,7 +50,7 @@ struct PapyrusStruct final {
+       m->semantic(ctx);
+   }
+ 
+-private:
++public:
+   friend IntrusiveLinkedList<PapyrusStruct>;
+   PapyrusStruct* next { nullptr };
+ };
+diff --git a/Caprica/papyrus/PapyrusStructMember.h b/Caprica/papyrus/PapyrusStructMember.h
+index 978372a..7659a00 100644
+--- a/Caprica/papyrus/PapyrusStructMember.h
++++ b/Caprica/papyrus/PapyrusStructMember.h
+@@ -57,7 +57,7 @@ struct PapyrusStructMember final {
+     defaultValue = ctx->coerceDefaultValue(defaultValue, type);
+   }
+ 
+-private:
++public:
+   friend IntrusiveLinkedList<PapyrusStructMember>;
+   PapyrusStructMember* next { nullptr };
+ };
+diff --git a/Caprica/papyrus/PapyrusVariable.h b/Caprica/papyrus/PapyrusVariable.h
+index 2807371..805a13f 100644
+--- a/Caprica/papyrus/PapyrusVariable.h
++++ b/Caprica/papyrus/PapyrusVariable.h
+@@ -36,7 +36,7 @@ struct PapyrusVariable final {
+   void buildPex(CapricaReportingContext& repCtx, pex::PexFile* file, pex::PexObject* obj) const;
+   void semantic2(PapyrusResolutionContext* ctx);
+ 
+-private:
++public:
+   friend IntrusiveLinkedList<PapyrusVariable>;
+   PapyrusVariable* next { nullptr };
+ };
+diff --git a/Caprica/papyrus/expressions/PapyrusExpression.h b/Caprica/papyrus/expressions/PapyrusExpression.h
+index 4ff4449..b5b8a7c 100644
+--- a/Caprica/papyrus/expressions/PapyrusExpression.h
++++ b/Caprica/papyrus/expressions/PapyrusExpression.h
+@@ -19,7 +19,7 @@ struct PapyrusMemberAccessExpression;
+ struct PapyrusParentExpression;
+ struct PapyrusCastExpression;
+ 
+-struct PapyrusExpression abstract {
++struct PapyrusExpression {
+   const CapricaFileLocation location;
+ 
+   explicit PapyrusExpression(CapricaFileLocation loc) : location(loc) { }
+diff --git a/Caprica/papyrus/expressions/PapyrusFunctionCallExpression.cpp b/Caprica/papyrus/expressions/PapyrusFunctionCallExpression.cpp
+index 0a29472..5cbe316 100644
+--- a/Caprica/papyrus/expressions/PapyrusFunctionCallExpression.cpp
++++ b/Caprica/papyrus/expressions/PapyrusFunctionCallExpression.cpp
+@@ -398,6 +398,13 @@ void PapyrusFunctionCallExpression::semantic(PapyrusResolutionContext* ctx, Papy
+           return true;
+       return false;
+     };
++    if (arguments.size() > function.res.func->parameters.size()) {
++      ctx->reportingContext.fatal(location,
++                                  "Too many arguments provided to '%s' (expected at most %d, got %d).",
++                                  function.res.func->name.to_string().c_str(),
++                                  (int)function.res.func->parameters.size(),
++                                  (int)arguments.size());
++    }
+     if (arguments.size() != function.res.func->parameters.size() || hasNamedArgs()) {
+       // We may have default args to fill in.
+       IntrusiveLinkedList<Parameter> newArgs;
+diff --git a/Caprica/papyrus/expressions/PapyrusFunctionCallExpression.h b/Caprica/papyrus/expressions/PapyrusFunctionCallExpression.h
+index eb129e4..73ddf11 100644
+--- a/Caprica/papyrus/expressions/PapyrusFunctionCallExpression.h
++++ b/Caprica/papyrus/expressions/PapyrusFunctionCallExpression.h
+@@ -23,7 +23,7 @@ struct PapyrusFunctionCallExpression final : public PapyrusExpression {
+     Parameter(const Parameter&) = delete;
+     ~Parameter() = default;
+ 
+-  private:
++  public:
+     template <typename T>
+     friend struct IntrusiveLinkedList;
+     template <typename T>
+diff --git a/Caprica/papyrus/parser/PapyrusLexer.cpp b/Caprica/papyrus/parser/PapyrusLexer.cpp
+index a2ac0d6..4b40afe 100644
+--- a/Caprica/papyrus/parser/PapyrusLexer.cpp
++++ b/Caprica/papyrus/parser/PapyrusLexer.cpp
+@@ -475,9 +475,7 @@ StartOver:
+         getChar();
+       }
+ 
+-      static const __m128i identifierChars = {
+-        'a', 'z', 'A', 'Z', '0', '9', '_', '_', ':', ':', '\0',
+-      };
++      static const __m128i identifierChars = _mm_setr_epi8('a', 'z', 'A', 'Z', '0', '9', '_', '_', ':', ':', 0, 0, 0, 0, 0, 0);
+ 
+       int idx = 0;
+       do {
+diff --git a/Caprica/papyrus/statements/PapyrusIfStatement.h b/Caprica/papyrus/statements/PapyrusIfStatement.h
+index 30ef65d..3a77789 100644
+--- a/Caprica/papyrus/statements/PapyrusIfStatement.h
++++ b/Caprica/papyrus/statements/PapyrusIfStatement.h
+@@ -18,7 +18,7 @@ struct PapyrusIfStatement final : public PapyrusStatement {
+     IfBody(expressions::PapyrusExpression* c, IntrusiveLinkedList<PapyrusStatement>&& b)
+         : condition(c), body(std::move(b)) { }
+ 
+-  private:
++  public:
+     friend IntrusiveLinkedList<IfBody>;
+     IfBody* next { nullptr };
+   };
+diff --git a/Caprica/papyrus/statements/PapyrusStatement.h b/Caprica/papyrus/statements/PapyrusStatement.h
+index b3e9fac..472ba9d 100644
+--- a/Caprica/papyrus/statements/PapyrusStatement.h
++++ b/Caprica/papyrus/statements/PapyrusStatement.h
+@@ -13,7 +13,7 @@
+ 
+ namespace caprica { namespace papyrus { namespace statements {
+ 
+-struct PapyrusStatement abstract {
++struct PapyrusStatement {
+   const CapricaFileLocation location;
+ 
+   explicit PapyrusStatement(CapricaFileLocation loc) : location(loc) { }
+@@ -26,7 +26,7 @@ struct PapyrusStatement abstract {
+   virtual void semantic_skyrim_first_pass(PapyrusResolutionContext* ctx) {};
+   virtual void visit(PapyrusStatementVisitor& visitor) = 0;
+ 
+-private:
++public:
+   friend IntrusiveLinkedList<PapyrusStatement>;
+   PapyrusStatement* next { nullptr };
+ };
+diff --git a/Caprica/papyrus/statements/PapyrusStatementVisitor.h b/Caprica/papyrus/statements/PapyrusStatementVisitor.h
+index b45d4fe..756cd4a 100644
+--- a/Caprica/papyrus/statements/PapyrusStatementVisitor.h
++++ b/Caprica/papyrus/statements/PapyrusStatementVisitor.h
+@@ -17,7 +17,7 @@ struct PapyrusSwitchStatement;
+ struct PapyrusTryGuardStatement;
+ struct PapyrusWhileStatement;
+ 
+-struct PapyrusStatementVisitor abstract {
++struct PapyrusStatementVisitor {
+   explicit PapyrusStatementVisitor() = default;
+   PapyrusStatementVisitor(const PapyrusStatementVisitor&) = delete;
+   virtual ~PapyrusStatementVisitor() = default;
+@@ -38,7 +38,7 @@ struct PapyrusStatementVisitor abstract {
+   virtual void visit(PapyrusWhileStatement* s) = 0;
+ };
+ 
+-struct PapyrusSelectiveStatementVisitor abstract : public PapyrusStatementVisitor {
++struct PapyrusSelectiveStatementVisitor : public PapyrusStatementVisitor {
+   explicit PapyrusSelectiveStatementVisitor() = default;
+   PapyrusSelectiveStatementVisitor(const PapyrusSelectiveStatementVisitor&) = delete;
+   virtual ~PapyrusSelectiveStatementVisitor() = default;
+diff --git a/Caprica/papyrus/statements/PapyrusSwitchStatement.h b/Caprica/papyrus/statements/PapyrusSwitchStatement.h
+index dc4039d..28238d9 100644
+--- a/Caprica/papyrus/statements/PapyrusSwitchStatement.h
++++ b/Caprica/papyrus/statements/PapyrusSwitchStatement.h
+@@ -18,7 +18,7 @@ struct PapyrusSwitchStatement final : public PapyrusStatement {
+     CaseBody(PapyrusValue&& c, IntrusiveLinkedList<PapyrusStatement>&& b)
+         : condition(std::move(c)), body(std::move(b)) { }
+ 
+-  private:
++  public:
+     friend IntrusiveLinkedList<CaseBody>;
+     CaseBody* next { nullptr };
+   };
+diff --git a/Caprica/pex/PexDebugFunctionInfo.h b/Caprica/pex/PexDebugFunctionInfo.h
+index b75b766..d8eec4c 100644
+--- a/Caprica/pex/PexDebugFunctionInfo.h
++++ b/Caprica/pex/PexDebugFunctionInfo.h
+@@ -31,7 +31,7 @@ struct PexDebugFunctionInfo final {
+   static PexDebugFunctionInfo* read(allocators::ChainedPool* alloc, PexReader& rdr);
+   void write(PexWriter& wtr) const;
+ 
+-private:
++public:
+   friend IntrusiveLinkedList<PexDebugFunctionInfo>;
+   PexDebugFunctionInfo* next { nullptr };
+ };
+diff --git a/Caprica/pex/PexDebugPropertyGroup.h b/Caprica/pex/PexDebugPropertyGroup.h
+index 5e3cc6d..a7f58b2 100644
+--- a/Caprica/pex/PexDebugPropertyGroup.h
++++ b/Caprica/pex/PexDebugPropertyGroup.h
+@@ -24,7 +24,7 @@ struct PexDebugPropertyGroup final {
+   void write(PexWriter& wtr) const;
+   void writeAsm(const PexFile* file, PexAsmWriter& wtr) const;
+ 
+-private:
++public:
+   friend IntrusiveLinkedList<PexDebugPropertyGroup>;
+   PexDebugPropertyGroup* next { nullptr };
+ };
+diff --git a/Caprica/pex/PexDebugStructOrder.h b/Caprica/pex/PexDebugStructOrder.h
+index f9f21a7..1fb48bd 100644
+--- a/Caprica/pex/PexDebugStructOrder.h
++++ b/Caprica/pex/PexDebugStructOrder.h
+@@ -20,7 +20,7 @@ struct PexDebugStructOrder final {
+   static PexDebugStructOrder* read(allocators::ChainedPool* alloc, PexReader& rdr);
+   void write(PexWriter& wtr) const;
+ 
+-private:
++public:
+   friend IntrusiveLinkedList<PexDebugStructOrder>;
+   PexDebugStructOrder* next { nullptr };
+ };
+diff --git a/Caprica/pex/PexFunction.h b/Caprica/pex/PexFunction.h
+index 45c7726..10cd3f2 100644
+--- a/Caprica/pex/PexFunction.h
++++ b/Caprica/pex/PexFunction.h
+@@ -47,7 +47,7 @@ struct PexFunction final {
+                 std::string propName,
+                 PexAsmWriter& wtr) const;
+ 
+-private:
++public:
+   friend IntrusiveLinkedList<PexFunction>;
+   PexFunction* next { nullptr };
+ };
+diff --git a/Caprica/pex/PexFunctionParameter.h b/Caprica/pex/PexFunctionParameter.h
+index 3bddd98..18fcd9d 100644
+--- a/Caprica/pex/PexFunctionParameter.h
++++ b/Caprica/pex/PexFunctionParameter.h
+@@ -23,7 +23,7 @@ struct PexFunctionParameter final {
+   void write(PexWriter& wtr) const;
+   void writeAsm(const PexFile* file, PexAsmWriter& wtr) const;
+ 
+-private:
++public:
+   friend IntrusiveLinkedList<PexFunctionParameter>;
+   PexFunctionParameter* next { nullptr };
+ };
+diff --git a/Caprica/pex/PexGuard.h b/Caprica/pex/PexGuard.h
+index 8f2552f..a3987a2 100644
+--- a/Caprica/pex/PexGuard.h
++++ b/Caprica/pex/PexGuard.h
+@@ -25,7 +25,7 @@ struct PexGuard final {
+   void write(PexWriter& wtr) const;
+   void writeAsm(const PexFile* file, PexAsmWriter& wtr) const;
+ 
+-private:
++public:
+   friend IntrusiveLinkedList<PexGuard>;
+   PexGuard* next { nullptr };
+ };
+diff --git a/Caprica/pex/PexInstruction.h b/Caprica/pex/PexInstruction.h
+index dd3ce39..3a16aa5 100644
+--- a/Caprica/pex/PexInstruction.h
++++ b/Caprica/pex/PexInstruction.h
+@@ -166,7 +166,7 @@ struct PexInstruction final {
+   static PexOpCode tryParseOpCode(const std::string& str);
+   static std::string opCodeToPexAsm(PexOpCode op);
+ 
+-private:
++public:
+   friend IntrusiveLinkedList<PexInstruction>;
+   PexInstruction* next { nullptr };
+ };
+diff --git a/Caprica/pex/PexLabel.h b/Caprica/pex/PexLabel.h
+index 2c5a3b7..62036b7 100644
+--- a/Caprica/pex/PexLabel.h
++++ b/Caprica/pex/PexLabel.h
+@@ -13,7 +13,7 @@ struct PexLabel final {
+   PexLabel(const PexLabel&) = delete;
+   ~PexLabel() = default;
+ 
+-private:
++public:
+   friend IntrusiveLinkedList<PexLabel>;
+   PexLabel* next { nullptr };
+ };
+diff --git a/Caprica/pex/PexLocalVariable.h b/Caprica/pex/PexLocalVariable.h
+index c6ca505..4f4a3b3 100644
+--- a/Caprica/pex/PexLocalVariable.h
++++ b/Caprica/pex/PexLocalVariable.h
+@@ -25,7 +25,7 @@ struct PexLocalVariable final {
+   void write(PexWriter& wtr) const;
+   void writeAsm(const PexFile* file, PexAsmWriter& wtr) const;
+ 
+-private:
++public:
+   friend IntrusiveLinkedList<PexLocalVariable>;
+   PexLocalVariable* next { nullptr };
+   friend IntrusiveStack<PexLocalVariable>;
+diff --git a/Caprica/pex/PexObject.h b/Caprica/pex/PexObject.h
+index 560136c..a7eba4c 100644
+--- a/Caprica/pex/PexObject.h
++++ b/Caprica/pex/PexObject.h
+@@ -40,7 +40,7 @@ struct PexObject final {
+   void write(PexWriter& wtr, GameID gameType) const;
+   void writeAsm(const PexFile* file, PexAsmWriter& wtr) const;
+ 
+-private:
++public:
+   friend IntrusiveLinkedList<PexObject>;
+   PexObject* next { nullptr };
+ };
+diff --git a/Caprica/pex/PexProperty.h b/Caprica/pex/PexProperty.h
+index 98a7c35..fc0e9b0 100644
+--- a/Caprica/pex/PexProperty.h
++++ b/Caprica/pex/PexProperty.h
+@@ -34,7 +34,7 @@ struct PexProperty final {
+   void write(PexWriter& wtr) const;
+   void writeAsm(const PexFile* file, const PexObject* obj, PexAsmWriter& wtr) const;
+ 
+-private:
++public:
+   friend IntrusiveLinkedList<PexProperty>;
+   PexProperty* next { nullptr };
+ };
+diff --git a/Caprica/pex/PexState.h b/Caprica/pex/PexState.h
+index 3147a05..90e2771 100644
+--- a/Caprica/pex/PexState.h
++++ b/Caprica/pex/PexState.h
+@@ -25,7 +25,7 @@ struct PexState final {
+   void write(PexWriter& wtr) const;
+   void writeAsm(const PexFile* file, const PexObject* obj, PexAsmWriter& wtr) const;
+ 
+-private:
++public:
+   friend IntrusiveLinkedList<PexState>;
+   PexState* next { nullptr };
+ };
+diff --git a/Caprica/pex/PexString.h b/Caprica/pex/PexString.h
+index 6ee8e38..ad3db43 100644
+--- a/Caprica/pex/PexString.h
++++ b/Caprica/pex/PexString.h
+@@ -29,7 +29,7 @@ struct IntrusivePexString final : public PexString {
+   IntrusivePexString(const PexString& str) : PexString(str) { }
+   IntrusivePexString(PexString&& str) : PexString(str) { }
+ 
+-private:
++public:
+   friend IntrusiveLinkedList<IntrusivePexString>;
+   IntrusivePexString* next { nullptr };
+ };
+diff --git a/Caprica/pex/PexStruct.h b/Caprica/pex/PexStruct.h
+index 13d1675..454eb31 100644
+--- a/Caprica/pex/PexStruct.h
++++ b/Caprica/pex/PexStruct.h
+@@ -24,7 +24,7 @@ struct PexStruct final {
+   void write(PexWriter& wtr) const;
+   void writeAsm(const PexFile* file, PexAsmWriter& wtr) const;
+ 
+-private:
++public:
+   friend IntrusiveLinkedList<PexStruct>;
+   PexStruct* next { nullptr };
+ };
+diff --git a/Caprica/pex/PexStructMember.h b/Caprica/pex/PexStructMember.h
+index 8393054..ee6b533 100644
+--- a/Caprica/pex/PexStructMember.h
++++ b/Caprica/pex/PexStructMember.h
+@@ -29,7 +29,7 @@ struct PexStructMember final {
+   void write(PexWriter& wtr) const;
+   void writeAsm(const PexFile* file, PexAsmWriter& wtr) const;
+ 
+-private:
++public:
+   friend IntrusiveLinkedList<PexStructMember>;
+   PexStructMember* next { nullptr };
+ };
+diff --git a/Caprica/pex/PexValue.h b/Caprica/pex/PexValue.h
+index 8b3bee6..3007374 100644
+--- a/Caprica/pex/PexValue.h
++++ b/Caprica/pex/PexValue.h
+@@ -33,7 +33,7 @@ struct PexTemporaryVariableRef {
+ 
+   explicit PexTemporaryVariableRef(const PexString& tp) : type(tp) { }
+ 
+-private:
++public:
+   friend IntrusiveLinkedList<PexTemporaryVariableRef>;
+   PexTemporaryVariableRef* next { nullptr };
+ };
+@@ -138,7 +138,7 @@ struct IntrusivePexValue final : public PexValue {
+   IntrusivePexValue(const PexValue& str) : PexValue(str) { }
+   IntrusivePexValue(PexValue&& str) : PexValue(str) { }
+ 
+-private:
++public:
+   friend IntrusiveLinkedList<IntrusivePexValue>;
+   IntrusivePexValue* next { nullptr };
+ };
+diff --git a/Caprica/pex/PexVariable.h b/Caprica/pex/PexVariable.h
+index 1dc952f..f13050b 100644
+--- a/Caprica/pex/PexVariable.h
++++ b/Caprica/pex/PexVariable.h
+@@ -28,7 +28,7 @@ struct PexVariable final {
+   void write(PexWriter& wtr, GameID gameType) const;
+   void writeAsm(const PexFile* file, PexAsmWriter& wtr) const;
+ 
+-private:
++public:
+   friend IntrusiveLinkedList<PexVariable>;
+   PexVariable* next { nullptr };
+ };

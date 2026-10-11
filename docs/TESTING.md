@@ -1,0 +1,71 @@
+# Testing in game
+
+I can't run Fallout 4, so in-game testing is yours. These checks are ordered so that the first failure points at one specific part.
+
+## Turn on Papyrus logging first
+
+In `Documents\My Games\Fallout4\Fallout4Custom.ini`:
+
+```ini
+[Papyrus]
+bEnableLogging=1
+bEnableTrace=1
+bLoadDebugInformation=1
+```
+
+The log goes to `Documents\My Games\Fallout4\Logs\Script\Papyrus.0.log`. Every mod action writes a line starting with `[CMB]`, and script errors show up there too.
+
+Without F4SE you'll see one or two harmless errors about the `F4SE` / `CMB_HotkeyF4SE` scripts not being found. That's the mod checking whether they're there. When something breaks, send the log, plus a screenshot or a short clip if it's visual.
+
+## Test order
+
+Use a throwaway save in an open area (e.g. outside Sanctuary), with a companion following you.
+
+| # | Do | Expect |
+|---|---|---|
+| 1 | Load the save | "Motorbike Keys (2)" added (Aid tab) |
+| 2 | Use the keys | menu "Your motorbike isn't nearby." |
+| 3 | Pick "Call it here" | the bike appears a few steps ahead, facing your way |
+| 4 | Activate the bike → "Ride" | short fade; you're in 3rd person, bike under you, companion gone |
+| 5 | Run around | clearly faster than on foot (~2.5×), no jumping, no sprinting, weapons holstered |
+| 6 | Use the keys again (or favorite them and press the hotkey) | fade; the bike is parked to your right, companion steps out behind you |
+| 7 | Activate the bike → "Open side bag" | a container opens; put stuff in |
+| 8 | Overfill the bag (default 60 lbs with F4SE, or 60 items without) | extra items bounce back with "The side bag is full" |
+| 9 | Ride up to a building door and go inside | auto-dismount; outside again, the bike is parked by the door |
+| 10 | Ride, save, load that save | still riding, still fast, still can't jump |
+| 11 | Ride, fast travel | still riding at the destination |
+| 12 | `set CMB_CompanionMode to 0`, ride | companion runs alongside, gets pulled up if left behind |
+| 13 | Try riding in power armor | refused with a message |
+
+## Console settings
+
+| Command | Effect |
+|---|---|
+| `set CMB_SpeedPercent to 300` | faster bike (100–500). Above ~350 the world may not stream in fast enough |
+| `set CMB_BagCapacity to 200` | bigger side bag (lbs with F4SE, items without; 0 = unlimited) |
+| `set CMB_CompanionMode to 0` / `1` | companions run alongside / ride along |
+| `set CMB_AllowCombat to 1` | shooting while riding (takes effect next time you get on) |
+| `set CMB_ForceThirdPerson to 0` | stay in your current camera |
+| `set CMB_HotkeyCode to 34` | F4SE hotkey (DirectX scan code, 34 = G); save and reload afterwards |
+
+Speed changes apply the next time you get on.
+
+## Emergency reset
+
+If you end up stuck (still fast, can't jump, bike missing, companion missing):
+
+```
+cqf CMB_ControllerQuest EmergencyReset
+```
+
+If the console rejects that, try `cqf CMB_ControllerQuest "CMB_ControllerScript.EmergencyReset"`.
+It removes the worn bike, restores speed and controls, brings hidden companions back and parks the bike next to you.
+
+**Before uninstalling:** get off the bike (or run the reset), then save. Uninstalling mid-ride would leave the speed bonus on you and companions hidden in the holding cell.
+
+## What to send back if something fails
+
+1. Which step number failed and what happened instead
+2. `Papyrus.0.log` (look for `[CMB]` and `error`)
+3. Any Creation Kit compile errors, full text
+4. Your mod list if it might be a conflict (anything touching HumanRace, companions or movement speed)

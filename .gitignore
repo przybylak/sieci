@@ -1,0 +1,3 @@
+tools/syntax-check/.caprica/
+__pycache__/
+*.pex
