@@ -110,6 +110,7 @@ Data/                         mirrors the game's Data folder
     CMB_PlayerAliasScript     save/load hook
     CMB_HotkeyF4SE            optional F4SE hotkey
     CMB_GearRestoreF4SE       optional (F4SE): puts slot-57 gear back on after a ride
+    CMB_CameraF4SE            optional (F4SE): camera farther back while riding
   Meshes/CMB/                 the bike meshes go here (built by tools/rider)
   Sound/FX/CMB/               engine sounds (synthesised by tools/sound)
   MCM/Config/                 MCM menu and hotkey (written by the generator)

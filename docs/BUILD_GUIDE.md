@@ -106,7 +106,7 @@ The vanilla form IDs the plugins use (PlayerRef, XMarker, HumanRace, HumanRaceSu
 
 You only need this if the generated plugin turns out to have a problem and you'd rather rebuild it in the editor. Every EditorID starts with `CMB_`, and the values below mirror the generator.
 
-1. **Globals** (Float): `CMB_SpeedPercent` 250, `CMB_CompanionMode` 0, `CMB_AllowCombat` 0, `CMB_ForceThirdPerson` 1, `CMB_UseRiderPose` 1, `CMB_CatchUpDistance` 2500, `CMB_BagCapacity` 60, `CMB_HotkeyCode` 48, `CMB_UseFuel` 1, `CMB_FuelDistance` 21000, `CMB_EngineVolume` 70, `CMB_FallDamageCut` 75, `CMB_DismountOnHit` 1, `CMB_BikeFollowsRider` 1, `CMB_KnockOffDamage` 10, `CMB_FreeFallDamage` 20.
+1. **Globals** (Float): `CMB_SpeedPercent` 250, `CMB_CompanionMode` 0, `CMB_AllowCombat` 0, `CMB_ForceThirdPerson` 1, `CMB_UseRiderPose` 1, `CMB_CatchUpDistance` 2500, `CMB_BagCapacity` 60, `CMB_HotkeyCode` 48, `CMB_UseFuel` 1, `CMB_FuelDistance` 21000, `CMB_EngineVolume` 70, `CMB_FallDamageCut` 75, `CMB_DismountOnHit` 1, `CMB_BikeFollowsRider` 1, `CMB_KnockOffDamage` 10, `CMB_FreeFallDamage` 20, `CMB_RidingCameraDistance` 300.
    **FormList** `CMB_FuelItems` containing Flamer Fuel (`AmmoFlamerFuel`, 000CAC78).
 2. *(no keyword: `CMB_AnimFlavorRider` lives in `CMB_RiderPose.esp`)*
 3. **Messages** (tick *Message Box*; button order matters):
@@ -126,5 +126,5 @@ You only need this if the generated plugin turns out to have a problem and you'd
 7. **Interior cell** `CMB_HoldingCell` holding three *persistent* references: `CMB_BikeRef` (the activator), `CMB_SideBagRef` (the container), `CMB_HoldingMarkerRef` (an XMarker). (The generated plugin also has an unused `CMB_DrySpotMarkerRef`, kept only so form IDs don't move.)
 8. **Quest** `CMB_ControllerQuest`: *Start Game Enabled*, priority 50.
    - Reference alias `Player` (Specific Reference: PlayerRef) with script `CMB_PlayerAliasScript`.
-   - Scripts `CMB_ControllerScript` and, optionally, `CMB_HotkeyF4SE`.
+   - Scripts `CMB_ControllerScript` and, optionally (F4SE), `CMB_HotkeyF4SE`, `CMB_GearRestoreF4SE` and `CMB_CameraF4SE`.
 9. **Properties:** fill every *Mandatory* property ("Auto-Fill All" gets the vanilla ones). Script-typed properties called `Controller` point at `CMB_ControllerQuest`. `Pipboy` is the vanilla Pip-Boy armor (00021B3B), `FallingDamageMod` and `Health` the vanilla actor values (000BA43D, 000002D4).

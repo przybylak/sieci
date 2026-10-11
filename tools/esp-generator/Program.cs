@@ -178,6 +178,8 @@ public static class Program
                     "CMB_SpeedPercent", 100, 500, 10),
                 Switcher("Seated riding animations", "Needs CMB_RiderPose.esp (make_rider_pose.bat). Off: you run in place over the bike. Takes effect the next time you get on.", "CMB_UseRiderPose"),
                 Switcher("Switch to third person", "Switch to third person when getting on, so you see the bike.", "CMB_ForceThirdPerson"),
+                Slider("Riding camera distance", "How far back the third-person camera sits while riding (the game's own is about 150). Needs F4SE. 0 = leave the camera alone. Takes effect the next time you get on.",
+                    "CMB_RidingCameraDistance", 0, 1000, 25),
                 Switcher("Allow combat while riding", "Weapons and VATS stay usable while riding. Takes effect the next time you get on.", "CMB_AllowCombat"),
                 Switcher("Thrown off when hit", "A big hit from an enemy knocks you off the bike, so you can fight back. Off: you keep riding; a hint says how to get off when a fight starts.", "CMB_DismountOnHit"),
                 Slider("Big hit (% of max health)", "How much of your max health a hit (or several within about a second) must take to knock you off. Power attacks and explosions always do. 0 = any hit. Not in the first 3 seconds after getting on.",
@@ -367,6 +369,9 @@ public static class Program
         var wadeEffect = WatchEffect(mod, "CMB_WadeWatchEffect", "Motorbike wade watch", quest, wading: true);
         swimAbility.Effects.Add(WatchEntry(wadeEffect, Condition.Function.IsInWater));
 
+        // How far back the third-person camera sits while riding (CMB_CameraF4SE, needs F4SE).
+        var gCamera = Global(mod, "CMB_RidingCameraDistance", 300);
+
         // --- Controller quest ---
         quest.Name = "Commonwealth Motorbike";
         quest.Data = new QuestData
@@ -418,7 +423,8 @@ public static class Program
             Obj("CMB_DismountOnHit", gDismountOnHit),
             Obj("CMB_BikeFollowsRider", gFollowsRider),
             Obj("CMB_KnockOffDamage", gKnockOff),
-            Obj("CMB_FreeFallDamage", gFreeFall));
+            Obj("CMB_FreeFallDamage", gFreeFall),
+            Obj("CMB_RidingCameraDistance", gCamera));
         // Optional: only does anything with F4SE and the compiled CMB_HotkeyF4SE.pex.
         var hotkey = Script("CMB_HotkeyF4SE",
             Obj("Controller", quest),
@@ -428,12 +434,14 @@ public static class Program
             Obj("CMB_BikeRiderArmor", armor),
             Obj("CMB_BikeRiderArmorFrame", armorFrame),
             Int("BikeSlotIndex", BikeSlotIndex));
+        // Optional too: camera farther back while riding (F4SE's Utility.SetINIFloat).
+        var camera = Script("CMB_CameraF4SE");
 
         quest.VirtualMachineAdapter = new QuestAdapter
         {
             Version = 6,
             ObjectFormat = 2,
-            Scripts = new ExtendedList<ScriptEntry> { controller, hotkey, gear },
+            Scripts = new ExtendedList<ScriptEntry> { controller, hotkey, gear, camera },
             Aliases = new ExtendedList<QuestFragmentAlias>
             {
                 new QuestFragmentAlias

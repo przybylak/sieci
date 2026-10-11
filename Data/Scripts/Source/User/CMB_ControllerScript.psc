@@ -91,6 +91,9 @@ Group Optional
 	{Looping.}
 	GlobalVariable Property CMB_EngineVolume Auto Const
 	{Engine volume, 0-100. Default 70.}
+	GlobalVariable Property CMB_RidingCameraDistance Auto Const
+	{How far back the third-person camera sits while riding, in game units (the game's own
+	is about 150). Needs F4SE and CMB_CameraF4SE. 0 = leave the camera alone. Default 300.}
 EndGroup
 
 ; ---------------------------------------------------------------------------
@@ -224,6 +227,8 @@ Function OnGameReloaded()
 			footstepsWatched = false
 			StartTimer(ReloadPoseDelay, TimerReloadPose)
 		endif
+		; The camera setting isn't saved: a restarted game has the player's own again.
+		CallCamera(true)
 		RegisterForPlayerTeleport()
 		hitGrace = false
 		healthMark = PlayerRef.GetValuePercentage(Health)
@@ -245,6 +250,25 @@ Function RefreshHotkey()
 	if hotkey
 		hotkey.CallFunction("RegisterHotkey", new Var[0])
 	endif
+EndFunction
+
+; Riding camera (optional, F4SE): true = move it back, false = put it back.
+; Returns true when the camera limit changed and third person needs re-entering.
+bool Function CallCamera(bool abRiding)
+	ScriptObject camera = CastAs("CMB_CameraF4SE")
+	if !camera
+		return false
+	endif
+	Var[] params = new Var[1]
+	params[0] = 0.0
+	if CMB_RidingCameraDistance
+		params[0] = CMB_RidingCameraDistance.GetValue()
+	endif
+	if abRiding
+		return camera.CallFunction("ApplyRidingCamera", params) as bool
+	endif
+	camera.CallFunction("RestoreCamera", params)
+	return false
 EndFunction
 
 Function CallGearRestore(string asFunction)
@@ -345,7 +369,13 @@ Function Mount()
 	Game.FadeOutGame(true, true, 0.0, 0.25, true)
 	Utility.Wait(0.3)
 
+	bool cameraMoved = CallCamera(true)
 	if CMB_ForceThirdPerson.GetValue() > 0.0
+		if cameraMoved
+			; Coming into third person again picks up the new camera distance
+			; (hidden by the fade).
+			Game.ForceFirstPerson()
+		endif
 		Game.ForceThirdPerson()
 	endif
 	BikeRef.Disable()
@@ -630,6 +660,7 @@ Function FinishRide()
 
 	RemoveBikeArmor()
 	CallGearRestore("RestoreSlot")
+	CallCamera(false)
 	ClearRiderPose()
 	ReleaseControls()
 	RemoveSpeed(PlayerRef, playerSpeedDelta)
