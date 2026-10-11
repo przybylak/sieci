@@ -37,6 +37,7 @@ Standard library only.
 """
 
 import argparse
+import functools
 import json
 import struct
 import sys
@@ -171,16 +172,19 @@ def read_list(path: Path):
             if l.strip() and not l.strip().startswith("#")]
 
 
+@functools.lru_cache(maxsize=None)
+def listing(folder: Path):
+    """{lowercase name: path} for a folder, read once. Finding ~150 plugins across
+    ~130 mod folders would otherwise list the same folders thousands of times."""
+    try:
+        return {p.name.lower(): p for p in folder.iterdir()}
+    except OSError:
+        return {}
+
+
 def ci_child(folder: Path, name: str):
     """Case-insensitive lookup of one path component (Windows behaviour everywhere)."""
-    direct = folder / name
-    if direct.exists():
-        return direct
-    try:
-        low = name.lower()
-        return next((p for p in folder.iterdir() if p.name.lower() == low), None)
-    except OSError:
-        return None
+    return listing(folder).get(name.lower())
 
 
 def ci_path(base: Path, rel: str):
@@ -240,6 +244,8 @@ class Setup:
             active = {p[1:].lower() for p in plugins_txt if p.startswith("*")}
             order = [p.lstrip("*") for p in plugins_txt]
             self.folders = [args.data]
+        # Checked once here: every file lookup walks this list.
+        self.folders = [f for f in self.folders if f and f.is_dir()]
         always = BASE_MASTERS + ccc
         always_lower = {m.lower() for m in always}
         names, seen = [], set()
@@ -260,18 +266,16 @@ class Setup:
 
     def find(self, rel: str):
         for folder in self.folders:
-            if folder and folder.exists():
-                hit = ci_path(folder, rel)
-                if hit:
-                    return hit
+            hit = ci_path(folder, rel)
+            if hit:
+                return hit
         return None
 
     def archives(self):
         """BA2 archives in the Data folders, mods' before the game's own."""
         found = []
         for folder in self.folders:
-            if folder and folder.exists():
-                found += sorted(folder.glob("*.ba2"))
+            found += sorted(p for name, p in listing(folder).items() if name.endswith(".ba2"))
         return sorted(found, key=lambda p: p.name.lower().startswith(("fallout4 - ", "dlc")))
 
 
