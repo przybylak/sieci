@@ -22,6 +22,7 @@
 #define RVA_LOOKUP_FORM       0x00311B80u
 #define RVA_INI_SETTINGS      0x0344B4B8u
 #define RVA_INI_PREF_SETTINGS 0x0339FAE0u
+#define RVA_PLAYER_CAMERA     0x030E6E58u
 #define RVA_RTTI_AREA         0x01000000u  /* where the fake RTTI goes, clear of the above */
 
 #define PROXY_SLOPE_OFFSET    0x9C
@@ -101,6 +102,7 @@ static void **g_vtProxy, **g_vtWrapper, **g_vtCtrl;
 static uint8_t *g_tiltGlobal, *g_groundGlobals[3];
 static uint8_t *g_player, *g_root, *g_bikeNode, *g_bikeShape, *g_boneData, *g_bones, *g_biped;
 static uint8_t *g_parkGlobals[7];
+static uint8_t *g_thirdState;   /* ThirdPersonState: zoom target +0xE8, current +0xEC */
 static uint8_t g_bonesOriginal[0x50];
 static int g_deleted;
 static bool g_skinTransposed, g_rootTransposed;   /* how this "game" stores its rotations */
@@ -299,6 +301,17 @@ static void BuildGame(void)
 	*(uint8_t **)(g_biped + 0x10 + 27 * 0x58 + 0x18) = addon;
 	*(uint8_t **)(g_biped + 0x10 + 27 * 0x58 + 0x30) = g_bikeNode;
 	*(uint8_t **)(pl + 0x428) = g_biped;
+
+	/* The player camera, in third person. */
+	static const char *camera[] = { ".?AVPlayerCamera@@", ".?AVTESCamera@@" };
+	static const char *third[] = { ".?AVThirdPersonState@@", ".?AVTESCameraState@@" };
+	uint8_t *cam = (uint8_t *)NewObject(MakeClass(camera, 2), 0x200);
+	g_thirdState = (uint8_t *)NewObject(MakeClass(third, 2), 0x200);
+	*(float *)(g_thirdState + 0xE8) = 0.4f;
+	*(float *)(g_thirdState + 0xEC) = 0.4f;
+	*(uint8_t **)(cam + 0x28) = g_thirdState;
+	*(uint8_t **)(cam + 0xE0 + 8 * 8) = g_thirdState;
+	*(uintptr_t *)(g_base + RVA_PLAYER_CAMERA) = (uintptr_t)cam;
 	uint8_t *instance = (uint8_t *)NewObject(vtSkin, 0x100);
 	*(uint8_t **)(shape + 0x140) = instance;
 	g_boneData = (uint8_t *)NewObject(vtBone, 0x100);
@@ -477,7 +490,7 @@ static void SkinRouteTests(void)
 	*(uint8_t **)(g_bikeNode + 0x28) = NULL;
 	SetNormalTowards(back, 20.0f);
 	SetTilt(30.0f);
-	RunFrames(800);
+	RunFrames(1500);
 	AppliedRotation(R);
 	CHECK(*BoneDataRefs() == 3 && fabsf(R[8] - 0.93969f) < 0.01f, "found through the biped and tilted (references %d)", *BoneDataRefs());
 	SetTilt(0.0f);
@@ -502,7 +515,22 @@ static void SkinRouteTests(void)
 	SetTilt(0.0f);
 	RunFrames(300);
 	CHECK(*BoneDataRefs() == 2, "and let go of");
+
+	printf("tilt: the planted bike (AnimObjectA, no COM bind) under another name:\n");
+	float *b = (float *)g_bones;
+	const float identity[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
+	StoreRotation(b + 4, identity, g_skinTransposed);
+	b[16] = b[17] = b[18] = 0.0f;
+	memcpy(g_bonesOriginal, g_bones, sizeof(g_bonesOriginal));
+	SetTilt(30.0f);
+	RunFrames(1500);
+	AppliedRotation(R);
+	CHECK(*BoneDataRefs() == 3 && fabsf(R[8] - 0.93969f) < 0.01f, "found as our armor addon's shape and tilted (references %d)", *BoneDataRefs());
+	SetTilt(0.0f);
+	RunFrames(300);
+	CHECK(memcmp(g_bones, g_bonesOriginal, 0x50) == 0 && *BoneDataRefs() == 2, "put back and let go of");
 	strcpy(name, "CMB_BikeWornRider");
+	SetLayouts(g_skinTransposed, g_rootTransposed);
 
 	printf("tilt: no bike anywhere:\n");
 	(*rootUsed)--;
@@ -526,6 +554,44 @@ static void RideAlong(float dt)
 	PlayerPos()[0] += sinf(HEADING) * cosf(g_rideSlope / DEG) * d;
 	PlayerPos()[1] += cosf(HEADING) * cosf(g_rideSlope / DEG) * d;
 	PlayerPos()[2] += sinf(g_rideSlope / DEG) * d;
+}
+
+/* After the U-turn: riding back the other way. */
+static void UTurnBack(float dt)
+{
+	float d = g_rideSpeed * dt;
+	PlayerPos()[0] -= sinf(HEADING) * d;
+	PlayerPos()[1] -= cosf(HEADING) * d;
+}
+
+static float *Zoom(int current) { return (float *)(g_thirdState + (current ? 0xEC : 0xE8)); }
+
+static void ZoomTests(void)
+{
+	printf("camera: zoom all the way out while riding:\n");
+	SetCamera(0.0f);
+	RunFrames(300);
+	*Zoom(0) = *Zoom(1) = 0.4f;
+	SetCamera(450.0f);
+	RunFrames(500);
+	CHECK(*Zoom(0) == 1.0f && *Zoom(1) == 1.0f, "getting on: zoomed out (target %g, current %g)", *Zoom(0), *Zoom(1));
+	RunFrames(2000);
+	*Zoom(0) = 0.7f;   /* the player zooms in a little with the mouse wheel */
+	RunFrames(500);
+	CHECK(*Zoom(0) == 0.7f, "after two seconds the zoom is the player's again (%g)", *Zoom(0));
+	SetCamera(0.0f);
+	RunFrames(300);
+	CHECK(*Zoom(0) == 0.4f && *Zoom(1) == 0.4f, "getting off: the zoom from before (%g, %g)", *Zoom(0), *Zoom(1));
+
+	printf("camera: zoom values that aren't fractions:\n");
+	*Zoom(0) = *Zoom(1) = 150.0f;
+	SetCamera(450.0f);
+	RunFrames(500);
+	CHECK(*Zoom(0) == 150.0f && *Zoom(1) == 150.0f, "left alone");
+	SetCamera(0.0f);
+	RunFrames(300);
+	CHECK(*Zoom(0) == 150.0f, "and still left alone after");
+	*Zoom(0) = *Zoom(1) = 0.4f;
 }
 
 static void TrackTests(void)
@@ -566,6 +632,28 @@ static void TrackTests(void)
 	ez = PlayerPos()[2] - sinf(45.0f / DEG) * behind;
 	CHECK(Park(6) > 0.6f && fabsf(Park(2) - ez) < 1.0f, "a spot on the steep track too (z %.1f, expected %.1f; up z %.3f)", Park(2), ez, Park(6));
 
+	printf("park: a U-turn just before stopping:\n");
+	g_rideSlope = 0.0f;
+	SetNormal(0.0f, 0.0f, 1.0f);
+	g_onFrame = RideAlong;
+	RunFrames(1000);
+	g_onFrame = NULL;
+	float *h = (float *)(g_player + 0xC8), heading0 = *h;
+	for (int i = 1; i <= 18; i++) {   /* half a circle of radius ~50 */
+		*h = heading0 + 3.14159265f * (float)i / 18.0f;
+		PlayerPos()[0] += sinf(*h) * 8.7f;
+		PlayerPos()[1] += cosf(*h) * 8.7f;
+		RunFrames(20);
+	}
+	g_rideSpeed = 300.0f;
+	g_onFrame = UTurnBack;
+	RunFrames(250);   /* about 75 units back the other way */
+	g_onFrame = NULL;
+	RunFrames(300);
+	*h = heading0;
+	float dx = Park(0) - PlayerPos()[0], dy = Park(1) - PlayerPos()[1];
+	CHECK(Park(6) > 0.9f && sqrtf(dx * dx + dy * dy) > 140.0f, "a spot on the track, a bike length and a half away (%.0f)", sqrtf(dx * dx + dy * dy));
+
 	printf("park: a drop (in the air for a second):\n");
 	SetState(2);
 	g_onFrame = RideAlong;
@@ -590,6 +678,16 @@ static void TrackTests(void)
 	SetNormal(0.0f, 0.0f, 1.0f);
 }
 
+static float g_expectRoll;   /* the INI's MaxRoll for this run */
+
+/* Where the bone sees the seat (mesh point (0, 0, 74)): A P + t, read the game's way round. */
+static void SeatInBone(const uint8_t *bone, float out[3])
+{
+	const float *o = (const float *)(bone + 0x10), *t = (const float *)(bone + 0x40);
+	for (int i = 0; i < 3; i++)
+		out[i] = t[i] + 74.0f * (g_skinTransposed ? o[2 * 4 + i] : o[i * 4 + 2]);
+}
+
 static void TiltTests(void)
 {
 	const float forward[3] = { sinf(HEADING), cosf(HEADING), 0.0f }, back[3] = { -forward[0], -forward[1], 0.0f };
@@ -607,32 +705,49 @@ static void TiltTests(void)
 	printf("tilt: riding up a 20 deg slope:\n");
 	SetNormalTowards(back, 20.0f);   /* uphill ahead: the ground's normal leans back */
 	SetTilt(30.0f);
-	RunFrames(800);
+	RunFrames(1500);
 	CHECK(*BoneDataRefs() == 3, "the skin is held (references %d)", *BoneDataRefs());
 	AppliedRotation(R);
 	CHECK(fabsf(R[2]) < 0.01f && fabsf(R[5] + 0.34202f) < 0.01f && fabsf(R[8] - 0.93969f) < 0.01f,
 	      "the mesh's up turned to the ground: (%.3f, %.3f, %.3f), expected (0, -0.342, 0.940)", R[2], R[5], R[8]);
 	CHECK(R[7] > 0.3f, "nose up (forward goes to z %.3f)", R[7]);
 	CHECK(Orthonormal(R), "still a rotation");
-	CHECK(memcmp(g_bones + 0x40, g_bonesOriginal + 0x40, 16) == 0, "translation and scale untouched");
+	float seatBefore[3], seatNow[3];
+	SeatInBone(g_bonesOriginal, seatBefore);
+	SeatInBone(g_bones, seatNow);
+	CHECK(fabsf(seatNow[0] - seatBefore[0]) < 0.01f && fabsf(seatNow[1] - seatBefore[1]) < 0.01f && fabsf(seatNow[2] - seatBefore[2]) < 0.01f,
+	      "turned about the seat: it stays where the rider sits (%.2f, %.2f, %.2f)", seatNow[0], seatNow[1], seatNow[2]);
+	CHECK(memcmp(g_bones + 0x40, g_bonesOriginal + 0x40, 12) != 0 && *(float *)(g_bones + 0x4C) == 1.0f, "translation moved, scale untouched");
 	CHECK(*(float *)(g_bones + 0x0C) > 115.0f, "culling sphere grown (radius %.1f)", *(float *)(g_bones + 0x0C));
 	RunFrames(3000);   /* the published normal is an average over the last 0.6 s or so */
 	CHECK(fabsf(Ground(2) - 0.93969f) < 0.01f && fabsf(Ground(0) + 0.34202f * forward[0]) < 0.01f,
 	      "CMB_GroundNormal, averaged, follows the slope (%.3f, %.3f, %.3f)", Ground(0), Ground(1), Ground(2));
 
-	printf("tilt: a 45 deg side slope, more than the 30 allowed:\n");
-	SetNormalTowards(right, 45.0f);   /* ground falls away to the right */
-	RunFrames(800);
+	printf("tilt: a one-frame jump in the ground (a curb's edge):\n");
+	SetNormal(0.0f, 0.0f, 1.0f);
+	RunFrames(1500);
+	SetNormalTowards(back, 40.0f);
+	((void (*)(Task *))g_task->vtbl[1])(g_task);
+	((void (*)(Task *))g_task->vtbl[1])(g_task);
+	SetNormal(0.0f, 0.0f, 1.0f);
+	RunFrames(150);
 	AppliedRotation(R);
-	CHECK(fabsf(acosf(R[8]) * DEG - 30.0f) < 0.5f, "tilted 30 deg (%.2f)", acosf(R[8]) * DEG);
-	CHECK(R[6] < -0.3f && fabsf(R[7]) < 0.01f, "right side down (right goes to z %.3f), no pitch", R[6]);
+	CHECK(acosf(R[8] > 1.0f ? 1.0f : R[8]) * DEG < 1.0f, "ignored (tilt %.2f deg)", acosf(R[8] > 1.0f ? 1.0f : R[8]) * DEG);
+
+	printf("tilt: a 45 deg side slope (MaxRoll %g):\n", g_expectRoll);
+	SetNormalTowards(right, 45.0f);   /* ground falls away to the right */
+	RunFrames(1500);
+	AppliedRotation(R);
+	float tilted = acosf(R[8] > 1.0f ? 1.0f : R[8]) * DEG;
+	CHECK(fabsf(tilted - g_expectRoll) < 0.5f, "rolled %.2f deg, the most MaxRoll allows", tilted);
+	CHECK(g_expectRoll == 0.0f || (R[6] < -0.1f && fabsf(R[7]) < 0.01f), "right side down (right goes to z %.3f), no pitch", R[6]);
 
 	RunFrames(2500);
 	float groundX = Ground(0);
 	printf("tilt: in the air:\n");
 	SetState(2);
 	SetNormalTowards(forward, 10.0f);   /* stale normal: must not be used */
-	RunFrames(800);
+	RunFrames(1500);
 	AppliedRotation(R);
 	CHECK(R[8] > 0.9999f, "eased back to level (cos %.5f)", R[8]);
 	CHECK(Ground(2) == 0.0f && fabsf(Ground(0) - groundX) < 0.01f,
@@ -689,6 +804,7 @@ int main(int argc, char **argv)
 	(void)g_members;
 	BuildGame();
 	SetLayouts(mode == 4, mode == 4 || mode == 5);   /* 4: transposed matrices, 5: skin and 3D disagree */
+	g_expectRoll = mode == 0 ? 10.0f : 0.0f;          /* run.sh gives the full test MaxRoll=10 */
 
 	HMODULE dll = LoadLibraryA(dllPath);
 	if (!dll) { printf("can't load %s\n", dllPath); return 2; }
@@ -829,6 +945,7 @@ int main(int argc, char **argv)
 	TiltTests();
 	SkinRouteTests();
 	TrackTests();
+	ZoomTests();
 
 	printf("%s\n", g_failures ? "FAILED" : "all ok");
 	return g_failures ? 1 : 0;

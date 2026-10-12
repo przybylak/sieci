@@ -27,7 +27,8 @@
  *   Camera: the game setting fVanityModeMaxDist:Camera (where the third-person camera
  *   sits, the farthest the mouse wheel zooms out) is raised to CMB_CameraLive while
  *   riding and put back afterwards. Papyrus can set INI settings but not read them, so
- *   this is here, where the player's own value can be read.
+ *   this is here, where the player's own value can be read. The third-person zoom goes
+ *   all the way out on getting on and back to the player's on getting off.
  *
  *   Ground: the controller keeps the normal of the ground the player stands on (its
  *   support normal, controller+0x1E0) and Havok's character state (on the ground,
@@ -35,18 +36,21 @@
  *   manager is at +0x2B8). The normal, averaged over the last 0.6 s on the ground, goes
  *   into CMB_GroundNormalX/Y/Z every IntervalMs (Z 0 off the ground). While riding, the
  *   plugin keeps a track of where the player's feet were on the ground, and writes a
- *   parking spot on it a bike length behind them (both wheels on the track, facing the
- *   way it went) into the CMB_Park globals: ground that was really ridden on.
+ *   parking spot on it into the CMB_Park globals: the first place back along it that's
+ *   a bike length and a half from the player in a straight line, facing and pitched the
+ *   way the track ran there: ground that was really ridden on.
  *
  *   Tilt: the worn bike is skinned to one bone of the rider (COM or AnimObjectA), so
  *   the animation moves it and its own node's transform does nothing. What the plugin
  *   turns instead is the skin's bind (BSSkin::BoneData, the mesh -> bone transform).
  *   The bike's shapes are found under the player's 3D root and through the biped (every
- *   equipped armor addon's 3D), by name or by the COM bike's bind; if a ride finds none
- *   for a second, what was there is logged. The bind:
- *   the mesh is turned about the rider's feet before it goes onto the bone, so the bike
- *   pitches and rolls with the ground (smoothed, at most CMB_TiltLive degrees, eased
- *   back to level in the air) and still follows every move of the animation. The plugin
+ *   equipped armor addon's 3D), by name, by the COM bike's bind, or as one of our own
+ *   armor addons (the game renames the shapes); if a ride finds none for a second, what
+ *   was there is logged. The bind: the mesh is turned about the seat before it goes onto
+ *   the bone, so the bike pitches with the ground (the median of the last 0.25 s, then
+ *   smoothed and rate-limited, at most CMB_TiltLive degrees, roll at most MaxRoll, level
+ *   in the air), keeps its seat and bars under the rider (who doesn't tilt) and still
+ *   follows every move of the animation. The plugin
  *   holds a reference on the BoneData while it's changed and puts it back afterwards.
  *   Which way round the game stores its rotation matrices is read off the bike's own
  *   skin (whose bind we know) and the player's 3D (whose heading we know).
@@ -82,6 +86,7 @@
 #define RVA_LOOKUP_FORM       0x00311B80u   /* GameForms.cpp: LookupFormByID */
 #define RVA_INI_SETTINGS      0x0344B4B8u   /* GameSettings.cpp: g_iniSettings */
 #define RVA_INI_PREF_SETTINGS 0x0339FAE0u   /* GameSettings.cpp: g_iniPrefSettings */
+#define RVA_PLAYER_CAMERA     0x030E6E58u   /* GameCamera.cpp: g_playerCamera */
 #define OFF_ACTOR_PROCESS     0x300         /* Actor::middleProcess (AIProcess *) */
 #define OFF_PROCESS_DATA      0x08          /* AIProcess::unk08 (process data) */
 #define OFF_DH_LOADED_MODS    (0xFB0 + 0x10) /* DataHandler::modList.loadedMods */
@@ -130,6 +135,9 @@
 #define OFF_BIPOBJ_ADDON      0x18          /* BIPOBJECT::armorAddon */
 #define OFF_BIPOBJ_CLONE      0x30          /* BIPOBJECT::partClone */
 #define BIKE_SLOT_INDEX       27            /* biped slot 57 (slots start at 30) */
+#define OFF_CAMERA_STATE      0x28          /* TESCamera::cameraState (the current one) */
+#define OFF_CAMERA_STATES     0xE0          /* PlayerCamera::cameraStates[] */
+#define CAMERA_THIRD_PERSON1  7             /* kCameraState_ThirdPerson1, ThirdPerson2 */
 
 /* --- Our side --- */
 #define ESP_NAME              "CommonwealthMotorbike.esp"
@@ -154,6 +162,8 @@
 #define RTTI_BONE_DATA  ".?AVBoneData@BSSkin@@"
 #define RTTI_AVOBJECT   ".?AVNiAVObject@@"
 #define RTTI_ARMA       ".?AVTESObjectARMA@@"
+#define RTTI_CAMERA     ".?AVPlayerCamera@@"
+#define RTTI_THIRD      ".?AVThirdPersonState@@"
 
 /* ------------------------------------------------------------------------- */
 /* F4SE plugin interface (f4se/PluginAPI.h, 0.7.9)                            */
@@ -254,9 +264,16 @@ static DWORD g_interval = 100;          /* ms between full checks */
 static int g_dumpPointers[8];           /* controller offsets whose objects get dumped too */
 static int g_dumpPointerCount;
 static char g_cameraSettingName[64] = CAMERA_SETTING;
+static int g_zoomOut = 1;                 /* 1 = zoom all the way out on getting on */
+static unsigned g_zoomTargetOffset = 0xE8, g_zoomCurrentOffset = 0xEC;   /* ThirdPersonState, 0..1 */
 static unsigned g_normalOffset = 0x1E0;   /* controller: support normal (0 = no ground, no tilt) */
 static unsigned g_stateOffset = 0x2C0;    /* controller: Havok character state (0 = don't read) */
-static float g_smoothing = 0.12f;         /* seconds: how quickly the tilt follows the ground */
+static float g_smoothing = 0.25f;         /* seconds: how quickly the tilt follows the ground */
+static float g_medianTime = 0.25f;        /* seconds of samples the median is taken over */
+static float g_maxRate = 90.0f;           /* degrees per second at most */
+static float g_maxRoll;                   /* degrees: a two-wheeler stays upright across a slope */
+static float g_pivotHeight = 74.0f;       /* the seat (the rider's hips) above the feet */
+static int g_trace;                       /* 1 = log the tilt every 0.25 s while riding */
 static char g_shapePrefix[64] = "CMB_BikeWorn";
 enum { LAYOUT_UNKNOWN = -1, LAYOUT_FILE = 0, LAYOUT_TRANSPOSED = 1, LAYOUT_DISAGREE = 2 };
 static int g_layoutSetting = LAYOUT_UNKNOWN;   /* Layout=auto */
@@ -264,6 +281,7 @@ static int g_layoutSetting = LAYOUT_UNKNOWN;   /* Layout=auto */
 static volatile bool g_dataReady;
 static uintptr_t g_slopeGlobal, g_cameraGlobal;   /* TESGlobal * */
 static uintptr_t g_tiltGlobal, g_groundGlobals[3], g_parkGlobals[7];
+static uint32_t g_ourPrefix, g_ourMask;   /* our plugin's form IDs: (id & mask) == prefix */
 static DWORD g_lastGlobalTry;
 static bool g_globalsMissingLogged;
 
@@ -285,6 +303,10 @@ static bool g_badValueLogged;
 static uintptr_t g_cameraSetting;
 static bool g_cameraApplied;
 static float g_cameraOriginal, g_cameraWritten;
+static bool g_zoomRiding, g_zoomTouched, g_zoomDumped;
+static uintptr_t g_zoomState;
+static float g_zoomOldTarget, g_zoomOldCurrent;
+static DWORD g_zoomUntil;
 
 /* Probe snapshots. */
 #define SNAP_OBJECTS 10
@@ -313,8 +335,8 @@ typedef struct { float p[3], n[3]; } TrackPoint;
 #define TRACK_POINTS 128
 #define TRACK_SPACING 8.0f              /* units between points */
 #define TRACK_MAX_AIR 0.4f              /* longer in the air (a drop): the track starts again */
-#define PARK_FRONT 80.0f                /* the parked bike's front wheel this far back along the track... */
-#define PARK_REAR 210.0f                /* ...its back wheel this far */
+#define PARK_DISTANCE 145.0f            /* the parked bike's middle this far from the player's feet */
+#define PARK_SPAN 40.0f                 /* its heading and pitch from the track this far either side */
 static TrackPoint g_track[TRACK_POINTS];
 static int g_trackHead, g_trackCount;
 static float g_airTime;
@@ -340,7 +362,13 @@ static HeldSkin g_skins[MAX_SKINS];
 static int g_skinCount;
 static int g_layout = LAYOUT_UNKNOWN;   /* how the game stores rotations, once known */
 static int g_layoutFromSkin = LAYOUT_UNKNOWN, g_layoutFromRoot = LAYOUT_UNKNOWN;
-static float g_tiltN[3] = { 0.0f, 0.0f, 1.0f };   /* smoothed ground normal (world) */
+#define TILT_SAMPLES 64
+typedef struct { float pitch, roll, time; } TiltSample;
+static TiltSample g_tiltSamples[TILT_SAMPLES];
+static int g_tiltSampleHead, g_tiltSampleCount;
+static float g_pitchSmooth, g_rollSmooth;   /* degrees, after the median and smoothing */
+static float g_pitchNow, g_rollNow;         /* degrees, applied (after the rate limit and caps) */
+static float g_clock, g_lastTrace;          /* seconds of frames */
 static float g_tiltNow, g_tiltMax;      /* degrees: this frame, most this ride */
 static LARGE_INTEGER g_qpcFrequency, g_lastFrameTime;
 static int g_walkBudget;
@@ -426,14 +454,36 @@ static void ReadSettings(void)
 			p++;
 	}
 	GetPrivateProfileStringA("Camera", "Setting", CAMERA_SETTING, g_cameraSettingName, sizeof(g_cameraSettingName), ini);
+	g_zoomOut = (int)GetPrivateProfileIntA("Camera", "ZoomOut", 1, ini);
+	GetPrivateProfileStringA("Camera", "ZoomTargetOffset", "0xE8", value, sizeof(value), ini);
+	g_zoomTargetOffset = (unsigned)strtoul(value, NULL, 0) & ~3u;
+	GetPrivateProfileStringA("Camera", "ZoomCurrentOffset", "0xEC", value, sizeof(value), ini);
+	g_zoomCurrentOffset = (unsigned)strtoul(value, NULL, 0) & ~3u;
 	GetPrivateProfileStringA("Tilt", "NormalOffset", "0x1E0", value, sizeof(value), ini);
 	g_normalOffset = (unsigned)strtoul(value, NULL, 0) & ~3u;
 	GetPrivateProfileStringA("Tilt", "StateOffset", "0x2C0", value, sizeof(value), ini);
 	g_stateOffset = (unsigned)strtoul(value, NULL, 0) & ~3u;
-	GetPrivateProfileStringA("Tilt", "Smoothing", "0.12", value, sizeof(value), ini);
+	GetPrivateProfileStringA("Tilt", "Smoothing", "0.25", value, sizeof(value), ini);
 	g_smoothing = strtof(value, NULL);
 	if (!(g_smoothing >= 0.0f && g_smoothing <= 2.0f))
-		g_smoothing = 0.12f;
+		g_smoothing = 0.25f;
+	GetPrivateProfileStringA("Tilt", "MedianTime", "0.25", value, sizeof(value), ini);
+	g_medianTime = strtof(value, NULL);
+	if (!(g_medianTime >= 0.0f && g_medianTime <= 1.0f))
+		g_medianTime = 0.25f;
+	GetPrivateProfileStringA("Tilt", "MaxRate", "90", value, sizeof(value), ini);
+	g_maxRate = strtof(value, NULL);
+	if (!(g_maxRate >= 0.0f && g_maxRate <= 10000.0f))
+		g_maxRate = 90.0f;
+	GetPrivateProfileStringA("Tilt", "MaxRoll", "0", value, sizeof(value), ini);
+	g_maxRoll = strtof(value, NULL);
+	if (!(g_maxRoll >= 0.0f && g_maxRoll <= 45.0f))
+		g_maxRoll = 0.0f;
+	GetPrivateProfileStringA("Tilt", "PivotHeight", "74", value, sizeof(value), ini);
+	g_pivotHeight = strtof(value, NULL);
+	if (!(g_pivotHeight >= -50.0f && g_pivotHeight <= 200.0f))
+		g_pivotHeight = 74.0f;
+	g_trace = (int)GetPrivateProfileIntA("Tilt", "Trace", 0, ini);
 	GetPrivateProfileStringA("Tilt", "Shapes", "CMB_BikeWorn", g_shapePrefix, sizeof(g_shapePrefix), ini);
 	GetPrivateProfileStringA("Tilt", "Layout", "auto", value, sizeof(value), ini);
 	g_layoutSetting = _stricmp(value, "file") == 0 ? LAYOUT_FILE : _stricmp(value, "transposed") == 0 ? LAYOUT_TRANSPOSED : LAYOUT_UNKNOWN;
@@ -442,9 +492,11 @@ static void ReadSettings(void)
 	    g_target == TARGET_PROXY ? "proxy" : "controller", g_slopeOffset, g_slopeOffset ? "" : " (unknown: reading only)",
 	    g_unit == UNIT_RADIANS ? "radians" : g_unit == UNIT_DEGREES ? "degrees" : "cosine", g_expectedDegrees,
 	    g_probe, (unsigned long)g_interval, g_dumpPointerCount);
-	Log("  camera: Setting=%s", g_cameraSettingName);
-	Log("  tilt: NormalOffset=0x%X StateOffset=0x%X Smoothing=%g Shapes=%s Layout=%s", g_normalOffset, g_stateOffset,
-	    g_smoothing, g_shapePrefix, g_layoutSetting == LAYOUT_FILE ? "file" : g_layoutSetting == LAYOUT_TRANSPOSED ? "transposed" : "auto");
+	Log("  camera: Setting=%s ZoomOut=%d ZoomTargetOffset=0x%X ZoomCurrentOffset=0x%X", g_cameraSettingName, g_zoomOut,
+	    g_zoomTargetOffset, g_zoomCurrentOffset);
+	Log("  tilt: NormalOffset=0x%X StateOffset=0x%X Smoothing=%g MedianTime=%g MaxRate=%g MaxRoll=%g PivotHeight=%g Trace=%d Shapes=%s Layout=%s",
+	    g_normalOffset, g_stateOffset, g_smoothing, g_medianTime, g_maxRate, g_maxRoll, g_pivotHeight, g_trace, g_shapePrefix,
+	    g_layoutSetting == LAYOUT_FILE ? "file" : g_layoutSetting == LAYOUT_TRANSPOSED ? "transposed" : "auto");
 }
 
 /* ------------------------------------------------------------------------- */
@@ -628,6 +680,8 @@ static void FindGlobals(void)
 		g_globalsMissingLogged = true;
 		return;
 	}
+	g_ourPrefix = prefix;
+	g_ourMask = shift == 12 ? 0xFFFFF000u : 0xFF000000u;
 	g_slopeGlobal = FindGlobal(prefix, shift, SLOPE_GLOBAL_ID, SLOPE_GLOBAL_EDITOR_ID);
 	g_cameraGlobal = FindGlobal(prefix, shift, CAMERA_GLOBAL_ID, CAMERA_GLOBAL_EDITOR_ID);
 	g_tiltGlobal = FindGlobal(prefix, shift, TILT_GLOBAL_ID, TILT_GLOBAL_EDITOR_ID);
@@ -1285,6 +1339,7 @@ static void RestoreSkin(const HeldSkin *h)
 		uint8_t *live = (uint8_t *)(h->bones + (uintptr_t)b * BONE_SIZE);
 		memcpy(live + OFF_BONE_RADIUS, h->original[b] + OFF_BONE_RADIUS, 4);
 		memcpy(live + OFF_BONE_ROT, h->original[b] + OFF_BONE_ROT, 0x30);
+		memcpy(live + OFF_BONE_POS, h->original[b] + OFF_BONE_POS, 12);
 	}
 }
 
@@ -1366,8 +1421,8 @@ static void LetGoAll(const char *why)
 {
 	while (g_skinCount)
 		LetGo(g_skinCount - 1, why);
-	g_tiltN[0] = g_tiltN[1] = 0.0f;
-	g_tiltN[2] = 1.0f;
+	g_tiltSampleCount = 0;
+	g_pitchSmooth = g_rollSmooth = g_pitchNow = g_rollNow = 0.0f;
 	g_tiltMax = g_tiltNow = 0.0f;
 }
 
@@ -1394,6 +1449,7 @@ typedef struct {
 	int lineCount;
 } WalkStats;
 static WalkStats g_walk;
+static bool g_walkOurs;   /* walking the 3D of one of our own armor addons */
 
 static void WalkLine(const char *fmt, ...)
 {
@@ -1471,12 +1527,13 @@ static void InspectShape(uintptr_t shape, int depth, SkinList *list)
 	for (int i = 0; i < g_skinCount; i++)
 		held |= g_skins[i].boneData == data;
 	bool byBind = !byName && bones == 1 && bone0 && (held || IsComBikeBind(bone0));
-	if ((byName || byBind) && isBoneData && bones >= 1)
-		AddSkin(list, data, name, byBind);
+	bool byAddon = !byName && !byBind && g_walkOurs && bones >= 1 && bones <= MAX_BONES;
+	if ((byName || byBind || byAddon) && isBoneData && bones >= 1)
+		AddSkin(list, data, name, byBind || byAddon);
 	WalkLine("  shape (depth %d) '%.40s' %s | skin %s | bone data %s | %d bone(s)%s", depth, OrNone(name),
 	         OrNone(ObjectTypeName(shape)), skin ? OrNone(ObjectTypeName(skin)) : "none",
 	         data ? OrNone(ObjectTypeName(data)) : "none", bones,
-	         byName ? "  <- the bike (name)" : byBind ? "  <- the bike (COM bind)" : "");
+	         byName ? "  <- the bike (name)" : byBind ? "  <- the bike (COM bind)" : byAddon ? "  <- the bike (our armor addon)" : "");
 }
 
 static void Visit(uintptr_t obj, int depth, SkinList *list)
@@ -1549,6 +1606,12 @@ static uintptr_t Biped(uintptr_t player)
 	return biped;
 }
 
+static bool OurForm(uintptr_t form)
+{
+	return form && g_ourMask && Accessible(form + OFF_FORM_ID, 4, false) &&
+	       (*(const uint32_t *)(form + OFF_FORM_ID) & g_ourMask) == g_ourPrefix;
+}
+
 static uintptr_t BipedPart(uintptr_t biped, int slot, uintptr_t *addon)
 {
 	uintptr_t object = biped + OFF_BIPED_OBJECTS + (uintptr_t)slot * BIPED_OBJECT_SIZE;
@@ -1584,12 +1647,16 @@ static void WalkBiped(uintptr_t biped, SkinList *list, bool verbose)
 	g_walk.verbose = verbose;
 	g_walkBudget = 6000;
 	for (int slot = 0; slot < BIPED_SLOTS; slot++) {
-		uintptr_t clone = BipedPart(biped, slot, NULL);
+		uintptr_t addon;
+		uintptr_t clone = BipedPart(biped, slot, &addon);
 		if (!clone)
 			continue;
 		int before = list->count;
-		WalkLine(" slot %d (biped slot %d): part '%.40s' %s", slot, slot + 30, OrNone(ObjectName(clone)), OrNone(ObjectTypeName(clone)));
+		g_walkOurs = OurForm(addon);
+		WalkLine(" slot %d (biped slot %d): part '%.40s' %s%s", slot, slot + 30, OrNone(ObjectName(clone)), OrNone(ObjectTypeName(clone)),
+		         g_walkOurs ? " (our armor addon)" : "");
 		Visit(clone, 0, list);
+		g_walkOurs = false;
 		if (list->count > before && !g_rideRouteLogged)
 			Log("tilt: the bike is worn in biped slot %d", slot + 30);
 	}
@@ -1649,7 +1716,7 @@ static void SyncSkins(uintptr_t player)
 		g_rideRouteLogged = true;
 		Log("tilt: found %d bike shape(s): %s%s", list.count,
 		    fromRoot ? "under the 3D root" : "only through the biped (not under the 3D root)",
-		    list.byBind[0] ? ", by its COM bind (not its name)" : "");
+		    list.byBind[0] ? ", by its COM bind or its armor addon (not its name)" : "");
 		if (!fromRoot)
 			LogBikeSlot(player, biped, root);
 	}
@@ -1682,32 +1749,55 @@ static void SyncSkins(uintptr_t player)
 	DecideLayout();
 }
 
-/* The rotation (x' = R x, row-major 3x3) that tips straight up over to `up` (in the
- * rider's frame: x right, y forward, z up), by at most `maxRadians`. Returns the angle. */
-static float TiltRotation(const float up[3], float maxRadians, float R[9])
+/* The rotation (x' = R x, row-major 3x3) in the rider's frame (x right, y forward, z up):
+ * pitch about x (nose up when > 0), then roll about the pitched y (up to the right when > 0). */
+static void TiltRotation(float pitchDeg, float rollDeg, float R[9])
 {
-	float angle = acosf(up[2] > 1.0f ? 1.0f : up[2]);
-	float ax = -up[1], ay = up[0];   /* axis: (0,0,1) x up, level */
-	float len = sqrtf(ax * ax + ay * ay);
-	if (angle > maxRadians)
-		angle = maxRadians;
-	if (len < 1e-6f || angle < 1e-5f) {
-		static const float identity[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
-		memcpy(R, identity, sizeof(identity));
-		return 0.0f;
-	}
-	ax /= len;
-	ay /= len;
-	float c = cosf(angle), s = sinf(angle), t = 1.0f - c;
-	/* Rodrigues, axis (ax, ay, 0). */
-	R[0] = c + t * ax * ax;  R[1] = t * ax * ay;      R[2] = s * ay;
-	R[3] = t * ax * ay;      R[4] = c + t * ay * ay;  R[5] = -s * ax;
-	R[6] = -s * ay;          R[7] = s * ax;           R[8] = c;
-	return angle;
+	float a = pitchDeg / 57.29578f, b = rollDeg / 57.29578f;
+	float ca = cosf(a), sa = sinf(a), cb = cosf(b), sb = sinf(b);
+	/* Rx(a) Ry(b) */
+	R[0] = cb;        R[1] = 0.0f; R[2] = sb;
+	R[3] = sa * sb;   R[4] = ca;   R[5] = -sa * cb;
+	R[6] = -ca * sb;  R[7] = sa;   R[8] = ca * cb;
 }
 
-/* Every frame while riding: ease towards the ground under the player and turn the
- * bike's mesh by that before it goes onto its bone. */
+static int CompareFloats(const void *a, const void *b)
+{
+	float x = *(const float *)a, y = *(const float *)b;
+	return (x > y) - (x < y);
+}
+
+/* The median of the samples taken in the last g_medianTime seconds (pitch or roll). */
+static float RecentMedian(int which)
+{
+	float values[TILT_SAMPLES];
+	int n = 0;
+	for (int i = 0; i < g_tiltSampleCount; i++) {
+		const TiltSample *t = &g_tiltSamples[(g_tiltSampleHead - 1 - i + TILT_SAMPLES) % TILT_SAMPLES];
+		if (g_clock - t->time > g_medianTime && n)
+			break;
+		values[n++] = which ? t->roll : t->pitch;
+	}
+	if (!n)
+		return 0.0f;
+	qsort(values, (size_t)n, sizeof(float), CompareFloats);
+	return n & 1 ? values[n / 2] : 0.5f * (values[n / 2 - 1] + values[n / 2]);
+}
+
+static float Toward(float from, float to, float maxStep)
+{
+	return to > from + maxStep ? from + maxStep : to < from - maxStep ? from - maxStep : to;
+}
+
+static float Clamp(float v, float limit)
+{
+	return v > limit ? limit : v < -limit ? -limit : v;
+}
+
+/* Every frame while riding: the ground's pitch and roll under the rider, filtered (a
+ * median drops one-frame contacts with a curb or a lip of rock, then smoothing, then a
+ * rate limit), capped, and put on the bike's mesh before it goes onto its bone: turned
+ * about the seat, so the seat and bars stay under the rider (who doesn't tilt). */
 static void FrameTilt(void)
 {
 	float maxDegrees = GlobalValue(g_tiltGlobal);
@@ -1716,61 +1806,85 @@ static void FrameTilt(void)
 	uintptr_t player = Player();
 	if (!player || !Accessible(player + OFF_REFR_HEADING, 4, false))
 		return;
-
-	float target[3] = { 0.0f, 0.0f, 1.0f };
-	if (g_groundOk && !g_groundAir)
-		memcpy(target, g_groundN, sizeof(target));
-	float k = g_smoothing > 0.0f ? 1.0f - expf(-g_frameDt / g_smoothing) : 1.0f;
-	float len = 0.0f;
-	for (int i = 0; i < 3; i++) {
-		g_tiltN[i] += (target[i] - g_tiltN[i]) * k;
-		len += g_tiltN[i] * g_tiltN[i];
-	}
-	len = sqrtf(len);
-	if (!(len > 0.5f)) {
-		g_tiltN[0] = g_tiltN[1] = 0.0f;
-		g_tiltN[2] = len = 1.0f;
-	}
-	for (int i = 0; i < 3; i++)
-		g_tiltN[i] /= len;
-
-	/* Into the rider's frame: heading h, forward (sin h, cos h), right (cos h, -sin h). */
 	float h = *(const float *)(player + OFF_REFR_HEADING);
 	if (!isfinite(h))
 		return;
-	float sh = sinf(h), ch = cosf(h);
-	float up[3] = { g_tiltN[0] * ch - g_tiltN[1] * sh, g_tiltN[0] * sh + g_tiltN[1] * ch, g_tiltN[2] };
+
+	/* The ground's normal in the rider's frame: heading h, forward (sin h, cos h), right (cos h, -sin h). */
+	bool onGround = g_groundOk && !g_groundAir;
+	float rawPitch = 0.0f, rawRoll = 0.0f;
+	if (onGround) {
+		float sh = sinf(h), ch = cosf(h);
+		float ux = g_groundN[0] * ch - g_groundN[1] * sh, uy = g_groundN[0] * sh + g_groundN[1] * ch, uz = g_groundN[2];
+		rawPitch = atan2f(-uy, uz) * 57.29578f;   /* ground rising ahead leans the normal back */
+		rawRoll = atan2f(ux, uz) * 57.29578f;
+		TiltSample *t = &g_tiltSamples[g_tiltSampleHead];
+		t->pitch = rawPitch;
+		t->roll = rawRoll;
+		t->time = g_clock;
+		g_tiltSampleHead = (g_tiltSampleHead + 1) % TILT_SAMPLES;
+		if (g_tiltSampleCount < TILT_SAMPLES)
+			g_tiltSampleCount++;
+	} else {
+		g_tiltSampleCount = 0;   /* in the air: level, and start afresh on landing */
+	}
+	float medianPitch = onGround ? RecentMedian(0) : 0.0f, medianRoll = onGround ? RecentMedian(1) : 0.0f;
+	/* Capped before smoothing, so coming off a steep slope starts easing back at once. */
+	float k = g_smoothing > 0.0f ? 1.0f - expf(-g_frameDt / g_smoothing) : 1.0f;
+	g_pitchSmooth += (Clamp(medianPitch, maxDegrees) - g_pitchSmooth) * k;
+	g_rollSmooth += (Clamp(medianRoll, g_maxRoll < maxDegrees ? g_maxRoll : maxDegrees) - g_rollSmooth) * k;
+	float step = g_maxRate > 0.0f ? g_maxRate * g_frameDt : 1000.0f;
+	g_pitchNow = Toward(g_pitchNow, g_pitchSmooth, step);
+	g_rollNow = Toward(g_rollNow, g_rollSmooth, step);
+
 	float R[9];
-	float angle = TiltRotation(up, maxDegrees / 57.29578f, R);
+	TiltRotation(g_pitchNow, g_rollNow, R);
+	float c = (R[0] + R[4] + R[8] - 1.0f) * 0.5f;
+	float angle = acosf(c > 1.0f ? 1.0f : c < -1.0f ? -1.0f : c);
 	g_tiltNow = angle * 57.29578f;
 	if (g_tiltNow > g_tiltMax) {
 		if (g_tiltMax < 5.0f && g_tiltNow >= 5.0f)
 			Log("tilt: the bike follows the ground (%.1f deg now)", g_tiltNow);
 		g_tiltMax = g_tiltNow;
 	}
+	if (g_trace && g_clock - g_lastTrace >= 0.25f) {
+		g_lastTrace = g_clock;
+		Log("trace: normal (%.3f, %.3f, %.3f) state %d%s | raw pitch %.1f roll %.1f | median %.1f %.1f | smooth %.1f %.1f | applied %.1f %.1f",
+		    g_groundN[0], g_groundN[1], g_groundN[2], g_lastState, onGround ? "" : " (off the ground)", rawPitch, rawRoll,
+		    medianPitch, medianRoll, g_pitchSmooth, g_rollSmooth, g_pitchNow, g_rollNow);
+	}
 
+	/* Turned about the seat P (mesh space): x -> R (x - P) + P. Mesh -> bone after the turn:
+	 * rotation A R, translation t + A (P - R P), so the seat lands where it always did. */
+	float P[3] = { 0.0f, 0.0f, g_pivotHeight };
+	float d[3];
+	for (int i = 0; i < 3; i++)
+		d[i] = P[i] - (R[i * 3] * P[0] + R[i * 3 + 1] * P[1] + R[i * 3 + 2] * P[2]);
 	for (int k2 = 0; k2 < g_skinCount; k2++) {
 		const HeldSkin *hs = &g_skins[k2];
 		for (int b = 0; b < hs->count; b++) {
 			const uint8_t *orig = hs->original[b];
 			uint8_t *live = (uint8_t *)(hs->bones + (uintptr_t)b * BONE_SIZE);
-			const float *o = (const float *)(orig + OFF_BONE_ROT);
+			const float *o = (const float *)(orig + OFF_BONE_ROT), *t = (const float *)(orig + OFF_BONE_POS);
 			float A[9], B[9];
 			for (int i = 0; i < 3; i++)
 				for (int j = 0; j < 3; j++)
 					A[i * 3 + j] = g_layout == LAYOUT_FILE ? o[i * 4 + j] : o[j * 4 + i];
-			/* Mesh -> bone after the turn: B = A R. */
 			for (int i = 0; i < 3; i++)
 				for (int j = 0; j < 3; j++)
 					B[i * 3 + j] = A[i * 3] * R[j] + A[i * 3 + 1] * R[3 + j] + A[i * 3 + 2] * R[6 + j];
-			float *w = (float *)(live + OFF_BONE_ROT);
+			float *w = (float *)(live + OFF_BONE_ROT), *pos = (float *)(live + OFF_BONE_POS);
 			for (int i = 0; i < 3; i++)
 				for (int j = 0; j < 3; j++)
 					w[i * 4 + j] = g_layout == LAYOUT_FILE ? B[i * 3 + j] : B[j * 3 + i];
-			/* The culling sphere (bone space) turns about the mesh origin, which the bone
-			 * sees at the transform's translation: grow it by the most its centre moves. */
-			const float *centre = (const float *)orig, *pos = (const float *)(orig + OFF_BONE_POS);
-			float dx = centre[0] - pos[0], dy = centre[1] - pos[1], dz = centre[2] - pos[2];
+			float seat[3];   /* where the bone sees the seat: A P + t */
+			for (int i = 0; i < 3; i++) {
+				pos[i] = t[i] + A[i * 3] * d[0] + A[i * 3 + 1] * d[1] + A[i * 3 + 2] * d[2];
+				seat[i] = t[i] + A[i * 3] * P[0] + A[i * 3 + 1] * P[1] + A[i * 3 + 2] * P[2];
+			}
+			/* The culling sphere (bone space) turns about the seat: grow it by the most its centre moves. */
+			const float *centre = (const float *)orig;
+			float dx = centre[0] - seat[0], dy = centre[1] - seat[1], dz = centre[2] - seat[2];
 			float radius = *(const float *)(orig + OFF_BONE_RADIUS);
 			*(float *)(live + OFF_BONE_RADIUS) = radius + 2.0f * sqrtf(dx * dx + dy * dy + dz * dz) * sinf(angle * 0.5f);
 		}
@@ -1789,6 +1903,7 @@ static void FrameTime(void)
 	           ? (float)(now.QuadPart - g_lastFrameTime.QuadPart) / (float)g_qpcFrequency.QuadPart : 0.0f;
 	g_lastFrameTime = now;
 	g_frameDt = dt >= 0.0f && dt <= 0.25f ? dt : 0.25f;
+	g_clock += g_frameDt;
 }
 
 static void TrackClear(void)
@@ -1862,11 +1977,33 @@ static void SampleGround(void)
 		g_trackCount++;
 }
 
-/* Where the parked bike goes: on the track, its front wheel PARK_FRONT and its back wheel
- * PARK_REAR behind the player's feet (along the ground ridden), facing the way it went,
- * pitched by the two wheels' heights and rolled by the ground's average normal there.
- * out: x, y, z, the bike's angle (degrees, the game's heading + 180: the model faces -Y),
- * and its up. False if the track is too short, curls back, or isn't where the player is. */
+/* A point on the track `along` units back along the ground from the player's feet `p`
+ * (the track runs p, newest point, ..., oldest point). False past its end. */
+static bool TrackPointAt(const float p[3], float along, float out[3])
+{
+	float travelled = 0.0f, prev[3] = { p[0], p[1], p[2] };
+	for (int i = 0; i < g_trackCount; i++) {
+		const TrackPoint *t = TrackAt(i);
+		float seg = Distance(prev, t->p);
+		if (seg > 0.0f && travelled + seg >= along) {
+			float f = (along - travelled) / seg;
+			for (int k = 0; k < 3; k++)
+				out[k] = prev[k] + (t->p[k] - prev[k]) * f;
+			return true;
+		}
+		travelled += seg;
+		memcpy(prev, t->p, sizeof(prev));
+	}
+	return false;
+}
+
+/* Where the parked bike goes: on the track, its middle at the first place (walking back
+ * along it) that's PARK_DISTANCE from the player's feet in a straight line, so it never
+ * lands on them, even after a U-turn. Its heading and pitch come from the track's
+ * direction there (PARK_SPAN either side), its height from the track, its roll from the
+ * ground's normals there. out: x, y, z, the bike's angle (degrees, the game's heading
+ * + 180: the model faces -Y), and its up. False if the track is too short, or the player
+ * isn't at its end (in the air). */
 static bool ParkSpot(uintptr_t player, float out[7], const char **why)
 {
 	*why = "no track yet (rode less than a bike length on the ground)";
@@ -1877,51 +2014,57 @@ static bool ParkSpot(uintptr_t player, float out[7], const char **why)
 		*why = "the player isn't on the track's end (in the air?)";
 		return false;
 	}
-	float travelled = 0.0f, prev[3] = { p[0], p[1], p[2] }, F[3] = { 0 }, R[3] = { 0 }, nsum[3] = { 0 };
-	bool haveF = false, haveR = false;
-	for (int i = 0; i < g_trackCount && !haveR; i++) {
+	float travelled = 0.0f, prev[3] = { p[0], p[1], p[2] }, c[3] = { 0 }, at = -1.0f;
+	for (int i = 0; i < g_trackCount && at < 0.0f; i++) {
 		const TrackPoint *t = TrackAt(i);
-		float seg = Distance(prev, t->p);
-		for (int w = 0; w < 2; w++) {
-			float at = w ? PARK_REAR : PARK_FRONT;
-			bool *have = w ? &haveR : &haveF;
-			float *point = w ? R : F;
-			if (!*have && seg > 0.0f && travelled + seg >= at) {
-				float f = (at - travelled) / seg;
-				for (int k = 0; k < 3; k++)
-					point[k] = prev[k] + (t->p[k] - prev[k]) * f;
-				*have = true;
-			}
-		}
-		if (haveF)
+		float seg = Distance(prev, t->p), before = Distance(prev, p), after = Distance(t->p, p);
+		if (seg > 0.0f && after >= PARK_DISTANCE && before < PARK_DISTANCE) {
+			float f = (PARK_DISTANCE - before) / (after - before);   /* segments are short: linear is close */
 			for (int k = 0; k < 3; k++)
-				nsum[k] += t->n[k];
+				c[k] = prev[k] + (t->p[k] - prev[k]) * f;
+			at = travelled + seg * f;
+		}
 		travelled += seg;
 		memcpy(prev, t->p, sizeof(prev));
 	}
-	if (!haveR)
-		return false;
-	float a[3] = { F[0] - R[0], F[1] - R[1], F[2] - R[2] };
-	float c[3] = { (F[0] + R[0]) * 0.5f, (F[1] + R[1]) * 0.5f, (F[2] + R[2]) * 0.5f };
-	/* Along the ground, not level: a straight track up a 45 deg slope is fine. */
-	if (Distance(F, R) < 0.85f * (PARK_REAR - PARK_FRONT) || sqrtf(a[0] * a[0] + a[1] * a[1]) < 30.0f) {
-		*why = "the track bends too much there (a turn just before stopping)";
+	if (at < 0.0f) {
+		*why = travelled < PARK_DISTANCE ? "the track is shorter than a bike length and a half"
+		                                 : "the track never gets a bike length and a half from the player";
 		return false;
 	}
-	if (Distance(c, p) < 0.75f * (PARK_FRONT + PARK_REAR) * 0.5f) {
-		*why = "the track comes back to the player";
+	float ahead[3], behind[3];
+	if (!TrackPointAt(p, at - PARK_SPAN, ahead))
+		memcpy(ahead, c, sizeof(ahead));
+	if (!TrackPointAt(p, at + PARK_SPAN, behind))
+		memcpy(behind, TrackAt(g_trackCount - 1)->p, sizeof(behind));   /* the track's oldest point */
+	float a[3] = { ahead[0] - behind[0], ahead[1] - behind[1], ahead[2] - behind[2] };
+	float len = sqrtf(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
+	if (len < 20.0f || sqrtf(a[0] * a[0] + a[1] * a[1]) < 10.0f) {
+		*why = "the track has no direction there";
 		return false;
 	}
-	float len = Distance(F, R), up[3], dot = 0.0f;
+	/* The ground's normals there, averaged. */
+	float nsum[3] = { 0 };
+	travelled = 0.0f;
+	memcpy(prev, p, sizeof(prev));
+	for (int i = 0; i < g_trackCount; i++) {
+		const TrackPoint *t = TrackAt(i);
+		travelled += Distance(prev, t->p);
+		memcpy(prev, t->p, sizeof(prev));
+		if (travelled > at + PARK_SPAN)
+			break;
+		if (travelled >= at - PARK_SPAN)
+			for (int k = 0; k < 3; k++)
+				nsum[k] += t->n[k];
+	}
 	float nlen = sqrtf(nsum[0] * nsum[0] + nsum[1] * nsum[1] + nsum[2] * nsum[2]);
-	if (!(nlen > 0.0f))
-		memcpy(nsum, TrackAt(0)->n, sizeof(nsum)), nlen = 1.0f;
+	float up[3], dot = 0.0f;
 	for (int k = 0; k < 3; k++) {
 		a[k] /= len;
-		up[k] = nsum[k] / nlen;
+		up[k] = nlen > 0.0f ? nsum[k] / nlen : (k == 2 ? 1.0f : 0.0f);
 		dot += up[k] * a[k];
 	}
-	/* Up at right angles to the bike's length: the two wheels set the pitch exactly. */
+	/* Up at right angles to the bike's length: the track's direction sets the pitch. */
 	float ulen = 0.0f;
 	for (int k = 0; k < 3; k++) {
 		up[k] -= dot * a[k];
@@ -1933,11 +2076,10 @@ static bool ParkSpot(uintptr_t player, float out[7], const char **why)
 		return false;
 	}
 	float heading = atan2f(a[0], a[1]) * 57.29578f;   /* the game's: 0 = +Y, clockwise */
-	float angle = fmodf(heading + 180.0f + 360.0f, 360.0f);
 	out[0] = c[0];
 	out[1] = c[1];
 	out[2] = c[2];
-	out[3] = angle;
+	out[3] = fmodf(heading + 180.0f + 360.0f, 360.0f);
 	for (int k = 0; k < 3; k++)
 		out[4 + k] = up[k] / ulen;
 	return true;
@@ -1970,11 +2112,91 @@ static void LogParkSpot(void)
 	if (!g_parkGlobals[0])
 		return;
 	if (g_parkValid)
-		Log("park: on getting off, a spot on the track %.0f units behind: (%.0f, %.0f, %.0f), angle %.0f, up (%.2f, %.2f, %.2f)",
-		    (PARK_FRONT + PARK_REAR) * 0.5f, g_parkSpot[0], g_parkSpot[1], g_parkSpot[2], g_parkSpot[3],
+		Log("park: on getting off, a spot on the track %.0f units away: (%.0f, %.0f, %.0f), angle %.0f, up (%.2f, %.2f, %.2f)",
+		    PARK_DISTANCE, g_parkSpot[0], g_parkSpot[1], g_parkSpot[2], g_parkSpot[3],
 		    g_parkSpot[4], g_parkSpot[5], g_parkSpot[6]);
 	else
 		Log("park: on getting off, no spot on the track: %s", g_parkWhy);
+}
+
+
+/* The third-person camera state (ThirdPersonState): the current one if it is one,
+ * otherwise whichever of the two third-person slots is. */
+static uintptr_t ThirdPersonState(void)
+{
+	uintptr_t camera = ReadPtr(g_base + RVA_PLAYER_CAMERA);
+	if (!camera || !IsA(camera, RTTI_CAMERA))
+		return 0;
+	uintptr_t state = ReadPtr(camera + OFF_CAMERA_STATE);
+	if (state && IsA(state, RTTI_THIRD))
+		return state;
+	for (int i = CAMERA_THIRD_PERSON1 + 1; i >= CAMERA_THIRD_PERSON1; i--) {
+		state = ReadPtr(camera + OFF_CAMERA_STATES + 8u * (unsigned)i);
+		if (state && IsA(state, RTTI_THIRD))
+			return state;
+	}
+	return 0;
+}
+
+static bool Fraction(float v)
+{
+	return v >= 0.0f && v <= 1.0001f;
+}
+
+/* Riding: the third-person zoom all the way out (a fraction of the way from the nearest to
+ * the farthest, fVanityModeMaxDist, as in Skyrim; the offsets are CommonLibF4's, so the
+ * values are only written if both read as fractions, and logged either way). For two
+ * seconds after getting on it's set again, in case going into third person (under the
+ * fade) puts the saved zoom back; after that the mouse wheel is the player's. Getting off:
+ * the zoom from before. */
+static void UpdateZoom(DWORD now, bool riding)
+{
+	if (!g_zoomOut || !g_zoomTargetOffset || !g_zoomCurrentOffset)
+		return;
+	if (riding && !g_zoomRiding) {
+		g_zoomRiding = true;
+		g_zoomTouched = false;
+		g_zoomState = ThirdPersonState();
+		if (!g_zoomState || !Accessible(g_zoomState + g_zoomTargetOffset, 4, true) ||
+		    !Accessible(g_zoomState + g_zoomCurrentOffset, 4, true)) {
+			Log("camera zoom: no third-person camera state found: leaving the zoom alone");
+			return;
+		}
+		float *target = (float *)(g_zoomState + g_zoomTargetOffset), *current = (float *)(g_zoomState + g_zoomCurrentOffset);
+		if (!g_zoomDumped) {
+			g_zoomDumped = true;
+			char line[400];
+			int len = 0;
+			for (unsigned off = 0xD0; off < 0x110 && len < (int)sizeof(line) - 24; off += 4)
+				if (Accessible(g_zoomState + off, 4, false))
+					len += snprintf(line + len, sizeof(line) - len, " +%X=%g", off, *(const float *)(g_zoomState + off));
+			Log("camera zoom: %s at %p, floats:%s", ObjectTypeName(g_zoomState), (void *)g_zoomState, line);
+		}
+		if (!Fraction(*target) || !Fraction(*current)) {
+			Log("camera zoom: target %g, current %g at +0x%X/+0x%X aren't fractions: leaving the zoom alone",
+			    *target, *current, g_zoomTargetOffset, g_zoomCurrentOffset);
+			return;
+		}
+		g_zoomOldTarget = *target;
+		g_zoomOldCurrent = *current;
+		g_zoomTouched = true;
+		g_zoomUntil = now + 2000;
+		Log("camera zoom: getting on, target %g current %g -> all the way out (1)", *target, *current);
+	}
+	if (riding && g_zoomTouched && (int32_t)(now - g_zoomUntil) < 0 && g_zoomState == ThirdPersonState()) {
+		*(float *)(g_zoomState + g_zoomTargetOffset) = 1.0f;
+		*(float *)(g_zoomState + g_zoomCurrentOffset) = 1.0f;
+	}
+	if (!riding && g_zoomRiding) {
+		g_zoomRiding = false;
+		if (g_zoomTouched && g_zoomState == ThirdPersonState()) {
+			float *target = (float *)(g_zoomState + g_zoomTargetOffset), *current = (float *)(g_zoomState + g_zoomCurrentOffset);
+			Log("camera zoom: getting off, target %g current %g -> back to %g", *target, *current, g_zoomOldTarget);
+			*target = g_zoomOldTarget;
+			*current = g_zoomOldCurrent;
+		}
+		g_zoomTouched = false;
+	}
 }
 
 /* ------------------------------------------------------------------------- */
@@ -1997,6 +2219,7 @@ static void Tick(DWORD now)
 			return;
 	}
 	UpdateCamera();
+	UpdateZoom(now, GlobalValue(g_cameraGlobal) > 0.0f);
 
 	float degrees = GlobalValue(g_slopeGlobal);
 	float tilt = GlobalValue(g_tiltGlobal);
@@ -2127,6 +2350,7 @@ static void OnF4SEMessage(F4SEMessage *msg)
 		g_dumpedThisLoad = false;
 		g_wasRiding = false;
 		g_stateCtrl = 0;   /* the held skins are let go of on the next check: not in the new 3D */
+		g_zoomRiding = g_zoomTouched = false;   /* a new camera: nothing of ours to put back */
 		memset(g_refused, 0, sizeof(g_refused));
 		TrackClear();
 		g_avgAge = 0.0f;

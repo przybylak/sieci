@@ -67,10 +67,10 @@
     {
       "type": "slider",
       "text": "Bike tilts with the ground (max degrees)",
-      "help": "The bike pitches and rolls to match the ground, by at most this much: while riding (needs F4SE and the CMB_Slope.dll plugin) and when parked. 0 = always level.",
+      "help": "While riding, the bike pitches with the ground by at most this much (needs F4SE and the CMB_Slope.dll plugin). The rider doesn\u0027t tilt with it, so more than about 15 looks odd. The parked bike tilts up to 30 whatever this says. 0 = always level, parked too.",
       "valueOptions": {
         "min": 0,
-        "max": 45,
+        "max": 30,
         "step": 5,
         "sourceType": "GlobalValue",
         "sourceForm": "CommonwealthMotorbike.esp|830"

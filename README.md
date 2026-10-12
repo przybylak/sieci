@@ -9,7 +9,7 @@ A rideable motorbike for Fallout 4:
 - **park it, call it, ride it**: activate the bike or use its keys (favorite them to a hotkey); optional F4SE hotkey
 - **seated riding animations** with lean in turns and ridden U-turns; the bike turns with you on the spot and in conversations; an **engine sound** that follows your speed
 - **rides like a vehicle, not a person**: 75% less fall damage while riding (adjustable), deep water ends the ride and leaves the bike on the bank, and an enemy's hit knocks you off (optional)
-- **follows the ground**: the parked bike stands on the ground, tilted to match the slope (with F4SE, on the ground you just rode over); with F4SE, the bike also pitches and rolls with the ground while you ride, climbs slopes too steep to walk up, and the camera sits farther back
+- **follows the ground**: the parked bike stands on the ground, tilted to match the slope (with F4SE, on the ground you just rode over); with F4SE, the bike also pitches with the ground while you ride, climbs slopes too steep to walk up, and the camera sits farther back
 - **MCM menu** for every setting (with MCM installed); with F4SE, gear in the bike's slot goes back on after a ride
 
 > **Status: never run in game.** The plugin is generated and verified offline: its structure, every script property
@@ -90,7 +90,7 @@ Details for every step: [docs/BUILD_GUIDE.md](docs/BUILD_GUIDE.md).
 | `set CMB_AllowCombat to <0/1>` | 0 |
 | `set CMB_UseRiderPose to <0/1>` (seated riding animations, needs `CMB_RiderPose.esp`) | 1 |
 | `set CMB_EngineVolume to <0–100>` | 70 |
-| `set CMB_MaxTilt to <0–45>` (how far the bike tilts with the ground; 0 = always level) | 30 |
+| `set CMB_MaxTilt to <0–30>` (how far the bike pitches with the ground while riding, F4SE plugin; 0 = always level, parked too) | 15 |
 | `set CMB_RidingCameraDistance to <units>` (F4SE plugin; the game's own is about 150) | 450 |
 | `set CMB_MaxSlope to <degrees>` (steepest slope while riding, F4SE plugin) | 60 |
 | `cqf CMB_ControllerQuest EmergencyReset` | undo everything if stuck |

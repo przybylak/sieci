@@ -102,8 +102,9 @@ Group Optional
 	GlobalVariable Property CMB_SlopeLive Auto Const
 	{What CMB_Slope.dll reads: CMB_MaxSlope while riding, 0 otherwise. Set by this script.}
 	GlobalVariable Property CMB_MaxTilt Auto Const
-	{The most the bike tilts to match the ground, in degrees: while riding (needs F4SE and the
-	CMB_Slope.dll plugin) and when parked. 0 = always level. Default 30.}
+	{The most the bike pitches with the ground while riding, in degrees (needs F4SE and the
+	CMB_Slope.dll plugin; the rider doesn't tilt, so more looks odd). The parked bike tilts
+	up to ParkMaxPitch. 0 = always level, parked too. Default 15.}
 	GlobalVariable Property CMB_TiltLive Auto Const
 	{What CMB_Slope.dll reads: CMB_MaxTilt while riding, 0 otherwise. Set by this script.}
 	GlobalVariable Property CMB_GroundNormalX Auto Const
@@ -149,7 +150,9 @@ float Property MaxGroundStep = 30.0 AutoReadOnly
 higher or lower there; more and the bike is parked level at the player's height (one
 contact normal, carried 110 units, is no good on rock or at a curb: test 7).}
 float Property ParkMaxRoll = 10.0 AutoReadOnly
-{The parked bike leans sideways at most this much (it pitches up to CMB_MaxTilt).}
+{The parked bike leans sideways at most this much...}
+float Property ParkMaxPitch = 30.0 AutoReadOnly
+{...and pitches at most this much (test 8: a 28 deg park on the track sat right).}
 float Property ProbeAlong = 70.0 AutoReadOnly
 {Without the plugin, the navmesh is felt for this far in front of and behind the parked
 bike's middle (it's about 200 long)...}
@@ -307,6 +310,14 @@ Function UpgradeSettings()
 			Log("Riding camera distance: the old default 300 is now 450.")
 		endif
 		settingsVersion = 1
+	endif
+	if settingsVersion < 2
+		; Test 8: the rider doesn't tilt with the bike, so the riding tilt went from 30 to 15.
+		if CMB_MaxTilt && CMB_MaxTilt.GetValue() == 30.0
+			CMB_MaxTilt.SetValue(15.0)
+			Log("Bike tilt: the old default 30 is now 15.")
+		endif
+		settingsVersion = 2
 	endif
 EndFunction
 
@@ -760,6 +771,9 @@ Function FinishRide()
 	SetCameraLive(false)
 	SetSlopeLive(false)
 	SetTiltLive(false)
+	if CMB_ParkUpZ
+		CMB_ParkUpZ.SetValue(0.0)   ; that spot is used up
+	endif
 	ClearRiderPose()
 	ReleaseControls()
 	RemoveSpeed(PlayerRef, playerSpeedDelta)
@@ -818,6 +832,9 @@ EndFunction
 ; False without the plugin, or with no such spot (a short ride, a turn just before
 ; stopping, in the air).
 bool Function ParkOnTrack()
+	if !riding
+		return false   ; the spot is from the last ride (an emergency reset, say)
+	endif
 	if !CMB_ParkX || !CMB_ParkY || !CMB_ParkZ || !CMB_ParkAngle || !CMB_ParkUpX || !CMB_ParkUpY || !CMB_ParkUpZ
 		return false
 	endif
@@ -840,8 +857,8 @@ EndFunction
 ; The spot next to the player can be in mid-air or inside the rock on steep ground, so
 ; the parked bike is put on the ground there and tilted to match, keeping its heading:
 ; - on the nearest navmesh (walkable ground), tilted by four navmesh probes around it;
-; - abBesidePlayer, where the navmesh is too coarse to tilt by: at the navmesh height,
-;   tilted by the ground under the player (CMB_Slope.dll's average);
+; - where the navmesh is too coarse to tilt by, its height is no better (test 8: half in
+;   the rock): abBesidePlayer, level at the player's height; otherwise level on it;
 ; - no navmesh near (steep rock): abBesidePlayer, the plane under the player's feet
 ;   carried over to the bike, if that moves it at most MaxGroundStep up or down;
 ;   otherwise level where it was put.
@@ -865,8 +882,10 @@ Function SettleBike(bool abBesidePlayer = false)
 	endif
 	if GroundFromNavmesh(angle)
 		TiltParkedBike(angle, "the navmesh around it")
-	elseif abBesidePlayer && GroundFromPlugin()
-		TiltParkedBike(angle, "the ground under the player (at the navmesh height)")
+	elseif abBesidePlayer
+		BikeRef.SetPosition(x, y, z)
+		BikeRef.SetAngle(0.0, 0.0, angle)
+		Log("Parked bike left level at the player's height.")
 	else
 		BikeRef.SetAngle(0.0, 0.0, angle)
 	endif
@@ -973,14 +992,14 @@ bool Function GroundFromNavmesh(float afAngle)
 	return true
 EndFunction
 
-; Pitch and roll for the parked bike from groundX/Y/Z (at most CMB_MaxTilt degrees, the
-; roll at most ParkMaxRoll), keeping its heading afAngle. A reference is turned by its heading (Z) last, after
+; Pitch and roll for the parked bike from groundX/Y/Z (at most ParkMaxPitch degrees, the
+; roll at most ParkMaxRoll; level if CMB_MaxTilt is 0), keeping its heading afAngle. A reference is turned by its heading (Z) last, after
 ; pitch (X) and roll (Y) about its own axes, each clockwise the game's way: X > 0 tips
 ; its +Y end down, Y > 0 lifts its +X side.
 Function TiltParkedBike(float afAngle, string asFrom)
-	float maxTilt = 0.0
-	if CMB_MaxTilt
-		maxTilt = CMB_MaxTilt.GetValue()
+	float maxTilt = ParkMaxPitch
+	if CMB_MaxTilt && CMB_MaxTilt.GetValue() <= 0.0
+		maxTilt = 0.0   ; tilting turned off altogether
 	endif
 	float nx = groundX
 	float ny = groundY

@@ -20,7 +20,7 @@ run() { # <name> <mode> <ini body>
   if [ -n "$log" ]; then mv "$log" "$HERE/last_$1.log"; fi
 }
 KNOWN='[Slope]\nTarget=controller\nSlopeOffset=0x418\nSlopeUnit=cosine\nExpectedDegrees=47\nProbe=1\nIntervalMs=100\nDumpPointers=0x2B8\n'
-run full 0 "$KNOWN"
+run full 0 "$KNOWN[Tilt]\nMaxRoll=10\nTrace=1\n"
 run probe 1 '[Slope]\nSlopeOffset=\nProbe=1\nIntervalMs=100\nDumpPointers=0x2B8\n'
 run guard 3 "$KNOWN"
 run wrongversion 2 "$KNOWN"
