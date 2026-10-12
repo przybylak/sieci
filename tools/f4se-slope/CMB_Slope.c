@@ -200,6 +200,9 @@
 #define ID_PICK_HIT_FRACTION  2277771u      /* bhkPickData::GetHitFraction */
 #define ID_CELL_PICK          2200263u      /* TESObjectCELL::Pick(bhkPickData &) -> NiAVObject * */
 #define PICK_DATA_SIZE        0xE0          /* sizeof(bhkPickData) */
+#define OFF_PICK_FILTER       0x0C          /* bhkPickData: castQuery's collision filter info (0 after the ctor) */
+#define OFF_PICK_HIT_LAYER    0xAC          /* bhkPickData: the hit's collision filter info (layer & 0x7F; test 16) */
+#define LAYER_CHAR_CONTROLLER 30            /* COL_LAYER::kCharController: hit what the player's capsule would */
 
 /* RTTI names (MSVC mangled) of the objects we look for. */
 #define RTTI_PLAYER     ".?AVPlayerCharacter@@"
@@ -338,9 +341,9 @@ static float g_creepBelow = 100.0f;       /* a side key alone creeps below this 
 static float g_creepRadius = 55.0f;       /* the creep goes round this circle (test 15: a bit more than 40) */
 static float g_backSpeed = 80.0f;         /* units a second the bike is pushed back */
 enum { PUSH_DELTA, PUSH_RAYSTEP, PUSH_MOD, PUSH_VELOCITY, PUSH_POSITION, PUSH_BRAKE };
-static int g_backPushFirst = PUSH_DELTA;  /* BackPush: the method to start with */
-static bool g_backPushAuto = true;        /* BackPush=auto: pushDelta, then rays and steps, else brake */
-static float g_backClearance = 130.0f;    /* this far behind the rider must be clear (the bike's rear and a bit) */
+static int g_backPushFirst = PUSH_RAYSTEP;   /* BackPush: the method to start with */
+static bool g_backPushAuto = true;        /* BackPush=auto: steps after rays, else brake */
+static float g_backClearance = 150.0f;    /* this far behind the rider must be clear (test 16: the rear is about 130 back) */
 static char g_shapePrefix[64] = "CMB_BikeWorn";
 enum { LAYOUT_UNKNOWN = -1, LAYOUT_FILE = 0, LAYOUT_TRANSPOSED = 1, LAYOUT_DISAGREE = 2 };
 static int g_layoutSetting = LAYOUT_UNKNOWN;   /* Layout=auto */
@@ -603,16 +606,16 @@ static void ReadSettings(void)
 	GetPrivateProfileStringA("Steer", "BackPush", "auto", value, sizeof(value), ini);
 	static const char *const pushValues[] = { "delta", "ray", "mod", "velocity", "position", "off" };
 	g_backPushAuto = true;
-	g_backPushFirst = PUSH_DELTA;
+	g_backPushFirst = PUSH_RAYSTEP;
 	for (int i = 0; i <= PUSH_BRAKE; i++)
 		if (_stricmp(value, pushValues[i]) == 0) {
 			g_backPushAuto = false;
 			g_backPushFirst = i;
 		}
-	GetPrivateProfileStringA("Steer", "BackClearance", "130", value, sizeof(value), ini);
+	GetPrivateProfileStringA("Steer", "BackClearance", "150", value, sizeof(value), ini);
 	g_backClearance = strtof(value, NULL);
-	if (!(g_backClearance >= 50.0f && g_backClearance <= 500.0f))
-		g_backClearance = 130.0f;
+	if (!(g_backClearance >= 80.0f && g_backClearance <= 500.0f))
+		g_backClearance = 150.0f;
 	GetPrivateProfileStringA("Tilt", "Shapes", "CMB_BikeWorn", g_shapePrefix, sizeof(g_shapePrefix), ini);
 	GetPrivateProfileStringA("Tilt", "Layout", "auto", value, sizeof(value), ini);
 	g_layoutSetting = _stricmp(value, "file") == 0 ? LAYOUT_FILE : _stricmp(value, "transposed") == 0 ? LAYOUT_TRANSPOSED : LAYOUT_UNKNOWN;
@@ -2708,21 +2711,21 @@ static void InstallInputHook(void)
 /* Holding back, the game gets no input at all (it would drive forward), and the plugin backs
  * the bike up at BackSpeed itself: the game's movement only ever goes forward along the facing
  * (test 15: the movement output turned round, or at a negative speed, didn't move it). Of the
- * character controller's own, test 14 found velocityMod (+0x180) and SetLinearVelocityImpl
- * (vfunc 0x3A) didn't move it and a step through SetPositionImpl (0x34) did, but through
- * walls. BackPush=auto tries, each kept only if the bike really goes back (more than 30% of
- * BackSpeed 0.6 s into holding back, counted from when it's stopped rolling forward and not
- * while something behind stops it; dropped at once if it goes forward or sideways instead):
- *   1. pushDelta (+0x1B0): a step the controller takes itself, so with its own collision, if
- *      the game uses it for the player;
- *   2. steps through SetPositionImpl, each only after rays cast with the game's own picking
- *      (bhkPickData, TESObjectCELL::Pick, through the Address Library) say the way back is
- *      clear at knee and chest height for BackClearance units, there's ground under the rear
- *      and under the feet where they go (the step follows it, up or down at most 40);
- *   3. nothing: back brakes (the bike stops instead of driving forward).
- * BackPush=delta, ray, mod, velocity or position use only that one (position: the raw step of
- * test 14, through walls). SetPositionImpl only once GetPositionImpl (0x33) has given the
- * player's position, which also says Havok's units (1/70 of the game's) or the game's. */
+ * character controller's own, velocityMod (+0x180) and SetLinearVelocityImpl (vfunc 0x3A)
+ * didn't move it (test 14), nor pushDelta (+0x1B0, test 16: the game only adds to it from
+ * contacts and clears it), and a step through SetPositionImpl (0x34) did, but through walls.
+ * So BackPush=auto makes steps through SetPositionImpl, each only after rays cast with the
+ * game's own picking say the way back is clear (test 16: they stop it at cars, fences, rocks,
+ * trees): ground just behind the rider and under the rear, nothing at knee height on either
+ * side or at chest height between, along the heading it would back up on. With a side key the
+ * turn is tried first; if that way isn't clear it backs up straight, and if that isn't either
+ * it neither turns nor moves (test 16: turning without looking swung the rear into a car).
+ * The step is kept only if the bike really goes back (more than 30% of BackSpeed 0.6 s into
+ * holding back, counted from when it's stopped rolling forward and not while something
+ * behind stops it); else back brakes. BackPush=delta, ray, mod, velocity or position use only
+ * that one (position: the steps without rays, through walls). SetPositionImpl only once
+ * GetPositionImpl (0x33) has given the player's position, which also says Havok's units (1/70
+ * of the game's) or the game's. */
 typedef void (*GetVecFn)(uintptr_t self, float *out);
 typedef void (*SetVecFn)(uintptr_t self, const float *v);
 typedef void (*GetPosFn)(uintptr_t self, float *out, bool centre);
@@ -2803,8 +2806,14 @@ static int g_pickFuncs;             /* 0 not looked for, 1 found (and the pick d
 static int g_pickState;             /* 0 not tested (since a load), 1 rays work, -1 they can't be used */
 static __attribute__((aligned(16))) uint8_t g_pick[PICK_DATA_SIZE + 0x20];   /* one, reused: no world reference per ray */
 static const char *g_rayWhat;       /* what the last ray hit (its 3D's name), for the log */
-static float g_rayScale = 1.0f;     /* the rays' points in game units (1), or Havok's (if the test ray says so) */
+static uint32_t g_rayFilter = LAYER_CHAR_CONTROLLER;   /* the rays' collision filter (0 = everything, if the test says) */
+static uint32_t g_rayLayer;         /* the last hit's collision layer */
+static float g_rayHit[3];           /* and where it was */
 static float g_rayGroundNear, g_rayGroundFar;   /* the ground just behind and under the rear, for the trace */
+static float g_pickRetryAt;         /* a failed test ray is tried again from then */
+static float g_passedLogged = -100.0f;
+static char g_wayWhy[200];          /* why the way back isn't clear (the last check) */
+static bool g_wayQuiet;             /* checking a turn: say why only if it stops the bike too */
 static float g_blockedLogged = -100.0f;
 
 /* F4SE's Address Library (version-1-11-240-0.bin): a count, then {id, offset} pairs sorted by
@@ -2847,22 +2856,57 @@ static uintptr_t AddressOf(FILE *f, uint64_t count, uint64_t id)
 	return 0;
 }
 
-/* One ray from a to b (game units): the fraction along it where it first hits something (1 if
- * nothing), and what it hit in g_rayWhat. */
+/* What a bike can't back through: not triggers, sound and actor zones, camera, sight and
+ * picking volumes, water, small clutter and debris, spells, projectiles or corpses (COL_LAYER,
+ * CommonLibF4; test 16 stopped at nothing visible on a flat slab). */
+static bool SolidLayer(uint32_t layer)
+{
+	switch (layer) {
+	case 4: case 5: case 6: case 7: case 11: case 12: case 15: case 16: case 18: case 19: case 21: case 22: case 23:
+	case 24: case 25: case 26: case 28: case 32: case 34: case 35: case 36: case 37: case 38: case 39: case 40: case 41:
+	case 42: case 45: case 46:
+		return false;
+	default:
+		return true;
+	}
+}
+
+/* One ray from a to b (game units): the fraction along it where it first hits something solid
+ * (1 if nothing), passing on through anything that isn't; what it hit in g_rayWhat, its layer
+ * in g_rayLayer and where in g_rayHit. */
 static float CastRay(uintptr_t cell, const float a[3], const float b[3])
 {
-	g_rayWhat = NULL;
-	float as[3] = { a[0] * g_rayScale, a[1] * g_rayScale, a[2] * g_rayScale };
-	float bs[3] = { b[0] * g_rayScale, b[1] * g_rayScale, b[2] * g_rayScale };
-	g_pickReset(g_pick);
-	g_pickSet(g_pick, as, bs);
-	uintptr_t obj = g_cellPick(cell, g_pick);
-	if (!g_pickHasHit(g_pick))
-		return 1.0f;
-	float f = g_pickFraction(g_pick);
-	if (obj && IsA(obj, RTTI_AVOBJECT))
-		g_rayWhat = ObjectName(obj);
-	return isfinite(f) && f >= 0.0f && f <= 1.0f ? f : 0.0f;
+	float from[3] = { a[0], a[1], a[2] }, done = 0.0f;
+	float len = sqrtf((b[0] - a[0]) * (b[0] - a[0]) + (b[1] - a[1]) * (b[1] - a[1]) + (b[2] - a[2]) * (b[2] - a[2]));
+	for (int tries = 0; tries < 4; tries++) {
+		g_rayWhat = NULL;
+		g_pickReset(g_pick);
+		*(uint32_t *)(g_pick + OFF_PICK_FILTER) = g_rayFilter;
+		g_pickSet(g_pick, from, b);
+		uintptr_t obj = g_cellPick(cell, g_pick);
+		if (!g_pickHasHit(g_pick))
+			return 1.0f;
+		float f = g_pickFraction(g_pick);
+		f = isfinite(f) && f >= 0.0f && f <= 1.0f ? f : 0.0f;
+		float t = done + (1.0f - done) * f;
+		g_rayLayer = *(const uint32_t *)(g_pick + OFF_PICK_HIT_LAYER) & 0x7F;
+		for (int i = 0; i < 3; i++)
+			g_rayHit[i] = a[i] + (b[i] - a[i]) * t;
+		if (obj && IsA(obj, RTTI_AVOBJECT))
+			g_rayWhat = ObjectName(obj);
+		if (SolidLayer(g_rayLayer))
+			return t;
+		if (g_trace && g_clock - g_passedLogged >= 1.0f) {
+			g_passedLogged = g_clock;
+			Log("reverse: a ray passed through %s (layer %u)", g_rayWhat && *g_rayWhat ? g_rayWhat : "unnamed", g_rayLayer);
+		}
+		done = t + 2.0f / (len > 1.0f ? len : 1.0f);   /* on from just past it */
+		if (done >= 1.0f)
+			return 1.0f;
+		for (int i = 0; i < 3; i++)
+			from[i] = a[i] + (b[i] - a[i]) * done;
+	}
+	return 1.0f;
 }
 
 /* Once: the functions from the Address Library and the pick data made (one, reused, so no
@@ -2913,9 +2957,12 @@ static bool FindPickFunctions(void)
 
 static bool RaysReady(uintptr_t player)
 {
+	if (g_pickState < 0 && g_clock >= g_pickRetryAt)
+		g_pickState = 0;   /* test 16: a first test on rubble or a bridge shouldn't turn rays off for the load */
 	if (g_pickState)
 		return g_pickState > 0;
 	g_pickState = -1;
+	g_pickRetryAt = g_clock + 3.0f;
 	uintptr_t cell = ReadPtr(player + OFF_REFR_CELL);
 	if (!FindPickFunctions())
 		return false;
@@ -2927,38 +2974,41 @@ static bool RaysReady(uintptr_t player)
 	float h = *(const float *)(player + OFF_REFR_HEADING);
 	float a[3] = { pos[0] - sinf(h) * 60.0f, pos[1] - cosf(h) * 60.0f, pos[2] + 100.0f };
 	float b[3] = { a[0], a[1], pos[2] - 100.0f };
-	g_rayScale = 1.0f;
+	g_rayFilter = LAYER_CHAR_CONTROLLER;
 	float down = CastRay(cell, a, b);
-	if (down >= 1.0f) {
-		g_rayScale = HAVOK_SCALE;   /* nothing at all: maybe SetStartEnd wants Havok's units */
-		float again = CastRay(cell, a, b);
-		if (again < 1.0f)
-			down = again;
-		else
-			g_rayScale = 1.0f;
+	if (!(down > 0.2f && down < 0.8f)) {
+		g_rayFilter = 0;   /* the character's filter finds no ground: everything, then */
+		down = CastRay(cell, a, b);
 	}
 	bool ok = down > 0.2f && down < 0.8f;
-	Log("reverse: a test ray down beside the bike (in %s units) hit %s at %.2f of the way (the ground about where the player "
-	    "stands is 0.2-0.8): %s; the pick data's world %p, collector %p", g_rayScale < 1.0f ? "Havok's" : "the game's",
-	    g_rayWhat ? g_rayWhat : down < 1.0f ? "something" : "nothing", down, ok ? "rays work" : "not trusted, no rays",
-	    *(void **)(g_pick + 0xC0), *(void **)(g_pick + 0xD0));
+	Log("reverse: a test ray down beside the bike (filter %u) hit %s (layer %u) at %.2f of the way (the ground about where the "
+	    "player stands is 0.2-0.8): %s; the pick data's world %p, collector %p", g_rayFilter,
+	    g_rayWhat && *g_rayWhat ? g_rayWhat : down < 1.0f ? "something" : "nothing", down < 1.0f ? g_rayLayer : 0, down,
+	    ok ? "rays work" : "not trusted (tried again in 3 s)", *(void **)(g_pick + 0xC0), *(void **)(g_pick + 0xD0));
 	g_pickState = ok ? 1 : -1;
 	return ok;
 }
 
-/* Is the way back clear for a step of `step` units? The ground is found 55 units behind the
- * rider (clear of their own body) and under the rear (BackClearance): there must be some, the
- * feet follow its slope (dz), and the knee- and chest-high rays between follow it too (so a
- * slope behind isn't taken for a wall). Else why not (logged once a second). */
-static bool WayBackClear(uintptr_t player, const float dir[2], float step, float *dz)
+/* Is the way back clear for a step of `step` units along `heading`? The ground is found 55
+ * units behind the rider (clear of their own body) and under the rear (BackClearance): there
+ * must be some, and the rays at knee height on either side of the bike (20 units out) and at
+ * chest height in the middle follow it between (so a slope behind isn't taken for a wall). The
+ * feet go to the ground under the step, near the slope's (dz). Not while the bike is in the air
+ * (test 16: steps down a steep slope left it unsupported for seconds): it lands first. Else why
+ * not (logged once a second, with what the ray hit, its layer and where). */
+static bool WayBackClear(uintptr_t player, float heading, float step, float *dz)
 {
 	uintptr_t cell = ReadPtr(player + OFF_REFR_CELL);
 	if (!cell || !IsA(cell, RTTI_CELL))
 		return false;
 	const float *pos = (const float *)(player + OFF_REFR_POS);
+	float dir[2] = { -sinf(heading), -cosf(heading) }, right[2] = { cosf(heading), -sinf(heading) };
 	const char *why = NULL;
+	bool hit = false;
 	float at = 0.0f, behindNear = 55.0f, behindFar = g_backClearance, groundNear = 0.0f, groundFar = 0.0f;
-	{
+	if (g_airTime > 0.15f)
+		why = "in the air (landing first)";
+	if (!why) {
 		float a[3] = { pos[0] + dir[0] * behindNear, pos[1] + dir[1] * behindNear, pos[2] + 60.0f };
 		float b[3] = { a[0], a[1], pos[2] - 60.0f };
 		float f = CastRay(cell, a, b);
@@ -2970,6 +3020,7 @@ static bool WayBackClear(uintptr_t player, const float dir[2], float step, float
 		if (!why && fabsf(groundNear) > behindNear) {
 			why = "too steep just behind";
 			at = behindNear;
+			hit = true;
 		}
 	}
 	if (!why) {
@@ -2982,24 +3033,47 @@ static bool WayBackClear(uintptr_t player, const float dir[2], float step, float
 		}
 		groundFar = behindFar * 0.7f - f * behindFar * 1.9f;
 	}
-	static const float heights[2] = { 30.0f, 80.0f };
-	for (int i = 0; i < 2 && !why; i++) {
+	static const float side[3] = { -20.0f, 20.0f, 0.0f }, height[3] = { 30.0f, 30.0f, 80.0f };
+	for (int i = 0; i < 3 && !why; i++) {
 		float len = behindFar + step;
-		float a[3] = { pos[0] + dir[0] * behindNear, pos[1] + dir[1] * behindNear, pos[2] + groundNear + heights[i] };
-		float b[3] = { pos[0] + dir[0] * len, pos[1] + dir[1] * len,
-		               pos[2] + groundNear + (groundFar - groundNear) * (len - behindNear) / (behindFar - behindNear) + heights[i] };
+		float a[3] = { pos[0] + dir[0] * behindNear + right[0] * side[i], pos[1] + dir[1] * behindNear + right[1] * side[i],
+		               pos[2] + groundNear + height[i] };
+		float b[3] = { pos[0] + dir[0] * len + right[0] * side[i], pos[1] + dir[1] * len + right[1] * side[i],
+		               pos[2] + groundNear + (groundFar - groundNear) * (len - behindNear) / (behindFar - behindNear) + height[i] };
 		float f = CastRay(cell, a, b);
 		if (f < 1.0f) {
-			why = "something behind";
+			why = i == 2 ? "something behind (chest height)" : i == 0 ? "something behind (knee height, left)"
+			    : "something behind (knee height, right)";
 			at = behindNear + f * (len - behindNear);
+			hit = true;
 		}
 	}
-	*dz = groundNear / behindNear * step;
+	float slope = groundNear / behindNear * step;
+	*dz = slope;
+	if (!why) {
+		/* The ground under the step, from below the seat: snapped to, unless it's far off the
+		 * slope's (a ray stopped by the rider's own legs, or a hole). */
+		float a[3] = { pos[0] + dir[0] * step, pos[1] + dir[1] * step, pos[2] + 20.0f };
+		float b[3] = { a[0], a[1], pos[2] - 80.0f };
+		float f = CastRay(cell, a, b);
+		if (f > 0.05f && f < 1.0f) {
+			float feet = 20.0f - f * 100.0f;
+			*dz = feet < slope - 12.0f ? slope - 12.0f : feet > slope + 12.0f ? slope + 12.0f : feet;
+		}
+	}
 	g_rayGroundNear = groundNear;
 	g_rayGroundFar = groundFar;
-	if (why && g_clock - g_blockedLogged >= 1.0f) {
-		g_blockedLogged = g_clock;
-		Log("reverse: stopped: %s, %.0f units back (%s)", why, at, g_rayWhat ? g_rayWhat : "unnamed");
+	if (why) {
+		if (hit)
+			snprintf(g_wayWhy, sizeof(g_wayWhy), "%s, %.0f units back (%s, layer %u, at %+.0f, %+.0f, %+.0f from the player)", why,
+			         at, g_rayWhat && *g_rayWhat ? g_rayWhat : "unnamed", g_rayLayer, g_rayHit[0] - pos[0], g_rayHit[1] - pos[1],
+			         g_rayHit[2] - pos[2]);
+		else
+			snprintf(g_wayWhy, sizeof(g_wayWhy), "%s, %.0f units back", why, at);
+		if (!g_wayQuiet && g_clock - g_blockedLogged >= 1.0f) {
+			g_blockedLogged = g_clock;
+			Log("reverse: stopped: %s", g_wayWhy);
+		}
 	}
 	return !why;
 }
@@ -3033,8 +3107,9 @@ static void StopPush(void)
 	}
 }
 
-static bool PushStep(uintptr_t player, uintptr_t ctrl, const float dir[2], float dt)
+static bool PushStep(uintptr_t player, uintptr_t ctrl, float heading, float dt)
 {
+	float dir[2] = { -sinf(heading), -cosf(heading) };
 	float v = g_backSpeed * g_havok;
 	g_pushBlocked = false;
 	switch (g_pushMethod) {
@@ -3099,10 +3174,10 @@ static bool PushStep(uintptr_t player, uintptr_t ctrl, const float dir[2], float
 		GetPosFn get = (GetPosFn)CtrlFunc(ctrl, VF_CTRL_GET_POSITION);
 		SetPosFn set = (SetPosFn)CtrlFunc(ctrl, VF_CTRL_SET_POSITION);
 		__attribute__((aligned(16))) float p[16] = { 0 };
-		if (!get || !set || (g_pushMethod == PUSH_RAYSTEP && !RaysReady(player)))
+		if (!get || !set || (g_pushMethod == PUSH_RAYSTEP && !FindPickFunctions()))
 			return false;
 		float stepGame = g_backSpeed * (dt < 0.05f ? dt : 0.05f), dz = 0.0f;   /* a few units a frame at most */
-		if (g_pushMethod == PUSH_RAYSTEP && !WayBackClear(player, dir, stepGame, &dz)) {
+		if (g_pushMethod == PUSH_RAYSTEP && (!RaysReady(player) || !WayBackClear(player, heading, stepGame, &dz))) {
 			g_pushBlocked = true;
 			return true;   /* stopped, not failed */
 		}
@@ -3122,28 +3197,53 @@ static bool PushStep(uintptr_t player, uintptr_t ctrl, const float dir[2], float
 
 static void NextPush(const char *why)
 {
-	int next = g_pushMethod == PUSH_DELTA ? PUSH_RAYSTEP : PUSH_BRAKE;
+	int next = PUSH_BRAKE;
 	Log("reverse: %s %s: trying %s", g_pushNames[g_pushMethod], why, g_pushNames[next]);
 	g_pushMethod = next;
 }
 
-/* Every frame while back is held: push the bike back along its heading. */
-static void PushBack(uintptr_t player, float heading, float dt)
+/* Every frame while back is held: back the bike up, turning at `turn` radians a second (the
+ * side key) if it can. Returns the heading it backed up along (the same if it didn't turn). */
+static float PushBack(uintptr_t player, float heading, float turn, float dt)
 {
 	uintptr_t ctrl = FindController(player, false);
 	if (g_pushMethod < 0)
 		g_pushMethod = g_backPushFirst;
 	if (!ctrl || g_pushMethod == PUSH_BRAKE)
-		return;
+		return heading;   /* braking: no turning either */
 	if (g_pushCtrl && g_pushCtrl != ctrl)
 		g_pushCtrl = 0;   /* a new controller (a load): nothing to undo on the old one */
 	if (g_pushMethod != PUSH_MOD && g_pushMethod != PUSH_DELTA && !CheckControllerFuncs(ctrl, (const float *)(player + OFF_REFR_POS))) {
 		g_pushMethod = PUSH_BRAKE;
 		Log("reverse: back brakes (the controller's functions can't be used)");
-		return;
+		return heading;
 	}
-	float dir[2] = { -sinf(heading), -cosf(heading) };
-	if (!PushStep(player, ctrl, dir, dt)) {
+	float used = heading;
+	bool ok;
+	if (g_pushMethod == PUSH_RAYSTEP) {
+		/* The turn first; if that way isn't clear, straight back; else neither. */
+		float turned = heading + turn * dt;
+		g_wayQuiet = turn != 0.0f;
+		ok = PushStep(player, ctrl, turned, dt);
+		g_wayQuiet = false;
+		if (ok && !g_pushBlocked) {
+			used = turned;
+		} else if (ok && turn != 0.0f) {
+			char turnWhy[200];
+			snprintf(turnWhy, sizeof(turnWhy), "%s", g_wayWhy);
+			ok = PushStep(player, ctrl, heading, dt);
+			if (ok && !g_pushBlocked && g_clock - g_blockedLogged >= 1.0f) {
+				g_blockedLogged = g_clock;
+				Log("reverse: not turning (that way: %s); backing up straight", turnWhy);
+			}
+		}
+	} else {
+		/* The others turn with how fast the bike really goes back. */
+		float back = g_speedAlong < 0.0f ? -g_speedAlong / g_backSpeed : 0.0f;
+		used = heading + turn * dt * (back > 1.0f ? 1.0f : back);
+		ok = PushStep(player, ctrl, used, dt);
+	}
+	if (!ok) {
 		StopPush();
 		if (g_backPushAuto) {
 			NextPush("can't be used");
@@ -3151,21 +3251,21 @@ static void PushBack(uintptr_t player, float heading, float dt)
 			Log("reverse: %s can't be used: back brakes", g_pushNames[g_pushMethod]);
 			g_pushMethod = PUSH_BRAKE;
 		}
-		return;
+		return heading;
 	}
 	g_pushCtrl = ctrl;
 	g_pushOn = true;
 	if (!g_pushClock && g_speedAlong < 30.0f)
 		g_pushClock = true;   /* the trial starts once the bike has stopped going forward */
 	if (!g_pushClock || g_pushBlocked)
-		return;   /* stopped by something behind: says nothing about the method */
+		return used;   /* stopped by something behind: says nothing about the method */
 	g_pushHeld += dt;
 	if (g_pushProven)
-		return;
+		return used;
 	const char *wrong = g_pushHeld < 0.25f ? NULL : g_speedAlong > 20.0f ? "moved the bike forward"
 	                  : g_speed > 40.0f && fabsf(g_speedAlong) < 0.5f * g_speed ? "moved the bike sideways" : NULL;
 	if (!wrong && g_pushHeld < 0.6f)
-		return;
+		return used;
 	if (!wrong && g_speedAlong < -0.3f * g_backSpeed) {
 		g_pushProven = true;
 		Log("reverse: %s moves the bike back (%+.0f along the heading): kept", g_pushNames[g_pushMethod], g_speedAlong);
@@ -3180,6 +3280,7 @@ static void PushBack(uintptr_t player, float heading, float dt)
 		Log("reverse: %s didn't move the bike back (%+.0f along the heading after 0.6 s); kept (BackPush names it)",
 		    g_pushNames[g_pushMethod], g_speedAlong);
 	}
+	return used;
 }
 
 /* The creep's forward input, learnt: up when slower than wanted, down when faster. */
@@ -3265,16 +3366,16 @@ static void FrameSteer(void)
 	g_steerRadius = radius;
 	if (mode == INPUT_BACK) {
 		/* Backing up, the rear goes the way the side key says (the nose swings the other
-		 * way, as a car reverses), round the walking-pace circle while it moves back, at most
-		 * at the stopped rate. Not moving (back brakes): it holds. */
-		float back = g_speedAlong < 0.0f ? -g_speedAlong : 0.0f, turn = back / radiusSlow;
+		 * way, as a car reverses), round the walking-pace circle as it moves back, at most at
+		 * the stopped rate. Only as it moves back: braking, or stopped by something, it holds. */
+		float turn = g_backSpeed / radiusSlow;
 		if (turn > stand)
 			turn = stand;
-		*h = fmodf(g_steerHeading - inX * turn * g_frameDt + twoPi, twoPi);
+		float used = PushBack(player, g_steerHeading, -inX * turn, g_frameDt);
+		*h = fmodf(used + twoPi, twoPi);
 		g_steerAllowed = turn * 57.29578f;
 		if (fabsf(wanted) > 0.0001f)
 			g_steerClamped++;
-		PushBack(player, *h, g_frameDt);
 	} else if (mode == INPUT_CREEP) {
 		/* A side key from a stop: turned at the stopped rate, crawling forward just fast
 		 * enough to go round a CreepRadius circle (Creep=0: on the spot). */
@@ -3311,8 +3412,8 @@ static void TraceControls(void)
 			    g_pushNames[g_pushMethod < 0 ? g_backPushFirst : g_pushMethod],
 			    g_pushProven ? " (works)" : g_pushMethod == PUSH_BRAKE ? "" : " (on trial)", g_speedAlong);
 			if (g_pushMethod == PUSH_RAYSTEP)
-				Log("  rays: the ground %+.0f just behind, %+.0f under the rear%s", g_rayGroundNear, g_rayGroundFar,
-				    g_pushBlocked ? "; stopped" : "");
+				Log("  rays (filter %u): the ground %+.0f just behind, %+.0f under the rear%s", g_rayFilter, g_rayGroundNear,
+				    g_rayGroundFar, g_pushBlocked ? "; stopped" : "");
 		} else
 			Log("creep: keys (%.2f, %.2f), the game gets (%.2f, %.2f), the movement last used (%.2f, %.2f); moving %+.0f along the "
 			    "heading (want %.0f)",
@@ -3523,6 +3624,7 @@ static void OnF4SEMessage(F4SEMessage *msg)
 		g_pushCtrl = 0;                         /* the old controller is gone: nothing to undo */
 		g_pushMethod = -1;                      /* try the ways to push back again */
 		g_pickState = 0;                        /* the rays' test ray again (a new world) */
+		g_pickRetryAt = 0.0f;
 		g_pushProven = false;
 		memset(g_refused, 0, sizeof(g_refused));
 		TrackClear();

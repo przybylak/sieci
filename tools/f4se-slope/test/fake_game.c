@@ -183,12 +183,15 @@ static void FakeSetPosition(uint8_t *self, const float *p, bool centre, bool war
 static void FakeGetVelocity(uint8_t *self, float *out) { (void)self; memcpy(out, g_fakeVel, 16); }
 
 /* The world the rays see: flat ground at g_groundZ (none past the drop's edge, when there's
- * one), and a wall (a vertical plane), when there's one. The game's picking: bhkPickData
- * (ours: start +0x20, end +0x30, hit +0x60, fraction +0x64, world +0xC0), TESObjectCELL::Pick,
+ * one, layer 13 terrain), and up to three vertical planes (walls, layer 1 static, or a trigger
+ * volume, layer 12) facing the bike. The game's picking: bhkPickData (ours: start +0x20, end
+ * +0x30, hit +0x60, fraction +0x64, the hit's layer +0xAC, world +0xC0), TESObjectCELL::Pick,
  * found through an Address Library file the test writes next to the plugin. */
+typedef struct { bool on; float point[2], normal[2]; uint32_t layer; } FakePlane;
 static float g_groundZ = 100.0f;
-static bool g_wallOn, g_dropOn;
-static float g_wallPoint[2], g_wallNormal[2], g_dropPoint[2], g_dropDir[2];
+static bool g_dropOn;
+static FakePlane g_planes[3];
+static float g_dropPoint[2], g_dropDir[2];
 static uint8_t *g_wallObj, *g_groundObj, g_fakeWorld[64];
 static int g_picks;
 static void *FakePickCtor(uint8_t *pick)
@@ -211,6 +214,7 @@ static uint8_t *FakeCellPick(uint8_t *cell, uint8_t *pick)
 	const float *a = (const float *)(pick + 0x20), *b = (const float *)(pick + 0x30);
 	float t = 2.0f;
 	uint8_t *what = NULL;
+	uint32_t layer = 0;
 	if (b[2] != a[2]) {
 		float tg = (g_groundZ - a[2]) / (b[2] - a[2]);
 		float x = a[0] + (b[0] - a[0]) * tg, y = a[1] + (b[1] - a[1]) * tg;
@@ -218,18 +222,24 @@ static uint8_t *FakeCellPick(uint8_t *cell, uint8_t *pick)
 		if (tg >= 0.0f && tg <= 1.0f && ground) {
 			t = tg;
 			what = g_groundObj;
+			layer = 13;
 		}
 	}
-	if (g_wallOn) {
-		float da = (a[0] - g_wallPoint[0]) * g_wallNormal[0] + (a[1] - g_wallPoint[1]) * g_wallNormal[1];
-		float db = (b[0] - g_wallPoint[0]) * g_wallNormal[0] + (b[1] - g_wallPoint[1]) * g_wallNormal[1];
+	for (int i = 0; i < 3; i++) {
+		const FakePlane *w = &g_planes[i];
+		if (!w->on)
+			continue;
+		float da = (a[0] - w->point[0]) * w->normal[0] + (a[1] - w->point[1]) * w->normal[1];
+		float db = (b[0] - w->point[0]) * w->normal[0] + (b[1] - w->point[1]) * w->normal[1];
 		if (da > 0.0f && db <= 0.0f && da / (da - db) < t) {
 			t = da / (da - db);
-			what = g_wallObj;
+			what = w->layer == 12 ? NULL : g_wallObj;
+			layer = w->layer;
 		}
 	}
 	*(int *)(pick + 0x60) = t <= 1.0f;
 	*(float *)(pick + 0x64) = t <= 1.0f ? t : 1.0f;
+	*(uint32_t *)(pick + 0xAC) = 0x12345600u | layer;   /* the layer in the low 7 bits */
 	*(void **)(pick + 0xC0) = g_fakeWorld;
 	g_picks++;
 	return what;
@@ -882,7 +892,8 @@ static void InputTests(void)
 	printf("input hook: a side key from a stop creeps round a small circle:\n");
 	g_camYaw = *head;
 	g_handlerStyle = 2;
-	g_honour = 32;
+	g_honour = 4;
+	g_groundZ = PlayerPos()[2];   /* flat ground where the player is (the slope tests left them up a hill) */
 	Keys(0.0f, 0.0f);
 	g_onFrame = FakeGameFrame;
 	RunFrames(400);
@@ -907,7 +918,7 @@ static void InputTests(void)
 	Keys(0.0f, 0.0f);
 	RunFrames(600);
 
-	printf("input hook: back gets the game nothing; the bike is pushed back by pushDelta (this game honours that):\n");
+	printf("input hook: back gets the game nothing; the bike backs up in steps after rays (this game honours SetPosition):\n");
 	g_camYaw = *head;
 	from = *head;
 	Mark(p0);
@@ -950,32 +961,90 @@ static void InputTests(void)
 	CHECK(MoveInput()[0] == 0.0f && MoveInput()[1] == 0.0f && !signbit(MoveInput()[1]), "released: its own (0, 0), not forward (got %.2f)", MoveInput()[1]);
 	g_handlerStyle = 2;
 
-	printf("input hook: a game that only honours SetPosition (after a load, tried again), a wall 400 behind:\n");
-	g_groundZ = PlayerPos()[2];   /* flat ground where the player is (the slope tests left them up a hill) */
+	printf("input hook: after a load, a test ray that finds no ground is tried again 3 s later:\n");
 	Send(3, 1);   /* PostLoadGame */
-	g_honour = 4;
 	RunFrames(400);
 	g_camYaw = *head;
 	from = *head;
+	float ground = PlayerPos()[2];
+	g_groundZ = ground - 500.0f;
 	Mark(p0);
-	float back[2] = { -sinf(from), -cosf(from) };
-	g_wallPoint[0] = p0[0] + back[0] * 400.0f;
-	g_wallPoint[1] = p0[1] + back[1] * 400.0f;
-	g_wallNormal[0] = -back[0];
-	g_wallNormal[1] = -back[1];
-	g_wallOn = true;
 	int picks = g_picks;
 	Keys(0.0f, -1.0f);
-	RunFrames(6000);
-	float wall = (PlayerPos()[0] - g_wallPoint[0]) * g_wallNormal[0] + (PlayerPos()[1] - g_wallPoint[1]) * g_wallNormal[1];
-	CHECK(g_picks > picks, "rays cast through the game's picking, found in the Address Library (%d)", g_picks - picks);
-	CHECK(Moved(p0) > 200.0f && wall > 120.0f && wall < 175.0f,
-	      "pushDelta didn't move it; steps after rays back it up %.0f and stop it %.0f short of the wall (the rear's 130)", Moved(p0), wall);
+	RunFrames(1000);
+	CHECK(Moved(p0) < 0.5f, "no ground under the test ray: back brakes (moved %.1f)", Moved(p0));
+	g_groundZ = ground;
+	RunFrames(4000);
+	CHECK(g_picks > picks && Moved(p0) > 100.0f, "tried again: rays work, it backs up %.0f (%d rays)", Moved(p0), g_picks - picks);
 	Keys(0.0f, 0.0f);
 	RunFrames(300);
-	g_wallOn = false;
+
+	printf("input hook: a wall 400 behind:\n");
+	float back[2] = { -sinf(from), -cosf(from) }, right[2] = { cosf(from), -sinf(from) };
+	Mark(p0);
+	FakePlane *wall = &g_planes[0];
+	wall->point[0] = p0[0] + back[0] * 400.0f;
+	wall->point[1] = p0[1] + back[1] * 400.0f;
+	wall->normal[0] = -back[0];
+	wall->normal[1] = -back[1];
+	wall->layer = 1;
+	wall->on = true;
+	Keys(0.0f, -1.0f);
+	RunFrames(6000);
+	float gap = (PlayerPos()[0] - wall->point[0]) * wall->normal[0] + (PlayerPos()[1] - wall->point[1]) * wall->normal[1];
+	CHECK(Moved(p0) > 150.0f && gap > 145.0f && gap < 195.0f, "backs up %.0f and stops %.0f short of the wall (BackClearance 150)", Moved(p0), gap);
+	Keys(0.0f, 0.0f);
+	RunFrames(300);
+	wall->on = false;
+
+	printf("input hook: a trigger volume 80 behind (not solid):\n");
+	Mark(p0);
+	FakePlane *trigger = &g_planes[1];
+	trigger->point[0] = p0[0] + back[0] * 80.0f;
+	trigger->point[1] = p0[1] + back[1] * 80.0f;
+	trigger->normal[0] = -back[0];
+	trigger->normal[1] = -back[1];
+	trigger->layer = 12;
+	trigger->on = true;
+	Keys(0.0f, -1.0f);
+	RunFrames(2000);
+	CHECK(Moved(p0) > 120.0f, "backs up through it (%.0f)", Moved(p0));
+	Keys(0.0f, 0.0f);
+	RunFrames(300);
+	trigger->on = false;
+
+	printf("input hook: a car 35 to the right of the bike, back and right:\n");
+	from = *head;
+	Mark(p0);
+	FakePlane *car = &g_planes[2];
+	car->point[0] = p0[0] + right[0] * 35.0f;
+	car->point[1] = p0[1] + right[1] * 35.0f;
+	car->normal[0] = -right[0];
+	car->normal[1] = -right[1];
+	car->layer = 1;
+	car->on = true;
+	Keys(1.0f, -1.0f);
+	RunFrames(2000);
+	float turnedBy = Turned(from), h1 = *head;
+	float corner[2] = { PlayerPos()[0] - sinf(h1) * 150.0f + cosf(h1) * 20.0f, PlayerPos()[1] - cosf(h1) * 150.0f - sinf(h1) * 20.0f };
+	float inside = (corner[0] - car->point[0]) * car->normal[0] + (corner[1] - car->point[1]) * car->normal[1];
+	CHECK(turnedBy > -12.0f && turnedBy < -1.0f && inside >= 0.0f,
+	      "the rear swings right until its corner reaches the car (%.1f deg, %.1f units clear), not into it", turnedBy, inside);
+	CHECK(Moved(p0) < 40.0f, "then it stops: angled at the car, straight back would hit it too (moved %.0f)", Moved(p0));
+	Mark(p0);
+	from = *head;
+	Keys(-1.0f, -1.0f);
+	RunFrames(1500);
+	CHECK(Turned(from) > 20.0f && Moved(p0) > 60.0f, "back and left: the rear swings away from it (%.0f deg), backing up again (%.0f)",
+	      Turned(from), Moved(p0));
+	Keys(0.0f, 0.0f);
+	RunFrames(300);
+	car->on = false;
 
 	printf("input hook: a drop 250 behind:\n");
+	from = *head;
+	back[0] = -sinf(from);
+	back[1] = -cosf(from);
 	Mark(p0);
 	g_dropPoint[0] = p0[0] + back[0] * 250.0f;
 	g_dropPoint[1] = p0[1] + back[1] * 250.0f;
@@ -985,12 +1054,12 @@ static void InputTests(void)
 	Keys(0.0f, -1.0f);
 	RunFrames(5000);
 	float edge = (g_dropPoint[0] - PlayerPos()[0]) * back[0] + (g_dropPoint[1] - PlayerPos()[1]) * back[1];
-	CHECK(Moved(p0) > 60.0f && edge > 115.0f && edge < 175.0f, "backs up %.0f and stops %.0f short of the edge (the rear wheel at it)", Moved(p0), edge);
+	CHECK(Moved(p0) > 50.0f && edge > 135.0f && edge < 195.0f, "backs up %.0f and stops %.0f short of the edge (the rear wheel at it)", Moved(p0), edge);
 	Keys(0.0f, 0.0f);
 	RunFrames(300);
 	g_dropOn = false;
 
-	printf("input hook: a game that honours neither pushDelta nor SetPosition: back brakes:\n");
+	printf("input hook: a game that doesn't honour SetPosition: back brakes:\n");
 	Send(3, 1);
 	g_honour = 0;
 	RunFrames(400);
