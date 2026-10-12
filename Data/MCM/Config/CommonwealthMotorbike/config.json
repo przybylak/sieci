@@ -65,6 +65,18 @@
       }
     },
     {
+      "type": "slider",
+      "text": "Bike tilts with the ground (max degrees)",
+      "help": "The bike pitches and rolls to match the ground, by at most this much: while riding (needs F4SE and the CMB_Slope.dll plugin) and when parked. 0 = always level.",
+      "valueOptions": {
+        "min": 0,
+        "max": 45,
+        "step": 5,
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|830"
+      }
+    },
+    {
       "type": "switcher",
       "text": "Allow combat while riding",
       "help": "Weapons and VATS stay usable while riding. Takes effect the next time you get on.",

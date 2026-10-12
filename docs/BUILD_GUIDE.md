@@ -33,9 +33,11 @@ Data\Meshes\Actors\Character\Animations\MT\CMB_Rider\   (riding clips + CMB_Ride
 
 ## 1b. The slope plugin (optional, F4SE)
 
-`Data\F4SE\Plugins\CMB_Slope.dll` is built from `tools/f4se-slope/CMB_Slope.c` with MinGW-w64
+`Data\F4SE\Plugins\CMB_Slope.dll` (steeper slopes, the riding camera, the bike's tilt, the ground under the
+player for parking) is built from `tools/f4se-slope/CMB_Slope.c` with MinGW-w64
 (`tools/f4se-slope/build.sh`; on Debian/Ubuntu `apt-get install gcc-mingw-w64-x86-64`, on Windows MSYS2's
-`mingw-w64-x86_64-gcc`). `tools/f4se-slope/test/run.sh` runs it under Wine against a stand-in for the game. It's
+`mingw-w64-x86_64-gcc`). `tools/f4se-slope/test/run.sh` runs it under Wine against a stand-in for the game, and
+`tools/f4se-slope/test/parked_tilt.py` checks the script's formula for tilting the parked bike. It's
 for Fallout 4 1.11.240 with F4SE 0.7.9 only; a new game version needs the addresses at the top of the source updated
 from F4SE's source for that version.
 
@@ -114,7 +116,7 @@ The vanilla form IDs the plugins use (PlayerRef, XMarker, HumanRace, HumanRaceSu
 
 You only need this if the generated plugin turns out to have a problem and you'd rather rebuild it in the editor. Every EditorID starts with `CMB_`, and the values below mirror the generator.
 
-1. **Globals** (Float): `CMB_SpeedPercent` 250, `CMB_CompanionMode` 0, `CMB_AllowCombat` 0, `CMB_ForceThirdPerson` 1, `CMB_UseRiderPose` 1, `CMB_CatchUpDistance` 2500, `CMB_BagCapacity` 60, `CMB_HotkeyCode` 48, `CMB_UseFuel` 1, `CMB_FuelDistance` 21000, `CMB_EngineVolume` 70, `CMB_FallDamageCut` 75, `CMB_DismountOnHit` 1, `CMB_BikeFollowsRider` 1, `CMB_KnockOffDamage` 10, `CMB_FreeFallDamage` 20, `CMB_RidingCameraDistance` 300, `CMB_MaxSlope` 60, `CMB_SlopeLive` 0 (must be 0x82A), `CMB_CameraLive` 0 (must be 0x82B).
+1. **Globals** (Float): `CMB_SpeedPercent` 250, `CMB_CompanionMode` 0, `CMB_AllowCombat` 0, `CMB_ForceThirdPerson` 1, `CMB_UseRiderPose` 1, `CMB_CatchUpDistance` 2500, `CMB_BagCapacity` 60, `CMB_HotkeyCode` 48, `CMB_UseFuel` 1, `CMB_FuelDistance` 21000, `CMB_EngineVolume` 70, `CMB_FallDamageCut` 75, `CMB_DismountOnHit` 1, `CMB_BikeFollowsRider` 1, `CMB_KnockOffDamage` 10, `CMB_FreeFallDamage` 20, `CMB_RidingCameraDistance` 450, `CMB_MaxSlope` 60, `CMB_SlopeLive` 0 (must be 0x82A), `CMB_CameraLive` 0 (must be 0x82B), `CMB_TiltLive` 0 (must be 0x82C), `CMB_GroundNormalX`, `CMB_GroundNormalY`, `CMB_GroundNormalZ` 0 (must be 0x82D, 0x82E, 0x82F), `CMB_MaxTilt` 30. The fixed form IDs are where `CMB_Slope.dll` looks for them.
    **FormList** `CMB_FuelItems` containing Flamer Fuel (`AmmoFlamerFuel`, 000CAC78).
 2. *(no keyword: `CMB_AnimFlavorRider` lives in `CMB_RiderPose.esp`)*
 3. **Messages** (tick *Message Box*; button order matters):
@@ -131,7 +133,7 @@ You only need this if the generated plugin turns out to have a problem and you'd
    **Spell** `CMB_SwimWatchAbility`: type Ability, Constant Effect, Self, two effects (0/0/0): `CMB_SwimWatchEffect` with the condition `IsSwimming == 1` and `CMB_WadeWatchEffect` with `IsInWater == 1` (both Subject).
 6. **Activator** `CMB_BikeActivator`: name "Motorbike", activate text "Use", model `CMB\CMB_BikeParked.nif`, script `CMB_BikeActivatorScript`.
    **Container** `CMB_SideBagContainer`: name "Side Bag", model `CMB\CMB_BikeParked.nif`, script `CMB_SideBagScript`.
-7. **Interior cell** `CMB_HoldingCell` holding three *persistent* references: `CMB_BikeRef` (the activator), `CMB_SideBagRef` (the container), `CMB_HoldingMarkerRef` (an XMarker). (The generated plugin also has an unused `CMB_DrySpotMarkerRef`, kept only so form IDs don't move.)
+7. **Interior cell** `CMB_HoldingCell` holding four *persistent* references: `CMB_BikeRef` (the activator), `CMB_SideBagRef` (the container), `CMB_HoldingMarkerRef` (an XMarker) and `CMB_GroundProbeRef` (an XMarker that feels for the navmesh around the parked bike; once the unused `CMB_DrySpotMarkerRef`, same record).
 8. **Quest** `CMB_ControllerQuest`: *Start Game Enabled*, priority 50.
    - Reference alias `Player` (Specific Reference: PlayerRef) with script `CMB_PlayerAliasScript`.
    - Scripts `CMB_ControllerScript` and, optionally (F4SE), `CMB_HotkeyF4SE` and `CMB_GearRestoreF4SE`.

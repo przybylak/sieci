@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Runs CMB_Slope.dll against the fake game under Wine: full test (offset known), probe only
-# (no offset), and a wrong game version. Needs MinGW-w64 and wine64.
+# (no offset), the slope guard, a wrong game version, the tilt with transposed matrices, and
+# a game whose bike skin and 3D disagree about them. Needs MinGW-w64 and wine64.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 WORK="$(mktemp -d)"
@@ -23,4 +24,6 @@ run full 0 "$KNOWN"
 run probe 1 '[Slope]\nSlopeOffset=\nProbe=1\nIntervalMs=100\nDumpPointers=0x2B8\n'
 run guard 3 "$KNOWN"
 run wrongversion 2 "$KNOWN"
+run transposed 4 "$KNOWN"
+run disagree 5 "$KNOWN"
 exit $status

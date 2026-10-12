@@ -1,18 +1,22 @@
 /*
  * CMB_Slope: Commonwealth Motorbike's F4SE plugin. While you ride it lets you climb
- * steeper slopes than on foot, and moves the third-person camera farther back.
+ * steeper slopes than on foot, moves the third-person camera farther back and tilts
+ * the bike to match the ground.
  *
  * Fallout 4 1.11.240 with F4SE 0.7.9 only: the game addresses and structure offsets
  * below come from F4SE 0.7.9's own source for that runtime, and F4SE only loads the
  * plugin on the game versions listed in F4SEPlugin_Version.
  *
- * The controller script tells it when you ride through two globals of
- * CommonwealthMotorbike.esp: CMB_SlopeLive (the steepest slope in degrees while riding,
- * 0 otherwise) and CMB_CameraLive (the camera distance while riding, 0 otherwise).
+ * The controller script talks to it through globals of CommonwealthMotorbike.esp:
+ * CMB_SlopeLive (the steepest slope in degrees while riding, 0 otherwise),
+ * CMB_CameraLive (the camera distance while riding, 0 otherwise), CMB_TiltLive (the
+ * most the bike may tilt, in degrees, while riding, 0 otherwise) and, the other way,
+ * CMB_GroundNormalX/Y/Z (the ground under the player, for parking the bike).
  * F4SE calls the plugin every frame on the game's main thread (a permanent task):
  *
  *   Slope: how steep a slope a character can walk up is a limit kept by its character
- *   controller and Havok proxy; nothing in Papyrus reaches it. The plugin finds the
+ *   controller (bhkCharProxyController+0x418, the cosine of 47 degrees; found with this
+ *   plugin's probe, tests 5 and 6); nothing in Papyrus reaches it. The plugin finds the
  *   player's controller and proxy by their C++ type information (RTTI), checking every
  *   pointer before reading it, and while riding writes the limit at the place given in
  *   CMB_Slope.ini (Target, SlopeOffset, SlopeUnit), only ever steeper than the game's
@@ -24,10 +28,27 @@
  *   riding and put back afterwards. Papyrus can set INI settings but not read them, so
  *   this is here, where the player's own value can be read.
  *
+ *   Ground: the controller keeps the normal of the ground the player stands on (its
+ *   support normal, controller+0x1E0) and Havok's character state (on the ground,
+ *   jumping, in the air, ...; controller+0x2C0, in the hknpCharacterContext whose state
+ *   manager is at +0x2B8). On the ground, the normal goes into CMB_GroundNormalX/Y/Z
+ *   every IntervalMs (otherwise Z is 0): the controller script lays the parked bike on
+ *   that plane.
+ *
+ *   Tilt: the worn bike is skinned to one bone of the rider (COM or AnimObjectA), so
+ *   the animation moves it and its own node's transform does nothing. What the plugin
+ *   turns instead is the skin's bind (BSSkin::BoneData, the mesh -> bone transform):
+ *   the mesh is turned about the rider's feet before it goes onto the bone, so the bike
+ *   pitches and rolls with the ground (smoothed, at most CMB_TiltLive degrees, eased
+ *   back to level in the air) and still follows every move of the animation. The plugin
+ *   holds a reference on the BoneData while it's changed and puts it back afterwards.
+ *   Which way round the game stores its rotation matrices is read off the bike's own
+ *   skin (whose bind we know) and the player's 3D (whose heading we know).
+ *
  * With Probe=1 it also logs (Documents\My Games\Fallout4\F4SE\CMB_Slope.log) the
  * layout of the controller, the proxy and the objects listed in DumpPointers, then on
  * getting on, 1 and 3 seconds into the ride and on getting off, what changed: that's
- * how the slope limit's place is found.
+ * how the slope limit's and the ground normal's places were found.
  *
  * Built with MinGW-w64 (tools/f4se-slope/build.sh). Plain C: F4SE's plugin interface
  * is plain structs and function pointers, and the one C++ object F4SE calls into (the
@@ -46,7 +67,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define PLUGIN_VERSION 2
+#define PLUGIN_VERSION 3
 #define RUNTIME_1_11_240 0x010B0F00u
 
 /* --- Game addresses (RVAs) and layouts for runtime 1.11.240, from F4SE 0.7.9 --- */
@@ -72,6 +93,27 @@
 #define OFF_SETTINGS_LIST     0x120         /* SettingCollectionList::data (Node *) */
 #define OFF_SETTING_DATA      0x08          /* Setting::data */
 #define OFF_SETTING_NAME      0x10          /* Setting::name */
+#define OFF_REFR_HEADING      0xC8          /* TESObjectREFR::rot.z (radians) */
+#define OFF_REFR_LOADED       0xF0          /* TESObjectREFR::unkF0 (LoadedData *) */
+#define OFF_LOADED_ROOT       0x08          /* LoadedData::rootNode (third-person 3D) */
+#define OFF_REFCOUNT          0x08          /* NiRefObject::m_uiRefCount */
+#define OFF_OBJECT_NAME       0x10          /* NiObjectNET::m_name (StringCache::Entry *) */
+#define OFF_STRING_STATE      0x08          /* StringCache::Entry::state */
+#define OFF_STRING_EXTERN     0x10          /* StringCache::Entry::externData */
+#define OFF_STRING_DATA       0x18          /* StringCache::Entry::data */
+#define STRING_EXTERNAL       0x4000u
+#define STRING_WIDE           0x8000u
+#define OFF_WORLD_ROT         0x70          /* NiAVObject::m_worldTransform.rot (3 rows of 4 floats) */
+#define OFF_CHILDREN          0x128         /* NiNode::m_children.m_data */
+#define OFF_CHILDREN_CAP      0x130         /* NiNode::m_children.m_arrayBufLen (UInt16) */
+#define OFF_CHILDREN_USED     0x132         /* NiNode::m_children.m_emptyRunStart (UInt16) */
+#define OFF_SKIN_INSTANCE     0x140         /* BSGeometry::skinInstance */
+#define OFF_SKIN_BONE_DATA    0x40          /* BSSkin::Instance::boneData */
+#define OFF_BONE_TRANSFORMS   0x10          /* BSSkin::BoneData::transforms (tArray) */
+#define BONE_SIZE             0x50          /* BoneTransforms: sphere centre, radius, NiTransform */
+#define OFF_BONE_RADIUS       0x0C
+#define OFF_BONE_ROT          0x10          /* NiTransform::rot: 3 rows of 4 floats */
+#define OFF_BONE_POS          0x40          /* NiTransform::pos */
 
 /* --- Our side --- */
 #define ESP_NAME              "CommonwealthMotorbike.esp"
@@ -80,11 +122,19 @@
 #define CAMERA_GLOBAL_ID      0x82Bu        /* CMB_CameraLive, likewise */
 #define CAMERA_GLOBAL_EDITOR_ID "CMB_CameraLive"
 #define CAMERA_SETTING        "fVanityModeMaxDist:Camera"
+#define TILT_GLOBAL_ID        0x82Cu        /* CMB_TiltLive, set by CMB_ControllerScript */
+#define TILT_GLOBAL_EDITOR_ID "CMB_TiltLive"
+#define GROUND_GLOBAL_ID      0x82Du        /* CMB_GroundNormalX, Y, Z: 82D, 82E, 82F (we write these) */
 
 /* RTTI names (MSVC mangled) of the objects we look for. */
 #define RTTI_PLAYER     ".?AVPlayerCharacter@@"
 #define RTTI_CONTROLLER ".?AVbhkCharacterController@@"
 #define RTTI_PROXY      ".?AVhknpCharacterProxy@@"
+#define RTTI_STATES     ".?AVhknpCharacterStateManager@@"
+#define RTTI_NODE       ".?AVNiNode@@"
+#define RTTI_GEOMETRY   ".?AVBSGeometry@@"
+#define RTTI_SKIN       ".?AVInstance@BSSkin@@"
+#define RTTI_BONE_DATA  ".?AVBoneData@BSSkin@@"
 
 /* ------------------------------------------------------------------------- */
 /* F4SE plugin interface (f4se/PluginAPI.h, 0.7.9)                            */
@@ -174,7 +224,7 @@ static uintptr_t g_base, g_imageEnd;
 static FILE *g_log;
 
 /* Settings (CMB_Slope.ini) */
-static int g_probe = 1;
+static int g_probe;
 enum { TARGET_CONTROLLER, TARGET_PROXY };
 static int g_target = TARGET_CONTROLLER;
 static unsigned g_slopeOffset;          /* 0 = unknown: only read */
@@ -185,9 +235,16 @@ static DWORD g_interval = 100;          /* ms between full checks */
 static int g_dumpPointers[8];           /* controller offsets whose objects get dumped too */
 static int g_dumpPointerCount;
 static char g_cameraSettingName[64] = CAMERA_SETTING;
+static unsigned g_normalOffset = 0x1E0;   /* controller: support normal (0 = no ground, no tilt) */
+static unsigned g_stateOffset = 0x2C0;    /* controller: Havok character state (0 = don't read) */
+static float g_smoothing = 0.12f;         /* seconds: how quickly the tilt follows the ground */
+static char g_shapePrefix[64] = "CMB_BikeWorn";
+enum { LAYOUT_UNKNOWN = -1, LAYOUT_FILE = 0, LAYOUT_TRANSPOSED = 1, LAYOUT_DISAGREE = 2 };
+static int g_layoutSetting = LAYOUT_UNKNOWN;   /* Layout=auto */
 
 static volatile bool g_dataReady;
 static uintptr_t g_slopeGlobal, g_cameraGlobal;   /* TESGlobal * */
+static uintptr_t g_tiltGlobal, g_groundGlobals[3];
 static DWORD g_lastGlobalTry;
 static bool g_globalsMissingLogged;
 
@@ -221,7 +278,38 @@ static DWORD g_mountTime;
 static int g_ridingSnapsDone;
 
 static DWORD g_lastTick;
-static DWORD g_lastTick;
+
+/* Ground under the player. */
+static uintptr_t g_stateCtrl;           /* the controller the state check below was made on */
+static bool g_stateTrusted;
+static int g_lastState = -1, g_stateLogs;
+
+/* Tilt: the worn bike's skins we hold, and what they were. */
+#define MAX_SKINS 4
+#define MAX_BONES 4
+typedef struct {
+	uintptr_t boneData;                 /* BSSkin::BoneData, with a reference of ours */
+	uintptr_t bones;                    /* its BoneTransforms */
+	int count;
+	uint8_t original[MAX_BONES][BONE_SIZE];
+	char name[48];
+} HeldSkin;
+static HeldSkin g_skins[MAX_SKINS];
+static int g_skinCount;
+static int g_layout = LAYOUT_UNKNOWN;   /* how the game stores rotations, once known */
+static int g_layoutFromSkin = LAYOUT_UNKNOWN, g_layoutFromRoot = LAYOUT_UNKNOWN;
+static float g_tiltN[3] = { 0.0f, 0.0f, 1.0f };   /* smoothed ground normal (world) */
+static float g_tiltNow, g_tiltMax;      /* degrees: this frame, most this ride */
+static LARGE_INTEGER g_qpcFrequency, g_lastFrameTime;
+static int g_walkBudget;
+static uintptr_t g_refused[8];          /* skins found unfit: not looked at again */
+static int g_refusedCount;
+
+/* Accessible()'s memory regions, for one frame (the scene graph walk reads thousands
+ * of pointers; asking Windows about each one would cost milliseconds). */
+typedef struct { uintptr_t start, end; bool writable; } Region;
+static Region g_regions[16];
+static int g_regionCount;
 
 /* ------------------------------------------------------------------------- */
 /* Log and settings                                                          */
@@ -277,7 +365,7 @@ static void ReadSettings(void)
 	g_unit = _stricmp(value, "radians") == 0 ? UNIT_RADIANS : _stricmp(value, "degrees") == 0 ? UNIT_DEGREES : UNIT_COSINE;
 	GetPrivateProfileStringA("Slope", "ExpectedDegrees", "0", value, sizeof(value), ini);
 	g_expectedDegrees = strtof(value, NULL);
-	g_probe = (int)GetPrivateProfileIntA("Slope", "Probe", 1, ini);
+	g_probe = (int)GetPrivateProfileIntA("Slope", "Probe", 0, ini);
 	g_interval = (DWORD)GetPrivateProfileIntA("Slope", "IntervalMs", 100, ini);
 	if (g_interval < 16)
 		g_interval = 16;
@@ -294,12 +382,25 @@ static void ReadSettings(void)
 			p++;
 	}
 	GetPrivateProfileStringA("Camera", "Setting", CAMERA_SETTING, g_cameraSettingName, sizeof(g_cameraSettingName), ini);
+	GetPrivateProfileStringA("Tilt", "NormalOffset", "0x1E0", value, sizeof(value), ini);
+	g_normalOffset = (unsigned)strtoul(value, NULL, 0) & ~3u;
+	GetPrivateProfileStringA("Tilt", "StateOffset", "0x2C0", value, sizeof(value), ini);
+	g_stateOffset = (unsigned)strtoul(value, NULL, 0) & ~3u;
+	GetPrivateProfileStringA("Tilt", "Smoothing", "0.12", value, sizeof(value), ini);
+	g_smoothing = strtof(value, NULL);
+	if (!(g_smoothing >= 0.0f && g_smoothing <= 2.0f))
+		g_smoothing = 0.12f;
+	GetPrivateProfileStringA("Tilt", "Shapes", "CMB_BikeWorn", g_shapePrefix, sizeof(g_shapePrefix), ini);
+	GetPrivateProfileStringA("Tilt", "Layout", "auto", value, sizeof(value), ini);
+	g_layoutSetting = _stricmp(value, "file") == 0 ? LAYOUT_FILE : _stricmp(value, "transposed") == 0 ? LAYOUT_TRANSPOSED : LAYOUT_UNKNOWN;
 	Log("settings: %s", ini);
 	Log("  slope: Target=%s SlopeOffset=0x%X%s SlopeUnit=%s ExpectedDegrees=%g  Probe=%d IntervalMs=%lu DumpPointers=%d",
 	    g_target == TARGET_PROXY ? "proxy" : "controller", g_slopeOffset, g_slopeOffset ? "" : " (unknown: reading only)",
 	    g_unit == UNIT_RADIANS ? "radians" : g_unit == UNIT_DEGREES ? "degrees" : "cosine", g_expectedDegrees,
 	    g_probe, (unsigned long)g_interval, g_dumpPointerCount);
 	Log("  camera: Setting=%s", g_cameraSettingName);
+	Log("  tilt: NormalOffset=0x%X StateOffset=0x%X Smoothing=%g Shapes=%s Layout=%s", g_normalOffset, g_stateOffset,
+	    g_smoothing, g_shapePrefix, g_layoutSetting == LAYOUT_FILE ? "file" : g_layoutSetting == LAYOUT_TRANSPOSED ? "transposed" : "auto");
 }
 
 /* ------------------------------------------------------------------------- */
@@ -308,19 +409,35 @@ static void ReadSettings(void)
 
 static bool Accessible(uintptr_t p, size_t n, bool write)
 {
-	if (p < 0x10000 || p > 0x7FFFFFFEFFFFull)
+	if (p < 0x10000 || p > 0x7FFFFFFEFFFFull || n > 0x100000)
 		return false;
+	for (int i = 0; i < g_regionCount; i++) {
+		const Region *r = &g_regions[i];
+		if (p >= r->start && p + n <= r->end && (r->writable || !write))
+			return true;
+	}
 	MEMORY_BASIC_INFORMATION mbi;
 	if (VirtualQuery((const void *)p, &mbi, sizeof(mbi)) != sizeof(mbi))
 		return false;
 	if (mbi.State != MEM_COMMIT || (mbi.Protect & (PAGE_GUARD | PAGE_NOACCESS)))
 		return false;
-	DWORD ok = write ? (PAGE_READWRITE | PAGE_EXECUTE_READWRITE)
-	                 : (PAGE_READONLY | PAGE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_READ |
-	                    PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY);
-	if (!(mbi.Protect & ok))
+	DWORD writable = PAGE_READWRITE | PAGE_EXECUTE_READWRITE;
+	DWORD readable = PAGE_READONLY | PAGE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_READ |
+	                 PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY;
+	if (!(mbi.Protect & (write ? writable : readable)))
 		return false;
-	return p + n <= (uintptr_t)mbi.BaseAddress + mbi.RegionSize;
+	uintptr_t end = (uintptr_t)mbi.BaseAddress + mbi.RegionSize;
+	Region *r = &g_regions[g_regionCount < 16 ? g_regionCount++ : (int)((p >> 12) % 16)];
+	r->start = (uintptr_t)mbi.BaseAddress;
+	r->end = end;
+	r->writable = (mbi.Protect & writable) != 0;
+	return p + n <= end;
+}
+
+/* Called at the start of every frame: memory may have been freed since. */
+static void ForgetRegions(void)
+{
+	g_regionCount = 0;
 }
 
 static bool InImage(uintptr_t p, size_t n)
@@ -469,12 +586,24 @@ static void FindGlobals(void)
 	}
 	g_slopeGlobal = FindGlobal(prefix, shift, SLOPE_GLOBAL_ID, SLOPE_GLOBAL_EDITOR_ID);
 	g_cameraGlobal = FindGlobal(prefix, shift, CAMERA_GLOBAL_ID, CAMERA_GLOBAL_EDITOR_ID);
+	g_tiltGlobal = FindGlobal(prefix, shift, TILT_GLOBAL_ID, TILT_GLOBAL_EDITOR_ID);
+	static const char *ground[3] = { "CMB_GroundNormalX", "CMB_GroundNormalY", "CMB_GroundNormalZ" };
+	for (int i = 0; i < 3; i++)
+		g_groundGlobals[i] = FindGlobal(prefix, shift, GROUND_GLOBAL_ID + (uint32_t)i, ground[i]);
+	if (!g_groundGlobals[0] || !g_groundGlobals[1] || !g_groundGlobals[2])
+		g_groundGlobals[0] = g_groundGlobals[1] = g_groundGlobals[2] = 0;
 	g_globalsMissingLogged = true;   /* found or not, don't look again */
 }
 
 static float GlobalValue(uintptr_t global)
 {
 	return global ? *(const float *)(global + OFF_GLOBAL_VALUE) : 0.0f;
+}
+
+static void SetGlobal(uintptr_t global, float value)
+{
+	if (global)
+		*(float *)(global + OFF_GLOBAL_VALUE) = value;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -968,26 +1097,447 @@ static void UpdateCamera(void)
 }
 
 /* ------------------------------------------------------------------------- */
+/* Ground under the player                                                   */
+/* ------------------------------------------------------------------------- */
+
+/* The controller's support normal (straight up on flat ground), and whether Havok has
+ * the character jumping or in the air. False if there's nothing believable there. */
+static bool ReadGround(uintptr_t ctrl, float n[3], bool *airborne)
+{
+	*airborne = false;
+	if (!ctrl || !g_normalOffset || !Accessible(ctrl + g_normalOffset, 12, false))
+		return false;
+	const float *v = (const float *)(ctrl + g_normalOffset);
+	float len = sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+	if (!isfinite(len) || fabsf(len - 1.0f) > 0.02f || v[2] / len < 0.17f)   /* steeper than 80 deg: a wall */
+		return false;
+	for (int i = 0; i < 3; i++)
+		n[i] = v[i] / len;
+
+	/* The state is an int in Havok's character context, whose state manager pointer
+	 * sits just before it: only read it if that pointer is what it should be. */
+	if (g_stateOffset >= 8 && ctrl != g_stateCtrl) {
+		g_stateCtrl = ctrl;
+		bool trusted = Accessible(ctrl + g_stateOffset, 4, false) && IsA(ReadPtr(ctrl + g_stateOffset - 8), RTTI_STATES);
+		if (trusted != g_stateTrusted || g_lastState == -1)
+			Log(trusted ? "ground: character state at controller+0x%X (state manager just before it)"
+			            : "ground: no state manager at controller+0x%X - 8: not reading the character state", g_stateOffset);
+		g_stateTrusted = trusted;
+		g_lastState = -2;
+	}
+	if (g_stateTrusted && g_stateOffset) {
+		int32_t state = *(const int32_t *)(ctrl + g_stateOffset);
+		if (state != g_lastState && g_skinCount && g_stateLogs < 40) {
+			g_stateLogs++;
+			static const char *names[] = { "on the ground", "jumping", "in the air", "climbing", "flying", "swimming", "floating" };
+			Log("ground: character state %d (%s)", (int)state, state >= 0 && state <= 6 ? names[state] : "?");
+		}
+		g_lastState = state;
+		*airborne = state != 0 && state != 3;   /* climbing is on something */
+	}
+	return true;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Tilt: the worn bike's skin                                                */
+/* ------------------------------------------------------------------------- */
+
+/* The text of a BSFixedString (StringCache::Entry *), or NULL. */
+static const char *EntryString(uintptr_t entry)
+{
+	for (int guard = 0; entry && guard < 4; guard++) {
+		if (!Accessible(entry, OFF_STRING_DATA + 1, false))
+			return NULL;
+		uint32_t state = *(const uint32_t *)(entry + OFF_STRING_STATE);
+		if (!(state & STRING_EXTERNAL))
+			return (state & STRING_WIDE) ? NULL : (const char *)(entry + OFF_STRING_DATA);
+		entry = ReadPtr(entry + OFF_STRING_EXTERN);
+	}
+	return NULL;
+}
+
+static const char *ObjectName(uintptr_t obj)
+{
+	const char *name = EntryString(ReadPtr(obj + OFF_OBJECT_NAME));
+	return name && Accessible((uintptr_t)name, 48, false) ? name : NULL;
+}
+
+/* The BoneData of every bike shape under `node` (the player's 3D). */
+static void FindSkins(uintptr_t node, int depth, uintptr_t found[], const char *names[], int *count)
+{
+	if (depth > 16 || --g_walkBudget < 0 || *count >= MAX_SKINS)
+		return;
+	if (IsA(node, RTTI_GEOMETRY)) {
+		const char *name = ObjectName(node);
+		size_t n = strlen(g_shapePrefix);
+		if (!name || !n || _strnicmp(name, g_shapePrefix, n) != 0)
+			return;
+		uintptr_t skin = ReadPtr(node + OFF_SKIN_INSTANCE);
+		uintptr_t data = skin && IsA(skin, RTTI_SKIN) ? ReadPtr(skin + OFF_SKIN_BONE_DATA) : 0;
+		if (!data || !IsA(data, RTTI_BONE_DATA))
+			return;
+		for (int i = 0; i < *count; i++)
+			if (found[i] == data)
+				return;
+		names[*count] = name;
+		found[(*count)++] = data;
+		return;
+	}
+	if (!IsA(node, RTTI_NODE) || !Accessible(node + OFF_CHILDREN, 0x10, false))
+		return;
+	uintptr_t children = ReadPtr(node + OFF_CHILDREN);
+	unsigned used = *(const uint16_t *)(node + OFF_CHILDREN_USED);
+	unsigned cap = *(const uint16_t *)(node + OFF_CHILDREN_CAP);
+	if (!children || used > cap || !Accessible(children, used * 8u, false))
+		return;
+	for (unsigned i = 0; i < used; i++) {
+		uintptr_t child = ((const uintptr_t *)children)[i];
+		if (child)
+			FindSkins(child, depth + 1, found, names, count);
+	}
+}
+
+/* The bike hanging off COM: its skin-to-bone rotation is [[0,0,1],[0,1,0],[-1,0,0]] in
+ * the nif (the inverse of COM's seated bind, CMB_RiderSeat.json), so it shows whether the
+ * game keeps a matrix the nif's way round (x' = R x) or transposed. Other skins: unknown. */
+static int LayoutFromSkin(const uint8_t *bone)
+{
+	const float *r = (const float *)(bone + OFF_BONE_ROT);   /* r[row * 4 + column] */
+	if (fabsf(r[5] - 1.0f) > 0.01f || fabsf(r[0]) > 0.01f || fabsf(r[10]) > 0.01f ||
+	    fabsf(fabsf(r[2]) - 1.0f) > 0.01f || fabsf(r[8] + r[2]) > 0.02f)
+		return LAYOUT_UNKNOWN;
+	return r[2] > 0.0f ? LAYOUT_FILE : LAYOUT_TRANSPOSED;
+}
+
+/* The player's 3D root is turned by their heading h only, and an actor faces +Y: so its
+ * rotation takes +Y to (sin h, cos h, 0). Which index that's in says which way round. */
+static int LayoutFromRoot(uintptr_t player)
+{
+	uintptr_t loaded = ReadPtr(player + OFF_REFR_LOADED);
+	uintptr_t root = loaded ? ReadPtr(loaded + OFF_LOADED_ROOT) : 0;
+	if (!root || !IsA(root, RTTI_NODE) || !Accessible(root + OFF_WORLD_ROT, 0x30, false) ||
+	    !Accessible(player + OFF_REFR_HEADING, 4, false))
+		return LAYOUT_UNKNOWN;
+	float h = *(const float *)(player + OFF_REFR_HEADING);
+	const float *w = (const float *)(root + OFF_WORLD_ROT);
+	float s = sinf(h), c = cosf(h);
+	if (!isfinite(h) || fabsf(s) < 0.3f || fabsf(w[10] - 1.0f) > 0.05f || fabsf(w[0] - c) > 0.1f || fabsf(w[5] - c) > 0.1f)
+		return LAYOUT_UNKNOWN;   /* a heading that doesn't tell, or not upright */
+	if (fabsf(w[1] - s) < 0.1f && fabsf(w[4] + s) < 0.1f)
+		return LAYOUT_FILE;      /* column 1 = (w[1], w[5], w[9]) is the forward direction */
+	if (fabsf(w[1] + s) < 0.1f && fabsf(w[4] - s) < 0.1f)
+		return LAYOUT_TRANSPOSED;
+	return LAYOUT_UNKNOWN;
+}
+
+static const char *LayoutName(int layout)
+{
+	return layout == LAYOUT_FILE ? "as in the nif (x' = R x)" : layout == LAYOUT_TRANSPOSED ? "transposed (x' = x R)" : "unknown";
+}
+
+static void DecideLayout(void)
+{
+	int layout = g_layoutSetting;
+	if (layout == LAYOUT_UNKNOWN) {
+		if (g_layoutFromSkin != LAYOUT_UNKNOWN && g_layoutFromRoot != LAYOUT_UNKNOWN && g_layoutFromSkin != g_layoutFromRoot)
+			layout = LAYOUT_DISAGREE;
+		else
+			layout = g_layoutFromSkin != LAYOUT_UNKNOWN ? g_layoutFromSkin : g_layoutFromRoot;
+	}
+	if (layout == g_layout)
+		return;
+	g_layout = layout;
+	if (layout == LAYOUT_DISAGREE)
+		Log("tilt: the bike's skin says the game's matrices are %s, the player's 3D says %s: not tilting"
+		    " (Layout=file or Layout=transposed in CMB_Slope.ini overrides)", LayoutName(g_layoutFromSkin), LayoutName(g_layoutFromRoot));
+	else if (layout != LAYOUT_UNKNOWN)
+		Log("tilt: the game's rotation matrices are %s (%s)", LayoutName(layout),
+		    g_layoutSetting != LAYOUT_UNKNOWN ? "CMB_Slope.ini" : g_layoutFromSkin != LAYOUT_UNKNOWN && g_layoutFromRoot != LAYOUT_UNKNOWN
+		    ? "the bike's skin and the player's 3D agree" : g_layoutFromSkin != LAYOUT_UNKNOWN ? "from the bike's skin" : "from the player's 3D");
+}
+
+static void Release(uintptr_t obj)
+{
+	if (InterlockedDecrement((volatile LONG *)(obj + OFF_REFCOUNT)) == 0) {
+		void **vtbl = *(void ***)obj;
+		((void (*)(uintptr_t))vtbl[1])(obj);   /* NiRefObject::DeleteThis */
+	}
+}
+
+static void RestoreSkin(const HeldSkin *h)
+{
+	for (int b = 0; b < h->count; b++) {
+		uint8_t *live = (uint8_t *)(h->bones + (uintptr_t)b * BONE_SIZE);
+		memcpy(live + OFF_BONE_RADIUS, h->original[b] + OFF_BONE_RADIUS, 4);
+		memcpy(live + OFF_BONE_ROT, h->original[b] + OFF_BONE_ROT, 0x30);
+	}
+}
+
+/* Does this look like a skin's bone entry: a bounding sphere and a rigid transform? */
+static bool LooksLikeBone(const uint8_t *bone)
+{
+	const float *r = (const float *)(bone + OFF_BONE_ROT), *pos = (const float *)(bone + OFF_BONE_POS);
+	float radius = *(const float *)(bone + OFF_BONE_RADIUS);
+	if (!(radius > 0.0f && radius < 10000.0f))
+		return false;
+	for (int i = 0; i < 3; i++) {
+		if (!(fabsf(pos[i]) < 10000.0f))
+			return false;
+		for (int j = 0; j < 3; j++) {
+			float d = r[i * 4] * r[j * 4] + r[i * 4 + 1] * r[j * 4 + 1] + r[i * 4 + 2] * r[j * 4 + 2];
+			if (!(fabsf(d - (i == j ? 1.0f : 0.0f)) < 0.01f))
+				return false;
+		}
+	}
+	return true;
+}
+
+static void Refuse(uintptr_t data)
+{
+	g_refused[g_refusedCount++ % 8] = data;
+}
+
+static bool Refused(uintptr_t data)
+{
+	for (int i = 0; i < 8; i++)
+		if (g_refused[i] == data)
+			return true;
+	return false;
+}
+
+static void HoldSkin(uintptr_t data, const char *name)
+{
+	uintptr_t array = data + OFF_BONE_TRANSFORMS;
+	uintptr_t bones = ReadPtr(array + OFF_ARRAY_ENTRIES);
+	if (!bones || !Accessible(array + OFF_ARRAY_COUNT, 4, false)) {
+		Refuse(data);
+		return;
+	}
+	uint32_t count = *(const uint32_t *)(array + OFF_ARRAY_COUNT);
+	if (count == 0 || count > MAX_BONES || !Accessible(bones, count * BONE_SIZE, true)) {
+		Log("tilt: %s has %u bones: not touching it", name, count);
+		Refuse(data);
+		return;
+	}
+	for (uint32_t b = 0; b < count; b++)
+		if (!LooksLikeBone((const uint8_t *)(bones + b * BONE_SIZE))) {
+			Log("tilt: %s's skin data doesn't look like bone transforms: not touching it", name);
+			Refuse(data);
+			return;
+		}
+	HeldSkin *h = &g_skins[g_skinCount++];
+	InterlockedIncrement((volatile LONG *)(data + OFF_REFCOUNT));
+	h->boneData = data;
+	h->bones = bones;
+	h->count = (int)count;
+	memcpy(h->original, (const void *)bones, count * BONE_SIZE);
+	snprintf(h->name, sizeof(h->name), "%s", name);
+	int layout = LayoutFromSkin(h->original[0]);
+	Log("tilt: holding the skin of %s (%u bone(s)); its bind says the game's matrices are %s", h->name, count, LayoutName(layout));
+	if (layout != LAYOUT_UNKNOWN)
+		g_layoutFromSkin = layout;
+}
+
+static void LetGo(int i, const char *why)
+{
+	HeldSkin *h = &g_skins[i];
+	RestoreSkin(h);
+	Release(h->boneData);
+	Log("tilt: %s back level and let go (%s; most tilt this ride %.1f deg)", h->name, why, g_tiltMax);
+	g_skins[i] = g_skins[--g_skinCount];
+}
+
+static void LetGoAll(const char *why)
+{
+	while (g_skinCount)
+		LetGo(g_skinCount - 1, why);
+	g_tiltN[0] = g_tiltN[1] = 0.0f;
+	g_tiltN[2] = 1.0f;
+	g_lastFrameTime.QuadPart = 0;
+	g_tiltMax = g_tiltNow = 0.0f;
+}
+
+/* Every IntervalMs while the bike may tilt: hold the skins of the bike the player wears
+ * now, let go of any that are gone (taken off, or the 3D was rebuilt). */
+static void SyncSkins(uintptr_t player)
+{
+	uintptr_t found[MAX_SKINS];
+	const char *names[MAX_SKINS];
+	int count = 0;
+	uintptr_t loaded = player ? ReadPtr(player + OFF_REFR_LOADED) : 0;
+	uintptr_t root = loaded ? ReadPtr(loaded + OFF_LOADED_ROOT) : 0;
+	g_walkBudget = 4000;
+	if (root)
+		FindSkins(root, 0, found, names, &count);
+	for (int i = g_skinCount - 1; i >= 0; i--) {
+		bool still = false;
+		for (int j = 0; j < count; j++)
+			still |= found[j] == g_skins[i].boneData;
+		if (!still)
+			LetGo(i, "no longer worn");
+	}
+	for (int j = 0; j < count && g_skinCount < MAX_SKINS; j++) {
+		bool held = false;
+		for (int i = 0; i < g_skinCount; i++)
+			held |= g_skins[i].boneData == found[j];
+		if (!held && !Refused(found[j]))
+			HoldSkin(found[j], names[j]);
+	}
+	if (g_layoutFromRoot == LAYOUT_UNKNOWN && player) {
+		g_layoutFromRoot = LayoutFromRoot(player);
+		if (g_layoutFromRoot != LAYOUT_UNKNOWN)
+			Log("tilt: the player's 3D says the game's matrices are %s", LayoutName(g_layoutFromRoot));
+	}
+	DecideLayout();
+}
+
+/* The rotation (x' = R x, row-major 3x3) that tips straight up over to `up` (in the
+ * rider's frame: x right, y forward, z up), by at most `maxRadians`. Returns the angle. */
+static float TiltRotation(const float up[3], float maxRadians, float R[9])
+{
+	float angle = acosf(up[2] > 1.0f ? 1.0f : up[2]);
+	float ax = -up[1], ay = up[0];   /* axis: (0,0,1) x up, level */
+	float len = sqrtf(ax * ax + ay * ay);
+	if (angle > maxRadians)
+		angle = maxRadians;
+	if (len < 1e-6f || angle < 1e-5f) {
+		static const float identity[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
+		memcpy(R, identity, sizeof(identity));
+		return 0.0f;
+	}
+	ax /= len;
+	ay /= len;
+	float c = cosf(angle), s = sinf(angle), t = 1.0f - c;
+	/* Rodrigues, axis (ax, ay, 0). */
+	R[0] = c + t * ax * ax;  R[1] = t * ax * ay;      R[2] = s * ay;
+	R[3] = t * ax * ay;      R[4] = c + t * ay * ay;  R[5] = -s * ax;
+	R[6] = -s * ay;          R[7] = s * ax;           R[8] = c;
+	return angle;
+}
+
+/* Every frame while riding: ease towards the ground under the player and turn the
+ * bike's mesh by that before it goes onto its bone. */
+static void FrameTilt(void)
+{
+	float maxDegrees = GlobalValue(g_tiltGlobal);
+	if (!g_skinCount || !(maxDegrees > 0.0f) || (g_layout != LAYOUT_FILE && g_layout != LAYOUT_TRANSPOSED))
+		return;
+	uintptr_t player = Player();
+	if (!player || !Accessible(player + OFF_REFR_HEADING, 4, false))
+		return;
+	LARGE_INTEGER now;
+	QueryPerformanceCounter(&now);
+	float dt = g_lastFrameTime.QuadPart && g_qpcFrequency.QuadPart
+	           ? (float)(now.QuadPart - g_lastFrameTime.QuadPart) / (float)g_qpcFrequency.QuadPart : 0.0f;
+	g_lastFrameTime = now;
+	if (!(dt >= 0.0f) || dt > 0.25f)
+		dt = 0.25f;
+
+	float target[3] = { 0.0f, 0.0f, 1.0f }, n[3];
+	bool airborne;
+	if (ReadGround(FindController(player, false), n, &airborne) && !airborne)
+		memcpy(target, n, sizeof(target));
+	float k = g_smoothing > 0.0f ? 1.0f - expf(-dt / g_smoothing) : 1.0f;
+	float len = 0.0f;
+	for (int i = 0; i < 3; i++) {
+		g_tiltN[i] += (target[i] - g_tiltN[i]) * k;
+		len += g_tiltN[i] * g_tiltN[i];
+	}
+	len = sqrtf(len);
+	if (!(len > 0.5f)) {
+		g_tiltN[0] = g_tiltN[1] = 0.0f;
+		g_tiltN[2] = len = 1.0f;
+	}
+	for (int i = 0; i < 3; i++)
+		g_tiltN[i] /= len;
+
+	/* Into the rider's frame: heading h, forward (sin h, cos h), right (cos h, -sin h). */
+	float h = *(const float *)(player + OFF_REFR_HEADING);
+	if (!isfinite(h))
+		return;
+	float sh = sinf(h), ch = cosf(h);
+	float up[3] = { g_tiltN[0] * ch - g_tiltN[1] * sh, g_tiltN[0] * sh + g_tiltN[1] * ch, g_tiltN[2] };
+	float R[9];
+	float angle = TiltRotation(up, maxDegrees / 57.29578f, R);
+	g_tiltNow = angle * 57.29578f;
+	if (g_tiltNow > g_tiltMax) {
+		if (g_tiltMax < 5.0f && g_tiltNow >= 5.0f)
+			Log("tilt: the bike follows the ground (%.1f deg now)", g_tiltNow);
+		g_tiltMax = g_tiltNow;
+	}
+
+	for (int k2 = 0; k2 < g_skinCount; k2++) {
+		const HeldSkin *hs = &g_skins[k2];
+		for (int b = 0; b < hs->count; b++) {
+			const uint8_t *orig = hs->original[b];
+			uint8_t *live = (uint8_t *)(hs->bones + (uintptr_t)b * BONE_SIZE);
+			const float *o = (const float *)(orig + OFF_BONE_ROT);
+			float A[9], B[9];
+			for (int i = 0; i < 3; i++)
+				for (int j = 0; j < 3; j++)
+					A[i * 3 + j] = g_layout == LAYOUT_FILE ? o[i * 4 + j] : o[j * 4 + i];
+			/* Mesh -> bone after the turn: B = A R. */
+			for (int i = 0; i < 3; i++)
+				for (int j = 0; j < 3; j++)
+					B[i * 3 + j] = A[i * 3] * R[j] + A[i * 3 + 1] * R[3 + j] + A[i * 3 + 2] * R[6 + j];
+			float *w = (float *)(live + OFF_BONE_ROT);
+			for (int i = 0; i < 3; i++)
+				for (int j = 0; j < 3; j++)
+					w[i * 4 + j] = g_layout == LAYOUT_FILE ? B[i * 3 + j] : B[j * 3 + i];
+			/* The culling sphere (bone space) turns about the mesh origin, which the bone
+			 * sees at the transform's translation: grow it by the most its centre moves. */
+			const float *centre = (const float *)orig, *pos = (const float *)(orig + OFF_BONE_POS);
+			float dx = centre[0] - pos[0], dy = centre[1] - pos[1], dz = centre[2] - pos[2];
+			float radius = *(const float *)(orig + OFF_BONE_RADIUS);
+			*(float *)(live + OFF_BONE_RADIUS) = radius + 2.0f * sqrtf(dx * dx + dy * dy + dz * dz) * sinf(angle * 0.5f);
+		}
+	}
+}
+
+/* ------------------------------------------------------------------------- */
 /* Every frame / every IntervalMs                                            */
 /* ------------------------------------------------------------------------- */
 
+static bool AnyGlobal(void)
+{
+	return g_slopeGlobal || g_cameraGlobal || g_tiltGlobal || g_groundGlobals[0];
+}
+
 static void Tick(DWORD now)
 {
-	if (!g_slopeGlobal && !g_cameraGlobal) {
+	if (!AnyGlobal()) {
 		if (g_globalsMissingLogged || now - g_lastGlobalTry < 2000)
 			return;
 		g_lastGlobalTry = now;
 		FindGlobals();
-		if (!g_slopeGlobal && !g_cameraGlobal)
+		if (!AnyGlobal())
 			return;
 	}
 	UpdateCamera();
 
 	float degrees = GlobalValue(g_slopeGlobal);
-	bool riding = degrees > 0.0f || GlobalValue(g_cameraGlobal) > 0.0f;
+	float tilt = GlobalValue(g_tiltGlobal);
+	bool riding = degrees > 0.0f || GlobalValue(g_cameraGlobal) > 0.0f || tilt > 0.0f;
 	bool scan = (int32_t)(now - g_nextScan) >= 0;
 	uintptr_t ctrl, proxy;
 	uintptr_t target = FindChain(scan, &ctrl, &proxy);
+
+	/* The ground under the player, for the controller script to park the bike on;
+	 * Z = 0 while they aren't on the ground (or it can't be told). */
+	float n[3];
+	bool airborne;
+	if (g_groundGlobals[0]) {
+		if (ReadGround(ctrl, n, &airborne) && !airborne)
+			for (int i = 0; i < 3; i++)
+				SetGlobal(g_groundGlobals[i], n[i]);
+		else
+			SetGlobal(g_groundGlobals[2], 0.0f);
+	}
+
+	if (tilt > 0.0f)
+		SyncSkins(Player());
+	else if (g_skinCount)
+		LetGoAll("got off");
 
 	if (g_probe && ctrl) {
 		if (!g_dumpedThisLoad) {
@@ -1033,17 +1583,16 @@ static void Tick(DWORD now)
 	g_wasRiding = riding;
 }
 
-/* Between full checks, while riding: keep the limit written (cheap: cached chain only). */
+/* Every frame while riding: keep the limit written (cheap: cached chain only), tilt the bike. */
 static void Frame(void)
 {
-	if (!g_applied)
-		return;
 	float degrees = GlobalValue(g_slopeGlobal);
-	if (!(degrees > 0.0f && degrees < 89.0f))
-		return;
-	uintptr_t target = FindChain(false, NULL, NULL);
-	if (target && target == g_appliedTarget)
-		ApplySlope(target, degrees);
+	if (g_applied && degrees > 0.0f && degrees < 89.0f) {
+		uintptr_t target = FindChain(false, NULL, NULL);
+		if (target && target == g_appliedTarget)
+			ApplySlope(target, degrees);
+	}
+	FrameTilt();
 }
 
 static void *Task_Destroy(Task *self, unsigned flags)
@@ -1057,13 +1606,13 @@ static void Task_Run(Task *self)
 	(void)self;
 	if (!g_dataReady)
 		return;
+	ForgetRegions();
 	DWORD now = GetTickCount();
-	if (now - g_lastTick < g_interval) {
-		Frame();
-		return;
+	if (now - g_lastTick >= g_interval) {
+		g_lastTick = now;
+		Tick(now);
 	}
-	g_lastTick = now;
-	Tick(now);
+	Frame();
 }
 
 static void *g_taskVtbl[2] = { (void *)Task_Destroy, (void *)Task_Run };
@@ -1071,6 +1620,7 @@ static Task g_task = { g_taskVtbl };
 
 static void OnF4SEMessage(F4SEMessage *msg)
 {
+	ForgetRegions();
 	switch (msg->type) {
 	case kMessage_GameDataReady:
 		g_dataReady = msg->data != NULL;
@@ -1089,6 +1639,8 @@ static void OnF4SEMessage(F4SEMessage *msg)
 		g_appliedTarget = 0;
 		g_dumpedThisLoad = false;
 		g_wasRiding = false;
+		g_stateCtrl = 0;   /* the held skins are let go of on the next check: not in the new 3D */
+		memset(g_refused, 0, sizeof(g_refused));
 		break;
 	default:
 		break;
@@ -1108,6 +1660,7 @@ __declspec(dllexport) bool F4SEPlugin_Load(const F4SEInterface *f4se)
 	const IMAGE_DOS_HEADER *dos = (const IMAGE_DOS_HEADER *)g_base;
 	const IMAGE_NT_HEADERS64 *nt = (const IMAGE_NT_HEADERS64 *)(g_base + dos->e_lfanew);
 	g_imageEnd = g_base + nt->OptionalHeader.SizeOfImage;
+	QueryPerformanceFrequency(&g_qpcFrequency);
 	ReadSettings();
 
 	F4SEMessagingInterface *messaging = (F4SEMessagingInterface *)f4se->QueryInterface(kInterface_Messaging);

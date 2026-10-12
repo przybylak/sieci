@@ -182,6 +182,8 @@ public static class Program
                     "CMB_MaxSlope", 0, 80, 5),
                 Slider("Riding camera distance", "How far back the third-person camera sits while riding (the game's own is about 150). Needs F4SE and the CMB_Slope.dll plugin. 0 = leave the camera alone. Takes effect the next time you get on.",
                     "CMB_RidingCameraDistance", 0, 1000, 25),
+                Slider("Bike tilts with the ground (max degrees)", "The bike pitches and rolls to match the ground, by at most this much: while riding (needs F4SE and the CMB_Slope.dll plugin) and when parked. 0 = always level.",
+                    "CMB_MaxTilt", 0, 45, 5),
                 Switcher("Allow combat while riding", "Weapons and VATS stay usable while riding. Takes effect the next time you get on.", "CMB_AllowCombat"),
                 Switcher("Thrown off when hit", "A big hit from an enemy knocks you off the bike, so you can fight back. Off: you keep riding; a hint says how to get off when a fight starts.", "CMB_DismountOnHit"),
                 Slider("Big hit (% of max health)", "How much of your max health a hit (or several within about a second) must take to knock you off. Power attacks and explosions always do. 0 = any hit. Not in the first 3 seconds after getting on.",
@@ -357,9 +359,10 @@ public static class Program
         swimAbility.Flags = SpellDataFlag.ManualCostCalc;
         swimAbility.Effects.Add(WatchEntry(swimEffect, Condition.Function.IsSwimming));
 
-        // No longer used (the bike now rolls up after a swim instead of trailing the player),
-        // but kept so the form IDs after it don't move.
-        Placed(mod, cell, "CMB_DrySpotMarkerRef", Vanilla.XMarker, new P3Float(0, -400, 0));
+        // Feels for the ground around the parked bike (navmesh), to tilt it, when CMB_Slope.dll
+        // isn't there to say what the ground under the player is like. (Was CMB_DrySpotMarkerRef,
+        // no longer used; same record, so the form IDs after it don't move.)
+        var probeRef = Placed(mod, cell, "CMB_GroundProbeRef", Vanilla.XMarker, new P3Float(0, -400, 0));
 
         // Percent of max health a hit (or a quick run of hits) must take to knock you off.
         var gKnockOff = Global(mod, "CMB_KnockOffDamage", 10);
@@ -372,7 +375,7 @@ public static class Program
         swimAbility.Effects.Add(WatchEntry(wadeEffect, Condition.Function.IsInWater));
 
         // How far back the third-person camera sits while riding (CMB_Slope.dll, needs F4SE).
-        var gCamera = Global(mod, "CMB_RidingCameraDistance", 300);
+        var gCamera = Global(mod, "CMB_RidingCameraDistance", 450);
 
         // Steeper slopes (F4SE plugin CMB_Slope.dll, tools/f4se-slope). The plugin finds
         // CMB_SlopeLive by its form ID (0x82A) and editor ID: keep these two in this order.
@@ -384,6 +387,14 @@ public static class Program
         var gCameraLive = Global(mod, "CMB_CameraLive", 0);
         if (gCameraLive.FormKey.ID != 0x82B)
             throw new InvalidOperationException($"CMB_CameraLive must be 0x82B (CMB_Slope.dll looks for it), got {gCameraLive.FormKey.ID:X}");
+        // The bike tilts with the ground, by at most CMB_MaxTilt degrees: CMB_TiltLive is that while
+        // riding (the plugin tilts the worn bike), and the plugin writes the ground under the player
+        // into CMB_GroundNormalX/Y/Z (the script lays the parked bike on it). Fixed IDs, 0x82C-0x82F.
+        var gTiltLive = Global(mod, "CMB_TiltLive", 0);
+        var gGround = new[] { "X", "Y", "Z" }.Select(axis => Global(mod, "CMB_GroundNormal" + axis, 0)).ToArray();
+        if (gTiltLive.FormKey.ID != 0x82C || gGround[0].FormKey.ID != 0x82D || gGround[2].FormKey.ID != 0x82F)
+            throw new InvalidOperationException($"CMB_TiltLive and CMB_GroundNormalX/Y/Z must be 0x82C-0x82F (CMB_Slope.dll looks for them), got {gTiltLive.FormKey.ID:X}, {gGround[0].FormKey.ID:X}");
+        var gMaxTilt = Global(mod, "CMB_MaxTilt", 30);
 
         // --- Controller quest ---
         quest.Name = "Commonwealth Motorbike";
@@ -440,7 +451,13 @@ public static class Program
             Obj("CMB_RidingCameraDistance", gCamera),
             Obj("CMB_MaxSlope", gMaxSlope),
             Obj("CMB_SlopeLive", gSlopeLive),
-            Obj("CMB_CameraLive", gCameraLive));
+            Obj("CMB_CameraLive", gCameraLive),
+            Obj("CMB_MaxTilt", gMaxTilt),
+            Obj("CMB_TiltLive", gTiltLive),
+            Obj("CMB_GroundNormalX", gGround[0]),
+            Obj("CMB_GroundNormalY", gGround[1]),
+            Obj("CMB_GroundNormalZ", gGround[2]),
+            Obj("GroundProbeRef", probeRef));
         // Optional: only does anything with F4SE and the compiled CMB_HotkeyF4SE.pex.
         var hotkey = Script("CMB_HotkeyF4SE",
             Obj("Controller", quest),

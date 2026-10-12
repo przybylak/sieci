@@ -9,6 +9,7 @@ A rideable motorbike for Fallout 4:
 - **park it, call it, ride it**: activate the bike or use its keys (favorite them to a hotkey); optional F4SE hotkey
 - **seated riding animations** with lean in turns and ridden U-turns; the bike turns with you on the spot and in conversations; an **engine sound** that follows your speed
 - **rides like a vehicle, not a person**: 75% less fall damage while riding (adjustable), deep water ends the ride and leaves the bike on the bank, and an enemy's hit knocks you off (optional)
+- **follows the ground**: the parked bike stands on the ground, tilted to match the slope; with F4SE, the bike also pitches and rolls with the ground while you ride, climbs slopes too steep to walk up, and the camera sits farther back
 - **MCM menu** for every setting (with MCM installed); with F4SE, gear in the bike's slot goes back on after a ride
 
 > **Status: never run in game.** The plugin is generated and verified offline: its structure, every script property
@@ -53,7 +54,7 @@ Getting off reverses all of that and parks the bike next to you. Indoors, power 
 | **Python 3** | `make_rider_pose.bat` builds `CMB_RiderPose.esp` and its animation data from your load order and game files |
 | Python + [PyNifly](https://github.com/BadDogSkyrim/PyNifly), Bethesda Archive Extractor | only to build the bike meshes and riding clips yourself (they're derived from the game's files, so they aren't in the repository) |
 | Creation Kit (optional) | not needed: the scripts can be compiled with Caprica (`tools/syntax-check`); `compile_scripts.bat` uses the Creation Kit's compiler if you have it |
-| F4SE (optional) | dedicated hotkey, weight-based side bag, slot-57 gear put back on after a ride, steeper slopes and a camera farther back while riding (the `CMB_Slope.dll` plugin, Fallout 4 1.11.240 only), MCM menu; without it you favorite the keys for a hotkey and the bag counts items |
+| F4SE (optional) | dedicated hotkey, weight-based side bag, slot-57 gear put back on after a ride, steeper slopes, a camera farther back and the bike tilting with the ground while riding, and the parked bike laid on the ground under you (the `CMB_Slope.dll` plugin, Fallout 4 1.11.240 only), MCM menu; without it you favorite the keys for a hotkey and the bag counts items |
 | Testing in game + Papyrus log | I can't run the game; the log and screenshots are how fixes happen |
 
 ## Getting started
@@ -89,6 +90,9 @@ Details for every step: [docs/BUILD_GUIDE.md](docs/BUILD_GUIDE.md).
 | `set CMB_AllowCombat to <0/1>` | 0 |
 | `set CMB_UseRiderPose to <0/1>` (seated riding animations, needs `CMB_RiderPose.esp`) | 1 |
 | `set CMB_EngineVolume to <0–100>` | 70 |
+| `set CMB_MaxTilt to <0–45>` (how far the bike tilts with the ground; 0 = always level) | 30 |
+| `set CMB_RidingCameraDistance to <units>` (F4SE plugin; the game's own is about 150) | 450 |
+| `set CMB_MaxSlope to <degrees>` (steepest slope while riding, F4SE plugin) | 60 |
 | `cqf CMB_ControllerQuest EmergencyReset` | undo everything if stuck |
 | `cqf CMB_ControllerQuest ForceGiveKeys` | keys, if an alternative-start mod skipped the Pip-Boy |
 
@@ -113,7 +117,7 @@ Data/                         mirrors the game's Data folder
   Meshes/CMB/                 the bike meshes go here (built by tools/rider)
   Sound/FX/CMB/               engine sounds (synthesised by tools/sound)
   MCM/Config/                 MCM menu and hotkey (written by the generator)
-  F4SE/Plugins/CMB_Slope.dll  optional F4SE plugin: steeper slopes and farther camera while riding (tools/f4se-slope)
+  F4SE/Plugins/CMB_Slope.dll  optional F4SE plugin: steeper slopes, farther camera, bike tilt (tools/f4se-slope)
 compile_scripts.bat           compiles the scripts with the Creation Kit's compiler
 make_rider_pose.bat           builds CMB_RiderPose.esp + its AnimTextData from your load order
 docs/                         install, assets, testing and design notes

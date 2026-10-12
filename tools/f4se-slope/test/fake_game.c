@@ -29,6 +29,10 @@
 #define LIGHT_INDEX           5
 #define SLOPE_GLOBAL_FORMID   (0xFE000000u | (LIGHT_INDEX << 12) | 0x82Au)
 #define CAMERA_GLOBAL_FORMID  (0xFE000000u | (LIGHT_INDEX << 12) | 0x82Bu)
+#define TILT_GLOBAL_FORMID    (0xFE000000u | (LIGHT_INDEX << 12) | 0x82Cu)
+#define GROUND_GLOBAL_FORMID  (0xFE000000u | (LIGHT_INDEX << 12) | 0x82Du)   /* X, then Y, Z */
+#define HEADING               1.0f         /* radians: the player faces a bit north of east */
+#define DEG                   57.29578f
 #define COS47                 0.68199836f
 
 static uint8_t g_space[0x3600000];          /* the "game image" (in .bss) */
@@ -93,16 +97,81 @@ static uint8_t *g_controller;
 static uint8_t *g_proxy;
 static uint8_t *g_cameraSetting;
 static void **g_vtProxy, **g_vtWrapper, **g_vtCtrl;
+static uint8_t *g_tiltGlobal, *g_groundGlobals[3];
+static uint8_t *g_player, *g_root, *g_bikeNode, *g_boneData, *g_bones;
+static uint8_t g_bonesOriginal[0x50];
+static int g_deleted;
+static bool g_skinTransposed, g_rootTransposed;   /* how this "game" stores its rotations */
 
 static float *Slope(void) { return (float *)(g_controller + CTRL_SLOPE_OFFSET); }
 static float *ProxySlope(void) { return (float *)(g_proxy + PROXY_SLOPE_OFFSET); }
 static float *CameraDist(void) { return (float *)(g_cameraSetting + 0x08); }
 static void SetLive(float degrees) { *(float *)(g_global + 0x30) = degrees; }
 static void SetCamera(float distance) { *(float *)(g_cameraGlobal + 0x30) = distance; }
+static void SetTilt(float degrees) { *(float *)(g_tiltGlobal + 0x30) = degrees; }
+static float Ground(int i) { return *(float *)(g_groundGlobals[i] + 0x30); }
+static void SetNormal(float x, float y, float z)
+{
+	float *n = (float *)(g_controller + 0x1E0);
+	n[0] = x; n[1] = y; n[2] = z; n[3] = 0.03f;
+}
+static void SetState(int state) { *(int32_t *)(g_controller + 0x2C0) = state; }
+static int32_t *BoneDataRefs(void) { return (int32_t *)(g_boneData + 0x08); }
 
 static uintptr_t FakeLookupFormByID(uint32_t id)
 {
-	return id == SLOPE_GLOBAL_FORMID ? (uintptr_t)g_global : id == CAMERA_GLOBAL_FORMID ? (uintptr_t)g_cameraGlobal : 0;
+	if (id >= GROUND_GLOBAL_FORMID && id < GROUND_GLOBAL_FORMID + 3)
+		return (uintptr_t)g_groundGlobals[id - GROUND_GLOBAL_FORMID];
+	return id == SLOPE_GLOBAL_FORMID ? (uintptr_t)g_global : id == CAMERA_GLOBAL_FORMID ? (uintptr_t)g_cameraGlobal
+	     : id == TILT_GLOBAL_FORMID ? (uintptr_t)g_tiltGlobal : 0;
+}
+
+static void FakeDeleteThis(uint8_t *obj) { (void)obj; g_deleted++; }
+
+static uint8_t *NewGlobal(uint32_t formId, const char *editorId)
+{
+	uint8_t *g = (uint8_t *)VirtualAlloc(NULL, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+	g[0x1A] = 11;
+	*(uint32_t *)(g + 0x14) = formId;
+	*(const char **)(g + 0x20) = editorId;
+	return g;
+}
+
+/* A BSFixedString: StringCache::Entry { next, state, length, externData, data }. */
+static uint8_t *NewString(const char *text)
+{
+	uint8_t *e = (uint8_t *)VirtualAlloc(NULL, 0x100, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+	*(uint32_t *)(e + 0x08) = 3;
+	*(uint32_t *)(e + 0x0C) = (uint32_t)strlen(text);
+	strcpy((char *)(e + 0x18), text);
+	return e;
+}
+
+/* NiAVObject-ish: name at +0x10; NiNode children (NiTArray) at +0x120. */
+static uint8_t *NewNode(void **vtbl, const char *name, int capacity)
+{
+	uint8_t *n = (uint8_t *)NewObject(vtbl, 0x200);
+	*(uint8_t **)(n + 0x10) = NewString(name);
+	*(int32_t *)(n + 0x08) = 1;
+	if (capacity) {
+		*(void **)(n + 0x128) = VirtualAlloc(NULL, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+		*(uint16_t *)(n + 0x130) = (uint16_t)capacity;
+	}
+	return n;
+}
+
+static void AddChild(uint8_t *node, uint8_t *child)
+{
+	uint16_t *used = (uint16_t *)(node + 0x132);
+	(*(uint8_t ***)(node + 0x128))[(*used)++] = child;
+}
+
+/* A 3x3 rotation into rows of 4 floats, the way round this "game" keeps it. */
+static void StoreRotation(float *rows, const float m[9], bool transposed)
+{
+	for (int i = 0; i < 3; i++)
+		for (int j = 0; j < 3; j++)
+			rows[i * 4 + j] = transposed ? m[j * 3 + i] : m[i * 3 + j];
 }
 
 static uint8_t *NewProxy(float cosine)
@@ -136,6 +205,8 @@ static void BuildGame(void)
 	void **vtDecoy = MakeClass(decoy, 2);
 
 	uint8_t *pl = (uint8_t *)NewObject(vtPlayer, 0x1000);
+	g_player = pl;
+	*(float *)(pl + 0xC8) = HEADING;
 	uint8_t *process = (uint8_t *)VirtualAlloc(NULL, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 	uint8_t *data = (uint8_t *)VirtualAlloc(NULL, 0x2000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 	*(uint8_t **)(pl + 0x300) = process;
@@ -147,9 +218,11 @@ static void BuildGame(void)
 	*(float *)(g_controller + 0x154) = 0.7257f;
 	*(float *)(g_controller + CTRL_SLOPE_OFFSET) = COS47;
 	*(float *)(g_controller + 0x424) = 0.4429f;
-	uint8_t *stateManager = (uint8_t *)NewObject(vtDecoy, 0x200);
+	static const char *states[] = { ".?AVhknpCharacterStateManager@@", ".?AVhkReferencedObject@@" };
+	uint8_t *stateManager = (uint8_t *)NewObject(MakeClass(states, 2), 0x200);
 	*(float *)(stateManager + 0x40) = 3.0f;
 	*(uint8_t **)(g_controller + 0x2B8) = stateManager;
+	SetNormal(0.0f, 0.0f, 1.0f);   /* flat ground, on it (state 0) */
 	uint8_t *wrap = (uint8_t *)NewObject(g_vtWrapper, 0x100);
 	*(uint8_t **)(g_controller + 0x470) = wrap;
 	g_proxy = NewProxy(0.70710678f);                          /* 45 degrees */
@@ -169,14 +242,45 @@ static void BuildGame(void)
 	*(uint32_t *)(dh + 0xFB0 + 0x28 + 0x10) = 2;
 	*(uintptr_t *)(g_base + RVA_DATA_HANDLER) = (uintptr_t)dh;
 
-	g_global = (uint8_t *)VirtualAlloc(NULL, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-	g_global[0x1A] = 11;
-	*(uint32_t *)(g_global + 0x14) = SLOPE_GLOBAL_FORMID;
-	*(const char **)(g_global + 0x20) = "CMB_SlopeLive";
-	g_cameraGlobal = (uint8_t *)VirtualAlloc(NULL, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-	g_cameraGlobal[0x1A] = 11;
-	*(uint32_t *)(g_cameraGlobal + 0x14) = CAMERA_GLOBAL_FORMID;
-	*(const char **)(g_cameraGlobal + 0x20) = "CMB_CameraLive";
+	g_global = NewGlobal(SLOPE_GLOBAL_FORMID, "CMB_SlopeLive");
+	g_cameraGlobal = NewGlobal(CAMERA_GLOBAL_FORMID, "CMB_CameraLive");
+	g_tiltGlobal = NewGlobal(TILT_GLOBAL_FORMID, "CMB_TiltLive");
+	static const char *ground[3] = { "CMB_GroundNormalX", "CMB_GroundNormalY", "CMB_GroundNormalZ" };
+	for (int i = 0; i < 3; i++)
+		g_groundGlobals[i] = NewGlobal(GROUND_GLOBAL_FORMID + (uint32_t)i, ground[i]);
+
+	/* The player's 3D: root (turned by the heading) -> body bits, and the worn bike's node
+	 * -> its shape, skinned to COM with the bind of the real CMB_BikeWornRider.nif. */
+	static const char *fade[] = { ".?AVBSFadeNode@@", ".?AVNiNode@@", ".?AVNiAVObject@@", ".?AVNiObject@@" };
+	static const char *node[] = { ".?AVNiNode@@", ".?AVNiAVObject@@", ".?AVNiObject@@" };
+	static const char *tri[] = { ".?AVBSSubIndexTriShape@@", ".?AVBSTriShape@@", ".?AVBSGeometry@@", ".?AVNiAVObject@@", ".?AVNiObject@@" };
+	static const char *skin[] = { ".?AVInstance@BSSkin@@", ".?AVNiObject@@" };
+	static const char *bone[] = { ".?AVBoneData@BSSkin@@", ".?AVNiObject@@" };
+	void **vtFade = MakeClass(fade, 4), **vtNode = MakeClass(node, 3), **vtTri = MakeClass(tri, 5);
+	void **vtSkin = MakeClass(skin, 2), **vtBone = MakeClass(bone, 2);
+	vtBone[1] = (void *)FakeDeleteThis;
+	g_root = NewNode(vtFade, "skeleton.nif", 8);
+	uint8_t *loaded = (uint8_t *)VirtualAlloc(NULL, 0x100, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+	*(uint8_t **)(loaded + 0x08) = g_root;
+	*(uint8_t **)(pl + 0xF0) = loaded;
+	uint8_t *npcRoot = NewNode(vtNode, "NPC Root [Root]", 4);
+	AddChild(g_root, npcRoot);
+	AddChild(npcRoot, NewNode(vtTri, "BaseMaleBody:0", 0));
+	AddChild(npcRoot, NewNode(vtNode, "COM", 0));
+	AddChild(g_root, NewNode(vtTri, "CMB_Unrelated", 0));   /* wrong name: left alone */
+	g_bikeNode = NewNode(vtNode, "CMB_BikeWornRider.nif", 2);
+	uint8_t *shape = NewNode(vtTri, "CMB_BikeWornRider", 0);
+	AddChild(g_bikeNode, shape);
+	AddChild(g_root, g_bikeNode);
+	uint8_t *instance = (uint8_t *)NewObject(vtSkin, 0x100);
+	*(uint8_t **)(shape + 0x140) = instance;
+	g_boneData = (uint8_t *)NewObject(vtBone, 0x100);
+	*(int32_t *)(g_boneData + 0x08) = 2;   /* the shape's skin and the model cache */
+	*(uint8_t **)(instance + 0x40) = g_boneData;
+	g_bones = (uint8_t *)VirtualAlloc(NULL, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+	*(uint8_t **)(g_boneData + 0x10) = g_bones;
+	*(uint32_t *)(g_boneData + 0x18) = 1;
+	*(uint32_t *)(g_boneData + 0x20) = 1;
 
 	/* LookupFormByID: a jump to ours at the game's address. */
 	uint8_t *stub = (uint8_t *)(g_base + RVA_LOOKUP_FORM);
@@ -204,6 +308,23 @@ static void BuildGame(void)
 	}
 	*(uint8_t **)(coll + 0x120) = prev;
 	*(uintptr_t *)(g_base + RVA_INI_SETTINGS) = (uintptr_t)coll;
+}
+
+
+/* The rotations, stored the way round the test asks for. */
+static void SetLayouts(bool skinTransposed, bool rootTransposed)
+{
+	g_skinTransposed = skinTransposed;
+	g_rootTransposed = rootTransposed;
+	float c = cosf(HEADING), s = sinf(HEADING);
+	const float heading[9] = { c, s, 0, -s, c, 0, 0, 0, 1 };   /* +Y -> (sin h, cos h, 0) */
+	StoreRotation((float *)(g_root + 0x70), heading, rootTransposed);
+	const float skinToBone[9] = { 0, 0, 1, 0, 1, 0, -1, 0, 0 };
+	float *b = (float *)g_bones;
+	b[0] = -24.67f; b[1] = 17.0f; b[2] = 0.0f; b[3] = 115.0f;   /* culling sphere (bone space) */
+	StoreRotation(b + 4, skinToBone, skinTransposed);
+	b[16] = -74.17f; b[17] = 0.0f; b[18] = 0.0f; b[19] = 1.0f;  /* translation, scale */
+	memcpy(g_bonesOriginal, g_bones, sizeof(g_bonesOriginal));
 }
 
 /* Havok-style reflection table for the probe to find (name, class, enum, type, subtype,
@@ -263,6 +384,120 @@ static void RunFrames(int ms)
 
 static bool Near(float a, float b) { return fabsf(a - b) < 1e-5f; }
 
+/* The rotation the plugin put on the bike's mesh: R = A^T A', with A and A' the bind
+ * (mesh -> bone) before and now, read the way round this "game" stores them. */
+static void AppliedRotation(float R[9])
+{
+	const float *o = (const float *)(g_bonesOriginal + 0x10), *w = (const float *)(g_bones + 0x10);
+	float A[9], B[9];
+	for (int i = 0; i < 3; i++)
+		for (int j = 0; j < 3; j++) {
+			A[i * 3 + j] = g_skinTransposed ? o[j * 4 + i] : o[i * 4 + j];
+			B[i * 3 + j] = g_skinTransposed ? w[j * 4 + i] : w[i * 4 + j];
+		}
+	for (int i = 0; i < 3; i++)
+		for (int j = 0; j < 3; j++)
+			R[i * 3 + j] = A[i] * B[j] + A[3 + i] * B[3 + j] + A[6 + i] * B[6 + j];
+}
+
+static bool Orthonormal(const float R[9])
+{
+	for (int i = 0; i < 3; i++)
+		for (int j = 0; j < 3; j++) {
+			float d = R[i * 3] * R[j * 3] + R[i * 3 + 1] * R[j * 3 + 1] + R[i * 3 + 2] * R[j * 3 + 2];
+			if (fabsf(d - (i == j ? 1.0f : 0.0f)) > 1e-4f)
+				return false;
+		}
+	return true;
+}
+
+static void SetNormalTowards(const float dir[3], float degrees)
+{
+	float s = sinf(degrees / DEG);
+	SetNormal(s * dir[0], s * dir[1], cosf(degrees / DEG));
+}
+
+static void TiltTests(void)
+{
+	const float forward[3] = { sinf(HEADING), cosf(HEADING), 0.0f }, back[3] = { -forward[0], -forward[1], 0.0f };
+	const float right[3] = { cosf(HEADING), -sinf(HEADING), 0.0f };
+	float R[9];
+
+	printf("tilt: standing, not riding:\n");
+	SetTilt(0.0f);
+	SetNormal(0.0f, 0.0f, 1.0f);
+	SetState(0);
+	RunFrames(300);
+	CHECK(Near(Ground(0), 0.0f) && Near(Ground(1), 0.0f) && Near(Ground(2), 1.0f), "ground normal (0, 0, 1) in CMB_GroundNormalX/Y/Z");
+	CHECK(memcmp(g_bones, g_bonesOriginal, 0x50) == 0 && *BoneDataRefs() == 2, "the bike's skin untouched");
+
+	printf("tilt: riding up a 20 deg slope:\n");
+	SetNormalTowards(back, 20.0f);   /* uphill ahead: the ground's normal leans back */
+	SetTilt(30.0f);
+	RunFrames(800);
+	CHECK(*BoneDataRefs() == 3, "the skin is held (references %d)", *BoneDataRefs());
+	AppliedRotation(R);
+	CHECK(fabsf(R[2]) < 0.01f && fabsf(R[5] + 0.34202f) < 0.01f && fabsf(R[8] - 0.93969f) < 0.01f,
+	      "the mesh's up turned to the ground: (%.3f, %.3f, %.3f), expected (0, -0.342, 0.940)", R[2], R[5], R[8]);
+	CHECK(R[7] > 0.3f, "nose up (forward goes to z %.3f)", R[7]);
+	CHECK(Orthonormal(R), "still a rotation");
+	CHECK(memcmp(g_bones + 0x40, g_bonesOriginal + 0x40, 16) == 0, "translation and scale untouched");
+	CHECK(*(float *)(g_bones + 0x0C) > 115.0f, "culling sphere grown (radius %.1f)", *(float *)(g_bones + 0x0C));
+	CHECK(fabsf(Ground(2) - 0.93969f) < 1e-4f && fabsf(Ground(0) + 0.34202f * forward[0]) < 1e-4f,
+	      "CMB_GroundNormal follows the slope (%.3f, %.3f, %.3f)", Ground(0), Ground(1), Ground(2));
+
+	printf("tilt: a 45 deg side slope, more than the 30 allowed:\n");
+	SetNormalTowards(right, 45.0f);   /* ground falls away to the right */
+	RunFrames(800);
+	AppliedRotation(R);
+	CHECK(fabsf(acosf(R[8]) * DEG - 30.0f) < 0.5f, "tilted 30 deg (%.2f)", acosf(R[8]) * DEG);
+	CHECK(R[6] < -0.3f && fabsf(R[7]) < 0.01f, "right side down (right goes to z %.3f), no pitch", R[6]);
+
+	printf("tilt: in the air:\n");
+	SetState(2);
+	SetNormalTowards(forward, 10.0f);   /* stale normal: must not be used */
+	RunFrames(800);
+	AppliedRotation(R);
+	CHECK(R[8] > 0.9999f, "eased back to level (cos %.5f)", R[8]);
+	CHECK(Ground(2) == 0.0f && fabsf(Ground(0) - 0.70711f * right[0]) < 1e-4f,
+	      "in the air CMB_GroundNormalZ is 0, X and Y left alone (%.3f, %.3f, %.3f)", Ground(0), Ground(1), Ground(2));
+	SetState(0);
+	SetNormal(0.0f, 0.0f, 1.0f);
+	RunFrames(300);
+
+	printf("tilt: getting off:\n");
+	SetTilt(0.0f);
+	RunFrames(300);
+	CHECK(memcmp(g_bones, g_bonesOriginal, 0x50) == 0, "the skin back exactly as it was");
+	CHECK(*BoneDataRefs() == 2 && g_deleted == 0, "let go of (references %d)", *BoneDataRefs());
+
+	printf("tilt: the bike taken off mid-ride:\n");
+	SetNormalTowards(back, 20.0f);
+	SetTilt(30.0f);
+	RunFrames(500);
+	CHECK(*BoneDataRefs() == 3, "held");
+	*(uint16_t *)(g_root + 0x132) -= 1;   /* the bike's node leaves the 3D (last child) */
+	*BoneDataRefs() -= 2;                 /* and the game drops its references */
+	RunFrames(300);
+	CHECK(g_deleted == 1 && memcmp(g_bones, g_bonesOriginal, 0x50) == 0, "put back, let go of, deleted with the last reference");
+	*(uint16_t *)(g_root + 0x132) += 1;
+	*BoneDataRefs() = 2;
+	g_deleted = 0;
+	SetTilt(0.0f);
+	RunFrames(300);
+
+	printf("tilt: skin data that isn't what it should be:\n");
+	float *rows = (float *)(g_bones + 0x10);
+	rows[0] = 2.0f;   /* not a rotation any more */
+	memcpy(g_bonesOriginal, g_bones, sizeof(g_bonesOriginal));
+	SetNormalTowards(back, 20.0f);
+	SetTilt(30.0f);
+	RunFrames(500);
+	CHECK(memcmp(g_bones, g_bonesOriginal, 0x50) == 0 && *BoneDataRefs() == 2, "not touched, not held");
+	SetTilt(0.0f);
+	RunFrames(200);
+}
+
 int main(int argc, char **argv)
 {
 	const char *dllPath = argc > 1 ? argv[1] : "CMB_Slope.dll";
@@ -274,6 +509,7 @@ int main(int argc, char **argv)
 	}
 	(void)g_members;
 	BuildGame();
+	SetLayouts(mode == 4, mode == 4 || mode == 5);   /* 4: transposed matrices, 5: skin and 3D disagree */
 
 	HMODULE dll = LoadLibraryA(dllPath);
 	if (!dll) { printf("can't load %s\n", dllPath); return 2; }
@@ -292,6 +528,24 @@ int main(int argc, char **argv)
 		return g_failures ? 1 : 0;
 	}
 	CHECK(loaded && g_task && g_listener, "loads, registers a permanent task and a listener");
+	if (mode == 4 || mode == 5) {
+		Send(10, 1);   /* GameDataReady */
+		RunFrames(300);
+		if (mode == 4) {
+			TiltTests();
+		} else {
+			float fwd[3] = { -sinf(HEADING), -cosf(HEADING), 0.0f };
+			SetNormalTowards(fwd, 20.0f);
+			SetTilt(30.0f);
+			RunFrames(600);
+			CHECK(memcmp(g_bones, g_bonesOriginal, 0x50) == 0, "skin and 3D disagree about the matrices: the bike isn't tilted");
+			SetTilt(0.0f);
+			RunFrames(300);
+			CHECK(*BoneDataRefs() == 2, "and let go of (references %d)", *BoneDataRefs());
+		}
+		printf("%s\n", g_failures ? "FAILED" : "all ok");
+		return g_failures ? 1 : 0;
+	}
 
 	printf("before game data is ready:\n");
 	SetLive(60.0f);
@@ -392,6 +646,8 @@ int main(int argc, char **argv)
 	SetLive(0.0f);
 	RunFrames(300);
 	CHECK(Near(*Slope(), COS47), "and restored (got %f)", *Slope());
+
+	TiltTests();
 
 	printf("%s\n", g_failures ? "FAILED" : "all ok");
 	return g_failures ? 1 : 0;
