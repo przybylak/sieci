@@ -38,6 +38,8 @@
 #define TURN_STAND_FORMID     (0xFE000000u | (LIGHT_INDEX << 12) | 0x83Au)
 #define TURN_SLOW_FORMID      (0xFE000000u | (LIGHT_INDEX << 12) | 0x83Bu)
 #define RVA_PLAYER_CONTROLS   0x031F0B80u
+#define RVA_MOVE_HANDLER_VTBL 0x02571B38u  /* where 1.11.240 has them (test 13) */
+#define RVA_CONTROLS_IMOVE_VTBL 0x02571AA0u
 #define HEADING               1.0f         /* radians: the player faces a bit north of east */
 #define DEG                   57.29578f
 #define COS47                 0.68199836f
@@ -343,23 +345,23 @@ static void BuildGame(void)
 	void **vtControls = MakeClass(controls, 2);
 	g_controls = (uint8_t *)NewObject(vtControls, 0x300);
 	*(uintptr_t *)(g_base + RVA_PLAYER_CONTROLS) = (uintptr_t)g_controls;
-	void **vtMovement = MakeSecondary(vtControls, 0x30);   /* IMovementPlayerControls */
+	/* PlayerControls' IMovementPlayerControls vtable and the MovementHandler's (a struct in
+	 * the game) where 1.11.240 has them, on a page made read-only, as in the game. */
+	void **vtMovement = (void **)(g_base + RVA_CONTROLS_IMOVE_VTBL);
+	vtMovement[-1] = MakeSecondary(vtControls, 0x30)[-1];
 	vtMovement[0] = (void *)FakeNothing;
 	vtMovement[1] = (void *)FakeGetControllerOutput;
 	*(void ***)(g_controls + 0x30) = vtMovement;
-	/* The MovementHandler, its class and vtable alone on a page made read-only. */
-	g_rttiNext = (g_rttiNext + 0xFFF) & ~(uintptr_t)0xFFF;
-	uintptr_t handlerPage = g_rttiNext;
-	static const char *movement[] = { ".?AVMovementHandler@@", ".?AVPlayerInputHandler@@", ".?AVBSInputEventUser@@" };
-	void **vtHandler = MakeClass(movement, 3);
-	for (int i = 0; i < 11; i++)
+	static const char *movement[] = { ".?AUMovementHandler@@", ".?AVPlayerInputHandler@@", ".?AVBSInputEventUser@@" };
+	void **vtHandler = (void **)(g_base + RVA_MOVE_HANDLER_VTBL);
+	vtHandler[-1] = MakeClass(movement, 3)[-1];
+	for (int i = 0; i < 10; i++)
 		vtHandler[i] = (void *)FakeNothing;
 	vtHandler[4] = (void *)FakeOnThumbstick;
 	vtHandler[8] = (void *)FakeOnButton;
 	vtHandler[9] = (void *)FakePerFrame;
-	g_rttiNext = (g_rttiNext + 0xFFF) & ~(uintptr_t)0xFFF;
 	DWORD oldProtect;
-	VirtualProtect((void *)handlerPage, 0x1000, PAGE_READONLY, &oldProtect);
+	VirtualProtect((void *)((uintptr_t)vtHandler & ~(uintptr_t)0xFFF), 0x1000, PAGE_READONLY, &oldProtect);
 	g_moveHandler = (uint8_t *)NewObject(vtHandler, 0x40);
 	*(uint8_t **)(g_moveHandler + 0x10) = g_controls + 0x44;
 	*(uint8_t **)(g_controls + 0x1E0) = g_moveHandler;
@@ -765,7 +767,7 @@ static void InputTests(void)
 {
 	float *head = (float *)(g_player + 0xC8), from, p0[2];
 	float *mod = (float *)(g_controller + 0x180), *modTime = (float *)(g_controller + 0x308);
-	printf("input hook: a side key from a stop creeps round the walking-pace circle:\n");
+	printf("input hook: a side key from a stop creeps round a small circle:\n");
 	g_camYaw = *head;
 	g_handlerStyle = 0;
 	g_honour = 1;
@@ -785,8 +787,8 @@ static void InputTests(void)
 	p0[1] = PlayerPos()[1];
 	RunFrames(1000);
 	float dx = PlayerPos()[0] - p0[0], dy = PlayerPos()[1] - p0[1], crept = sqrtf(dx * dx + dy * dy);
-	CHECK(crept > 25.0f && crept < 90.0f, "creeping forward at %.0f a second (about 52: round a 50 circle), not driven off", crept);
-	CHECK(MoveInput()[0] == 0.0f && MoveInput()[1] > 0.0f && MoveInput()[1] < 0.2f, "the game gets no side input, a little forward (%.3f)", MoveInput()[1]);
+	CHECK(crept > 12.0f && crept < 45.0f, "creeping forward at %.0f a second (about 26: round a 25 circle), not driven off", crept);
+	CHECK(MoveInput()[0] == 0.0f && MoveInput()[1] > 0.0f && MoveInput()[1] < 0.1f, "the game gets no side input, a little forward (%.3f)", MoveInput()[1]);
 	CHECK(((float *)(g_controls + 0x5C))[1] == MoveInput()[1], "and its movement used that (+5C)");
 	Keys(1.0f, 1.0f);
 	RunFrames(300);

@@ -66,7 +66,7 @@
  *   grows with speed, from CMB_TurnRadiusSlow at walking pace to CMB_TurnRadius at riding
  *   speed (FullSpeed). The move keys are changed before the game uses them (its
  *   MovementHandler's event functions are wrapped: three vtable entries): a side key alone
- *   from a stop creeps round the walking-pace circle instead of riding off, and back gets
+ *   from a stop creeps round a small circle instead of riding off, and back gets
  *   the game nothing (it would drive forward) while the plugin pushes the bike back itself,
  *   facing forward (the controller's velocityMod, its velocity or its position: whichever
  *   is found to move it), or else just stops it.
@@ -104,6 +104,8 @@
 #define RVA_INI_PREF_SETTINGS 0x0339FAE0u   /* GameSettings.cpp: g_iniPrefSettings */
 #define RVA_PLAYER_CAMERA     0x030E6E58u   /* GameCamera.cpp: g_playerCamera */
 #define RVA_PLAYER_CONTROLS   0x031F0B80u   /* GameInput.cpp: g_playerControls */
+#define RVA_MOVE_HANDLER_VTBL 0x02571B38u   /* MovementHandler's vtable (read off Fallout4.exe 1.11.240, test 13) */
+#define RVA_CONTROLS_IMOVE_VTBL 0x02571AA0u /* PlayerControls' IMovementPlayerControls vtable (the same) */
 #define OFF_ACTOR_PROCESS     0x300         /* Actor::middleProcess (AIProcess *) */
 #define OFF_PROCESS_DATA      0x08          /* AIProcess::unk08 (process data) */
 #define OFF_DH_LOADED_MODS    (0xFB0 + 0x10) /* DataHandler::modList.loadedMods */
@@ -203,7 +205,8 @@
 #define RTTI_CAMERA     ".?AVPlayerCamera@@"
 #define RTTI_THIRD      ".?AVThirdPersonState@@"
 #define RTTI_CONTROLS   ".?AVPlayerControls@@"
-#define RTTI_MOVE_HANDLER ".?AVMovementHandler@@"
+#define RTTI_MOVE_HANDLER ".?AUMovementHandler@@"  /* a struct in the game, like all its input handlers (test 13) */
+#define RTTI_MOVE_HANDLER_CLASS ".?AVMovementHandler@@"
 
 /* ------------------------------------------------------------------------- */
 /* F4SE plugin interface (f4se/PluginAPI.h, 0.7.9)                            */
@@ -318,9 +321,10 @@ static int g_steer = 1;                   /* 1 = limit how fast the bike turns (
 static float g_fullSpeed = 900.0f;        /* units a second at which the turning radius is CMB_TurnRadius */
 static int g_reverse = 1;                 /* 1 = holding back backs the bike up instead of turning it round */
 static int g_inputHook = 1;               /* 1 = change the move input before the game uses it (creep, reverse) */
-static int g_creep = 1;                   /* 1 = a side key from a stop creeps forward round the walking-pace circle */
+static int g_creep = 1;                   /* 1 = a side key from a stop creeps forward round a CreepRadius circle */
 static float g_creepStart = 0.1f;         /* the first forward input tried for the creep (then learnt) */
 static float g_creepBelow = 100.0f;       /* a side key alone creeps below this speed */
+static float g_creepRadius = 25.0f;       /* the creep goes round this circle (test 13: "barely move forward") */
 static float g_backSpeed = 80.0f;         /* units a second the bike is pushed back */
 enum { PUSH_MOD, PUSH_VELOCITY, PUSH_POSITION, PUSH_BRAKE };
 static int g_backPushFirst = PUSH_MOD;    /* BackPush: the method to start with */
@@ -576,6 +580,10 @@ static void ReadSettings(void)
 	g_creepBelow = strtof(value, NULL);
 	if (!(g_creepBelow >= 0.0f && g_creepBelow <= 1000.0f))
 		g_creepBelow = 100.0f;
+	GetPrivateProfileStringA("Steer", "CreepRadius", "25", value, sizeof(value), ini);
+	g_creepRadius = strtof(value, NULL);
+	if (!(g_creepRadius >= 0.0f && g_creepRadius <= 1000.0f))
+		g_creepRadius = 25.0f;
 	GetPrivateProfileStringA("Steer", "BackSpeed", "80", value, sizeof(value), ini);
 	g_backSpeed = strtof(value, NULL);
 	if (!(g_backSpeed > 0.0f && g_backSpeed <= 400.0f))
@@ -598,6 +606,11 @@ static void ReadSettings(void)
 	Log("  tilt: NormalOffset=0x%X StateOffset=0x%X Smoothing=%g MedianTime=%g MaxRate=%g MaxRoll=%g PivotHeight=%g Trace=%d Shapes=%s Layout=%s",
 	    g_normalOffset, g_stateOffset, g_smoothing, g_medianTime, g_maxRate, g_maxRoll, g_pivotHeight, g_trace, g_shapePrefix,
 	    g_layoutSetting == LAYOUT_FILE ? "file" : g_layoutSetting == LAYOUT_TRANSPOSED ? "transposed" : "auto");
+	Log("  steer: Enabled=%d FullSpeed=%g InputHook=%d Creep=%d CreepInput=%g CreepBelow=%g CreepRadius=%g Reverse=%d BackSpeed=%g "
+	    "BackPush=%s",
+	    g_steer, g_fullSpeed, g_inputHook, g_creep, g_creepStart, g_creepBelow, g_creepRadius, g_reverse, g_backSpeed,
+	    !g_backPushAuto && g_backPushFirst == PUSH_BRAKE ? "off" : g_backPushAuto ? "auto" : g_backPushFirst == PUSH_MOD ? "mod"
+	    : g_backPushFirst == PUSH_VELOCITY ? "velocity" : "position");
 }
 
 /* ------------------------------------------------------------------------- */
@@ -2416,12 +2429,13 @@ static void UpdateZoom(DWORD now, bool riding)
  * its MovementHandler from the key and stick events and read by the movement update later
  * in the frame, before F4SE's task runs (test 12: written from the task, the game had
  * already used -1). So the plugin wraps the MovementHandler's event functions (three
- * entries of its vtable swapped, no code patched) and changes the input right after the
- * game sets it:
+ * entries of its vtable swapped, no code patched; a struct in the game, .?AUMovementHandler@@,
+ * test 13; its vtable where 1.11.240 has it) and changes the input right after the game
+ * sets it:
  *   - back (y < -0.2): (0, 0), so the game doesn't drive off; the plugin pushes the bike
  *     back itself (below) and turns it;
- *   - a side key alone (|y| <= 0.2) below CreepBelow: (0, creep), a crawl forward round the
- *     walking-pace circle while the plugin turns the heading at the stopped rate;
+ *   - a side key alone (|y| <= 0.2) below CreepBelow: (0, creep), a crawl forward round a
+ *     CreepRadius circle while the plugin turns the heading at the stopped rate;
  *   - anything with forward in it: left alone (the speed-dependent clamp, test 12: fine).
  * Before each call the game gets back what it last left there itself, so this works whether
  * the game sets the input or adds to it. */
@@ -2562,10 +2576,15 @@ static bool IsExactly(uintptr_t obj, const char *mangled)
 	return name && strcmp(name, mangled) == 0;
 }
 
+static bool IsMovementHandler(uintptr_t obj)
+{
+	return IsExactly(obj, RTTI_MOVE_HANDLER) || IsExactly(obj, RTTI_MOVE_HANDLER_CLASS);
+}
+
 static uintptr_t FindMovementHandler(uintptr_t controls, const char **where)
 {
 	uintptr_t h = ReadPtr(controls + OFF_CONTROLS_MOVEMENT);
-	if (h && IsExactly(h, RTTI_MOVE_HANDLER)) {
+	if (h && IsMovementHandler(h)) {
 		*where = "PlayerControls+0x1E0";
 		return h;
 	}
@@ -2574,7 +2593,7 @@ static uintptr_t FindMovementHandler(uintptr_t controls, const char **where)
 	uint32_t count = Accessible(list + OFF_ARRAY_COUNT, 4, false) ? *(const uint32_t *)(list + OFF_ARRAY_COUNT) : 0;
 	for (uint32_t i = 0; entries && i < count && i < 64; i++) {
 		h = ReadPtr(entries + 8 * i);
-		if (h && IsExactly(h, RTTI_MOVE_HANDLER)) {
+		if (h && IsMovementHandler(h)) {
 			*where = "PlayerControls' handler list";
 			return h;
 		}
@@ -2597,7 +2616,8 @@ static void InstallInputHook(void)
 	const char *where = "";
 	uintptr_t handler = FindMovementHandler(controls, &where);
 	if (!handler) {
-		Log("input: no MovementHandler at PlayerControls+0x1E0 or in its handler list: the move keys are left alone (no creep, no reverse)");
+		Log("input: no MovementHandler at PlayerControls+0x1E0 (%s there) or in its handler list: the move keys are left alone "
+		    "(no creep, no reverse)", OrNone(ObjectTypeName(ReadPtr(controls + OFF_CONTROLS_MOVEMENT))));
 		return;
 	}
 	uintptr_t data = ReadPtr(handler + OFF_HANDLER_DATA);
@@ -2606,9 +2626,11 @@ static void InstallInputHook(void)
 	static const int slots[3] = { VF_THUMBSTICK, VF_BUTTON, VF_PER_FRAME };
 	for (int i = 0; i < 3 && vtbl; i++)
 		f[i] = ReadPtr(vtbl + 8 * slots[i]);
-	if (data != controls + OFF_MOVE_INPUT || !InImage(vtbl, 8 * 10) || !InImage(f[0], 1) || !InImage(f[1], 1) || !InImage(f[2], 1)) {
-		Log("input: the MovementHandler (%s) isn't laid out as expected (data %p, PlayerControls+0x44 %p, vtable %p): "
-		    "the move keys are left alone", where, (void *)data, (void *)(controls + OFF_MOVE_INPUT), (void *)vtbl);
+	if (data != controls + OFF_MOVE_INPUT || vtbl != g_base + RVA_MOVE_HANDLER_VTBL || !InImage(f[0], 1) || !InImage(f[1], 1) ||
+	    !InImage(f[2], 1)) {
+		Log("input: the MovementHandler (%s) isn't laid out as expected (data %p, PlayerControls+0x44 %p, vtable +0x%llX, "
+		    "1.11.240's +0x%X): the move keys are left alone", where, (void *)data, (void *)(controls + OFF_MOVE_INPUT),
+		    (unsigned long long)(vtbl - g_base), RVA_MOVE_HANDLER_VTBL);
 		return;
 	}
 	g_moveHandler = handler;
@@ -2628,7 +2650,8 @@ static void InstallInputHook(void)
 	uintptr_t base = controls + OFF_CONTROLS_IMOVE;
 	const CompleteObjectLocator *c = GetCOL(base);
 	uintptr_t vt2 = ReadPtr(base), out = vt2 ? ReadPtr(vt2 + 8 * VF_CONTROLLER_OUTPUT) : 0;
-	if (!c || c->offset != OFF_CONTROLS_IMOVE || strcmp(TypeName(c->typeDescriptor), RTTI_CONTROLS) != 0 || !InImage(out, 1)) {
+	if (!c || c->offset != OFF_CONTROLS_IMOVE || strcmp(TypeName(c->typeDescriptor), RTTI_CONTROLS) != 0 ||
+	    vt2 != g_base + RVA_CONTROLS_IMOVE_VTBL || !InImage(out, 1)) {
 		Log("input: PlayerControls+0x30 isn't its IMovementPlayerControls: the movement output isn't logged");
 		return;
 	}
@@ -2950,13 +2973,13 @@ static void FrameSteer(void)
 		PushBack(player, *h, g_frameDt);
 	} else if (mode == INPUT_CREEP) {
 		/* A side key from a stop: turned at the stopped rate, crawling forward just fast
-		 * enough to go round the walking-pace circle (Creep=0: on the spot). */
+		 * enough to go round a CreepRadius circle (Creep=0: on the spot). */
 		*h = fmodf(g_steerHeading + inX * stand * g_frameDt + twoPi, twoPi);
 		g_steerAllowed = stand * 57.29578f;
 		if (fabsf(wanted) > 0.0001f)
 			g_steerClamped++;
 		if (g_creep)
-			AdaptCreep(fabsf(inX) * stand * radiusSlow);
+			AdaptCreep(fabsf(inX) * stand * g_creepRadius);
 	} else if (fabsf(wanted) > allowed) {
 		*h = fmodf(g_steerHeading + copysignf(allowed, wanted) + twoPi, twoPi);
 		g_steerClamped++;

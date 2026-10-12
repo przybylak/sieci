@@ -161,9 +161,10 @@ higher or lower there; more and the bike is parked level at the player's height 
 contact normal, carried 110 units, is no good on rock or at a curb: test 7).}
 float Property ParkMaxRoll = 10.0 AutoReadOnly
 {The parked bike leans sideways at most this much...}
-float Property MaxDismountSlope = 50.0 AutoReadOnly
-{Getting off is refused on ground steeper than this (you'd slide down it on foot: walking
-tops out at 47; test 9 got off on a 60 deg rock face).}
+float Property MaxDismountSlope = 45.0 AutoReadOnly
+{Getting off is refused on ground steeper than this: no getting off anywhere you couldn't
+stand (walking tops out at 47). Test 9 got off on a 60 deg rock face; test 13, with 50 here,
+on 47 and 49 deg ones.}
 float Property ParkMaxPitch = 45.0 AutoReadOnly
 {...and pitches at most this much: the same 45 CMB_Slope.dll parks on (test 11: a 30 here
 left a bike on a 45 deg track spot floating at one end).}
