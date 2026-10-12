@@ -181,6 +181,83 @@ static void FakeSetPosition(uint8_t *self, const float *p, bool centre, bool war
 			PlayerPosition()[i] = p[i] / HAVOK;
 }
 static void FakeGetVelocity(uint8_t *self, float *out) { (void)self; memcpy(out, g_fakeVel, 16); }
+
+/* The world the rays see: flat ground at g_groundZ (none past the drop's edge, when there's
+ * one), and a wall (a vertical plane), when there's one. The game's picking: bhkPickData
+ * (ours: start +0x20, end +0x30, hit +0x60, fraction +0x64, world +0xC0), TESObjectCELL::Pick,
+ * found through an Address Library file the test writes next to the plugin. */
+static float g_groundZ = 100.0f;
+static bool g_wallOn, g_dropOn;
+static float g_wallPoint[2], g_wallNormal[2], g_dropPoint[2], g_dropDir[2];
+static uint8_t *g_wallObj, *g_groundObj, g_fakeWorld[64];
+static int g_picks;
+static void *FakePickCtor(uint8_t *pick)
+{
+	memset(pick, 0, 0xE0);
+	*(void **)(pick + 0xD0) = g_fakeWorld + 32;   /* a collector */
+	return pick;
+}
+static void FakePickReset(uint8_t *pick) { *(int *)(pick + 0x60) = 0; *(float *)(pick + 0x64) = 1.0f; }
+static void FakePickSetStartEnd(uint8_t *pick, const float *a, const float *b)
+{
+	memcpy(pick + 0x20, a, 12);
+	memcpy(pick + 0x30, b, 12);
+}
+static bool FakePickHasHit(const uint8_t *pick) { return *(const int *)(pick + 0x60) != 0; }
+static float FakePickFraction(const uint8_t *pick) { return *(const float *)(pick + 0x64); }
+static uint8_t *FakeCellPick(uint8_t *cell, uint8_t *pick)
+{
+	(void)cell;
+	const float *a = (const float *)(pick + 0x20), *b = (const float *)(pick + 0x30);
+	float t = 2.0f;
+	uint8_t *what = NULL;
+	if (b[2] != a[2]) {
+		float tg = (g_groundZ - a[2]) / (b[2] - a[2]);
+		float x = a[0] + (b[0] - a[0]) * tg, y = a[1] + (b[1] - a[1]) * tg;
+		bool ground = !g_dropOn || (x - g_dropPoint[0]) * g_dropDir[0] + (y - g_dropPoint[1]) * g_dropDir[1] < 0.0f;
+		if (tg >= 0.0f && tg <= 1.0f && ground) {
+			t = tg;
+			what = g_groundObj;
+		}
+	}
+	if (g_wallOn) {
+		float da = (a[0] - g_wallPoint[0]) * g_wallNormal[0] + (a[1] - g_wallPoint[1]) * g_wallNormal[1];
+		float db = (b[0] - g_wallPoint[0]) * g_wallNormal[0] + (b[1] - g_wallPoint[1]) * g_wallNormal[1];
+		if (da > 0.0f && db <= 0.0f && da / (da - db) < t) {
+			t = da / (da - db);
+			what = g_wallObj;
+		}
+	}
+	*(int *)(pick + 0x60) = t <= 1.0f;
+	*(float *)(pick + 0x64) = t <= 1.0f ? t : 1.0f;
+	*(void **)(pick + 0xC0) = g_fakeWorld;
+	g_picks++;
+	return what;
+}
+
+/* F4SE's Address Library for 1.11.240, as the plugin reads it: a count, then {id, offset}
+ * pairs sorted by id; the pick functions among some others. */
+static void WriteAddressLibrary(void)
+{
+	struct { uint64_t id; void *f; } ours[] = {
+		{ 2200263, (void *)FakeCellPick }, { 2230668, (void *)FakePickCtor }, { 2236622, (void *)FakePickSetStartEnd },
+		{ 2277761, (void *)FakePickReset }, { 2277770, (void *)FakePickHasHit }, { 2277771, (void *)FakePickFraction },
+	};
+	FILE *f = fopen("version-1-11-240-0.bin", "wb");
+	uint64_t count = 600;
+	fwrite(&count, 8, 1, f);
+	for (uint64_t id = 2200000, k = 0, n = 0; n < count; id += 300, n++) {
+		uint64_t pair[2] = { id, 0x1000 + id };
+		if (k < 6 && ours[k].id <= id) {
+			pair[0] = ours[k].id;
+			pair[1] = (uintptr_t)ours[k].f - g_base;
+			k++;
+			id = pair[0];
+		}
+		fwrite(pair, 16, 1, f);
+	}
+	fclose(f);
+}
 static void FakeSetVelocity(uint8_t *self, const float *v) { (void)self; if (g_honour & 2) memcpy(g_fakeVel, v, 16); }
 static uint8_t g_bonesOriginal[0x50];
 static int g_deleted;
@@ -393,6 +470,10 @@ static void BuildGame(void)
 	static const char *skin[] = { ".?AVInstance@BSSkin@@", ".?AVNiObject@@" };
 	static const char *bone[] = { ".?AVBoneData@BSSkin@@", ".?AVNiObject@@" };
 	void **vtFade = MakeClass(fade, 4), **vtNode = MakeClass(node, 3), **vtTri = MakeClass(tri, 5);
+	g_wallObj = NewNode(vtNode, "FakeWall", 0);
+	g_groundObj = NewNode(vtNode, "FakeGround", 0);
+	static const char *cell[] = { ".?AVTESObjectCELL@@", ".?AVTESForm@@" };
+	*(void **)(g_player + 0xB8) = NewObject(MakeClass(cell, 2), 0x200);
 	void **vtSkin = MakeClass(skin, 2), **vtBone = MakeClass(bone, 2);
 	vtBone[1] = (void *)FakeDeleteThis;
 	g_root = NewNode(vtFade, "skeleton.nif", 8);
@@ -766,6 +847,12 @@ static void FakeGameFrame(float dt)
 	PlayerPos()[0] += g_fakeVel[0] / HAVOK * dt;
 	PlayerPos()[1] += g_fakeVel[1] / HAVOK * dt;
 	g_fakeVel[0] = g_fakeVel[1] = 0.0f;   /* the game's own next frame: no input, no velocity */
+	float *push = (float *)(g_controller + 0x1B0);
+	if (g_honour & 32) {
+		PlayerPos()[0] += push[0] / HAVOK;
+		PlayerPos()[1] += push[1] / HAVOK;
+	}
+	push[0] = push[1] = 0.0f;   /* used up */
 }
 
 static float Along(const float from[2], float heading)
@@ -795,7 +882,7 @@ static void InputTests(void)
 	printf("input hook: a side key from a stop creeps round a small circle:\n");
 	g_camYaw = *head;
 	g_handlerStyle = 2;
-	g_honour = 8;
+	g_honour = 32;
 	Keys(0.0f, 0.0f);
 	g_onFrame = FakeGameFrame;
 	RunFrames(400);
@@ -811,7 +898,7 @@ static void InputTests(void)
 	Mark(p0);
 	RunFrames(1000);
 	float crept = Moved(p0);
-	CHECK(crept > 25.0f && crept < 60.0f, "creeping forward at %.0f a second (about 42: round a 40 circle), not driven off", crept);
+	CHECK(crept > 35.0f && crept < 80.0f, "creeping forward at %.0f a second (about 58: round a 55 circle), not driven off", crept);
 	CHECK(MoveInput()[0] == 0.0f && MoveInput()[1] > 0.0f && MoveInput()[1] < 0.1f, "the game gets no side input, a little forward (%.3f)", MoveInput()[1]);
 	CHECK(((float *)(g_controls + 0x5C))[1] == MoveInput()[1], "and its movement used that (+5C)");
 	Keys(1.0f, 1.0f);
@@ -820,7 +907,7 @@ static void InputTests(void)
 	Keys(0.0f, 0.0f);
 	RunFrames(600);
 
-	printf("input hook: back gets the game nothing; the movement output is turned round (this game honours that):\n");
+	printf("input hook: back gets the game nothing; the bike is pushed back by pushDelta (this game honours that):\n");
 	g_camYaw = *head;
 	from = *head;
 	Mark(p0);
@@ -863,29 +950,47 @@ static void InputTests(void)
 	CHECK(MoveInput()[0] == 0.0f && MoveInput()[1] == 0.0f && !signbit(MoveInput()[1]), "released: its own (0, 0), not forward (got %.2f)", MoveInput()[1]);
 	g_handlerStyle = 2;
 
-	printf("input hook: a game that ignores the output's rotation but backs up on a negative speed (after a load, tried again):\n");
+	printf("input hook: a game that only honours SetPosition (after a load, tried again), a wall 400 behind:\n");
+	g_groundZ = PlayerPos()[2];   /* flat ground where the player is (the slope tests left them up a hill) */
 	Send(3, 1);   /* PostLoadGame */
-	g_honour = 16;
+	g_honour = 4;
 	RunFrames(400);
 	g_camYaw = *head;
 	from = *head;
 	Mark(p0);
-	float most = 0.0f;
+	float back[2] = { -sinf(from), -cosf(from) };
+	g_wallPoint[0] = p0[0] + back[0] * 400.0f;
+	g_wallPoint[1] = p0[1] + back[1] * 400.0f;
+	g_wallNormal[0] = -back[0];
+	g_wallNormal[1] = -back[1];
+	g_wallOn = true;
+	int picks = g_picks;
 	Keys(0.0f, -1.0f);
-	for (int i = 0; i < 12; i++) {
-		RunFrames(100);
-		float a = Along(p0, from);
-		most = a > most ? a : most;
-	}
-	Mark(p0);
-	RunFrames(1000);
-	along = Along(p0, from);
-	CHECK(along < -50.0f && along > -120.0f, "turned round didn't back it up; the negative speed backs it up %.0f in a second", along);
-	CHECK(most < 30.0f, "the wrong way was dropped quickly (at most %.0f forward)", most);
+	RunFrames(6000);
+	float wall = (PlayerPos()[0] - g_wallPoint[0]) * g_wallNormal[0] + (PlayerPos()[1] - g_wallPoint[1]) * g_wallNormal[1];
+	CHECK(g_picks > picks, "rays cast through the game's picking, found in the Address Library (%d)", g_picks - picks);
+	CHECK(Moved(p0) > 200.0f && wall > 120.0f && wall < 175.0f,
+	      "pushDelta didn't move it; steps after rays back it up %.0f and stop it %.0f short of the wall (the rear's 130)", Moved(p0), wall);
 	Keys(0.0f, 0.0f);
 	RunFrames(300);
+	g_wallOn = false;
 
-	printf("input hook: a game that honours neither: back brakes:\n");
+	printf("input hook: a drop 250 behind:\n");
+	Mark(p0);
+	g_dropPoint[0] = p0[0] + back[0] * 250.0f;
+	g_dropPoint[1] = p0[1] + back[1] * 250.0f;
+	g_dropDir[0] = back[0];
+	g_dropDir[1] = back[1];
+	g_dropOn = true;
+	Keys(0.0f, -1.0f);
+	RunFrames(5000);
+	float edge = (g_dropPoint[0] - PlayerPos()[0]) * back[0] + (g_dropPoint[1] - PlayerPos()[1]) * back[1];
+	CHECK(Moved(p0) > 60.0f && edge > 115.0f && edge < 175.0f, "backs up %.0f and stops %.0f short of the edge (the rear wheel at it)", Moved(p0), edge);
+	Keys(0.0f, 0.0f);
+	RunFrames(300);
+	g_dropOn = false;
+
+	printf("input hook: a game that honours neither pushDelta nor SetPosition: back brakes:\n");
 	Send(3, 1);
 	g_honour = 0;
 	RunFrames(400);
@@ -1348,6 +1453,8 @@ int main(int argc, char **argv)
 	const uint32_t *compatible = version + 2 + 128 + 2;
 	CHECK(compatible[0] == 0x010B0F00u && compatible[1] == 0, "compatible with 1.11.240 only");
 
+	if (mode == 0)
+		WriteAddressLibrary();
 	F4SEInterface f4se = { 0x00070090u, mode == 2 ? 0x010B0DD0u : 0x010B0F00u, 0, 0, QueryInterface, GetPluginHandle, 0, 0, 0 };
 	bool loaded = load(&f4se);
 	if (mode == 2) {

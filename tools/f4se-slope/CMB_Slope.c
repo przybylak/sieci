@@ -190,6 +190,16 @@
 #define VF_CTRL_GET_VELOCITY  0x39          /* ::GetLinearVelocityImpl(hkVector4f &) */
 #define VF_CTRL_SET_VELOCITY  0x3A          /* ::SetLinearVelocityImpl(const hkVector4f &) */
 #define HAVOK_SCALE           0.0142875f    /* game units -> Havok's (bhkWorld's scale) */
+#define OFF_CTRL_PUSH_DELTA   0x1B0         /* bhkCharacterController::pushDelta (hkVector4f, CommonLibF4) */
+#define OFF_REFR_CELL         0xB8          /* TESObjectREFR::parentCell (F4SE, CommonLibF4) */
+#define ADDRESS_LIBRARY       "version-1-11-240-0.bin"   /* F4SE's Address Library for 1.11.240 */
+#define ID_PICK_CTOR          2230668u      /* bhkPickData::bhkPickData (CommonLibF4's IDs) */
+#define ID_PICK_SET_START_END 2236622u      /* bhkPickData::SetStartEnd(const NiPoint3 &, const NiPoint3 &) */
+#define ID_PICK_RESET         2277761u      /* bhkPickData::Reset */
+#define ID_PICK_HAS_HIT       2277770u      /* bhkPickData::HasHit */
+#define ID_PICK_HIT_FRACTION  2277771u      /* bhkPickData::GetHitFraction */
+#define ID_CELL_PICK          2200263u      /* TESObjectCELL::Pick(bhkPickData &) -> NiAVObject * */
+#define PICK_DATA_SIZE        0xE0          /* sizeof(bhkPickData) */
 
 /* RTTI names (MSVC mangled) of the objects we look for. */
 #define RTTI_PLAYER     ".?AVPlayerCharacter@@"
@@ -205,6 +215,7 @@
 #define RTTI_CAMERA     ".?AVPlayerCamera@@"
 #define RTTI_THIRD      ".?AVThirdPersonState@@"
 #define RTTI_CONTROLS   ".?AVPlayerControls@@"
+#define RTTI_CELL       ".?AVTESObjectCELL@@"
 #define RTTI_MOVE_HANDLER ".?AUMovementHandler@@"  /* a struct in the game, like all its input handlers (test 13) */
 #define RTTI_MOVE_HANDLER_CLASS ".?AVMovementHandler@@"
 
@@ -324,11 +335,12 @@ static int g_inputHook = 1;               /* 1 = change the move input before th
 static int g_creep = 1;                   /* 1 = a side key from a stop creeps forward round a CreepRadius circle */
 static float g_creepStart = 0.1f;         /* the first forward input tried for the creep (then learnt) */
 static float g_creepBelow = 100.0f;       /* a side key alone creeps below this speed */
-static float g_creepRadius = 40.0f;       /* the creep goes round this circle (test 14: "a bit more" than 25) */
+static float g_creepRadius = 55.0f;       /* the creep goes round this circle (test 15: a bit more than 40) */
 static float g_backSpeed = 80.0f;         /* units a second the bike is pushed back */
-enum { PUSH_OUTPUT_TURN, PUSH_OUTPUT_NEGATIVE, PUSH_MOD, PUSH_VELOCITY, PUSH_POSITION, PUSH_BRAKE };
-static int g_backPushFirst = PUSH_OUTPUT_TURN;   /* BackPush: the method to start with */
-static bool g_backPushAuto = true;        /* BackPush=auto: the movement output's two ways, else brake */
+enum { PUSH_DELTA, PUSH_RAYSTEP, PUSH_MOD, PUSH_VELOCITY, PUSH_POSITION, PUSH_BRAKE };
+static int g_backPushFirst = PUSH_DELTA;  /* BackPush: the method to start with */
+static bool g_backPushAuto = true;        /* BackPush=auto: pushDelta, then rays and steps, else brake */
+static float g_backClearance = 130.0f;    /* this far behind the rider must be clear (the bike's rear and a bit) */
 static char g_shapePrefix[64] = "CMB_BikeWorn";
 enum { LAYOUT_UNKNOWN = -1, LAYOUT_FILE = 0, LAYOUT_TRANSPOSED = 1, LAYOUT_DISAGREE = 2 };
 static int g_layoutSetting = LAYOUT_UNKNOWN;   /* Layout=auto */
@@ -580,19 +592,27 @@ static void ReadSettings(void)
 	g_creepBelow = strtof(value, NULL);
 	if (!(g_creepBelow >= 0.0f && g_creepBelow <= 1000.0f))
 		g_creepBelow = 100.0f;
-	GetPrivateProfileStringA("Steer", "CreepRadius", "40", value, sizeof(value), ini);
+	GetPrivateProfileStringA("Steer", "CreepRadius", "55", value, sizeof(value), ini);
 	g_creepRadius = strtof(value, NULL);
 	if (!(g_creepRadius >= 0.0f && g_creepRadius <= 1000.0f))
-		g_creepRadius = 40.0f;
+		g_creepRadius = 55.0f;
 	GetPrivateProfileStringA("Steer", "BackSpeed", "80", value, sizeof(value), ini);
 	g_backSpeed = strtof(value, NULL);
 	if (!(g_backSpeed > 0.0f && g_backSpeed <= 400.0f))
 		g_backSpeed = 80.0f;
 	GetPrivateProfileStringA("Steer", "BackPush", "auto", value, sizeof(value), ini);
-	g_backPushAuto = _stricmp(value, "mod") != 0 && _stricmp(value, "velocity") != 0 && _stricmp(value, "position") != 0 &&
-	                 _stricmp(value, "off") != 0;
-	g_backPushFirst = _stricmp(value, "mod") == 0 ? PUSH_MOD : _stricmp(value, "velocity") == 0 ? PUSH_VELOCITY
-	                : _stricmp(value, "position") == 0 ? PUSH_POSITION : _stricmp(value, "off") == 0 ? PUSH_BRAKE : PUSH_OUTPUT_TURN;
+	static const char *const pushValues[] = { "delta", "ray", "mod", "velocity", "position", "off" };
+	g_backPushAuto = true;
+	g_backPushFirst = PUSH_DELTA;
+	for (int i = 0; i <= PUSH_BRAKE; i++)
+		if (_stricmp(value, pushValues[i]) == 0) {
+			g_backPushAuto = false;
+			g_backPushFirst = i;
+		}
+	GetPrivateProfileStringA("Steer", "BackClearance", "130", value, sizeof(value), ini);
+	g_backClearance = strtof(value, NULL);
+	if (!(g_backClearance >= 50.0f && g_backClearance <= 500.0f))
+		g_backClearance = 130.0f;
 	GetPrivateProfileStringA("Tilt", "Shapes", "CMB_BikeWorn", g_shapePrefix, sizeof(g_shapePrefix), ini);
 	GetPrivateProfileStringA("Tilt", "Layout", "auto", value, sizeof(value), ini);
 	g_layoutSetting = _stricmp(value, "file") == 0 ? LAYOUT_FILE : _stricmp(value, "transposed") == 0 ? LAYOUT_TRANSPOSED : LAYOUT_UNKNOWN;
@@ -606,11 +626,11 @@ static void ReadSettings(void)
 	Log("  tilt: NormalOffset=0x%X StateOffset=0x%X Smoothing=%g MedianTime=%g MaxRate=%g MaxRoll=%g PivotHeight=%g Trace=%d Shapes=%s Layout=%s",
 	    g_normalOffset, g_stateOffset, g_smoothing, g_medianTime, g_maxRate, g_maxRoll, g_pivotHeight, g_trace, g_shapePrefix,
 	    g_layoutSetting == LAYOUT_FILE ? "file" : g_layoutSetting == LAYOUT_TRANSPOSED ? "transposed" : "auto");
+	static const char *const pushValueNames[] = { "delta", "ray", "mod", "velocity", "position", "off" };
 	Log("  steer: Enabled=%d FullSpeed=%g InputHook=%d Creep=%d CreepInput=%g CreepBelow=%g CreepRadius=%g Reverse=%d BackSpeed=%g "
-	    "BackPush=%s",
+	    "BackPush=%s BackClearance=%g",
 	    g_steer, g_fullSpeed, g_inputHook, g_creep, g_creepStart, g_creepBelow, g_creepRadius, g_reverse, g_backSpeed,
-	    g_backPushAuto ? "auto" : g_backPushFirst == PUSH_BRAKE ? "off" : g_backPushFirst == PUSH_MOD ? "mod"
-	    : g_backPushFirst == PUSH_VELOCITY ? "velocity" : "position");
+	    g_backPushAuto ? "auto" : pushValueNames[g_backPushFirst], g_backClearance);
 }
 
 /* ------------------------------------------------------------------------- */
@@ -2542,13 +2562,11 @@ static bool ReadableNow(uintptr_t p, size_t n)
  * (CommonLibF4): movementRotation +0x00 (always 0 in test 14: along the facing), rotationSpeed
  * +0x10 (z: turning, up to +-4), movementSpeed +0x20 (2 riding, 0.06-0.3 creeping, 0 with no
  * input) and targetAngle +0x30 (z: the heading wanted, radians). While backing up the plugin
- * holds the heading here (target angle = its own, no turning: it steers) and, as the reverse,
- * either turns the movement round (rotation z = pi) or makes its speed negative, at a speed
- * learnt to reach BackSpeed: the game's own movement, with its own collision (test 14: the
- * SetPosition step went through walls). With Trace=1 the result is logged. */
-static float g_backOutput = 0.3f;   /* the movement speed that backs up at BackSpeed (learnt) */
+ * holds the heading here (target angle = its own, no turning, no speed: it steers and moves
+ * the bike itself). Test 15: the movement turned round (rotation z = pi) or a negative speed
+ * didn't move the player at all: it only ever moves forward along the facing. With Trace=1
+ * the result is logged. */
 static float g_outputGame[16];      /* the game's own, before ours */
-static int g_pushMethod = -1;       /* the way of backing up in use or on trial (-1: not started) */
 static void HookOutput(uintptr_t self, uintptr_t id, uintptr_t out, uintptr_t d)
 {
 	((Forward4)g_origOutput)(self, id, out, d);
@@ -2561,12 +2579,6 @@ static void HookOutput(uintptr_t self, uintptr_t id, uintptr_t out, uintptr_t d)
 		o[4] = o[5] = o[6] = 0.0f;
 		o[8] = 0.0f;
 		o[14] = g_steerHeading;
-		if (g_pushMethod == PUSH_OUTPUT_TURN) {
-			o[2] = 3.14159265f;
-			o[8] = g_backOutput;
-		} else if (g_pushMethod == PUSH_OUTPUT_NEGATIVE) {
-			o[8] = -g_backOutput;
-		}
 	}
 	memcpy(g_output, o, sizeof(g_output));
 	g_outputCalls++;
@@ -2681,12 +2693,12 @@ static void InstallInputHook(void)
 	uintptr_t vt2 = ReadPtr(base), out = vt2 ? ReadPtr(vt2 + 8 * VF_CONTROLLER_OUTPUT) : 0;
 	if (!c || c->offset != OFF_CONTROLS_IMOVE || strcmp(TypeName(c->typeDescriptor), RTTI_CONTROLS) != 0 ||
 	    vt2 != g_base + RVA_CONTROLS_IMOVE_VTBL || !InImage(out, 1)) {
-		Log("input: PlayerControls+0x30 isn't its IMovementPlayerControls: no reverse through the movement output");
+		Log("input: PlayerControls+0x30 isn't its IMovementPlayerControls: the movement output isn't held while backing");
 		return;
 	}
 	g_outputHooked = PatchSlot(vt2 + 8 * VF_CONTROLLER_OUTPUT, (void *)HookOutput, &g_origOutput);
 	Log("input: IMovementPlayerControls::GetControllerOutput +0x%llX %s", (unsigned long long)(out - g_base),
-	    g_outputHooked ? "wrapped (backing up)" : "NOT wrapped");
+	    g_outputHooked ? "wrapped (holds the heading while backing up)" : "NOT wrapped");
 }
 
 /* ------------------------------------------------------------------------- */
@@ -2694,24 +2706,32 @@ static void InstallInputHook(void)
 /* ------------------------------------------------------------------------- */
 
 /* Holding back, the game gets no input at all (it would drive forward), and the plugin backs
- * the bike up at BackSpeed. BackPush=auto tries, each kept only if the bike really goes back
- * (more than 30% of BackSpeed 0.6 s into holding back, counted from when it's stopped rolling
- * forward; dropped at once if it goes forward or sideways instead):
- *   1. the movement output turned round (rotation z = pi, above);
- *   2. the movement output's speed made negative;
+ * the bike up at BackSpeed itself: the game's movement only ever goes forward along the facing
+ * (test 15: the movement output turned round, or at a negative speed, didn't move it). Of the
+ * character controller's own, test 14 found velocityMod (+0x180) and SetLinearVelocityImpl
+ * (vfunc 0x3A) didn't move it and a step through SetPositionImpl (0x34) did, but through
+ * walls. BackPush=auto tries, each kept only if the bike really goes back (more than 30% of
+ * BackSpeed 0.6 s into holding back, counted from when it's stopped rolling forward and not
+ * while something behind stops it; dropped at once if it goes forward or sideways instead):
+ *   1. pushDelta (+0x1B0): a step the controller takes itself, so with its own collision, if
+ *      the game uses it for the player;
+ *   2. steps through SetPositionImpl, each only after rays cast with the game's own picking
+ *      (bhkPickData, TESObjectCELL::Pick, through the Address Library) say the way back is
+ *      clear at knee and chest height for BackClearance units, there's ground under the rear
+ *      and under the feet where they go (the step follows it, up or down at most 40);
  *   3. nothing: back brakes (the bike stops instead of driving forward).
- * Test 14 tried the character controller's own: its velocityMod (+0x180, CommonLibF4) and
- * SetLinearVelocityImpl (vfunc 0x3A) didn't move it, and a step through SetPositionImpl (0x34)
- * did but through walls. They're still there for BackPush=mod, velocity or position, the
- * last two only once GetPositionImpl (0x33) has given the player's position (which also says
- * whether the controller works in Havok's units, 1/70 of the game's, or the game's). */
+ * BackPush=delta, ray, mod, velocity or position use only that one (position: the raw step of
+ * test 14, through walls). SetPositionImpl only once GetPositionImpl (0x33) has given the
+ * player's position, which also says Havok's units (1/70 of the game's) or the game's. */
 typedef void (*GetVecFn)(uintptr_t self, float *out);
 typedef void (*SetVecFn)(uintptr_t self, const float *v);
 typedef void (*GetPosFn)(uintptr_t self, float *out, bool centre);
 typedef void (*SetPosFn)(uintptr_t self, const float *p, bool centre, bool warp);
-static const char *const g_pushNames[] = { "the movement output turned round", "the movement output's speed made negative",
-                                           "velocityMod", "SetLinearVelocity", "SetPosition", "nothing (brake)" };
+static const char *const g_pushNames[] = { "pushDelta", "steps after rays", "velocityMod", "SetLinearVelocity", "SetPosition",
+                                           "nothing (brake)" };
+static int g_pushMethod = -1;       /* the way of backing up in use or on trial (-1: not started) */
 static bool g_pushProven;           /* it moved the bike back */
+static bool g_pushBlocked;          /* something behind stopped it this frame */
 static bool g_pushOn;               /* backing up this frame */
 static bool g_pushClock;            /* the trial's clock runs (the bike has stopped rolling forward) */
 static uintptr_t g_pushCtrl;        /* pushing this controller (something to undo on letting go) */
@@ -2765,6 +2785,225 @@ static bool CheckControllerFuncs(uintptr_t ctrl, const float pos[3])
 	return g_ctrlCheck > 0;
 }
 
+/* --- Rays, cast with the game's own picking (found through the Address Library) --- */
+
+typedef void *(*PickCtorFn)(void *pick);
+typedef void (*PickResetFn)(void *pick);
+typedef void (*PickSetFn)(void *pick, const float *start, const float *end);
+typedef bool (*PickHasHitFn)(const void *pick);
+typedef float (*PickFractionFn)(const void *pick);
+typedef uintptr_t (*CellPickFn)(uintptr_t cell, void *pick);
+static PickCtorFn g_pickCtor;
+static PickResetFn g_pickReset;
+static PickSetFn g_pickSet;
+static PickHasHitFn g_pickHasHit;
+static PickFractionFn g_pickFraction;
+static CellPickFn g_cellPick;
+static int g_pickFuncs;             /* 0 not looked for, 1 found (and the pick data made), -1 not */
+static int g_pickState;             /* 0 not tested (since a load), 1 rays work, -1 they can't be used */
+static __attribute__((aligned(16))) uint8_t g_pick[PICK_DATA_SIZE + 0x20];   /* one, reused: no world reference per ray */
+static const char *g_rayWhat;       /* what the last ray hit (its 3D's name), for the log */
+static float g_rayScale = 1.0f;     /* the rays' points in game units (1), or Havok's (if the test ray says so) */
+static float g_rayGroundNear, g_rayGroundFar;   /* the ground just behind and under the rear, for the trace */
+static float g_blockedLogged = -100.0f;
+
+/* F4SE's Address Library (version-1-11-240-0.bin): a count, then {id, offset} pairs sorted by
+ * id; the offset is from the game's image base. Looked for next to this plugin, then in the
+ * game's Data\F4SE\Plugins (with Mod Organizer the plugin's own folder is its mod's). */
+static FILE *OpenAddressLibrary(char *path, size_t size)
+{
+	GetModuleFileNameA(g_module, path, (DWORD)size);
+	char *slash = strrchr(path, '\\');
+	if (slash && (size_t)(slash + 1 - path) + sizeof(ADDRESS_LIBRARY) <= size) {
+		strcpy(slash + 1, ADDRESS_LIBRARY);
+		FILE *f = fopen(path, "rb");
+		if (f)
+			return f;
+	}
+	GetModuleFileNameA(NULL, path, (DWORD)size);
+	slash = strrchr(path, '\\');
+	const char *rest = "Data\\F4SE\\Plugins\\" ADDRESS_LIBRARY;
+	if (slash && (size_t)(slash + 1 - path) + strlen(rest) + 1 <= size) {
+		strcpy(slash + 1, rest);
+		return fopen(path, "rb");
+	}
+	return NULL;
+}
+
+static uintptr_t AddressOf(FILE *f, uint64_t count, uint64_t id)
+{
+	uint64_t lo = 0, hi = count;
+	while (lo < hi) {
+		uint64_t mid = lo + (hi - lo) / 2, pair[2];
+		if (_fseeki64(f, (long long)(8 + 16 * mid), SEEK_SET) != 0 || fread(pair, 16, 1, f) != 1)
+			return 0;
+		if (pair[0] == id)
+			return InImage(g_base + (uintptr_t)pair[1], 16) ? g_base + (uintptr_t)pair[1] : 0;
+		if (pair[0] < id)
+			lo = mid + 1;
+		else
+			hi = mid;
+	}
+	return 0;
+}
+
+/* One ray from a to b (game units): the fraction along it where it first hits something (1 if
+ * nothing), and what it hit in g_rayWhat. */
+static float CastRay(uintptr_t cell, const float a[3], const float b[3])
+{
+	g_rayWhat = NULL;
+	float as[3] = { a[0] * g_rayScale, a[1] * g_rayScale, a[2] * g_rayScale };
+	float bs[3] = { b[0] * g_rayScale, b[1] * g_rayScale, b[2] * g_rayScale };
+	g_pickReset(g_pick);
+	g_pickSet(g_pick, as, bs);
+	uintptr_t obj = g_cellPick(cell, g_pick);
+	if (!g_pickHasHit(g_pick))
+		return 1.0f;
+	float f = g_pickFraction(g_pick);
+	if (obj && IsA(obj, RTTI_AVOBJECT))
+		g_rayWhat = ObjectName(obj);
+	return isfinite(f) && f >= 0.0f && f <= 1.0f ? f : 0.0f;
+}
+
+/* Once: the functions from the Address Library and the pick data made (one, reused, so no
+ * Havok world reference is left behind per ray). Then, once per load: one ray down beside the
+ * bike must find the ground about where the player stands, else rays aren't used. */
+static bool FindPickFunctions(void)
+{
+	if (g_pickFuncs)
+		return g_pickFuncs > 0;
+	g_pickFuncs = -1;
+	char path[MAX_PATH * 2];
+	FILE *f = OpenAddressLibrary(path, sizeof(path));
+	if (!f) {
+		Log("reverse: no Address Library (%s, also looked for next to this plugin): no rays", path);
+		return false;
+	}
+	uint64_t count = 0;
+	uintptr_t ctor = 0, set = 0, reset = 0, hit = 0, fraction = 0, pick = 0;
+	if (fread(&count, 8, 1, f) == 1 && count > 0 && count < 100000000u) {
+		ctor = AddressOf(f, count, ID_PICK_CTOR);
+		set = AddressOf(f, count, ID_PICK_SET_START_END);
+		reset = AddressOf(f, count, ID_PICK_RESET);
+		hit = AddressOf(f, count, ID_PICK_HAS_HIT);
+		fraction = AddressOf(f, count, ID_PICK_HIT_FRACTION);
+		pick = AddressOf(f, count, ID_CELL_PICK);
+	}
+	fclose(f);
+	Log("reverse: Address Library %s (%llu ids): bhkPickData ctor +0x%llX, SetStartEnd +0x%llX, Reset +0x%llX, HasHit +0x%llX, "
+	    "GetHitFraction +0x%llX, TESObjectCELL::Pick +0x%llX", path, (unsigned long long)count,
+	    (unsigned long long)(ctor ? ctor - g_base : 0), (unsigned long long)(set ? set - g_base : 0),
+	    (unsigned long long)(reset ? reset - g_base : 0), (unsigned long long)(hit ? hit - g_base : 0),
+	    (unsigned long long)(fraction ? fraction - g_base : 0), (unsigned long long)(pick ? pick - g_base : 0));
+	if (!ctor || !set || !reset || !hit || !fraction || !pick) {
+		Log("reverse: a function missing: no rays");
+		return false;
+	}
+	g_pickCtor = (PickCtorFn)ctor;
+	g_pickSet = (PickSetFn)set;
+	g_pickReset = (PickResetFn)reset;
+	g_pickHasHit = (PickHasHitFn)hit;
+	g_pickFraction = (PickFractionFn)fraction;
+	g_cellPick = (CellPickFn)pick;
+	memset(g_pick, 0, sizeof(g_pick));
+	g_pickCtor(g_pick);
+	g_pickFuncs = 1;
+	return true;
+}
+
+static bool RaysReady(uintptr_t player)
+{
+	if (g_pickState)
+		return g_pickState > 0;
+	g_pickState = -1;
+	uintptr_t cell = ReadPtr(player + OFF_REFR_CELL);
+	if (!FindPickFunctions())
+		return false;
+	if (!cell || !IsA(cell, RTTI_CELL)) {
+		Log("reverse: no parent cell: no rays");
+		return false;
+	}
+	const float *pos = (const float *)(player + OFF_REFR_POS);
+	float h = *(const float *)(player + OFF_REFR_HEADING);
+	float a[3] = { pos[0] - sinf(h) * 60.0f, pos[1] - cosf(h) * 60.0f, pos[2] + 100.0f };
+	float b[3] = { a[0], a[1], pos[2] - 100.0f };
+	g_rayScale = 1.0f;
+	float down = CastRay(cell, a, b);
+	if (down >= 1.0f) {
+		g_rayScale = HAVOK_SCALE;   /* nothing at all: maybe SetStartEnd wants Havok's units */
+		float again = CastRay(cell, a, b);
+		if (again < 1.0f)
+			down = again;
+		else
+			g_rayScale = 1.0f;
+	}
+	bool ok = down > 0.2f && down < 0.8f;
+	Log("reverse: a test ray down beside the bike (in %s units) hit %s at %.2f of the way (the ground about where the player "
+	    "stands is 0.2-0.8): %s; the pick data's world %p, collector %p", g_rayScale < 1.0f ? "Havok's" : "the game's",
+	    g_rayWhat ? g_rayWhat : down < 1.0f ? "something" : "nothing", down, ok ? "rays work" : "not trusted, no rays",
+	    *(void **)(g_pick + 0xC0), *(void **)(g_pick + 0xD0));
+	g_pickState = ok ? 1 : -1;
+	return ok;
+}
+
+/* Is the way back clear for a step of `step` units? The ground is found 55 units behind the
+ * rider (clear of their own body) and under the rear (BackClearance): there must be some, the
+ * feet follow its slope (dz), and the knee- and chest-high rays between follow it too (so a
+ * slope behind isn't taken for a wall). Else why not (logged once a second). */
+static bool WayBackClear(uintptr_t player, const float dir[2], float step, float *dz)
+{
+	uintptr_t cell = ReadPtr(player + OFF_REFR_CELL);
+	if (!cell || !IsA(cell, RTTI_CELL))
+		return false;
+	const float *pos = (const float *)(player + OFF_REFR_POS);
+	const char *why = NULL;
+	float at = 0.0f, behindNear = 55.0f, behindFar = g_backClearance, groundNear = 0.0f, groundFar = 0.0f;
+	{
+		float a[3] = { pos[0] + dir[0] * behindNear, pos[1] + dir[1] * behindNear, pos[2] + 60.0f };
+		float b[3] = { a[0], a[1], pos[2] - 60.0f };
+		float f = CastRay(cell, a, b);
+		if (f >= 1.0f) {
+			why = "no ground just behind";
+			at = behindNear;
+		}
+		groundNear = 60.0f - f * 120.0f;
+		if (!why && fabsf(groundNear) > behindNear) {
+			why = "too steep just behind";
+			at = behindNear;
+		}
+	}
+	if (!why) {
+		float a[3] = { pos[0] + dir[0] * behindFar, pos[1] + dir[1] * behindFar, pos[2] + behindFar * 0.7f };
+		float b[3] = { a[0], a[1], pos[2] - behindFar * 1.2f };
+		float f = CastRay(cell, a, b);
+		if (f >= 1.0f) {
+			why = "no ground under the rear (a drop)";
+			at = behindFar;
+		}
+		groundFar = behindFar * 0.7f - f * behindFar * 1.9f;
+	}
+	static const float heights[2] = { 30.0f, 80.0f };
+	for (int i = 0; i < 2 && !why; i++) {
+		float len = behindFar + step;
+		float a[3] = { pos[0] + dir[0] * behindNear, pos[1] + dir[1] * behindNear, pos[2] + groundNear + heights[i] };
+		float b[3] = { pos[0] + dir[0] * len, pos[1] + dir[1] * len,
+		               pos[2] + groundNear + (groundFar - groundNear) * (len - behindNear) / (behindFar - behindNear) + heights[i] };
+		float f = CastRay(cell, a, b);
+		if (f < 1.0f) {
+			why = "something behind";
+			at = behindNear + f * (len - behindNear);
+		}
+	}
+	*dz = groundNear / behindNear * step;
+	g_rayGroundNear = groundNear;
+	g_rayGroundFar = groundFar;
+	if (why && g_clock - g_blockedLogged >= 1.0f) {
+		g_blockedLogged = g_clock;
+		Log("reverse: stopped: %s, %.0f units back (%s)", why, at, g_rayWhat ? g_rayWhat : "unnamed");
+	}
+	return !why;
+}
+
 /* Undo what the method in use leaves behind (on letting go of back, or getting off). */
 static void StopPush(void)
 {
@@ -2774,7 +3013,9 @@ static void StopPush(void)
 	g_pushHeld = 0.0f;
 	if (!ctrl || !IsA(ctrl, RTTI_CONTROLLER))
 		return;
-	if (g_pushMethod == PUSH_MOD && Accessible(ctrl + OFF_CTRL_VELOCITY_MOD, 16, true) &&
+	if (g_pushMethod == PUSH_DELTA && Accessible(ctrl + OFF_CTRL_PUSH_DELTA, 16, true)) {
+		memset((void *)(ctrl + OFF_CTRL_PUSH_DELTA), 0, 16);
+	} else if (g_pushMethod == PUSH_MOD && Accessible(ctrl + OFF_CTRL_VELOCITY_MOD, 16, true) &&
 	    Accessible(ctrl + OFF_CTRL_VELOCITY_TIME, 4, true)) {
 		memcpy((void *)(ctrl + OFF_CTRL_VELOCITY_MOD), g_savedMod, sizeof(g_savedMod));
 		*(float *)(ctrl + OFF_CTRL_VELOCITY_TIME) = g_savedModTime;
@@ -2792,10 +3033,30 @@ static void StopPush(void)
 	}
 }
 
-static bool PushStep(uintptr_t ctrl, const float dir[2], float dt)
+static bool PushStep(uintptr_t player, uintptr_t ctrl, const float dir[2], float dt)
 {
 	float v = g_backSpeed * g_havok;
+	g_pushBlocked = false;
 	switch (g_pushMethod) {
+	case PUSH_DELTA: {
+		float *d = (float *)(ctrl + OFF_CTRL_PUSH_DELTA);
+		if (!Accessible((uintptr_t)d, 16, true))
+			return false;
+		if (g_pushCtrl != ctrl) {
+			bool plausible = true;
+			for (int i = 0; i < 4; i++)
+				plausible = plausible && isfinite(d[i]) && fabsf(d[i]) < 1000.0f;
+			if (!plausible) {
+				Log("reverse: pushDelta (%g, %g, %g) doesn't look like a step", d[0], d[1], d[2]);
+				return false;
+			}
+		}
+		float step = HAVOK_SCALE * g_backSpeed * (dt < 0.05f ? dt : 0.05f);   /* Havok's units, as velocityMod */
+		d[0] = dir[0] * step;
+		d[1] = dir[1] * step;
+		d[2] = d[3] = 0.0f;
+		return true;
+	}
 	case PUSH_MOD: {
 		float *mod = (float *)(ctrl + OFF_CTRL_VELOCITY_MOD), *t = (float *)(ctrl + OFF_CTRL_VELOCITY_TIME);
 		if (!Accessible((uintptr_t)mod, 16, true) || !Accessible((uintptr_t)t, 4, true))
@@ -2833,24 +3094,27 @@ static bool PushStep(uintptr_t ctrl, const float dir[2], float dt)
 		set(ctrl, vel);
 		return true;
 	}
-	case PUSH_POSITION: {
+	case PUSH_POSITION:
+	case PUSH_RAYSTEP: {
 		GetPosFn get = (GetPosFn)CtrlFunc(ctrl, VF_CTRL_GET_POSITION);
 		SetPosFn set = (SetPosFn)CtrlFunc(ctrl, VF_CTRL_SET_POSITION);
 		__attribute__((aligned(16))) float p[16] = { 0 };
-		if (!get || !set)
+		if (!get || !set || (g_pushMethod == PUSH_RAYSTEP && !RaysReady(player)))
 			return false;
+		float stepGame = g_backSpeed * (dt < 0.05f ? dt : 0.05f), dz = 0.0f;   /* a few units a frame at most */
+		if (g_pushMethod == PUSH_RAYSTEP && !WayBackClear(player, dir, stepGame, &dz)) {
+			g_pushBlocked = true;
+			return true;   /* stopped, not failed */
+		}
 		get(ctrl, p, false);
 		if (!isfinite(p[0]) || !isfinite(p[1]) || !isfinite(p[2]))
 			return false;
-		float step = v * (dt < 0.05f ? dt : 0.05f);   /* a few units a frame at most */
-		p[0] += dir[0] * step;
-		p[1] += dir[1] * step;
+		p[0] += dir[0] * stepGame * g_havok;
+		p[1] += dir[1] * stepGame * g_havok;
+		p[2] += dz * g_havok;
 		set(ctrl, p, false, false);
 		return true;
 	}
-	case PUSH_OUTPUT_TURN:
-	case PUSH_OUTPUT_NEGATIVE:
-		return g_outputHooked;   /* the output hook does it */
 	default:
 		return true;   /* brake: nothing */
 	}
@@ -2858,7 +3122,7 @@ static bool PushStep(uintptr_t ctrl, const float dir[2], float dt)
 
 static void NextPush(const char *why)
 {
-	int next = g_pushMethod == PUSH_OUTPUT_TURN ? PUSH_OUTPUT_NEGATIVE : PUSH_BRAKE;
+	int next = g_pushMethod == PUSH_DELTA ? PUSH_RAYSTEP : PUSH_BRAKE;
 	Log("reverse: %s %s: trying %s", g_pushNames[g_pushMethod], why, g_pushNames[next]);
 	g_pushMethod = next;
 }
@@ -2873,14 +3137,13 @@ static void PushBack(uintptr_t player, float heading, float dt)
 		return;
 	if (g_pushCtrl && g_pushCtrl != ctrl)
 		g_pushCtrl = 0;   /* a new controller (a load): nothing to undo on the old one */
-	bool output = g_pushMethod == PUSH_OUTPUT_TURN || g_pushMethod == PUSH_OUTPUT_NEGATIVE;
-	if (!output && g_pushMethod != PUSH_MOD && !CheckControllerFuncs(ctrl, (const float *)(player + OFF_REFR_POS))) {
+	if (g_pushMethod != PUSH_MOD && g_pushMethod != PUSH_DELTA && !CheckControllerFuncs(ctrl, (const float *)(player + OFF_REFR_POS))) {
 		g_pushMethod = PUSH_BRAKE;
 		Log("reverse: back brakes (the controller's functions can't be used)");
 		return;
 	}
 	float dir[2] = { -sinf(heading), -cosf(heading) };
-	if (!PushStep(ctrl, dir, dt)) {
+	if (!PushStep(player, ctrl, dir, dt)) {
 		StopPush();
 		if (g_backPushAuto) {
 			NextPush("can't be used");
@@ -2890,21 +3153,13 @@ static void PushBack(uintptr_t player, float heading, float dt)
 		}
 		return;
 	}
-	if (!output)
-		g_pushCtrl = ctrl;
+	g_pushCtrl = ctrl;
 	g_pushOn = true;
 	if (!g_pushClock && g_speedAlong < 30.0f)
 		g_pushClock = true;   /* the trial starts once the bike has stopped going forward */
-	if (!g_pushClock)
-		return;
+	if (!g_pushClock || g_pushBlocked)
+		return;   /* stopped by something behind: says nothing about the method */
 	g_pushHeld += dt;
-	/* The movement speed that backs up at BackSpeed, learnt while it does. */
-	if (output && g_speedAlong < 0.0f && dt > 0.0f) {
-		float e = (g_backSpeed + g_speedAlong) / g_backSpeed;
-		e = e > 1.0f ? 1.0f : e < -1.0f ? -1.0f : e;
-		g_backOutput *= expf(1.5f * e * dt);
-		g_backOutput = g_backOutput < 0.05f ? 0.05f : g_backOutput > 1.0f ? 1.0f : g_backOutput;
-	}
 	if (g_pushProven)
 		return;
 	const char *wrong = g_pushHeld < 0.25f ? NULL : g_speedAlong > 20.0f ? "moved the bike forward"
@@ -2913,8 +3168,7 @@ static void PushBack(uintptr_t player, float heading, float dt)
 		return;
 	if (!wrong && g_speedAlong < -0.3f * g_backSpeed) {
 		g_pushProven = true;
-		Log("reverse: %s moves the bike back (%+.0f along the heading, speed %.2f): kept", g_pushNames[g_pushMethod], g_speedAlong,
-		    g_backOutput);
+		Log("reverse: %s moves the bike back (%+.0f along the heading): kept", g_pushNames[g_pushMethod], g_speedAlong);
 	} else if (g_backPushAuto) {
 		char why[112];
 		snprintf(why, sizeof(why), "%s (%+.0f along the heading, %.0f a second in all, after %.2f s)",
@@ -3050,13 +3304,16 @@ static void TraceControls(void)
 	if (g_inputMode != INPUT_PASS && g_clock - g_inputLogged >= 0.25f) {
 		g_inputLogged = g_clock;
 		output = true;
-		if (g_inputMode == INPUT_BACK)
+		if (g_inputMode == INPUT_BACK) {
 			Log("reverse: keys (%.2f, %.2f), the game gets (%.2f, %.2f), the movement last used (%.2f, %.2f); pushing back by %s%s; "
 			    "moving %+.0f along the heading",
 			    g_rawMove[0], g_rawMove[1], g_wroteMove[0], g_wroteMove[1], prev[0], prev[1],
 			    g_pushNames[g_pushMethod < 0 ? g_backPushFirst : g_pushMethod],
 			    g_pushProven ? " (works)" : g_pushMethod == PUSH_BRAKE ? "" : " (on trial)", g_speedAlong);
-		else
+			if (g_pushMethod == PUSH_RAYSTEP)
+				Log("  rays: the ground %+.0f just behind, %+.0f under the rear%s", g_rayGroundNear, g_rayGroundFar,
+				    g_pushBlocked ? "; stopped" : "");
+		} else
 			Log("creep: keys (%.2f, %.2f), the game gets (%.2f, %.2f), the movement last used (%.2f, %.2f); moving %+.0f along the "
 			    "heading (want %.0f)",
 			    g_rawMove[0], g_rawMove[1], g_wroteMove[0], g_wroteMove[1], prev[0], prev[1], g_speedAlong, g_creepWant);
@@ -3265,6 +3522,7 @@ static void OnF4SEMessage(F4SEMessage *msg)
 		g_steerHave = false;                    /* steer from the loaded heading */
 		g_pushCtrl = 0;                         /* the old controller is gone: nothing to undo */
 		g_pushMethod = -1;                      /* try the ways to push back again */
+		g_pickState = 0;                        /* the rays' test ray again (a new world) */
 		g_pushProven = false;
 		memset(g_refused, 0, sizeof(g_refused));
 		TrackClear();
