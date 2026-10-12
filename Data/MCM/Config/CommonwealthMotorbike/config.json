@@ -66,6 +66,30 @@
     },
     {
       "type": "slider",
+      "text": "Turning radius",
+      "help": "The tightest turn the bike makes while riding, in game units (about 70 = 1 m): no turning on the spot. Needs F4SE and the CMB_Slope.dll plugin. 0 = turn like on foot.",
+      "valueOptions": {
+        "min": 0,
+        "max": 600,
+        "step": 25,
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|839"
+      }
+    },
+    {
+      "type": "slider",
+      "text": "Turning when stopped (deg/s)",
+      "help": "How fast the bike can be walked round when it isn\u0027t moving. Needs F4SE and the CMB_Slope.dll plugin.",
+      "valueOptions": {
+        "min": 0,
+        "max": 90,
+        "step": 5,
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|83A"
+      }
+    },
+    {
+      "type": "slider",
       "text": "Bike tilts with the ground (max degrees)",
       "help": "While riding, the bike pitches with the ground by at most this much (needs F4SE and the CMB_Slope.dll plugin). The rider doesn\u0027t tilt with it, so more than about 15 looks odd. The parked bike tilts up to 30 whatever this says. 0 = always level, parked too.",
       "valueOptions": {

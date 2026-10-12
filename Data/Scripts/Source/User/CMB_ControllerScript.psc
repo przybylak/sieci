@@ -124,8 +124,10 @@ Group Optional
 	a bike length behind the player (position, angle, and the up its wheels give it).
 	UpZ is 0 when there's no such spot, or without the plugin.}
 	GlobalVariable Property CMB_TrackSlope Auto Const
-	{While riding, CMB_Slope.dll writes how steep (degrees) the ground just ridden is, over
-	about a wheelbase. 0 otherwise, or without the plugin.}
+	{While riding, CMB_Slope.dll writes how steep (degrees) the ground here is: the slope of
+	the track just ridden (about a wheelbase), and once that's 20 or more, the face's own from
+	the ground's normal (riding across a face, or turned on it). 0 otherwise, or without the
+	plugin.}
 	ObjectReference Property GroundProbeRef Auto Const
 	{An XMarker in CMB_HoldingCell. Without the plugin, it feels for the navmesh around the
 	parked bike to tilt it.}

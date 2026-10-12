@@ -34,6 +34,8 @@
 #define GROUND_GLOBAL_FORMID  (0xFE000000u | (LIGHT_INDEX << 12) | 0x82Du)   /* X, then Y, Z */
 #define PARK_GLOBAL_FORMID    (0xFE000000u | (LIGHT_INDEX << 12) | 0x831u)   /* X, Y, Z, Angle, UpX, UpY, UpZ */
 #define SLOPE_TRACK_FORMID    (0xFE000000u | (LIGHT_INDEX << 12) | 0x838u)
+#define TURN_RADIUS_FORMID    (0xFE000000u | (LIGHT_INDEX << 12) | 0x839u)
+#define TURN_STAND_FORMID     (0xFE000000u | (LIGHT_INDEX << 12) | 0x83Au)
 #define HEADING               1.0f         /* radians: the player faces a bit north of east */
 #define DEG                   57.29578f
 #define COS47                 0.68199836f
@@ -102,7 +104,7 @@ static uint8_t *g_cameraSetting;
 static void **g_vtProxy, **g_vtWrapper, **g_vtCtrl;
 static uint8_t *g_tiltGlobal, *g_groundGlobals[3];
 static uint8_t *g_player, *g_root, *g_bikeNode, *g_bikeShape, *g_boneData, *g_bones, *g_biped;
-static uint8_t *g_parkGlobals[7], *g_trackSlope;
+static uint8_t *g_parkGlobals[7], *g_trackSlope, *g_turnRadius, *g_turnStand;
 static uint8_t *g_thirdState;   /* ThirdPersonState: zoom target +0xE8, current +0xEC */
 static uint8_t g_bonesOriginal[0x50];
 static int g_deleted;
@@ -133,6 +135,10 @@ static uintptr_t FakeLookupFormByID(uint32_t id)
 		return (uintptr_t)g_parkGlobals[id - PARK_GLOBAL_FORMID];
 	if (id == SLOPE_TRACK_FORMID)
 		return (uintptr_t)g_trackSlope;
+	if (id == TURN_RADIUS_FORMID)
+		return (uintptr_t)g_turnRadius;
+	if (id == TURN_STAND_FORMID)
+		return (uintptr_t)g_turnStand;
 	return id == SLOPE_GLOBAL_FORMID ? (uintptr_t)g_global : id == CAMERA_GLOBAL_FORMID ? (uintptr_t)g_cameraGlobal
 	     : id == TILT_GLOBAL_FORMID ? (uintptr_t)g_tiltGlobal : 0;
 }
@@ -263,6 +269,8 @@ static void BuildGame(void)
 	for (int i = 0; i < 7; i++)
 		g_parkGlobals[i] = NewGlobal(PARK_GLOBAL_FORMID + (uint32_t)i, park[i]);
 	g_trackSlope = NewGlobal(SLOPE_TRACK_FORMID, "CMB_TrackSlope");
+	g_turnRadius = NewGlobal(TURN_RADIUS_FORMID, "CMB_TurnRadius");     /* 0: steering off until a test sets it */
+	g_turnStand = NewGlobal(TURN_STAND_FORMID, "CMB_StandTurnRate");
 	PlayerPos()[0] = -1200.0f;
 	PlayerPos()[1] = 1280.0f;
 	PlayerPos()[2] = 100.0f;
@@ -422,11 +430,13 @@ static void (*g_onFrame)(float dt);   /* moves the player, when a test rides som
 static void RunFrames(int ms)
 {
 	DWORD end = GetTickCount() + (DWORD)ms;
-	DWORD last = GetTickCount();
+	LARGE_INTEGER frequency, last, now;
+	QueryPerformanceFrequency(&frequency);
+	QueryPerformanceCounter(&last);
 	while ((int32_t)(GetTickCount() - end) < 0) {
-		DWORD now = GetTickCount();
+		QueryPerformanceCounter(&now);
 		if (g_onFrame)
-			g_onFrame((float)(now - last) / 1000.0f);
+			g_onFrame((float)(now.QuadPart - last.QuadPart) / (float)frequency.QuadPart);
 		last = now;
 		((void (*)(Task *))g_task->vtbl[1])(g_task);
 		Sleep(5);
@@ -587,6 +597,17 @@ static void RideAlong(float dt)
 	PlayerPos()[2] += sinf(g_rideSlope / DEG) * d;
 }
 
+/* The player pulling round towards g_steerTarget (the game asks for it every frame),
+ * moving forward along the heading the plugin lets them have at g_steerMove. */
+static float g_steerTarget, g_steerMove;
+static void SteerTowards(float dt)
+{
+	float *head = (float *)(g_player + 0xC8);
+	PlayerPos()[0] += sinf(*head) * g_steerMove * dt;
+	PlayerPos()[1] += cosf(*head) * g_steerMove * dt;
+	*head = g_steerTarget;
+}
+
 /* After the U-turn: riding back the other way. */
 static void UTurnBack(float dt)
 {
@@ -706,13 +727,97 @@ static void TrackTests(void)
 	      "the spot is back down on the flat (up z %.2f, %.0f away)", Park(6), sqrtf(fdx * fdx + fdy * fdy + fdz * fdz));
 	SetNormal(0.0f, 0.0f, 1.0f);
 
+	printf("tilt: up a 10 deg slope, then turned on the spot:\n");
+	SetTilt(30.0f);
+	SetNormalTowards(back, 10.0f);
+	g_rideSlope = 10.0f;
+	g_rideSpeed = 300.0f;
+	g_onFrame = RideAlong;
+	RunFrames(1500);
+	g_onFrame = NULL;
+	RunFrames(300);
+	float *head = (float *)(g_player + 0xC8), heading0 = *head;
+	SetNormal(0.0f, 0.0f, 1.0f);   /* the normal says flat: must not be used now */
+	*head = heading0 + 1.5708f;
+	RunFrames(800);
+	AppliedRotation(R);
+	CHECK(fabsf(asinf(R[7]) * DEG - 10.0f) < 1.0f, "a quarter turn: the pitch holds (%.1f deg)", asinf(R[7]) * DEG);
+	*head = heading0 + 3.14159f;
+	RunFrames(800);
+	AppliedRotation(R);
+	CHECK(fabsf(asinf(R[7]) * DEG - 10.0f) < 1.0f, "a half turn: still holds, no flip (%.1f deg)", asinf(R[7]) * DEG);
+	*head = heading0;
+	SetTilt(0.0f);
+	RunFrames(300);
+
+	printf("steering: a 300 turning radius, 20 deg/s when stopped:\n");
+	*(float *)(g_turnRadius + 0x30) = 300.0f;
+	*(float *)(g_turnStand + 0x30) = 20.0f;
+	SetNormal(0.0f, 0.0f, 1.0f);
+	g_rideSlope = 0.0f;
+	RunFrames(300);
+	g_steerTarget = heading0 + 1.5708f;   /* the player pulls round to the right */
+	g_onFrame = SteerTowards;
+	RunFrames(1000);
+	g_onFrame = NULL;
+	float turned = (*head - heading0) * DEG;
+	CHECK(turned > 5.0f && turned < 30.0f, "stopped: turned %.1f deg in a second (about 20), not 90", turned);
+	float from = *head;   /* the plugin won't let the heading jump back either: start from here */
+	g_steerTarget = from + 1.5708f;
+	g_steerMove = 300.0f;
+	g_onFrame = SteerTowards;
+	RunFrames(1000);
+	g_onFrame = NULL;
+	turned = (*head - from) * DEG;
+	CHECK(turned > 25.0f && turned < 62.0f, "at 300 a second: turned %.1f deg in a second (at most 57), not 90", turned);
+	g_steerMove = 0.0f;
+	*(float *)(g_turnRadius + 0x30) = 0.0f;
+	RunFrames(200);
+	*head = heading0 + 1.5708f;
+	RunFrames(200);
+	CHECK(fabsf(*head - heading0 - 1.5708f) < 0.001f, "turning radius 0: steering left alone");
+	*head = heading0;
+
+	printf("steepness: turned sideways on a 60 deg face, and a level ride with a wild normal:\n");
+	SetNormalTowards(back, 60.0f);
+	g_rideSlope = 60.0f;
+	g_rideSpeed = 300.0f;
+	g_onFrame = RideAlong;
+	RunFrames(800);
+	g_onFrame = NULL;
+	*head = heading0 + 1.5708f;
+	RunFrames(400);
+	CHECK(*(float *)(g_trackSlope + 0x30) > 55.0f, "turned on the face: still %.1f deg steep (refused)", *(float *)(g_trackSlope + 0x30));
+	*head = heading0;
+	g_rideSlope = 0.0f;
+	g_noise = 70.0f;
+	g_onFrame = RideAlong;
+	RunFrames(1500);
+	g_onFrame = NULL;
+	g_noise = 0.0f;
+	RunFrames(300);
+	CHECK(*(float *)(g_trackSlope + 0x30) < 10.0f, "level, normal all over the place: %.1f deg (not refused)", *(float *)(g_trackSlope + 0x30));
+
+	printf("park: along a steep side slope:\n");
+	SetNormal(0.0f, 0.0f, 1.0f);
+	g_onFrame = RideAlong;
+	RunFrames(1300);   /* level ground first */
+	const float sideways[3] = { cosf(HEADING), -sinf(HEADING), 0.0f };
+	SetNormalTowards(sideways, 40.0f);   /* then a 40 deg slope falling away to the right, ridden level */
+	RunFrames(1300);
+	g_onFrame = NULL;
+	RunFrames(300);
+	CHECK(Park(6) > 0.934f, "the spot is back where the ground leans 20 deg or less across the bike (up z %.3f)", Park(6));
+	SetNormal(0.0f, 0.0f, 1.0f);
+
 	printf("park: a U-turn just before stopping:\n");
 	g_rideSlope = 0.0f;
 	SetNormal(0.0f, 0.0f, 1.0f);
 	g_onFrame = RideAlong;
 	RunFrames(1000);
 	g_onFrame = NULL;
-	float *h = (float *)(g_player + 0xC8), heading0 = *h;
+	float *h = (float *)(g_player + 0xC8);
+	heading0 = *h;
 	for (int i = 1; i <= 18; i++) {   /* half a circle of radius ~50 */
 		*h = heading0 + 3.14159265f * (float)i / 18.0f;
 		PlayerPos()[0] += sinf(*h) * 8.7f;

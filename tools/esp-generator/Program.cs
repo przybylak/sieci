@@ -182,6 +182,10 @@ public static class Program
                     "CMB_MaxSlope", 0, 80, 5),
                 Slider("Riding camera distance", "How far back the third-person camera sits while riding (the game's own is about 150). Needs F4SE and the CMB_Slope.dll plugin. 0 = leave the camera alone. Takes effect the next time you get on.",
                     "CMB_RidingCameraDistance", 0, 1000, 25),
+                Slider("Turning radius", "The tightest turn the bike makes while riding, in game units (about 70 = 1 m): no turning on the spot. Needs F4SE and the CMB_Slope.dll plugin. 0 = turn like on foot.",
+                    "CMB_TurnRadius", 0, 600, 25),
+                Slider("Turning when stopped (deg/s)", "How fast the bike can be walked round when it isn't moving. Needs F4SE and the CMB_Slope.dll plugin.",
+                    "CMB_StandTurnRate", 0, 90, 5),
                 Slider("Bike tilts with the ground (max degrees)", "While riding, the bike pitches with the ground by at most this much (needs F4SE and the CMB_Slope.dll plugin). The rider doesn't tilt with it, so more than about 15 looks odd. The parked bike tilts up to 30 whatever this says. 0 = always level, parked too.",
                     "CMB_MaxTilt", 0, 30, 5),
                 Switcher("Allow combat while riding", "Weapons and VATS stay usable while riding. Takes effect the next time you get on.", "CMB_AllowCombat"),
@@ -405,6 +409,12 @@ public static class Program
         var gTrackSlope = Global(mod, "CMB_TrackSlope", 0);
         if (gTrackSlope.FormKey.ID != 0x838)
             throw new InvalidOperationException($"CMB_TrackSlope must be 0x838 (CMB_Slope.dll looks for it), got {gTrackSlope.FormKey.ID:X}");
+        // Steering (the plugin reads these, the MCM sets them): the tightest turn while riding,
+        // and how fast the bike can be turned round when stopped. Fixed IDs 0x839, 0x83A.
+        var gTurnRadius = Global(mod, "CMB_TurnRadius", 300);
+        var gStandTurn = Global(mod, "CMB_StandTurnRate", 20);
+        if (gTurnRadius.FormKey.ID != 0x839 || gStandTurn.FormKey.ID != 0x83A)
+            throw new InvalidOperationException($"CMB_TurnRadius and CMB_StandTurnRate must be 0x839, 0x83A (CMB_Slope.dll looks for them), got {gTurnRadius.FormKey.ID:X}");
 
         // --- Controller quest ---
         quest.Name = "Commonwealth Motorbike";
