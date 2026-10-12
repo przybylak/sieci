@@ -61,8 +61,12 @@
  *   skin (whose bind we know) and the player's 3D (whose heading we know).
  *
  *   Steering: a bike can't turn on the spot. While riding, the player's heading may change
- *   at most speed / CMB_TurnRadius radians a second, or CMB_StandTurnRate degrees a second
- *   when stopped; whatever the game turned beyond that in a frame is dropped.
+ *   at most speed / radius radians a second, or CMB_StandTurnRate degrees a second when
+ *   that is faster; whatever the game turned beyond that in a frame is dropped. The radius
+ *   grows with speed, from CMB_TurnRadiusSlow at walking pace to CMB_TurnRadius at riding
+ *   speed (FullSpeed). Holding back walks the bike backwards instead of turning it round:
+ *   the heading holds (left and right steer it) and the back input (PlayerControls'
+ *   moveInputVec, found in test 11) is turned down to a walking pace.
  *
  * With Probe=1 it also logs (Documents\My Games\Fallout4\F4SE\CMB_Slope.log) the
  * layout of the controller, the proxy and the objects listed in DumpPointers, then on
@@ -163,6 +167,8 @@
 #define SLOPE_TRACK_GLOBAL_ID 0x838u        /* CMB_TrackSlope (we write it) */
 #define TURN_RADIUS_GLOBAL_ID 0x839u        /* CMB_TurnRadius (MCM): the tightest turn while riding, 0 = off */
 #define TURN_STAND_GLOBAL_ID  0x83Au        /* CMB_StandTurnRate (MCM): degrees a second when stopped */
+#define TURN_SLOW_GLOBAL_ID   0x83Bu        /* CMB_TurnRadiusSlow (MCM): the tightest turn at walking pace */
+#define OFF_MOVE_INPUT        0x44          /* PlayerControls: moveInputVec x (strafe), y (forward +1, back -1) */
 
 /* RTTI names (MSVC mangled) of the objects we look for. */
 #define RTTI_PLAYER     ".?AVPlayerCharacter@@"
@@ -289,6 +295,9 @@ static float g_maxRoll;                   /* degrees: a two-wheeler stays uprigh
 static float g_pivotHeight = 74.0f;       /* the seat (the rider's hips) above the feet */
 static int g_trace;                       /* 1 = log the tilt every 0.25 s while riding */
 static int g_steer = 1;                   /* 1 = limit how fast the bike turns (CMB_TurnRadius) */
+static float g_fullSpeed = 900.0f;        /* units a second at which the turning radius is CMB_TurnRadius */
+static int g_reverse = 1;                 /* 1 = holding back walks the bike back instead of turning it round */
+static float g_reverseInput = 0.3f;       /* the back input turned down to this (walking pace) */
 static char g_shapePrefix[64] = "CMB_BikeWorn";
 enum { LAYOUT_UNKNOWN = -1, LAYOUT_FILE = 0, LAYOUT_TRANSPOSED = 1, LAYOUT_DISAGREE = 2 };
 static int g_layoutSetting = LAYOUT_UNKNOWN;   /* Layout=auto */
@@ -296,7 +305,7 @@ static int g_layoutSetting = LAYOUT_UNKNOWN;   /* Layout=auto */
 static volatile bool g_dataReady;
 static uintptr_t g_slopeGlobal, g_cameraGlobal;   /* TESGlobal * */
 static uintptr_t g_tiltGlobal, g_groundGlobals[3], g_parkGlobals[7], g_trackSlopeGlobal;
-static uintptr_t g_turnRadiusGlobal, g_turnStandGlobal;
+static uintptr_t g_turnRadiusGlobal, g_turnStandGlobal, g_turnSlowGlobal;
 static uint32_t g_ourPrefix, g_ourMask;   /* our plugin's form IDs: (id & mask) == prefix */
 static DWORD g_lastGlobalTry;
 static bool g_globalsMissingLogged;
@@ -338,7 +347,9 @@ static DWORD g_lastTick;
 
 /* Steering: the heading we last let the player have, how fast they're going. */
 static bool g_steerHave;
-static float g_steerHeading, g_steerPos[3], g_speed;
+static float g_steerHeading, g_steerPos[3], g_speed, g_speedAlong, g_steerRadius;
+static bool g_backing;                        /* back held this frame */
+static float g_moveIn, g_moveOut;             /* the move input's y as the game left it / as we did */
 static float g_steerWanted, g_steerAllowed;   /* the biggest turn asked for / allowed since the last trace (deg/s) */
 static int g_steerClamped;                    /* frames clamped since the last trace */
 static float g_controlsLast[20];
@@ -521,6 +532,15 @@ static void ReadSettings(void)
 		g_pivotHeight = 74.0f;
 	g_trace = (int)GetPrivateProfileIntA("Tilt", "Trace", 0, ini);
 	g_steer = (int)GetPrivateProfileIntA("Steer", "Enabled", 1, ini);
+	GetPrivateProfileStringA("Steer", "FullSpeed", "900", value, sizeof(value), ini);
+	g_fullSpeed = strtof(value, NULL);
+	if (!(g_fullSpeed > 0.0f && g_fullSpeed < 100000.0f))
+		g_fullSpeed = 900.0f;
+	g_reverse = (int)GetPrivateProfileIntA("Steer", "Reverse", 1, ini);
+	GetPrivateProfileStringA("Steer", "ReverseInput", "0.3", value, sizeof(value), ini);
+	g_reverseInput = strtof(value, NULL);
+	if (!(g_reverseInput >= 0.0f && g_reverseInput <= 1.0f))
+		g_reverseInput = 0.3f;
 	GetPrivateProfileStringA("Tilt", "Shapes", "CMB_BikeWorn", g_shapePrefix, sizeof(g_shapePrefix), ini);
 	GetPrivateProfileStringA("Tilt", "Layout", "auto", value, sizeof(value), ini);
 	g_layoutSetting = _stricmp(value, "file") == 0 ? LAYOUT_FILE : _stricmp(value, "transposed") == 0 ? LAYOUT_TRANSPOSED : LAYOUT_UNKNOWN;
@@ -736,6 +756,7 @@ static void FindGlobals(void)
 	g_trackSlopeGlobal = FindGlobal(prefix, shift, SLOPE_TRACK_GLOBAL_ID, "CMB_TrackSlope");
 	g_turnRadiusGlobal = FindGlobal(prefix, shift, TURN_RADIUS_GLOBAL_ID, "CMB_TurnRadius");
 	g_turnStandGlobal = FindGlobal(prefix, shift, TURN_STAND_GLOBAL_ID, "CMB_StandTurnRate");
+	g_turnSlowGlobal = FindGlobal(prefix, shift, TURN_SLOW_GLOBAL_ID, "CMB_TurnRadiusSlow");
 	g_globalsMissingLogged = true;   /* found or not, don't look again */
 }
 
@@ -1903,10 +1924,11 @@ static void FrameTilt(void)
 	}
 	if (g_trace && g_clock - g_lastTrace >= 0.25f) {
 		g_lastTrace = g_clock;
-		Log("trace: normal (%.3f, %.3f, %.3f) state %d%s | raw pitch %.1f roll %.1f | median %.1f %.1f | track %s%.1f | pitch from %s | smooth %.1f %.1f | applied %.1f %.1f | speed %.0f, turn asked %.0f allowed %.0f deg/s, clamped %d",
+		Log("trace: normal (%.3f, %.3f, %.3f) state %d%s | raw pitch %.1f roll %.1f | median %.1f %.1f | track %s%.1f | pitch from %s | smooth %.1f %.1f | applied %.1f %.1f | speed %.0f (%+.0f along the heading), radius %.0f, turn asked %.0f allowed %.0f deg/s, clamped %d%s",
 		    g_groundN[0], g_groundN[1], g_groundN[2], g_lastState, onGround ? "" : " (off the ground)", rawPitch, rawRoll,
 		    medianPitch, medianRoll, g_trackPitchOk ? "" : "(none) ", g_trackPitchOk ? g_trackPitch : 0.0f, source,
-		    g_pitchSmooth, g_rollSmooth, g_pitchNow, g_rollNow, g_speed, g_steerWanted, g_steerAllowed, g_steerClamped);
+		    g_pitchSmooth, g_rollSmooth, g_pitchNow, g_rollNow, g_speed, g_speedAlong, g_steerRadius, g_steerWanted, g_steerAllowed,
+		    g_steerClamped, g_backing ? " | backing" : "");
 		g_steerWanted = 0.0f;
 		g_steerClamped = 0;
 	}
@@ -2348,11 +2370,12 @@ static void UpdateZoom(DWORD now, bool riding)
  * that this frame is dropped; next frame it asks again from where we left it. */
 static void FrameSteer(void)
 {
-	float radius = GlobalValue(g_turnRadiusGlobal);
+	float radiusFast = GlobalValue(g_turnRadiusGlobal);
 	uintptr_t player = Player();
-	if (!g_steer || !g_riding || !(radius > 0.0f) || !player || !Accessible(player + OFF_REFR_HEADING, 4, true) ||
+	if (!g_steer || !g_riding || !(radiusFast > 0.0f) || !player || !Accessible(player + OFF_REFR_HEADING, 4, true) ||
 	    !Accessible(player + OFF_REFR_POS, 12, false)) {
 		g_steerHave = false;
+		g_backing = false;
 		return;
 	}
 	float *h = (float *)(player + OFF_REFR_HEADING);
@@ -2361,18 +2384,48 @@ static void FrameSteer(void)
 		return;
 	if (g_steerHave) {
 		float dx = pos[0] - g_steerPos[0], dy = pos[1] - g_steerPos[1], d = sqrtf(dx * dx + dy * dy);
-		if (d > 300.0f)
+		if (d > 300.0f) {
 			g_steerHave = false;   /* a door, fast travel: start again from the game's heading */
-		else if (g_frameDt > 0.0f)
-			g_speed += (d / g_frameDt - g_speed) * (1.0f - expf(-g_frameDt / 0.2f));
+		} else if (g_frameDt > 0.0f) {
+			float k = 1.0f - expf(-g_frameDt / 0.2f);
+			g_speed += (d / g_frameDt - g_speed) * k;
+			/* Signed: forward along the heading, or backward (a reverse). */
+			g_speedAlong += ((dx * sinf(g_steerHeading) + dy * cosf(g_steerHeading)) / g_frameDt - g_speedAlong) * k;
+		}
 	}
 	memcpy(g_steerPos, pos, sizeof(g_steerPos));
 	if (!g_steerHave) {
 		g_steerHeading = *h;
 		g_steerHave = true;
-		g_speed = 0.0f;
+		g_speed = g_speedAlong = 0.0f;
 		return;
 	}
+
+	/* Holding back: the game would turn the bike round to ride towards the camera. A bike is
+	 * walked back instead: the heading holds (left and right steer it slowly), and the back
+	 * input is turned down to walking pace. (The move input is PlayerControls+0x44/+0x48,
+	 * found in test 11; whether the game then backs the bike up is for the trace to show.) */
+	float inX = 0.0f;
+	g_backing = false;
+	uintptr_t controls = g_reverse ? ReadPtr(g_base + RVA_PLAYER_CONTROLS) : 0;
+	if (controls && IsA(controls, RTTI_CONTROLS) && Accessible(controls + OFF_MOVE_INPUT, 8, true)) {
+		float *move = (float *)(controls + OFF_MOVE_INPUT);
+		g_moveIn = move[1];
+		inX = move[0];
+		if (isfinite(move[1]) && move[1] < -0.05f) {
+			g_backing = true;
+			if (move[1] < -g_reverseInput)
+				move[1] = -g_reverseInput;
+		}
+		g_moveOut = move[1];
+	}
+
+	/* The tightest turn grows with speed: walking pace turns tight, riding speed wide. */
+	float radiusSlow = GlobalValue(g_turnSlowGlobal);
+	if (!(radiusSlow > 0.0f) || radiusSlow > radiusFast)
+		radiusSlow = radiusFast;
+	float f = g_fullSpeed > 0.0f ? g_speed / g_fullSpeed : 1.0f;
+	float radius = radiusSlow + (radiusFast - radiusSlow) * (f < 0.0f ? 0.0f : f > 1.0f ? 1.0f : f);
 	const float twoPi = 6.2831853f;
 	float wanted = remainderf(*h - g_steerHeading, twoPi);
 	float rate = g_speed / radius, stand = GlobalValue(g_turnStandGlobal) / 57.29578f;
@@ -2382,7 +2435,13 @@ static void FrameSteer(void)
 	if (g_frameDt > 0.0f && fabsf(wanted) / g_frameDt * 57.29578f > g_steerWanted)
 		g_steerWanted = fabsf(wanted) / g_frameDt * 57.29578f;
 	g_steerAllowed = rate * 57.29578f;
-	if (fabsf(wanted) > allowed) {
+	g_steerRadius = radius;
+	if (g_backing) {
+		float steer = inX > 1.0f ? 1.0f : inX < -1.0f ? -1.0f : inX;
+		*h = fmodf(g_steerHeading + steer * allowed + twoPi, twoPi);
+		if (fabsf(wanted) > 0.0001f)
+			g_steerClamped++;
+	} else if (fabsf(wanted) > allowed) {
 		*h = fmodf(g_steerHeading + copysignf(allowed, wanted) + twoPi, twoPi);
 		g_steerClamped++;
 	}
@@ -2395,6 +2454,14 @@ static void FrameSteer(void)
 static void TraceControls(void)
 {
 	uintptr_t controls = ReadPtr(g_base + RVA_PLAYER_CONTROLS);
+	/* Backing: what the game asked for, what we left it, what it used last frame (prevMoveVec
+	 * y, +0x60), and which way the bike actually went. */
+	static float reverseLogged;
+	if (g_trace && g_backing && g_clock - reverseLogged >= 0.25f && controls && Accessible(controls + 0x60, 4, false)) {
+		reverseLogged = g_clock;
+		Log("reverse: back input %.2f turned down to %.2f; the game's last move y (+60) %.2f; moving %+.0f along the heading",
+		    g_moveIn, g_moveOut, *(const float *)(controls + 0x60), g_speedAlong);
+	}
 	if (!g_trace || !g_riding || !controls || g_clock - g_controlsLogged < 0.25f || !IsA(controls, RTTI_CONTROLS) ||
 	    !Accessible(controls + 0x40, 80, false))
 		return;

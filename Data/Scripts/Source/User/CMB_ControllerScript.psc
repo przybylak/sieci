@@ -103,8 +103,8 @@ Group Optional
 	{What CMB_Slope.dll reads: CMB_MaxSlope while riding, 0 otherwise. Set by this script.}
 	GlobalVariable Property CMB_MaxTilt Auto Const
 	{The most the bike pitches with the ground while riding, in degrees (needs F4SE and the
-	CMB_Slope.dll plugin; the rider doesn't tilt, so more looks odd). The parked bike tilts
-	up to ParkMaxPitch. 0 = always level, parked too. Default 15.}
+	CMB_Slope.dll plugin; the rider doesn't tilt, so more looks odd). The parked bike pitches
+	up to ParkMaxPitch and rolls up to ParkMaxRoll. 0 = always level, parked too. Default 15.}
 	GlobalVariable Property CMB_TiltLive Auto Const
 	{What CMB_Slope.dll reads: CMB_MaxTilt while riding, 0 otherwise. Set by this script.}
 	GlobalVariable Property CMB_GroundNormalX Auto Const
@@ -128,6 +128,11 @@ Group Optional
 	the track just ridden (about a wheelbase), and once that's 20 or more, the face's own from
 	the ground's normal (riding across a face, or turned on it). 0 otherwise, or without the
 	plugin.}
+	GlobalVariable Property CMB_TurnRadius Auto Const
+	GlobalVariable Property CMB_StandTurnRate Auto Const
+	{Steering (CMB_Slope.dll reads them, the MCM sets them): the tightest turn at riding speed,
+	and how fast the bike is walked round when stopped. Here only to bring old defaults up to
+	date (UpgradeSettings).}
 	ObjectReference Property GroundProbeRef Auto Const
 	{An XMarker in CMB_HoldingCell. Without the plugin, it feels for the navmesh around the
 	parked bike to tilt it.}
@@ -159,8 +164,9 @@ float Property ParkMaxRoll = 10.0 AutoReadOnly
 float Property MaxDismountSlope = 50.0 AutoReadOnly
 {Getting off is refused on ground steeper than this (you'd slide down it on foot: walking
 tops out at 47; test 9 got off on a 60 deg rock face).}
-float Property ParkMaxPitch = 30.0 AutoReadOnly
-{...and pitches at most this much (test 8: a 28 deg park on the track sat right).}
+float Property ParkMaxPitch = 45.0 AutoReadOnly
+{...and pitches at most this much: the same 45 CMB_Slope.dll parks on (test 11: a 30 here
+left a bike on a 45 deg track spot floating at one end).}
 float Property ProbeAlong = 70.0 AutoReadOnly
 {Without the plugin, the navmesh is felt for this far in front of and behind the parked
 bike's middle (it's about 200 long)...}
@@ -326,6 +332,19 @@ Function UpgradeSettings()
 			Log("Bike tilt: the old default 30 is now 15.")
 		endif
 		settingsVersion = 2
+	endif
+	if settingsVersion < 3
+		; Test 11: steering felt like a truck. The turning radius is now the one at riding speed
+		; (tighter when slower), 300 became 180; turning when stopped 20 became 60.
+		if CMB_TurnRadius && CMB_TurnRadius.GetValue() == 300.0
+			CMB_TurnRadius.SetValue(180.0)
+			Log("Turning radius: the old default 300 is now 180.")
+		endif
+		if CMB_StandTurnRate && CMB_StandTurnRate.GetValue() == 20.0
+			CMB_StandTurnRate.SetValue(60.0)
+			Log("Turning when stopped: the old default 20 is now 60.")
+		endif
+		settingsVersion = 3
 	endif
 EndFunction
 
@@ -1005,34 +1024,41 @@ bool Function GroundFromNavmesh(float afAngle)
 	return true
 EndFunction
 
-; Pitch and roll for the parked bike from groundX/Y/Z (at most ParkMaxPitch degrees, the
-; roll at most ParkMaxRoll; level if CMB_MaxTilt is 0), keeping its heading afAngle. A reference is turned by its heading (Z) last, after
+; Pitch and roll for the parked bike from groundX/Y/Z (the pitch at most ParkMaxPitch degrees,
+; the roll at most ParkMaxRoll, each clamped on its own; level if CMB_MaxTilt is 0), keeping
+; its heading afAngle. A reference is turned by its heading (Z) last, after
 ; pitch (X) and roll (Y) about its own axes, each clockwise the game's way: X > 0 tips
 ; its +Y end down, Y > 0 lifts its +X side.
 Function TiltParkedBike(float afAngle, string asFrom)
-	float maxTilt = ParkMaxPitch
-	if CMB_MaxTilt && CMB_MaxTilt.GetValue() <= 0.0
-		maxTilt = 0.0   ; tilting turned off altogether
-	endif
 	float nx = groundX
 	float ny = groundY
 	float nz = groundZ
-	if maxTilt <= 0.0 || nz > 0.9999
+	if (CMB_MaxTilt && CMB_MaxTilt.GetValue() <= 0.0) || nz > 0.9999
+		; Tilting turned off altogether, or flat ground.
 		BikeRef.SetAngle(0.0, 0.0, afAngle)
 		Log("Parked bike level on " + asFrom + ".")
 		return
 	endif
-	if nz < Math.Cos(maxTilt)
-		float across = Math.Sqrt(nx * nx + ny * ny)
-		nx = nx / across * Math.Sin(maxTilt)
-		ny = ny / across * Math.Sin(maxTilt)
-		nz = Math.Cos(maxTilt)
+	if nz < 0.01
+		nz = 0.01   ; a wall: the pitch comes out at the limit below
 	endif
-	; The normal in the bike's own frame: turned back by its heading.
+	; The normal in the bike's own frame: turned back by its heading. Pitch and roll are
+	; clamped each on its own (scaling the normal down would shrink the pitch with the roll).
 	float c = Math.Cos(afAngle)
 	float s = Math.Sin(afAngle)
 	float pitch = Math.Atan((s * nx + c * ny) / nz)
-	float roll = -Math.Asin(c * nx - s * ny)
+	if pitch > ParkMaxPitch
+		pitch = ParkMaxPitch
+	elseif pitch < -ParkMaxPitch
+		pitch = -ParkMaxPitch
+	endif
+	float across = c * nx - s * ny
+	if across > 1.0
+		across = 1.0
+	elseif across < -1.0
+		across = -1.0
+	endif
+	float roll = -Math.Asin(across)
 	if roll > ParkMaxRoll
 		roll = ParkMaxRoll
 	elseif roll < -ParkMaxRoll

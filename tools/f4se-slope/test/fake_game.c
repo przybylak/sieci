@@ -36,6 +36,8 @@
 #define SLOPE_TRACK_FORMID    (0xFE000000u | (LIGHT_INDEX << 12) | 0x838u)
 #define TURN_RADIUS_FORMID    (0xFE000000u | (LIGHT_INDEX << 12) | 0x839u)
 #define TURN_STAND_FORMID     (0xFE000000u | (LIGHT_INDEX << 12) | 0x83Au)
+#define TURN_SLOW_FORMID      (0xFE000000u | (LIGHT_INDEX << 12) | 0x83Bu)
+#define RVA_PLAYER_CONTROLS   0x031F0B80u
 #define HEADING               1.0f         /* radians: the player faces a bit north of east */
 #define DEG                   57.29578f
 #define COS47                 0.68199836f
@@ -104,7 +106,7 @@ static uint8_t *g_cameraSetting;
 static void **g_vtProxy, **g_vtWrapper, **g_vtCtrl;
 static uint8_t *g_tiltGlobal, *g_groundGlobals[3];
 static uint8_t *g_player, *g_root, *g_bikeNode, *g_bikeShape, *g_boneData, *g_bones, *g_biped;
-static uint8_t *g_parkGlobals[7], *g_trackSlope, *g_turnRadius, *g_turnStand;
+static uint8_t *g_parkGlobals[7], *g_trackSlope, *g_turnRadius, *g_turnStand, *g_turnSlow, *g_controls;
 static uint8_t *g_thirdState;   /* ThirdPersonState: zoom target +0xE8, current +0xEC */
 static uint8_t g_bonesOriginal[0x50];
 static int g_deleted;
@@ -139,6 +141,8 @@ static uintptr_t FakeLookupFormByID(uint32_t id)
 		return (uintptr_t)g_turnRadius;
 	if (id == TURN_STAND_FORMID)
 		return (uintptr_t)g_turnStand;
+	if (id == TURN_SLOW_FORMID)
+		return (uintptr_t)g_turnSlow;
 	return id == SLOPE_GLOBAL_FORMID ? (uintptr_t)g_global : id == CAMERA_GLOBAL_FORMID ? (uintptr_t)g_cameraGlobal
 	     : id == TILT_GLOBAL_FORMID ? (uintptr_t)g_tiltGlobal : 0;
 }
@@ -271,6 +275,10 @@ static void BuildGame(void)
 	g_trackSlope = NewGlobal(SLOPE_TRACK_FORMID, "CMB_TrackSlope");
 	g_turnRadius = NewGlobal(TURN_RADIUS_FORMID, "CMB_TurnRadius");     /* 0: steering off until a test sets it */
 	g_turnStand = NewGlobal(TURN_STAND_FORMID, "CMB_StandTurnRate");
+	g_turnSlow = NewGlobal(TURN_SLOW_FORMID, "CMB_TurnRadiusSlow");
+	static const char *controls[] = { ".?AVPlayerControls@@", ".?AVBSInputEventReceiver@@" };
+	g_controls = (uint8_t *)NewObject(MakeClass(controls, 2), 0x200);
+	*(uintptr_t *)(g_base + RVA_PLAYER_CONTROLS) = (uintptr_t)g_controls;
 	PlayerPos()[0] = -1200.0f;
 	PlayerPos()[1] = 1280.0f;
 	PlayerPos()[2] = 100.0f;
@@ -608,6 +616,19 @@ static void SteerTowards(float dt)
 	*head = g_steerTarget;
 }
 
+/* The player holding back (and g_backX: right +1), the game turning them round towards
+ * g_steerTarget every frame and moving them back slowly. */
+static float g_backX;
+static void HoldBack(float dt)
+{
+	float *head = (float *)(g_player + 0xC8);
+	*(float *)(g_controls + 0x44) = g_backX;
+	*(float *)(g_controls + 0x48) = -1.0f;
+	PlayerPos()[0] -= sinf(*head) * 60.0f * dt;
+	PlayerPos()[1] -= cosf(*head) * 60.0f * dt;
+	*head = g_steerTarget;
+}
+
 /* After the U-turn: riding back the other way. */
 static void UTurnBack(float dt)
 {
@@ -771,6 +792,51 @@ static void TrackTests(void)
 	turned = (*head - from) * DEG;
 	CHECK(turned > 25.0f && turned < 62.0f, "at 300 a second: turned %.1f deg in a second (at most 57), not 90", turned);
 	g_steerMove = 0.0f;
+	printf("steering: the radius from 50 at walking pace to 180 at riding speed (900), 60 deg/s stopped:\n");
+	*(float *)(g_turnRadius + 0x30) = 180.0f;
+	*(float *)(g_turnSlow + 0x30) = 50.0f;
+	*(float *)(g_turnStand + 0x30) = 60.0f;
+	g_steerMove = 0.0f;
+	g_steerTarget = *head;
+	g_onFrame = SteerTowards;
+	RunFrames(300);
+	from = *head;
+	g_steerTarget = from + 1.5708f;
+	RunFrames(500);
+	turned = (*head - from) * DEG;
+	CHECK(turned > 20.0f && turned < 38.0f, "stopped: %.1f deg in half a second (about 30)", turned);
+	from = *head;
+	g_steerTarget = from + 1.5708f;
+	g_steerMove = 300.0f;
+	RunFrames(1000);
+	turned = (*head - from) * DEG;
+	CHECK(turned > 85.0f, "at 300 a second (radius about 93): the quarter turn done within a second (%.1f deg)", turned);
+	g_onFrame = NULL;
+	g_steerMove = 0.0f;
+
+	printf("reverse: holding back, the game trying to turn the bike round:\n");
+	g_steerTarget = *head;
+	g_onFrame = SteerTowards;
+	RunFrames(500);   /* stopped */
+	from = *head;
+	g_steerTarget = from + 3.14159f;
+	g_backX = 0.0f;
+	g_onFrame = HoldBack;
+	RunFrames(600);
+	CHECK(fabsf(*head - from) < 0.001f, "the heading holds (%.2f deg off)", (*head - from) * DEG);
+	CHECK(fabsf(*(float *)(g_controls + 0x48) + 0.3f) < 1e-6f && *(float *)(g_controls + 0x44) == 0.0f,
+	      "the back input turned down to walking pace (%.2f)", *(float *)(g_controls + 0x48));
+	g_backX = 1.0f;   /* and right */
+	RunFrames(500);
+	turned = (*head - from) * DEG;
+	CHECK(turned > 15.0f && turned < 40.0f, "back and right: steered %.1f deg in half a second at the slow rate, not round", turned);
+	g_onFrame = NULL;
+	*(float *)(g_controls + 0x44) = 0.0f;
+	*(float *)(g_controls + 0x48) = 0.5f;
+	RunFrames(200);
+	CHECK(*(float *)(g_controls + 0x48) == 0.5f, "forward input left alone");
+	*(float *)(g_controls + 0x48) = 0.0f;
+
 	*(float *)(g_turnRadius + 0x30) = 0.0f;
 	RunFrames(200);
 	*head = heading0 + 1.5708f;

@@ -182,11 +182,13 @@ public static class Program
                     "CMB_MaxSlope", 0, 80, 5),
                 Slider("Riding camera distance", "How far back the third-person camera sits while riding (the game's own is about 150). Needs F4SE and the CMB_Slope.dll plugin. 0 = leave the camera alone. Takes effect the next time you get on.",
                     "CMB_RidingCameraDistance", 0, 1000, 25),
-                Slider("Turning radius", "The tightest turn the bike makes while riding, in game units (about 70 = 1 m): no turning on the spot. Needs F4SE and the CMB_Slope.dll plugin. 0 = turn like on foot.",
-                    "CMB_TurnRadius", 0, 600, 25),
-                Slider("Turning when stopped (deg/s)", "How fast the bike can be walked round when it isn't moving. Needs F4SE and the CMB_Slope.dll plugin.",
-                    "CMB_StandTurnRate", 0, 90, 5),
-                Slider("Bike tilts with the ground (max degrees)", "While riding, the bike pitches with the ground by at most this much (needs F4SE and the CMB_Slope.dll plugin). The rider doesn't tilt with it, so more than about 15 looks odd. The parked bike tilts up to 30 whatever this says. 0 = always level, parked too.",
+                Slider("Turning radius", "The tightest turn the bike makes at riding speed, in game units (about 70 = 1 m): no turning on the spot. Slower, it turns tighter (the next setting). Needs F4SE and the CMB_Slope.dll plugin. 0 = turn like on foot.",
+                    "CMB_TurnRadius", 0, 600, 10),
+                Slider("Turning radius at walking pace", "The tightest turn when the bike is barely moving; it widens to the turning radius above as you speed up. Needs F4SE and the CMB_Slope.dll plugin.",
+                    "CMB_TurnRadiusSlow", 0, 300, 10),
+                Slider("Turning when stopped (deg/s)", "How fast the bike can be walked round when it isn't moving (and the least it turns at any speed). Needs F4SE and the CMB_Slope.dll plugin.",
+                    "CMB_StandTurnRate", 0, 180, 10),
+                Slider("Bike tilts with the ground (max degrees)", "While riding, the bike pitches with the ground by at most this much (needs F4SE and the CMB_Slope.dll plugin). The rider doesn't tilt with it, so more than about 15 looks odd. The parked bike pitches up to 45 and rolls up to 10 whatever this says. 0 = always level, parked too.",
                     "CMB_MaxTilt", 0, 30, 5),
                 Switcher("Allow combat while riding", "Weapons and VATS stay usable while riding. Takes effect the next time you get on.", "CMB_AllowCombat"),
                 Switcher("Thrown off when hit", "A big hit from an enemy knocks you off the bike, so you can fight back. Off: you keep riding; a hint says how to get off when a fight starts.", "CMB_DismountOnHit"),
@@ -409,12 +411,14 @@ public static class Program
         var gTrackSlope = Global(mod, "CMB_TrackSlope", 0);
         if (gTrackSlope.FormKey.ID != 0x838)
             throw new InvalidOperationException($"CMB_TrackSlope must be 0x838 (CMB_Slope.dll looks for it), got {gTrackSlope.FormKey.ID:X}");
-        // Steering (the plugin reads these, the MCM sets them): the tightest turn while riding,
-        // and how fast the bike can be turned round when stopped. Fixed IDs 0x839, 0x83A.
-        var gTurnRadius = Global(mod, "CMB_TurnRadius", 300);
-        var gStandTurn = Global(mod, "CMB_StandTurnRate", 20);
-        if (gTurnRadius.FormKey.ID != 0x839 || gStandTurn.FormKey.ID != 0x83A)
-            throw new InvalidOperationException($"CMB_TurnRadius and CMB_StandTurnRate must be 0x839, 0x83A (CMB_Slope.dll looks for them), got {gTurnRadius.FormKey.ID:X}");
+        // Steering (the plugin reads these, the MCM sets them): the tightest turn at riding speed,
+        // how fast the bike can be turned round when stopped, and the tightest turn at walking
+        // pace. Fixed IDs 0x839, 0x83A, 0x83B.
+        var gTurnRadius = Global(mod, "CMB_TurnRadius", 180);
+        var gStandTurn = Global(mod, "CMB_StandTurnRate", 60);
+        var gTurnSlow = Global(mod, "CMB_TurnRadiusSlow", 50);
+        if (gTurnRadius.FormKey.ID != 0x839 || gStandTurn.FormKey.ID != 0x83A || gTurnSlow.FormKey.ID != 0x83B)
+            throw new InvalidOperationException($"CMB_TurnRadius, CMB_StandTurnRate and CMB_TurnRadiusSlow must be 0x839-0x83B (CMB_Slope.dll looks for them), got {gTurnRadius.FormKey.ID:X}, {gStandTurn.FormKey.ID:X}, {gTurnSlow.FormKey.ID:X}");
 
         // --- Controller quest ---
         quest.Name = "Commonwealth Motorbike";
@@ -485,6 +489,8 @@ public static class Program
             Obj("CMB_ParkUpY", gPark[5]),
             Obj("CMB_ParkUpZ", gPark[6]),
             Obj("CMB_TrackSlope", gTrackSlope),
+            Obj("CMB_TurnRadius", gTurnRadius),
+            Obj("CMB_StandTurnRate", gStandTurn),
             Obj("GroundProbeRef", probeRef));
         // Optional: only does anything with F4SE and the compiled CMB_HotkeyF4SE.pex.
         var hotkey = Script("CMB_HotkeyF4SE",
