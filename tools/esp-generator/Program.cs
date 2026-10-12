@@ -400,6 +400,11 @@ public static class Program
         var gPark = new[] { "X", "Y", "Z", "Angle", "UpX", "UpY", "UpZ" }.Select(n => Global(mod, "CMB_Park" + n, 0)).ToArray();
         if (gPark[0].FormKey.ID != 0x831 || gPark[6].FormKey.ID != 0x837)
             throw new InvalidOperationException($"CMB_ParkX..CMB_ParkUpZ must be 0x831-0x837 (CMB_Slope.dll looks for them), got {gPark[0].FormKey.ID:X}");
+        // How steep the ground just ridden is (the plugin writes it while riding): the script
+        // refuses getting off on a face too steep to stand on. Fixed ID 0x838.
+        var gTrackSlope = Global(mod, "CMB_TrackSlope", 0);
+        if (gTrackSlope.FormKey.ID != 0x838)
+            throw new InvalidOperationException($"CMB_TrackSlope must be 0x838 (CMB_Slope.dll looks for it), got {gTrackSlope.FormKey.ID:X}");
 
         // --- Controller quest ---
         quest.Name = "Commonwealth Motorbike";
@@ -469,6 +474,7 @@ public static class Program
             Obj("CMB_ParkUpX", gPark[4]),
             Obj("CMB_ParkUpY", gPark[5]),
             Obj("CMB_ParkUpZ", gPark[6]),
+            Obj("CMB_TrackSlope", gTrackSlope),
             Obj("GroundProbeRef", probeRef));
         // Optional: only does anything with F4SE and the compiled CMB_HotkeyF4SE.pex.
         var hotkey = Script("CMB_HotkeyF4SE",

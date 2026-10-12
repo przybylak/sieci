@@ -37,8 +37,10 @@
  *   into CMB_GroundNormalX/Y/Z every IntervalMs (Z 0 off the ground). While riding, the
  *   plugin keeps a track of where the player's feet were on the ground, and writes a
  *   parking spot on it into the CMB_Park globals: the first place back along it that's
- *   a bike length and a half from the player in a straight line, facing and pitched the
- *   way the track ran there: ground that was really ridden on.
+ *   a bike length and a half from the player in a straight line and no steeper than 45
+ *   degrees, facing and pitched the way the track ran there: ground that was really
+ *   ridden on. CMB_TrackSlope gets the slope just ridden, for refusing to get off on a
+ *   face too steep to stand on.
  *
  *   Tilt: the worn bike is skinned to one bone of the rider (COM or AnimObjectA), so
  *   the animation moves it and its own node's transform does nothing. What the plugin
@@ -47,9 +49,10 @@
  *   equipped armor addon's 3D), by name, by the COM bike's bind, or as one of our own
  *   armor addons (the game renames the shapes); if a ride finds none for a second, what
  *   was there is logged. The bind: the mesh is turned about the seat before it goes onto
- *   the bone, so the bike pitches with the ground (the median of the last 0.25 s, then
- *   smoothed and rate-limited, at most CMB_TiltLive degrees, roll at most MaxRoll, level
- *   in the air), keeps its seat and bars under the rider (who doesn't tilt) and still
+ *   the bone, so the bike pitches with the ground (the slope of the track just ridden,
+ *   over about a wheelbase: the support normal is too noisy for it; smoothed and
+ *   rate-limited, at most CMB_TiltLive degrees, roll at most MaxRoll, held in the air),
+ *   keeps its seat and bars under the rider (who doesn't tilt) and still
  *   follows every move of the animation. The plugin
  *   holds a reference on the BoneData while it's changed and puts it back afterwards.
  *   Which way round the game stores its rotation matrices is read off the bike's own
@@ -150,6 +153,7 @@
 #define TILT_GLOBAL_EDITOR_ID "CMB_TiltLive"
 #define GROUND_GLOBAL_ID      0x82Du        /* CMB_GroundNormalX, Y, Z: 82D, 82E, 82F (we write these) */
 #define PARK_GLOBAL_ID        0x831u        /* CMB_ParkX, Y, Z, Angle, UpX, UpY, UpZ: 831-837 (we write these) */
+#define SLOPE_TRACK_GLOBAL_ID 0x838u        /* CMB_TrackSlope (we write it) */
 
 /* RTTI names (MSVC mangled) of the objects we look for. */
 #define RTTI_PLAYER     ".?AVPlayerCharacter@@"
@@ -280,7 +284,7 @@ static int g_layoutSetting = LAYOUT_UNKNOWN;   /* Layout=auto */
 
 static volatile bool g_dataReady;
 static uintptr_t g_slopeGlobal, g_cameraGlobal;   /* TESGlobal * */
-static uintptr_t g_tiltGlobal, g_groundGlobals[3], g_parkGlobals[7];
+static uintptr_t g_tiltGlobal, g_groundGlobals[3], g_parkGlobals[7], g_trackSlopeGlobal;
 static uint32_t g_ourPrefix, g_ourMask;   /* our plugin's form IDs: (id & mask) == prefix */
 static DWORD g_lastGlobalTry;
 static bool g_globalsMissingLogged;
@@ -337,12 +341,19 @@ typedef struct { float p[3], n[3]; } TrackPoint;
 #define TRACK_MAX_AIR 0.4f              /* longer in the air (a drop): the track starts again */
 #define PARK_DISTANCE 145.0f            /* the parked bike's middle this far from the player's feet */
 #define PARK_SPAN 40.0f                 /* its heading and pitch from the track this far either side */
+#define PARK_MAX_SLOPE 45.0f            /* no steeper than this: further back along the track if need be */
+#define PARK_STEP 16.0f
+#define PARK_SEARCH 1000.0f             /* how far back to look for such a spot */
+#define TRACK_PITCH_BACK 120.0f         /* riding pitch: the track's slope over about a wheelbase */
 static TrackPoint g_track[TRACK_POINTS];
 static int g_trackHead, g_trackCount;
+static bool g_trackPitchOk;             /* this frame: the slope of the track just ridden, along the heading */
+static float g_trackPitch;
 static float g_airTime;
 static bool g_parkValid;                /* the last spot worked out, for the log on getting off */
 static float g_parkSpot[7];
 static const char *g_parkWhy = "";
+static float g_parkPublished[7] = { 0 }, g_parkPublishedAt = -100.0f;   /* the last good spot written, and when */
 
 static uintptr_t g_stateCtrl;           /* the controller the state check below was made on */
 static bool g_stateTrusted;
@@ -696,6 +707,7 @@ static void FindGlobals(void)
 		all &= (g_parkGlobals[i] = FindGlobal(prefix, shift, PARK_GLOBAL_ID + (uint32_t)i, park[i])) != 0;
 	if (!all)
 		memset(g_parkGlobals, 0, sizeof(g_parkGlobals));
+	g_trackSlopeGlobal = FindGlobal(prefix, shift, SLOPE_TRACK_GLOBAL_ID, "CMB_TrackSlope");
 	g_globalsMissingLogged = true;   /* found or not, don't look again */
 }
 
@@ -1417,13 +1429,19 @@ static void LetGo(int i, const char *why)
 	g_skins[i] = g_skins[--g_skinCount];
 }
 
+/* A new ride (or none): the filter starts from level. */
+static void ResetTilt(void)
+{
+	g_tiltSampleCount = 0;
+	g_pitchSmooth = g_rollSmooth = g_pitchNow = g_rollNow = 0.0f;
+	g_tiltMax = g_tiltNow = 0.0f;
+}
+
 static void LetGoAll(const char *why)
 {
 	while (g_skinCount)
 		LetGo(g_skinCount - 1, why);
-	g_tiltSampleCount = 0;
-	g_pitchSmooth = g_rollSmooth = g_pitchNow = g_rollNow = 0.0f;
-	g_tiltMax = g_tiltNow = 0.0f;
+	ResetTilt();
 }
 
 /* --- Finding the worn bike's skin ------------------------------------------
@@ -1826,13 +1844,20 @@ static void FrameTilt(void)
 		if (g_tiltSampleCount < TILT_SAMPLES)
 			g_tiltSampleCount++;
 	} else {
-		g_tiltSampleCount = 0;   /* in the air: level, and start afresh on landing */
+		g_tiltSampleCount = 0;   /* in the air: start the normal's median afresh on landing */
 	}
+	/* Pitch: the slope of the track just ridden (test 9: the support normal swings tens of
+	 * degrees from frame to frame, even on a road); the normal's median only until there's
+	 * a wheelbase of track. In the air, and standing still, it holds. */
 	float medianPitch = onGround ? RecentMedian(0) : 0.0f, medianRoll = onGround ? RecentMedian(1) : 0.0f;
+	const char *source = g_trackPitchOk ? "track" : onGround ? "normal" : "held";
+	float maxRoll = g_maxRoll < maxDegrees ? g_maxRoll : maxDegrees;
+	float targetPitch = g_trackPitchOk ? Clamp(g_trackPitch, maxDegrees) : onGround ? Clamp(medianPitch, maxDegrees) : g_pitchSmooth;
+	float targetRoll = onGround ? Clamp(medianRoll, maxRoll) : g_rollSmooth;
 	/* Capped before smoothing, so coming off a steep slope starts easing back at once. */
 	float k = g_smoothing > 0.0f ? 1.0f - expf(-g_frameDt / g_smoothing) : 1.0f;
-	g_pitchSmooth += (Clamp(medianPitch, maxDegrees) - g_pitchSmooth) * k;
-	g_rollSmooth += (Clamp(medianRoll, g_maxRoll < maxDegrees ? g_maxRoll : maxDegrees) - g_rollSmooth) * k;
+	g_pitchSmooth += (targetPitch - g_pitchSmooth) * k;
+	g_rollSmooth += (targetRoll - g_rollSmooth) * k;
 	float step = g_maxRate > 0.0f ? g_maxRate * g_frameDt : 1000.0f;
 	g_pitchNow = Toward(g_pitchNow, g_pitchSmooth, step);
 	g_rollNow = Toward(g_rollNow, g_rollSmooth, step);
@@ -1849,9 +1874,10 @@ static void FrameTilt(void)
 	}
 	if (g_trace && g_clock - g_lastTrace >= 0.25f) {
 		g_lastTrace = g_clock;
-		Log("trace: normal (%.3f, %.3f, %.3f) state %d%s | raw pitch %.1f roll %.1f | median %.1f %.1f | smooth %.1f %.1f | applied %.1f %.1f",
+		Log("trace: normal (%.3f, %.3f, %.3f) state %d%s | raw pitch %.1f roll %.1f | median %.1f %.1f | track %s%.1f | pitch from %s | smooth %.1f %.1f | applied %.1f %.1f",
 		    g_groundN[0], g_groundN[1], g_groundN[2], g_lastState, onGround ? "" : " (off the ground)", rawPitch, rawRoll,
-		    medianPitch, medianRoll, g_pitchSmooth, g_rollSmooth, g_pitchNow, g_rollNow);
+		    medianPitch, medianRoll, g_trackPitchOk ? "" : "(none) ", g_trackPitchOk ? g_trackPitch : 0.0f, source,
+		    g_pitchSmooth, g_rollSmooth, g_pitchNow, g_rollNow);
 	}
 
 	/* Turned about the seat P (mesh space): x -> R (x - P) + P. Mesh -> bone after the turn:
@@ -1923,9 +1949,28 @@ static float Distance(const float a[3], const float b[3])
 	return sqrtf(dx * dx + dy * dy + dz * dz);
 }
 
+static bool TrackPointAt(const float p[3], float along, float out[3]);
+
+/* The slope of the track over the last TRACK_PITCH_BACK units, along the rider's heading
+ * (so riding backwards down a hill still lifts the nose). */
+static void TrackPitch(uintptr_t player, const float pos[3])
+{
+	float back[3];
+	if (!TrackPointAt(pos, TRACK_PITCH_BACK, back) || !Accessible(player + OFF_REFR_HEADING, 4, false))
+		return;
+	float h = *(const float *)(player + OFF_REFR_HEADING);
+	float vx = pos[0] - back[0], vy = pos[1] - back[1], dz = pos[2] - back[2];
+	float horizontal = sqrtf(vx * vx + vy * vy), along = vx * sinf(h) + vy * cosf(h);
+	if (!isfinite(h) || horizontal < 30.0f || fabsf(along) < 0.5f * horizontal)
+		return;   /* too short, or mostly sideways (a sharp turn): no telling */
+	g_trackPitch = atan2f(along >= 0.0f ? dz : -dz, fabsf(along)) * 57.29578f;
+	g_trackPitchOk = true;
+}
+
 /* Every frame: read the ground once (tilt, average, track all use it). */
 static void SampleGround(void)
 {
+	g_trackPitchOk = false;
 	uintptr_t player = Player();
 	uintptr_t ctrl = player ? FindController(player, false) : 0;
 	float n[3];
@@ -1966,8 +2011,10 @@ static void SampleGround(void)
 		float dx = pos[0] - last->p[0], dy = pos[1] - last->p[1];
 		if (Distance(pos, last->p) > 150.0f)
 			TrackClear();   /* a door, fast travel, a teleport */
-		else if (dx * dx + dy * dy < TRACK_SPACING * TRACK_SPACING)
+		else if (dx * dx + dy * dy < TRACK_SPACING * TRACK_SPACING) {
+			TrackPitch(player, pos);   /* standing still (or nearly): the same track, the same slope */
 			return;
+		}
 	}
 	TrackPoint *t = &g_track[g_trackHead];
 	memcpy(t->p, pos, sizeof(t->p));
@@ -1975,6 +2022,7 @@ static void SampleGround(void)
 	g_trackHead = (g_trackHead + 1) % TRACK_POINTS;
 	if (g_trackCount < TRACK_POINTS)
 		g_trackCount++;
+	TrackPitch(player, pos);
 }
 
 /* A point on the track `along` units back along the ground from the player's feet `p`
@@ -2032,48 +2080,69 @@ static bool ParkSpot(uintptr_t player, float out[7], const char **why)
 		                                 : "the track never gets a bike length and a half from the player";
 		return false;
 	}
-	float ahead[3], behind[3];
-	if (!TrackPointAt(p, at - PARK_SPAN, ahead))
-		memcpy(ahead, c, sizeof(ahead));
-	if (!TrackPointAt(p, at + PARK_SPAN, behind))
-		memcpy(behind, TrackAt(g_trackCount - 1)->p, sizeof(behind));   /* the track's oldest point */
-	float a[3] = { ahead[0] - behind[0], ahead[1] - behind[1], ahead[2] - behind[2] };
-	float len = sqrtf(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
-	if (len < 20.0f || sqrtf(a[0] * a[0] + a[1] * a[1]) < 10.0f) {
-		*why = "the track has no direction there";
-		return false;
-	}
-	/* The ground's normals there, averaged. */
-	float nsum[3] = { 0 };
-	travelled = 0.0f;
+	/* From there on back along the track, the first spot no steeper than PARK_MAX_SLOPE
+	 * (test 9: got off on a 60 deg rock face; the bike belongs where it could stand). */
+	float total = 0.0f, a[3], up[3];
 	memcpy(prev, p, sizeof(prev));
 	for (int i = 0; i < g_trackCount; i++) {
-		const TrackPoint *t = TrackAt(i);
-		travelled += Distance(prev, t->p);
-		memcpy(prev, t->p, sizeof(prev));
-		if (travelled > at + PARK_SPAN)
-			break;
-		if (travelled >= at - PARK_SPAN)
-			for (int k = 0; k < 3; k++)
-				nsum[k] += t->n[k];
+		total += Distance(prev, TrackAt(i)->p);
+		memcpy(prev, TrackAt(i)->p, sizeof(prev));
 	}
-	float nlen = sqrtf(nsum[0] * nsum[0] + nsum[1] * nsum[1] + nsum[2] * nsum[2]);
-	float up[3], dot = 0.0f;
-	for (int k = 0; k < 3; k++) {
-		a[k] /= len;
-		up[k] = nlen > 0.0f ? nsum[k] / nlen : (k == 2 ? 1.0f : 0.0f);
-		dot += up[k] * a[k];
-	}
-	/* Up at right angles to the bike's length: the track's direction sets the pitch. */
-	float ulen = 0.0f;
-	for (int k = 0; k < 3; k++) {
-		up[k] -= dot * a[k];
-		ulen += up[k] * up[k];
-	}
-	ulen = sqrtf(ulen);
-	if (!(ulen > 0.1f) || up[2] / ulen < 0.5f) {
-		*why = "the track there is steeper than 60 deg";
-		return false;
+	for (;; at += PARK_STEP) {
+		if (at > total || at > PARK_DISTANCE + PARK_SEARCH) {
+			*why = "the track is steeper than 45 deg all the way back";
+			return false;
+		}
+		if (!TrackPointAt(p, at, c) || Distance(c, p) < PARK_DISTANCE - 2.0f)
+			continue;
+		float ahead[3], behind[3];
+		if (!TrackPointAt(p, at - PARK_SPAN, ahead))
+			memcpy(ahead, c, sizeof(ahead));
+		if (!TrackPointAt(p, at + PARK_SPAN, behind))
+			memcpy(behind, TrackAt(g_trackCount - 1)->p, sizeof(behind));   /* the track's oldest point */
+		for (int k = 0; k < 3; k++)
+			a[k] = ahead[k] - behind[k];
+		float len = sqrtf(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
+		if (len < 20.0f || sqrtf(a[0] * a[0] + a[1] * a[1]) < 10.0f)
+			continue;   /* no direction there */
+		for (int k = 0; k < 3; k++)
+			a[k] /= len;
+		/* Both halves walkable, not just on average: at the foot of a rock face the span
+		 * would average out half flat, half face. */
+		float limit = sinf(PARK_MAX_SLOPE / 57.29578f), d1 = Distance(ahead, c), d2 = Distance(c, behind);
+		if (fabsf(a[2]) > limit || (d1 > 1.0f && fabsf(ahead[2] - c[2]) / d1 > limit) ||
+		    (d2 > 1.0f && fabsf(c[2] - behind[2]) / d2 > limit))
+			continue;   /* too steep to stand a bike on */
+		/* The ground's normals there, averaged. */
+		float nsum[3] = { 0 };
+		float along = 0.0f, prevp[3] = { p[0], p[1], p[2] };
+		for (int i = 0; i < g_trackCount; i++) {
+			const TrackPoint *t = TrackAt(i);
+			along += Distance(prevp, t->p);
+			memcpy(prevp, t->p, sizeof(prevp));
+			if (along > at + PARK_SPAN)
+				break;
+			if (along >= at - PARK_SPAN)
+				for (int k = 0; k < 3; k++)
+					nsum[k] += t->n[k];
+		}
+		float nlen = sqrtf(nsum[0] * nsum[0] + nsum[1] * nsum[1] + nsum[2] * nsum[2]), dot = 0.0f;
+		for (int k = 0; k < 3; k++) {
+			up[k] = nlen > 0.0f ? nsum[k] / nlen : (k == 2 ? 1.0f : 0.0f);
+			dot += up[k] * a[k];
+		}
+		/* Up at right angles to the bike's length: the track's direction sets the pitch. */
+		float ulen = 0.0f;
+		for (int k = 0; k < 3; k++) {
+			up[k] -= dot * a[k];
+			ulen += up[k] * up[k];
+		}
+		ulen = sqrtf(ulen);
+		if (!(ulen > 0.1f) || up[2] / ulen < 0.5f)
+			continue;
+		for (int k = 0; k < 3; k++)
+			up[k] /= ulen;
+		break;
 	}
 	float heading = atan2f(a[0], a[1]) * 57.29578f;   /* the game's: 0 = +Y, clockwise */
 	out[0] = c[0];
@@ -2081,7 +2150,7 @@ static bool ParkSpot(uintptr_t player, float out[7], const char **why)
 	out[2] = c[2];
 	out[3] = fmodf(heading + 180.0f + 360.0f, 360.0f);
 	for (int k = 0; k < 3; k++)
-		out[4 + k] = up[k] / ulen;
+		out[4 + k] = up[k];
 	return true;
 }
 
@@ -2099,24 +2168,32 @@ static void PublishGround(uintptr_t player)
 	if (!g_parkGlobals[0] || !g_riding)
 		return;
 	g_parkValid = ParkSpot(player, g_parkSpot, &g_parkWhy);
-	if (g_parkValid)
+	if (g_parkValid) {
 		for (int i = 0; i < 7; i++)
 			SetGlobal(g_parkGlobals[i], g_parkSpot[i]);
-	else
+		memcpy(g_parkPublished, g_parkSpot, sizeof(g_parkPublished));
+		g_parkPublishedAt = g_clock;
+	} else {
 		SetGlobal(g_parkGlobals[6], 0.0f);
+	}
 }
 
-/* On getting off: what the controller script had to park on. */
+/* On getting off: what the controller script had to park on, the last spot written (the
+ * script reads it a moment before the ride ends; test 9 logged a later recalculation). */
 static void LogParkSpot(void)
 {
 	if (!g_parkGlobals[0])
 		return;
-	if (g_parkValid)
-		Log("park: on getting off, a spot on the track %.0f units away: (%.0f, %.0f, %.0f), angle %.0f, up (%.2f, %.2f, %.2f)",
-		    PARK_DISTANCE, g_parkSpot[0], g_parkSpot[1], g_parkSpot[2], g_parkSpot[3],
-		    g_parkSpot[4], g_parkSpot[5], g_parkSpot[6]);
-	else
+	float age = g_clock - g_parkPublishedAt;
+	if (age < 2.0f) {
+		Log("park: on getting off, the spot last written (%.1f s before): (%.0f, %.0f, %.0f), angle %.0f, up (%.2f, %.2f, %.2f)",
+		    age, g_parkPublished[0], g_parkPublished[1], g_parkPublished[2], g_parkPublished[3],
+		    g_parkPublished[4], g_parkPublished[5], g_parkPublished[6]);
+		if (!g_parkValid)
+			Log("park:   (by the time the ride ended it was gone: %s)", g_parkWhy);
+	} else {
 		Log("park: on getting off, no spot on the track: %s", g_parkWhy);
+	}
 }
 
 
@@ -2231,18 +2308,24 @@ static void Tick(DWORD now)
 	/* A new ride starts a new track. */
 	if (riding && !g_wasRiding) {
 		TrackClear();
+		ResetTilt();   /* test 9: a ride that ended by taking the bike off kept the last pitch */
 		g_parkValid = false;
+		g_parkPublishedAt = -100.0f;
 	}
 	if (!riding && g_wasRiding)
 		LogParkSpot();
 	g_riding = riding;
 	PublishGround(Player());
+	/* The slope just ridden, for the script to refuse getting off on a face too steep to stand on. */
+	SetGlobal(g_trackSlopeGlobal, riding && g_trackPitchOk ? fabsf(g_trackPitch) : 0.0f);
 
 	if (tilt > 0.0f) {
 		SyncSkins(Player());
 	} else {
 		if (g_skinCount)
 			LetGoAll("got off");
+		else
+			ResetTilt();
 		g_emptySyncs = 0;   /* the next ride looks (and reports) afresh */
 		g_rideDiagnosed = g_rideRouteLogged = false;
 	}

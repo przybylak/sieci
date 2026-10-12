@@ -33,6 +33,7 @@
 #define TILT_GLOBAL_FORMID    (0xFE000000u | (LIGHT_INDEX << 12) | 0x82Cu)
 #define GROUND_GLOBAL_FORMID  (0xFE000000u | (LIGHT_INDEX << 12) | 0x82Du)   /* X, then Y, Z */
 #define PARK_GLOBAL_FORMID    (0xFE000000u | (LIGHT_INDEX << 12) | 0x831u)   /* X, Y, Z, Angle, UpX, UpY, UpZ */
+#define SLOPE_TRACK_FORMID    (0xFE000000u | (LIGHT_INDEX << 12) | 0x838u)
 #define HEADING               1.0f         /* radians: the player faces a bit north of east */
 #define DEG                   57.29578f
 #define COS47                 0.68199836f
@@ -101,7 +102,7 @@ static uint8_t *g_cameraSetting;
 static void **g_vtProxy, **g_vtWrapper, **g_vtCtrl;
 static uint8_t *g_tiltGlobal, *g_groundGlobals[3];
 static uint8_t *g_player, *g_root, *g_bikeNode, *g_bikeShape, *g_boneData, *g_bones, *g_biped;
-static uint8_t *g_parkGlobals[7];
+static uint8_t *g_parkGlobals[7], *g_trackSlope;
 static uint8_t *g_thirdState;   /* ThirdPersonState: zoom target +0xE8, current +0xEC */
 static uint8_t g_bonesOriginal[0x50];
 static int g_deleted;
@@ -130,6 +131,8 @@ static uintptr_t FakeLookupFormByID(uint32_t id)
 		return (uintptr_t)g_groundGlobals[id - GROUND_GLOBAL_FORMID];
 	if (id >= PARK_GLOBAL_FORMID && id < PARK_GLOBAL_FORMID + 7)
 		return (uintptr_t)g_parkGlobals[id - PARK_GLOBAL_FORMID];
+	if (id == SLOPE_TRACK_FORMID)
+		return (uintptr_t)g_trackSlope;
 	return id == SLOPE_GLOBAL_FORMID ? (uintptr_t)g_global : id == CAMERA_GLOBAL_FORMID ? (uintptr_t)g_cameraGlobal
 	     : id == TILT_GLOBAL_FORMID ? (uintptr_t)g_tiltGlobal : 0;
 }
@@ -259,6 +262,7 @@ static void BuildGame(void)
 	static const char *park[7] = { "CMB_ParkX", "CMB_ParkY", "CMB_ParkZ", "CMB_ParkAngle", "CMB_ParkUpX", "CMB_ParkUpY", "CMB_ParkUpZ" };
 	for (int i = 0; i < 7; i++)
 		g_parkGlobals[i] = NewGlobal(PARK_GLOBAL_FORMID + (uint32_t)i, park[i]);
+	g_trackSlope = NewGlobal(SLOPE_TRACK_FORMID, "CMB_TrackSlope");
 	PlayerPos()[0] = -1200.0f;
 	PlayerPos()[1] = 1280.0f;
 	PlayerPos()[2] = 100.0f;
@@ -532,6 +536,26 @@ static void SkinRouteTests(void)
 	strcpy(name, "CMB_BikeWornRider");
 	SetLayouts(g_skinTransposed, g_rootTransposed);
 
+	printf("tilt: a ride that ends by taking the bike off, then a new one on flat ground:\n");
+	SetNormalTowards(back, 20.0f);
+	SetTilt(30.0f);
+	RunFrames(1500);
+	(*rootUsed)--;
+	uint8_t *keep = *slotPart;
+	*slotPart = NULL;
+	RunFrames(300);   /* let go of: no longer worn */
+	SetTilt(0.0f);
+	RunFrames(300);
+	(*rootUsed)++;
+	*slotPart = keep;
+	SetNormal(0.0f, 0.0f, 1.0f);
+	SetTilt(30.0f);
+	RunFrames(200);
+	AppliedRotation(R);
+	CHECK(acosf(R[8] > 1.0f ? 1.0f : R[8]) * DEG < 2.0f, "starts level, not from the last ride's pitch (%.1f deg)", acosf(R[8] > 1.0f ? 1.0f : R[8]) * DEG);
+	SetTilt(0.0f);
+	RunFrames(300);
+
 	printf("tilt: no bike anywhere:\n");
 	(*rootUsed)--;
 	uint8_t *part = *slotPart;
@@ -546,10 +570,17 @@ static void SkinRouteTests(void)
 	SetNormal(0.0f, 0.0f, 1.0f);
 }
 
-/* Riding along: up a slope at a steady speed. */
-static float g_rideSpeed, g_rideSlope;
+/* Riding along: up a slope at a steady speed (negative speed: backwards), the ground's
+ * normal jumping about by up to g_noise degrees every frame, as the game's does. */
+static float g_rideSpeed, g_rideSlope, g_noise;
+static unsigned g_seed = 12345;
+static float Random(void) { g_seed = g_seed * 1103515245u + 12345u; return (float)((g_seed >> 8) & 0xFFFF) / 65535.0f; }
 static void RideAlong(float dt)
 {
+	if (g_noise > 0.0f) {
+		float dir[3] = { cosf(Random() * 6.2832f), sinf(Random() * 6.2832f), 0.0f };
+		SetNormalTowards(dir, Random() * g_noise);
+	}
 	float d = g_rideSpeed * dt;
 	PlayerPos()[0] += sinf(HEADING) * cosf(g_rideSlope / DEG) * d;
 	PlayerPos()[1] += cosf(HEADING) * cosf(g_rideSlope / DEG) * d;
@@ -622,15 +653,58 @@ static void TrackTests(void)
 	CHECK(fabsf(Park(4) - n[0]) < 0.01f && fabsf(Park(5) - n[1]) < 0.01f && fabsf(Park(6) - n[2]) < 0.01f,
 	      "up is the slope's normal (%.3f, %.3f, %.3f)", Park(4), Park(5), Park(6));
 
-	printf("park: riding up a 45 deg slope:\n");
-	SetNormalTowards(back, 45.0f);
-	g_rideSlope = 45.0f;
+	printf("park: riding up a 40 deg slope:\n");
+	SetNormalTowards(back, 40.0f);
+	g_rideSlope = 40.0f;
 	g_onFrame = RideAlong;
 	RunFrames(1500);
 	g_onFrame = NULL;
 	RunFrames(300);
-	ez = PlayerPos()[2] - sinf(45.0f / DEG) * behind;
+	ez = PlayerPos()[2] - sinf(40.0f / DEG) * behind;
 	CHECK(Park(6) > 0.6f && fabsf(Park(2) - ez) < 1.0f, "a spot on the steep track too (z %.1f, expected %.1f; up z %.3f)", Park(2), ez, Park(6));
+
+	printf("tilt: riding up a 10 deg slope, the ground's normal all over the place:\n");
+	SetTilt(30.0f);
+	g_noise = 40.0f;
+	g_rideSpeed = 300.0f;
+	g_rideSlope = 10.0f;
+	g_onFrame = RideAlong;
+	RunFrames(2000);
+	float R[9];
+	AppliedRotation(R);
+	float pitch = asinf(R[7]) * DEG;
+	CHECK(fabsf(pitch - 10.0f) < 1.5f, "pitched by the track: %.1f deg (10)", pitch);
+	printf("tilt: backwards down that slope:\n");
+	g_rideSpeed = -150.0f;   /* reversing back down the same slope */
+	RunFrames(2000);
+	AppliedRotation(R);
+	pitch = asinf(R[7]) * DEG;
+	CHECK(fabsf(pitch - 10.0f) < 1.5f, "still nose up, the ground rises ahead of it: %.1f deg", pitch);
+	g_onFrame = NULL;
+	g_noise = 0.0f;
+	RunFrames(500);
+	AppliedRotation(R);
+	CHECK(fabsf(asinf(R[7]) * DEG - pitch) < 1.0f, "standing still: holds (%.1f deg)", asinf(R[7]) * DEG);
+	SetTilt(0.0f);
+	SetNormalTowards(back, 10.0f);
+	g_rideSpeed = 300.0f;
+	g_rideSlope = 10.0f;
+
+	printf("park: up a 60 deg rock face, then getting off:\n");
+	SetNormal(0.0f, 0.0f, 1.0f);
+	g_rideSlope = 0.0f;
+	g_onFrame = RideAlong;
+	RunFrames(1300);
+	SetNormalTowards(back, 60.0f);
+	g_rideSlope = 60.0f;
+	RunFrames(900);
+	g_onFrame = NULL;
+	RunFrames(300);
+	CHECK(fabsf(*(float *)(g_trackSlope + 0x30) - 60.0f) < 2.0f, "CMB_TrackSlope says %.1f deg (the script won't let you off)", *(float *)(g_trackSlope + 0x30));
+	float fdx = Park(0) - PlayerPos()[0], fdy = Park(1) - PlayerPos()[1], fdz = Park(2) - PlayerPos()[2];
+	CHECK(Park(6) > 0.9f && sqrtf(fdx * fdx + fdy * fdy + fdz * fdz) > 140.0f,
+	      "the spot is back down on the flat (up z %.2f, %.0f away)", Park(6), sqrtf(fdx * fdx + fdy * fdy + fdz * fdz));
+	SetNormal(0.0f, 0.0f, 1.0f);
 
 	printf("park: a U-turn just before stopping:\n");
 	g_rideSlope = 0.0f;
@@ -749,7 +823,7 @@ static void TiltTests(void)
 	SetNormalTowards(forward, 10.0f);   /* stale normal: must not be used */
 	RunFrames(1500);
 	AppliedRotation(R);
-	CHECK(R[8] > 0.9999f, "eased back to level (cos %.5f)", R[8]);
+	CHECK(fabsf(acosf(R[8] > 1.0f ? 1.0f : R[8]) * DEG - tilted) < 0.5f, "holds what it had on the ground (%.2f deg)", acosf(R[8] > 1.0f ? 1.0f : R[8]) * DEG);
 	CHECK(Ground(2) == 0.0f && fabsf(Ground(0) - groundX) < 0.01f,
 	      "in the air CMB_GroundNormalZ is 0, X and Y left alone (%.3f, %.3f, %.3f)", Ground(0), Ground(1), Ground(2));
 	SetState(0);

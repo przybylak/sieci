@@ -123,6 +123,9 @@ Group Optional
 	{While riding, CMB_Slope.dll writes where the bike can be parked: on the ground just ridden,
 	a bike length behind the player (position, angle, and the up its wheels give it).
 	UpZ is 0 when there's no such spot, or without the plugin.}
+	GlobalVariable Property CMB_TrackSlope Auto Const
+	{While riding, CMB_Slope.dll writes how steep (degrees) the ground just ridden is, over
+	about a wheelbase. 0 otherwise, or without the plugin.}
 	ObjectReference Property GroundProbeRef Auto Const
 	{An XMarker in CMB_HoldingCell. Without the plugin, it feels for the navmesh around the
 	parked bike to tilt it.}
@@ -151,6 +154,9 @@ higher or lower there; more and the bike is parked level at the player's height 
 contact normal, carried 110 units, is no good on rock or at a curb: test 7).}
 float Property ParkMaxRoll = 10.0 AutoReadOnly
 {The parked bike leans sideways at most this much...}
+float Property MaxDismountSlope = 50.0 AutoReadOnly
+{Getting off is refused on ground steeper than this (you'd slide down it on foot: walking
+tops out at 47; test 9 got off on a 60 deg rock face).}
 float Property ParkMaxPitch = 30.0 AutoReadOnly
 {...and pitches at most this much (test 8: a 28 deg park on the track sat right).}
 float Property ProbeAlong = 70.0 AutoReadOnly
@@ -519,6 +525,11 @@ EndFunction
 
 Function Dismount()
 	if !riding || busy
+		return
+	endif
+	if CMB_TrackSlope && CMB_TrackSlope.GetValue() > MaxDismountSlope
+		Debug.Notification("Too steep to get off here.")
+		Log("Getting off refused: the ground is " + CMB_TrackSlope.GetValue() + " deg steep.")
 		return
 	endif
 	busy = true
@@ -1006,6 +1017,7 @@ Function TiltParkedBike(float afAngle, string asFrom)
 	float nz = groundZ
 	if maxTilt <= 0.0 || nz > 0.9999
 		BikeRef.SetAngle(0.0, 0.0, afAngle)
+		Log("Parked bike level on " + asFrom + ".")
 		return
 	endif
 	if nz < Math.Cos(maxTilt)
