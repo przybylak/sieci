@@ -189,7 +189,8 @@ static void FakeGetVelocity(uint8_t *self, float *out) { (void)self; memcpy(out,
  * found through an Address Library file the test writes next to the plugin. */
 typedef struct { bool on; float point[2], normal[2]; uint32_t layer; } FakePlane;
 static float g_groundZ = 100.0f;
-static bool g_dropOn;
+static float g_slopeK, g_slopeO[2], g_slopeD[2];   /* the ground rises g_slopeK per unit along g_slopeD from g_slopeO */
+static bool g_dropOn, g_frozen;   /* g_frozen: the movement can't move the player (stuck against something) */
 static FakePlane g_planes[3];
 static float g_dropPoint[2], g_dropDir[2];
 static uint8_t *g_wallObj, *g_groundObj, g_fakeWorld[64];
@@ -215,8 +216,9 @@ static uint8_t *FakeCellPick(uint8_t *cell, uint8_t *pick)
 	float t = 2.0f;
 	uint8_t *what = NULL;
 	uint32_t layer = 0;
-	if (b[2] != a[2]) {
-		float tg = (g_groundZ - a[2]) / (b[2] - a[2]);
+	float den = (b[2] - a[2]) - g_slopeK * ((b[0] - a[0]) * g_slopeD[0] + (b[1] - a[1]) * g_slopeD[1]);
+	if (den != 0.0f) {
+		float tg = (g_groundZ + g_slopeK * ((a[0] - g_slopeO[0]) * g_slopeD[0] + (a[1] - g_slopeO[1]) * g_slopeD[1]) - a[2]) / den;
 		float x = a[0] + (b[0] - a[0]) * tg, y = a[1] + (b[1] - a[1]) * tg;
 		bool ground = !g_dropOn || (x - g_dropPoint[0]) * g_dropDir[0] + (y - g_dropPoint[1]) * g_dropDir[1] < 0.0f;
 		if (tg >= 0.0f && tg <= 1.0f && ground) {
@@ -844,7 +846,7 @@ static void FakeGameFrame(float dt)
 	float d = remainderf(out[14] - *head, 6.2831853f), step = 6.2831853f * dt;
 	*head += d > step ? step : d < -step ? -step : d;
 	float dir = *head + ((g_honour & 8) ? out[2] : 0.0f), speed = out[8];
-	if (speed < 0.0f && !(g_honour & 16))
+	if ((speed < 0.0f && !(g_honour & 16)) || g_frozen)
 		speed = 0.0f;
 	PlayerPos()[0] += sinf(dir) * speed * 450.0f * dt;
 	PlayerPos()[1] += cosf(dir) * speed * 450.0f * dt;
@@ -912,6 +914,14 @@ static void InputTests(void)
 	CHECK(crept > 35.0f && crept < 80.0f, "creeping forward at %.0f a second (about 58: round a 55 circle), not driven off", crept);
 	CHECK(MoveInput()[0] == 0.0f && MoveInput()[1] > 0.0f && MoveInput()[1] < 0.1f, "the game gets no side input, a little forward (%.3f)", MoveInput()[1]);
 	CHECK(((float *)(g_controls + 0x5C))[1] == MoveInput()[1], "and its movement used that (+5C)");
+	g_frozen = true;   /* against something: the bike can't move */
+	RunFrames(2500);
+	float stuck = MoveInput()[1];
+	CHECK(stuck > 0.0f && stuck < 0.1f, "stuck against something: the creep input doesn't wind up (%.3f)", stuck);
+	g_frozen = false;
+	Mark(p0);
+	RunFrames(500);
+	CHECK(Moved(p0) < 60.0f, "free again: no lurch, at most 1.5 times the creep (%.0f in half a second)", Moved(p0));
 	Keys(1.0f, 1.0f);
 	RunFrames(300);
 	CHECK(MoveInput()[0] == 1.0f && MoveInput()[1] == 1.0f, "forward and right: left alone");
@@ -1012,6 +1022,42 @@ static void InputTests(void)
 	Keys(0.0f, 0.0f);
 	RunFrames(300);
 	trigger->on = false;
+
+	printf("input hook: a chain-link fence (layer 26) 300 behind:\n");
+	Mark(p0);
+	FakePlane *fence = &g_planes[0];
+	fence->point[0] = p0[0] + back[0] * 300.0f;
+	fence->point[1] = p0[1] + back[1] * 300.0f;
+	fence->normal[0] = -back[0];
+	fence->normal[1] = -back[1];
+	fence->layer = 26;
+	fence->on = true;
+	Keys(0.0f, -1.0f);
+	RunFrames(4000);
+	gap = (PlayerPos()[0] - fence->point[0]) * fence->normal[0] + (PlayerPos()[1] - fence->point[1]) * fence->normal[1];
+	CHECK(gap > 145.0f && gap < 195.0f, "stops %.0f short of it", gap);
+	Keys(0.0f, 0.0f);
+	RunFrames(300);
+	fence->on = false;
+
+	printf("input hook: down a 30 deg slope behind:\n");
+	from = *head;
+	Mark(p0);
+	g_slopeK = -0.57735f;
+	g_slopeO[0] = p0[0];
+	g_slopeO[1] = p0[1];
+	g_slopeD[0] = -sinf(from);
+	g_slopeD[1] = -cosf(from);
+	g_groundZ = PlayerPos()[2];
+	Keys(0.0f, -1.0f);
+	RunFrames(3000);
+	float groundHere = g_groundZ + g_slopeK * ((PlayerPos()[0] - g_slopeO[0]) * g_slopeD[0] + (PlayerPos()[1] - g_slopeO[1]) * g_slopeD[1]);
+	CHECK(Moved(p0) > 150.0f && PlayerPos()[2] - groundHere > -2.5f && PlayerPos()[2] - groundHere < 1.0f,
+	      "backs down it %.0f, the wheels on the ground (%+.1f)", Moved(p0), PlayerPos()[2] - groundHere);
+	Keys(0.0f, 0.0f);
+	RunFrames(300);
+	g_slopeK = 0.0f;
+	g_groundZ = PlayerPos()[2];
 
 	printf("input hook: a car 35 to the right of the bike, back and right:\n");
 	from = *head;

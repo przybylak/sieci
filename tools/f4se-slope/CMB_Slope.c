@@ -398,6 +398,7 @@ static float g_steerWanted, g_steerAllowed;   /* the biggest turn asked for / al
 enum { INPUT_PASS, INPUT_BACK, INPUT_CREEP };
 static int g_inputMode;                       /* INPUT_*: what the move keys are made into (input hook) */
 static float g_creepInput = 0.1f;             /* the forward input that creeps at the wanted speed (learnt) */
+static float g_creepGood = 0.1f;              /* the input last seen creeping at about the speed wanted */
 static int g_steerClamped;                    /* frames clamped since the last trace */
 static float g_controlsLast[20];
 static float g_controlsLogged;
@@ -590,7 +591,7 @@ static void ReadSettings(void)
 	g_creepStart = strtof(value, NULL);
 	if (!(g_creepStart >= 0.02f && g_creepStart <= 1.0f))
 		g_creepStart = 0.1f;
-	g_creepInput = g_creepStart;
+	g_creepInput = g_creepGood = g_creepStart;
 	GetPrivateProfileStringA("Steer", "CreepBelow", "100", value, sizeof(value), ini);
 	g_creepBelow = strtof(value, NULL);
 	if (!(g_creepBelow >= 0.0f && g_creepBelow <= 1000.0f))
@@ -2856,15 +2857,15 @@ static uintptr_t AddressOf(FILE *f, uint64_t count, uint64_t id)
 	return 0;
 }
 
-/* What a bike can't back through: not triggers, sound and actor zones, camera, sight and
- * picking volumes, water, small clutter and debris, spells, projectiles or corpses (COL_LAYER,
- * CommonLibF4; test 16 stopped at nothing visible on a flat slab). */
+/* What a bike can back through: with the player's collision filter every hit is something
+ * the capsule collides with, except the phantoms: triggers (12), acoustic spaces (21), actor
+ * zones (22, test 17: the "nothing" test 16 stopped at on a flat slab), projectile zones (23),
+ * gas traps (24) and door detection (37). Everything else stops it (test 17: a chain-link
+ * fence is layer 26, transparent small, and was passed through). */
 static bool SolidLayer(uint32_t layer)
 {
 	switch (layer) {
-	case 4: case 5: case 6: case 7: case 11: case 12: case 15: case 16: case 18: case 19: case 21: case 22: case 23:
-	case 24: case 25: case 26: case 28: case 32: case 34: case 35: case 36: case 37: case 38: case 39: case 40: case 41:
-	case 42: case 45: case 46:
+	case 12: case 21: case 22: case 23: case 24: case 37:
 		return false;
 	default:
 		return true;
@@ -3006,7 +3007,7 @@ static bool WayBackClear(uintptr_t player, float heading, float step, float *dz)
 	const char *why = NULL;
 	bool hit = false;
 	float at = 0.0f, behindNear = 55.0f, behindFar = g_backClearance, groundNear = 0.0f, groundFar = 0.0f;
-	if (g_airTime > 0.15f)
+	if (g_airTime > 0.45f)
 		why = "in the air (landing first)";
 	if (!why) {
 		float a[3] = { pos[0] + dir[0] * behindNear, pos[1] + dir[1] * behindNear, pos[2] + 60.0f };
@@ -3049,16 +3050,26 @@ static bool WayBackClear(uintptr_t player, float heading, float step, float *dz)
 		}
 	}
 	float slope = groundNear / behindNear * step;
-	*dz = slope;
+	*dz = slope > 0.0f ? slope : 0.0f;   /* up a slope: with it (the capsule's pushed out of it too) */
 	if (!why) {
-		/* The ground under the step, from below the seat: snapped to, unless it's far off the
-		 * slope's (a ray stopped by the rider's own legs, or a hole). */
-		float a[3] = { pos[0] + dir[0] * step, pos[1] + dir[1] * step, pos[2] + 20.0f };
-		float b[3] = { a[0], a[1], pos[2] - 80.0f };
+		/* The ground under the step, from just below the feet (not from inside the capsule,
+		 * which the player's filter would hit): the feet go 1.5 units into it, so the
+		 * controller feels it under them (test 17: snapped onto it, the bike was in the air a
+		 * third of the time going down), at most 3 units down a frame. More than 20 down is a
+		 * drop: no step. Not found (the ground's above the ray's start): up or level, the
+		 * slope's. */
+		float a[3] = { pos[0] + dir[0] * step, pos[1] + dir[1] * step, pos[2] - 0.5f };
+		float b[3] = { a[0], a[1], pos[2] - 40.0f };
 		float f = CastRay(cell, a, b);
-		if (f > 0.05f && f < 1.0f) {
-			float feet = 20.0f - f * 100.0f;
-			*dz = feet < slope - 12.0f ? slope - 12.0f : feet > slope + 12.0f ? slope + 12.0f : feet;
+		if (f < 1.0f) {
+			float below = 0.5f + f * 39.5f;
+			if (below > 20.0f) {
+				why = "the ground drops away under the step";
+				at = step;
+			} else {
+				float down = below + 1.5f;
+				*dz = -(down < 3.0f ? down : 3.0f);
+			}
 		}
 	}
 	g_rayGroundNear = groundNear;
@@ -3284,6 +3295,9 @@ static float PushBack(uintptr_t player, float heading, float turn, float dt)
 }
 
 /* The creep's forward input, learnt: up when slower than wanted, down when faster. */
+/* Not above 0.35, and not winding up while the bike is stuck (test 17: against something it
+ * climbed to 1.0 and lurched off at 160-330 once free): above the last good value it only
+ * grows while the bike moves; letting go of the side key goes back to that value. */
 static void AdaptCreep(float want)
 {
 	g_creepWant = want;
@@ -3291,8 +3305,12 @@ static void AdaptCreep(float want)
 		return;
 	float e = (want - g_speedAlong) / want;
 	e = e > 1.0f ? 1.0f : e < -1.0f ? -1.0f : e;
+	if (e > 0.0f && g_speedAlong < 10.0f && g_creepInput >= g_creepGood * 1.5f)
+		e = 0.0f;   /* stuck */
 	g_creepInput *= expf(1.5f * e * g_frameDt);
-	g_creepInput = g_creepInput < 0.02f ? 0.02f : g_creepInput > 1.0f ? 1.0f : g_creepInput;
+	g_creepInput = g_creepInput < 0.02f ? 0.02f : g_creepInput > 0.35f ? 0.35f : g_creepInput;
+	if (fabsf(g_speedAlong - want) < 0.3f * want)
+		g_creepGood = g_creepInput;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -3340,6 +3358,8 @@ static void FrameSteer(void)
 	}
 
 	int mode = g_inputHooked ? g_inputMode : INPUT_PASS;
+	if (mode != INPUT_CREEP && g_creepInput > g_creepGood)
+		g_creepInput = g_creepGood;   /* the side key let go: no wound-up input for the next creep */
 	float inX = g_rawMove[0] > 1.0f ? 1.0f : g_rawMove[0] < -1.0f ? -1.0f : g_rawMove[0];
 	if (!isfinite(inX))
 		inX = 0.0f;
