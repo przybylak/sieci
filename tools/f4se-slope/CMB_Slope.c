@@ -67,9 +67,9 @@
  *   speed (FullSpeed). The move keys are changed before the game uses them (its
  *   MovementHandler's event functions are wrapped: three vtable entries): a side key alone
  *   from a stop creeps round a small circle instead of riding off, and back gets
- *   the game nothing (it would drive forward) while the plugin pushes the bike back itself,
- *   facing forward (the controller's velocityMod, its velocity or its position: whichever
- *   is found to move it), or else just stops it.
+ *   the game nothing (it would drive forward) while the plugin backs the bike up, facing
+ *   forward, through what the movement update gets from the controls (the movement turned
+ *   round, or its speed made negative: whichever is found to move it), or else just stops it.
  *
  * With Probe=1 it also logs (Documents\My Games\Fallout4\F4SE\CMB_Slope.log) the
  * layout of the controller, the proxy and the objects listed in DumpPointers, then on
@@ -324,11 +324,11 @@ static int g_inputHook = 1;               /* 1 = change the move input before th
 static int g_creep = 1;                   /* 1 = a side key from a stop creeps forward round a CreepRadius circle */
 static float g_creepStart = 0.1f;         /* the first forward input tried for the creep (then learnt) */
 static float g_creepBelow = 100.0f;       /* a side key alone creeps below this speed */
-static float g_creepRadius = 25.0f;       /* the creep goes round this circle (test 13: "barely move forward") */
+static float g_creepRadius = 40.0f;       /* the creep goes round this circle (test 14: "a bit more" than 25) */
 static float g_backSpeed = 80.0f;         /* units a second the bike is pushed back */
-enum { PUSH_MOD, PUSH_VELOCITY, PUSH_POSITION, PUSH_BRAKE };
-static int g_backPushFirst = PUSH_MOD;    /* BackPush: the method to start with */
-static bool g_backPushAuto = true;        /* BackPush=auto: on to the next when one doesn't move the bike */
+enum { PUSH_OUTPUT_TURN, PUSH_OUTPUT_NEGATIVE, PUSH_MOD, PUSH_VELOCITY, PUSH_POSITION, PUSH_BRAKE };
+static int g_backPushFirst = PUSH_OUTPUT_TURN;   /* BackPush: the method to start with */
+static bool g_backPushAuto = true;        /* BackPush=auto: the movement output's two ways, else brake */
 static char g_shapePrefix[64] = "CMB_BikeWorn";
 enum { LAYOUT_UNKNOWN = -1, LAYOUT_FILE = 0, LAYOUT_TRANSPOSED = 1, LAYOUT_DISAGREE = 2 };
 static int g_layoutSetting = LAYOUT_UNKNOWN;   /* Layout=auto */
@@ -580,10 +580,10 @@ static void ReadSettings(void)
 	g_creepBelow = strtof(value, NULL);
 	if (!(g_creepBelow >= 0.0f && g_creepBelow <= 1000.0f))
 		g_creepBelow = 100.0f;
-	GetPrivateProfileStringA("Steer", "CreepRadius", "25", value, sizeof(value), ini);
+	GetPrivateProfileStringA("Steer", "CreepRadius", "40", value, sizeof(value), ini);
 	g_creepRadius = strtof(value, NULL);
 	if (!(g_creepRadius >= 0.0f && g_creepRadius <= 1000.0f))
-		g_creepRadius = 25.0f;
+		g_creepRadius = 40.0f;
 	GetPrivateProfileStringA("Steer", "BackSpeed", "80", value, sizeof(value), ini);
 	g_backSpeed = strtof(value, NULL);
 	if (!(g_backSpeed > 0.0f && g_backSpeed <= 400.0f))
@@ -591,8 +591,8 @@ static void ReadSettings(void)
 	GetPrivateProfileStringA("Steer", "BackPush", "auto", value, sizeof(value), ini);
 	g_backPushAuto = _stricmp(value, "mod") != 0 && _stricmp(value, "velocity") != 0 && _stricmp(value, "position") != 0 &&
 	                 _stricmp(value, "off") != 0;
-	g_backPushFirst = _stricmp(value, "velocity") == 0 ? PUSH_VELOCITY : _stricmp(value, "position") == 0 ? PUSH_POSITION
-	                : _stricmp(value, "off") == 0 ? PUSH_BRAKE : PUSH_MOD;
+	g_backPushFirst = _stricmp(value, "mod") == 0 ? PUSH_MOD : _stricmp(value, "velocity") == 0 ? PUSH_VELOCITY
+	                : _stricmp(value, "position") == 0 ? PUSH_POSITION : _stricmp(value, "off") == 0 ? PUSH_BRAKE : PUSH_OUTPUT_TURN;
 	GetPrivateProfileStringA("Tilt", "Shapes", "CMB_BikeWorn", g_shapePrefix, sizeof(g_shapePrefix), ini);
 	GetPrivateProfileStringA("Tilt", "Layout", "auto", value, sizeof(value), ini);
 	g_layoutSetting = _stricmp(value, "file") == 0 ? LAYOUT_FILE : _stricmp(value, "transposed") == 0 ? LAYOUT_TRANSPOSED : LAYOUT_UNKNOWN;
@@ -609,7 +609,7 @@ static void ReadSettings(void)
 	Log("  steer: Enabled=%d FullSpeed=%g InputHook=%d Creep=%d CreepInput=%g CreepBelow=%g CreepRadius=%g Reverse=%d BackSpeed=%g "
 	    "BackPush=%s",
 	    g_steer, g_fullSpeed, g_inputHook, g_creep, g_creepStart, g_creepBelow, g_creepRadius, g_reverse, g_backSpeed,
-	    !g_backPushAuto && g_backPushFirst == PUSH_BRAKE ? "off" : g_backPushAuto ? "auto" : g_backPushFirst == PUSH_MOD ? "mod"
+	    g_backPushAuto ? "auto" : g_backPushFirst == PUSH_BRAKE ? "off" : g_backPushFirst == PUSH_MOD ? "mod"
 	    : g_backPushFirst == PUSH_VELOCITY ? "velocity" : "position");
 }
 
@@ -2456,10 +2456,19 @@ static float g_output[16];          /* the movement update's last PlayerControls
 static int g_outputCalls;
 static bool g_outputHooked;
 
+/* What we write is told apart from the game's own by its bits: a zero is written as -0.0
+ * (test 14: the game clears the input to +0.0 every frame outside these functions, then each
+ * held key sets its own half; a (0, 0) of ours looked like that clear's, so a side key let go
+ * of while backing was put back every frame and stuck, into the creep afterwards too). */
+static bool StillOurs(void)
+{
+	return g_wrote && g_moveVec && memcmp(g_moveVec, g_wroteMove, sizeof(g_wroteMove)) == 0;
+}
+
 static void BeforeInput(void)
 {
 	/* Give the game back its own value, unless something else changed it since. */
-	if (g_wrote && g_moveVec[0] == g_wroteMove[0] && g_moveVec[1] == g_wroteMove[1]) {
+	if (StillOurs()) {
 		g_moveVec[0] = g_rawMove[0];
 		g_moveVec[1] = g_rawMove[1];
 	}
@@ -2481,10 +2490,9 @@ static void AfterInput(void)
 	g_inputMode = mode;
 	if (mode == INPUT_PASS)
 		return;
-	g_wroteMove[0] = 0.0f;
-	g_wroteMove[1] = mode == INPUT_CREEP && g_creep ? g_creepInput : 0.0f;
-	g_moveVec[0] = g_wroteMove[0];
-	g_moveVec[1] = g_wroteMove[1];
+	g_wroteMove[0] = copysignf(0.0f, -1.0f);
+	g_wroteMove[1] = mode == INPUT_CREEP && g_creep ? g_creepInput : copysignf(0.0f, -1.0f);
+	memcpy(g_moveVec, g_wroteMove, sizeof(g_wroteMove));
 	g_wrote = true;
 }
 
@@ -2518,8 +2526,6 @@ static void HookPerFrame(uintptr_t self, uintptr_t a, uintptr_t b, uintptr_t c)
 		AfterInput();
 }
 
-/* With Trace=1: what the movement update gets from the player controls (direction, turn
- * speed, speed, target angle), logged next to the input, for working out a real reverse. */
 /* Readable memory, asked of Windows each time (the movement update may run on another
  * thread than the task, which owns the region cache). */
 static bool ReadableNow(uintptr_t p, size_t n)
@@ -2532,13 +2538,38 @@ static bool ReadableNow(uintptr_t p, size_t n)
 	return p + n <= (uintptr_t)mbi.BaseAddress + mbi.RegionSize;
 }
 
+/* What the movement update gets from the player controls, PlayerControlsMovementData
+ * (CommonLibF4): movementRotation +0x00 (always 0 in test 14: along the facing), rotationSpeed
+ * +0x10 (z: turning, up to +-4), movementSpeed +0x20 (2 riding, 0.06-0.3 creeping, 0 with no
+ * input) and targetAngle +0x30 (z: the heading wanted, radians). While backing up the plugin
+ * holds the heading here (target angle = its own, no turning: it steers) and, as the reverse,
+ * either turns the movement round (rotation z = pi) or makes its speed negative, at a speed
+ * learnt to reach BackSpeed: the game's own movement, with its own collision (test 14: the
+ * SetPosition step went through walls). With Trace=1 the result is logged. */
+static float g_backOutput = 0.3f;   /* the movement speed that backs up at BackSpeed (learnt) */
+static float g_outputGame[16];      /* the game's own, before ours */
+static int g_pushMethod = -1;       /* the way of backing up in use or on trial (-1: not started) */
 static void HookOutput(uintptr_t self, uintptr_t id, uintptr_t out, uintptr_t d)
 {
 	((Forward4)g_origOutput)(self, id, out, d);
-	if (!(out & 3) && ReadableNow(out, sizeof(g_output))) {
-		memcpy(g_output, (const void *)out, sizeof(g_output));
-		g_outputCalls++;
+	if ((out & 3) || !ReadableNow(out, sizeof(g_output)))
+		return;
+	float *o = (float *)out;
+	memcpy(g_outputGame, o, sizeof(g_outputGame));
+	if (g_inputActive && g_inputMode == INPUT_BACK && isfinite(o[14])) {
+		o[0] = o[1] = o[2] = 0.0f;
+		o[4] = o[5] = o[6] = 0.0f;
+		o[8] = 0.0f;
+		o[14] = g_steerHeading;
+		if (g_pushMethod == PUSH_OUTPUT_TURN) {
+			o[2] = 3.14159265f;
+			o[8] = g_backOutput;
+		} else if (g_pushMethod == PUSH_OUTPUT_NEGATIVE) {
+			o[8] = -g_backOutput;
+		}
 	}
+	memcpy(g_output, o, sizeof(g_output));
+	g_outputCalls++;
 }
 
 /* Not riding any more (or steering off): the game's own input back, nothing pushed. */
@@ -2546,7 +2577,7 @@ static void StopPush(void);
 static void EndInput(void)
 {
 	g_inputActive = false;
-	if (g_wrote && g_moveVec && g_moveVec[0] == g_wroteMove[0] && g_moveVec[1] == g_wroteMove[1]) {
+	if (StillOurs()) {
 		g_moveVec[0] = g_rawMove[0];
 		g_moveVec[1] = g_rawMove[1];
 	}
@@ -2645,47 +2676,46 @@ static void InstallInputHook(void)
 	    where, (unsigned long long)(vtbl - g_base), (unsigned long long)(f[0] - g_base), (unsigned long long)(f[1] - g_base),
 	    (unsigned long long)(f[2] - g_base), ok ? "wrapped" : "NOT all wrapped (VirtualProtect failed)");
 
-	if (!g_trace)
-		return;
 	uintptr_t base = controls + OFF_CONTROLS_IMOVE;
 	const CompleteObjectLocator *c = GetCOL(base);
 	uintptr_t vt2 = ReadPtr(base), out = vt2 ? ReadPtr(vt2 + 8 * VF_CONTROLLER_OUTPUT) : 0;
 	if (!c || c->offset != OFF_CONTROLS_IMOVE || strcmp(TypeName(c->typeDescriptor), RTTI_CONTROLS) != 0 ||
 	    vt2 != g_base + RVA_CONTROLS_IMOVE_VTBL || !InImage(out, 1)) {
-		Log("input: PlayerControls+0x30 isn't its IMovementPlayerControls: the movement output isn't logged");
+		Log("input: PlayerControls+0x30 isn't its IMovementPlayerControls: no reverse through the movement output");
 		return;
 	}
 	g_outputHooked = PatchSlot(vt2 + 8 * VF_CONTROLLER_OUTPUT, (void *)HookOutput, &g_origOutput);
-	Log("input: IMovementPlayerControls::GetControllerOutput +0x%llX %s (log only)", (unsigned long long)(out - g_base),
-	    g_outputHooked ? "wrapped" : "NOT wrapped");
+	Log("input: IMovementPlayerControls::GetControllerOutput +0x%llX %s", (unsigned long long)(out - g_base),
+	    g_outputHooked ? "wrapped (backing up)" : "NOT wrapped");
 }
 
 /* ------------------------------------------------------------------------- */
 /* Reverse: pushing the bike back                                            */
 /* ------------------------------------------------------------------------- */
 
-/* Holding back, the game gets no input at all (it would drive forward), so the plugin moves
- * the bike back itself at BackSpeed. How is still an experiment; in turn, each kept only if
- * the bike really goes back (more than 30% of BackSpeed, 0.6 s into holding back, counted
- * from when it's no longer rolling forward):
- *   1. the character controller's velocityMod (+0x180) for velocityTime (+0x308) seconds,
- *      an extra velocity Havok moves the capsule by, with collision (CommonLibF4's layout,
- *      which matches what the game showed so far: support normal +0x1E0, slope +0x418);
- *   2. SetLinearVelocityImpl (vfunc 0x3A), after the game's own step;
- *   3. a small step through SetPositionImpl (0x34, not warped): no collision of its own, the
- *      capsule pushes itself out of whatever it steps into (a few units a frame);
- *   4. nothing: back brakes (the bike stops instead of driving forward).
- * 2 and 3 only once GetPositionImpl (0x33) has given the player's position, which also says
- * whether the controller works in Havok's units (1/70 of the game's) or the game's. */
+/* Holding back, the game gets no input at all (it would drive forward), and the plugin backs
+ * the bike up at BackSpeed. BackPush=auto tries, each kept only if the bike really goes back
+ * (more than 30% of BackSpeed 0.6 s into holding back, counted from when it's stopped rolling
+ * forward; dropped at once if it goes forward or sideways instead):
+ *   1. the movement output turned round (rotation z = pi, above);
+ *   2. the movement output's speed made negative;
+ *   3. nothing: back brakes (the bike stops instead of driving forward).
+ * Test 14 tried the character controller's own: its velocityMod (+0x180, CommonLibF4) and
+ * SetLinearVelocityImpl (vfunc 0x3A) didn't move it, and a step through SetPositionImpl (0x34)
+ * did but through walls. They're still there for BackPush=mod, velocity or position, the
+ * last two only once GetPositionImpl (0x33) has given the player's position (which also says
+ * whether the controller works in Havok's units, 1/70 of the game's, or the game's). */
 typedef void (*GetVecFn)(uintptr_t self, float *out);
 typedef void (*SetVecFn)(uintptr_t self, const float *v);
 typedef void (*GetPosFn)(uintptr_t self, float *out, bool centre);
 typedef void (*SetPosFn)(uintptr_t self, const float *p, bool centre, bool warp);
-static const char *const g_pushNames[] = { "velocityMod", "SetLinearVelocity", "SetPosition", "nothing (brake)" };
-static int g_pushMethod = -1;       /* the one in use or on trial (-1: not started) */
+static const char *const g_pushNames[] = { "the movement output turned round", "the movement output's speed made negative",
+                                           "velocityMod", "SetLinearVelocity", "SetPosition", "nothing (brake)" };
 static bool g_pushProven;           /* it moved the bike back */
+static bool g_pushOn;               /* backing up this frame */
+static bool g_pushClock;            /* the trial's clock runs (the bike has stopped rolling forward) */
 static uintptr_t g_pushCtrl;        /* pushing this controller (something to undo on letting go) */
-static float g_pushHeld;            /* seconds back has been held with this method */
+static float g_pushHeld;            /* seconds the trial has run */
 static float g_savedMod[4], g_savedModTime;
 static int g_ctrlCheck;             /* 0 not yet, 1 the controller's functions look right, -1 they don't */
 static float g_havok = HAVOK_SCALE; /* game units -> the controller's */
@@ -2740,6 +2770,7 @@ static void StopPush(void)
 {
 	uintptr_t ctrl = g_pushCtrl;
 	g_pushCtrl = 0;
+	g_pushOn = g_pushClock = false;
 	g_pushHeld = 0.0f;
 	if (!ctrl || !IsA(ctrl, RTTI_CONTROLLER))
 		return;
@@ -2817,16 +2848,17 @@ static bool PushStep(uintptr_t ctrl, const float dir[2], float dt)
 		set(ctrl, p, false, false);
 		return true;
 	}
+	case PUSH_OUTPUT_TURN:
+	case PUSH_OUTPUT_NEGATIVE:
+		return g_outputHooked;   /* the output hook does it */
 	default:
 		return true;   /* brake: nothing */
 	}
 }
 
-static void NextPush(uintptr_t ctrl, const float *pos, const char *why)
+static void NextPush(const char *why)
 {
-	int next = g_pushMethod + 1;
-	if (next == PUSH_VELOCITY && !CheckControllerFuncs(ctrl, pos))
-		next = PUSH_BRAKE;   /* both need the controller's functions */
+	int next = g_pushMethod == PUSH_OUTPUT_TURN ? PUSH_OUTPUT_NEGATIVE : PUSH_BRAKE;
 	Log("reverse: %s %s: trying %s", g_pushNames[g_pushMethod], why, g_pushNames[next]);
 	g_pushMethod = next;
 }
@@ -2841,36 +2873,54 @@ static void PushBack(uintptr_t player, float heading, float dt)
 		return;
 	if (g_pushCtrl && g_pushCtrl != ctrl)
 		g_pushCtrl = 0;   /* a new controller (a load): nothing to undo on the old one */
-	if (g_pushMethod != PUSH_MOD && !CheckControllerFuncs(ctrl, (const float *)(player + OFF_REFR_POS))) {
+	bool output = g_pushMethod == PUSH_OUTPUT_TURN || g_pushMethod == PUSH_OUTPUT_NEGATIVE;
+	if (!output && g_pushMethod != PUSH_MOD && !CheckControllerFuncs(ctrl, (const float *)(player + OFF_REFR_POS))) {
 		g_pushMethod = PUSH_BRAKE;
-		Log("reverse: back brakes (no way left to push the bike back)");
+		Log("reverse: back brakes (the controller's functions can't be used)");
 		return;
 	}
-	const float *pos = (const float *)(player + OFF_REFR_POS);
 	float dir[2] = { -sinf(heading), -cosf(heading) };
 	if (!PushStep(ctrl, dir, dt)) {
 		StopPush();
 		if (g_backPushAuto) {
-			NextPush(ctrl, pos, "can't be used");
+			NextPush("can't be used");
 		} else {
 			Log("reverse: %s can't be used: back brakes", g_pushNames[g_pushMethod]);
 			g_pushMethod = PUSH_BRAKE;
 		}
 		return;
 	}
-	g_pushCtrl = ctrl;
-	if (g_speedAlong < 30.0f)
-		g_pushHeld += dt;   /* the trial starts once the bike has stopped going forward */
-	if (g_pushProven || g_pushHeld < 0.6f)
+	if (!output)
+		g_pushCtrl = ctrl;
+	g_pushOn = true;
+	if (!g_pushClock && g_speedAlong < 30.0f)
+		g_pushClock = true;   /* the trial starts once the bike has stopped going forward */
+	if (!g_pushClock)
 		return;
-	if (g_speedAlong < -0.3f * g_backSpeed) {
+	g_pushHeld += dt;
+	/* The movement speed that backs up at BackSpeed, learnt while it does. */
+	if (output && g_speedAlong < 0.0f && dt > 0.0f) {
+		float e = (g_backSpeed + g_speedAlong) / g_backSpeed;
+		e = e > 1.0f ? 1.0f : e < -1.0f ? -1.0f : e;
+		g_backOutput *= expf(1.5f * e * dt);
+		g_backOutput = g_backOutput < 0.05f ? 0.05f : g_backOutput > 1.0f ? 1.0f : g_backOutput;
+	}
+	if (g_pushProven)
+		return;
+	const char *wrong = g_pushHeld < 0.25f ? NULL : g_speedAlong > 20.0f ? "moved the bike forward"
+	                  : g_speed > 40.0f && fabsf(g_speedAlong) < 0.5f * g_speed ? "moved the bike sideways" : NULL;
+	if (!wrong && g_pushHeld < 0.6f)
+		return;
+	if (!wrong && g_speedAlong < -0.3f * g_backSpeed) {
 		g_pushProven = true;
-		Log("reverse: %s moves the bike back (%+.0f along the heading): kept", g_pushNames[g_pushMethod], g_speedAlong);
+		Log("reverse: %s moves the bike back (%+.0f along the heading, speed %.2f): kept", g_pushNames[g_pushMethod], g_speedAlong,
+		    g_backOutput);
 	} else if (g_backPushAuto) {
-		char why[96];
-		snprintf(why, sizeof(why), "didn't move the bike back (%+.0f along the heading after 0.6 s)", g_speedAlong);
+		char why[112];
+		snprintf(why, sizeof(why), "%s (%+.0f along the heading, %.0f a second in all, after %.2f s)",
+		         wrong ? wrong : "didn't move the bike back", g_speedAlong, g_speed, g_pushHeld);
 		StopPush();
-		NextPush(ctrl, pos, why);
+		NextPush(why);
 	} else {
 		g_pushHeld = -1000.0f;   /* a fixed method: logged once, kept anyway */
 		Log("reverse: %s didn't move the bike back (%+.0f along the heading after 0.6 s); kept (BackPush names it)",
@@ -2938,7 +2988,7 @@ static void FrameSteer(void)
 	float inX = g_rawMove[0] > 1.0f ? 1.0f : g_rawMove[0] < -1.0f ? -1.0f : g_rawMove[0];
 	if (!isfinite(inX))
 		inX = 0.0f;
-	if (mode != INPUT_BACK && g_pushCtrl)
+	if (mode != INPUT_BACK && (g_pushOn || g_pushCtrl))
 		StopPush();
 
 	/* The tightest turn grows with speed: walking pace turns tight, riding speed wide. */
@@ -3029,10 +3079,13 @@ static void TraceControls(void)
 		}
 	}
 	if (output && g_outputHooked) {
-		const float *o = g_output;
+		const float *o = g_output, *g = g_outputGame;
 		Log("movement output: rotation (%.2f, %.2f, %.2f), rotation speed (%.2f, %.2f, %.2f), speed %.3f, target angle (%.2f, %.2f, "
-		    "%.2f) [%d calls]",
-		    o[0], o[1], o[2], o[4], o[5], o[6], o[8], o[12], o[13], o[14], g_outputCalls);
+		    "%.2f) [%d calls]%s",
+		    o[0], o[1], o[2], o[4], o[5], o[6], o[8], o[12], o[13], o[14], g_outputCalls,
+		    memcmp(o, g, sizeof(g_output)) == 0 ? "" : " (ours; the game's: speed, target angle, rotation speed below)");
+		if (memcmp(o, g, sizeof(g_output)) != 0)
+			Log("  the game's: speed %.3f, target angle %.2f, rotation speed %.2f", g[8], g[14], g[6]);
 		g_outputCalls = 0;
 	}
 }

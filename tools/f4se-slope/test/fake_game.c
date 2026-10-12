@@ -125,34 +125,44 @@ static uint8_t *g_parkGlobals[7], *g_trackSlope, *g_turnRadius, *g_turnStand, *g
 static uint8_t *g_thirdState;   /* ThirdPersonState: zoom target +0xE8, current +0xEC */
 static uint8_t *g_moveHandler;  /* MovementHandler: its vtable read-only, as in the game */
 
-/* The input and the movement, as the game does them (test 12): the MovementHandler sets
- * PlayerControls' move input from the held keys (style 0: every frame; style 1: adds the
- * change on a press or release), then the movement turns the player towards where the keys
- * point (from the camera) and moves them forward along their facing. And the pushes the
- * plugin may try, honoured or not (g_honour: 1 velocityMod, 2 SetLinearVelocity, 4 SetPosition). */
+/* The input and the movement, as the game does them (tests 12-14): the MovementHandler sets
+ * PlayerControls' move input from the held keys (style 0: both halves every frame; style 1:
+ * adds the change on a press or release; style 2, as the game does: the input cleared to
+ * (+0, +0) every frame outside the handler, then each held key sets its own half). The
+ * controls' output to the movement (GetControllerOutput) comes from that: speed 2 x the
+ * input, target angle where the keys point from the camera. The movement turns the player
+ * towards the target angle and moves them along their facing (g_honour 8: turned by the
+ * output's rotation z; 16: backwards when its speed is negative). And the controller's pushes,
+ * honoured or not (g_honour: 1 velocityMod, 2 SetLinearVelocity, 4 SetPosition). */
 #define HAVOK 0.0142875f
-typedef struct { float x, y; } FakeEvent;
+typedef struct { float x, y; int axis; } FakeEvent;   /* axis: 0 both, 1 x, 2 y */
 static int g_handlerStyle, g_honour, g_outputCalls;
 static float g_keyX, g_keyY, g_lastKeyX, g_lastKeyY, g_camYaw, g_fakeVel[4];
 static void FakeOnButton(uint8_t *self, const FakeEvent *e)
 {
 	float *move = *(float **)(self + 0x10);
-	if (g_handlerStyle == 0) {
-		move[0] = e->x;
-		move[1] = e->y;
-	} else {
+	if (g_handlerStyle == 1) {
 		move[0] += e->x;
 		move[1] += e->y;
+	} else {
+		if (e->axis != 2)
+			move[0] = e->x;
+		if (e->axis != 1)
+			move[1] = e->y;
 	}
 }
 static void FakeOnThumbstick(uint8_t *self, const FakeEvent *e) { (void)self; (void)e; }
 static void FakePerFrame(uint8_t *self) { (void)self; }
 static void FakeNothing(void) {}
+static uint8_t *g_controlsForOutput, *g_playerForOutput;
 static void FakeGetControllerOutput(uint8_t *self, uint32_t id, float *out)
 {
 	(void)self; (void)id;
+	const float *move = (const float *)(g_controlsForOutput + 0x44);
+	float mag = sqrtf(move[0] * move[0] + move[1] * move[1]);
 	memset(out, 0, 64);
-	out[8] = 1.0f;
+	out[8] = 2.0f * (mag > 1.0f ? 1.0f : mag);
+	out[14] = mag > 0.01f ? g_camYaw + atan2f(move[0], move[1]) : *(const float *)(g_playerForOutput + 0xC8);
 	g_outputCalls++;
 }
 static float *PlayerPosition(void);
@@ -345,6 +355,8 @@ static void BuildGame(void)
 	void **vtControls = MakeClass(controls, 2);
 	g_controls = (uint8_t *)NewObject(vtControls, 0x300);
 	*(uintptr_t *)(g_base + RVA_PLAYER_CONTROLS) = (uintptr_t)g_controls;
+	g_controlsForOutput = g_controls;
+	g_playerForOutput = g_player;
 	/* PlayerControls' IMovementPlayerControls vtable and the MovementHandler's (a struct in
 	 * the game) where 1.11.240 has them, on a page made read-only, as in the game. */
 	void **vtMovement = (void **)(g_base + RVA_CONTROLS_IMOVE_VTBL);
@@ -710,31 +722,41 @@ static void SteerTowards(float dt)
 static void FakeGameFrame(float dt)
 {
 	void **vt = *(void ***)g_moveHandler;
-	FakeEvent e = { g_keyX, g_keyY };
-	if (g_handlerStyle == 1) {
-		e.x = g_keyX - g_lastKeyX;
-		e.y = g_keyY - g_lastKeyY;
+	void (*onButton)(uint8_t *, const FakeEvent *) = (void (*)(uint8_t *, const FakeEvent *))vt[8];
+	float *move = (float *)(g_controls + 0x44);
+	if (g_handlerStyle == 0) {
+		FakeEvent e = { g_keyX, g_keyY, 0 };
+		if (g_keyX != 0.0f || g_keyY != 0.0f || g_lastKeyX != 0.0f || g_lastKeyY != 0.0f)
+			onButton(g_moveHandler, &e);
+	} else if (g_handlerStyle == 1) {
+		FakeEvent e = { g_keyX - g_lastKeyX, g_keyY - g_lastKeyY, 0 };
+		if (e.x != 0.0f || e.y != 0.0f)
+			onButton(g_moveHandler, &e);
+	} else {
+		move[0] = move[1] = 0.0f;   /* the game's own clear, outside the handler */
+		FakeEvent ex = { g_keyX, 0.0f, 1 }, ey = { 0.0f, g_keyY, 2 };
+		if (g_keyX != 0.0f)
+			onButton(g_moveHandler, &ex);
+		if (g_keyY != 0.0f)
+			onButton(g_moveHandler, &ey);
 	}
-	if (g_handlerStyle == 0 ? (g_keyX != 0.0f || g_keyY != 0.0f || g_lastKeyX != 0.0f || g_lastKeyY != 0.0f)
-	                        : (e.x != 0.0f || e.y != 0.0f))
-		((void (*)(uint8_t *, const FakeEvent *))vt[8])(g_moveHandler, &e);
 	g_lastKeyX = g_keyX;
 	g_lastKeyY = g_keyY;
 	((void (*)(uint8_t *))vt[9])(g_moveHandler);
 
-	float *move = (float *)(g_controls + 0x44), *prev = (float *)(g_controls + 0x5C), out[16];
+	float *prev = (float *)(g_controls + 0x5C), out[16];
 	prev[0] = move[0];
 	prev[1] = move[1];
 	uint8_t *imove = g_controls + 0x30;
 	((void (*)(uint8_t *, uint32_t, float *))(*(void ***)imove)[1])(imove, 0, out);
-	float *head = (float *)(g_player + 0xC8), mag = sqrtf(move[0] * move[0] + move[1] * move[1]);
-	if (mag > 0.01f) {
-		float d = remainderf(g_camYaw + atan2f(move[0], move[1]) - *head, 6.2831853f), step = 6.2831853f * dt;
-		*head += d > step ? step : d < -step ? -step : d;
-		float speed = (mag > 1.0f ? 1.0f : mag) * 900.0f;
-		PlayerPos()[0] += sinf(*head) * speed * dt;
-		PlayerPos()[1] += cosf(*head) * speed * dt;
-	}
+	float *head = (float *)(g_player + 0xC8);
+	float d = remainderf(out[14] - *head, 6.2831853f), step = 6.2831853f * dt;
+	*head += d > step ? step : d < -step ? -step : d;
+	float dir = *head + ((g_honour & 8) ? out[2] : 0.0f), speed = out[8];
+	if (speed < 0.0f && !(g_honour & 16))
+		speed = 0.0f;
+	PlayerPos()[0] += sinf(dir) * speed * 450.0f * dt;
+	PlayerPos()[1] += cosf(dir) * speed * 450.0f * dt;
 	float *mod = (float *)(g_controller + 0x180), *t = (float *)(g_controller + 0x308);
 	if ((g_honour & 1) && *t > 0.0f) {
 		PlayerPos()[0] += mod[0] / HAVOK * dt;
@@ -763,31 +785,33 @@ static void Keys(float x, float y) { g_keyX = x; g_keyY = y; }
 static float *MoveInput(void) { return (float *)(g_controls + 0x44); }
 
 /* The input hook: riding with radius 180 / 50 and 60 deg/s stopped already set. */
+static float Turned(float from) { return remainderf(*(float *)(g_player + 0xC8) - from, 6.2831853f) * DEG; }
+static void Mark(float p0[2]) { p0[0] = PlayerPos()[0]; p0[1] = PlayerPos()[1]; }
+static float Moved(const float p0[2]) { return hypotf(PlayerPos()[0] - p0[0], PlayerPos()[1] - p0[1]); }
+
 static void InputTests(void)
 {
 	float *head = (float *)(g_player + 0xC8), from, p0[2];
-	float *mod = (float *)(g_controller + 0x180), *modTime = (float *)(g_controller + 0x308);
 	printf("input hook: a side key from a stop creeps round a small circle:\n");
 	g_camYaw = *head;
-	g_handlerStyle = 0;
-	g_honour = 1;
+	g_handlerStyle = 2;
+	g_honour = 8;
 	Keys(0.0f, 0.0f);
 	g_onFrame = FakeGameFrame;
 	RunFrames(400);
 	CHECK((*(void ***)g_moveHandler)[8] != (void *)FakeOnButton && (*(void ***)g_moveHandler)[9] != (void *)FakePerFrame &&
 	      (*(void ***)g_moveHandler)[4] != (void *)FakeOnThumbstick, "the MovementHandler's button, thumbstick and per-frame functions are wrapped (its vtable page read-only)");
 	CHECK((*(void ***)(g_controls + 0x30))[1] != (void *)FakeGetControllerOutput && g_outputCalls > 0,
-	      "and (Trace=1) the movement output is watched, the game's still called (%d calls)", g_outputCalls);
+	      "and the movement output, the game's still called (%d calls)", g_outputCalls);
 	from = *head;
 	Keys(1.0f, 0.0f);
 	RunFrames(2000);
-	float turned = remainderf(*head - from, 6.2831853f) * DEG;
+	float turned = Turned(from);
 	CHECK(turned > 95.0f && turned < 135.0f, "right from a stop: turned %.0f deg right in 2 s (60 a second)", turned);
-	p0[0] = PlayerPos()[0];
-	p0[1] = PlayerPos()[1];
+	Mark(p0);
 	RunFrames(1000);
-	float dx = PlayerPos()[0] - p0[0], dy = PlayerPos()[1] - p0[1], crept = sqrtf(dx * dx + dy * dy);
-	CHECK(crept > 12.0f && crept < 45.0f, "creeping forward at %.0f a second (about 26: round a 25 circle), not driven off", crept);
+	float crept = Moved(p0);
+	CHECK(crept > 25.0f && crept < 60.0f, "creeping forward at %.0f a second (about 42: round a 40 circle), not driven off", crept);
 	CHECK(MoveInput()[0] == 0.0f && MoveInput()[1] > 0.0f && MoveInput()[1] < 0.1f, "the game gets no side input, a little forward (%.3f)", MoveInput()[1]);
 	CHECK(((float *)(g_controls + 0x5C))[1] == MoveInput()[1], "and its movement used that (+5C)");
 	Keys(1.0f, 1.0f);
@@ -796,28 +820,36 @@ static void InputTests(void)
 	Keys(0.0f, 0.0f);
 	RunFrames(600);
 
-	printf("input hook: back gets the game nothing; the bike is pushed back (this game honours velocityMod):\n");
+	printf("input hook: back gets the game nothing; the movement output is turned round (this game honours that):\n");
 	g_camYaw = *head;
 	from = *head;
-	p0[0] = PlayerPos()[0];
-	p0[1] = PlayerPos()[1];
+	Mark(p0);
 	Keys(0.0f, -1.0f);
 	RunFrames(1500);
-	CHECK(MoveInput()[0] == 0.0f && MoveInput()[1] == 0.0f, "the game gets (0, 0)");
-	CHECK(fabsf(remainderf(*head - from, 6.2831853f)) < 0.001f, "facing forward all the way (%.2f deg off)", remainderf(*head - from, 6.2831853f) * DEG);
+	CHECK(MoveInput()[0] == 0.0f && MoveInput()[1] == 0.0f && signbit(MoveInput()[1]), "the game gets (-0, -0): ours, told apart from its own clear");
 	float along = Along(p0, from);
-	CHECK(along < -60.0f && along > -140.0f, "backed up %.0f along the heading in 1.5 s (80 a second)", along);
+	CHECK(along < -60.0f, "backing up: %.0f along the heading in 1.5 s", along);
+	Mark(p0);
+	RunFrames(1000);
+	along = Along(p0, from);
+	CHECK(along < -60.0f && along > -100.0f, "the speed learnt: %.0f in the next second (80)", along);
+	CHECK(fabsf(Turned(from)) < 0.01f, "facing forward all the way (%.2f deg off)", Turned(from));
 	Keys(1.0f, -1.0f);
 	RunFrames(1000);
-	turned = remainderf(*head - from, 6.2831853f) * DEG;
+	turned = Turned(from);
 	CHECK(turned < -25.0f && turned > -75.0f, "back and right: the rear swings right, the nose %.0f deg left in a second", turned);
+	Keys(0.0f, -1.0f);
+	RunFrames(300);
+	from = *head;
+	RunFrames(500);
+	CHECK(fabsf(Turned(from)) < 0.5f, "right let go of, still backing: the turning stops (%.2f deg), the key doesn't stick", Turned(from));
 	Keys(0.0f, 0.0f);
 	RunFrames(300);
-	CHECK(mod[0] == 0.0f && mod[1] == 0.0f && *modTime == 0.0f, "letting go: velocityMod and its time put back");
-	p0[0] = PlayerPos()[0];
-	p0[1] = PlayerPos()[1];
-	RunFrames(300);
-	CHECK(fabsf(PlayerPos()[0] - p0[0]) < 0.01f && fabsf(PlayerPos()[1] - p0[1]) < 0.01f, "and the bike stands");
+	from = *head;
+	Mark(p0);
+	RunFrames(600);
+	CHECK(Moved(p0) < 0.5f && fabsf(Turned(from)) < 0.1f, "back let go of: the bike stands, no creep from a stale side key (moved %.1f, turned %.1f deg)",
+	      Moved(p0), Turned(from));
 
 	printf("input hook: a game that adds the change on a press or release:\n");
 	g_handlerStyle = 1;
@@ -828,27 +860,32 @@ static void InputTests(void)
 	CHECK(MoveInput()[0] == 0.0f && MoveInput()[1] == 0.0f, "back pressed: the game gets (0, 0)");
 	Keys(0.0f, 0.0f);
 	RunFrames(300);
-	CHECK(MoveInput()[0] == 0.0f && MoveInput()[1] == 0.0f, "released: (0, 0), not forward (got %.2f)", MoveInput()[1]);
-	g_handlerStyle = 0;
+	CHECK(MoveInput()[0] == 0.0f && MoveInput()[1] == 0.0f && !signbit(MoveInput()[1]), "released: its own (0, 0), not forward (got %.2f)", MoveInput()[1]);
+	g_handlerStyle = 2;
 
-	printf("input hook: a game that only honours SetPosition (after a load, the pushes are tried again):\n");
+	printf("input hook: a game that ignores the output's rotation but backs up on a negative speed (after a load, tried again):\n");
 	Send(3, 1);   /* PostLoadGame */
-	g_honour = 4;
+	g_honour = 16;
 	RunFrames(400);
 	g_camYaw = *head;
 	from = *head;
+	Mark(p0);
+	float most = 0.0f;
 	Keys(0.0f, -1.0f);
-	RunFrames(1900);
-	p0[0] = PlayerPos()[0];
-	p0[1] = PlayerPos()[1];
+	for (int i = 0; i < 12; i++) {
+		RunFrames(100);
+		float a = Along(p0, from);
+		most = a > most ? a : most;
+	}
+	Mark(p0);
 	RunFrames(1000);
 	along = Along(p0, from);
-	CHECK(along < -50.0f && along > -120.0f, "velocityMod, then SetLinearVelocity didn't move it: SetPosition backs it up %.0f in a second", along);
-	CHECK(mod[0] == 0.0f && mod[1] == 0.0f && *modTime == 0.0f, "velocityMod put back after its trial");
+	CHECK(along < -50.0f && along > -120.0f, "turned round didn't back it up; the negative speed backs it up %.0f in a second", along);
+	CHECK(most < 30.0f, "the wrong way was dropped quickly (at most %.0f forward)", most);
 	Keys(0.0f, 0.0f);
 	RunFrames(300);
 
-	printf("input hook: a game that honours none of them: back brakes:\n");
+	printf("input hook: a game that honours neither: back brakes:\n");
 	Send(3, 1);
 	g_honour = 0;
 	RunFrames(400);
@@ -856,11 +893,9 @@ static void InputTests(void)
 	from = *head;
 	Keys(0.0f, -1.0f);
 	RunFrames(2200);
-	p0[0] = PlayerPos()[0];
-	p0[1] = PlayerPos()[1];
+	Mark(p0);
 	RunFrames(600);
-	CHECK(fabsf(PlayerPos()[0] - p0[0]) < 0.5f && fabsf(PlayerPos()[1] - p0[1]) < 0.5f && MoveInput()[1] == 0.0f,
-	      "stands still (not driven forward), facing forward (%.2f deg off)", remainderf(*head - from, 6.2831853f) * DEG);
+	CHECK(Moved(p0) < 0.5f && MoveInput()[1] == 0.0f, "stands still (not driven forward), facing forward (%.2f deg off)", Turned(from));
 	Keys(0.0f, 0.0f);
 	RunFrames(300);
 
@@ -876,6 +911,37 @@ static void InputTests(void)
 	*head = from;
 	SetLive(60.0f);
 	RunFrames(400);
+}
+
+/* BackPush=mod (its own run): the controller's velocityMod, and put back on letting go. */
+static void BackPushModTests(void)
+{
+	float *head = (float *)(g_player + 0xC8), from, p0[2];
+	float *mod = (float *)(g_controller + 0x180), *modTime = (float *)(g_controller + 0x308);
+	printf("BackPush=mod: backing up by the controller's velocityMod:\n");
+	*(float *)(g_turnRadius + 0x30) = 180.0f;
+	*(float *)(g_turnSlow + 0x30) = 50.0f;
+	*(float *)(g_turnStand + 0x30) = 60.0f;
+	SetNormal(0.0f, 0.0f, 1.0f);
+	SetState(0);
+	SetLive(60.0f);
+	g_handlerStyle = 2;
+	g_honour = 1;
+	g_camYaw = *head;
+	g_onFrame = FakeGameFrame;
+	RunFrames(600);
+	from = *head;
+	Mark(p0);
+	Keys(0.0f, -1.0f);
+	RunFrames(1500);
+	float along = Along(p0, from);
+	CHECK(along < -60.0f && along > -140.0f, "backed up %.0f along the heading in 1.5 s", along);
+	Keys(0.0f, 0.0f);
+	RunFrames(300);
+	CHECK(mod[0] == 0.0f && mod[1] == 0.0f && *modTime == 0.0f, "letting go: velocityMod and its time put back");
+	g_onFrame = NULL;
+	SetLive(0.0f);
+	RunFrames(300);
 }
 
 static float *Zoom(int current) { return (float *)(g_thirdState + (current ? 0xEC : 0xE8)); }
@@ -1289,6 +1355,13 @@ int main(int argc, char **argv)
 		return g_failures ? 1 : 0;
 	}
 	CHECK(loaded && g_task && g_listener, "loads, registers a permanent task and a listener");
+	if (mode == 6) {
+		Send(10, 1);   /* GameDataReady */
+		RunFrames(300);
+		BackPushModTests();
+		printf("%s\n", g_failures ? "FAILED" : "all ok");
+		return g_failures ? 1 : 0;
+	}
 	if (mode == 4 || mode == 5) {
 		Send(10, 1);   /* GameDataReady */
 		RunFrames(300);
