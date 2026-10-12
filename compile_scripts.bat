@@ -84,7 +84,7 @@ if exist "!FO4!\Data\Scripts\Source\F4SE.psc" set "F4SE_SRC=!FO4!\Data\Scripts\S
 if exist "!BASE!\F4SE.psc" set "F4SE_SRC=!BASE!"
 echo.
 if defined F4SE_SRC (
-  for %%S in (CMB_HotkeyF4SE CMB_GearRestoreF4SE CMB_CameraF4SE) do (
+  for %%S in (CMB_HotkeyF4SE CMB_GearRestoreF4SE) do (
     echo Compiling %%S ^(F4SE sources: !F4SE_SRC!^)...
     "!COMPILER!" "!SRC!\%%S.psc" -f="!FLAGS!" -i="!F4SE_SRC!;!SRC!;!BASE!" -o="!OUT!"
     if !errorlevel! neq 0 (

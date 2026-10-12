@@ -93,7 +93,9 @@ Group Optional
 	{Engine volume, 0-100. Default 70.}
 	GlobalVariable Property CMB_RidingCameraDistance Auto Const
 	{How far back the third-person camera sits while riding, in game units (the game's own
-	is about 150). Needs F4SE and CMB_CameraF4SE. 0 = leave the camera alone. Default 300.}
+	is about 150). Needs F4SE and the CMB_Slope.dll plugin. 0 = leave the camera alone. Default 300.}
+	GlobalVariable Property CMB_CameraLive Auto Const
+	{What CMB_Slope.dll reads: CMB_RidingCameraDistance while riding, 0 otherwise. Set by this script.}
 	GlobalVariable Property CMB_MaxSlope Auto Const
 	{Steepest slope you can ride up, in degrees. Needs F4SE and the CMB_Slope.dll plugin.
 	0 = the game's own limit. Default 60.}
@@ -116,6 +118,8 @@ float Property HitGraceTime = 3.0 AutoReadOnly
 float Property ShoreDelay = 3.0 AutoReadOnly
 {After a swim, the bike rolls up this long after you're out of deep water.}
 float Property ShoreRetryInterval = 10.0 AutoReadOnly
+float Property MaxSettleDistance = 400.0 AutoReadOnly
+{The parked bike snaps to walkable ground, unless that's farther than this.}
 int Property MaxShoreWaits = 10 AutoReadOnly
 {Still in water after this many ShoreDelays (30 s): bring the bike anyway.}
 float Property ShoreBikeDistance = 200.0 AutoReadOnly
@@ -232,8 +236,7 @@ Function OnGameReloaded()
 			footstepsWatched = false
 			StartTimer(ReloadPoseDelay, TimerReloadPose)
 		endif
-		; The camera setting isn't saved: a restarted game has the player's own again.
-		CallCamera(true)
+		SetCameraLive(true)
 		SetSlopeLive(true)
 		RegisterForPlayerTeleport()
 		hitGrace = false
@@ -270,23 +273,17 @@ Function SetSlopeLive(bool abRiding)
 	endif
 EndFunction
 
-; Riding camera (optional, F4SE): true = move it back, false = put it back.
-; Returns true when the camera limit changed and third person needs re-entering.
-bool Function CallCamera(bool abRiding)
-	ScriptObject camera = CastAs("CMB_CameraF4SE")
-	if !camera
-		return false
+; Riding camera (optional, F4SE plugin CMB_Slope.dll): it raises the game's camera
+; distance setting to CMB_CameraLive while that isn't 0, and puts the player's own back.
+; (Papyrus can set INI settings but not read them, so the plugin does it.)
+Function SetCameraLive(bool abRiding)
+	if CMB_CameraLive
+		float distance = 0.0
+		if abRiding && CMB_RidingCameraDistance
+			distance = CMB_RidingCameraDistance.GetValue()
+		endif
+		CMB_CameraLive.SetValue(distance)
 	endif
-	Var[] params = new Var[1]
-	params[0] = 0.0
-	if CMB_RidingCameraDistance
-		params[0] = CMB_RidingCameraDistance.GetValue()
-	endif
-	if abRiding
-		return camera.CallFunction("ApplyRidingCamera", params) as bool
-	endif
-	camera.CallFunction("RestoreCamera", params)
-	return false
 EndFunction
 
 Function CallGearRestore(string asFunction)
@@ -385,11 +382,12 @@ Function Mount()
 	EnsureArrays()
 
 	Game.FadeOutGame(true, true, 0.0, 0.25, true)
+	; The plugin moves the camera within a tenth of a second: the wait covers it.
+	SetCameraLive(true)
 	Utility.Wait(0.3)
 
-	bool cameraMoved = CallCamera(true)
 	if CMB_ForceThirdPerson.GetValue() > 0.0
-		if cameraMoved
+		if CMB_CameraLive && CMB_CameraLive.GetValue() > 0.0
 			; Coming into third person again picks up the new camera distance
 			; (hidden by the fade).
 			Game.ForceFirstPerson()
@@ -464,6 +462,7 @@ Function CallBike()
 	BikeRef.Disable()
 	PlaceBike(CallAheadDistance, 60.0)
 	BikeRef.Enable(true)
+	SettleBike()
 	bikeWaitsForShore = false
 	PlaySound(CMB_EngineStopSound)
 	busy = false
@@ -679,7 +678,7 @@ Function FinishRide()
 
 	RemoveBikeArmor()
 	CallGearRestore("RestoreSlot")
-	CallCamera(false)
+	SetCameraLive(false)
 	SetSlopeLive(false)
 	ClearRiderPose()
 	ReleaseControls()
@@ -727,6 +726,26 @@ EndFunction
 Function ParkBesidePlayer()
 	PlaceBike(0.0, ParkSideOffset)
 	BikeRef.Enable()
+	SettleBike()
+EndFunction
+
+; The spot next to the player can be in mid-air or inside the rock on steep ground,
+; so the parked bike snaps to the nearest navmesh (walkable ground), keeping its
+; heading. If that's far away (no navmesh near), it stays where it was put.
+Function SettleBike()
+	float angle = BikeRef.GetAngleZ()
+	float x = BikeRef.GetPositionX()
+	float y = BikeRef.GetPositionY()
+	float z = BikeRef.GetPositionZ()
+	BikeRef.MoveToNearestNavmeshLocation()
+	float dx = BikeRef.GetPositionX() - x
+	float dy = BikeRef.GetPositionY() - y
+	float dz = BikeRef.GetPositionZ() - z
+	if dx * dx + dy * dy + dz * dz > MaxSettleDistance * MaxSettleDistance
+		BikeRef.SetPosition(x, y, z)
+		Log("No walkable ground near the parked bike: left where it was put.")
+	endif
+	BikeRef.SetAngle(0.0, 0.0, angle)
 EndFunction
 
 Function ShadowPlayer()
@@ -937,6 +956,7 @@ Function BringBikeAfterSwim()
 		PlaceBike(CallAheadDistance, 60.0)
 	endif
 	BikeRef.Enable(true)
+	SettleBike()
 	busy = false
 	Log("Bike brought back after a swim (" + away + " units from the deep water, in water: " + inWater + ").")
 	Debug.Notification("Your motorbike rolls up.")

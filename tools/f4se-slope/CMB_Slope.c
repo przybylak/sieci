@@ -1,33 +1,38 @@
 /*
- * CMB_Slope: Commonwealth Motorbike's F4SE plugin. Lets the rider climb steeper
- * slopes than a person on foot.
+ * CMB_Slope: Commonwealth Motorbike's F4SE plugin. While you ride it lets you climb
+ * steeper slopes than on foot, and moves the third-person camera farther back.
  *
  * Fallout 4 1.11.240 with F4SE 0.7.9 only: the game addresses and structure offsets
  * below come from F4SE 0.7.9's own source for that runtime, and F4SE only loads the
  * plugin on the game versions listed in F4SEPlugin_Version.
  *
- * How it works. How steep a slope a character can walk up is a limit inside the
- * Havok character proxy that moves the player (hknpCharacterProxy, kept as the
- * cosine of the angle). Nothing in Papyrus reaches it. Every frame the plugin gets a
- * call on the game's main thread (F4SE's permanent task) and, a few times a second:
+ * The controller script tells it when you ride through two globals of
+ * CommonwealthMotorbike.esp: CMB_SlopeLive (the steepest slope in degrees while riding,
+ * 0 otherwise) and CMB_CameraLive (the camera distance while riding, 0 otherwise).
+ * F4SE calls the plugin every frame on the game's main thread (a permanent task):
  *
- *   1. reads the global CMB_SlopeLive from CommonwealthMotorbike.esp: the controller
- *      script sets it to the riding slope limit in degrees while you ride, 0 otherwise;
- *   2. finds the player's character controller and its Havok proxy. Not by fixed
- *      offsets: it follows the player's process data and recognises each object by its
- *      C++ type information (RTTI), checking every pointer before reading it;
- *   3. while riding, lowers the proxy's slope limit cosine to cos(CMB_SlopeLive) (only
- *      ever steeper than the game's own), and puts the original back afterwards.
+ *   Slope: how steep a slope a character can walk up is a limit kept by its character
+ *   controller and Havok proxy; nothing in Papyrus reaches it. The plugin finds the
+ *   player's controller and proxy by their C++ type information (RTTI), checking every
+ *   pointer before reading it, and while riding writes the limit at the place given in
+ *   CMB_Slope.ini (Target, SlopeOffset, SlopeUnit), only ever steeper than the game's
+ *   own, and only if the value there is what's expected (ExpectedDegrees). Every frame
+ *   while riding, in case the game sets it back; the original goes back afterwards.
  *
- * Where in the proxy the limit lives isn't known from F4SE's source, so it comes from
- * CMB_Slope.ini (ProxySlopeOffset). Until that's set the plugin only reads: it logs
- * the proxy's layout, any slope-related INI settings and Havok's own reflection data
- * for "maxSlope" to Documents\My Games\Fallout4\F4SE\CMB_Slope.log, which is how the
- * offset gets found.
+ *   Camera: the game setting fVanityModeMaxDist:Camera (where the third-person camera
+ *   sits, the farthest the mouse wheel zooms out) is raised to CMB_CameraLive while
+ *   riding and put back afterwards. Papyrus can set INI settings but not read them, so
+ *   this is here, where the player's own value can be read.
+ *
+ * With Probe=1 it also logs (Documents\My Games\Fallout4\F4SE\CMB_Slope.log) the
+ * layout of the controller, the proxy and the objects listed in DumpPointers, then on
+ * getting on, 1 and 3 seconds into the ride and on getting off, what changed: that's
+ * how the slope limit's place is found.
  *
  * Built with MinGW-w64 (tools/f4se-slope/build.sh). Plain C: F4SE's plugin interface
  * is plain structs and function pointers, and the one C++ object F4SE calls into (the
- * task) is a vtable we lay out by hand.
+ * task) is a vtable laid out by hand. tools/f4se-slope/test runs it under Wine
+ * against a stand-in for the game.
  */
 
 #define WIN32_LEAN_AND_MEAN
@@ -41,7 +46,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define PLUGIN_VERSION 1
+#define PLUGIN_VERSION 2
 #define RUNTIME_1_11_240 0x010B0F00u
 
 /* --- Game addresses (RVAs) and layouts for runtime 1.11.240, from F4SE 0.7.9 --- */
@@ -70,8 +75,11 @@
 
 /* --- Our side --- */
 #define ESP_NAME              "CommonwealthMotorbike.esp"
-#define LIVE_GLOBAL_ID        0x82Au        /* CMB_SlopeLive, set by CMB_ControllerScript */
-#define LIVE_GLOBAL_EDITOR_ID "CMB_SlopeLive"
+#define SLOPE_GLOBAL_ID       0x82Au        /* CMB_SlopeLive, set by CMB_ControllerScript */
+#define SLOPE_GLOBAL_EDITOR_ID "CMB_SlopeLive"
+#define CAMERA_GLOBAL_ID      0x82Bu        /* CMB_CameraLive, likewise */
+#define CAMERA_GLOBAL_EDITOR_ID "CMB_CameraLive"
+#define CAMERA_SETTING        "fVanityModeMaxDist:Camera"
 
 /* RTTI names (MSVC mangled) of the objects we look for. */
 #define RTTI_PLAYER     ".?AVPlayerCharacter@@"
@@ -165,31 +173,54 @@ static HMODULE g_module;
 static uintptr_t g_base, g_imageEnd;
 static FILE *g_log;
 
-static int g_probe = 1;                 /* log layouts until the offset is known */
-static unsigned g_proxySlopeOffset;     /* from the INI; 0 = unknown, read only */
+/* Settings (CMB_Slope.ini) */
+static int g_probe = 1;
+enum { TARGET_CONTROLLER, TARGET_PROXY };
+static int g_target = TARGET_CONTROLLER;
+static unsigned g_slopeOffset;          /* 0 = unknown: only read */
 enum { UNIT_COSINE, UNIT_RADIANS, UNIT_DEGREES };
-static int g_unit = UNIT_COSINE;        /* how the proxy stores the limit */
-static DWORD g_interval = 100;          /* ms between checks */
+static int g_unit = UNIT_COSINE;
+static float g_expectedDegrees;         /* 0 = any plausible value */
+static DWORD g_interval = 100;          /* ms between full checks */
+static int g_dumpPointers[8];           /* controller offsets whose objects get dumped too */
+static int g_dumpPointerCount;
+static char g_cameraSettingName[64] = CAMERA_SETTING;
 
 static volatile bool g_dataReady;
-static uintptr_t g_liveGlobal;          /* TESGlobal * of CMB_SlopeLive */
+static uintptr_t g_slopeGlobal, g_cameraGlobal;   /* TESGlobal * */
 static DWORD g_lastGlobalTry;
-static bool g_globalMissingLogged;
+static bool g_globalsMissingLogged;
 
 /* The chain to the proxy, as found last time (offsets, so it's re-read every check). */
 static int g_ctrlWhere = -1;            /* 0 = process data, 1 = process, 2 = player */
 static int g_ctrlOff = -1;
 static int g_proxyOff1 = -1, g_proxyOff2 = -1;
-static uintptr_t g_loggedProxy;         /* the proxy last dumped to the log */
 static DWORD g_nextScan;                /* full searches are slow: not more often than this */
 static bool g_ctrlMissingLogged, g_proxyMissingLogged;
 
-/* What we changed. */
+/* Slope: what we changed. */
 static bool g_applied;
-static uintptr_t g_appliedProxy;
-static float g_originalCos, g_writtenCos;
-static bool g_revertLogged, g_badValueLogged;
+static uintptr_t g_appliedTarget;
+static float g_originalValue, g_writtenValue;
+static int g_revertCount;
+static bool g_badValueLogged;
 
+/* Camera: what we changed. */
+static uintptr_t g_cameraSetting;
+static bool g_cameraApplied;
+static float g_cameraOriginal, g_cameraWritten;
+
+/* Probe snapshots. */
+#define SNAP_OBJECTS 10
+typedef struct { char label[48]; uintptr_t obj; int size; uint8_t bytes[0x600]; } Snapshot;
+static Snapshot g_snaps[SNAP_OBJECTS];
+static int g_snapCount;
+static bool g_dumpedThisLoad;
+static bool g_wasRiding;
+static DWORD g_mountTime;
+static int g_ridingSnapsDone;
+
+static DWORD g_lastTick;
 static DWORD g_lastTick;
 
 /* ------------------------------------------------------------------------- */
@@ -232,23 +263,43 @@ static void OpenLog(void)
 
 static void ReadSettings(void)
 {
-	char ini[MAX_PATH], value[64];
+	char ini[MAX_PATH], value[256];
 	GetModuleFileNameA(g_module, ini, sizeof(ini));
 	char *dot = strrchr(ini, '.');
 	if (!dot)
 		return;
 	strcpy(dot, ".ini");
-	GetPrivateProfileStringA("Slope", "ProxySlopeOffset", "", value, sizeof(value), ini);
-	g_proxySlopeOffset = (unsigned)strtoul(value, NULL, 0);
-	GetPrivateProfileStringA("Slope", "ProxySlopeUnit", "cosine", value, sizeof(value), ini);
+	GetPrivateProfileStringA("Slope", "Target", "controller", value, sizeof(value), ini);
+	g_target = _stricmp(value, "proxy") == 0 ? TARGET_PROXY : TARGET_CONTROLLER;
+	GetPrivateProfileStringA("Slope", "SlopeOffset", "", value, sizeof(value), ini);
+	g_slopeOffset = (unsigned)strtoul(value, NULL, 0);
+	GetPrivateProfileStringA("Slope", "SlopeUnit", "cosine", value, sizeof(value), ini);
 	g_unit = _stricmp(value, "radians") == 0 ? UNIT_RADIANS : _stricmp(value, "degrees") == 0 ? UNIT_DEGREES : UNIT_COSINE;
+	GetPrivateProfileStringA("Slope", "ExpectedDegrees", "0", value, sizeof(value), ini);
+	g_expectedDegrees = strtof(value, NULL);
 	g_probe = (int)GetPrivateProfileIntA("Slope", "Probe", 1, ini);
 	g_interval = (DWORD)GetPrivateProfileIntA("Slope", "IntervalMs", 100, ini);
 	if (g_interval < 16)
 		g_interval = 16;
-	Log("settings: %s  ProxySlopeOffset=0x%X%s  ProxySlopeUnit=%s  Probe=%d  IntervalMs=%lu", ini, g_proxySlopeOffset,
-	    g_proxySlopeOffset ? "" : " (unknown: reading only)",
-	    g_unit == UNIT_RADIANS ? "radians" : g_unit == UNIT_DEGREES ? "degrees" : "cosine", g_probe, (unsigned long)g_interval);
+	GetPrivateProfileStringA("Slope", "DumpPointers", "", value, sizeof(value), ini);
+	for (char *p = value; *p && g_dumpPointerCount < 8;) {
+		char *end;
+		unsigned long off = strtoul(p, &end, 0);
+		if (end == p)
+			break;
+		if (off < 0x1000 && !(off & 7))
+			g_dumpPointers[g_dumpPointerCount++] = (int)off;
+		p = end;
+		while (*p == ',' || *p == ' ')
+			p++;
+	}
+	GetPrivateProfileStringA("Camera", "Setting", CAMERA_SETTING, g_cameraSettingName, sizeof(g_cameraSettingName), ini);
+	Log("settings: %s", ini);
+	Log("  slope: Target=%s SlopeOffset=0x%X%s SlopeUnit=%s ExpectedDegrees=%g  Probe=%d IntervalMs=%lu DumpPointers=%d",
+	    g_target == TARGET_PROXY ? "proxy" : "controller", g_slopeOffset, g_slopeOffset ? "" : " (unknown: reading only)",
+	    g_unit == UNIT_RADIANS ? "radians" : g_unit == UNIT_DEGREES ? "degrees" : "cosine", g_expectedDegrees,
+	    g_probe, (unsigned long)g_interval, g_dumpPointerCount);
+	Log("  camera: Setting=%s", g_cameraSettingName);
 }
 
 /* ------------------------------------------------------------------------- */
@@ -391,32 +442,39 @@ static bool FindOurPlugin(uint32_t *prefix, uint32_t *shift)
 	return false;
 }
 
-static void FindLiveGlobal(void)
+static uintptr_t FindGlobal(uint32_t prefix, uint32_t shift, uint32_t localId, const char *editorId)
+{
+	uint32_t id = prefix | (shift == 12 ? (localId & 0xFFFu) : localId);
+	uintptr_t form = ((LookupFormByID_t)(g_base + RVA_LOOKUP_FORM))(id);
+	if (!form || !Accessible(form, 0x38, false) || *(const uint8_t *)(form + OFF_FORM_TYPE) != FORM_TYPE_GLOB) {
+		Log("form %08X isn't a global (an older %s?): %s does nothing", id, ESP_NAME, editorId);
+		return 0;
+	}
+	uintptr_t edid = ReadPtr(form + OFF_GLOBAL_EDITOR_ID);
+	if (edid && Accessible(edid, strlen(editorId) + 1, false) && strcmp((const char *)edid, editorId) != 0) {
+		Log("form %08X is the global '%.40s', not %s: it does nothing", id, (const char *)edid, editorId);
+		return 0;
+	}
+	Log("found %s (%08X)", editorId, id);
+	return form;
+}
+
+static void FindGlobals(void)
 {
 	uint32_t prefix, shift;
 	if (!FindOurPlugin(&prefix, &shift)) {
-		if (!g_globalMissingLogged)
-			Log("%s not found in the load order: nothing to do", ESP_NAME);
-		g_globalMissingLogged = true;
+		Log("%s not found in the load order: nothing to do", ESP_NAME);
+		g_globalsMissingLogged = true;
 		return;
 	}
-	uint32_t id = prefix | (shift == 12 ? (LIVE_GLOBAL_ID & 0xFFFu) : LIVE_GLOBAL_ID);
-	uintptr_t form = ((LookupFormByID_t)(g_base + RVA_LOOKUP_FORM))(id);
-	if (!form || !Accessible(form, 0x38, false) || *(const uint8_t *)(form + OFF_FORM_TYPE) != FORM_TYPE_GLOB) {
-		if (!g_globalMissingLogged)
-			Log("form %08X isn't a global (an older %s?): nothing to do", id, ESP_NAME);
-		g_globalMissingLogged = true;
-		return;
-	}
-	uintptr_t edid = ReadPtr(form + OFF_GLOBAL_EDITOR_ID);
-	if (edid && Accessible(edid, sizeof(LIVE_GLOBAL_EDITOR_ID), false) &&
-	    strcmp((const char *)edid, LIVE_GLOBAL_EDITOR_ID) != 0) {
-		Log("form %08X is the global '%.40s', not %s: nothing to do", id, (const char *)edid, LIVE_GLOBAL_EDITOR_ID);
-		g_globalMissingLogged = true;
-		return;
-	}
-	g_liveGlobal = form;
-	Log("found %s (%08X)", LIVE_GLOBAL_EDITOR_ID, id);
+	g_slopeGlobal = FindGlobal(prefix, shift, SLOPE_GLOBAL_ID, SLOPE_GLOBAL_EDITOR_ID);
+	g_cameraGlobal = FindGlobal(prefix, shift, CAMERA_GLOBAL_ID, CAMERA_GLOBAL_EDITOR_ID);
+	g_globalsMissingLogged = true;   /* found or not, don't look again */
+}
+
+static float GlobalValue(uintptr_t global)
+{
+	return global ? *(const float *)(global + OFF_GLOBAL_VALUE) : 0.0f;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -656,6 +714,89 @@ static void ProbeReflection(void)
 /* The work                                                                  */
 /* ------------------------------------------------------------------------- */
 
+/* ------------------------------------------------------------------------- */
+/* Probe snapshots: the objects' bytes now, and what changed since last time   */
+/* ------------------------------------------------------------------------- */
+
+static void SnapAdd(const char *label, uintptr_t obj, int size)
+{
+	if (!obj || g_snapCount >= SNAP_OBJECTS)
+		return;
+	Snapshot *s = &g_snaps[g_snapCount++];
+	strncpy(s->label, label, sizeof(s->label) - 1);
+	s->label[sizeof(s->label) - 1] = 0;
+	s->obj = obj;
+	s->size = size > (int)sizeof(s->bytes) ? (int)sizeof(s->bytes) : size;
+	for (int off = 0; off < s->size; off += 4)
+		*(uint32_t *)(s->bytes + off) = Accessible(obj + off, 4, false) ? *(const uint32_t *)(obj + off) : 0;
+}
+
+/* The objects to watch: controller, proxy, and the controller's pointers in DumpPointers. */
+static void SnapCollect(uintptr_t ctrl, uintptr_t proxy)
+{
+	g_snapCount = 0;
+	SnapAdd("controller", ctrl, 0x600);
+	SnapAdd("proxy", proxy, 0x600);
+	for (int i = 0; i < g_dumpPointerCount; i++) {
+		char label[48];
+		snprintf(label, sizeof(label), "controller+0x%X", g_dumpPointers[i]);
+		uintptr_t obj = ReadPtr(ctrl + g_dumpPointers[i]);
+		if (obj)
+			SnapAdd(label, obj, 0x200);
+		else
+			Log("%s is empty", label);
+	}
+}
+
+static void LogValue(const char *prefix, int off, uint32_t bits)
+{
+	float f;
+	memcpy(&f, &bits, 4);
+	if (isfinite(f) && f > 0.0f && f < 1.0f)
+		Log("%s+0x%03X  %.6f  (%08X)  = cos %.2f deg", prefix, off, f, bits, acosf(f) * 57.29578f);
+	else if (isfinite(f) && fabsf(f) >= 1e-5f && fabsf(f) <= 1e6f)
+		Log("%s+0x%03X  %.6f  (%08X)", prefix, off, f, bits);
+	else
+		Log("%s+0x%03X  %08X", prefix, off, bits);
+}
+
+/* Still the same objects as in the snapshot? (A load or cell change replaces them.) */
+static bool SnapsMatch(uintptr_t ctrl, uintptr_t proxy)
+{
+	return g_snapCount >= 1 && g_snaps[0].obj == ctrl && (g_snapCount < 2 || !proxy || g_snaps[1].obj == proxy);
+}
+
+/* Takes a fresh look at every watched object and logs the 4-byte values that changed. */
+static void SnapDiff(const char *when)
+{
+	Log("=== %s: what changed", when);
+	for (int i = 0; i < g_snapCount; i++) {
+		Snapshot *s = &g_snaps[i];
+		int changed = 0;
+		for (int off = 0; off < s->size; off += 4) {
+			if (!Accessible(s->obj + off, 4, false))
+				break;
+			uint32_t now = *(const uint32_t *)(s->obj + off);
+			uint32_t was = *(const uint32_t *)(s->bytes + off);
+			if (now == was)
+				continue;
+			if (changed++ < 80) {
+				char prefix[80];
+				float wf;
+				memcpy(&wf, &was, 4);
+				snprintf(prefix, sizeof(prefix), "  %s (was %.6g) ", s->label, wf);
+				LogValue(prefix, off, now);
+			}
+			*(uint32_t *)(s->bytes + off) = now;
+		}
+		Log("  %s: %d value(s) changed%s", s->label, changed, changed > 80 ? " (first 80 shown)" : "");
+	}
+}
+
+/* ------------------------------------------------------------------------- */
+/* Slope limit                                                               */
+/* ------------------------------------------------------------------------- */
+
 /* The stored value <-> degrees, and which of two values allows steeper slopes. */
 static float ToDegrees(float v)
 {
@@ -672,109 +813,237 @@ static bool Plausible(float v)
 	return g_unit == UNIT_COSINE ? (v > 0.0f && v < 1.0f) : g_unit == UNIT_RADIANS ? (v > 0.1f && v < 1.6f) : (v > 5.0f && v < 90.0f);
 }
 
+static bool AsExpected(float v)
+{
+	if (g_expectedDegrees <= 0.0f)
+		return true;
+	float tolerance = g_unit == UNIT_DEGREES ? 0.06f : 0.001f;
+	return fabsf(v - FromDegrees(g_expectedDegrees)) <= tolerance;
+}
+
 static float Steeper(float a, float b)
 {
 	/* A smaller cosine, or a bigger angle, lets you climb more. */
 	return g_unit == UNIT_COSINE ? (a < b ? a : b) : (a > b ? a : b);
 }
 
-static void Restore(uintptr_t proxy)
+static const char *TargetName(void)
 {
-	if (!g_applied)
-		return;
-	if (proxy && proxy == g_appliedProxy) {
-		float *slot = (float *)(proxy + g_proxySlopeOffset);
-		if (Accessible((uintptr_t)slot, 4, true) && *slot == g_writtenCos) {
-			*slot = g_originalCos;
-			Log("slope limit back to %.1f deg", ToDegrees(g_originalCos));
-		}
-	}
-	g_applied = false;
-	g_appliedProxy = 0;
+	return g_target == TARGET_PROXY ? "proxy" : "controller";
 }
 
-static void Tick(void)
+/* The object holding the limit, re-found through the cached chain (and searched for
+ * when `scan`). */
+static uintptr_t FindChain(bool scan, uintptr_t *ctrlOut, uintptr_t *proxyOut)
 {
-	if (!g_dataReady)
-		return;
-	if (!g_liveGlobal) {
-		DWORD now = GetTickCount();
-		if (g_globalMissingLogged || now - g_lastGlobalTry < 2000)
-			return;
-		g_lastGlobalTry = now;
-		FindLiveGlobal();
-		if (!g_liveGlobal)
-			return;
-	}
-	float degrees = *(const float *)(g_liveGlobal + OFF_GLOBAL_VALUE);
-
-	DWORD now = GetTickCount();
-	bool scan = (int32_t)(now - g_nextScan) >= 0;
 	uintptr_t player = Player();
 	uintptr_t ctrl = player ? FindController(player, scan) : 0;
 	uintptr_t proxy = ctrl ? FindProxy(ctrl, scan) : 0;
-	if (!proxy) {
-		/* Loading, or the controller is being rebuilt. Keep what we changed on record:
-		 * if the same proxy comes back it still has our value, and the original is
-		 * still the one to restore. A different proxy (checked below) starts afresh. */
-		if (scan && player) {
-			g_nextScan = now + 3000;
-			if (!ctrl && !g_ctrlMissingLogged) {
-				g_ctrlMissingLogged = true;
-				Log("no character controller found near the player (yet); trying every 3 s");
-			} else if (ctrl && !g_proxyMissingLogged) {
-				g_proxyMissingLogged = true;
-				Log("controller found but no %s under it; what it points to:", RTTI_PROXY);
-				DumpObject("character controller", ctrl, 0x600);
-			}
+	if (ctrlOut)
+		*ctrlOut = ctrl;
+	if (proxyOut)
+		*proxyOut = proxy;
+	if (!player)
+		return 0;
+	if (scan && !proxy) {
+		g_nextScan = GetTickCount() + 3000;
+		if (!ctrl && !g_ctrlMissingLogged) {
+			g_ctrlMissingLogged = true;
+			Log("no character controller found near the player (yet); trying every 3 s");
+		} else if (ctrl && !g_proxyMissingLogged) {
+			g_proxyMissingLogged = true;
+			Log("controller found but no %s under it; what it points to:", RTTI_PROXY);
+			DumpObject("character controller", ctrl, 0x600);
 		}
-		return;
 	}
+	return g_target == TARGET_PROXY ? proxy : ctrl;
+}
 
-	if (g_probe && proxy != g_loggedProxy && (g_proxySlopeOffset == 0 || g_loggedProxy == 0)) {
-		g_loggedProxy = proxy;
-		DumpObject("Havok proxy", proxy, 0x300);
-		DumpObject("character controller", ctrl, 0x600);
-	}
-	if (!g_proxySlopeOffset)
+static void RestoreSlope(uintptr_t target)
+{
+	if (!g_applied)
 		return;
+	if (target && target == g_appliedTarget) {
+		float *slot = (float *)(target + g_slopeOffset);
+		if (Accessible((uintptr_t)slot, 4, true) && *slot == g_writtenValue) {
+			*slot = g_originalValue;
+			Log("slope limit back to %.2f deg (the game set it back %d time(s) during the ride)",
+			    ToDegrees(g_originalValue), g_revertCount);
+		}
+	}
+	g_applied = false;
+	g_appliedTarget = 0;
+}
 
-	if (g_applied && proxy != g_appliedProxy) {
-		/* A different proxy (load, cell change): it has the game's own limit. */
+/* Riding: write the limit (first time: check the value there first). */
+static void ApplySlope(uintptr_t target, float degrees)
+{
+	if (!target || !g_slopeOffset)
+		return;
+	if (g_applied && target != g_appliedTarget) {
+		/* A different object (load, cell change): it has the game's own limit. */
 		g_applied = false;
-		g_appliedProxy = 0;
+		g_appliedTarget = 0;
 	}
-	float *slot = (float *)(proxy + g_proxySlopeOffset);
+	float *slot = (float *)(target + g_slopeOffset);
 	if (!Accessible((uintptr_t)slot, 4, true))
 		return;
-
-	if (degrees > 0.0f && degrees < 89.0f) {
-		float want = FromDegrees(degrees);
-		if (!g_applied) {
-			float current = *slot;
-			if (!Plausible(current)) {
-				if (!g_badValueLogged)
-					Log("proxy+0x%X holds %g, not a slope limit in the configured unit: wrong ProxySlopeOffset or ProxySlopeUnit? Not touching it.",
-					    g_proxySlopeOffset, current);
-				g_badValueLogged = true;
-				return;
-			}
-			g_originalCos = current;
-			g_writtenCos = Steeper(want, current);   /* only ever steeper than the game's */
-			g_applied = true;
-			g_appliedProxy = proxy;
-			g_revertLogged = false;
-			Log("riding: slope limit %.1f -> %.1f deg", ToDegrees(current), ToDegrees(g_writtenCos));
-			*slot = g_writtenCos;
-		} else if (*slot != g_writtenCos) {
-			if (!g_revertLogged)
-				Log("the game set the slope limit back to %.1f deg; setting it again", ToDegrees(*slot));
-			g_revertLogged = true;
-			*slot = g_writtenCos;
+	if (!g_applied) {
+		float current = *slot;
+		if (!Plausible(current) || !AsExpected(current)) {
+			if (!g_badValueLogged)
+				Log("%s+0x%X holds %g (%.2f deg), not the expected %g deg: not touching it",
+				    TargetName(), g_slopeOffset, current, Plausible(current) ? ToDegrees(current) : 0.0f, g_expectedDegrees);
+			g_badValueLogged = true;
+			return;
 		}
-	} else {
-		Restore(proxy);
+		g_originalValue = current;
+		g_writtenValue = Steeper(FromDegrees(degrees), current);   /* only ever steeper than the game's */
+		g_applied = true;
+		g_appliedTarget = target;
+		g_revertCount = 0;
+		Log("riding: slope limit at %s+0x%X %.2f -> %.2f deg", TargetName(), g_slopeOffset,
+		    ToDegrees(current), ToDegrees(g_writtenValue));
+		*slot = g_writtenValue;
+	} else if (*slot != g_writtenValue) {
+		if (g_revertCount++ == 0)
+			Log("the game set the slope limit back to %.2f deg; setting it again every frame while riding",
+			    ToDegrees(*slot));
+		*slot = g_writtenValue;
 	}
+}
+
+/* ------------------------------------------------------------------------- */
+/* Camera                                                                    */
+/* ------------------------------------------------------------------------- */
+
+static uintptr_t FindSetting(const char *wanted)
+{
+	static const uint32_t lists[2] = { RVA_INI_SETTINGS, RVA_INI_PREF_SETTINGS };
+	for (int l = 0; l < 2; l++) {
+		uintptr_t coll = ReadPtr(g_base + lists[l]);
+		uintptr_t node = coll ? ReadPtr(coll + OFF_SETTINGS_LIST) : 0;
+		for (int guard = 0; node && guard < 20000; guard++) {
+			uintptr_t setting = ReadPtr(node);
+			uintptr_t name = setting ? ReadPtr(setting + OFF_SETTING_NAME) : 0;
+			if (name && Accessible(name, strlen(wanted) + 1, false) && _stricmp((const char *)name, wanted) == 0)
+				return setting;
+			node = ReadPtr(node + 8);
+		}
+	}
+	return 0;
+}
+
+static void UpdateCamera(void)
+{
+	float distance = GlobalValue(g_cameraGlobal);
+	if (!g_cameraSetting) {
+		if (distance <= 0.0f)
+			return;
+		g_cameraSetting = FindSetting(g_cameraSettingName);
+		if (!g_cameraSetting) {
+			Log("camera: no %s setting in the game: leaving the camera alone", g_cameraSettingName);
+			g_cameraGlobal = 0;
+			return;
+		}
+	}
+	float *value = (float *)(g_cameraSetting + OFF_SETTING_DATA);
+	if (!Accessible((uintptr_t)value, 4, true))
+		return;
+	if (distance > 0.0f) {
+		if (!g_cameraApplied) {
+			g_cameraOriginal = *value;
+			g_cameraWritten = distance > g_cameraOriginal ? distance : g_cameraOriginal;   /* only ever farther */
+			g_cameraApplied = true;
+			Log("camera: %s %g -> %g while riding", g_cameraSettingName, g_cameraOriginal, g_cameraWritten);
+		}
+		if (*value != g_cameraWritten)
+			*value = g_cameraWritten;
+	} else if (g_cameraApplied) {
+		if (*value == g_cameraWritten)
+			*value = g_cameraOriginal;
+		g_cameraApplied = false;
+		Log("camera: %s back to %g", g_cameraSettingName, g_cameraOriginal);
+	}
+}
+
+/* ------------------------------------------------------------------------- */
+/* Every frame / every IntervalMs                                            */
+/* ------------------------------------------------------------------------- */
+
+static void Tick(DWORD now)
+{
+	if (!g_slopeGlobal && !g_cameraGlobal) {
+		if (g_globalsMissingLogged || now - g_lastGlobalTry < 2000)
+			return;
+		g_lastGlobalTry = now;
+		FindGlobals();
+		if (!g_slopeGlobal && !g_cameraGlobal)
+			return;
+	}
+	UpdateCamera();
+
+	float degrees = GlobalValue(g_slopeGlobal);
+	bool riding = degrees > 0.0f || GlobalValue(g_cameraGlobal) > 0.0f;
+	bool scan = (int32_t)(now - g_nextScan) >= 0;
+	uintptr_t ctrl, proxy;
+	uintptr_t target = FindChain(scan, &ctrl, &proxy);
+
+	if (g_probe && ctrl) {
+		if (!g_dumpedThisLoad) {
+			g_dumpedThisLoad = true;
+			DumpObject("character controller", ctrl, 0x600);
+			if (proxy)
+				DumpObject("Havok proxy", proxy, 0x600);
+			for (int i = 0; i < g_dumpPointerCount; i++) {
+				char label[48];
+				snprintf(label, sizeof(label), "controller+0x%X", g_dumpPointers[i]);
+				uintptr_t obj = ReadPtr(ctrl + g_dumpPointers[i]);
+				if (obj)
+					DumpObject(label, obj, 0x200);
+			}
+			SnapCollect(ctrl, proxy);
+		}
+		if (!SnapsMatch(ctrl, proxy)) {
+			Log("the watched objects were replaced (load or cell change): new baseline");
+			SnapCollect(ctrl, proxy);
+		}
+		/* Before our own write, so it shows what the game changed by itself. */
+		if (riding && !g_wasRiding) {
+			SnapDiff("getting on (changes since the last look, before writing anything)");
+			g_mountTime = now;
+			g_ridingSnapsDone = 0;
+		} else if (riding && g_ridingSnapsDone == 0 && now - g_mountTime >= 1000) {
+			g_ridingSnapsDone = 1;
+			SnapDiff("1 s into the ride");
+		} else if (riding && g_ridingSnapsDone == 1 && now - g_mountTime >= 3000) {
+			g_ridingSnapsDone = 2;
+			SnapDiff("3 s into the ride");
+		}
+	}
+
+	if (degrees > 0.0f && degrees < 89.0f)
+		ApplySlope(target, degrees);
+	else
+		RestoreSlope(target);
+
+	if (g_probe && ctrl && !riding && g_wasRiding) {
+		SnapDiff("getting off (after putting the limit back)");
+	}
+	g_wasRiding = riding;
+}
+
+/* Between full checks, while riding: keep the limit written (cheap: cached chain only). */
+static void Frame(void)
+{
+	if (!g_applied)
+		return;
+	float degrees = GlobalValue(g_slopeGlobal);
+	if (!(degrees > 0.0f && degrees < 89.0f))
+		return;
+	uintptr_t target = FindChain(false, NULL, NULL);
+	if (target && target == g_appliedTarget)
+		ApplySlope(target, degrees);
 }
 
 static void *Task_Destroy(Task *self, unsigned flags)
@@ -786,11 +1055,15 @@ static void *Task_Destroy(Task *self, unsigned flags)
 static void Task_Run(Task *self)
 {
 	(void)self;
-	DWORD now = GetTickCount();
-	if (now - g_lastTick < g_interval)
+	if (!g_dataReady)
 		return;
+	DWORD now = GetTickCount();
+	if (now - g_lastTick < g_interval) {
+		Frame();
+		return;
+	}
 	g_lastTick = now;
-	Tick();
+	Tick(now);
 }
 
 static void *g_taskVtbl[2] = { (void *)Task_Destroy, (void *)Task_Run };
@@ -811,10 +1084,11 @@ static void OnF4SEMessage(F4SEMessage *msg)
 		break;
 	case kMessage_PostLoadGame:
 	case kMessage_NewGame:
-		/* Fresh objects: find the chain again, and log the new proxy once. */
+		/* Fresh objects: find the chain again, and dump them once more. */
 		g_applied = false;
-		g_appliedProxy = 0;
-		g_loggedProxy = 0;
+		g_appliedTarget = 0;
+		g_dumpedThisLoad = false;
+		g_wasRiding = false;
 		break;
 	default:
 		break;

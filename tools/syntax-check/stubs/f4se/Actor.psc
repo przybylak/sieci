@@ -7,7 +7,7 @@ bool Function IsDead() native
 bool Function IsPlayerTeammate() native
 bool Function IsInScene() native
 int Function GetSitState() native
-Function ChangeAnimArchetype(Keyword apKeyword = None) native
+bool Function ChangeAnimArchetype(Keyword apKeyword = None) native
 bool Function ChangeAnimFlavor(Keyword apKeyword = None) native
 Function AttemptAnimationSetSwitch() native
 Function EvaluatePackage(bool abResetAI) native

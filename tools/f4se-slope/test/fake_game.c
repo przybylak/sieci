@@ -25,8 +25,11 @@
 #define RVA_RTTI_AREA         0x01000000u  /* where the fake RTTI goes, clear of the above */
 
 #define PROXY_SLOPE_OFFSET    0x9C
+#define CTRL_SLOPE_OFFSET     0x418        /* cos 47 deg, as in the real game (test 5) */
 #define LIGHT_INDEX           5
-#define LIVE_GLOBAL_FORMID    (0xFE000000u | (LIGHT_INDEX << 12) | 0x82Au)
+#define SLOPE_GLOBAL_FORMID   (0xFE000000u | (LIGHT_INDEX << 12) | 0x82Au)
+#define CAMERA_GLOBAL_FORMID  (0xFE000000u | (LIGHT_INDEX << 12) | 0x82Bu)
+#define COS47                 0.68199836f
 
 static uint8_t g_space[0x3600000];          /* the "game image" (in .bss) */
 static uintptr_t g_base;
@@ -85,16 +88,21 @@ static void *NewObject(void **vtbl, size_t size)
 /* --- Fake game objects --------------------------------------------------------- */
 
 static uint8_t *g_global;      /* TESGlobal CMB_SlopeLive */
+static uint8_t *g_cameraGlobal; /* TESGlobal CMB_CameraLive */
 static uint8_t *g_controller;
 static uint8_t *g_proxy;
-static void **g_vtProxy, **g_vtWrapper;
+static uint8_t *g_cameraSetting;
+static void **g_vtProxy, **g_vtWrapper, **g_vtCtrl;
 
-static float *Slope(void) { return (float *)(g_proxy + PROXY_SLOPE_OFFSET); }
+static float *Slope(void) { return (float *)(g_controller + CTRL_SLOPE_OFFSET); }
+static float *ProxySlope(void) { return (float *)(g_proxy + PROXY_SLOPE_OFFSET); }
+static float *CameraDist(void) { return (float *)(g_cameraSetting + 0x08); }
 static void SetLive(float degrees) { *(float *)(g_global + 0x30) = degrees; }
+static void SetCamera(float distance) { *(float *)(g_cameraGlobal + 0x30) = distance; }
 
 static uintptr_t FakeLookupFormByID(uint32_t id)
 {
-	return id == LIVE_GLOBAL_FORMID ? (uintptr_t)g_global : 0;
+	return id == SLOPE_GLOBAL_FORMID ? (uintptr_t)g_global : id == CAMERA_GLOBAL_FORMID ? (uintptr_t)g_cameraGlobal : 0;
 }
 
 static uint8_t *NewProxy(float cosine)
@@ -121,7 +129,8 @@ static void BuildGame(void)
 
 	g_rttiNext = g_base + RVA_RTTI_AREA;
 	void **vtPlayer = MakeClass(player, 4);
-	void **vtCtrl = MakeClass(ctrl, 3);
+	g_vtCtrl = MakeClass(ctrl, 3);
+	void **vtCtrl = g_vtCtrl;
 	g_vtWrapper = MakeClass(wrapper, 3);
 	g_vtProxy = MakeClass(proxy, 3);
 	void **vtDecoy = MakeClass(decoy, 2);
@@ -134,7 +143,13 @@ static void BuildGame(void)
 	*(void **)(data + 0x40) = NewObject(vtDecoy, 0x100);     /* something else first */
 	*(uintptr_t *)(data + 0x48) = 0x12345678;                 /* junk that isn't a pointer */
 	g_controller = (uint8_t *)NewObject(vtCtrl, 0x1000);
-	*(uint8_t **)(data + 0x1A8) = g_controller;
+	*(uint8_t **)(data + 0x3E0) = g_controller;
+	*(float *)(g_controller + 0x154) = 0.7257f;
+	*(float *)(g_controller + CTRL_SLOPE_OFFSET) = COS47;
+	*(float *)(g_controller + 0x424) = 0.4429f;
+	uint8_t *stateManager = (uint8_t *)NewObject(vtDecoy, 0x200);
+	*(float *)(stateManager + 0x40) = 3.0f;
+	*(uint8_t **)(g_controller + 0x2B8) = stateManager;
 	uint8_t *wrap = (uint8_t *)NewObject(g_vtWrapper, 0x100);
 	*(uint8_t **)(g_controller + 0x470) = wrap;
 	g_proxy = NewProxy(0.70710678f);                          /* 45 degrees */
@@ -156,8 +171,12 @@ static void BuildGame(void)
 
 	g_global = (uint8_t *)VirtualAlloc(NULL, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 	g_global[0x1A] = 11;
-	*(uint32_t *)(g_global + 0x14) = LIVE_GLOBAL_FORMID;
+	*(uint32_t *)(g_global + 0x14) = SLOPE_GLOBAL_FORMID;
 	*(const char **)(g_global + 0x20) = "CMB_SlopeLive";
+	g_cameraGlobal = (uint8_t *)VirtualAlloc(NULL, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+	g_cameraGlobal[0x1A] = 11;
+	*(uint32_t *)(g_cameraGlobal + 0x14) = CAMERA_GLOBAL_FORMID;
+	*(const char **)(g_cameraGlobal + 0x20) = "CMB_CameraLive";
 
 	/* LookupFormByID: a jump to ours at the game's address. */
 	uint8_t *stub = (uint8_t *)(g_base + RVA_LOOKUP_FORM);
@@ -169,13 +188,15 @@ static void BuildGame(void)
 	FlushInstructionCache(GetCurrentProcess(), stub, 12);
 
 	/* INI settings: a list with one slope-ish name. */
-	static const char *settingNames[3] = { "fJumpHeightMin:Movement", "fTestSlopeLimit:Havok", "iSize W:Display" };
+	static const char *settingNames[3] = { "fJumpHeightMin:Movement", "fVanityModeMaxDist:Camera", "iSize W:Display" };
 	uint8_t *coll = (uint8_t *)VirtualAlloc(NULL, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 	uint8_t *prev = NULL;
 	for (int i = 2; i >= 0; i--) {
 		uint8_t *setting = (uint8_t *)VirtualAlloc(NULL, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-		*(float *)(setting + 0x08) = 50.0f + i;
+		*(float *)(setting + 0x08) = i == 1 ? 150.0f : 50.0f + i;
 		*(const char **)(setting + 0x10) = settingNames[i];
+		if (i == 1)
+			g_cameraSetting = setting;
 		uint8_t *node = setting + 0x100;
 		*(uint8_t **)node = setting;
 		*(uint8_t **)(node + 8) = prev;
@@ -274,71 +295,103 @@ int main(int argc, char **argv)
 
 	printf("before game data is ready:\n");
 	SetLive(60.0f);
+	SetCamera(300.0f);
 	RunFrames(300);
-	CHECK(Near(*Slope(), 0.70710678f), "nothing touched");
+	CHECK(Near(*Slope(), COS47) && Near(*CameraDist(), 150.0f), "nothing touched");
 
 	Send(10, 1);   /* GameDataReady */
 	SetLive(0.0f);
+	SetCamera(0.0f);
 	RunFrames(400);
 	printf("not riding:\n");
-	CHECK(Near(*Slope(), 0.70710678f), "slope limit still the game's (45 deg)");
+	CHECK(Near(*Slope(), COS47), "slope limit still the game's (47 deg)");
+	CHECK(Near(*CameraDist(), 150.0f), "camera still 150");
+	*(float *)(g_controller + 0x154) = 0.8f;   /* something the game changes before getting on */
 
 	if (mode == 1) {
 		SetLive(60.0f);
+		SetCamera(300.0f);
 		RunFrames(400);
-		CHECK(Near(*Slope(), 0.70710678f), "probe only (no offset): riding doesn't change it");
+		CHECK(Near(*Slope(), COS47), "probe only (no offset): riding doesn't change the slope limit");
+		CHECK(Near(*CameraDist(), 300.0f), "the camera still works (got %g)", *CameraDist());
+		SetLive(0.0f);
+		SetCamera(0.0f);
+		RunFrames(400);
+		CHECK(Near(*CameraDist(), 150.0f), "and goes back (got %g)", *CameraDist());
+		return g_failures ? 1 : 0;
+	}
+	if (mode == 3) {
+		*Slope() = 0.6427876f;   /* 50 deg: not what the INI expects */
+		SetLive(60.0f);
+		RunFrames(400);
+		CHECK(Near(*Slope(), 0.6427876f), "unexpected value (50 deg, expected 47): not touched (got %f)", *Slope());
 		return g_failures ? 1 : 0;
 	}
 
-	printf("riding, 60 deg:\n");
+	printf("riding, 60 deg, camera 300:\n");
 	SetLive(60.0f);
+	SetCamera(300.0f);
 	RunFrames(400);
 	CHECK(Near(*Slope(), 0.5f), "slope limit cos 60 = 0.5 (got %f)", *Slope());
+	CHECK(Near(*ProxySlope(), 0.70710678f), "the proxy isn't touched (target is the controller)");
+	CHECK(Near(*CameraDist(), 300.0f), "camera 300 (got %g)", *CameraDist());
 
-	printf("the game resets it:\n");
-	*Slope() = 0.70710678f;
-	RunFrames(400);
-	CHECK(Near(*Slope(), 0.5f), "set again (got %f)", *Slope());
+	printf("the game resets the slope limit:\n");
+	*Slope() = COS47;
+	((void (*)(Task *))g_task->vtbl[1])(g_task);   /* one frame */
+	CHECK(Near(*Slope(), 0.5f), "set again on the very next frame (got %f)", *Slope());
 
 	printf("getting off:\n");
 	SetLive(0.0f);
+	SetCamera(0.0f);
 	RunFrames(400);
-	CHECK(Near(*Slope(), 0.70710678f), "back to 45 deg (got %f)", *Slope());
+	CHECK(Near(*Slope(), COS47), "slope back to 47 deg (got %f)", *Slope());
+	CHECK(Near(*CameraDist(), 150.0f), "camera back to 150 (got %g)", *CameraDist());
+
+	printf("player's own camera farther than the riding one:\n");
+	*CameraDist() = 400.0f;
+	SetCamera(300.0f);
+	RunFrames(300);
+	CHECK(Near(*CameraDist(), 400.0f), "never closer than the player's own (got %g)", *CameraDist());
+	SetCamera(0.0f);
+	RunFrames(300);
+	CHECK(Near(*CameraDist(), 400.0f), "and left at 400 (got %g)", *CameraDist());
+	*CameraDist() = 150.0f;
 
 	printf("riding with a gentler limit than the game's (30 deg):\n");
 	SetLive(30.0f);
 	RunFrames(400);
-	CHECK(Near(*Slope(), 0.70710678f), "never less steep than the game's own (got %f)", *Slope());
+	CHECK(Near(*Slope(), COS47), "never less steep than the game's own (got %f)", *Slope());
 	SetLive(0.0f);
 	RunFrames(300);
 
-	printf("a load builds a new proxy:\n");
-	uint8_t *wrap = *(uint8_t **)(g_controller + 0x470);
-	uint8_t *old = g_proxy;
-	g_proxy = NewProxy(0.64278761f);   /* 50 degrees */
-	*(uint8_t **)(wrap + 0x20) = g_proxy;
+	printf("a load builds a new controller:\n");
+	uint8_t *oldCtrl = g_controller;
+	uint8_t *data = *(uint8_t **)(*(uint8_t **)(*(uint8_t **)(g_base + RVA_PLAYER) + 0x300) + 0x08);
+	g_controller = (uint8_t *)NewObject(g_vtCtrl, 0x1000);
+	memcpy(g_controller + 8, oldCtrl + 8, 0x1000 - 8);
+	*(uint8_t **)(data + 0x3E0) = g_controller;
 	Send(3, 1);   /* PostLoadGame */
 	SetLive(65.0f);
 	RunFrames(400);
-	CHECK(Near(*Slope(), cosf(65.0f / 57.29578f)), "new proxy gets 65 deg (got %f)", *Slope());
-	CHECK(Near(*(float *)(old + PROXY_SLOPE_OFFSET), 0.70710678f), "the old one isn't touched");
+	CHECK(Near(*Slope(), cosf(65.0f / 57.29578f)), "new controller gets 65 deg (got %f)", *Slope());
+	CHECK(Near(*(float *)(oldCtrl + CTRL_SLOPE_OFFSET), COS47), "the old one isn't touched");
 	SetLive(0.0f);
 	RunFrames(400);
-	CHECK(Near(*Slope(), 0.64278761f), "and back to its own 50 deg (got %f)", *Slope());
+	CHECK(Near(*Slope(), COS47), "and back to 47 deg (got %f)", *Slope());
 
 	printf("the controller goes away mid-ride (loading screen):\n");
 	SetLive(60.0f);
 	RunFrames(300);
-	uint8_t *data = *(uint8_t **)(*(uint8_t **)(*(uint8_t **)(g_base + RVA_PLAYER) + 0x300) + 0x08);
-	*(uint8_t **)(data + 0x1A8) = NULL;
+	*(uint8_t **)(data + 0x3E0) = NULL;
 	RunFrames(400);
 	CHECK(true, "no crash with the controller gone");
-	*(uint8_t **)(data + 0x1A8) = g_controller;
-	RunFrames(3400);   /* the search waits 3 s after a miss */
+	*(uint8_t **)(data + 0x3E0) = g_controller;
+	RunFrames(400);
 	CHECK(Near(*Slope(), 0.5f), "found again and set (got %f)", *Slope());
 	SetLive(0.0f);
 	RunFrames(300);
-	CHECK(Near(*Slope(), 0.64278761f), "and restored (got %f)", *Slope());
+	CHECK(Near(*Slope(), COS47), "and restored (got %f)", *Slope());
 
 	printf("%s\n", g_failures ? "FAILED" : "all ok");
 	return g_failures ? 1 : 0;

@@ -29,3 +29,6 @@ Function SetAnimationVariableBool(string asVariableName, bool abNewValue) native
 bool Function GetAnimationVariableBool(string asVariableName) native
 float Function GetValuePercentage(ActorValue akAV) native
 Function RestoreValue(ActorValue akAV, float afAmount) native
+float Function GetPositionZ() native
+Function SetPosition(float afX, float afY, float afZ) native
+Function MoveToNearestNavmeshLocation() native

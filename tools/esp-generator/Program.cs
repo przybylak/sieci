@@ -180,7 +180,7 @@ public static class Program
                 Switcher("Switch to third person", "Switch to third person when getting on, so you see the bike.", "CMB_ForceThirdPerson"),
                 Slider("Steepest slope while riding", "How steep a slope you can ride up, in degrees. Needs F4SE and the CMB_Slope.dll plugin. 0 = the same as on foot. Takes effect the next time you get on.",
                     "CMB_MaxSlope", 0, 80, 5),
-                Slider("Riding camera distance", "How far back the third-person camera sits while riding (the game's own is about 150). Needs F4SE. 0 = leave the camera alone. Takes effect the next time you get on.",
+                Slider("Riding camera distance", "How far back the third-person camera sits while riding (the game's own is about 150). Needs F4SE and the CMB_Slope.dll plugin. 0 = leave the camera alone. Takes effect the next time you get on.",
                     "CMB_RidingCameraDistance", 0, 1000, 25),
                 Switcher("Allow combat while riding", "Weapons and VATS stay usable while riding. Takes effect the next time you get on.", "CMB_AllowCombat"),
                 Switcher("Thrown off when hit", "A big hit from an enemy knocks you off the bike, so you can fight back. Off: you keep riding; a hint says how to get off when a fight starts.", "CMB_DismountOnHit"),
@@ -371,7 +371,7 @@ public static class Program
         var wadeEffect = WatchEffect(mod, "CMB_WadeWatchEffect", "Motorbike wade watch", quest, wading: true);
         swimAbility.Effects.Add(WatchEntry(wadeEffect, Condition.Function.IsInWater));
 
-        // How far back the third-person camera sits while riding (CMB_CameraF4SE, needs F4SE).
+        // How far back the third-person camera sits while riding (CMB_Slope.dll, needs F4SE).
         var gCamera = Global(mod, "CMB_RidingCameraDistance", 300);
 
         // Steeper slopes (F4SE plugin CMB_Slope.dll, tools/f4se-slope). The plugin finds
@@ -380,6 +380,10 @@ public static class Program
         var gSlopeLive = Global(mod, "CMB_SlopeLive", 0);
         if (gSlopeLive.FormKey.ID != 0x82A)
             throw new InvalidOperationException($"CMB_SlopeLive must be 0x82A (CMB_Slope.dll looks for it), got {gSlopeLive.FormKey.ID:X}");
+        // The riding camera distance for the same plugin (CMB_RidingCameraDistance while riding).
+        var gCameraLive = Global(mod, "CMB_CameraLive", 0);
+        if (gCameraLive.FormKey.ID != 0x82B)
+            throw new InvalidOperationException($"CMB_CameraLive must be 0x82B (CMB_Slope.dll looks for it), got {gCameraLive.FormKey.ID:X}");
 
         // --- Controller quest ---
         quest.Name = "Commonwealth Motorbike";
@@ -435,7 +439,8 @@ public static class Program
             Obj("CMB_FreeFallDamage", gFreeFall),
             Obj("CMB_RidingCameraDistance", gCamera),
             Obj("CMB_MaxSlope", gMaxSlope),
-            Obj("CMB_SlopeLive", gSlopeLive));
+            Obj("CMB_SlopeLive", gSlopeLive),
+            Obj("CMB_CameraLive", gCameraLive));
         // Optional: only does anything with F4SE and the compiled CMB_HotkeyF4SE.pex.
         var hotkey = Script("CMB_HotkeyF4SE",
             Obj("Controller", quest),
@@ -445,14 +450,12 @@ public static class Program
             Obj("CMB_BikeRiderArmor", armor),
             Obj("CMB_BikeRiderArmorFrame", armorFrame),
             Int("BikeSlotIndex", BikeSlotIndex));
-        // Optional too: camera farther back while riding (F4SE's Utility.SetINIFloat).
-        var camera = Script("CMB_CameraF4SE");
 
         quest.VirtualMachineAdapter = new QuestAdapter
         {
             Version = 6,
             ObjectFormat = 2,
-            Scripts = new ExtendedList<ScriptEntry> { controller, hotkey, gear, camera },
+            Scripts = new ExtendedList<ScriptEntry> { controller, hotkey, gear },
             Aliases = new ExtendedList<QuestFragmentAlias>
             {
                 new QuestFragmentAlias

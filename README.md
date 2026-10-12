@@ -53,7 +53,7 @@ Getting off reverses all of that and parks the bike next to you. Indoors, power 
 | **Python 3** | `make_rider_pose.bat` builds `CMB_RiderPose.esp` and its animation data from your load order and game files |
 | Python + [PyNifly](https://github.com/BadDogSkyrim/PyNifly), Bethesda Archive Extractor | only to build the bike meshes and riding clips yourself (they're derived from the game's files, so they aren't in the repository) |
 | Creation Kit (optional) | not needed: the scripts can be compiled with Caprica (`tools/syntax-check`); `compile_scripts.bat` uses the Creation Kit's compiler if you have it |
-| F4SE (optional) | dedicated hotkey, weight-based side bag, slot-57 gear put back on after a ride, camera farther back while riding, steeper slopes (the `CMB_Slope.dll` plugin, Fallout 4 1.11.240 only), MCM menu; without it you favorite the keys for a hotkey and the bag counts items |
+| F4SE (optional) | dedicated hotkey, weight-based side bag, slot-57 gear put back on after a ride, steeper slopes and a camera farther back while riding (the `CMB_Slope.dll` plugin, Fallout 4 1.11.240 only), MCM menu; without it you favorite the keys for a hotkey and the bag counts items |
 | Testing in game + Papyrus log | I can't run the game; the log and screenshots are how fixes happen |
 
 ## Getting started
@@ -110,11 +110,10 @@ Data/                         mirrors the game's Data folder
     CMB_PlayerAliasScript     save/load hook
     CMB_HotkeyF4SE            optional F4SE hotkey
     CMB_GearRestoreF4SE       optional (F4SE): puts slot-57 gear back on after a ride
-    CMB_CameraF4SE            optional (F4SE): camera farther back while riding
   Meshes/CMB/                 the bike meshes go here (built by tools/rider)
   Sound/FX/CMB/               engine sounds (synthesised by tools/sound)
   MCM/Config/                 MCM menu and hotkey (written by the generator)
-  F4SE/Plugins/CMB_Slope.dll  optional F4SE plugin: steeper slopes while riding (built from tools/f4se-slope)
+  F4SE/Plugins/CMB_Slope.dll  optional F4SE plugin: steeper slopes and farther camera while riding (tools/f4se-slope)
 compile_scripts.bat           compiles the scripts with the Creation Kit's compiler
 make_rider_pose.bat           builds CMB_RiderPose.esp + its AnimTextData from your load order
 docs/                         install, assets, testing and design notes
