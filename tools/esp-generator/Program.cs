@@ -395,6 +395,11 @@ public static class Program
         if (gTiltLive.FormKey.ID != 0x82C || gGround[0].FormKey.ID != 0x82D || gGround[2].FormKey.ID != 0x82F)
             throw new InvalidOperationException($"CMB_TiltLive and CMB_GroundNormalX/Y/Z must be 0x82C-0x82F (CMB_Slope.dll looks for them), got {gTiltLive.FormKey.ID:X}, {gGround[0].FormKey.ID:X}");
         var gMaxTilt = Global(mod, "CMB_MaxTilt", 30);
+        // Where to park: on the ground just ridden (the plugin writes these while riding).
+        // Fixed IDs too, 0x831-0x837; ParkUpZ 0 = no spot.
+        var gPark = new[] { "X", "Y", "Z", "Angle", "UpX", "UpY", "UpZ" }.Select(n => Global(mod, "CMB_Park" + n, 0)).ToArray();
+        if (gPark[0].FormKey.ID != 0x831 || gPark[6].FormKey.ID != 0x837)
+            throw new InvalidOperationException($"CMB_ParkX..CMB_ParkUpZ must be 0x831-0x837 (CMB_Slope.dll looks for them), got {gPark[0].FormKey.ID:X}");
 
         // --- Controller quest ---
         quest.Name = "Commonwealth Motorbike";
@@ -457,6 +462,13 @@ public static class Program
             Obj("CMB_GroundNormalX", gGround[0]),
             Obj("CMB_GroundNormalY", gGround[1]),
             Obj("CMB_GroundNormalZ", gGround[2]),
+            Obj("CMB_ParkX", gPark[0]),
+            Obj("CMB_ParkY", gPark[1]),
+            Obj("CMB_ParkZ", gPark[2]),
+            Obj("CMB_ParkAngle", gPark[3]),
+            Obj("CMB_ParkUpX", gPark[4]),
+            Obj("CMB_ParkUpY", gPark[5]),
+            Obj("CMB_ParkUpZ", gPark[6]),
             Obj("GroundProbeRef", probeRef));
         // Optional: only does anything with F4SE and the compiled CMB_HotkeyF4SE.pex.
         var hotkey = Script("CMB_HotkeyF4SE",

@@ -11,7 +11,8 @@
  * CMB_SlopeLive (the steepest slope in degrees while riding, 0 otherwise),
  * CMB_CameraLive (the camera distance while riding, 0 otherwise), CMB_TiltLive (the
  * most the bike may tilt, in degrees, while riding, 0 otherwise) and, the other way,
- * CMB_GroundNormalX/Y/Z (the ground under the player, for parking the bike).
+ * CMB_GroundNormalX/Y/Z (the ground under the player) and CMB_ParkX/Y/Z/Angle/UpX/UpY/UpZ
+ * (where to park the bike), for parking.
  * F4SE calls the plugin every frame on the game's main thread (a permanent task):
  *
  *   Slope: how steep a slope a character can walk up is a limit kept by its character
@@ -31,13 +32,18 @@
  *   Ground: the controller keeps the normal of the ground the player stands on (its
  *   support normal, controller+0x1E0) and Havok's character state (on the ground,
  *   jumping, in the air, ...; controller+0x2C0, in the hknpCharacterContext whose state
- *   manager is at +0x2B8). On the ground, the normal goes into CMB_GroundNormalX/Y/Z
- *   every IntervalMs (otherwise Z is 0): the controller script lays the parked bike on
- *   that plane.
+ *   manager is at +0x2B8). The normal, averaged over the last 0.6 s on the ground, goes
+ *   into CMB_GroundNormalX/Y/Z every IntervalMs (Z 0 off the ground). While riding, the
+ *   plugin keeps a track of where the player's feet were on the ground, and writes a
+ *   parking spot on it a bike length behind them (both wheels on the track, facing the
+ *   way it went) into the CMB_Park globals: ground that was really ridden on.
  *
  *   Tilt: the worn bike is skinned to one bone of the rider (COM or AnimObjectA), so
  *   the animation moves it and its own node's transform does nothing. What the plugin
- *   turns instead is the skin's bind (BSSkin::BoneData, the mesh -> bone transform):
+ *   turns instead is the skin's bind (BSSkin::BoneData, the mesh -> bone transform).
+ *   The bike's shapes are found under the player's 3D root and through the biped (every
+ *   equipped armor addon's 3D), by name or by the COM bike's bind; if a ride finds none
+ *   for a second, what was there is logged. The bind:
  *   the mesh is turned about the rider's feet before it goes onto the bone, so the bike
  *   pitches and rolls with the ground (smoothed, at most CMB_TiltLive degrees, eased
  *   back to level in the air) and still follows every move of the animation. The plugin
@@ -114,6 +120,16 @@
 #define OFF_BONE_RADIUS       0x0C
 #define OFF_BONE_ROT          0x10          /* NiTransform::rot: 3 rows of 4 floats */
 #define OFF_BONE_POS          0x40          /* NiTransform::pos */
+#define OFF_PARENT            0x28          /* NiAVObject::m_parent */
+#define OFF_REFR_POS          0xD0          /* TESObjectREFR::pos */
+#define OFF_ACTOR_BIPED       0x428         /* Actor::biped (BSTSmartPointer<BipedAnim>) */
+#define OFF_BIPED_ROOT        0x08          /* BipedAnim::root */
+#define OFF_BIPED_OBJECTS     0x10          /* BipedAnim::object[44] */
+#define BIPED_OBJECT_SIZE     0x58          /* BIPOBJECT */
+#define BIPED_SLOTS           44
+#define OFF_BIPOBJ_ADDON      0x18          /* BIPOBJECT::armorAddon */
+#define OFF_BIPOBJ_CLONE      0x30          /* BIPOBJECT::partClone */
+#define BIKE_SLOT_INDEX       27            /* biped slot 57 (slots start at 30) */
 
 /* --- Our side --- */
 #define ESP_NAME              "CommonwealthMotorbike.esp"
@@ -125,6 +141,7 @@
 #define TILT_GLOBAL_ID        0x82Cu        /* CMB_TiltLive, set by CMB_ControllerScript */
 #define TILT_GLOBAL_EDITOR_ID "CMB_TiltLive"
 #define GROUND_GLOBAL_ID      0x82Du        /* CMB_GroundNormalX, Y, Z: 82D, 82E, 82F (we write these) */
+#define PARK_GLOBAL_ID        0x831u        /* CMB_ParkX, Y, Z, Angle, UpX, UpY, UpZ: 831-837 (we write these) */
 
 /* RTTI names (MSVC mangled) of the objects we look for. */
 #define RTTI_PLAYER     ".?AVPlayerCharacter@@"
@@ -135,6 +152,8 @@
 #define RTTI_GEOMETRY   ".?AVBSGeometry@@"
 #define RTTI_SKIN       ".?AVInstance@BSSkin@@"
 #define RTTI_BONE_DATA  ".?AVBoneData@BSSkin@@"
+#define RTTI_AVOBJECT   ".?AVNiAVObject@@"
+#define RTTI_ARMA       ".?AVTESObjectARMA@@"
 
 /* ------------------------------------------------------------------------- */
 /* F4SE plugin interface (f4se/PluginAPI.h, 0.7.9)                            */
@@ -244,7 +263,7 @@ static int g_layoutSetting = LAYOUT_UNKNOWN;   /* Layout=auto */
 
 static volatile bool g_dataReady;
 static uintptr_t g_slopeGlobal, g_cameraGlobal;   /* TESGlobal * */
-static uintptr_t g_tiltGlobal, g_groundGlobals[3];
+static uintptr_t g_tiltGlobal, g_groundGlobals[3], g_parkGlobals[7];
 static DWORD g_lastGlobalTry;
 static bool g_globalsMissingLogged;
 
@@ -279,7 +298,30 @@ static int g_ridingSnapsDone;
 
 static DWORD g_lastTick;
 
-/* Ground under the player. */
+/* Ground under the player: this frame's reading, and an average over the last moments
+ * on the ground (a single contact normal can be a curb's edge or a bump of rock). */
+#define GROUND_AVERAGE_TIME 0.6f
+static float g_frameDt;
+static bool g_riding;
+static bool g_groundOk, g_groundAir;
+static float g_groundN[3], g_avgN[3] = { 0.0f, 0.0f, 1.0f };
+static float g_avgAge;                  /* seconds of ground in the average (capped) */
+
+/* The track: where the player's feet were on the ground while riding, newest last. The
+ * parked bike goes on it, a bike length behind the player: ground they really rode on. */
+typedef struct { float p[3], n[3]; } TrackPoint;
+#define TRACK_POINTS 128
+#define TRACK_SPACING 8.0f              /* units between points */
+#define TRACK_MAX_AIR 0.4f              /* longer in the air (a drop): the track starts again */
+#define PARK_FRONT 80.0f                /* the parked bike's front wheel this far back along the track... */
+#define PARK_REAR 210.0f                /* ...its back wheel this far */
+static TrackPoint g_track[TRACK_POINTS];
+static int g_trackHead, g_trackCount;
+static float g_airTime;
+static bool g_parkValid;                /* the last spot worked out, for the log on getting off */
+static float g_parkSpot[7];
+static const char *g_parkWhy = "";
+
 static uintptr_t g_stateCtrl;           /* the controller the state check below was made on */
 static bool g_stateTrusted;
 static int g_lastState = -1, g_stateLogs;
@@ -303,6 +345,8 @@ static float g_tiltNow, g_tiltMax;      /* degrees: this frame, most this ride *
 static LARGE_INTEGER g_qpcFrequency, g_lastFrameTime;
 static int g_walkBudget;
 static uintptr_t g_refused[8];          /* skins found unfit: not looked at again */
+static int g_emptySyncs;                /* checks in a row this ride that found no bike */
+static bool g_rideDiagnosed, g_rideRouteLogged;
 static int g_refusedCount;
 
 /* Accessible()'s memory regions, for one frame (the scene graph walk reads thousands
@@ -592,6 +636,12 @@ static void FindGlobals(void)
 		g_groundGlobals[i] = FindGlobal(prefix, shift, GROUND_GLOBAL_ID + (uint32_t)i, ground[i]);
 	if (!g_groundGlobals[0] || !g_groundGlobals[1] || !g_groundGlobals[2])
 		g_groundGlobals[0] = g_groundGlobals[1] = g_groundGlobals[2] = 0;
+	static const char *park[7] = { "CMB_ParkX", "CMB_ParkY", "CMB_ParkZ", "CMB_ParkAngle", "CMB_ParkUpX", "CMB_ParkUpY", "CMB_ParkUpZ" };
+	bool all = true;
+	for (int i = 0; i < 7; i++)
+		all &= (g_parkGlobals[i] = FindGlobal(prefix, shift, PARK_GLOBAL_ID + (uint32_t)i, park[i])) != 0;
+	if (!all)
+		memset(g_parkGlobals, 0, sizeof(g_parkGlobals));
 	g_globalsMissingLogged = true;   /* found or not, don't look again */
 }
 
@@ -1162,41 +1212,6 @@ static const char *ObjectName(uintptr_t obj)
 	return name && Accessible((uintptr_t)name, 48, false) ? name : NULL;
 }
 
-/* The BoneData of every bike shape under `node` (the player's 3D). */
-static void FindSkins(uintptr_t node, int depth, uintptr_t found[], const char *names[], int *count)
-{
-	if (depth > 16 || --g_walkBudget < 0 || *count >= MAX_SKINS)
-		return;
-	if (IsA(node, RTTI_GEOMETRY)) {
-		const char *name = ObjectName(node);
-		size_t n = strlen(g_shapePrefix);
-		if (!name || !n || _strnicmp(name, g_shapePrefix, n) != 0)
-			return;
-		uintptr_t skin = ReadPtr(node + OFF_SKIN_INSTANCE);
-		uintptr_t data = skin && IsA(skin, RTTI_SKIN) ? ReadPtr(skin + OFF_SKIN_BONE_DATA) : 0;
-		if (!data || !IsA(data, RTTI_BONE_DATA))
-			return;
-		for (int i = 0; i < *count; i++)
-			if (found[i] == data)
-				return;
-		names[*count] = name;
-		found[(*count)++] = data;
-		return;
-	}
-	if (!IsA(node, RTTI_NODE) || !Accessible(node + OFF_CHILDREN, 0x10, false))
-		return;
-	uintptr_t children = ReadPtr(node + OFF_CHILDREN);
-	unsigned used = *(const uint16_t *)(node + OFF_CHILDREN_USED);
-	unsigned cap = *(const uint16_t *)(node + OFF_CHILDREN_CAP);
-	if (!children || used > cap || !Accessible(children, used * 8u, false))
-		return;
-	for (unsigned i = 0; i < used; i++) {
-		uintptr_t child = ((const uintptr_t *)children)[i];
-		if (child)
-			FindSkins(child, depth + 1, found, names, count);
-	}
-}
-
 /* The bike hanging off COM: its skin-to-bone rotation is [[0,0,1],[0,1,0],[-1,0,0]] in
  * the nif (the inverse of COM's seated bind, CMB_RiderSeat.json), so it shows whether the
  * game keeps a matrix the nif's way round (x' = R x) or transposed. Other skins: unknown. */
@@ -1353,35 +1368,311 @@ static void LetGoAll(const char *why)
 		LetGo(g_skinCount - 1, why);
 	g_tiltN[0] = g_tiltN[1] = 0.0f;
 	g_tiltN[2] = 1.0f;
-	g_lastFrameTime.QuadPart = 0;
 	g_tiltMax = g_tiltNow = 0.0f;
+}
+
+/* --- Finding the worn bike's skin ------------------------------------------
+ * Two routes: everything under the player's 3D root, and the biped's equipped parts
+ * (what's worn in each slot, wherever its 3D hangs). A shape counts if its name starts
+ * with Shapes=, or, whatever its name, if it's skinned to one bone with the COM bike's
+ * bind. When a ride finds nothing for a second, the walk is logged once. */
+
+typedef struct {
+	uintptr_t found[MAX_SKINS];
+	const char *names[MAX_SKINS];
+	int count;
+	bool byBind[MAX_SKINS];
+} SkinList;
+
+#define WALK_LINES 48
+typedef struct {
+	bool verbose;
+	int nodes, geometries, deepest, cutOff;
+	struct { const char *type; int count; } types[24];
+	int typeCount;
+	char lines[WALK_LINES][176];
+	int lineCount;
+} WalkStats;
+static WalkStats g_walk;
+
+static void WalkLine(const char *fmt, ...)
+{
+	if (!g_walk.verbose || g_walk.lineCount >= WALK_LINES)
+		return;
+	va_list args;
+	va_start(args, fmt);
+	vsnprintf(g_walk.lines[g_walk.lineCount++], sizeof(g_walk.lines[0]), fmt, args);
+	va_end(args);
+}
+
+static void CountType(const char *type)
+{
+	if (!g_walk.verbose)
+		return;
+	if (!type)
+		type = "(no type information)";
+	for (int i = 0; i < g_walk.typeCount; i++)
+		if (g_walk.types[i].type == type || strcmp(g_walk.types[i].type, type) == 0) {
+			g_walk.types[i].count++;
+			return;
+		}
+	if (g_walk.typeCount < 24) {
+		g_walk.types[g_walk.typeCount].type = type;
+		g_walk.types[g_walk.typeCount++].count = 1;
+	}
+}
+
+static const char *OrNone(const char *s)
+{
+	return s ? s : "-";
+}
+
+/* The COM bike's bind, either way round: one bone, rotation [[0,0,1],[0,1,0],[-1,0,0]]
+ * (or its transpose), translation about (-74.5, 0, 0), the seat height. */
+static bool IsComBikeBind(const uint8_t *bone)
+{
+	const float *pos = (const float *)(bone + OFF_BONE_POS);
+	return LayoutFromSkin(bone) != LAYOUT_UNKNOWN && pos[0] < -68.0f && pos[0] > -81.0f &&
+	       fabsf(pos[1]) < 2.0f && fabsf(pos[2]) < 2.0f;
+}
+
+static void AddSkin(SkinList *list, uintptr_t data, const char *name, bool byBind)
+{
+	for (int i = 0; i < list->count; i++)
+		if (list->found[i] == data)
+			return;
+	if (list->count >= MAX_SKINS)
+		return;
+	list->names[list->count] = name ? name : "(unnamed shape)";
+	list->byBind[list->count] = byBind;
+	list->found[list->count++] = data;
+}
+
+static void InspectShape(uintptr_t shape, int depth, SkinList *list)
+{
+	g_walk.geometries++;
+	const char *name = ObjectName(shape);
+	uintptr_t skin = ReadPtr(shape + OFF_SKIN_INSTANCE);
+	uintptr_t data = skin && IsA(skin, RTTI_SKIN) ? ReadPtr(skin + OFF_SKIN_BONE_DATA) : 0;
+	bool isBoneData = data && IsA(data, RTTI_BONE_DATA);
+	int bones = -1;
+	const uint8_t *bone0 = NULL;
+	if (isBoneData && Accessible(data + OFF_BONE_TRANSFORMS + OFF_ARRAY_COUNT, 4, false)) {
+		uint32_t count = *(const uint32_t *)(data + OFF_BONE_TRANSFORMS + OFF_ARRAY_COUNT);
+		uintptr_t entries = ReadPtr(data + OFF_BONE_TRANSFORMS + OFF_ARRAY_ENTRIES);
+		bones = count <= 1000 ? (int)count : -2;
+		if (entries && count >= 1 && count <= 1000 && Accessible(entries, BONE_SIZE, false))
+			bone0 = (const uint8_t *)entries;
+	}
+	size_t n = strlen(g_shapePrefix);
+	bool byName = name && n && _strnicmp(name, g_shapePrefix, n) == 0;
+	/* A skin we hold is tilted, so its bind no longer looks like COM's: it's still the bike. */
+	bool held = false;
+	for (int i = 0; i < g_skinCount; i++)
+		held |= g_skins[i].boneData == data;
+	bool byBind = !byName && bones == 1 && bone0 && (held || IsComBikeBind(bone0));
+	if ((byName || byBind) && isBoneData && bones >= 1)
+		AddSkin(list, data, name, byBind);
+	WalkLine("  shape (depth %d) '%.40s' %s | skin %s | bone data %s | %d bone(s)%s", depth, OrNone(name),
+	         OrNone(ObjectTypeName(shape)), skin ? OrNone(ObjectTypeName(skin)) : "none",
+	         data ? OrNone(ObjectTypeName(data)) : "none", bones,
+	         byName ? "  <- the bike (name)" : byBind ? "  <- the bike (COM bind)" : "");
+}
+
+static void Visit(uintptr_t obj, int depth, SkinList *list)
+{
+	if (--g_walkBudget < 0 || depth > 48) {
+		g_walk.cutOff++;
+		return;
+	}
+	g_walk.nodes++;
+	if (depth > g_walk.deepest)
+		g_walk.deepest = depth;
+	CountType(g_walk.verbose ? ObjectTypeName(obj) : NULL);
+	if (IsA(obj, RTTI_GEOMETRY)) {
+		InspectShape(obj, depth, list);
+		return;
+	}
+	if (!IsA(obj, RTTI_NODE) || !Accessible(obj + OFF_CHILDREN, 0x10, false))
+		return;
+	uintptr_t children = ReadPtr(obj + OFF_CHILDREN);
+	unsigned used = *(const uint16_t *)(obj + OFF_CHILDREN_USED);
+	unsigned cap = *(const uint16_t *)(obj + OFF_CHILDREN_CAP);
+	if (depth <= 1)
+		WalkLine("  node (depth %d) '%.40s' %s, %u child slot(s)", depth, OrNone(ObjectName(obj)), OrNone(ObjectTypeName(obj)), used);
+	if (!children || used > cap || !Accessible(children, used * 8u, false))
+		return;
+	for (unsigned i = 0; i < used; i++) {
+		uintptr_t child = ((const uintptr_t *)children)[i];
+		if (child)
+			Visit(child, depth + 1, list);
+	}
+}
+
+static void WalkFrom(uintptr_t root, SkinList *list, bool verbose)
+{
+	memset(&g_walk, 0, sizeof(g_walk));
+	g_walk.verbose = verbose;
+	g_walkBudget = 6000;
+	if (root)
+		Visit(root, 0, list);
+}
+
+static void LogWalk(const char *what)
+{
+	Log("tilt: %s: %d object(s), %d shape(s), deepest %d%s", what, g_walk.nodes, g_walk.geometries, g_walk.deepest,
+	    g_walk.cutOff ? " (stopped early: too deep or too many)" : "");
+	char line[600];
+	int len = 0;
+	for (int i = 0; i < g_walk.typeCount && len < (int)sizeof(line) - 80; i++)
+		len += snprintf(line + len, sizeof(line) - len, "%s %s x%d", i ? "," : "", g_walk.types[i].type, g_walk.types[i].count);
+	if (g_walk.typeCount)
+		Log("tilt:   types:%s", line);
+	for (int i = 0; i < g_walk.lineCount; i++)
+		Log("tilt: %s", g_walk.lines[i]);
+}
+
+/* The player's 3D root (third person). */
+static uintptr_t Root3D(uintptr_t player)
+{
+	uintptr_t loaded = player ? ReadPtr(player + OFF_REFR_LOADED) : 0;
+	uintptr_t root = loaded ? ReadPtr(loaded + OFF_LOADED_ROOT) : 0;
+	return root && IsA(root, RTTI_NODE) ? root : 0;
+}
+
+/* The player's biped (BipedAnim has no type information; its root must be a node). */
+static uintptr_t Biped(uintptr_t player)
+{
+	uintptr_t biped = player ? ReadPtr(player + OFF_ACTOR_BIPED) : 0;
+	if (!biped || !Accessible(biped, OFF_BIPED_OBJECTS + BIPED_SLOTS * BIPED_OBJECT_SIZE, false))
+		return 0;
+	return biped;
+}
+
+static uintptr_t BipedPart(uintptr_t biped, int slot, uintptr_t *addon)
+{
+	uintptr_t object = biped + OFF_BIPED_OBJECTS + (uintptr_t)slot * BIPED_OBJECT_SIZE;
+	uintptr_t a = ReadPtr(object + OFF_BIPOBJ_ADDON);
+	uintptr_t clone = ReadPtr(object + OFF_BIPOBJ_CLONE);
+	if (addon)
+		*addon = a;
+	if (!a || !IsA(a, RTTI_ARMA) || !clone || !IsA(clone, RTTI_AVOBJECT))
+		return 0;
+	return clone;
+}
+
+/* Is `obj` under `ancestor`? (Through NiAVObject::m_parent.) */
+static bool Under(uintptr_t obj, uintptr_t ancestor, char *chain, size_t chainSize)
+{
+	size_t len = 0;
+	for (int i = 0; obj && i < 24; i++) {
+		if (chain && len < chainSize - 1)
+			len += snprintf(chain + len, chainSize - len, "%s'%.32s'", i ? " < " : "", OrNone(ObjectName(obj)));
+		if (obj == ancestor)
+			return true;
+		obj = ReadPtr(obj + OFF_PARENT);
+		if (obj && !IsA(obj, RTTI_AVOBJECT))
+			break;
+	}
+	return false;
+}
+
+/* Every equipped armor part's 3D, walked. */
+static void WalkBiped(uintptr_t biped, SkinList *list, bool verbose)
+{
+	memset(&g_walk, 0, sizeof(g_walk));
+	g_walk.verbose = verbose;
+	g_walkBudget = 6000;
+	for (int slot = 0; slot < BIPED_SLOTS; slot++) {
+		uintptr_t clone = BipedPart(biped, slot, NULL);
+		if (!clone)
+			continue;
+		int before = list->count;
+		WalkLine(" slot %d (biped slot %d): part '%.40s' %s", slot, slot + 30, OrNone(ObjectName(clone)), OrNone(ObjectTypeName(clone)));
+		Visit(clone, 0, list);
+		if (list->count > before && !g_rideRouteLogged)
+			Log("tilt: the bike is worn in biped slot %d", slot + 30);
+	}
+}
+
+/* The biped, its root, and what's in slot 57 (and where its 3D hangs). */
+static void LogBikeSlot(uintptr_t player, uintptr_t biped, uintptr_t root)
+{
+	uintptr_t broot = ReadPtr(biped + OFF_BIPED_ROOT);
+	Log("tilt: biped %p, its root %p '%s' %s (%s the 3D root)", (void *)biped, (void *)broot,
+	    broot ? OrNone(ObjectName(broot)) : "-", broot ? OrNone(ObjectTypeName(broot)) : "-", broot == root ? "is" : "isn't");
+	uintptr_t addon = 0;
+	uintptr_t clone = BipedPart(biped, BIKE_SLOT_INDEX, &addon);
+	uintptr_t rawClone = ReadPtr(biped + OFF_BIPED_OBJECTS + (uintptr_t)BIKE_SLOT_INDEX * BIPED_OBJECT_SIZE + OFF_BIPOBJ_CLONE);
+	Log("tilt: slot 57: armor addon %p %s (form %08X, type %d), part %p %s", (void *)addon, addon ? OrNone(ObjectTypeName(addon)) : "-",
+	    addon && Accessible(addon + OFF_FORM_ID, 8, false) ? *(const uint32_t *)(addon + OFF_FORM_ID) : 0,
+	    addon && Accessible(addon + OFF_FORM_TYPE, 1, false) ? *(const uint8_t *)(addon + OFF_FORM_TYPE) : -1,
+	    (void *)rawClone, rawClone ? OrNone(ObjectTypeName(rawClone)) : "-");
+	if (clone) {
+		char chain[700];
+		bool underRoot = Under(clone, root, chain, sizeof(chain));
+		Log("tilt: slot 57's part, up its parents: %s (%s the 3D root)", chain, underRoot ? "reaches" : "doesn't reach");
+	}
+	(void)player;
+}
+
+static void Diagnose(uintptr_t player)
+{
+	SkinList none = { .count = 0 };
+	uintptr_t root = Root3D(player);
+	Log("tilt: a second into the ride and no bike shape found; what's there:");
+	Log("tilt: player 3D root %p '%s' %s", (void *)root, root ? OrNone(ObjectName(root)) : "-", root ? OrNone(ObjectTypeName(root)) : "-");
+	WalkFrom(root, &none, true);
+	LogWalk("under the 3D root");
+	uintptr_t biped = Biped(player);
+	if (!biped) {
+		Log("tilt: no biped at Actor+0x%X", OFF_ACTOR_BIPED);
+		return;
+	}
+	LogBikeSlot(player, biped, root);
+	WalkBiped(biped, &none, true);
+	LogWalk("the biped's equipped parts");
 }
 
 /* Every IntervalMs while the bike may tilt: hold the skins of the bike the player wears
  * now, let go of any that are gone (taken off, or the 3D was rebuilt). */
 static void SyncSkins(uintptr_t player)
 {
-	uintptr_t found[MAX_SKINS];
-	const char *names[MAX_SKINS];
-	int count = 0;
-	uintptr_t loaded = player ? ReadPtr(player + OFF_REFR_LOADED) : 0;
-	uintptr_t root = loaded ? ReadPtr(loaded + OFF_LOADED_ROOT) : 0;
-	g_walkBudget = 4000;
-	if (root)
-		FindSkins(root, 0, found, names, &count);
+	SkinList list = { .count = 0 };
+	uintptr_t root = Root3D(player);
+	WalkFrom(root, &list, false);
+	int fromRoot = list.count;
+	uintptr_t biped = Biped(player);
+	if (biped)
+		WalkBiped(biped, &list, false);
+	if (list.count && !g_rideRouteLogged) {
+		g_rideRouteLogged = true;
+		Log("tilt: found %d bike shape(s): %s%s", list.count,
+		    fromRoot ? "under the 3D root" : "only through the biped (not under the 3D root)",
+		    list.byBind[0] ? ", by its COM bind (not its name)" : "");
+		if (!fromRoot)
+			LogBikeSlot(player, biped, root);
+	}
+	if (list.count)
+		g_emptySyncs = 0;
+	else if (++g_emptySyncs == 10 && !g_rideDiagnosed) {
+		g_rideDiagnosed = true;
+		Diagnose(player);
+	}
+
 	for (int i = g_skinCount - 1; i >= 0; i--) {
 		bool still = false;
-		for (int j = 0; j < count; j++)
-			still |= found[j] == g_skins[i].boneData;
+		for (int j = 0; j < list.count; j++)
+			still |= list.found[j] == g_skins[i].boneData;
 		if (!still)
 			LetGo(i, "no longer worn");
 	}
-	for (int j = 0; j < count && g_skinCount < MAX_SKINS; j++) {
+	for (int j = 0; j < list.count && g_skinCount < MAX_SKINS; j++) {
 		bool held = false;
 		for (int i = 0; i < g_skinCount; i++)
-			held |= g_skins[i].boneData == found[j];
-		if (!held && !Refused(found[j]))
-			HoldSkin(found[j], names[j]);
+			held |= g_skins[i].boneData == list.found[j];
+		if (!held && !Refused(list.found[j]))
+			HoldSkin(list.found[j], list.names[j]);
 	}
 	if (g_layoutFromRoot == LAYOUT_UNKNOWN && player) {
 		g_layoutFromRoot = LayoutFromRoot(player);
@@ -1425,19 +1716,11 @@ static void FrameTilt(void)
 	uintptr_t player = Player();
 	if (!player || !Accessible(player + OFF_REFR_HEADING, 4, false))
 		return;
-	LARGE_INTEGER now;
-	QueryPerformanceCounter(&now);
-	float dt = g_lastFrameTime.QuadPart && g_qpcFrequency.QuadPart
-	           ? (float)(now.QuadPart - g_lastFrameTime.QuadPart) / (float)g_qpcFrequency.QuadPart : 0.0f;
-	g_lastFrameTime = now;
-	if (!(dt >= 0.0f) || dt > 0.25f)
-		dt = 0.25f;
 
-	float target[3] = { 0.0f, 0.0f, 1.0f }, n[3];
-	bool airborne;
-	if (ReadGround(FindController(player, false), n, &airborne) && !airborne)
-		memcpy(target, n, sizeof(target));
-	float k = g_smoothing > 0.0f ? 1.0f - expf(-dt / g_smoothing) : 1.0f;
+	float target[3] = { 0.0f, 0.0f, 1.0f };
+	if (g_groundOk && !g_groundAir)
+		memcpy(target, g_groundN, sizeof(target));
+	float k = g_smoothing > 0.0f ? 1.0f - expf(-g_frameDt / g_smoothing) : 1.0f;
 	float len = 0.0f;
 	for (int i = 0; i < 3; i++) {
 		g_tiltN[i] += (target[i] - g_tiltN[i]) * k;
@@ -1495,6 +1778,206 @@ static void FrameTilt(void)
 }
 
 /* ------------------------------------------------------------------------- */
+/* Ground average and the ridden track (for parking)                         */
+/* ------------------------------------------------------------------------- */
+
+static void FrameTime(void)
+{
+	LARGE_INTEGER now;
+	QueryPerformanceCounter(&now);
+	float dt = g_lastFrameTime.QuadPart && g_qpcFrequency.QuadPart
+	           ? (float)(now.QuadPart - g_lastFrameTime.QuadPart) / (float)g_qpcFrequency.QuadPart : 0.0f;
+	g_lastFrameTime = now;
+	g_frameDt = dt >= 0.0f && dt <= 0.25f ? dt : 0.25f;
+}
+
+static void TrackClear(void)
+{
+	g_trackHead = g_trackCount = 0;
+	g_airTime = 0.0f;
+}
+
+static const TrackPoint *TrackAt(int back)   /* 0 = newest */
+{
+	return &g_track[(g_trackHead - 1 - back + 2 * TRACK_POINTS) % TRACK_POINTS];
+}
+
+static float Distance(const float a[3], const float b[3])
+{
+	float dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
+	return sqrtf(dx * dx + dy * dy + dz * dz);
+}
+
+/* Every frame: read the ground once (tilt, average, track all use it). */
+static void SampleGround(void)
+{
+	uintptr_t player = Player();
+	uintptr_t ctrl = player ? FindController(player, false) : 0;
+	float n[3];
+	bool air = false;
+	g_groundOk = ReadGround(ctrl, n, &air);
+	g_groundAir = air;
+	bool onGround = g_groundOk && !air;
+	if (onGround) {
+		memcpy(g_groundN, n, sizeof(n));
+		float k = g_avgAge > 0.0f ? 1.0f - expf(-g_frameDt / GROUND_AVERAGE_TIME) : 1.0f;
+		float len = 0.0f;
+		for (int i = 0; i < 3; i++) {
+			g_avgN[i] += (n[i] - g_avgN[i]) * k;
+			len += g_avgN[i] * g_avgN[i];
+		}
+		len = sqrtf(len);
+		for (int i = 0; i < 3; i++)
+			g_avgN[i] = len > 0.5f ? g_avgN[i] / len : n[i];
+		g_avgAge = g_avgAge + g_frameDt < 10.0f ? g_avgAge + g_frameDt : 10.0f;
+	}
+
+	if (!g_riding || !player || !Accessible(player + OFF_REFR_POS, 12, false))
+		return;
+	if (!onGround) {
+		g_airTime += g_frameDt;
+		if (g_airTime > TRACK_MAX_AIR) {
+			TrackClear();
+			g_avgAge = 0.0f;   /* a drop: the ground before it says nothing about after */
+		}
+		return;
+	}
+	g_airTime = 0.0f;
+	const float *pos = (const float *)(player + OFF_REFR_POS);
+	if (!isfinite(pos[0]) || !isfinite(pos[1]) || !isfinite(pos[2]))
+		return;
+	if (g_trackCount) {
+		const TrackPoint *last = TrackAt(0);
+		float dx = pos[0] - last->p[0], dy = pos[1] - last->p[1];
+		if (Distance(pos, last->p) > 150.0f)
+			TrackClear();   /* a door, fast travel, a teleport */
+		else if (dx * dx + dy * dy < TRACK_SPACING * TRACK_SPACING)
+			return;
+	}
+	TrackPoint *t = &g_track[g_trackHead];
+	memcpy(t->p, pos, sizeof(t->p));
+	memcpy(t->n, n, sizeof(t->n));
+	g_trackHead = (g_trackHead + 1) % TRACK_POINTS;
+	if (g_trackCount < TRACK_POINTS)
+		g_trackCount++;
+}
+
+/* Where the parked bike goes: on the track, its front wheel PARK_FRONT and its back wheel
+ * PARK_REAR behind the player's feet (along the ground ridden), facing the way it went,
+ * pitched by the two wheels' heights and rolled by the ground's average normal there.
+ * out: x, y, z, the bike's angle (degrees, the game's heading + 180: the model faces -Y),
+ * and its up. False if the track is too short, curls back, or isn't where the player is. */
+static bool ParkSpot(uintptr_t player, float out[7], const char **why)
+{
+	*why = "no track yet (rode less than a bike length on the ground)";
+	if (g_trackCount < 2 || !player || !Accessible(player + OFF_REFR_POS, 12, false))
+		return false;
+	const float *p = (const float *)(player + OFF_REFR_POS);
+	if (Distance(p, TrackAt(0)->p) > 40.0f) {
+		*why = "the player isn't on the track's end (in the air?)";
+		return false;
+	}
+	float travelled = 0.0f, prev[3] = { p[0], p[1], p[2] }, F[3] = { 0 }, R[3] = { 0 }, nsum[3] = { 0 };
+	bool haveF = false, haveR = false;
+	for (int i = 0; i < g_trackCount && !haveR; i++) {
+		const TrackPoint *t = TrackAt(i);
+		float seg = Distance(prev, t->p);
+		for (int w = 0; w < 2; w++) {
+			float at = w ? PARK_REAR : PARK_FRONT;
+			bool *have = w ? &haveR : &haveF;
+			float *point = w ? R : F;
+			if (!*have && seg > 0.0f && travelled + seg >= at) {
+				float f = (at - travelled) / seg;
+				for (int k = 0; k < 3; k++)
+					point[k] = prev[k] + (t->p[k] - prev[k]) * f;
+				*have = true;
+			}
+		}
+		if (haveF)
+			for (int k = 0; k < 3; k++)
+				nsum[k] += t->n[k];
+		travelled += seg;
+		memcpy(prev, t->p, sizeof(prev));
+	}
+	if (!haveR)
+		return false;
+	float a[3] = { F[0] - R[0], F[1] - R[1], F[2] - R[2] };
+	float c[3] = { (F[0] + R[0]) * 0.5f, (F[1] + R[1]) * 0.5f, (F[2] + R[2]) * 0.5f };
+	/* Along the ground, not level: a straight track up a 45 deg slope is fine. */
+	if (Distance(F, R) < 0.85f * (PARK_REAR - PARK_FRONT) || sqrtf(a[0] * a[0] + a[1] * a[1]) < 30.0f) {
+		*why = "the track bends too much there (a turn just before stopping)";
+		return false;
+	}
+	if (Distance(c, p) < 0.75f * (PARK_FRONT + PARK_REAR) * 0.5f) {
+		*why = "the track comes back to the player";
+		return false;
+	}
+	float len = Distance(F, R), up[3], dot = 0.0f;
+	float nlen = sqrtf(nsum[0] * nsum[0] + nsum[1] * nsum[1] + nsum[2] * nsum[2]);
+	if (!(nlen > 0.0f))
+		memcpy(nsum, TrackAt(0)->n, sizeof(nsum)), nlen = 1.0f;
+	for (int k = 0; k < 3; k++) {
+		a[k] /= len;
+		up[k] = nsum[k] / nlen;
+		dot += up[k] * a[k];
+	}
+	/* Up at right angles to the bike's length: the two wheels set the pitch exactly. */
+	float ulen = 0.0f;
+	for (int k = 0; k < 3; k++) {
+		up[k] -= dot * a[k];
+		ulen += up[k] * up[k];
+	}
+	ulen = sqrtf(ulen);
+	if (!(ulen > 0.1f) || up[2] / ulen < 0.5f) {
+		*why = "the track there is steeper than 60 deg";
+		return false;
+	}
+	float heading = atan2f(a[0], a[1]) * 57.29578f;   /* the game's: 0 = +Y, clockwise */
+	float angle = fmodf(heading + 180.0f + 360.0f, 360.0f);
+	out[0] = c[0];
+	out[1] = c[1];
+	out[2] = c[2];
+	out[3] = angle;
+	for (int k = 0; k < 3; k++)
+		out[4 + k] = up[k] / ulen;
+	return true;
+}
+
+/* Every IntervalMs: the averaged ground normal (Z 0 off the ground) and, while riding,
+ * the parking spot on the track (UpZ 0 when there's none). */
+static void PublishGround(uintptr_t player)
+{
+	if (g_groundGlobals[0]) {
+		if (g_groundOk && !g_groundAir && g_avgAge >= 0.25f)
+			for (int i = 0; i < 3; i++)
+				SetGlobal(g_groundGlobals[i], g_avgN[i]);
+		else
+			SetGlobal(g_groundGlobals[2], 0.0f);
+	}
+	if (!g_parkGlobals[0] || !g_riding)
+		return;
+	g_parkValid = ParkSpot(player, g_parkSpot, &g_parkWhy);
+	if (g_parkValid)
+		for (int i = 0; i < 7; i++)
+			SetGlobal(g_parkGlobals[i], g_parkSpot[i]);
+	else
+		SetGlobal(g_parkGlobals[6], 0.0f);
+}
+
+/* On getting off: what the controller script had to park on. */
+static void LogParkSpot(void)
+{
+	if (!g_parkGlobals[0])
+		return;
+	if (g_parkValid)
+		Log("park: on getting off, a spot on the track %.0f units behind: (%.0f, %.0f, %.0f), angle %.0f, up (%.2f, %.2f, %.2f)",
+		    (PARK_FRONT + PARK_REAR) * 0.5f, g_parkSpot[0], g_parkSpot[1], g_parkSpot[2], g_parkSpot[3],
+		    g_parkSpot[4], g_parkSpot[5], g_parkSpot[6]);
+	else
+		Log("park: on getting off, no spot on the track: %s", g_parkWhy);
+}
+
+/* ------------------------------------------------------------------------- */
 /* Every frame / every IntervalMs                                            */
 /* ------------------------------------------------------------------------- */
 
@@ -1522,22 +2005,24 @@ static void Tick(DWORD now)
 	uintptr_t ctrl, proxy;
 	uintptr_t target = FindChain(scan, &ctrl, &proxy);
 
-	/* The ground under the player, for the controller script to park the bike on;
-	 * Z = 0 while they aren't on the ground (or it can't be told). */
-	float n[3];
-	bool airborne;
-	if (g_groundGlobals[0]) {
-		if (ReadGround(ctrl, n, &airborne) && !airborne)
-			for (int i = 0; i < 3; i++)
-				SetGlobal(g_groundGlobals[i], n[i]);
-		else
-			SetGlobal(g_groundGlobals[2], 0.0f);
+	/* A new ride starts a new track. */
+	if (riding && !g_wasRiding) {
+		TrackClear();
+		g_parkValid = false;
 	}
+	if (!riding && g_wasRiding)
+		LogParkSpot();
+	g_riding = riding;
+	PublishGround(Player());
 
-	if (tilt > 0.0f)
+	if (tilt > 0.0f) {
 		SyncSkins(Player());
-	else if (g_skinCount)
-		LetGoAll("got off");
+	} else {
+		if (g_skinCount)
+			LetGoAll("got off");
+		g_emptySyncs = 0;   /* the next ride looks (and reports) afresh */
+		g_rideDiagnosed = g_rideRouteLogged = false;
+	}
 
 	if (g_probe && ctrl) {
 		if (!g_dumpedThisLoad) {
@@ -1586,6 +2071,8 @@ static void Tick(DWORD now)
 /* Every frame while riding: keep the limit written (cheap: cached chain only), tilt the bike. */
 static void Frame(void)
 {
+	FrameTime();
+	SampleGround();
 	float degrees = GlobalValue(g_slopeGlobal);
 	if (g_applied && degrees > 0.0f && degrees < 89.0f) {
 		uintptr_t target = FindChain(false, NULL, NULL);
@@ -1641,6 +2128,8 @@ static void OnF4SEMessage(F4SEMessage *msg)
 		g_wasRiding = false;
 		g_stateCtrl = 0;   /* the held skins are let go of on the next check: not in the new 3D */
 		memset(g_refused, 0, sizeof(g_refused));
+		TrackClear();
+		g_avgAge = 0.0f;
 		break;
 	default:
 		break;
