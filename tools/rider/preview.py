@@ -2,7 +2,8 @@
 """Renders preview images of the riding poses: posed body + bike from a few angles.
 
   python preview.py --pynifly <io_scene_nifly> --vanilla <...>/meshes/actors/character \
-      --bike <Data>/Meshes/CMB/CMB_BikeWorn.nif --body <...>/malebody.nif --out preview.png
+      --bike <Data>/Meshes/CMB/CMB_BikeWorn.nif --body <...>/malebody.nif --out preview.png \
+      [--fit <Data>/Meshes/CMB/CMB_BikeFit.json]
 """
 
 import argparse
@@ -60,7 +61,10 @@ def main() -> int:
     ap.add_argument("--poses", default="cruise,run,leanleft,idle")
     ap.add_argument("--views", default=",".join(VIEWS))
     ap.add_argument("--size", type=float, default=4.2)
+    ap.add_argument("--fit", type=Path, help="bike-fit file (CMB_BikeFit.json), as for riding_anims.py")
     args = ap.parse_args()
+    if args.fit:
+        R.apply_fit(args.fit)
 
     import matplotlib
     matplotlib.use("Agg")
@@ -72,9 +76,16 @@ def main() -> int:
     rig = Rig.from_hkx(A.load_fo4_skeleton(str(args.vanilla / "characterassets" / "skeleton.hkx")))
     followers = nif_followers(NifFile(str(args.vanilla / "characterassets" / "skeleton.nif")), rig)
     body = SkinnedMesh(NifFile(str(args.body)).shapes[0], rig, followers)
-    bike_shape = NifFile(str(args.bike)).shapes[0]
-    bike_v = np.array(bike_shape.verts)
-    bike_t = np.array(bike_shape.tris)
+    # Every visible shape of the bike nif (the Harley build has three: metal, matte, glass).
+    bike_parts = []
+    for shape in NifFile(str(args.bike)).shapes:
+        if shape.flags & 1:
+            continue
+        tone = 0.55
+        for word, t in (("metal", 0.75), ("matte", 0.3), ("glass", 0.9)):
+            if word in shape.name.lower():
+                tone = t
+        bike_parts.append((np.array(shape.verts), np.array(shape.tris), np.array([tone, tone, tone + 0.05])))
 
     rider = R.Rider(rig)
 
@@ -98,8 +109,8 @@ def main() -> int:
         pose = rider.pose(params)
         g = pose.globals()
         body_v = body.posed(g)
-        bike = (np.c_[bike_v, np.ones(len(bike_v))] @ g[rig.index("AnimObjectA")].T)[:, :3]
-        meshes = [(bike, bike_t, np.array([0.55, 0.55, 0.6])), (body_v, body.tris, np.array([0.93, 0.76, 0.62]))]
+        meshes = [((np.c_[v, np.ones(len(v))] @ g[rig.index("AnimObjectA")].T)[:, :3], t, c) for v, t, c in bike_parts]
+        meshes.append((body_v, body.tris, np.array([0.93, 0.76, 0.62])))
         for ax, (vname, view) in zip(row, views.items()):
             draw(ax, meshes, view, f"{name} - {vname}")
     fig.tight_layout()

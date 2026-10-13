@@ -1,14 +1,18 @@
 # Assets: bike meshes, riding animations, rider-pose plugin
 
-The mod reuses Fallout 4's own motorcycle model and adds its own riding animations. **None of it is in this
-repository**, because it's all derived from Bethesda's files. The tools in `tools/rider` build it on your PC from
-your own copy of the game:
+The mod's bike is Nieve5677's **Harley-Davidson Iron 883** ([Sketchfab](https://sketchfab.com/3d-models/harley-davidson-iron-883-2015-612071b783f14a7288df2d361be9a244),
+CC-BY-4.0) standing on Fallout 4's own motorcycle's collision, and the riding animations are the mod's own. The
+vanilla motorcycle can be used instead. **None of it is in this repository**: the meshes mix the model with
+Bethesda's collision and the clips are derived from Bethesda's files. The tools in `tools/rider` build it on your PC
+from your own copy of the game and the downloaded model:
 
 | File (under `Data\`) | Built by | What it is |
 |---|---|---|
-| `Meshes\CMB\CMB_BikeParked.nif` | `build_bike_meshes.py` | unmodified copy of the vanilla motorcycle (keeps its collision) |
-| `Meshes\CMB\CMB_BikeWornRider.nif`, `CMB_BikeWornRiderF.nif` | `build_bike_meshes.py --seat` | the same model as wearable armor: faces forward, seat over the origin, hanging off the rider's `COM` bone (male and female seat heights) |
-| `Meshes\CMB\CMB_BikeWorn.nif` | `build_bike_meshes.py` | the same again, skinned to the `AnimObjectA` bone on the ground: used when the rider isn't seated |
+| `Meshes\CMB\CMB_BikeParked.nif` | `harley_meshes.py` (`build_bike_meshes.py` for the vanilla bike) | the vanilla motorcycle nif with its own shape hidden and the Harley's three shapes added, so its collision is kept |
+| `Meshes\CMB\CMB_BikeWornRider.nif`, `CMB_BikeWornRiderF.nif` | `harley_meshes.py --seat` | the same model as wearable armor: faces forward, seat over the origin, hanging off the rider's `COM` bone (male and female seat heights) |
+| `Meshes\CMB\CMB_BikeWorn.nif` | `harley_meshes.py` | the same again, skinned to the `AnimObjectA` bone on the ground: used when the rider isn't seated |
+| `Meshes\CMB\CMB_BikeFit.json` | `harley_meshes.py` | where the Harley's seat, grips and pegs are, for the riding clips (`riding_anims.py --fit`) |
+| `Textures\CMB\CMB_Harley_d.dds`, `_n.dds`, `_s.dds` | `harley_meshes.py` | the Harley's textures: one colour block per part (the download has none) |
 | `Meshes\Actors\Character\Animations\MT\CMB_Rider\*.hkx` and `...\CMB_Rider\Female\*.hkx` | `riding_anims.py` | seated riding versions of the holstered walk/run/turn/start/stop/idle clips, and of the jump/fall/land clips when those were extracted |
 | `...\CMB_Rider\CMB_RiderClips.json` (and `Female\`) | `riding_anims.py` | each clip's root motion and events, for the step below |
 | `...\CMB_Rider\CMB_RiderSeat.json` (and `Female\`) | `riding_anims.py` | where the seated rider's `COM` bone sits, for the bike that hangs off it |
@@ -20,8 +24,8 @@ If someone already handed you the meshes and the `CMB_Rider` folder, skip to
 
 ## 1. Tools
 
-- **Python 3.10+** with numpy (`pip install numpy`; add `matplotlib` for preview images).
-  `make_rider_plugin.py` needs nothing beyond Python itself.
+- **Python 3.10+** with numpy and fast_simplification (`pip install numpy fast_simplification`; add `matplotlib`
+  for preview images). `make_rider_plugin.py` needs nothing beyond Python itself.
 - **PyNifly 29.1 or newer** ([BadDogSkyrim/PyNifly](https://github.com/BadDogSkyrim/PyNifly) releases). Unzip the
   release and pass its `io_scene_nifly` folder as `--pynifly`. Blender isn't needed: the scripts use PyNifly's nif
   library (`NiflyDLL.dll` ships in the zip) and its Fallout 4 HKX reader/writer directly.
@@ -44,13 +48,48 @@ Use the bodies your game actually shows (for example the CBBE `femalebody.nif`):
 exactly on the seat. Skeleton replacers that keep the vanilla body bones (Community Fixes' `skeleton.nif`, Combined
 Arms' `skeleton.hkx`, which only adds weapon bones) are fine.
 
+And the bike model: download ["Harley Davidson Iron 883 2015"](https://sketchfab.com/3d-models/harley-davidson-iron-883-2015-612071b783f14a7288df2d361be9a244)
+by Nieve5677 from Sketchfab in its glTF form (the zip holds `scene.gltf`, `scene.bin` and the licence) and unzip it
+to, say, `C:\CMBwork\harley`. It's CC-BY-4.0: the credit in the README goes with anything you share.
+
 ## 3. Meshes and clips
 
 ```
 set PYN=C:\Tools\PyNifly\io_scene_nifly
 set W=C:\CMBwork\meshes\actors\character
 set OUT=<repository>\Data\Meshes
+set TEX=<repository>\Data\Textures
+set HARLEY=python tools\rider\harley_meshes.py --pynifly %PYN% --gltf C:\CMBwork\harley\scene.gltf ^
+    --vanilla C:\CMBwork\meshes\setdressing\vehicles\motorcycle\motorcycle_clean.nif ^
+    --out %OUT%\CMB --textures %TEX%\CMB
 
+%HARLEY%
+
+python tools\rider\riding_anims.py --pynifly %PYN% --vanilla %W% ^
+    --body %W%\characterassets\malebody.nif --female-body %W%\characterassets\femalebody.nif ^
+    --out %OUT%\Actors\Character\Animations\MT\CMB_Rider --fit %OUT%\CMB\CMB_BikeFit.json
+
+%HARLEY% --seat %OUT%\Actors\Character\Animations\MT\CMB_Rider
+
+python tools\rider\verify_clips.py --pynifly %PYN% --vanilla %W% --clips %OUT%\Actors\Character\Animations\MT\CMB_Rider
+python tools\rider\verify_clips.py --pynifly %PYN% --vanilla %W% --clips %OUT%\Actors\Character\Animations\MT\CMB_Rider\Female --female
+```
+
+Three steps because each needs the one before: the first `harley_meshes.py` run measures the model and writes
+`CMB_BikeFit.json` (its seat, grips and pegs); the clips are posed to that; and the second run makes the two bikes
+that hang off the seated rider, which need the seat height the clips settled on (`CMB_RiderSeat.json`). Generating
+the clips takes a while (around 25 minutes for both sets).
+
+`harley_meshes.py` takes `--body <hex>` for the tank and fenders' colour (default a deep red, `7a1118`), `--tris`
+for the triangle budget (default 60000; the result runs about a third over it) and `--sit` for how far back on
+the seat the rider sits (0.35 of the seat's length from its front). The model is scaled to the vanilla bike's
+length so the collision and the F4SE plugin's clearances still fit, which makes it about a quarter bigger than a
+real Iron 883 next to the character, as the vanilla bike is.
+
+**The vanilla motorcycle instead:** `build_bike_meshes.py` makes the same four nifs from it, and the clips are built
+without `--fit`:
+
+```
 python tools\rider\riding_anims.py --pynifly %PYN% --vanilla %W% ^
     --body %W%\characterassets\malebody.nif --female-body %W%\characterassets\femalebody.nif ^
     --out %OUT%\Actors\Character\Animations\MT\CMB_Rider
@@ -58,13 +97,9 @@ python tools\rider\riding_anims.py --pynifly %PYN% --vanilla %W% ^
 python tools\rider\build_bike_meshes.py --pynifly %PYN% ^
     --model C:\CMBwork\meshes\setdressing\vehicles\motorcycle\motorcycle_clean.nif --out %OUT%\CMB ^
     --seat %OUT%\Actors\Character\Animations\MT\CMB_Rider
-
-python tools\rider\verify_clips.py --pynifly %PYN% --vanilla %W% --clips %OUT%\Actors\Character\Animations\MT\CMB_Rider
-python tools\rider\verify_clips.py --pynifly %PYN% --vanilla %W% --clips %OUT%\Actors\Character\Animations\MT\CMB_Rider\Female --female
 ```
 
-Generating the clips takes a while (around 25 minutes for both sets). The meshes come second because the bike
-that hangs off the rider needs to know where the seated rider sits (`CMB_RiderSeat.json`).
+Here the meshes come second because the bike that hangs off the rider needs to know where the seated rider sits.
 
 **How the worn bike works.** Armor meshes must be skinned. While you're seated, the bike is weighted 100% to `COM`,
 the bone the whole body hangs from, at exactly where `COM` sits in the riding clips. So it's under you where it
@@ -77,7 +112,8 @@ turns the bike round, because the vanilla model points backwards.
 **How the clips are made.** Every clip the game plays for holstered movement gets a seated version with **the same
 file name, length, root motion and control events** as the vanilla clip it stands in for. Only the body pose changes,
 so the game's speed and turning logic is untouched. Footstep sounds are dropped. The pose is fitted to the bike: hips
-on the seat, hands on the grips (exact, via IK), feet on the pegs, leaning forward more with speed and into turns. At a
+on the seat, hands on the grips (exact, via IK), feet on the pegs, leaning forward more with speed and into turns
+(the contact points come from `CMB_BikeFit.json` with `--fit`, otherwise they're the vanilla motorcycle's). At a
 standstill the left foot goes down and the bike tips onto it. `verify_clips.py` checks all of that against the vanilla
 files. `preview.py` renders still images if you want to look before going in game.
 

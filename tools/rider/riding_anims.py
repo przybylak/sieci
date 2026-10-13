@@ -27,7 +27,10 @@ vanilla clips/skeleton extracted from Fallout4 - Animations.ba2 / Meshes.ba2:
   python riding_anims.py --pynifly <io_scene_nifly> --vanilla <...>/meshes/actors/character \
       --body <...>/malebody.nif --female-body <...>/femalebody.nif \
       --out <Data>/Meshes/Actors/Character/Animations/MT/CMB_Rider \
-      [--game-files vanilla_character_animation_list.txt]
+      [--game-files vanilla_character_animation_list.txt] [--fit <Data>/Meshes/CMB/CMB_BikeFit.json]
+
+--fit takes the contact points of another bike model (harley_meshes.py writes the file
+for its model) in place of the vanilla motorcycle's below.
 """
 
 import argparse
@@ -56,6 +59,21 @@ GRIP_L = np.array([-31.5, 22.4, 89.4])
 PEG_R = np.array([20.0, 37.0, 26.0])   # top of the forward foot pegs
 PEG_L = np.array([-20.0, 37.0, 26.0])
 GROUND_FOOT_L = np.array([-30.0, 6.0, 0.0])  # where the left foot goes down at a stop
+FIT_NAME = "vanilla motorcycle"
+
+
+def apply_fit(path: Path):
+    """Take the contact points from a bike-fit file (harley_meshes.py writes one for its
+    model): the same keys as the constants above, lower-case, in the worn bike's space."""
+    global SEAT_TOP_Z, GRIP_R, GRIP_L, PEG_R, PEG_L, GROUND_FOOT_L, FIT_NAME
+    fit = json.loads(Path(path).read_text())
+    SEAT_TOP_Z = float(fit["seat_top_z"])
+    GRIP_R, GRIP_L = np.array(fit["grip_r"], float), np.array(fit["grip_l"], float)
+    PEG_R, PEG_L = np.array(fit["peg_r"], float), np.array(fit["peg_l"], float)
+    if "ground_foot_l" in fit:
+        GROUND_FOOT_L = np.array(fit["ground_foot_l"], float)
+    FIT_NAME = fit.get("model", str(path))
+    return fit
 
 FINGERS = ["Finger21", "Finger22", "Finger23", "Finger31", "Finger32", "Finger33",
            "Finger41", "Finger42", "Finger43", "Finger51", "Finger52", "Finger53"]
@@ -601,7 +619,13 @@ def main() -> int:
     ap.add_argument("--game-files", type=Path,
                     help="list of the archive's character animation files, to report clips that "
                          "weren't extracted from the folder the game uses")
+    ap.add_argument("--fit", type=Path,
+                    help="bike-fit file with the seat, grips and pegs of another bike model "
+                         "(harley_meshes.py writes CMB_BikeFit.json); default: the vanilla motorcycle")
     args = ap.parse_args()
+    if args.fit:
+        apply_fit(args.fit)
+        print(f"fitted to: {FIT_NAME} (seat top {SEAT_TOP_Z}, grips {GRIP_R.tolist()}, pegs {PEG_R.tolist()})")
     game_files = read_game_files(args.game_files) if args.game_files else None
 
     sys.path.insert(0, str(args.pynifly))
@@ -661,7 +685,7 @@ def write_seat(rider: Rider, path: Path):
     keeps COM there apart from the lean roll and a few millimetres of bounce."""
     com = rider.rig.index("COM")
     g = rider.pose(RideParams()).globals()[com]
-    path.write_text(json.dumps(dict(bone="COM", hip_z=round(rider.hip_z, 4),
+    path.write_text(json.dumps(dict(bone="COM", hip_z=round(rider.hip_z, 4), fit=FIT_NAME,
                                     transform=[[round(float(v), 7) for v in row] for row in g]),
                                indent=1) + "\n")
 
