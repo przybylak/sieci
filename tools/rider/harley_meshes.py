@@ -336,7 +336,7 @@ def texture_paths(kind):
 
 def add_shape(nif, name, verts, tris, uvs, normals, base_props, use_type, kind, skinned, bone=None, bind=None, TransformBuf=None):
     props = base_props.copy()
-    props.nameID = props.conrollerID = props.collisionID = -1
+    props.nameID = props.controllerID = props.collisionID = -1
     props.skinInstanceID = props.shaderPropertyID = props.alphaPropertyID = -1
     new = nif.createShapeFromData(name, verts, tris, uvs, normals, props=props, use_type=use_type)
     if skinned:

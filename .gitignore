@@ -6,6 +6,8 @@ __pycache__/
 # Built on your own PC from the game's files (tools/rider), not redistributable
 Data/CMB_RiderPose.esp
 Data/Meshes/CMB/*.nif
+Data/Meshes/CMB/CMB_BikeFit.json
+Data/Textures/CMB/
 Data/Meshes/Actors/
 Data/Meshes/AnimTextData/
 tools/f4se-slope/test/last_*.log

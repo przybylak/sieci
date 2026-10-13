@@ -129,7 +129,7 @@ def write_worn(NifFile, TransformBuf, shape, path: Path, bone: str, bind=None):
     out.initialize("FO4", str(path), "NiNode", path.stem)
 
     props = shape.properties.copy()
-    props.nameID = props.conrollerID = props.collisionID = -1
+    props.nameID = props.controllerID = props.collisionID = -1
     props.skinInstanceID = props.shaderPropertyID = props.alphaPropertyID = -1
     verts = [turn_and_shift(v) for v in shape.verts]
     new = out.createShapeFromData(
