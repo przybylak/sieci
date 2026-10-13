@@ -191,6 +191,7 @@ typedef struct { bool on; float point[2], normal[2]; uint32_t layer; } FakePlane
 static float g_groundZ = 100.0f;
 static float g_slopeK, g_slopeO[2], g_slopeD[2];   /* the ground rises g_slopeK per unit along g_slopeD from g_slopeO */
 static bool g_dropOn, g_frozen;   /* g_frozen: the movement can't move the player (stuck against something) */
+static float g_creepDrag;         /* rough ground: only the input above this moves the player */
 static FakePlane g_planes[3];
 static float g_dropPoint[2], g_dropDir[2];
 static uint8_t *g_wallObj, *g_groundObj, g_fakeWorld[64];
@@ -848,6 +849,8 @@ static void FakeGameFrame(float dt)
 	float dir = *head + ((g_honour & 8) ? out[2] : 0.0f), speed = out[8];
 	if ((speed < 0.0f && !(g_honour & 16)) || g_frozen)
 		speed = 0.0f;
+	if (speed > 0.0f)
+		speed = speed > 2.0f * g_creepDrag ? speed - 2.0f * g_creepDrag : 0.0f;   /* the output is 2 x the input */
 	PlayerPos()[0] += sinf(dir) * speed * 450.0f * dt;
 	PlayerPos()[1] += cosf(dir) * speed * 450.0f * dt;
 	float *mod = (float *)(g_controller + 0x180), *t = (float *)(g_controller + 0x308);
@@ -917,11 +920,32 @@ static void InputTests(void)
 	g_frozen = true;   /* against something: the bike can't move */
 	RunFrames(2500);
 	float stuck = MoveInput()[1];
-	CHECK(stuck > 0.0f && stuck < 0.1f, "stuck against something: the creep input doesn't wind up (%.3f)", stuck);
+	CHECK(stuck > 0.5f, "stuck against something: the creep input winds up (%.2f; rough ground needs that too)", stuck);
 	g_frozen = false;
 	Mark(p0);
 	RunFrames(500);
-	CHECK(Moved(p0) < 60.0f, "free again: no lurch, at most 1.5 times the creep (%.0f in half a second)", Moved(p0));
+	float surge = Moved(p0);
+	Mark(p0);
+	RunFrames(1000);
+	CHECK(surge < 120.0f, "free again: the surge is cut within a fraction of a second (%.0f in the first half second, at twice the game's gain)", surge);
+	CHECK(Moved(p0) > 30.0f && Moved(p0) < 90.0f, "then it creeps on at about 58 (%.0f in the next second)", Moved(p0));
+	Keys(0.0f, 0.0f);
+	RunFrames(500);
+	printf("input hook: rough ground, where the creep needs an input of 0.56:\n");
+	g_creepDrag = 0.5f;
+	Keys(1.0f, 0.0f);
+	RunFrames(3500);
+	Mark(p0);
+	RunFrames(1000);
+	CHECK(Moved(p0) > 30.0f && Moved(p0) < 90.0f && MoveInput()[1] > 0.5f, "the input winds up and it creeps at about 58 (%.0f a second, input %.2f)", Moved(p0), MoveInput()[1]);
+	g_creepDrag = 0.0f;
+	Keys(0.0f, 0.0f);
+	RunFrames(500);
+	Keys(1.0f, 0.0f);
+	RunFrames(500);
+	Mark(p0);
+	RunFrames(500);
+	CHECK(Moved(p0) < 80.0f, "on the flat again: no surge from the rough ground's input (%.0f in half a second)", Moved(p0));
 	Keys(1.0f, 1.0f);
 	RunFrames(300);
 	CHECK(MoveInput()[0] == 1.0f && MoveInput()[1] == 1.0f, "forward and right: left alone");
@@ -1022,6 +1046,22 @@ static void InputTests(void)
 	Keys(0.0f, 0.0f);
 	RunFrames(300);
 	trigger->on = false;
+
+	printf("input hook: a tin can (layer 4) 90 behind:\n");
+	Mark(p0);
+	FakePlane *can = &g_planes[1];
+	can->point[0] = p0[0] + back[0] * 90.0f;
+	can->point[1] = p0[1] + back[1] * 90.0f;
+	can->normal[0] = -back[0];
+	can->normal[1] = -back[1];
+	can->layer = 4;
+	can->on = true;
+	Keys(0.0f, -1.0f);
+	RunFrames(2000);
+	CHECK(Moved(p0) > 120.0f, "backed over (%.0f)", Moved(p0));
+	Keys(0.0f, 0.0f);
+	RunFrames(300);
+	can->on = false;
 
 	printf("input hook: a chain-link fence (layer 26) 300 behind:\n");
 	Mark(p0);

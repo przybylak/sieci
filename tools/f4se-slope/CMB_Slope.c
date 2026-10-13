@@ -399,6 +399,8 @@ enum { INPUT_PASS, INPUT_BACK, INPUT_CREEP };
 static int g_inputMode;                       /* INPUT_*: what the move keys are made into (input hook) */
 static float g_creepInput = 0.1f;             /* the forward input that creeps at the wanted speed (learnt) */
 static float g_creepGood = 0.1f;              /* the input last seen creeping at about the speed wanted */
+static float g_speedAlongFast;                /* g_speedAlong with less smoothing (0.05 s), for catching a surge */
+static float g_creepCutAt;                    /* the creep input may be cut again from then */
 static int g_steerClamped;                    /* frames clamped since the last trace */
 static float g_controlsLast[20];
 static float g_controlsLogged;
@@ -2860,12 +2862,14 @@ static uintptr_t AddressOf(FILE *f, uint64_t count, uint64_t id)
 /* What a bike can back through: with the player's collision filter every hit is something
  * the capsule collides with, except the phantoms: triggers (12), acoustic spaces (21), actor
  * zones (22, test 17: the "nothing" test 16 stopped at on a flat slab), projectile zones (23),
- * gas traps (24) and door detection (37). Everything else stops it (test 17: a chain-link
- * fence is layer 26, transparent small, and was passed through). */
+ * gas traps (24) and door detection (37); and what the capsule pushes aside or steps over:
+ * clutter (4), weapons (5), small debris (19), shell casings (25), dead bodies (32), and water
+ * (11: the ground ray then finds the bed, so deep water is a drop). Everything else stops it
+ * (test 17: a chain-link fence is layer 26, transparent small, and was passed through). */
 static bool SolidLayer(uint32_t layer)
 {
 	switch (layer) {
-	case 12: case 21: case 22: case 23: case 24: case 37:
+	case 4: case 5: case 11: case 12: case 19: case 21: case 22: case 23: case 24: case 25: case 32: case 37:
 		return false;
 	default:
 		return true;
@@ -3050,23 +3054,26 @@ static bool WayBackClear(uintptr_t player, float heading, float step, float *dz)
 		}
 	}
 	float slope = groundNear / behindNear * step;
-	*dz = slope > 0.0f ? slope : 0.0f;   /* up a slope: with it (the capsule's pushed out of it too) */
-	if (!why) {
-		/* The ground under the step, from just below the feet (not from inside the capsule,
-		 * which the player's filter would hit): the feet go 1.5 units into it, so the
-		 * controller feels it under them (test 17: snapped onto it, the bike was in the air a
-		 * third of the time going down), at most 3 units down a frame. More than 20 down is a
-		 * drop: no step. Not found (the ground's above the ray's start): up or level, the
-		 * slope's. */
-		float a[3] = { pos[0] + dir[0] * step, pos[1] + dir[1] * step, pos[2] - 0.5f };
-		float b[3] = { a[0], a[1], pos[2] - 40.0f };
+	*dz = slope;   /* up or down a slope: with it */
+	if (!why && slope <= 0.0f) {
+		/* Level or going down: the ground under the step, from 2 units above the feet (the
+		 * capsule's bottom is a hemisphere, so at the step point its skin is about at the feet;
+		 * if the ray starts inside it anyway and the player's filter reports that, the hit is
+		 * at the start and goes unused, as does the ground at the feet). A gap under the feet
+		 * is closed: they go 1.5 units into the ground, so the controller feels it under them
+		 * (test 17: snapped onto it, the bike was in the air a third of the time going down),
+		 * at most 3 units down a frame. More than 20 down is a drop: no step. Not uphill: there
+		 * the ray would start inside a curb or the slope (a box ignored from inside, the ray
+		 * finds the ground beneath), and the feet never float. */
+		float a[3] = { pos[0] + dir[0] * step, pos[1] + dir[1] * step, pos[2] + 2.0f };
+		float b[3] = { a[0], a[1], pos[2] - 38.0f };
 		float f = CastRay(cell, a, b);
 		if (f < 1.0f) {
-			float below = 0.5f + f * 39.5f;
+			float below = f * 40.0f - 2.0f;
 			if (below > 20.0f) {
 				why = "the ground drops away under the step";
 				at = step;
-			} else {
+			} else if (below > 0.3f) {
 				float down = below + 1.5f;
 				*dz = -(down < 3.0f ? down : 3.0f);
 			}
@@ -3294,22 +3301,34 @@ static float PushBack(uintptr_t player, float heading, float turn, float dt)
 	return used;
 }
 
-/* The creep's forward input, learnt: up when slower than wanted, down when faster. */
-/* Not above 0.35, and not winding up while the bike is stuck (test 17: against something it
- * climbed to 1.0 and lurched off at 160-330 once free): above the last good value it only
- * grows while the bike moves; letting go of the side key goes back to that value. */
+/* The creep's forward input, learnt: up when slower than wanted, down when faster, at 1.5/s.
+ * Rough ground takes much more than the flat and is threshold-like (test 17: nothing at 0.53,
+ * 58 units/s at 0.62 on a rock; 0.10 on the flat), so the input may wind up; stuck against
+ * something it winds up too (there's no telling that from rough ground), and once free the
+ * bike surged (test 17: 3.4 s at up to 336 units/s while the input decayed from 0.90). So
+ * when the bike goes faster than twice the speed wanted, the input is cut to the last value
+ * that crept at about that speed (the ground it was stuck on, as a rule) or to what the speed
+ * says (input x wanted / speed), whichever is less, and again 0.12 s later if it's still too
+ * fast (the speed estimate lags the cut): the surge lasts a fraction of a second. The good
+ * value is only learnt while the speed is steady (the quick and the slow estimates agree), so
+ * a surge passing through the right speed doesn't poison it. */
 static void AdaptCreep(float want)
 {
 	g_creepWant = want;
 	if (want < 1.0f || g_frameDt <= 0.0f)
 		return;
-	float e = (want - g_speedAlong) / want;
-	e = e > 1.0f ? 1.0f : e < -1.0f ? -1.0f : e;
-	if (e > 0.0f && g_speedAlong < 10.0f && g_creepInput >= g_creepGood * 1.5f)
-		e = 0.0f;   /* stuck */
-	g_creepInput *= expf(1.5f * e * g_frameDt);
-	g_creepInput = g_creepInput < 0.02f ? 0.02f : g_creepInput > 0.35f ? 0.35f : g_creepInput;
-	if (fabsf(g_speedAlong - want) < 0.3f * want)
+	if (g_speedAlongFast > 2.0f * want && g_clock >= g_creepCutAt) {
+		float prop = g_creepInput * want / g_speedAlongFast;
+		g_creepInput = g_creepGood < prop ? g_creepGood : prop;
+		g_creepCutAt = g_clock + 0.12f;
+	} else {
+		float e = (want - g_speedAlongFast) / want;
+		e = e > 1.0f ? 1.0f : e < -1.0f ? -1.0f : e;
+		g_creepInput *= expf(1.5f * e * g_frameDt);
+	}
+	g_creepInput = g_creepInput < 0.02f ? 0.02f : g_creepInput > 1.0f ? 1.0f : g_creepInput;
+	bool steady = fabsf(g_speedAlongFast - g_speedAlong) < 0.2f * want;
+	if (steady && fabsf(g_speedAlong - want) < 0.3f * want)
 		g_creepGood = g_creepInput;
 }
 
@@ -3346,20 +3365,28 @@ static void FrameSteer(void)
 			float k = 1.0f - expf(-g_frameDt / 0.2f);
 			g_speed += (d / g_frameDt - g_speed) * k;
 			/* Signed: forward along the heading, or backward (a reverse). */
-			g_speedAlong += ((dx * sinf(g_steerHeading) + dy * cosf(g_steerHeading)) / g_frameDt - g_speedAlong) * k;
+			float along = (dx * sinf(g_steerHeading) + dy * cosf(g_steerHeading)) / g_frameDt;
+			g_speedAlong += (along - g_speedAlong) * k;
+			g_speedAlongFast += (along - g_speedAlongFast) * (1.0f - expf(-g_frameDt / 0.05f));
 		}
 	}
 	memcpy(g_steerPos, pos, sizeof(g_steerPos));
 	if (!g_steerHave) {
 		g_steerHeading = *h;
 		g_steerHave = true;
-		g_speed = g_speedAlong = 0.0f;
+		g_speed = g_speedAlong = g_speedAlongFast = 0.0f;
 		return;
 	}
 
 	int mode = g_inputHooked ? g_inputMode : INPUT_PASS;
-	if (mode != INPUT_CREEP && g_creepInput > g_creepGood)
-		g_creepInput = g_creepGood;   /* the side key let go: no wound-up input for the next creep */
+	if (mode != INPUT_CREEP) {
+		/* Off the side key: the next creep starts from the last good value at most (no wound-up
+		 * input), and that value eases back to CreepInput over about 15 s (rough ground's is
+		 * that spot's; on the flat it would surge). */
+		g_creepGood += (g_creepStart - g_creepGood) * (1.0f - expf(-g_frameDt / 15.0f));
+		if (g_creepInput > g_creepGood)
+			g_creepInput = g_creepGood;
+	}
 	float inX = g_rawMove[0] > 1.0f ? 1.0f : g_rawMove[0] < -1.0f ? -1.0f : g_rawMove[0];
 	if (!isfinite(inX))
 		inX = 0.0f;
