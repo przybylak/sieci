@@ -349,7 +349,6 @@ enum { PUSH_DELTA, PUSH_RAYSTEP, PUSH_MOD, PUSH_VELOCITY, PUSH_POSITION, PUSH_BR
 static int g_backPushFirst = PUSH_RAYSTEP;   /* BackPush: the method to start with */
 static bool g_backPushAuto = true;        /* BackPush=auto: steps after rays, else brake */
 static float g_backClearance = 150.0f;    /* this far behind the rider must be clear (test 16: the rear is about 130 back) */
-static int g_backWarp;                    /* BackWarp: SetPositionImpl's forceWarp for the steps (an experiment) */
 static float g_backSink;                  /* BackSink: units the feet go into the ground when closing a gap (0: onto it) */
 static int g_backSupportCheck;            /* BackSupportCheck: call the controller's CheckSupportImpl after a step */
 static char g_shapePrefix[64] = "CMB_BikeWorn";
@@ -630,7 +629,6 @@ static void ReadSettings(void)
 	g_backClearance = strtof(value, NULL);
 	if (!(g_backClearance >= 80.0f && g_backClearance <= 500.0f))
 		g_backClearance = 150.0f;
-	g_backWarp = (int)GetPrivateProfileIntA("Steer", "BackWarp", 0, ini);
 	GetPrivateProfileStringA("Steer", "BackSink", "0", value, sizeof(value), ini);
 	g_backSink = strtof(value, NULL);
 	if (!(g_backSink >= -5.0f && g_backSink <= 5.0f))
@@ -651,9 +649,9 @@ static void ReadSettings(void)
 	    g_layoutSetting == LAYOUT_FILE ? "file" : g_layoutSetting == LAYOUT_TRANSPOSED ? "transposed" : "auto");
 	static const char *const pushValueNames[] = { "delta", "ray", "mod", "velocity", "position", "off" };
 	Log("  steer: Enabled=%d FullSpeed=%g InputHook=%d Creep=%d CreepInput=%g CreepBelow=%g CreepRadius=%g Reverse=%d BackSpeed=%g "
-	    "BackPush=%s BackClearance=%g BackWarp=%d BackSink=%g BackSupportCheck=%d",
+	    "BackPush=%s BackClearance=%g BackSink=%g BackSupportCheck=%d",
 	    g_steer, g_fullSpeed, g_inputHook, g_creep, g_creepStart, g_creepBelow, g_creepRadius, g_reverse, g_backSpeed,
-	    g_backPushAuto ? "auto" : pushValueNames[g_backPushFirst], g_backClearance, g_backWarp, g_backSink, g_backSupportCheck);
+	    g_backPushAuto ? "auto" : pushValueNames[g_backPushFirst], g_backClearance, g_backSink, g_backSupportCheck);
 }
 
 /* ------------------------------------------------------------------------- */
@@ -2501,6 +2499,10 @@ static bool g_inputActive;          /* riding, steering on: the filter is on */
 static float g_rawMove[2];          /* what the game wants (as it last left the input itself) */
 static float g_wroteMove[2];        /* what we left there instead */
 static bool g_wrote;
+static float g_keys[2];             /* the keys as taken (the raw ones, or the last ones kept) */
+static float g_lastKeys[2], g_keysSeenAt = -100.0f;   /* the last keys that weren't (0, 0), and when */
+static bool g_keysStuck;            /* this reading was (0, 0) and the last keys were taken instead */
+static int g_modeChanges;           /* INPUT_* changes since the last trace line */
 static float g_creepWant;           /* the creep speed wanted (units a second) */
 static float g_inputLogged;
 static float g_output[16];          /* the movement update's last PlayerControlsMovementData */
@@ -2529,8 +2531,25 @@ static void BeforeInput(void)
 static void AfterInput(void)
 {
 	float x = g_moveVec[0], y = g_moveVec[1];
-	g_rawMove[0] = x;
+	g_rawMove[0] = x;   /* the game's own, to give back to it (never the keys kept below) */
 	g_rawMove[1] = y;
+	/* A (0, 0) within 0.2 s of real keys is taken as those keys still held: the game clears
+	 * the input on its own, and on some frames that clear comes after the held key's event
+	 * and before a later call here, which then read (0, 0), dropped the mode and undid the
+	 * creep's wind-up every other frame (test 19: 3.5 s turning with no creep). A key let go
+	 * of lasts 0.2 s longer; a different key takes over at once. */
+	g_keysStuck = false;
+	if (g_inputActive && x == 0.0f && y == 0.0f && g_clock - g_keysSeenAt < 0.2f) {
+		x = g_lastKeys[0];
+		y = g_lastKeys[1];
+		g_keysStuck = true;
+	} else if (isfinite(x) && isfinite(y) && (x != 0.0f || y != 0.0f)) {
+		g_lastKeys[0] = x;
+		g_lastKeys[1] = y;
+		g_keysSeenAt = g_clock;
+	}
+	g_keys[0] = x;
+	g_keys[1] = y;
 	int mode = INPUT_PASS;
 	if (g_inputActive && isfinite(x) && isfinite(y)) {
 		if (y < -0.2f)
@@ -2538,6 +2557,8 @@ static void AfterInput(void)
 		else if (y <= 0.2f && fabsf(x) > 0.05f && (g_inputMode == INPUT_CREEP || g_speed < g_creepBelow))
 			mode = INPUT_CREEP;
 	}
+	if (mode != g_inputMode)
+		g_modeChanges++;
 	g_inputMode = mode;
 	if (mode == INPUT_PASS)
 		return;
@@ -2600,6 +2621,13 @@ static bool ReadableNow(uintptr_t p, size_t n)
 static float g_outputGame[16];      /* the game's own, before ours */
 static void HookOutput(uintptr_t self, uintptr_t id, uintptr_t out, uintptr_t d)
 {
+	/* Right before the game works the input into its movement: ours again, whatever cleared
+	 * it since the last key event (test 19: on some frames the game's own clear came after
+	 * the last of the three calls above, and the movement got (0, 0)). */
+	if (g_inputActive && g_inputMode != INPUT_PASS && g_moveVec) {
+		memcpy(g_moveVec, g_wroteMove, sizeof(g_wroteMove));
+		g_wrote = true;
+	}
 	((Forward4)g_origOutput)(self, id, out, d);
 	if ((out & 3) || !ReadableNow(out, sizeof(g_output)))
 		return;
@@ -3247,7 +3275,7 @@ static bool PushStep(uintptr_t player, uintptr_t ctrl, float heading, float dt)
 		p[0] += dir[0] * stepGame * g_havok;
 		p[1] += dir[1] * stepGame * g_havok;
 		p[2] += dz * g_havok;
-		set(ctrl, p, false, g_backWarp != 0);
+		set(ctrl, p, false, false);   /* the third argument is ignored (test 19) */
 		if (g_backSupportCheck) {
 			void (*check)(uintptr_t) = (void (*)(uintptr_t))CtrlFunc(ctrl, VF_CTRL_CHECK_SUPPORT);
 			if (check)
@@ -3453,7 +3481,7 @@ static void FrameSteer(void)
 		g_creepInput = g_creepGood;
 		g_creepCutSpeed = 0.0f;
 	}
-	float inX = g_rawMove[0] > 1.0f ? 1.0f : g_rawMove[0] < -1.0f ? -1.0f : g_rawMove[0];
+	float inX = g_keys[0] > 1.0f ? 1.0f : g_keys[0] < -1.0f ? -1.0f : g_keys[0];
 	if (!isfinite(inX))
 		inX = 0.0f;
 	if (mode != INPUT_BACK && (g_pushOn || g_pushCtrl))
@@ -3518,28 +3546,39 @@ static void TraceControls(void)
 	if (g_inputMode != INPUT_PASS && g_clock - g_inputLogged >= 0.25f) {
 		g_inputLogged = g_clock;
 		output = true;
+		char modes[48] = "";
+		if (g_modeChanges || g_keysStuck)
+			snprintf(modes, sizeof(modes), " [mode changed %d times%s]", g_modeChanges, g_keysStuck ? ", keys kept" : "");
+		g_modeChanges = 0;
 		if (g_inputMode == INPUT_BACK) {
 			Log("reverse: keys (%.2f, %.2f), the game gets (%.2f, %.2f), the movement last used (%.2f, %.2f); pushing back by %s%s; "
-			    "moving %+.0f along the heading",
-			    g_rawMove[0], g_rawMove[1], g_wroteMove[0], g_wroteMove[1], prev[0], prev[1],
+			    "moving %+.0f along the heading%s",
+			    g_keys[0], g_keys[1], g_wroteMove[0], g_wroteMove[1], prev[0], prev[1],
 			    g_pushNames[g_pushMethod < 0 ? g_backPushFirst : g_pushMethod],
-			    g_pushProven ? " (works)" : g_pushMethod == PUSH_BRAKE ? "" : " (on trial)", g_speedAlong);
+			    g_pushProven ? " (works)" : g_pushMethod == PUSH_BRAKE ? "" : " (on trial)", g_speedAlong, modes);
 			if (g_pushMethod == PUSH_RAYSTEP) {
 				uintptr_t c = g_pushCtrl;
 				bool fields = c && Accessible(c + OFF_CTRL_FLAGS, 4, false) && Accessible(c + OFF_CTRL_SUPPORT_COUNT, 4, false) &&
 				              Accessible(c + OFF_CTRL_IN_AIR_PRE_MOVE, 1, false);
+				uint32_t flags = fields ? *(const uint32_t *)(c + OFF_CTRL_FLAGS) : 0u;
+				/* The proxy's manifold size (+0x18) and +0x12C, next to the supported bit (0x400 of the
+				 * flags, set by CheckSupportImpl from the manifold: test 19). */
+				uintptr_t proxy = c ? FindProxy(c, false) : 0;
+				bool pfields = proxy && Accessible(proxy + 0x18, 4, false) && Accessible(proxy + 0x12C, 4, false);
 				Log("  rays (filter %u): the ground %+.0f just behind, %+.0f under the rear, feet gap %+.1f, step dz %+.2f, "
-				    "%s%s; controller: state %d, support count %u, fake support %d, in air pre-move %d, flags %08X",
+				    "%s%s; controller: state %d, supported bit %d, support count %u, fake support %d, in air pre-move %d, "
+				    "flags %08X; proxy +18 %u, +12C %08X (%g)",
 				    g_rayFilter, g_rayGroundNear, g_rayGroundFar, g_rayFeetGap, g_rayDz,
 				    g_rayGrounded ? "on the ground by the rays" : "not grounded by the rays", g_pushBlocked ? "; stopped" : "",
-				    g_lastState, fields ? *(const uint32_t *)(c + OFF_CTRL_SUPPORT_COUNT) : 0,
+				    g_lastState, (flags & 0x400u) != 0, fields ? *(const uint32_t *)(c + OFF_CTRL_SUPPORT_COUNT) : 0,
 				    fields ? *(const uint8_t *)(c + OFF_CTRL_FAKE_SUPPORT) : 0, fields ? *(const uint8_t *)(c + OFF_CTRL_IN_AIR_PRE_MOVE) : 0,
-				    fields ? *(const uint32_t *)(c + OFF_CTRL_FLAGS) : 0u);
+				    flags, pfields ? *(const uint32_t *)(proxy + 0x18) : 0u, pfields ? *(const uint32_t *)(proxy + 0x12C) : 0u,
+				    pfields ? *(const float *)(proxy + 0x12C) : 0.0f);
 			}
 		} else
 			Log("creep: keys (%.2f, %.2f), the game gets (%.2f, %.2f), the movement last used (%.2f, %.2f); moving %+.0f along the "
-			    "heading (want %.0f)",
-			    g_rawMove[0], g_rawMove[1], g_wroteMove[0], g_wroteMove[1], prev[0], prev[1], g_speedAlong, g_creepWant);
+			    "heading (want %.0f)%s",
+			    g_keys[0], g_keys[1], g_wroteMove[0], g_wroteMove[1], prev[0], prev[1], g_speedAlong, g_creepWant, modes);
 	}
 	if (g_clock - g_controlsLogged >= 0.25f) {
 		const float *f = (const float *)(controls + 0x40);

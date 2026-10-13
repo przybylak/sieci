@@ -125,10 +125,12 @@ static uint8_t *g_parkGlobals[7], *g_trackSlope, *g_turnRadius, *g_turnStand, *g
 static uint8_t *g_thirdState;   /* ThirdPersonState: zoom target +0xE8, current +0xEC */
 static uint8_t *g_moveHandler;  /* MovementHandler: its vtable read-only, as in the game */
 
-/* The input and the movement, as the game does them (tests 12-14): the MovementHandler sets
- * PlayerControls' move input from the held keys (style 0: both halves every frame; style 1:
- * adds the change on a press or release; style 2, as the game does: the input cleared to
- * (+0, +0) every frame outside the handler, then each held key sets its own half). The
+/* The input and the movement, as the game does them (tests 12-14, 19): the MovementHandler
+ * sets PlayerControls' move input from the held keys (style 0: both halves every frame; style
+ * 1: adds the change on a press or release; style 2, as the game does: the input cleared to
+ * (+0, +0) every frame outside the handler, then each held key sets its own half; style 3: as
+ * 2, then cleared again after the keys, before the per-frame call, as the game does on some
+ * frames). The
  * controls' output to the movement (GetControllerOutput) comes from that: speed 2 x the
  * input, target angle where the keys point from the camera. The movement turns the player
  * towards the target angle and moves them along their facing (g_honour 8: turned by the
@@ -847,6 +849,8 @@ static void FakeGameFrame(float dt)
 			onButton(g_moveHandler, &ex);
 		if (g_keyY != 0.0f)
 			onButton(g_moveHandler, &ey);
+		if (g_handlerStyle == 3)
+			move[0] = move[1] = 0.0f;   /* a second batch with no event: cleared again after the keys (test 19) */
 	}
 	g_lastKeyX = g_keyX;
 	g_lastKeyY = g_keyY;
@@ -945,6 +949,25 @@ static void InputTests(void)
 	CHECK(Moved(p0) > 30.0f && Moved(p0) < 90.0f, "then it creeps on at about 58 (%.0f in the next second)", Moved(p0));
 	Keys(0.0f, 0.0f);
 	RunFrames(500);
+	printf("input hook: a game that clears the input again after the keys on every frame (test 19):\n");
+	g_handlerStyle = 3;
+	Keys(1.0f, 0.0f);
+	RunFrames(1500);
+	from = *head;
+	Mark(p0);
+	RunFrames(1000);
+	CHECK(Turned(from) > 45.0f && Moved(p0) > 30.0f && Moved(p0) < 90.0f,
+	      "the creep goes on: turned %.0f deg and crept %.0f in a second, the input winding up as it should", Turned(from), Moved(p0));
+	CHECK(((float *)(g_controls + 0x5C))[1] > 0.0f, "the movement got ours (+5C %.3f), not the clear", ((float *)(g_controls + 0x5C))[1]);
+	Keys(0.0f, 0.0f);
+	RunFrames(400);
+	from = *head;
+	Mark(p0);
+	RunFrames(500);
+	CHECK(Moved(p0) < 0.5f && fabsf(Turned(from)) < 0.1f, "let go of: it stops within the 0.2 s the keys are kept (then moved %.1f, turned %.1f deg)", Moved(p0), Turned(from));
+	g_handlerStyle = 2;
+	RunFrames(300);
+
 	printf("input hook: rough ground, where the creep needs an input of 0.56:\n");
 	g_creepDrag = 0.5f;
 	Keys(1.0f, 0.0f);
