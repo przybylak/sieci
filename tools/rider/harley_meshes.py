@@ -259,7 +259,8 @@ def write_dds(path: Path, rgba: np.ndarray):
     header = struct.pack("<4sI", b"DDS ", 124)
     header += struct.pack("<IIIII", 0x1 | 0x2 | 0x4 | 0x8 | 0x1000, h, w, w * 4, 0)   # flags: caps, height, width, pitch, pixelformat
     header += struct.pack("<I", 1) + b"\0" * 44                                    # mip count, reserved
-    header += struct.pack("<II4sIIIII", 32, 0x41, b"\0\0\0\0", 32, 0xFF, 0xFF00, 0xFF0000, 0xFF000000)   # RGBA
+    # A8R8G8B8: the masks name the channels in a little-endian pixel, so the bytes go B, G, R, A.
+    header += struct.pack("<II4sIIIII", 32, 0x41, b"\0\0\0\0", 32, 0xFF0000, 0xFF00, 0xFF, 0xFF000000)
     header += struct.pack("<IIIII", 0x1000, 0, 0, 0, 0)                            # caps: texture
     bgra = rgba[:, :, [2, 1, 0, 3]].astype(np.uint8)
     path.write_bytes(header + bgra.tobytes())
