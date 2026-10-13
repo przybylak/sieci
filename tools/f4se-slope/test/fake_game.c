@@ -192,6 +192,8 @@ static float g_groundZ = 100.0f;
 static float g_slopeK, g_slopeO[2], g_slopeD[2];   /* the ground rises g_slopeK per unit along g_slopeD from g_slopeO */
 static bool g_dropOn, g_frozen;   /* g_frozen: the movement can't move the player (stuck against something) */
 static float g_creepDrag;         /* rough ground: only the input above this moves the player */
+static int g_pileCount;           /* a pile of clutter (layer 4): this many surfaces 5 apart above the ground, within 60 of g_pilePoint */
+static float g_pilePoint[2];
 static FakePlane g_planes[3];
 static float g_dropPoint[2], g_dropDir[2];
 static uint8_t *g_wallObj, *g_groundObj, g_fakeWorld[64];
@@ -226,6 +228,18 @@ static uint8_t *FakeCellPick(uint8_t *cell, uint8_t *pick)
 			t = tg;
 			what = g_groundObj;
 			layer = 13;
+		}
+	}
+	for (int i = 0; i < g_pileCount; i++) {
+		float z = g_groundZ + 5.0f * (float)(i + 1);
+		if (b[2] == a[2])
+			continue;
+		float tp = (z - a[2]) / (b[2] - a[2]);
+		float x = a[0] + (b[0] - a[0]) * tp, y = a[1] + (b[1] - a[1]) * tp;
+		if (tp >= 0.0f && tp <= 1.0f && tp < t && hypotf(x - g_pilePoint[0], y - g_pilePoint[1]) < 60.0f) {
+			t = tp;
+			what = NULL;
+			layer = 4;
 		}
 	}
 	for (int i = 0; i < 3; i++) {
@@ -1063,6 +1077,18 @@ static void InputTests(void)
 	RunFrames(300);
 	can->on = false;
 
+	printf("input hook: a pile of six bits of clutter 150 behind (the ray under the rear goes down through them):\n");
+	Mark(p0);
+	g_pilePoint[0] = p0[0] + back[0] * 150.0f;
+	g_pilePoint[1] = p0[1] + back[1] * 150.0f;
+	g_pileCount = 6;
+	Keys(0.0f, -1.0f);
+	RunFrames(2500);
+	CHECK(Moved(p0) > 150.0f, "not taken for a drop: backs up over it (%.0f)", Moved(p0));
+	Keys(0.0f, 0.0f);
+	RunFrames(300);
+	g_pileCount = 0;
+
 	printf("input hook: a chain-link fence (layer 26) 300 behind:\n");
 	Mark(p0);
 	FakePlane *fence = &g_planes[0];
@@ -1089,11 +1115,14 @@ static void InputTests(void)
 	g_slopeD[0] = -sinf(from);
 	g_slopeD[1] = -cosf(from);
 	g_groundZ = PlayerPos()[2];
+	SetState(2);   /* the controller says in the air all the way down (test 18) */
 	Keys(0.0f, -1.0f);
 	RunFrames(3000);
 	float groundHere = g_groundZ + g_slopeK * ((PlayerPos()[0] - g_slopeO[0]) * g_slopeD[0] + (PlayerPos()[1] - g_slopeO[1]) * g_slopeD[1]);
-	CHECK(Moved(p0) > 150.0f && PlayerPos()[2] - groundHere > -2.5f && PlayerPos()[2] - groundHere < 1.0f,
+	CHECK(Moved(p0) > 150.0f && PlayerPos()[2] - groundHere > -1.5f && PlayerPos()[2] - groundHere < 1.0f,
 	      "backs down it %.0f, the wheels on the ground (%+.1f)", Moved(p0), PlayerPos()[2] - groundHere);
+	CHECK(Park(6) > 0.5f, "the controller said in the air all the way, the rays said on the ground: the track kept (a park spot on the slope, up z %.2f)", Park(6));
+	SetState(0);
 	Keys(0.0f, 0.0f);
 	RunFrames(300);
 	g_slopeK = 0.0f;

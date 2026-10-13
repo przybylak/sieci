@@ -191,6 +191,11 @@
 #define VF_CTRL_SET_VELOCITY  0x3A          /* ::SetLinearVelocityImpl(const hkVector4f &) */
 #define HAVOK_SCALE           0.0142875f    /* game units -> Havok's (bhkWorld's scale) */
 #define OFF_CTRL_PUSH_DELTA   0x1B0         /* bhkCharacterController::pushDelta (hkVector4f, CommonLibF4) */
+#define OFF_CTRL_FLAGS        0x300         /* bhkCharacterController::flags (CommonLibF4; logged while backing) */
+#define OFF_CTRL_SUPPORT_COUNT 0x388        /* ::supportCount */
+#define OFF_CTRL_FAKE_SUPPORT 0x43E         /* ::fakeSupport (bool) */
+#define OFF_CTRL_IN_AIR_PRE_MOVE 0x442      /* ::inAirPreMove (bool) */
+#define VF_CTRL_CHECK_SUPPORT 0x3E          /* ::CheckSupportImpl() */
 #define OFF_REFR_CELL         0xB8          /* TESObjectREFR::parentCell (F4SE, CommonLibF4) */
 #define ADDRESS_LIBRARY       "version-1-11-240-0.bin"   /* F4SE's Address Library for 1.11.240 */
 #define ID_PICK_CTOR          2230668u      /* bhkPickData::bhkPickData (CommonLibF4's IDs) */
@@ -344,6 +349,9 @@ enum { PUSH_DELTA, PUSH_RAYSTEP, PUSH_MOD, PUSH_VELOCITY, PUSH_POSITION, PUSH_BR
 static int g_backPushFirst = PUSH_RAYSTEP;   /* BackPush: the method to start with */
 static bool g_backPushAuto = true;        /* BackPush=auto: steps after rays, else brake */
 static float g_backClearance = 150.0f;    /* this far behind the rider must be clear (test 16: the rear is about 130 back) */
+static int g_backWarp;                    /* BackWarp: SetPositionImpl's forceWarp for the steps (an experiment) */
+static float g_backSink;                  /* BackSink: units the feet go into the ground when closing a gap (0: onto it) */
+static int g_backSupportCheck;            /* BackSupportCheck: call the controller's CheckSupportImpl after a step */
 static char g_shapePrefix[64] = "CMB_BikeWorn";
 enum { LAYOUT_UNKNOWN = -1, LAYOUT_FILE = 0, LAYOUT_TRANSPOSED = 1, LAYOUT_DISAGREE = 2 };
 static int g_layoutSetting = LAYOUT_UNKNOWN;   /* Layout=auto */
@@ -400,7 +408,7 @@ static int g_inputMode;                       /* INPUT_*: what the move keys are
 static float g_creepInput = 0.1f;             /* the forward input that creeps at the wanted speed (learnt) */
 static float g_creepGood = 0.1f;              /* the input last seen creeping at about the speed wanted */
 static float g_speedAlongFast;                /* g_speedAlong with less smoothing (0.05 s), for catching a surge */
-static float g_creepCutAt;                    /* the creep input may be cut again from then */
+static float g_creepCutAt, g_creepCutSpeed;   /* the creep input may be cut again from then; the speed at the last cut */
 static int g_steerClamped;                    /* frames clamped since the last trace */
 static float g_controlsLast[20];
 static float g_controlsLogged;
@@ -411,6 +419,9 @@ static float g_controlsLogged;
 static float g_frameDt;
 static bool g_riding;
 static bool g_groundOk, g_groundAir;
+/* Backing up in steps (the reverse, further down): the rays' word on the ground under the feet. */
+static bool g_rayGrounded;          /* this frame's rays put the feet on the ground (whatever the controller says) */
+static float g_rayNormal[3];        /* the ground's normal by the rays then (the slope behind, level across) */
 static float g_groundN[3], g_avgN[3] = { 0.0f, 0.0f, 1.0f };
 static float g_avgAge;                  /* seconds of ground in the average (capped) */
 
@@ -619,6 +630,12 @@ static void ReadSettings(void)
 	g_backClearance = strtof(value, NULL);
 	if (!(g_backClearance >= 80.0f && g_backClearance <= 500.0f))
 		g_backClearance = 150.0f;
+	g_backWarp = (int)GetPrivateProfileIntA("Steer", "BackWarp", 0, ini);
+	GetPrivateProfileStringA("Steer", "BackSink", "0", value, sizeof(value), ini);
+	g_backSink = strtof(value, NULL);
+	if (!(g_backSink >= -5.0f && g_backSink <= 5.0f))
+		g_backSink = 0.0f;
+	g_backSupportCheck = (int)GetPrivateProfileIntA("Steer", "BackSupportCheck", 0, ini);
 	GetPrivateProfileStringA("Tilt", "Shapes", "CMB_BikeWorn", g_shapePrefix, sizeof(g_shapePrefix), ini);
 	GetPrivateProfileStringA("Tilt", "Layout", "auto", value, sizeof(value), ini);
 	g_layoutSetting = _stricmp(value, "file") == 0 ? LAYOUT_FILE : _stricmp(value, "transposed") == 0 ? LAYOUT_TRANSPOSED : LAYOUT_UNKNOWN;
@@ -634,9 +651,9 @@ static void ReadSettings(void)
 	    g_layoutSetting == LAYOUT_FILE ? "file" : g_layoutSetting == LAYOUT_TRANSPOSED ? "transposed" : "auto");
 	static const char *const pushValueNames[] = { "delta", "ray", "mod", "velocity", "position", "off" };
 	Log("  steer: Enabled=%d FullSpeed=%g InputHook=%d Creep=%d CreepInput=%g CreepBelow=%g CreepRadius=%g Reverse=%d BackSpeed=%g "
-	    "BackPush=%s BackClearance=%g",
+	    "BackPush=%s BackClearance=%g BackWarp=%d BackSink=%g BackSupportCheck=%d",
 	    g_steer, g_fullSpeed, g_inputHook, g_creep, g_creepStart, g_creepBelow, g_creepRadius, g_reverse, g_backSpeed,
-	    g_backPushAuto ? "auto" : pushValueNames[g_backPushFirst], g_backClearance);
+	    g_backPushAuto ? "auto" : pushValueNames[g_backPushFirst], g_backClearance, g_backWarp, g_backSink, g_backSupportCheck);
 }
 
 /* ------------------------------------------------------------------------- */
@@ -2133,6 +2150,14 @@ static void SampleGround(void)
 	float n[3];
 	bool air = false;
 	g_groundOk = ReadGround(ctrl, n, &air);
+	/* Backing up in steps, the controller may say it's in the air with the feet on the ground
+	 * (test 18: 16 s on a 10 deg slope, its support normal frozen): then the rays' word goes,
+	 * so the track and the pitch carry on. */
+	if (g_rayGrounded && (air || !g_groundOk)) {
+		air = false;
+		g_groundOk = true;
+		memcpy(n, g_rayNormal, sizeof(n));
+	}
 	g_groundAir = air;
 	bool onGround = g_groundOk && !air;
 	if (onGround) {
@@ -2813,6 +2838,7 @@ static uint32_t g_rayFilter = LAYER_CHAR_CONTROLLER;   /* the rays' collision fi
 static uint32_t g_rayLayer;         /* the last hit's collision layer */
 static float g_rayHit[3];           /* and where it was */
 static float g_rayGroundNear, g_rayGroundFar;   /* the ground just behind and under the rear, for the trace */
+static float g_rayFeetGap = -99.0f, g_rayDz;   /* the feet ray's gap under the feet (-99: no ray) and the step's dz, for the trace */
 static float g_pickRetryAt;         /* a failed test ray is tried again from then */
 static float g_passedLogged = -100.0f;
 static char g_wayWhy[200];          /* why the way back isn't clear (the last check) */
@@ -2881,9 +2907,9 @@ static bool SolidLayer(uint32_t layer)
  * in g_rayLayer and where in g_rayHit. */
 static float CastRay(uintptr_t cell, const float a[3], const float b[3])
 {
-	float from[3] = { a[0], a[1], a[2] }, done = 0.0f;
+	float from[3] = { a[0], a[1], a[2] }, done = 0.0f, t = 1.0f;
 	float len = sqrtf((b[0] - a[0]) * (b[0] - a[0]) + (b[1] - a[1]) * (b[1] - a[1]) + (b[2] - a[2]) * (b[2] - a[2]));
-	for (int tries = 0; tries < 4; tries++) {
+	for (int tries = 0; tries < 8; tries++) {
 		g_rayWhat = NULL;
 		g_pickReset(g_pick);
 		*(uint32_t *)(g_pick + OFF_PICK_FILTER) = g_rayFilter;
@@ -2893,7 +2919,7 @@ static float CastRay(uintptr_t cell, const float a[3], const float b[3])
 			return 1.0f;
 		float f = g_pickFraction(g_pick);
 		f = isfinite(f) && f >= 0.0f && f <= 1.0f ? f : 0.0f;
-		float t = done + (1.0f - done) * f;
+		t = done + (1.0f - done) * f;
 		g_rayLayer = *(const uint32_t *)(g_pick + OFF_PICK_HIT_LAYER) & 0x7F;
 		for (int i = 0; i < 3; i++)
 			g_rayHit[i] = a[i] + (b[i] - a[i]) * t;
@@ -2905,13 +2931,15 @@ static float CastRay(uintptr_t cell, const float a[3], const float b[3])
 			g_passedLogged = g_clock;
 			Log("reverse: a ray passed through %s (layer %u)", g_rayWhat && *g_rayWhat ? g_rayWhat : "unnamed", g_rayLayer);
 		}
-		done = t + 2.0f / (len > 1.0f ? len : 1.0f);   /* on from just past it */
+		done = t + 4.0f / (len > 1.0f ? len : 1.0f);   /* on from past it */
 		if (done >= 1.0f)
 			return 1.0f;
 		for (int i = 0; i < 3; i++)
 			from[i] = a[i] + (b[i] - a[i]) * done;
 	}
-	return 1.0f;
+	/* Out of tries in a pile of things passed through: counted as a hit (test 18: a ray down
+	 * through a broken fence's bits read as no ground, a drop). */
+	return t;
 }
 
 /* Once: the functions from the Address Library and the pick data made (one, reused, so no
@@ -3011,9 +3039,9 @@ static bool WayBackClear(uintptr_t player, float heading, float step, float *dz)
 	const char *why = NULL;
 	bool hit = false;
 	float at = 0.0f, behindNear = 55.0f, behindFar = g_backClearance, groundNear = 0.0f, groundFar = 0.0f;
-	if (g_airTime > 0.45f)
-		why = "in the air (landing first)";
-	if (!why) {
+	g_rayGrounded = false;
+	g_rayFeetGap = -99.0f;
+	{
 		float a[3] = { pos[0] + dir[0] * behindNear, pos[1] + dir[1] * behindNear, pos[2] + 60.0f };
 		float b[3] = { a[0], a[1], pos[2] - 60.0f };
 		float f = CastRay(cell, a, b);
@@ -3055,30 +3083,44 @@ static bool WayBackClear(uintptr_t player, float heading, float step, float *dz)
 	}
 	float slope = groundNear / behindNear * step;
 	*dz = slope;   /* up or down a slope: with it */
+	if (!why && slope > 0.0f)
+		g_rayGrounded = true;   /* uphill the feet never float */
 	if (!why && slope <= 0.0f) {
 		/* Level or going down: the ground under the step, from 2 units above the feet (the
 		 * capsule's bottom is a hemisphere, so at the step point its skin is about at the feet;
 		 * if the ray starts inside it anyway and the player's filter reports that, the hit is
 		 * at the start and goes unused, as does the ground at the feet). A gap under the feet
-		 * is closed: they go 1.5 units into the ground, so the controller feels it under them
-		 * (test 17: snapped onto it, the bike was in the air a third of the time going down),
-		 * at most 3 units down a frame. More than 20 down is a drop: no step. Not uphill: there
-		 * the ray would start inside a curb or the slope (a box ignored from inside, the ray
-		 * finds the ground beneath), and the feet never float. */
+		 * is closed: they go onto the ground (plus BackSink), at most 3 units down a frame
+		 * (test 16: the least time in the air; test 18: 1.5 units into it, the most, the
+		 * controller losing its support). More than 20 down is a drop: no step. Not uphill:
+		 * there the ray would start inside a curb or the slope (a box ignored from inside, the
+		 * ray finds the ground beneath), and the feet never float. */
 		float a[3] = { pos[0] + dir[0] * step, pos[1] + dir[1] * step, pos[2] + 2.0f };
 		float b[3] = { a[0], a[1], pos[2] - 38.0f };
 		float f = CastRay(cell, a, b);
 		if (f < 1.0f) {
 			float below = f * 40.0f - 2.0f;
+			g_rayFeetGap = below;
 			if (below > 20.0f) {
 				why = "the ground drops away under the step";
 				at = step;
-			} else if (below > 0.3f) {
-				float down = below + 1.5f;
-				*dz = -(down < 3.0f ? down : 3.0f);
+			} else {
+				g_rayGrounded = below > -1.5f && below < 4.0f;   /* -2: the capsule itself, no telling */
+				if (below > 0.3f) {
+					float down = below + g_backSink;
+					*dz = -(down < 0.0f ? 0.0f : down < 3.0f ? down : 3.0f);
+				}
 			}
 		}
 	}
+	if (g_rayGrounded) {
+		/* The ground's normal by the rays: the slope behind, level across. */
+		float g = groundNear / behindNear, norm = sqrtf(g * g + 1.0f);
+		g_rayNormal[0] = -dir[0] * g / norm;
+		g_rayNormal[1] = -dir[1] * g / norm;
+		g_rayNormal[2] = 1.0f / norm;
+	}
+	g_rayDz = *dz;
 	g_rayGroundNear = groundNear;
 	g_rayGroundFar = groundFar;
 	if (why) {
@@ -3205,7 +3247,12 @@ static bool PushStep(uintptr_t player, uintptr_t ctrl, float heading, float dt)
 		p[0] += dir[0] * stepGame * g_havok;
 		p[1] += dir[1] * stepGame * g_havok;
 		p[2] += dz * g_havok;
-		set(ctrl, p, false, false);
+		set(ctrl, p, false, g_backWarp != 0);
+		if (g_backSupportCheck) {
+			void (*check)(uintptr_t) = (void (*)(uintptr_t))CtrlFunc(ctrl, VF_CTRL_CHECK_SUPPORT);
+			if (check)
+				check(ctrl);
+		}
 		return true;
 	}
 	default:
@@ -3308,8 +3355,9 @@ static float PushBack(uintptr_t player, float heading, float turn, float dt)
  * bike surged (test 17: 3.4 s at up to 336 units/s while the input decayed from 0.90). So
  * when the bike goes faster than twice the speed wanted, the input is cut to the last value
  * that crept at about that speed (the ground it was stuck on, as a rule) or to what the speed
- * says (input x wanted / speed), whichever is less, and again 0.12 s later if it's still too
- * fast (the speed estimate lags the cut): the surge lasts a fraction of a second. The good
+ * says (input x wanted / speed), whichever is less but not below half the good value, and
+ * again 0.12 s later if it's still too fast (the speed estimate lags the cut): the surge
+ * lasts a fraction of a second. The good
  * value is only learnt while the speed is steady (the quick and the slow estimates agree), so
  * a surge passing through the right speed doesn't poison it. */
 static void AdaptCreep(float want)
@@ -3317,10 +3365,25 @@ static void AdaptCreep(float want)
 	g_creepWant = want;
 	if (want < 1.0f || g_frameDt <= 0.0f)
 		return;
-	if (g_speedAlongFast > 2.0f * want && g_clock >= g_creepCutAt) {
-		float prop = g_creepInput * want / g_speedAlongFast;
-		g_creepInput = g_creepGood < prop ? g_creepGood : prop;
+	if (g_speedAlongFast > 2.0f * want && g_clock >= g_creepCutAt && !g_groundAir &&
+	    !(g_speedAlongFast < 0.7f * g_creepCutSpeed)) {
+		/* Not in the air (a fall isn't the input's doing), and not while the speed is still
+		 * falling from the last cut (test 18: a second cut on the lagging estimate, 0.07 to
+		 * 0.02). Wound up past a good value, the cut stays between half that value and it
+		 * (the quick estimate spikes as the bike pops free: test 18 cut to 0.05, a second of
+		 * crawling at half speed); started at a good value that's wrong for this ground (the
+		 * rock's on the flat), the speed's own word goes. Never up. */
+		float cut = g_creepInput * want / g_speedAlongFast;
+		if (g_creepInput > 1.2f * g_creepGood) {
+			if (cut > g_creepGood)
+				cut = g_creepGood;
+			if (cut < 0.5f * g_creepGood)
+				cut = 0.5f * g_creepGood;
+		}
+		if (cut < g_creepInput)
+			g_creepInput = cut;
 		g_creepCutAt = g_clock + 0.12f;
+		g_creepCutSpeed = g_speedAlongFast;
 	} else {
 		float e = (want - g_speedAlongFast) / want;
 		e = e > 1.0f ? 1.0f : e < -1.0f ? -1.0f : e;
@@ -3348,11 +3411,13 @@ static void FrameSteer(void)
 	if (!g_steer || !g_riding || !(radiusFast > 0.0f) || !player || !Accessible(player + OFF_REFR_HEADING, 4, true) ||
 	    !Accessible(player + OFF_REFR_POS, 12, false)) {
 		g_steerHave = false;
+		g_rayGrounded = false;
 		EndInput();
 		return;
 	}
 	InstallInputHook();
 	g_inputActive = g_inputHooked;
+	g_rayGrounded = false;
 	float *h = (float *)(player + OFF_REFR_HEADING);
 	const float *pos = (const float *)(player + OFF_REFR_POS);
 	if (!isfinite(*h))
@@ -3380,12 +3445,13 @@ static void FrameSteer(void)
 
 	int mode = g_inputHooked ? g_inputMode : INPUT_PASS;
 	if (mode != INPUT_CREEP) {
-		/* Off the side key: the next creep starts from the last good value at most (no wound-up
-		 * input), and that value eases back to CreepInput over about 15 s (rough ground's is
-		 * that spot's; on the flat it would surge). */
+		/* Off the side key: the next creep starts from the last good value (not a wound-up or a
+		 * cut one: test 18 started one at 0.02, 1.5 s before it moved), and that value eases
+		 * back to CreepInput over about 15 s (rough ground's is that spot's; on the flat it would
+		 * surge). */
 		g_creepGood += (g_creepStart - g_creepGood) * (1.0f - expf(-g_frameDt / 15.0f));
-		if (g_creepInput > g_creepGood)
-			g_creepInput = g_creepGood;
+		g_creepInput = g_creepGood;
+		g_creepCutSpeed = 0.0f;
 	}
 	float inX = g_rawMove[0] > 1.0f ? 1.0f : g_rawMove[0] < -1.0f ? -1.0f : g_rawMove[0];
 	if (!isfinite(inX))
@@ -3458,9 +3524,18 @@ static void TraceControls(void)
 			    g_rawMove[0], g_rawMove[1], g_wroteMove[0], g_wroteMove[1], prev[0], prev[1],
 			    g_pushNames[g_pushMethod < 0 ? g_backPushFirst : g_pushMethod],
 			    g_pushProven ? " (works)" : g_pushMethod == PUSH_BRAKE ? "" : " (on trial)", g_speedAlong);
-			if (g_pushMethod == PUSH_RAYSTEP)
-				Log("  rays (filter %u): the ground %+.0f just behind, %+.0f under the rear%s", g_rayFilter, g_rayGroundNear,
-				    g_rayGroundFar, g_pushBlocked ? "; stopped" : "");
+			if (g_pushMethod == PUSH_RAYSTEP) {
+				uintptr_t c = g_pushCtrl;
+				bool fields = c && Accessible(c + OFF_CTRL_FLAGS, 4, false) && Accessible(c + OFF_CTRL_SUPPORT_COUNT, 4, false) &&
+				              Accessible(c + OFF_CTRL_IN_AIR_PRE_MOVE, 1, false);
+				Log("  rays (filter %u): the ground %+.0f just behind, %+.0f under the rear, feet gap %+.1f, step dz %+.2f, "
+				    "%s%s; controller: state %d, support count %u, fake support %d, in air pre-move %d, flags %08X",
+				    g_rayFilter, g_rayGroundNear, g_rayGroundFar, g_rayFeetGap, g_rayDz,
+				    g_rayGrounded ? "on the ground by the rays" : "not grounded by the rays", g_pushBlocked ? "; stopped" : "",
+				    g_lastState, fields ? *(const uint32_t *)(c + OFF_CTRL_SUPPORT_COUNT) : 0,
+				    fields ? *(const uint8_t *)(c + OFF_CTRL_FAKE_SUPPORT) : 0, fields ? *(const uint8_t *)(c + OFF_CTRL_IN_AIR_PRE_MOVE) : 0,
+				    fields ? *(const uint32_t *)(c + OFF_CTRL_FLAGS) : 0u);
+			}
 		} else
 			Log("creep: keys (%.2f, %.2f), the game gets (%.2f, %.2f), the movement last used (%.2f, %.2f); moving %+.0f along the "
 			    "heading (want %.0f)",
