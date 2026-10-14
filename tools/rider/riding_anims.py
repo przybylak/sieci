@@ -173,10 +173,16 @@ class Rider:
         com = rig.index("COM")
         pose.t[com] = [0.0, 0.0, self.hip_z + p.bounce]
 
-        # Pelvis rolled back as when sitting; spine leans forward over three joints.
+        # Pelvis rolled back as when sitting; spine leans forward over three joints. With the
+        # bars turned, the torso twists into the turn and leans a little more, so the outer
+        # shoulder comes forward and that arm, nearly straight on this bike, still reaches
+        # its grip (20 degrees of bar moves the outer grip 5 units away).
         pose.rotate_global("Pelvis", rot_x(12.0))
+        lean = p.lean + 0.2 * abs(p.steer)
         for bone in ("Spine1", "Spine2", "Chest"):
-            pose.rotate_global(bone, rot_x(-p.lean / 3.0))
+            pose.rotate_global(bone, rot_x(-lean / 3.0))
+            if p.steer:
+                pose.rotate_global(bone, rot_z(0.35 * p.steer / 3.0))
         # Shoulders forward toward the bars.
         pose.rotate_global("RArm_Collarbone", rot_z(9.0))
         pose.rotate_global("LArm_Collarbone", rot_z(-9.0))

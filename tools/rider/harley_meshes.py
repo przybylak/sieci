@@ -38,10 +38,11 @@ is --body.
       --vanilla <...>/meshes/setdressing/vehicles/motorcycle/motorcycle_clean.nif \
       --out <Data>/Meshes/CMB --textures <Data>/Textures/CMB \
       [--seat <Data>/Meshes/Actors/Character/Animations/MT/CMB_Rider] [--tris 60000] [--body 7a1118]
-      [--sit 0.35] [--grip 20,-15,98] [--peg 19,6,27]
+      [--sit 0.27] [--grip 20,-15,98] [--peg 19,6,27]
 
-The rider sits --sit of the way along the seat from its front edge (0.35: snug behind the
-tank, as on the real thing, which also keeps the long reach to the bars within arm's length).
+The rider sits --sit of the way along the seat from its front edge (0.27: snug behind the
+tank, as on the real thing, which keeps the long reach to the bars within arm's length even
+with the bars turned 20 degrees; test 20's 0.35 left the outer hand short of its grip).
 --grip and --peg are the grip's centre and the peg's top on the bike's +X side in the model's
 own frame (measured on this model; the other side mirrors them). The model is scaled to the
 vanilla bike's length, so the collision and the plugin's clearances still fit; that makes it
@@ -74,19 +75,24 @@ CUBEMAP = "textures\\shared\\cubemaps\\mipblur_defaultoutside1.dds"
 
 # name: (rgb, alpha, specular 0-255, gloss 0-255, env mask 0-255, shape)
 MATERIALS = {
-    "chrome":      ((176, 178, 184), 255, 255, 235, 255, "metal"),
-    "silver":      ((150, 152, 158), 255, 210, 190, 190, "metal"),
-    "tex2":        ((52, 52, 56), 255, 160, 170, 130, "metal"),       # the belt drive cover: dark metal
-    "body":        (None, 255, 140, 215, 140, "metal"),               # --body
-    "logo_decals": ((120, 108, 92), 255, 110, 150, 60, "metal"),      # the tank badges, no texture to show
+    "chrome":      ((112, 114, 120), 255, 150, 230, 150, "metal"),
+    "silver":      ((120, 122, 128), 255, 120, 190, 110, "metal"),
+    "tex2":        ((48, 48, 52), 255, 110, 170, 70, "metal"),       # the air cleaner cover: dark metal
+    "body":        (None, 255, 90, 200, 70, "metal"),                # --body
+    "logo_decals": ((36, 36, 38), 255, 90, 150, 30, "metal"),        # the tank badges, no texture to show: satin black
     "black_m":     ((24, 24, 26), 255, 70, 95, 25, "matte"),          # engine, frame, forks: black metal
     "tex1":        ((28, 28, 30), 255, 75, 105, 30, "matte"),
     "material":    ((16, 16, 16), 255, 28, 35, 0, "matte"),           # "gum": tyres, grips, cables
     "leather":     ((34, 27, 22), 255, 45, 65, 0, "matte"),
-    "glass":       ((215, 220, 226), 115, 255, 250, 220, "glass"),    # the headlight
-    "o_glass":     ((232, 128, 24), 165, 240, 240, 160, "glass"),     # indicators
-    "r_glass":     ((196, 24, 24), 165, 240, 240, 160, "glass"),      # the tail light
+    "glass":       ((150, 160, 170), 90, 120, 240, 120, "glass"),     # the headlight
+    "o_glass":     ((232, 128, 24), 150, 150, 230, 90, "glass"),      # indicators
+    "r_glass":     ((196, 24, 24), 150, 150, 230, 90, "glass"),       # the tail light
 }
+# Test 20: with the first palette (chrome 176 grey, specular 255, mask 255) the forks, exhausts
+# and the headlight face rendered flat white in the sun, and the tan tank badge showed as a
+# patch; so chrome is a mid grey with the reflection at 60%, the lens darker and duller, the
+# badge satin black.
+
 KINDS = ("metal", "matte", "glass")
 ROLES = ("", "front", "wheelF", "wheelR")   # static; turns with the bars; spins; spins
 BAR_HEIGHT = 85.0   # above this (parked frame) and ahead of the seat it's the bar assembly
@@ -172,7 +178,7 @@ def components(n, f):
     return len(uniq), inv
 
 
-def decimate(groups, total_target, speck_area=4.0, min_tris=8):
+def decimate(groups, total_target, speck_area=4.0, min_tris=8, weight=None):
     """Cut the model down to about total_target triangles, each connected piece getting its
     share by surface area: so a tyre keeps its shape while a bolt gets a few triangles, instead
     of the thousands of small pieces of one material (tread blocks, bolts, cables) starving the
@@ -199,7 +205,7 @@ def decimate(groups, total_target, speck_area=4.0, min_tris=8):
             pieces.append((name, v[used], inv.reshape(-1, 3), float(piece_area[c])))
     total_area = sum(p[3] for p in pieces)
     counts = np.array([len(p[2]) for p in pieces])
-    areas = np.array([p[3] for p in pieces])
+    areas = np.array([area * (weight(v) if weight else 1.0) for _, v, _, area in pieces])
     # Budget by area; a piece already under its budget keeps all its triangles and the rest
     # share what it leaves (a few rounds of that).
     budget = np.zeros(len(pieces))
@@ -299,15 +305,37 @@ def measure_parts(groups, steer=None):
     return parts
 
 
-def role_of(centroid, parts):
-    """Which moving part a piece belongs to, by where its centre is: a wheel if it sits on an
-    axle (tyre, rim, disc, hub), the steering assembly if it's ahead of the steering head
-    (forks, fender, headlight) or up at the bars (bars, grips, levers, mirrors)."""
-    cx, cy, cz = centroid
+def wheel_of(v, parts):
+    """Which wheel a piece is part of, if any: it lies inside the wheel's drum (within 13 of
+    the centre plane, within the tyre's radius of the axle) and either runs round the axle
+    (tyre, rim, disc, hub, pulley: 300 degrees or more of it) or is a spoke (from the hub out
+    to the rim, on the centre plane). A brake caliper sits inside the drum too, but off to
+    one side and short of the hub, so it stays with the forks. (Test 20: by the pieces'
+    centres alone, half the spokes and the rim bands went to the fixed shapes, and the rims
+    seemed to spin away from the tyres.)"""
     for role, key in (("wheelF", "front_axle"), ("wheelR", "rear_axle")):
         c = parts[key]
-        if abs(cx) < 12 and math.hypot(cy - c[1], cz - c[2]) < 6:
+        if np.abs(v[:, 0] - c[0]).max() >= 13.0:
+            continue
+        r = np.hypot(v[:, 1] - c[1], v[:, 2] - c[2])
+        if r.max() >= parts["wheel_radius"] + 1.5:
+            continue
+        bins = np.unique(np.floor(np.degrees(np.arctan2(v[:, 2] - c[2], v[:, 1] - c[1])) / 10.0).astype(int))
+        if len(bins) >= 25:   # a ring, a toothed one with a gap too (the belt's wrap round the pulley)
             return role
+        if r.min() < 9.0 and r.max() > 14.0 and np.abs(v[:, 0] - c[0]).max() < 6.5:   # a spoke (this model's are split in two, 2..6 out)
+            return role
+    return None
+
+
+def role_of(v, parts):
+    """Which moving part a piece belongs to: a wheel (wheel_of), else the steering assembly
+    if its centre is ahead of the steering head (forks, fender, headlight) or up at the bars
+    (bars, grips, levers, mirrors), else fixed."""
+    wheel = wheel_of(v, parts)
+    if wheel:
+        return wheel
+    cx, cy, cz = v.mean(axis=0)
     sp = parts["steer_point"]
     if cy < sp[1] + 16 or (cz > BAR_HEIGHT and cy < sp[1] + 45):   # the mirrors reach back over the tank
         return "front"
@@ -474,17 +502,18 @@ def main() -> int:
     ap.add_argument("--out", type=Path, required=True, help="output folder, normally <Data>/Meshes/CMB")
     ap.add_argument("--textures", type=Path, required=True, help="normally <Data>/Textures/CMB")
     ap.add_argument("--seat", type=Path, help="the riding clips folder (MT\\CMB_Rider, with CMB_RiderSeat.json)")
-    ap.add_argument("--tris", type=int, default=60000,
+    ap.add_argument("--tris", type=int, default=90000,
                     help="the triangle budget (the result runs about a third over it: the thin closed "
                          "tubes of the cables won't go down to their share)")
     ap.add_argument("--body", default="7a1118", help="the tank and fenders' colour, hex rgb")
-    ap.add_argument("--sit", type=float, default=0.35,
-                    help="the hips go this far along the seat from its front edge (0..1)")
+    ap.add_argument("--sit", type=float, default=0.27,
+                    help="the hips go this far along the seat from its front edge (0..1); 0.27 is snug behind the "
+                         "tank, where the arms, nearly straight on this bike, still reach the grips with the bars turned")
     ap.add_argument("--seat-at", type=float, help="instead of --sit: the parked model's y that goes under the hips")
     ap.add_argument("--grip", default="20,-15,98", help="the grip's centre on the +X side, parked model x,y,z")
     ap.add_argument("--peg", default="19,6,27", help="the foot peg's top on the +X side, parked model x,y,z")
     ap.add_argument("--steer", help="the steering axis if it isn't found: x,y,z of a point on it (parked model) and the rake in degrees")
-    ap.add_argument("--bar-angle", type=float, default=10.0, help="how far the bars turn, degrees (0: nothing moves)")
+    ap.add_argument("--bar-angle", type=float, default=20.0, help="how far the bars turn, degrees (0: nothing moves)")
     args = ap.parse_args()
     grip = np.array([float(t) for t in args.grip.split(",")])
     peg = np.array([float(t) for t in args.peg.split(",")])
@@ -513,8 +542,8 @@ def main() -> int:
           f"{parts['rear_axle'][2]:.1f}), radius {parts['wheel_radius']:.1f}; steering axis through "
           f"({parts['steer_point'][1]:.1f}, {parts['steer_point'][2]:.1f}) raked {rake:.0f} deg"
           + (f" (from {parts['tubes']} fork tubes)" if "tubes" in parts else " (--steer)"))
-    print(f"decimating to about {args.tris} triangles:")
-    pieces = decimate(groups, args.tris)
+    print(f"decimating to about {args.tris} triangles (the wheels' pieces at 2.5 times their area's share):")
+    pieces = decimate(groups, args.tris, weight=lambda v: 2.5 if wheel_of(v, parts) else 1.0)
     seat_front, seat_back = float(seat_v[:, 1].min()), float(seat_v[:, 1].max())
     hips_y = args.seat_at if args.seat_at is not None else seat_front + args.sit * (seat_back - seat_front)
     # The worn bike is turned round and shifted so the hips' spot lands at HIPS_Y_WORN.
@@ -562,7 +591,7 @@ def main() -> int:
     # shape whatever its pieces are made of (black rims, as on the real thing).
     buckets = {}
     for name, v, f in pieces:
-        role = role_of(v.mean(axis=0), parts) if args.bar_angle > 0 else ""
+        role = role_of(v, parts) if args.bar_angle > 0 else ""
         kind = "matte" if role.startswith("wheel") else MATERIALS[name][5]
         buckets.setdefault((role, kind), []).append((name, v, f))
     shapes = {}   # name -> (verts, tris, uvs, normals, kind, role), in the order they're made

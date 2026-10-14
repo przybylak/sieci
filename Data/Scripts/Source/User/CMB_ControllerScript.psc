@@ -347,6 +347,15 @@ Function UpgradeSettings()
 		endif
 		settingsVersion = 3
 	endif
+	if settingsVersion < 4
+		; Test 20: with the Harley's long front the wheel went into rock faces at 15; 20 keeps it
+		; out of more of them, the hands drifting off the grips by half a unit a degree.
+		if CMB_MaxTilt && CMB_MaxTilt.GetValue() == 15.0
+			CMB_MaxTilt.SetValue(20.0)
+			Log("Bike tilt: the old default 15 is now 20.")
+		endif
+		settingsVersion = 4
+	endif
 EndFunction
 
 ; The optional F4SE scripts live on this quest too. Looking them up by name

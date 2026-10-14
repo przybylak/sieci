@@ -970,6 +970,20 @@ static float Turned(float from) { return remainderf(*(float *)(g_player + 0xC8) 
 static void Mark(float p0[2]) { p0[0] = PlayerPos()[0]; p0[1] = PlayerPos()[1]; }
 static float Moved(const float p0[2]) { return hypotf(PlayerPos()[0] - p0[0], PlayerPos()[1] - p0[1]); }
 
+/* Riding by the keys, and for g_slideLeft seconds sliding to the right at 100 a second
+ * (the bike still going after a back press at speed with a side key held). */
+static float g_slideLeft;
+static void SlideAndDrive(float dt)
+{
+	FakeGameFrame(dt);
+	if (g_slideLeft > 0.0f) {
+		float h = *(float *)(g_player + 0xC8);
+		PlayerPos()[0] += cosf(h) * 100.0f * dt;
+		PlayerPos()[1] -= sinf(h) * 100.0f * dt;
+		g_slideLeft -= dt;
+	}
+}
+
 /* Rolling backwards at 80 a second, no keys. */
 static void RollBack(float dt)
 {
@@ -1120,6 +1134,18 @@ static void InputTests(void)
 	CHECK(MoveInput()[0] == 1.0f && MoveInput()[1] == 1.0f, "forward and right: left alone");
 	Keys(0.0f, 0.0f);
 	RunFrames(600);
+
+	printf("input hook: back pressed at speed with a side key, the bike still sliding (test 20): no verdict on the method:\n");
+	g_camYaw = *head;
+	Keys(0.0f, 1.0f);   /* riding at 900 */
+	RunFrames(1200);
+	Keys(1.0f, -1.0f);  /* back and right while still going: the plugin stops the drive, the slide goes on */
+	g_slideLeft = 0.6f;
+	g_onFrame = SlideAndDrive;
+	RunFrames(900);
+	g_onFrame = FakeGameFrame;
+	Keys(0.0f, 0.0f);
+	RunFrames(400);
 
 	printf("input hook: back gets the game nothing; the bike backs up in steps after rays (this game honours SetPosition):\n");
 	g_camYaw = *head;
@@ -1340,6 +1366,18 @@ static void InputTests(void)
 	Mark(p0);
 	RunFrames(600);
 	CHECK(Moved(p0) < 0.5f && MoveInput()[1] == 0.0f, "stands still (not driven forward), facing forward (%.2f deg off)", Turned(from));
+	Keys(0.0f, 0.0f);
+	RunFrames(300);
+
+	printf("input hook: a failed trial is tried again from a stop 3 s later (the game honouring SetPosition now):\n");
+	g_honour = 4;
+	RunFrames(3200);
+	from = *head;
+	Mark(p0);
+	Keys(0.0f, -1.0f);
+	RunFrames(1500);
+	along = Along(p0, from);
+	CHECK(along < -60.0f, "backing up again: %.0f along the heading in 1.5 s", along);
 	Keys(0.0f, 0.0f);
 	RunFrames(300);
 

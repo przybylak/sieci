@@ -146,6 +146,6 @@ tools/sound/                  engine sound synthesiser (Python + numpy)
 
 - Bike model: ["Harley Davidson Iron 883 2015"](https://sketchfab.com/3d-models/harley-davidson-iron-883-2015-612071b783f14a7288df2d361be9a244)
   by [Nieve5677](https://sketchfab.com/niev), licensed under [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/).
-  Converted for the game by `tools/rider/harley_meshes.py`: cut down from 1.3 million triangles to about 80,000,
+  Converted for the game by `tools/rider/harley_meshes.py`: cut down from 1.3 million triangles to about 110,000,
   coloured by part name (the download has no textures), scaled to the vanilla bike's length and put on the vanilla
   motorcycle's collision. The converted meshes aren't in this repository; anyone sharing them keeps this credit.

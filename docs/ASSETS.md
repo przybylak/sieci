@@ -82,9 +82,10 @@ that hang off the seated rider, which need the seat height the clips settled on 
 the clips takes a while (around 25 minutes for both sets).
 
 `harley_meshes.py` takes `--body <hex>` for the tank and fenders' colour (default a deep red, `7a1118`), `--tris`
-for the triangle budget (default 60000; the result runs about a third over it), `--sit` for how far back on
-the seat the rider sits (0.35 of the seat's length from its front) and `--bar-angle` for how far the bars turn
-(10 degrees; 0 builds one static set of shapes). The model comes out as eight shapes: three fixed, three that turn
+for the triangle budget (default 90000; the result runs about a fifth over it), `--sit` for how far back on
+the seat the rider sits (0.27 of the seat's length from its front: snug behind the tank, where the arms still reach the
+turned bars) and `--bar-angle` for how far the bars turn
+(20 degrees; 0 builds one static set of shapes). The model comes out as eight shapes: three fixed, three that turn
 with the bars and the two wheels, which the F4SE plugin moves (DESIGN.md); the clips' hands follow the bars. The model is scaled to the vanilla bike's
 length so the collision and the F4SE plugin's clearances still fit, which makes it about a quarter bigger than a
 real Iron 883 next to the character, as the vanilla bike is.

@@ -2998,6 +2998,7 @@ static bool g_pushOn;               /* backing up this frame */
 static bool g_pushClock;            /* the trial's clock runs (the bike has stopped rolling forward) */
 static uintptr_t g_pushCtrl;        /* pushing this controller (something to undo on letting go) */
 static float g_pushHeld;            /* seconds the trial has run */
+static float g_pushRetryAt;         /* after a failed trial: try the first way again from this time (0: no) */
 static float g_savedMod[4], g_savedModTime;
 static int g_ctrlCheck;             /* 0 not yet, 1 the controller's functions look right, -1 they don't */
 static float g_havok = HAVOK_SCALE; /* game units -> the controller's */
@@ -3505,6 +3506,16 @@ static float PushBack(uintptr_t player, float heading, float turn, float dt)
 	uintptr_t ctrl = FindController(player, false);
 	if (g_pushMethod < 0)
 		g_pushMethod = g_backPushFirst;
+	/* A failed trial isn't for good (test 20: the first back press came at 900 units a second
+	 * with a side key held, the trial saw the bike still rolling and called the method
+	 * wrong, and reverse was dead for the session): from a stop, 3 s later, it's tried again. */
+	if (g_pushMethod == PUSH_BRAKE && g_backPushAuto && !g_pushProven && g_pushRetryAt > 0.0f && g_clock >= g_pushRetryAt &&
+	    g_speed < 20.0f && turn == 0.0f) {
+		g_pushRetryAt = 0.0f;
+		g_pushMethod = g_backPushFirst;
+		StopPush();
+		Log("reverse: trying %s again, from a stop this time", g_pushNames[g_pushMethod]);
+	}
 	if (!ctrl || g_pushMethod == PUSH_BRAKE)
 		return heading;   /* braking: no turning either */
 	if (g_pushCtrl && g_pushCtrl != ctrl)
@@ -3551,10 +3562,10 @@ static float PushBack(uintptr_t player, float heading, float turn, float dt)
 	}
 	g_pushCtrl = ctrl;
 	g_pushOn = true;
-	if (!g_pushClock && g_speedAlong < 30.0f)
-		g_pushClock = true;   /* the trial starts once the bike has stopped going forward */
-	if (!g_pushClock || g_pushBlocked)
-		return used;   /* stopped by something behind: says nothing about the method */
+	if (!g_pushClock && g_speed < 20.0f && turn == 0.0f)
+		g_pushClock = true;   /* the trial starts once the bike is at rest, no side key */
+	if (!g_pushClock || g_pushBlocked || turn != 0.0f)
+		return used;   /* stopped by something behind, or swinging round: says nothing about the method */
 	g_pushHeld += dt;
 	if (g_pushProven)
 		return used;
@@ -3571,6 +3582,7 @@ static float PushBack(uintptr_t player, float heading, float turn, float dt)
 		         wrong ? wrong : "didn't move the bike back", g_speedAlong, g_speed, g_pushHeld);
 		StopPush();
 		NextPush(why);
+		g_pushRetryAt = g_clock + 3.0f;
 	} else {
 		g_pushHeld = -1000.0f;   /* a fixed method: logged once, kept anyway */
 		Log("reverse: %s didn't move the bike back (%+.0f along the heading after 0.6 s); kept (BackPush names it)",
@@ -3992,6 +4004,7 @@ static void OnF4SEMessage(F4SEMessage *msg)
 		g_pickState = 0;                        /* the rays' test ray again (a new world) */
 		g_pickRetryAt = 0.0f;
 		g_pushProven = false;
+		g_pushRetryAt = 0.0f;
 		memset(g_refused, 0, sizeof(g_refused));
 		TrackClear();
 		g_avgAge = 0.0f;
