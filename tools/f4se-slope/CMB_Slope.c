@@ -528,6 +528,9 @@ static int g_replicaCount;
 static int g_riderTilt = 1;
 static int g_riderSkinned = 1, g_riderPlain = 1, g_riderSwap = 1, g_riderWrite = 1;   /* A/B switches (test 25: 30 fps lost) */
 static bool g_riderIdle;                    /* the originals are in place: nothing written since */
+static bool g_riderLevel = true;            /* the tilt is within the deadband: the rider's shapes are left as they are */
+static bool NodeWorld(uintptr_t node, float N[9], float n[3], float *s);          /* defined with the rider */
+static bool NodeWorldChecked(uintptr_t node, float N[9], float n[3], float *s);
 static char g_iniPath[MAX_PATH];
 /* Where the frame time goes (test 25: about 7 ms a frame lost on the bike): QPC around the
  * frame, the bike's part, the rider's and the skin sync, averaged and the worst, per trace line. */
@@ -572,9 +575,11 @@ static int g_refusedCount;
 /* Accessible()'s memory regions, for one frame (the scene graph walk reads thousands
  * of pointers; asking Windows about each one would cost milliseconds). */
 typedef struct { uintptr_t start, end; bool writable; } Region;
-#define REGIONS 64
+#define REGIONS 256
 static Region g_regions[REGIONS];
 static int g_regionCount, g_regionNext;
+static DWORD g_regionsAt;                   /* when the cache was last emptied (every 5 s, a load, a changed 3D) */
+static int g_syncQueries;                   /* VirtualQuery calls inside the skin syncs, per trace line */
 
 /* ------------------------------------------------------------------------- */
 /* Log and settings                                                          */
@@ -875,11 +880,17 @@ static bool Accessible(uintptr_t p, size_t n, bool write)
 	return p + n <= end;
 }
 
-/* Called at the start of every frame: memory may have been freed since. */
+/* Test 26: one VirtualQuery costs about 100 us on the tester's PC (the kernel sizing a
+ * region of a huge committed heap), so emptying the cache every frame cost 11 queries a
+ * frame on the bike and 39 with the rider held (3.5 ms), and 45 a skin sync (4.5 ms every
+ * 0.1 s). The cache is kept across frames now: emptied on a load or a new game, when the
+ * player's 3D changes, and every 5 s in case the game gave a region back. Everything the
+ * plugin touches lives in the game's heaps, which it never unmaps. */
 static void ForgetRegions(void)
 {
 	g_regionCount = 0;
 	g_regionNext = 0;
+	g_regionsAt = GetTickCount();
 }
 
 static double Clock(void)
@@ -1811,8 +1822,12 @@ static void HoldSkin(uintptr_t data, uintptr_t skin, const char *name)
 	h->skin = skin;
 	h->node = 0;
 	uintptr_t nodes = SkinBoneNodes(skin, count);
-	if (nodes)
-		h->node = ReadPtr(nodes);
+	if (nodes) {
+		float N[9], n[3], sc;
+		uintptr_t node = ReadPtr(nodes);
+		if (node && NodeWorldChecked(node, N, n, &sc))
+			h->node = node;
+	}
 	memcpy(h->original, (const void *)bones, count * BONE_SIZE);
 	snprintf(h->name, sizeof(h->name), "%s", name);
 	int layout = LayoutFromSkin(h->original[0]);
@@ -2302,6 +2317,12 @@ static bool RiderBoneOk(const uint8_t *bone, char *why, size_t size)
 	return true;
 }
 
+/* A node readable, and its world transform one? For the hold: each frame then reads without asking. */
+static bool NodeWorldChecked(uintptr_t node, float N[9], float n[3], float *s)
+{
+	return node && !(node & 7) && Accessible(node + OFF_WORLD_ROT, 0x40, false) && NodeWorld(node, N, n, s);
+}
+
 /* A skinned shape of the rider: can it be held? False with the reason (the first bone that fails). */
 static bool RiderSkinOk(uintptr_t skin, uintptr_t data, char *why, size_t size)
 {
@@ -2323,17 +2344,28 @@ static bool RiderSkinOk(uintptr_t skin, uintptr_t data, char *why, size_t size)
 			return false;
 		}
 	}
-	if (!SkinBoneNodes(skin, count)) {
+	uintptr_t nodes = SkinBoneNodes(skin, count);
+	if (!nodes) {
 		snprintf(why, size, "its skin instance doesn't list its %u bones where expected", count);
 		return false;
+	}
+	for (uint32_t b = 0; b < count; b++) {
+		uintptr_t node = ((const uintptr_t *)nodes)[b];
+		float N[9], n[3], sc;
+		if (node && !NodeWorldChecked(node, N, n, &sc)) {
+			snprintf(why, size, "bone %u of %u: its node's world transform can't be read", b, count);
+			return false;
+		}
 	}
 	return true;
 }
 
-/* A node's world transform (rotation as x' = N x, position, scale), if it reads as one. */
+/* A node's world transform (rotation as x' = N x, position, scale), if it reads as one. No
+ * accessibility check (test 26: a VirtualQuery a bone was the frame's whole cost): the node
+ * was read at hold time, and the player's 3D is walked again every 0.1 s. */
 static bool NodeWorld(uintptr_t node, float N[9], float n[3], float *s)
 {
-	if (!node || (node & 7) || !Accessible(node + OFF_WORLD_ROT, 0x40, false))
+	if (!node || (node & 7))
 		return false;
 	ReadRot((const float *)(node + OFF_WORLD_ROT), N);
 	memcpy(n, (const void *)(node + OFF_WORLD_POS), 12);
@@ -2598,6 +2630,8 @@ static void SyncRider(uintptr_t player, const SkinList *list, bool wanted)
 			gone++;
 		}
 	}
+	if (gone && wanted)
+		ForgetRegions();   /* something of the 3D went */
 	if (gone)
 		Log("rider: %d shape(s) back as they were and let go (%s), %d still held", gone, wanted ? "no longer on the rider" : "the tilt is off", g_riderCount);
 	if (!wanted || g_riderBlocked || !list->riderCount || !RiderWorldOk(player))
@@ -2687,7 +2721,12 @@ static void FrameRider(bool tilt, const float R[9], const float P[3])
 		if (g_skins[k].node && (!bike || (bike->role != ROLE_NONE && g_skins[k].role == ROLE_NONE)))
 			bike = &g_skins[k];
 	float Nb[9], nb[3], sb;
-	bool level = g_tiltNow < 0.02f;   /* no tilt: the originals are right, and nothing need be written each frame */
+	/* Level: the originals are right and nothing need be written. With a deadband (test 26: the
+	 * applied pitch wobbles a degree on ordinary ground): level under half a degree, tilted
+	 * again over one. */
+	if (g_riderLevel ? g_tiltNow > 1.0f : g_tiltNow < 0.5f)
+		g_riderLevel = !g_riderLevel;
+	bool level = g_riderLevel;
 	bool ready = tilt && g_riderTilt && g_riderWrite && !level && bike && NodeWorld(bike->node, Nb, nb, &sb);
 	g_riderApplied = ready;
 	if (!ready) {
@@ -2722,8 +2761,6 @@ static void FrameRider(bool tilt, const float R[9], const float P[3])
 		RiderPart *p = &g_rider[i];
 		float N[9], n[3], s, C[9], c[3];
 		if (p->skin) {
-			if (!Accessible(p->nodes, (size_t)p->count * 8, false))
-				continue;
 			for (int b = 0; b < p->count; b++) {
 				uintptr_t node = ((const uintptr_t *)p->nodes)[b];
 				const uint8_t *saved = p->saved + (size_t)b * BONE_SIZE;
@@ -2742,9 +2779,7 @@ static void FrameRider(bool tilt, const float R[9], const float P[3])
 				*(float *)(live + OFF_BONE_RADIUS) = radius > 0.0f ? radius + sqrtf(dx * dx + dy * dy + dz * dz) : radius;   /* an empty sphere stays empty */
 			}
 		} else {
-			if (!Accessible((uintptr_t)p->live, 0x40, true))
-				continue;
-			uintptr_t parent = ReadPtr(p->shape + OFF_PARENT);
+			uintptr_t parent = *(const uintptr_t *)(p->shape + OFF_PARENT);   /* the shape is ours to keep: readable */
 			if (!NodeWorld(parent, N, n, &s)) {
 				memcpy(p->live, p->saved, 0x3C);
 				continue;
@@ -2755,10 +2790,16 @@ static void FrameRider(bool tilt, const float R[9], const float P[3])
 	}
 }
 
+static uintptr_t g_lastRoot;
+
 static void SyncSkins(uintptr_t player, bool riderWanted)
 {
 	SkinList list = { .count = 0 };
 	uintptr_t root = Root3D(player);
+	if (root != g_lastRoot) {
+		g_lastRoot = root;
+		ForgetRegions();   /* a rebuilt 3D: the old nodes' memory may be gone */
+	}
 	WalkFrom(root, &list, false);
 	int fromRoot = list.count;
 	uintptr_t biped = Biped(player);
@@ -2783,8 +2824,10 @@ static void SyncSkins(uintptr_t player, bool riderWanted)
 		bool still = false;
 		for (int j = 0; j < list.count; j++)
 			still |= list.found[j] == g_skins[i].boneData;
-		if (!still)
+		if (!still) {
 			LetGo(i, "no longer worn");
+			ForgetRegions();   /* something of the 3D went */
+		}
 	}
 	for (int j = 0; j < list.count && g_skinCount < MAX_SKINS; j++) {
 		bool held = false;
@@ -2964,14 +3007,15 @@ static void FrameTilt(void)
 		if (g_riderCount)
 			Log(g_riderApplied ? "rider: %d shape(s) tilted with the bike about (%.0f, %.0f, %.0f)" : "rider: %d shape(s) held, level",
 			    g_riderCount, g_riderPivot[0], g_riderPivot[1], g_riderPivot[2]);
-		Log("time: frame %.0f us avg, %.0f max, over %d (bike %.0f/%.0f, rider %.0f/%.0f); sync %.0f us avg, %.0f max, over %d; %.1f memory queries a frame",
+		Log("time: frame %.0f us avg, %.0f max, over %d (bike %.0f/%.0f, rider %.0f/%.0f); sync %.0f us avg, %.0f max, over %d, %.1f queries each; %.2f memory queries a frame in all",
 		    TimeAvgUs(&g_tFrame), g_tFrame.max * 1e6, g_tFrame.n, TimeAvgUs(&g_tTilt), g_tTilt.max * 1e6, TimeAvgUs(&g_tRider), g_tRider.max * 1e6,
-		    TimeAvgUs(&g_tSync), g_tSync.max * 1e6, g_tSync.n, g_queryFrames ? (double)g_queries / g_queryFrames : 0.0);
+		    TimeAvgUs(&g_tSync), g_tSync.max * 1e6, g_tSync.n, g_tSync.n ? (double)g_syncQueries / g_tSync.n : 0.0,
+		    g_queryFrames ? (double)g_queries / g_queryFrames : 0.0);
 		memset(&g_tFrame, 0, sizeof(g_tFrame));
 		memset(&g_tTilt, 0, sizeof(g_tTilt));
 		memset(&g_tRider, 0, sizeof(g_tRider));
 		memset(&g_tSync, 0, sizeof(g_tSync));
-		g_queries = g_queryFrames = 0;
+		g_queries = g_queryFrames = g_syncQueries = 0;
 		g_steerWanted = 0.0f;
 		g_steerClamped = 0;
 	}
@@ -3672,13 +3716,27 @@ static void HookPerFrame(uintptr_t self, uintptr_t a, uintptr_t b, uintptr_t c)
 
 /* Readable memory, asked of Windows each time (the movement update may run on another
  * thread than the task, which owns the region cache). */
+static __thread struct { uintptr_t start, end; DWORD at; } t_readable[4];
+static __thread int t_readableNext;
+
 static bool ReadableNow(uintptr_t p, size_t n)
 {
+	if (p < 0x10000)
+		return false;
+	DWORD now = GetTickCount();   /* a few regions remembered for 5 s, on this thread (test 26: the query is dear) */
+	for (int i = 0; i < 4; i++)
+		if (t_readable[i].end && p >= t_readable[i].start && p + n <= t_readable[i].end && now - t_readable[i].at < 5000)
+			return true;
 	MEMORY_BASIC_INFORMATION mbi;
-	if (p < 0x10000 || VirtualQuery((const void *)p, &mbi, sizeof(mbi)) != sizeof(mbi) || mbi.State != MEM_COMMIT ||
+	g_queries++;
+	if (VirtualQuery((const void *)p, &mbi, sizeof(mbi)) != sizeof(mbi) || mbi.State != MEM_COMMIT ||
 	    (mbi.Protect & (PAGE_GUARD | PAGE_NOACCESS)) || !(mbi.Protect & (PAGE_READONLY | PAGE_READWRITE | PAGE_WRITECOPY |
 	    PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)))
 		return false;
+	int slot = t_readableNext++ % 4;
+	t_readable[slot].start = (uintptr_t)mbi.BaseAddress;
+	t_readable[slot].end = (uintptr_t)mbi.BaseAddress + mbi.RegionSize;
+	t_readable[slot].at = now;
 	return p + n <= (uintptr_t)mbi.BaseAddress + mbi.RegionSize;
 }
 
@@ -4756,8 +4814,10 @@ static void Tick(DWORD now)
 		ReadRiderSwitches(false);
 	if (tilt > 0.0f || (riding && g_partsOk)) {
 		double t0 = Clock();
+		int q0 = g_queries;
 		SyncSkins(Player(), tilt > 0.0f);
 		TimeAdd(&g_tSync, t0);
+		g_syncQueries += g_queries - q0;
 	} else {
 		if (g_skinCount || g_riderCount)   /* test 24: the bike's skins had gone first, and the rider's stayed held */
 			LetGoAll("got off");
@@ -4841,8 +4901,9 @@ static void Task_Run(Task *self)
 	(void)self;
 	if (!g_dataReady)
 		return;
-	ForgetRegions();
 	DWORD now = GetTickCount();
+	if (now - g_regionsAt >= 5000)
+		ForgetRegions();
 	if (now - g_lastTick >= g_interval) {
 		g_lastTick = now;
 		Tick(now);
