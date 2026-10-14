@@ -29,4 +29,6 @@ run wrongversion 2 "$KNOWN$TILT0"
 run transposed 4 "$KNOWN$TILT0"
 run disagree 5 "$KNOWN$TILT0"
 run backpush 6 "$KNOWN[Tilt]\nTrace=1\nPivotForward=0\n[Steer]\nBackPush=mod\n"
+run riderinplace 7 "$KNOWN[Tilt]\nMaxRoll=10\nPivotForward=0\nRiderSwap=0\nRiderPlain=0\n$PARTS"
+run riderheldonly 8 "$KNOWN[Tilt]\nMaxRoll=10\nPivotForward=0\nRiderWrite=0\nRiderSkinned=0\n$PARTS"
 exit $status

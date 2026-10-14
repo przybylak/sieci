@@ -2167,6 +2167,47 @@ static void TiltTests(void)
 	RunFrames(200);
 }
 
+/* The rider's A/B switches (test 25: 30 fps lost on the bike): RiderSwap=0 writes the game's
+ * own bone data in place, RiderPlain=0 leaves the plain shapes alone (mode 7); RiderWrite=0
+ * holds (and swaps) but never writes, RiderSkinned=0 leaves the skinned shapes alone (mode 8). */
+static void RiderSwitchTests(int mode)
+{
+	const float back[3] = { -sinf(HEADING), -cosf(HEADING), 0.0f };
+	printf("rider switches (%s):\n", mode == 7 ? "RiderSwap=0 RiderPlain=0" : "RiderWrite=0 RiderSkinned=0");
+	SetNormalTowards(back, 20.0f);
+	SetTilt(30.0f);
+	RunFrames(1500);
+	CHECK(*BoneDataRefs() == 3, "the bike held and tilted (references %d)", *BoneDataRefs());
+	if (mode == 7) {
+		CHECK(*(uint8_t **)(g_bodySkin + 0x40) == g_bodyData && *(int32_t *)(g_bodySkin + 0x08) == 2,
+		      "the body held without a swap: its skin instance still points at the game's bone data (references %d)", *(int32_t *)(g_bodySkin + 0x08));
+		float Rw[9], Pw[3], worst = 0.0f;
+		ExpectedTilt(Rw, Pw);
+		static const float v[3] = { 10, 20, 30 };
+		for (int b = 0; b < 3; b++) {
+			float before[3], after[3];
+			WorldOfBone(g_bodyNodes[b], g_bodyBonesOriginal + b * 0x50, v, before);
+			WorldOfBone(g_bodyNodes[b], g_bodyBones + b * 0x50, v, after);
+			float off = TiltedOff(before, after, Rw, Pw);
+			worst = off > worst ? off : worst;
+		}
+		CHECK(memcmp(g_bodyBones, g_bodyBonesOriginal, sizeof(g_bodyBonesOriginal)) != 0 && worst < 0.05f,
+		      "the game's own bone data written in place with the tilt (points within %.3f)", worst);
+		CHECK(memcmp(g_pipboyShape + 0x30, g_pipboyLocalOriginal, 0x40) == 0 && *(int32_t *)(g_pipboyShape + 0x08) == 1,
+		      "the plain shape left alone, not held");
+	} else {
+		CHECK(*(uint8_t **)(g_bodySkin + 0x40) == g_bodyData && *(int32_t *)(g_bodySkin + 0x08) == 1 &&
+		      memcmp(g_bodyBones, g_bodyBonesOriginal, sizeof(g_bodyBonesOriginal)) == 0, "the body left alone, not held");
+		CHECK(*(int32_t *)(g_pipboyShape + 0x08) == 2 && memcmp(g_pipboyShape + 0x30, g_pipboyLocalOriginal, 0x40) == 0,
+		      "the plain shape held (references %d) but never written", *(int32_t *)(g_pipboyShape + 0x08));
+	}
+	SetTilt(0.0f);
+	RunFrames(300);
+	CHECK(memcmp(g_bodyBones, g_bodyBonesOriginal, sizeof(g_bodyBonesOriginal)) == 0 && *(int32_t *)(g_bodySkin + 0x08) == 1 &&
+	      *(int32_t *)(g_pipboyShape + 0x08) == 1 && memcmp(g_pipboyShape + 0x30, g_pipboyLocalOriginal, 0x40) == 0 && *BoneDataRefs() == 2,
+	      "getting off: everything back and let go of");
+}
+
 int main(int argc, char **argv)
 {
 	const char *dllPath = argc > 1 ? argv[1] : "CMB_Slope.dll";
@@ -2204,6 +2245,13 @@ int main(int argc, char **argv)
 		Send(10, 1);   /* GameDataReady */
 		RunFrames(300);
 		BackPushModTests();
+		printf("%s\n", g_failures ? "FAILED" : "all ok");
+		return g_failures ? 1 : 0;
+	}
+	if (mode == 7 || mode == 8) {
+		Send(10, 1);   /* GameDataReady */
+		RunFrames(300);
+		RiderSwitchTests(mode);
 		printf("%s\n", g_failures ? "FAILED" : "all ok");
 		return g_failures ? 1 : 0;
 	}

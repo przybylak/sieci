@@ -526,6 +526,14 @@ typedef struct { uintptr_t obj; uint8_t *entries; int capacity; bool inUse; } Re
 static Replica g_replicas[MAX_RIDER * 2];   /* never freed: a reference the game still holds must never find them gone */
 static int g_replicaCount;
 static int g_riderTilt = 1;
+static int g_riderSkinned = 1, g_riderPlain = 1, g_riderSwap = 1, g_riderWrite = 1;   /* A/B switches (test 25: 30 fps lost) */
+static bool g_riderIdle;                    /* the originals are in place: nothing written since */
+static char g_iniPath[MAX_PATH];
+/* Where the frame time goes (test 25: about 7 ms a frame lost on the bike): QPC around the
+ * frame, the bike's part, the rider's and the skin sync, averaged and the worst, per trace line. */
+typedef struct { double sum, max; int n; } Timing;
+static Timing g_tFrame, g_tTilt, g_tRider, g_tSync;
+static int g_queries, g_queryFrames;        /* VirtualQuery calls (the region cache's misses), and frames */
 static bool g_riderWorldChecked, g_riderWorldOk, g_riderBoneWarned;
 static bool g_riderBlocked;                 /* this ride: a skinned shape couldn't be held, so none is (a part-tilted rider tears) */
 static float g_riderPivot[3];
@@ -564,8 +572,9 @@ static int g_refusedCount;
 /* Accessible()'s memory regions, for one frame (the scene graph walk reads thousands
  * of pointers; asking Windows about each one would cost milliseconds). */
 typedef struct { uintptr_t start, end; bool writable; } Region;
-static Region g_regions[16];
-static int g_regionCount;
+#define REGIONS 64
+static Region g_regions[REGIONS];
+static int g_regionCount, g_regionNext;
 
 /* ------------------------------------------------------------------------- */
 /* Log and settings                                                          */
@@ -607,6 +616,21 @@ static void OpenLog(void)
 
 static void ReadParts(const char *ini);
 
+/* The rider's switches, read again on every mount (an A/B needs no restart; test 25). */
+static void ReadRiderSwitches(bool log)
+{
+	const char *ini = g_iniPath;
+	int was[5] = { g_riderTilt, g_riderSkinned, g_riderPlain, g_riderSwap, g_riderWrite };
+	g_riderTilt = (int)GetPrivateProfileIntA("Tilt", "Rider", 1, ini);
+	g_riderSkinned = (int)GetPrivateProfileIntA("Tilt", "RiderSkinned", 1, ini);
+	g_riderPlain = (int)GetPrivateProfileIntA("Tilt", "RiderPlain", 1, ini);
+	g_riderSwap = (int)GetPrivateProfileIntA("Tilt", "RiderSwap", 1, ini);
+	g_riderWrite = (int)GetPrivateProfileIntA("Tilt", "RiderWrite", 1, ini);
+	if (log || was[0] != g_riderTilt || was[1] != g_riderSkinned || was[2] != g_riderPlain || was[3] != g_riderSwap || was[4] != g_riderWrite)
+		Log("  rider: Rider=%d RiderSkinned=%d RiderPlain=%d RiderSwap=%d RiderWrite=%d%s", g_riderTilt, g_riderSkinned, g_riderPlain,
+		    g_riderSwap, g_riderWrite, log ? "" : " (read again on getting on)");
+}
+
 static void ReadSettings(void)
 {
 	char ini[MAX_PATH], value[256];
@@ -615,6 +639,7 @@ static void ReadSettings(void)
 	if (!dot)
 		return;
 	strcpy(dot, ".ini");
+	snprintf(g_iniPath, sizeof(g_iniPath), "%s", ini);
 	GetPrivateProfileStringA("Slope", "Target", "controller", value, sizeof(value), ini);
 	g_target = _stricmp(value, "proxy") == 0 ? TARGET_PROXY : TARGET_CONTROLLER;
 	GetPrivateProfileStringA("Slope", "SlopeOffset", "", value, sizeof(value), ini);
@@ -738,7 +763,6 @@ static void ReadSettings(void)
 	g_backBelow = strtof(value, NULL);
 	if (!(g_backBelow >= 0.0f && g_backBelow <= 1000.0f))
 		g_backBelow = 30.0f;
-	g_riderTilt = (int)GetPrivateProfileIntA("Tilt", "Rider", 1, ini);
 	GetPrivateProfileStringA("Tilt", "Shapes", "CMB_BikeWorn", g_shapePrefix, sizeof(g_shapePrefix), ini);
 	GetPrivateProfileStringA("Tilt", "Layout", "auto", value, sizeof(value), ini);
 	g_layoutSetting = _stricmp(value, "file") == 0 ? LAYOUT_FILE : _stricmp(value, "transposed") == 0 ? LAYOUT_TRANSPOSED : LAYOUT_UNKNOWN;
@@ -758,6 +782,7 @@ static void ReadSettings(void)
 	    g_steer, g_fullSpeed, g_inputHook, g_creep, g_creepStart, g_creepBelow, g_creepRadius, g_reverse, g_backSpeed,
 	    g_backPushAuto ? "auto" : pushValueNames[g_backPushFirst], g_backClearance, g_backSink, g_backSupportCheck,
 	    g_throttleOn, g_accel, g_coast, g_brake, g_lead, g_backBelow);
+	ReadRiderSwitches(true);
 	ReadParts(ini);
 }
 
@@ -832,6 +857,7 @@ static bool Accessible(uintptr_t p, size_t n, bool write)
 			return true;
 	}
 	MEMORY_BASIC_INFORMATION mbi;
+	g_queries++;
 	if (VirtualQuery((const void *)p, &mbi, sizeof(mbi)) != sizeof(mbi))
 		return false;
 	if (mbi.State != MEM_COMMIT || (mbi.Protect & (PAGE_GUARD | PAGE_NOACCESS)))
@@ -842,7 +868,7 @@ static bool Accessible(uintptr_t p, size_t n, bool write)
 	if (!(mbi.Protect & (write ? writable : readable)))
 		return false;
 	uintptr_t end = (uintptr_t)mbi.BaseAddress + mbi.RegionSize;
-	Region *r = &g_regions[g_regionCount < 16 ? g_regionCount++ : (int)((p >> 12) % 16)];
+	Region *r = &g_regions[g_regionCount < REGIONS ? g_regionCount++ : (g_regionNext++ % REGIONS)];
 	r->start = (uintptr_t)mbi.BaseAddress;
 	r->end = end;
 	r->writable = (mbi.Protect & writable) != 0;
@@ -853,6 +879,28 @@ static bool Accessible(uintptr_t p, size_t n, bool write)
 static void ForgetRegions(void)
 {
 	g_regionCount = 0;
+	g_regionNext = 0;
+}
+
+static double Clock(void)
+{
+	LARGE_INTEGER now;
+	QueryPerformanceCounter(&now);
+	return g_qpcFrequency.QuadPart ? (double)now.QuadPart / (double)g_qpcFrequency.QuadPart : 0.0;
+}
+
+static void TimeAdd(Timing *t, double start)
+{
+	double d = Clock() - start;
+	t->sum += d;
+	if (d > t->max)
+		t->max = d;
+	t->n++;
+}
+
+static double TimeAvgUs(const Timing *t)
+{
+	return t->n ? t->sum / t->n * 1e6 : 0.0;
 }
 
 static bool InImage(uintptr_t p, size_t n)
@@ -2405,28 +2453,39 @@ static void HoldRider(uintptr_t shape, uintptr_t skin, uintptr_t data, const cha
 			return;
 		}
 		uintptr_t nodes = SkinBoneNodes(skin, count);
-		Replica *r = TakeReplica(data, (int)count);
-		if (!r) {
+		Replica *r = g_riderSwap ? TakeReplica(data, (int)count) : NULL;
+		if (g_riderSwap && !r) {
+			Refuse(shape);
+			return;
+		}
+		if (!g_riderSwap && !Accessible(bones, count * BONE_SIZE, true)) {
 			Refuse(shape);
 			return;
 		}
 		p->saved = (uint8_t *)malloc(count * BONE_SIZE);
 		if (!p->saved) {
-			FreeReplica(r->obj);
+			if (r)
+				FreeReplica(r->obj);
 			Refuse(shape);
 			return;
 		}
 		memcpy(p->saved, (const void *)bones, count * BONE_SIZE);
-		memcpy(r->entries, (const void *)bones, count * BONE_SIZE);
-		p->live = r->entries;
-		p->replica = r->obj;
+		if (r) {
+			memcpy(r->entries, (const void *)bones, count * BONE_SIZE);
+			p->live = r->entries;
+			p->replica = r->obj;
+		} else {
+			p->live = (uint8_t *)bones;   /* RiderSwap=0: the game's own, written in place (an A/B: NPCs in the same mesh get it too) */
+			p->replica = 0;
+		}
 		p->original = data;
 		p->nodes = nodes;
 		p->count = (int)count;
 		p->skin = skin;
 		Retain(skin);
 		Retain(shape);
-		*(volatile uintptr_t *)(skin + OFF_SKIN_BONE_DATA) = r->obj;
+		if (r)
+			*(volatile uintptr_t *)(skin + OFF_SKIN_BONE_DATA) = r->obj;
 	} else {
 		uintptr_t parent = ReadPtr(shape + OFF_PARENT);
 		if (!Accessible(shape + OFF_LOCAL_ROT, 0x40, true) || !LooksLikeTransform((const uint8_t *)(shape + OFF_LOCAL_ROT)) ||
@@ -2452,7 +2511,11 @@ static void HoldRider(uintptr_t shape, uintptr_t skin, uintptr_t data, const cha
 static void LetGoRider(int i, const char *why)
 {
 	RiderPart *p = &g_rider[i];
-	if (p->skin) {
+	if (p->skin && !p->replica) {
+		if (Accessible((uintptr_t)p->live, (size_t)p->count * BONE_SIZE, true))
+			memcpy(p->live, p->saved, (size_t)p->count * BONE_SIZE);
+		Release(p->skin);
+	} else if (p->skin) {
 		if (Accessible(p->skin + OFF_SKIN_BONE_DATA, 8, true) && *(const volatile uintptr_t *)(p->skin + OFF_SKIN_BONE_DATA) == p->replica)
 			*(volatile uintptr_t *)(p->skin + OFF_SKIN_BONE_DATA) = p->original;
 		else
@@ -2505,6 +2568,22 @@ static void LogNames(const char *prefix, const SkinList *list, const bool *pick,
 		Log("%s%s", prefix, line);
 }
 
+/* The bike's own skin? The walk from the 3D root sees a bike shape that's found only through
+ * the biped (the planted variant: no COM bind, renamed by the game) before it knows it's the
+ * bike's, and offers it as the rider's; it's the bike's once the biped walk has said so. */
+static bool BikeSkin(const SkinList *list, uintptr_t skin)
+{
+	if (!skin)
+		return false;
+	for (int i = 0; i < list->count; i++)
+		if (list->skins[i] == skin)
+			return true;
+	for (int k = 0; k < g_skinCount; k++)
+		if (g_skins[k].skin == skin)
+			return true;
+	return false;
+}
+
 static void SyncRider(uintptr_t player, const SkinList *list, bool wanted)
 {
 	int gone = 0;
@@ -2512,6 +2591,8 @@ static void SyncRider(uintptr_t player, const SkinList *list, bool wanted)
 		bool still = false;
 		for (int j = 0; wanted && j < list->riderCount && !still; j++)
 			still = list->riderShape[j] == g_rider[i].shape;
+		if (still && BikeSkin(list, g_rider[i].skin))
+			still = false;   /* the bike's after all */
 		if (!still) {
 			LetGoRider(i, wanted ? "no longer on the rider" : "the tilt is off");
 			gone++;
@@ -2524,7 +2605,7 @@ static void SyncRider(uintptr_t player, const SkinList *list, bool wanted)
 	/* All or nothing: a skinned shape that can't be held leaves the rider level (test 24: the
 	 * suit stayed level while the body under it pitched, and the rider tore). */
 	for (int j = 0; j < list->riderCount; j++) {
-		if (!list->riderSkin[j])
+		if (!list->riderSkin[j] || !g_riderSkinned || BikeSkin(list, list->riderSkin[j]))
 			continue;
 		bool held = false;
 		for (int i = 0; i < g_riderCount && !held; i++)
@@ -2551,6 +2632,8 @@ static void SyncRider(uintptr_t player, const SkinList *list, bool wanted)
 		uintptr_t shape = list->riderShape[j];
 		if (g_riderCount >= MAX_RIDER)
 			break;
+		if (list->riderSkin[j] ? !g_riderSkinned || BikeSkin(list, list->riderSkin[j]) : !g_riderPlain)
+			continue;
 		bool held = false;
 		for (int i = 0; i < g_riderCount && !held; i++)
 			held = g_rider[i].shape == shape;
@@ -2586,9 +2669,9 @@ static void RestoreRider(void)
 {
 	for (int i = 0; i < g_riderCount; i++) {
 		RiderPart *p = &g_rider[i];
-		if (p->skin)
+		if (p->skin && (p->replica || Accessible((uintptr_t)p->live, (size_t)p->count * BONE_SIZE, true)))
 			memcpy(p->live, p->saved, (size_t)p->count * BONE_SIZE);
-		else if (Accessible((uintptr_t)p->live, 0x40, true))
+		else if (!p->skin && Accessible((uintptr_t)p->live, 0x40, true))
 			memcpy(p->live, p->saved, 0x3C);
 	}
 }
@@ -2604,16 +2687,21 @@ static void FrameRider(bool tilt, const float R[9], const float P[3])
 		if (g_skins[k].node && (!bike || (bike->role != ROLE_NONE && g_skins[k].role == ROLE_NONE)))
 			bike = &g_skins[k];
 	float Nb[9], nb[3], sb;
-	bool ready = tilt && g_riderTilt && bike && NodeWorld(bike->node, Nb, nb, &sb);
+	bool level = g_tiltNow < 0.02f;   /* no tilt: the originals are right, and nothing need be written each frame */
+	bool ready = tilt && g_riderTilt && g_riderWrite && !level && bike && NodeWorld(bike->node, Nb, nb, &sb);
 	g_riderApplied = ready;
 	if (!ready) {
-		if (tilt && g_riderTilt && g_skinCount && !g_riderBoneWarned) {
+		if (tilt && g_riderTilt && g_skinCount && !level && !bike && !g_riderBoneWarned) {
 			g_riderBoneWarned = true;
 			Log("rider: the bike's bone can't be read (its skin instance doesn't list it where expected): the rider stays level");
 		}
-		RestoreRider();
+		if (!g_riderIdle) {
+			RestoreRider();
+			g_riderIdle = true;
+		}
 		return;
 	}
+	g_riderIdle = false;
 	float A[9], t[3], At[9], AP[3], Pbone[3], T9[9], ARA[9], Nbt[9], Pw[3], Rw[9], NP[3];
 	ReadRot((const float *)(bike->original[0] + OFF_BONE_ROT), A);
 	memcpy(t, bike->original[0] + OFF_BONE_POS, 12);
@@ -2876,6 +2964,14 @@ static void FrameTilt(void)
 		if (g_riderCount)
 			Log(g_riderApplied ? "rider: %d shape(s) tilted with the bike about (%.0f, %.0f, %.0f)" : "rider: %d shape(s) held, level",
 			    g_riderCount, g_riderPivot[0], g_riderPivot[1], g_riderPivot[2]);
+		Log("time: frame %.0f us avg, %.0f max, over %d (bike %.0f/%.0f, rider %.0f/%.0f); sync %.0f us avg, %.0f max, over %d; %.1f memory queries a frame",
+		    TimeAvgUs(&g_tFrame), g_tFrame.max * 1e6, g_tFrame.n, TimeAvgUs(&g_tTilt), g_tTilt.max * 1e6, TimeAvgUs(&g_tRider), g_tRider.max * 1e6,
+		    TimeAvgUs(&g_tSync), g_tSync.max * 1e6, g_tSync.n, g_queryFrames ? (double)g_queries / g_queryFrames : 0.0);
+		memset(&g_tFrame, 0, sizeof(g_tFrame));
+		memset(&g_tTilt, 0, sizeof(g_tTilt));
+		memset(&g_tRider, 0, sizeof(g_tRider));
+		memset(&g_tSync, 0, sizeof(g_tSync));
+		g_queries = g_queryFrames = 0;
 		g_steerWanted = 0.0f;
 		g_steerClamped = 0;
 	}
@@ -2888,6 +2984,7 @@ static void FrameTilt(void)
 	 * cover what they did. */
 	float P[3] = { 0.0f, g_pivotForward, g_pivotHeight };
 	static const float xAxis[3] = { 1.0f, 0.0f, 0.0f }, zAxis[3] = { 0.0f, 0.0f, 1.0f };
+	double tBike = Clock();
 	for (int k2 = 0; k2 < g_skinCount; k2++) {
 		HeldSkin *hs = &g_skins[k2];
 		if (hs->role == ROLE_UNKNOWN)
@@ -2931,7 +3028,10 @@ static void FrameTilt(void)
 			*(float *)(live + OFF_BONE_RADIUS) = radius + sqrtf(dx * dx + dy * dy + dz * dz);
 		}
 	}
+	TimeAdd(&g_tTilt, tBike);
+	double tRider = Clock();
 	FrameRider(tilt, R, P);
+	TimeAdd(&g_tRider, tRider);
 }
 
 /* ------------------------------------------------------------------------- */
@@ -4652,8 +4752,12 @@ static void Tick(DWORD now)
 
 	/* The skins are held while the tilt is on, or on any ride when the bike has moving parts
 	 * (the tilt turned off in the menu still leaves the wheels spinning). */
+	if (riding && !g_wasRiding)
+		ReadRiderSwitches(false);
 	if (tilt > 0.0f || (riding && g_partsOk)) {
+		double t0 = Clock();
 		SyncSkins(Player(), tilt > 0.0f);
+		TimeAdd(&g_tSync, t0);
 	} else {
 		if (g_skinCount || g_riderCount)   /* test 24: the bike's skins had gone first, and the rider's stayed held */
 			LetGoAll("got off");
@@ -4710,6 +4814,7 @@ static void Tick(DWORD now)
 /* Every frame while riding: keep the limit written (cheap: cached chain only), tilt the bike. */
 static void Frame(void)
 {
+	double t0 = Clock();
 	FrameTime();
 	FrameSteer();
 	SampleGround();
@@ -4721,6 +4826,8 @@ static void Frame(void)
 			ApplySlope(target, degrees);
 	}
 	FrameTilt();
+	TimeAdd(&g_tFrame, t0);
+	g_queryFrames++;
 }
 
 static void *Task_Destroy(Task *self, unsigned flags)
