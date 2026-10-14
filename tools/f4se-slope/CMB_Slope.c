@@ -455,18 +455,36 @@ static uintptr_t g_stateCtrl;           /* the controller the state check below 
 static bool g_stateTrusted;
 static int g_lastState = -1, g_stateLogs;
 
-/* Tilt: the worn bike's skins we hold, and what they were. */
-#define MAX_SKINS 4
+/* Tilt: the worn bike's skins we hold, and what they were. The Harley build has eight
+ * shapes: three static, three that turn with the bars and the two wheels. */
+#define MAX_SKINS 12
 #define MAX_BONES 4
+enum { ROLE_UNKNOWN = -1, ROLE_NONE, ROLE_WHEEL_F, ROLE_WHEEL_R, ROLE_FRONT };
 typedef struct {
 	uintptr_t boneData;                 /* BSSkin::BoneData, with a reference of ours */
 	uintptr_t bones;                    /* its BoneTransforms */
 	int count;
 	uint8_t original[MAX_BONES][BONE_SIZE];
 	char name[48];
+	int role;                           /* which moving part it is (ROLE_*), told by its culling sphere */
+	float centre[3];                    /* its culling sphere's centre in the bike's own space */
 } HeldSkin;
 static HeldSkin g_skins[MAX_SKINS];
 static int g_skinCount;
+
+/* The moving parts (CMB_BikeParts.ini, written by harley_meshes.py next to the meshes, in
+ * the worn bike's own space: +Y forward, Z up). A shape whose culling sphere sits on an
+ * axle is a wheel and spins with the distance ridden; one whose sphere is ahead of
+ * FrontMinY is the bar assembly and turns about the steering axis with the rider's
+ * turning. Without the file nothing on the bike moves, as before. */
+static bool g_partsOk;
+static char g_partsFile[MAX_PATH];
+static float g_frontAxle[3], g_rearAxle[3], g_wheelRadius, g_steerPoint[3], g_steerAxis[3], g_frontMinY, g_barAngle;
+static float g_barFullAt = 45.0f;        /* deg/s of turning at which the bars are fully over */
+static float g_wheelAngle;               /* the wheels' spin, radians */
+static float g_barNow, g_headingRate;    /* the bars' turn now (degrees, + left); the rider's turning (deg/s) */
+static float g_lastHeading;
+static bool g_haveLastHeading;
 static int g_layout = LAYOUT_UNKNOWN;   /* how the game stores rotations, once known */
 static int g_layoutFromSkin = LAYOUT_UNKNOWN, g_layoutFromRoot = LAYOUT_UNKNOWN;
 #define TILT_SAMPLES 64
@@ -527,6 +545,8 @@ static void OpenLog(void)
 		g_log = fopen(path, "w");
 	}
 }
+
+static void ReadParts(const char *ini);
 
 static void ReadSettings(void)
 {
@@ -652,6 +672,61 @@ static void ReadSettings(void)
 	    "BackPush=%s BackClearance=%g BackSink=%g BackSupportCheck=%d",
 	    g_steer, g_fullSpeed, g_inputHook, g_creep, g_creepStart, g_creepBelow, g_creepRadius, g_reverse, g_backSpeed,
 	    g_backPushAuto ? "auto" : pushValueNames[g_backPushFirst], g_backClearance, g_backSink, g_backSupportCheck);
+	ReadParts(ini);
+}
+
+static bool ReadVec(const char *file, const char *key, float out[3])
+{
+	char value[128];
+	GetPrivateProfileStringA("Parts", key, "", value, sizeof(value), file);
+	return sscanf(value, "%f,%f,%f", &out[0], &out[1], &out[2]) == 3 && isfinite(out[0]) && isfinite(out[1]) && isfinite(out[2]);
+}
+
+static float ReadNum(const char *file, const char *key, float fallback)
+{
+	char value[64];
+	GetPrivateProfileStringA("Parts", key, "", value, sizeof(value), file);
+	float v = strtof(value, NULL);
+	return value[0] && isfinite(v) ? v : fallback;
+}
+
+/* The moving parts: [Parts] File= names the file (relative to the DLL's folder; the default
+ * is the meshes' folder), and the keys can also sit in this INI itself. */
+static void ReadParts(const char *ini)
+{
+	char value[MAX_PATH];
+	GetPrivateProfileStringA("Parts", "File", "..\\..\\Meshes\\CMB\\CMB_BikeParts.ini", value, sizeof(value), ini);
+	if (value[0] && value[1] != ':' && value[0] != '\\') {
+		snprintf(g_partsFile, sizeof(g_partsFile), "%s", ini);
+		char *slash = strrchr(g_partsFile, '\\');
+		snprintf(slash ? slash + 1 : g_partsFile, sizeof(g_partsFile) - (slash ? (size_t)(slash + 1 - g_partsFile) : 0), "%s", value);
+	} else {
+		snprintf(g_partsFile, sizeof(g_partsFile), "%s", value);
+	}
+	const char *file = GetFileAttributesA(g_partsFile) != INVALID_FILE_ATTRIBUTES ? g_partsFile : ini;
+	g_partsOk = ReadVec(file, "FrontAxle", g_frontAxle) && ReadVec(file, "RearAxle", g_rearAxle) &&
+	            ReadVec(file, "SteerPoint", g_steerPoint) && ReadVec(file, "SteerAxis", g_steerAxis);
+	g_wheelRadius = ReadNum(file, "WheelRadius", 0.0f);
+	g_frontMinY = ReadNum(file, "FrontMinY", 0.0f);
+	g_barAngle = ReadNum(file, "BarAngle", 0.0f);
+	g_barFullAt = ReadNum(ini, "BarFullAt", 45.0f);
+	float len = sqrtf(g_steerAxis[0] * g_steerAxis[0] + g_steerAxis[1] * g_steerAxis[1] + g_steerAxis[2] * g_steerAxis[2]);
+	if (!(len > 0.5f) || !(g_wheelRadius > 5.0f && g_wheelRadius < 100.0f))
+		g_partsOk = false;
+	if (!(g_barAngle >= 0.0f && g_barAngle <= 45.0f))
+		g_barAngle = 0.0f;
+	if (!(g_barFullAt >= 5.0f && g_barFullAt <= 720.0f))
+		g_barFullAt = 45.0f;
+	if (g_partsOk) {
+		for (int i = 0; i < 3; i++)
+			g_steerAxis[i] /= len;
+		Log("  parts (%s): wheels of radius %.1f on axles at y %.1f and %.1f, the bar assembly beyond y %.1f turning up to %g deg "
+		    "about the axis through (%.1f, %.1f, %.1f) along (%.2f, %.2f, %.2f), fully over from %g deg/s of turning",
+		    file == ini ? "in the settings" : g_partsFile, g_wheelRadius, g_frontAxle[1], g_rearAxle[1], g_frontMinY, g_barAngle,
+		    g_steerPoint[0], g_steerPoint[1], g_steerPoint[2], g_steerAxis[0], g_steerAxis[1], g_steerAxis[2], g_barFullAt);
+	} else {
+		Log("  parts: none (%s not found or incomplete): nothing on the bike moves", g_partsFile);
+	}
 }
 
 /* ------------------------------------------------------------------------- */
@@ -1559,6 +1634,7 @@ static void HoldSkin(uintptr_t data, const char *name)
 	h->boneData = data;
 	h->bones = bones;
 	h->count = (int)count;
+	h->role = ROLE_UNKNOWN;
 	memcpy(h->original, (const void *)bones, count * BONE_SIZE);
 	snprintf(h->name, sizeof(h->name), "%s", name);
 	int layout = LayoutFromSkin(h->original[0]);
@@ -1582,6 +1658,79 @@ static void ResetTilt(void)
 	g_tiltSampleCount = 0;
 	g_pitchSmooth = g_rollSmooth = g_pitchNow = g_rollNow = 0.0f;
 	g_tiltMax = g_tiltNow = 0.0f;
+	g_wheelAngle = g_barNow = g_headingRate = 0.0f;
+	g_haveLastHeading = false;
+}
+
+/* 3x3 row-major helpers for the moving parts. */
+static void Mul3(const float *a, const float *b, float *out)   /* out = a b (out apart from a and b) */
+{
+	for (int i = 0; i < 3; i++)
+		for (int j = 0; j < 3; j++)
+			out[i * 3 + j] = a[i * 3] * b[j] + a[i * 3 + 1] * b[3 + j] + a[i * 3 + 2] * b[6 + j];
+}
+
+static void MulV(const float *a, const float *v, float *out)   /* out = a v (out apart from v) */
+{
+	for (int i = 0; i < 3; i++)
+		out[i] = a[i * 3] * v[0] + a[i * 3 + 1] * v[1] + a[i * 3 + 2] * v[2];
+}
+
+/* The rotation by `radians` about the unit axis u (Rodrigues). */
+static void AxisRotation(const float *u, float radians, float *R)
+{
+	float c = cosf(radians), sn = sinf(radians), k = 1.0f - c;
+	R[0] = c + u[0] * u[0] * k;         R[1] = u[0] * u[1] * k - u[2] * sn; R[2] = u[0] * u[2] * k + u[1] * sn;
+	R[3] = u[1] * u[0] * k + u[2] * sn; R[4] = c + u[1] * u[1] * k;         R[5] = u[1] * u[2] * k - u[0] * sn;
+	R[6] = u[2] * u[0] * k - u[1] * sn; R[7] = u[2] * u[1] * k + u[0] * sn; R[8] = c + u[2] * u[2] * k;
+}
+
+/* Put the rotation by `radians` about the unit axis u through the point P in front of the
+ * map x -> M x + t: x -> M' x + t'. */
+static void Turn(float *M, float *t, const float *u, const float *P, float radians)
+{
+	float R[9], M2[9], t2[3], RP[3];
+	AxisRotation(u, radians, R);
+	Mul3(R, M, M2);
+	MulV(R, t, t2);
+	MulV(R, P, RP);
+	memcpy(M, M2, sizeof(M2));
+	for (int i = 0; i < 3; i++)
+		t[i] = t2[i] + P[i] - RP[i];
+}
+
+static const char *RoleName(int role)
+{
+	return role == ROLE_WHEEL_F ? "the front wheel" : role == ROLE_WHEEL_R ? "the rear wheel" : role == ROLE_FRONT ? "the bar assembly" : "a fixed part";
+}
+
+/* Which moving part a held skin is: by where its culling sphere's centre lands in the
+ * bike's own space (A^T (c - t), the bind undone). Needs the layout, so it's done on the
+ * first tilt frame. */
+static void DetectRole(HeldSkin *h)
+{
+	const float *o = (const float *)(h->original[0] + OFF_BONE_ROT), *t = (const float *)(h->original[0] + OFF_BONE_POS);
+	const float *c = (const float *)h->original[0];
+	float radius = *(const float *)(h->original[0] + OFF_BONE_RADIUS);
+	float A[9], d[3] = { c[0] - t[0], c[1] - t[1], c[2] - t[2] };
+	for (int i = 0; i < 3; i++)
+		for (int j = 0; j < 3; j++)
+			A[i * 3 + j] = g_layout == LAYOUT_FILE ? o[i * 4 + j] : o[j * 4 + i];
+	for (int i = 0; i < 3; i++)
+		h->centre[i] = A[i] * d[0] + A[3 + i] * d[1] + A[6 + i] * d[2];
+	h->role = ROLE_NONE;
+	if (g_partsOk && h->count == 1 && radius < 1.6f * g_wheelRadius) {
+		float fx = h->centre[0] - g_frontAxle[0], fy = h->centre[1] - g_frontAxle[1], fz = h->centre[2] - g_frontAxle[2];
+		float rx = h->centre[0] - g_rearAxle[0], ry = h->centre[1] - g_rearAxle[1], rz = h->centre[2] - g_rearAxle[2];
+		if (fx * fx + fy * fy + fz * fz < 36.0f)
+			h->role = ROLE_WHEEL_F;
+		else if (rx * rx + ry * ry + rz * rz < 36.0f)
+			h->role = ROLE_WHEEL_R;
+	}
+	if (h->role == ROLE_NONE && g_partsOk && h->count == 1 && h->centre[1] > g_frontMinY)
+		h->role = ROLE_FRONT;
+	Log("tilt: %s is %s (its culling sphere's centre (%.0f, %.0f, %.0f) in the bike's space, radius %.0f)", h->name,
+	    RoleName(h->role), h->centre[0], h->centre[1], h->centre[2], radius);
 }
 
 static void LetGoAll(const char *why)
@@ -1966,7 +2115,8 @@ static float Clamp(float v, float limit)
 static void FrameTilt(void)
 {
 	float maxDegrees = GlobalValue(g_tiltGlobal);
-	if (!g_skinCount || !(maxDegrees > 0.0f) || (g_layout != LAYOUT_FILE && g_layout != LAYOUT_TRANSPOSED))
+	bool tilt = maxDegrees > 0.0f;
+	if (!g_skinCount || (!tilt && !g_partsOk) || (g_layout != LAYOUT_FILE && g_layout != LAYOUT_TRANSPOSED))
 		return;
 	uintptr_t player = Player();
 	if (!player || !Accessible(player + OFF_REFR_HEADING, 4, false))
@@ -1975,9 +2125,42 @@ static void FrameTilt(void)
 	if (!isfinite(h))
 		return;
 
+	/* The moving parts: the wheels spin with the distance ridden (back when reversing); the
+	 * bars go over with the rider's turning (the heading grows turning right), smoothed. */
+	float rate = 0.0f;
+	if (g_haveLastHeading && g_frameDt > 0.0f) {
+		float dh = h - g_lastHeading;
+		while (dh > 3.14159265f)
+			dh -= 6.2831853f;
+		while (dh < -3.14159265f)
+			dh += 6.2831853f;
+		if (fabsf(dh) < 1.5f)   /* a bigger jump is a door or a load, not a turn */
+			rate = dh / g_frameDt * 57.29578f;
+	}
+	g_lastHeading = h;
+	g_haveLastHeading = true;
+	if (g_frameDt > 0.0f) {
+		g_headingRate += (rate - g_headingRate) * (1.0f - expf(-g_frameDt / 0.1f));
+		float f = g_headingRate / g_barFullAt;
+		f = f > 1.0f ? 1.0f : f < -1.0f ? -1.0f : f;
+		float barTarget = g_partsOk ? -g_barAngle * f : 0.0f;
+		g_barNow += (barTarget - g_barNow) * (1.0f - expf(-g_frameDt / 0.15f));
+		if (g_partsOk) {
+			g_wheelAngle -= g_speedAlong / g_wheelRadius * g_frameDt;   /* forward: the top of the wheel goes forward */
+			if (g_wheelAngle > 3.14159265f)
+				g_wheelAngle -= 6.2831853f;
+			else if (g_wheelAngle < -3.14159265f)
+				g_wheelAngle += 6.2831853f;
+		}
+	}
+
 	/* The ground's normal in the rider's frame: heading h, forward (sin h, cos h), right (cos h, -sin h). */
 	bool onGround = g_groundOk && !g_groundAir;
 	float rawPitch = 0.0f, rawRoll = 0.0f;
+	if (!tilt) {
+		g_pitchSmooth = g_rollSmooth = g_pitchNow = g_rollNow = 0.0f;   /* the tilt is off: level */
+		onGround = false;
+	}
 	if (onGround) {
 		float sh = sinf(h), ch = cosf(h);
 		float ux = g_groundN[0] * ch - g_groundN[1] * sh, uy = g_groundN[0] * sh + g_groundN[1] * ch, uz = g_groundN[2];
@@ -1998,17 +2181,19 @@ static void FrameTilt(void)
 	 * a wheelbase of track. In the air, and standing still, it holds. */
 	float medianPitch = onGround ? RecentMedian(0) : 0.0f, medianRoll = onGround ? RecentMedian(1) : 0.0f;
 	bool useNormal = !g_trackPitchOk && onGround && !g_hadTrackPitch;   /* only before the track has said anything */
-	const char *source = g_trackPitchOk ? "track" : useNormal ? "normal" : "held";
-	float maxRoll = g_maxRoll < maxDegrees ? g_maxRoll : maxDegrees;
-	float targetPitch = g_trackPitchOk ? Clamp(g_trackPitch, maxDegrees) : useNormal ? Clamp(medianPitch, maxDegrees) : g_pitchSmooth;
-	float targetRoll = onGround ? Clamp(medianRoll, maxRoll) : g_rollSmooth;
-	/* Capped before smoothing, so coming off a steep slope starts easing back at once. */
-	float k = g_smoothing > 0.0f ? 1.0f - expf(-g_frameDt / g_smoothing) : 1.0f;
-	g_pitchSmooth += (targetPitch - g_pitchSmooth) * k;
-	g_rollSmooth += (targetRoll - g_rollSmooth) * k;
-	float step = g_maxRate > 0.0f ? g_maxRate * g_frameDt : 1000.0f;
-	g_pitchNow = Toward(g_pitchNow, g_pitchSmooth, step);
-	g_rollNow = Toward(g_rollNow, g_rollSmooth, step);
+	const char *source = !tilt ? "off" : g_trackPitchOk ? "track" : useNormal ? "normal" : "held";
+	if (tilt) {
+		float maxRoll = g_maxRoll < maxDegrees ? g_maxRoll : maxDegrees;
+		float targetPitch = g_trackPitchOk ? Clamp(g_trackPitch, maxDegrees) : useNormal ? Clamp(medianPitch, maxDegrees) : g_pitchSmooth;
+		float targetRoll = onGround ? Clamp(medianRoll, maxRoll) : g_rollSmooth;
+		/* Capped before smoothing, so coming off a steep slope starts easing back at once. */
+		float k = g_smoothing > 0.0f ? 1.0f - expf(-g_frameDt / g_smoothing) : 1.0f;
+		g_pitchSmooth += (targetPitch - g_pitchSmooth) * k;
+		g_rollSmooth += (targetRoll - g_rollSmooth) * k;
+		float step = g_maxRate > 0.0f ? g_maxRate * g_frameDt : 1000.0f;
+		g_pitchNow = Toward(g_pitchNow, g_pitchSmooth, step);
+		g_rollNow = Toward(g_rollNow, g_rollSmooth, step);
+	}
 
 	float R[9];
 	TiltRotation(g_pitchNow, g_rollNow, R);
@@ -2027,43 +2212,61 @@ static void FrameTilt(void)
 		    medianPitch, medianRoll, g_trackPitchOk ? "" : "(none) ", g_trackPitchOk ? g_trackPitch : 0.0f, source,
 		    g_pitchSmooth, g_rollSmooth, g_pitchNow, g_rollNow, g_speed, g_speedAlong, g_steerRadius, g_steerWanted, g_steerAllowed,
 		    g_steerClamped, g_inputMode == INPUT_BACK ? " | back" : g_inputMode == INPUT_CREEP ? " | creep" : "");
+		if (g_partsOk)
+			Log("parts: bars %+.1f deg (turning %+.0f deg/s), wheels at %.2f rad", g_barNow, g_headingRate, g_wheelAngle);
 		g_steerWanted = 0.0f;
 		g_steerClamped = 0;
 	}
 
-	/* Turned about the seat P (mesh space): x -> R (x - P) + P. Mesh -> bone after the turn:
-	 * rotation A R, translation t + A (P - R P), so the seat lands where it always did. */
+	/* Each shape's map in the bike's own space, x -> M x + m: a wheel spun about its axle
+	 * (the x axis through it), the front wheel and the bar assembly then turned about the
+	 * steering axis, and everything turned about the seat P by the tilt, x -> R (x - P) + P.
+	 * Mesh -> bone after that: rotation A M, translation t + A m. The culling sphere (bone
+	 * space) is grown by how far the map moves its centre, so the seat and the sphere still
+	 * cover what they did. */
 	float P[3] = { 0.0f, 0.0f, g_pivotHeight };
-	float d[3];
-	for (int i = 0; i < 3; i++)
-		d[i] = P[i] - (R[i * 3] * P[0] + R[i * 3 + 1] * P[1] + R[i * 3 + 2] * P[2]);
+	static const float xAxis[3] = { 1.0f, 0.0f, 0.0f }, zAxis[3] = { 0.0f, 0.0f, 1.0f };
 	for (int k2 = 0; k2 < g_skinCount; k2++) {
-		const HeldSkin *hs = &g_skins[k2];
+		HeldSkin *hs = &g_skins[k2];
+		if (hs->role == ROLE_UNKNOWN)
+			DetectRole(hs);
+		float M[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, m[3] = { 0, 0, 0 };
+		if (hs->role == ROLE_WHEEL_F || hs->role == ROLE_WHEEL_R)
+			Turn(M, m, xAxis, hs->role == ROLE_WHEEL_F ? g_frontAxle : g_rearAxle, g_wheelAngle);
+		if (hs->role == ROLE_WHEEL_F || hs->role == ROLE_FRONT)
+			Turn(M, m, g_steerAxis, g_steerPoint, g_barNow / 57.29578f);
+		if (tilt) {
+			float M2[9], m2[3], RP[3];
+			Mul3(R, M, M2);
+			MulV(R, m, m2);
+			MulV(R, P, RP);
+			memcpy(M, M2, sizeof(M2));
+			for (int i = 0; i < 3; i++)
+				m[i] = m2[i] + P[i] - RP[i];
+		}
+		(void)zAxis;
 		for (int b = 0; b < hs->count; b++) {
 			const uint8_t *orig = hs->original[b];
 			uint8_t *live = (uint8_t *)(hs->bones + (uintptr_t)b * BONE_SIZE);
 			const float *o = (const float *)(orig + OFF_BONE_ROT), *t = (const float *)(orig + OFF_BONE_POS);
-			float A[9], B[9];
+			float A[9], B[9], Am[3];
 			for (int i = 0; i < 3; i++)
 				for (int j = 0; j < 3; j++)
 					A[i * 3 + j] = g_layout == LAYOUT_FILE ? o[i * 4 + j] : o[j * 4 + i];
-			for (int i = 0; i < 3; i++)
-				for (int j = 0; j < 3; j++)
-					B[i * 3 + j] = A[i * 3] * R[j] + A[i * 3 + 1] * R[3 + j] + A[i * 3 + 2] * R[6 + j];
+			Mul3(A, M, B);
+			MulV(A, m, Am);
 			float *w = (float *)(live + OFF_BONE_ROT), *pos = (float *)(live + OFF_BONE_POS);
 			for (int i = 0; i < 3; i++)
 				for (int j = 0; j < 3; j++)
 					w[i * 4 + j] = g_layout == LAYOUT_FILE ? B[i * 3 + j] : B[j * 3 + i];
-			float seat[3];   /* where the bone sees the seat: A P + t */
-			for (int i = 0; i < 3; i++) {
-				pos[i] = t[i] + A[i * 3] * d[0] + A[i * 3 + 1] * d[1] + A[i * 3 + 2] * d[2];
-				seat[i] = t[i] + A[i * 3] * P[0] + A[i * 3 + 1] * P[1] + A[i * 3 + 2] * P[2];
-			}
-			/* The culling sphere (bone space) turns about the seat: grow it by the most its centre moves. */
-			const float *centre = (const float *)orig;
-			float dx = centre[0] - seat[0], dy = centre[1] - seat[1], dz = centre[2] - seat[2];
+			for (int i = 0; i < 3; i++)
+				pos[i] = t[i] + Am[i];
+			/* The sphere's centre (bike space) goes to M c + m: grow the radius by the move. */
+			float moved[3];
+			MulV(M, hs->centre, moved);
+			float dx = moved[0] + m[0] - hs->centre[0], dy = moved[1] + m[1] - hs->centre[1], dz = moved[2] + m[2] - hs->centre[2];
 			float radius = *(const float *)(orig + OFF_BONE_RADIUS);
-			*(float *)(live + OFF_BONE_RADIUS) = radius + 2.0f * sqrtf(dx * dx + dy * dy + dz * dz) * sinf(angle * 0.5f);
+			*(float *)(live + OFF_BONE_RADIUS) = radius + sqrtf(dx * dx + dy * dy + dz * dz);
 		}
 	}
 }
@@ -3664,7 +3867,9 @@ static void Tick(DWORD now)
 	}
 	SetGlobal(g_trackSlopeGlobal, steep);
 
-	if (tilt > 0.0f) {
+	/* The skins are held while the tilt is on, or on any ride when the bike has moving parts
+	 * (the tilt turned off in the menu still leaves the wheels spinning). */
+	if (tilt > 0.0f || (riding && g_partsOk)) {
 		SyncSkins(Player());
 	} else {
 		if (g_skinCount)

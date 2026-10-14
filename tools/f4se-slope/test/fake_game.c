@@ -121,6 +121,8 @@ static uint8_t *g_cameraSetting;
 static void **g_vtProxy, **g_vtWrapper, **g_vtCtrl;
 static uint8_t *g_tiltGlobal, *g_groundGlobals[3];
 static uint8_t *g_player, *g_root, *g_bikeNode, *g_bikeShape, *g_boneData, *g_bones, *g_biped;
+static uint8_t *g_partData[3], *g_partBones[3];   /* the Harley build's moving parts: front wheel, rear wheel, bar assembly */
+static uint8_t g_partBonesOriginal[3][0x50];
 static uint8_t *g_parkGlobals[7], *g_trackSlope, *g_turnRadius, *g_turnStand, *g_turnSlow, *g_controls;
 static uint8_t *g_thirdState;   /* ThirdPersonState: zoom target +0xE8, current +0xEC */
 static uint8_t *g_moveHandler;  /* MovementHandler: its vtable read-only, as in the game */
@@ -514,7 +516,7 @@ static void BuildGame(void)
 	AddChild(npcRoot, NewNode(vtTri, "BaseMaleBody:0", 0));
 	AddChild(npcRoot, NewNode(vtNode, "COM", 0));
 	AddChild(g_root, NewNode(vtTri, "CMB_Unrelated", 0));   /* wrong name: left alone */
-	g_bikeNode = NewNode(vtNode, "CMB_BikeWornRider.nif", 2);
+	g_bikeNode = NewNode(vtNode, "CMB_BikeWornRider.nif", 8);
 	uint8_t *shape = NewNode(vtTri, "CMB_BikeWornRider", 0);
 	g_bikeShape = shape;
 	AddChild(g_bikeNode, shape);
@@ -553,6 +555,25 @@ static void BuildGame(void)
 	*(uint8_t **)(g_boneData + 0x10) = g_bones;
 	*(uint32_t *)(g_boneData + 0x18) = 1;
 	*(uint32_t *)(g_boneData + 0x20) = 1;
+
+	/* The moving parts of the Harley build: three more shapes under the bike's node, each
+	 * with its own skin and bone data (the same bind; their culling spheres on the axles
+	 * and ahead of the steering head, which is how the plugin tells them apart). */
+	static const char *partNames[3] = { "CMB_BikeWornRider_wheelF", "CMB_BikeWornRider_wheelR", "CMB_BikeWornRider_front_metal" };
+	for (int i = 0; i < 3; i++) {
+		uint8_t *part = NewNode(vtTri, partNames[i], 0);
+		AddChild(g_bikeNode, part);
+		*(uint8_t **)(part + 0x28) = g_bikeNode;
+		uint8_t *inst = (uint8_t *)NewObject(vtSkin, 0x100);
+		*(uint8_t **)(part + 0x140) = inst;
+		g_partData[i] = (uint8_t *)NewObject(vtBone, 0x100);
+		*(int32_t *)(g_partData[i] + 0x08) = 2;
+		*(uint8_t **)(inst + 0x40) = g_partData[i];
+		g_partBones[i] = (uint8_t *)VirtualAlloc(NULL, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+		*(uint8_t **)(g_partData[i] + 0x10) = g_partBones[i];
+		*(uint32_t *)(g_partData[i] + 0x18) = 1;
+		*(uint32_t *)(g_partData[i] + 0x20) = 1;
+	}
 
 	/* LookupFormByID: a jump to ours at the game's address. */
 	uint8_t *stub = (uint8_t *)(g_base + RVA_LOOKUP_FORM);
@@ -597,6 +618,16 @@ static void SetLayouts(bool skinTransposed, bool rootTransposed)
 	StoreRotation(b + 4, skinToBone, skinTransposed);
 	b[16] = -74.17f; b[17] = 0.0f; b[18] = 0.0f; b[19] = 1.0f;  /* translation, scale */
 	memcpy(g_bonesOriginal, g_bones, sizeof(g_bonesOriginal));
+	/* The parts' spheres, bone space: A c + t for the bike-space centres the parts file names
+	 * (the front axle (0.4, 99.6, 29.9), the rear (0.4, -36.7, 29.9), the bar assembly's (1, 85, 57)). */
+	static const float spheres[3][4] = { { -44.27f, 99.6f, -0.4f, 31.0f }, { -44.27f, -36.7f, -0.4f, 31.0f }, { -17.17f, 85.0f, -1.0f, 60.0f } };
+	for (int i = 0; i < 3; i++) {
+		float *pb = (float *)g_partBones[i];
+		memcpy(pb, spheres[i], sizeof(spheres[i]));
+		StoreRotation(pb + 4, skinToBone, skinTransposed);
+		pb[16] = -74.17f; pb[17] = 0.0f; pb[18] = 0.0f; pb[19] = 1.0f;
+		memcpy(g_partBonesOriginal[i], g_partBones[i], sizeof(g_partBonesOriginal[i]));
+	}
 }
 
 /* Havok-style reflection table for the probe to find (name, class, enum, type, subtype,
@@ -667,9 +698,9 @@ static bool Near(float a, float b) { return fabsf(a - b) < 1e-5f; }
 
 /* The rotation the plugin put on the bike's mesh: R = A^T A', with A and A' the bind
  * (mesh -> bone) before and now, read the way round this "game" stores them. */
-static void AppliedRotation(float R[9])
+static void AppliedRotationOf(const uint8_t *orig, const uint8_t *live, float R[9])
 {
-	const float *o = (const float *)(g_bonesOriginal + 0x10), *w = (const float *)(g_bones + 0x10);
+	const float *o = (const float *)(orig + 0x10), *w = (const float *)(live + 0x10);
 	float A[9], B[9];
 	for (int i = 0; i < 3; i++)
 		for (int j = 0; j < 3; j++) {
@@ -679,6 +710,36 @@ static void AppliedRotation(float R[9])
 	for (int i = 0; i < 3; i++)
 		for (int j = 0; j < 3; j++)
 			R[i * 3 + j] = A[i] * B[j] + A[3 + i] * B[3 + j] + A[6 + i] * B[6 + j];
+}
+
+static void AppliedRotation(float R[9]) { AppliedRotationOf(g_bonesOriginal, g_bones, R); }
+
+/* A wheel's spin: its map is Rx(theta) (the tilt is level on the flat): theta from the matrix. */
+static float WheelAngle(int part)
+{
+	float M[9];
+	AppliedRotationOf(g_partBonesOriginal[part], g_partBones[part], M);
+	return atan2f(M[7], M[4]);
+}
+
+/* The turn about the steering axis u in a rotation M: 2 sin(phi) u is M's antisymmetric part. */
+static float TurnAbout(const float M[9])
+{
+	const float u[3] = { 0.0f, -0.4f, 0.9165f };
+	float v[3] = { M[7] - M[5], M[2] - M[6], M[3] - M[1] };
+	return asinf((v[0] * u[0] + v[1] * u[1] + v[2] * u[2]) * 0.5f) * DEG;
+}
+
+static float BarAngle(void)
+{
+	float M[9];
+	AppliedRotationOf(g_partBonesOriginal[2], g_partBones[2], M);
+	return TurnAbout(M);
+}
+
+static bool IsIdentity(const float R[9])
+{
+	return fabsf(R[0] - 1.0f) < 0.01f && fabsf(R[4] - 1.0f) < 0.01f && fabsf(R[8] - 1.0f) < 0.01f;
 }
 
 static bool Orthonormal(const float R[9])
@@ -908,6 +969,77 @@ static float *MoveInput(void) { return (float *)(g_controls + 0x44); }
 static float Turned(float from) { return remainderf(*(float *)(g_player + 0xC8) - from, 6.2831853f) * DEG; }
 static void Mark(float p0[2]) { p0[0] = PlayerPos()[0]; p0[1] = PlayerPos()[1]; }
 static float Moved(const float p0[2]) { return hypotf(PlayerPos()[0] - p0[0], PlayerPos()[1] - p0[1]); }
+
+/* Rolling backwards at 80 a second, no keys. */
+static void RollBack(float dt)
+{
+	FakeGameFrame(dt);
+	float h = *(float *)(g_player + 0xC8);
+	PlayerPos()[0] -= sinf(h) * 80.0f * dt;
+	PlayerPos()[1] -= cosf(h) * 80.0f * dt;
+}
+
+/* The Harley build's moving parts ([Parts] in the INI for this run): the wheels spin with
+ * the distance ridden and back when reversing, the bar assembly turns with the turning. */
+static void PartsTests(void)
+{
+	float *head = (float *)(g_player + 0xC8), p0[2], R[9], M[9], N[9], D[9];
+	printf("moving parts: wheels spin with the distance, the bars turn with the turning:\n");
+	g_camYaw = *head;
+	g_handlerStyle = 2;
+	g_honour = 4;
+	g_groundZ = PlayerPos()[2];
+	Keys(0.0f, 0.0f);
+	g_onFrame = FakeGameFrame;
+	RunFrames(500);
+	CHECK(*(int32_t *)(g_partData[0] + 0x08) == 3 && *(int32_t *)(g_partData[1] + 0x08) == 3 && *(int32_t *)(g_partData[2] + 0x08) == 3,
+	      "the three parts' skins are held (references %d %d %d)", *(int32_t *)(g_partData[0] + 0x08), *(int32_t *)(g_partData[1] + 0x08), *(int32_t *)(g_partData[2] + 0x08));
+	Keys(0.0f, 0.1f);   /* forward at about 90 a second */
+	RunFrames(800);
+	Mark(p0);
+	float a0 = WheelAngle(0), b0 = WheelAngle(1);
+	RunFrames(500);
+	float d = Moved(p0);
+	float da = remainderf(WheelAngle(0) - a0, 6.2831853f), db = remainderf(WheelAngle(1) - b0, 6.2831853f);
+	CHECK(d > 20.0f && fabsf(da + d / 29.9f) < 0.3f && fabsf(db + d / 29.9f) < 0.3f,
+	      "riding forward %.0f: both wheels turned %.2f and %.2f rad (%.2f: the top of the wheel going forward)", d, da, db, -d / 29.9f);
+	AppliedRotation(R);
+	CHECK(IsIdentity(R) && fabsf(BarAngle()) < 1.0f, "the fixed part not spun, the bars straight (%.1f deg)", BarAngle());
+	Keys(0.0f, 0.0f);
+	RunFrames(600);
+	Keys(1.0f, 0.0f);   /* a right turn from a stop: 60 deg/s */
+	RunFrames(1200);
+	float bar = BarAngle();
+	CHECK(bar < -8.0f && bar > -11.0f, "turning right at 60 a second: the bar assembly over %.1f deg (10 to the right)", bar);
+	CHECK(*(float *)(g_partBones[2] + 0x0C) > 60.0f && *(float *)(g_partBones[2] + 0x0C) < 62.0f,
+	      "its culling sphere grown by the little its centre moves (%.2f from 60)", *(float *)(g_partBones[2] + 0x0C));
+	AppliedRotationOf(g_partBonesOriginal[0], g_partBones[0], M);
+	AppliedRotationOf(g_partBonesOriginal[1], g_partBones[1], N);
+	for (int i = 0; i < 3; i++)   /* D = M N^T: the front wheel's turn over the rear's spin */
+		for (int j = 0; j < 3; j++)
+			D[i * 3 + j] = M[i * 3] * N[j * 3] + M[i * 3 + 1] * N[j * 3 + 1] + M[i * 3 + 2] * N[j * 3 + 2];
+	CHECK(fabsf(TurnAbout(D) - bar) < 1.0f, "the front wheel turned with the bars (%.1f deg) and spinning", TurnAbout(D));
+	AppliedRotation(R);
+	CHECK(IsIdentity(R), "the fixed part not turned");
+	Keys(-1.0f, 0.0f);
+	RunFrames(1500);
+	bar = BarAngle();
+	CHECK(bar > 8.0f && bar < 11.0f, "turning left: %.1f deg (10 to the left)", bar);
+	Keys(0.0f, 0.0f);
+	RunFrames(1000);
+	CHECK(fabsf(BarAngle()) < 1.0f, "stopped: the bars back straight (%.1f deg)", BarAngle());
+	g_onFrame = RollBack;   /* the game moving the bike backwards (as a reverse does): the wheels turn the other way */
+	RunFrames(800);
+	Mark(p0);
+	b0 = WheelAngle(1);
+	RunFrames(500);
+	d = Moved(p0);
+	db = remainderf(WheelAngle(1) - b0, 6.2831853f);
+	CHECK(d > 15.0f && fabsf(db - d / 29.9f) < 0.3f, "rolling back %.0f: the rear wheel turned %.2f rad the other way (%.2f)", d, db, d / 29.9f);
+	g_onFrame = FakeGameFrame;
+	RunFrames(400);
+	g_onFrame = NULL;
+}
 
 static void InputTests(void)
 {
@@ -1434,6 +1566,7 @@ static void TrackTests(void)
 	g_steerMove = 0.0f;
 
 	InputTests();
+	PartsTests();
 	g_onFrame = NULL;
 
 	*(float *)(g_turnRadius + 0x30) = 0.0f;

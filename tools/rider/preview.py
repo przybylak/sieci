@@ -85,7 +85,8 @@ def main() -> int:
         for word, t in (("metal", 0.75), ("matte", 0.3), ("glass", 0.9)):
             if word in shape.name.lower():
                 tone = t
-        bike_parts.append((np.array(shape.verts), np.array(shape.tris), np.array([tone, tone, tone + 0.05])))
+        steers = "front" in shape.name.lower() or "wheelf" in shape.name.lower()   # turns with the bars
+        bike_parts.append((np.array(shape.verts), np.array(shape.tris), np.array([tone, tone, tone + 0.05]), steers))
 
     rider = R.Rider(rig)
 
@@ -98,7 +99,8 @@ def main() -> int:
     named = {
         "cruise": R.RideParams(lean=R.SPEEDS["walk"]["lean"]),
         "run": R.RideParams(lean=R.SPEEDS["run"]["lean"]),
-        "leanleft": R.RideParams(lean=R.SPEEDS["run"]["lean"], roll=-R.SPEEDS["run"]["lean_roll"]),
+        "leanleft": R.RideParams(lean=R.SPEEDS["run"]["lean"], roll=-R.SPEEDS["run"]["lean_roll"],
+                                 steer=R.steer_for(-R.SPEEDS["run"]["lean_roll"])),
         "idle": R.IDLE,
     }
     poses = [(n, named[n]) for n in args.poses.split(",")]
@@ -109,7 +111,11 @@ def main() -> int:
         pose = rider.pose(params)
         g = pose.globals()
         body_v = body.posed(g)
-        meshes = [((np.c_[v, np.ones(len(v))] @ g[rig.index("AnimObjectA")].T)[:, :3], t, c) for v, t, c in bike_parts]
+        meshes = []
+        for v, t, c, steers in bike_parts:
+            if steers and params.steer and R.STEER_AXIS is not None:
+                v = (v - R.STEER_POINT) @ R.rot_about(R.STEER_AXIS, params.steer).T + R.STEER_POINT
+            meshes.append(((np.c_[v, np.ones(len(v))] @ g[rig.index("AnimObjectA")].T)[:, :3], t, c))
         meshes.append((body_v, body.tris, np.array([0.93, 0.76, 0.62])))
         for ax, (vname, view) in zip(row, views.items()):
             draw(ax, meshes, view, f"{name} - {vname}")

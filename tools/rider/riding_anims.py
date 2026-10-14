@@ -60,20 +60,58 @@ PEG_R = np.array([20.0, 37.0, 26.0])   # top of the forward foot pegs
 PEG_L = np.array([-20.0, 37.0, 26.0])
 GROUND_FOOT_L = np.array([-30.0, 6.0, 0.0])  # where the left foot goes down at a stop
 FIT_NAME = "vanilla motorcycle"
+# The bars turn (a bike-fit file says about what axis, and how far): the grips move with
+# them, so the hands do too. None for the vanilla bike, whose bars don't move.
+STEER_POINT = None
+STEER_AXIS = None
+BAR_ANGLE = 0.0
 
 
 def apply_fit(path: Path):
     """Take the contact points from a bike-fit file (harley_meshes.py writes one for its
     model): the same keys as the constants above, lower-case, in the worn bike's space."""
-    global SEAT_TOP_Z, GRIP_R, GRIP_L, PEG_R, PEG_L, GROUND_FOOT_L, FIT_NAME
+    global SEAT_TOP_Z, GRIP_R, GRIP_L, PEG_R, PEG_L, GROUND_FOOT_L, FIT_NAME, STEER_POINT, STEER_AXIS, BAR_ANGLE
     fit = json.loads(Path(path).read_text())
     SEAT_TOP_Z = float(fit["seat_top_z"])
     GRIP_R, GRIP_L = np.array(fit["grip_r"], float), np.array(fit["grip_l"], float)
     PEG_R, PEG_L = np.array(fit["peg_r"], float), np.array(fit["peg_l"], float)
     if "ground_foot_l" in fit:
         GROUND_FOOT_L = np.array(fit["ground_foot_l"], float)
+    if "steer_axis" in fit and fit.get("bar_angle", 0.0) > 0:
+        STEER_POINT = np.array(fit["steer_point"], float)
+        STEER_AXIS = np.array(fit["steer_axis"], float)
+        STEER_AXIS /= np.linalg.norm(STEER_AXIS)
+        BAR_ANGLE = float(fit["bar_angle"])
     FIT_NAME = fit.get("model", str(path))
     return fit
+
+
+def rot_about(axis, degrees):
+    """Rotation about a unit axis (Rodrigues)."""
+    a = math.radians(degrees)
+    c, s = math.cos(a), math.sin(a)
+    x, y, z = axis
+    return np.array([[c + x * x * (1 - c), x * y * (1 - c) - z * s, x * z * (1 - c) + y * s],
+                     [y * x * (1 - c) + z * s, c + y * y * (1 - c), y * z * (1 - c) - x * s],
+                     [z * x * (1 - c) - y * s, z * y * (1 - c) + x * s, c + z * z * (1 - c)]])
+
+
+def grips(steer):
+    """The grips with the bars turned `steer` degrees (positive to the left: the F4SE plugin
+    turns the bar assembly the same way, about the same axis, when the rider turns)."""
+    if STEER_AXIS is None or not steer:
+        return GRIP_R, GRIP_L
+    r = rot_about(STEER_AXIS, steer)
+    return r @ (GRIP_R - STEER_POINT) + STEER_POINT, r @ (GRIP_L - STEER_POINT) + STEER_POINT
+
+
+def steer_for(roll):
+    """The bars' turn that goes with a lean: into the turn, the full angle from a few degrees
+    of lean (the plugin's bars are at the full angle in any real turn)."""
+    if roll == 0.0 or BAR_ANGLE == 0.0:
+        return 0.0
+    k = min(abs(roll) / 4.0, 1.0)
+    return -math.copysign(BAR_ANGLE * k, roll)   # roll negative = leaning left = bars left (positive)
 
 FINGERS = ["Finger21", "Finger22", "Finger23", "Finger31", "Finger32", "Finger33",
            "Finger41", "Finger42", "Finger43", "Finger51", "Finger52", "Finger53"]
@@ -87,6 +125,7 @@ class RideParams:
     foot_down: float = 0.0     # 0 = both feet on pegs, 1 = left foot on the ground
     bounce: float = 0.0        # vertical seat bounce, units
     head_turn: float = 0.0     # head yaw, degrees (+ = right)
+    steer: float = 0.0         # the bars' turn, degrees (+ = left); the hands follow
 
 
 # Speed-dependent settings (lean, bounce amplitude, roll for the Lean* clips)
@@ -153,9 +192,10 @@ class Rider:
         toe = (1 - p.foot_down) * (PEG_L + [0, 6, 1]) + p.foot_down * (unroll @ (GROUND_FOOT_L + [-2, 9, 1]))
         self._leg(pose, "L", ankle, toe=toe, pole=[-0.45 - 0.4 * p.foot_down, 1, 0.3])
 
-        # Arms and hands on the grips.
-        self._arm(pose, "R", GRIP_R, pole=[1.0, -0.6, -0.7])
-        self._arm(pose, "L", GRIP_L, pole=[-1.0, -0.6, -0.7])
+        # Arms and hands on the grips (where the turned bars put them).
+        grip_r, grip_l = grips(p.steer)
+        self._arm(pose, "R", grip_r, pole=[1.0, -0.6, -0.7])
+        self._arm(pose, "L", grip_l, pole=[-1.0, -0.6, -0.7])
 
         # Head level and looking ahead (slight downward look), optional yaw.
         g = pose.globals()
@@ -212,7 +252,7 @@ def riding(speed, roll=0.0):
     s = SPEEDS[speed]
 
     def at(t):  # t = 0..1 through the clip; two bounces per cycle
-        return RideParams(lean=s["lean"], roll=roll, bounce=s["bounce"] * math.sin(4 * math.pi * t))
+        return RideParams(lean=s["lean"], roll=roll, bounce=s["bounce"] * math.sin(4 * math.pi * t), steer=steer_for(roll))
     return at
 
 
@@ -222,8 +262,8 @@ def turning(speed, direction, peak):
     sign = -1.0 if direction == "l" else 1.0
 
     def at(t):
-        return RideParams(lean=s["lean"], roll=sign * peak * math.sin(math.pi * t),
-                          bounce=s["bounce"] * math.sin(4 * math.pi * t))
+        roll = sign * peak * math.sin(math.pi * t)
+        return RideParams(lean=s["lean"], roll=roll, bounce=s["bounce"] * math.sin(4 * math.pi * t), steer=steer_for(roll))
     return at
 
 
@@ -237,7 +277,7 @@ def starting(speed, direction=None, peak=0.0):
         turn = sign * peak * math.sin(math.pi * min(t / 0.8, 1.0)) if direction else 0.0
         return RideParams(lean=IDLE.lean + (s["lean"] - IDLE.lean) * k,
                           roll=IDLE.roll * (1 - k) + turn,
-                          foot_down=1.0 - k)
+                          foot_down=1.0 - k, steer=steer_for(turn))
     return at
 
 
@@ -249,7 +289,8 @@ def stopping(speed, direction=None, peak=0.0):
     def at(t):
         k = ease((t - 0.35) / 0.5)
         turn = sign * peak * math.sin(math.pi * min(t / 0.6, 1.0)) if direction else 0.0
-        return RideParams(lean=s["lean"] + (IDLE.lean - s["lean"]) * k, roll=IDLE.roll * k + turn, foot_down=k)
+        return RideParams(lean=s["lean"] + (IDLE.lean - s["lean"]) * k, roll=IDLE.roll * k + turn, foot_down=k,
+                          steer=steer_for(turn))
     return at
 
 
@@ -320,8 +361,8 @@ class UTurn:
         roll = -sign * self.peak                          # lean into it: left turn, roll left
 
         def motion(t):
-            return RideParams(lean=s["lean"], roll=roll * math.sin(math.pi * min(t / share, 1.0)),
-                              bounce=s["bounce"] * math.sin(4 * math.pi * t))
+            r = roll * math.sin(math.pi * min(t / share, 1.0))
+            return RideParams(lean=s["lean"], roll=r, bounce=s["bounce"] * math.sin(4 * math.pi * t), steer=steer_for(r))
         return out, motion
 
 
@@ -625,7 +666,8 @@ def main() -> int:
     args = ap.parse_args()
     if args.fit:
         apply_fit(args.fit)
-        print(f"fitted to: {FIT_NAME} (seat top {SEAT_TOP_Z}, grips {GRIP_R.tolist()}, pegs {PEG_R.tolist()})")
+        print(f"fitted to: {FIT_NAME} (seat top {SEAT_TOP_Z}, grips {GRIP_R.tolist()}, pegs {PEG_R.tolist()}"
+              + (f", bars turning {BAR_ANGLE:g} deg in turns" if BAR_ANGLE else "") + ")")
     game_files = read_game_files(args.game_files) if args.game_files else None
 
     sys.path.insert(0, str(args.pynifly))

@@ -8,7 +8,7 @@ A rideable motorbike for Fallout 4:
 - **side bag**: small storage, size adjustable from the console
 - **park it, call it, ride it**: activate the bike or use its keys (favorite them to a hotkey); optional F4SE hotkey
 - **seated riding animations** with lean in turns and ridden U-turns; the bike turns with you on the spot and in conversations; an **engine sound** that follows your speed
-- **a Harley-Davidson Iron 883** as the bike (Nieve5677's Sketchfab model, CC-BY), on the vanilla motorcycle's collision; the vanilla bike can be built instead
+- **a Harley-Davidson Iron 883** as the bike (Nieve5677's Sketchfab model, CC-BY), on the vanilla motorcycle's collision; with F4SE its wheels spin with the distance ridden and the bars turn with you (the hands go with them); the vanilla bike can be built instead
 - **rides like a vehicle, not a person**: 75% less fall damage while riding (adjustable), deep water ends the ride and leaves the bike on the bank, and an enemy's hit knocks you off (optional)
 - **follows the ground**: the parked bike stands on the ground, tilted to match the slope (with F4SE, on the ground you just rode over); with F4SE, the bike also pitches with the ground while you ride, turns in a circle rather than on the spot, climbs slopes too steep to walk up, and the camera sits farther back
 - **MCM menu** for every setting (with MCM installed); with F4SE, gear in the bike's slot goes back on after a ride
@@ -138,7 +138,7 @@ tools/sound/                  engine sound synthesiser (Python + numpy)
 1. **Done, untested in game:** ride / park / call / side bag / companions / fuel, worn and parked bike meshes,
    seated riding animations with lean.
 2. **Next:** in-game testing; the remaining vanilla-timed stop and idle clips. MCM menu, engine sound and
-   gear restore are in, untested. Wheel spin isn't possible with the game's skeleton (see DESIGN.md).
+   gear restore are in, untested. Wheel spin and the bars' turn come with the Harley build and F4SE (see DESIGN.md).
 3. **Later:** a visible pillion passenger, mount/dismount animations. Possibly a v2 built on the engine's mount
    system instead ([DESIGN.md](docs/DESIGN.md)).
 

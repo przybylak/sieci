@@ -87,7 +87,9 @@ MATERIALS = {
     "o_glass":     ((232, 128, 24), 165, 240, 240, 160, "glass"),     # indicators
     "r_glass":     ((196, 24, 24), 165, 240, 240, 160, "glass"),      # the tail light
 }
-SHAPES = ("metal", "matte", "glass")
+KINDS = ("metal", "matte", "glass")
+ROLES = ("", "front", "wheelF", "wheelR")   # static; turns with the bars; spins; spins
+BAR_HEIGHT = 85.0   # above this (parked frame) and ahead of the seat it's the bar assembly
 
 # BSLightingShaderProperty flags (nif.xml's SkyrimShaderPropertyFlags, as Fallout 4 still uses them)
 SF1_SPECULAR, SF1_SKINNED, SF1_ENV_MAP, SF1_RECEIVE_SHADOWS, SF1_CAST_SHADOWS = 0x1, 0x2, 0x80, 0x100, 0x200
@@ -211,7 +213,7 @@ def decimate(groups, total_target, speck_area=4.0, min_tris=8):
         budget[done] = counts[done]
         free &= ~done
     budget = np.maximum(np.minimum(budget, counts), np.minimum(min_tris, counts)).astype(int)
-    out = {}
+    result = []
     for (name, v, f, _), b in zip(pieces, budget):
         # A closed tube (the cables) often stops well short of the target in one call and
         # gives a little more each call after; a few passes, while they still pay.
@@ -224,16 +226,92 @@ def decimate(groups, total_target, speck_area=4.0, min_tris=8):
             v, f = vo, fo
             if not gain:
                 break
-        vs, fs_, n = out.get(name, ([], [], 0))
-        out[name] = (vs + [v], fs_ + [f + n], n + len(v))
-    result = {name: (np.vstack(vs), np.vstack(fs_)) for name, (vs, fs_, _) in out.items()}
-    got = sum(len(f) for _, f in result.values())
+        result.append((name, v, f))
+    got = sum(len(f) for _, _, f in result)
     print(f"  {len(pieces)} pieces kept, {dropped} specks dropped ({dropped_area:.0f} units² of {total_area:.0f}); "
           f"budget {int(budget.sum())} triangles, got {got}")
+    per = {}
+    for name, _, f in result:
+        per[name] = per.get(name, 0) + len(f)
     for name, (v, f) in groups.items():
-        if name in result:
-            print(f"  {name:12s} {len(f):8d} -> {len(result[name][1]):6d} tris")
+        if name in per:
+            print(f"  {name:12s} {len(f):8d} -> {per[name]:6d} tris")
     return result
+
+
+def pieces_of(v, f, least=30):
+    """A material's connected pieces: (verts, tris) each, the small ones left out."""
+    k, lab = components(len(v), f)
+    out = []
+    for c in range(k):
+        sel = lab[f[:, 0]] == c
+        if sel.sum() < least:
+            continue
+        used, inv = np.unique(f[sel], return_inverse=True)
+        out.append((v[used], inv.reshape(-1, 3)))
+    return out
+
+
+def measure_parts(groups, steer=None):
+    """The moving parts, in the parked frame: the two tyres (the two round rubber pieces as
+    tall as they are long) give the axles and the wheel radius; the fork tubes (the pieces
+    ahead that are long along one raked axis, one each side) give the steering axis. --steer
+    overrides the axis (x,y,z of a point on it and the rake in degrees)."""
+    tyres = []
+    for v, f in pieces_of(*groups["material"]):
+        lo, hi = v.min(axis=0), v.max(axis=0)
+        dy, dz = hi[1] - lo[1], hi[2] - lo[2]
+        if dz > 40 and abs(dz - dy) < 4 and hi[0] - lo[0] < 20:
+            tyres.append(((lo + hi) / 2, dz / 2))
+    tyres.sort(key=lambda t: t[0][1])
+    if len(tyres) != 2:
+        raise ValueError(f"expected two tyres among the rubber pieces, found {len(tyres)}")
+    (front, rf), (rear, rr) = tyres
+    parts = dict(front_axle=front, rear_axle=rear, wheel_radius=(rf + rr) / 2)
+    if steer:
+        x, y, z, rake = steer
+        parts["steer_point"] = np.array([x, y, z])
+        parts["steer_axis"] = np.array([0.0, math.sin(math.radians(rake)), math.cos(math.radians(rake))])
+        return parts
+    tubes = []
+    for mat in ("chrome", "black_m", "silver"):
+        for v, f in pieces_of(*groups.get(mat, (np.zeros((0, 3)), np.zeros((0, 3), np.int64)))):
+            lo, hi = v.min(axis=0), v.max(axis=0)
+            m = v.mean(axis=0)
+            if not (m[1] < front[1] + rf + 15 and 4 < abs(m[0]) < 16 and hi[2] - lo[2] > 20 and hi[0] - lo[0] < 8):
+                continue
+            # the long axis of the piece, pointing up
+            c = v - m
+            _, _, vt = np.linalg.svd(c[:: max(1, len(c) // 2000)], full_matrices=False)
+            axis = vt[0] if vt[0][2] >= 0 else -vt[0]
+            if axis[2] < 0.6:
+                continue
+            tubes.append((m, axis))
+    if not tubes:
+        raise ValueError("no fork tubes found ahead: pass --steer x,y,z,rake")
+    axis = np.mean([a for _, a in tubes], axis=0)
+    axis[0] = 0.0
+    axis /= np.linalg.norm(axis)
+    point = np.mean([m for m, _ in tubes], axis=0)
+    point[0] = 0.0
+    parts["steer_point"], parts["steer_axis"] = point, axis
+    parts["tubes"] = len(tubes)
+    return parts
+
+
+def role_of(centroid, parts):
+    """Which moving part a piece belongs to, by where its centre is: a wheel if it sits on an
+    axle (tyre, rim, disc, hub), the steering assembly if it's ahead of the steering head
+    (forks, fender, headlight) or up at the bars (bars, grips, levers, mirrors)."""
+    cx, cy, cz = centroid
+    for role, key in (("wheelF", "front_axle"), ("wheelR", "rear_axle")):
+        c = parts[key]
+        if abs(cx) < 12 and math.hypot(cy - c[1], cz - c[2]) < 6:
+            return role
+    sp = parts["steer_point"]
+    if cy < sp[1] + 16 or (cz > BAR_HEIGHT and cy < sp[1] + 45):   # the mirrors reach back over the tank
+        return "front"
+    return ""
 
 
 def rows(a):
@@ -354,24 +432,27 @@ def add_shape(nif, name, verts, tris, uvs, normals, base_props, use_type, kind, 
     return new
 
 
-def fix_all_bone_bounds(path: Path, verts, skin_to_bone=None):
-    """A culling sphere round every vertex of every shape, into each BSSkin::BoneData (the
-    game culls skinned meshes with it; nifly's own is too small for a mesh this long)."""
+def fix_all_bone_bounds(path: Path, spheres, skin_to_bone=None):
+    """A culling sphere per shape into its BSSkin::BoneData, in the order the shapes were
+    made (the game culls skinned meshes with it; nifly's own is too small for a mesh this
+    long, and the plugin tells the moving parts apart by where their spheres are)."""
+    data = bytearray(path.read_bytes())
+    blocks = [off for off, name in _block_offsets(data) if name == "BSSkin::BoneData"]
+    if len(blocks) != len(spheres):
+        raise ValueError(f"{path}: {len(blocks)} bone-data blocks for {len(spheres)} shapes")
+    for off, (centre, radius) in zip(blocks, spheres):
+        if struct.unpack_from("<I", data, off)[0] != 1:
+            raise ValueError("expected one bone in BSSkin::BoneData")
+        c = list(apply(skin_to_bone, centre)) if skin_to_bone else list(centre)
+        struct.pack_into("<4f", data, off + 4, *c, radius)
+    path.write_bytes(bytes(data))
+
+
+def sphere_of(verts):
     lo = verts.min(axis=0)
     hi = verts.max(axis=0)
     centre = (lo + hi) / 2
-    radius = float(np.linalg.norm(verts - centre, axis=1).max()) + 1.0
-    c = list(apply(skin_to_bone, centre)) if skin_to_bone else list(centre)
-    data = bytearray(path.read_bytes())
-    count = 0
-    for off, name in _block_offsets(data):
-        if name == "BSSkin::BoneData":
-            if struct.unpack_from("<I", data, off)[0] != 1:
-                raise ValueError("expected one bone in BSSkin::BoneData")
-            struct.pack_into("<4f", data, off + 4, *c, radius)
-            count += 1
-    path.write_bytes(bytes(data))
-    return count, radius
+    return centre, float(np.linalg.norm(verts - centre, axis=1).max()) + 1.0
 
 
 class Base:
@@ -402,6 +483,8 @@ def main() -> int:
     ap.add_argument("--seat-at", type=float, help="instead of --sit: the parked model's y that goes under the hips")
     ap.add_argument("--grip", default="20,-15,98", help="the grip's centre on the +X side, parked model x,y,z")
     ap.add_argument("--peg", default="19,6,27", help="the foot peg's top on the +X side, parked model x,y,z")
+    ap.add_argument("--steer", help="the steering axis if it isn't found: x,y,z of a point on it (parked model) and the rake in degrees")
+    ap.add_argument("--bar-angle", type=float, default=10.0, help="how far the bars turn, degrees (0: nothing moves)")
     args = ap.parse_args()
     grip = np.array([float(t) for t in args.grip.split(",")])
     peg = np.array([float(t) for t in args.peg.split(",")])
@@ -424,8 +507,14 @@ def main() -> int:
     for name, (v, f) in groups.items():
         groups[name] = ((v + shift) * scale, f)
     seat_v = groups["leather"][0]   # measured before decimation thins the seat's top
+    parts = measure_parts(groups, [float(t) for t in args.steer.split(",")] if args.steer else None)
+    rake = math.degrees(math.atan2(parts["steer_axis"][1], parts["steer_axis"][2]))
+    print(f"wheels: front axle ({parts['front_axle'][1]:.1f}, {parts['front_axle'][2]:.1f}), rear ({parts['rear_axle'][1]:.1f}, "
+          f"{parts['rear_axle'][2]:.1f}), radius {parts['wheel_radius']:.1f}; steering axis through "
+          f"({parts['steer_point'][1]:.1f}, {parts['steer_point'][2]:.1f}) raked {rake:.0f} deg"
+          + (f" (from {parts['tubes']} fork tubes)" if "tubes" in parts else " (--steer)"))
     print(f"decimating to about {args.tris} triangles:")
-    groups = decimate(groups, args.tris)
+    pieces = decimate(groups, args.tris)
     seat_front, seat_back = float(seat_v[:, 1].min()), float(seat_v[:, 1].max())
     hips_y = args.seat_at if args.seat_at is not None else seat_front + args.sit * (seat_back - seat_front)
     # The worn bike is turned round and shifted so the hips' spot lands at HIPS_Y_WORN.
@@ -441,10 +530,12 @@ def main() -> int:
     def to_worn(p):
         return [round(float(-p[0]), 2), round(float(-p[1] + seat_at), 2), round(float(p[2]), 2)]
 
+    steer_axis_worn = [0.0, round(float(-parts["steer_axis"][1]), 4), round(float(parts["steer_axis"][2]), 4)]
     fit = dict(model=MODEL_NAME, seat_top_z=round(seat_top_z, 2),
                grip_r=to_worn([-abs(grip[0]), grip[1], grip[2]]), grip_l=to_worn([abs(grip[0]), grip[1], grip[2]]),
                peg_r=to_worn([-abs(peg[0]), peg[1], peg[2]]), peg_l=to_worn([abs(peg[0]), peg[1], peg[2]]),
-               ground_foot_l=GROUND_FOOT_L, seat_at=round(seat_at, 2), hips_y=round(hips_y, 2))
+               ground_foot_l=GROUND_FOOT_L, seat_at=round(seat_at, 2), hips_y=round(hips_y, 2),
+               steer_point=to_worn(parts["steer_point"]), steer_axis=steer_axis_worn, bar_angle=args.bar_angle)
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "CMB_BikeFit.json").write_text(json.dumps(fit, indent=1) + "\n")
     print(f"wrote {args.out / 'CMB_BikeFit.json'}: seat top {fit['seat_top_z']}, right grip {fit['grip_r']}, "
@@ -467,27 +558,34 @@ def main() -> int:
     uv_of = write_palette(args.textures, order, body)
     print(f"wrote the palette textures to {args.textures}")
 
-    # The three shapes: vertices, triangles, UVs, normals (the parked frame).
-    shapes = {}
-    for kind in SHAPES:
-        vs, fs, us, off = [], [], [], 0
-        for name in order:
-            if MATERIALS[name][5] != kind:
+    # The shapes: by what moves (ROLES) and how it's shaded (KINDS); a wheel is one matte
+    # shape whatever its pieces are made of (black rims, as on the real thing).
+    buckets = {}
+    for name, v, f in pieces:
+        role = role_of(v.mean(axis=0), parts) if args.bar_angle > 0 else ""
+        kind = "matte" if role.startswith("wheel") else MATERIALS[name][5]
+        buckets.setdefault((role, kind), []).append((name, v, f))
+    shapes = {}   # name -> (verts, tris, uvs, normals, kind, role), in the order they're made
+    for role in ROLES:
+        for kind in KINDS:
+            if (role, kind) not in buckets:
                 continue
-            v, f = groups[name]
-            if flip:
-                f = f[:, [0, 2, 1]]
-            vs.append(v)
-            fs.append(f + off)
-            us.append(np.tile(np.array(uv_of[name]), (len(v), 1)))
-            off += len(v)
-        v = np.vstack(vs)
-        f = np.vstack(fs)
-        if len(v) > 65535:
-            print(f"the {kind} shape has {len(v)} vertices, over the 65535 a shape may have: lower --tris", file=sys.stderr)
-            return 1
-        shapes[kind] = (v, f, np.vstack(us), vertex_normals(v, f))
-        print(f"  {kind}: {len(v)} vertices, {len(f)} triangles")
+            vs, fs, us, off = [], [], [], 0
+            for name, v, f in buckets[(role, kind)]:
+                if flip:
+                    f = f[:, [0, 2, 1]]
+                vs.append(v)
+                fs.append(f + off)
+                us.append(np.tile(np.array(uv_of[name]), (len(v), 1)))
+                off += len(v)
+            v = np.vstack(vs)
+            f = np.vstack(fs)
+            label = role if role.startswith("wheel") else f"{role}_{kind}" if role else kind
+            if len(v) > 65535:
+                print(f"the {label} shape has {len(v)} vertices, over the 65535 a shape may have: lower --tris", file=sys.stderr)
+                return 1
+            shapes[label] = (v, f, np.vstack(us), vertex_normals(v, f), kind, role)
+            print(f"  {label}: {len(v)} vertices, {len(f)} triangles ({len(buckets[(role, kind)])} pieces)")
 
     base = Base(vshape)
 
@@ -497,9 +595,8 @@ def main() -> int:
     nif = NifFile(str(parked))
     old = nif.shapes[0]
     old.flags = old.flags | 1   # hidden
-    for kind in SHAPES:
-        v, f, u, n = shapes[kind]
-        add_shape(nif, f"CMB_Harley_{kind}", rows(v), rows(f), rows(u), rows(n), base, base.use_type, kind, False)
+    for label, (v, f, u, n, kind, _) in shapes.items():
+        add_shape(nif, f"CMB_Harley_{label}", rows(v), rows(f), rows(u), rows(n), base, base.use_type, kind, False)
     nif.save()
     check = NifFile(str(parked))
     names = [s.name for s in check.shapes]
@@ -509,23 +606,27 @@ def main() -> int:
           f"collision {'kept' if any(b.startswith('bhk') for b in blocks) else 'NOT FOUND'} ({len(blocks)} blocks)")
 
     # Worn: turned round to face +Y like a character, the seat over the origin, on one bone.
+    def turned(v):
+        return np.column_stack([-v[:, 0], -v[:, 1] + seat_at, v[:, 2]])
+
+    spheres = {label: sphere_of(turned(v)) for label, (v, *_) in shapes.items()}
+
     def worn(path: Path, bone, bind):
         out = NifFile()
         out.initialize("FO4", str(path), "NiNode", path.stem)
         allverts = []
-        for kind in SHAPES:
-            v, f, u, n = shapes[kind]
-            tv = np.column_stack([-v[:, 0], -v[:, 1] + seat_at, v[:, 2]])
+        for label, (v, f, u, n, kind, _) in shapes.items():
+            tv = turned(v)
             tn = np.column_stack([-n[:, 0], -n[:, 1], n[:, 2]])
             allverts.append(tv)
-            add_shape(out, f"{path.stem}_{kind}", rows(tv), rows(f), rows(u), rows(tn), base, base.use_type, kind,
+            add_shape(out, f"{path.stem}_{label}", rows(tv), rows(f), rows(u), rows(tn), base, base.use_type, kind,
                       True, bone, bind, TransformBuf)
         out.save()
         allverts = np.vstack(allverts)
-        count, radius = fix_all_bone_bounds(path, allverts, rigid_inverse(bind) if bind else None)
+        fix_all_bone_bounds(path, list(spheres.values()), rigid_inverse(bind) if bind else None)
         check = NifFile(str(path))
         lo, hi = allverts.min(axis=0), allverts.max(axis=0)
-        print(f"wrote {path}: {len(check.shapes)} shapes on {bone}, {count} bone-data blocks, culling radius {radius:.0f}")
+        print(f"wrote {path}: {len(check.shapes)} shapes on {bone}")
         print(f"  bounds x[{lo[0]:.1f},{hi[0]:.1f}] y[{lo[1]:.1f},{hi[1]:.1f}] z[{lo[2]:.1f},{hi[2]:.1f}]")
         for s in check.shapes:
             if bind:
@@ -536,8 +637,31 @@ def main() -> int:
                 err = max(math.dist(apply(m, p), p) for p in vs[:2000])
                 if err > 0.01:
                     raise ValueError(f"{path} {s.name}: skin-to-bone round trip off by {err}")
+            label = s.name[len(path.stem) + 1:]
+            c, r = spheres[label]
             print(f"  {s.name}: {len(s.verts)} verts, bones {list(s.bone_weights)}, alpha {s.has_alpha_property}, "
-                  f"textures {dict(s.shader.textures) if s.shader else {}}")
+                  f"sphere ({c[0]:.0f}, {c[1]:.0f}, {c[2]:.0f}) r {r:.0f}")
+
+    # The moving parts for the F4SE plugin, in the worn bike's mesh space: it tells a
+    # wheel by a culling sphere on an axle and the bar assembly by one ahead of FrontMinY.
+    fa, ra, sp = to_worn(parts["front_axle"]), to_worn(parts["rear_axle"]), to_worn(parts["steer_point"])
+    static_y = [c[1] for label, (c, _) in spheres.items() if not shapes[label][5]]
+    front_y = [c[1] for label, (c, _) in spheres.items() if shapes[label][5] == "front"]
+    front_min_y = (max(static_y) + min(front_y)) / 2 if front_y else fa[1]
+    partsfile = args.out / "CMB_BikeParts.ini"
+    partsfile.write_text(
+        "; Written by harley_meshes.py for CMB_Slope.dll: the worn bike's moving parts, in its mesh space\n"
+        "; (+Y forward, Z up, the ground at z 0). Delete this file and nothing moves.\n"
+        "[Parts]\n"
+        f"FrontAxle={fa[0]},{fa[1]},{fa[2]}\n"
+        f"RearAxle={ra[0]},{ra[1]},{ra[2]}\n"
+        f"WheelRadius={parts['wheel_radius']:.2f}\n"
+        f"SteerPoint={sp[0]},{sp[1]},{sp[2]}\n"
+        f"SteerAxis={steer_axis_worn[0]},{steer_axis_worn[1]},{steer_axis_worn[2]}\n"
+        f"FrontMinY={front_min_y:.1f}\n"
+        f"BarAngle={args.bar_angle:g}\n")
+    print(f"wrote {partsfile}: front axle {fa}, rear axle {ra}, radius {parts['wheel_radius']:.1f}, "
+          f"steering axis through {sp} along {steer_axis_worn}, the bar assembly's spheres beyond y {front_min_y:.1f}")
 
     worn(args.out / "CMB_BikeWorn.nif", BIKE_BONE, None)
     if args.seat:
