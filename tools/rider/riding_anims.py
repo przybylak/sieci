@@ -105,13 +105,23 @@ def grips(steer):
     return r @ (GRIP_R - STEER_POINT) + STEER_POINT, r @ (GRIP_L - STEER_POINT) + STEER_POINT
 
 
-def steer_for(roll):
+FAST_BARS = 0.6   # at jogging speed and above the bars go over this much of the full angle (the plugin does the same past 150 units/s)
+
+
+def steer_for(roll, fast=False):
     """The bars' turn that goes with a lean: into the turn, the full angle from a few degrees
-    of lean (the plugin's bars are at the full angle in any real turn)."""
+    of lean (the plugin's bars are at the full angle in any real turn), less at speed (the
+    plugin eases them to FAST_BARS of it between 150 and 400 units a second)."""
     if roll == 0.0 or BAR_ANGLE == 0.0:
         return 0.0
-    k = min(abs(roll) / 4.0, 1.0)
+    k = min(abs(roll) / 4.0, 1.0) * (FAST_BARS if fast else 1.0)
     return -math.copysign(BAR_ANGLE * k, roll)   # roll negative = leaning left = bars left (positive)
+
+
+def steer_in_place(direction):
+    """Turning on the spot: the bars at full lock the way the turn goes (the plugin's are, at
+    a stop, from 45 degrees a second of turning; test 21's hands were off the grips here)."""
+    return BAR_ANGLE if direction == "left" else -BAR_ANGLE
 
 FINGERS = ["Finger21", "Finger22", "Finger23", "Finger31", "Finger32", "Finger33",
            "Finger41", "Finger42", "Finger43", "Finger51", "Finger52", "Finger53"]
@@ -258,7 +268,8 @@ def riding(speed, roll=0.0):
     s = SPEEDS[speed]
 
     def at(t):  # t = 0..1 through the clip; two bounces per cycle
-        return RideParams(lean=s["lean"], roll=roll, bounce=s["bounce"] * math.sin(4 * math.pi * t), steer=steer_for(roll))
+        return RideParams(lean=s["lean"], roll=roll, bounce=s["bounce"] * math.sin(4 * math.pi * t),
+                          steer=steer_for(roll, speed != "walk"))
     return at
 
 
@@ -269,7 +280,8 @@ def turning(speed, direction, peak):
 
     def at(t):
         roll = sign * peak * math.sin(math.pi * t)
-        return RideParams(lean=s["lean"], roll=roll, bounce=s["bounce"] * math.sin(4 * math.pi * t), steer=steer_for(roll))
+        return RideParams(lean=s["lean"], roll=roll, bounce=s["bounce"] * math.sin(4 * math.pi * t),
+                          steer=steer_for(roll, speed != "walk"))
     return at
 
 
@@ -302,6 +314,15 @@ def stopping(speed, direction=None, peak=0.0):
 
 def standing(_t):
     return IDLE
+
+
+def turning_in_place(direction):
+    """Turning on the spot (turninplace*): seated as at a stop, the bars at full lock."""
+    steer = steer_in_place(direction)
+
+    def at(_t):
+        return replace(IDLE, steer=steer)
+    return at
 
 
 def takeoff(speed):
@@ -368,7 +389,8 @@ class UTurn:
 
         def motion(t):
             r = roll * math.sin(math.pi * min(t / share, 1.0))
-            return RideParams(lean=s["lean"], roll=r, bounce=s["bounce"] * math.sin(4 * math.pi * t), steer=steer_for(r))
+            return RideParams(lean=s["lean"], roll=r, bounce=s["bounce"] * math.sin(4 * math.pi * t),
+                              steer=steer_for(r, self.speed != "walk"))
         return out, motion
 
 
@@ -464,7 +486,7 @@ def clip_table():
     for d in ("left", "right"):
         for angle in ("45", "90", "180"):
             for fast in ("", "_fast"):
-                specs.append(ClipSpec(f"turninplace{d}{angle}{fast}", standing))
+                specs.append(ClipSpec(f"turninplace{d}{angle}{fast}", turning_in_place(d)))
     return specs + idle_specs() + jump_specs()
 
 

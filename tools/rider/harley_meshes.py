@@ -142,14 +142,16 @@ def load_gltf(path: Path):
             vs.append(v)
             fs.append(f + off)
             off += len(v)
-        merged[name] = weld(np.vstack(vs), np.vstack(fs))
+        merged[name] = weld(np.vstack(vs), np.vstack(fs))   # the parts of a material together: a tyre's halves share their seam
     return merged
 
 
 def weld(v, f, tol=1e-3):
     """Merge vertices at the same place. The export keeps a vertex per face corner along
     hard edges, which leaves the simplifier a patchwork of islands whose borders it won't
-    collapse (pieces came back ten times over budget)."""
+    collapse (pieces came back ten times over budget). Across a material's parts too: the
+    simplifier doesn't keep a border where it is, so two parts decimated apart crack along
+    their seam (a tyre's halves meet on the tread's centre line)."""
     key = np.round(v / tol).astype(np.int64)
     _, first, inv = np.unique(key, axis=0, return_index=True, return_inverse=True)
     f = inv.reshape(-1)[f] if inv.ndim > 1 else inv[f]
@@ -221,6 +223,7 @@ def decimate(groups, total_target, speck_area=4.0, min_tris=8, weight=None):
     budget = np.maximum(np.minimum(budget, counts), np.minimum(min_tris, counts)).astype(int)
     result = []
     for (name, v, f, _), b in zip(pieces, budget):
+        v0, f0 = v, f
         # A closed tube (the cables) often stops well short of the target in one call and
         # gives a little more each call after; a few passes, while they still pay.
         for _ in range(4):
@@ -232,6 +235,8 @@ def decimate(groups, total_target, speck_area=4.0, min_tris=8, weight=None):
             v, f = vo, fo
             if not gain:
                 break
+        if f is not f0:
+            v = snap_border(v, f, v0, f0)
         result.append((name, v, f))
     got = sum(len(f) for _, _, f in result)
     print(f"  {len(pieces)} pieces kept, {dropped} specks dropped ({dropped_area:.0f} units² of {total_area:.0f}); "
@@ -243,6 +248,31 @@ def decimate(groups, total_target, speck_area=4.0, min_tris=8, weight=None):
         if name in per:
             print(f"  {name:12s} {len(f):8d} -> {per[name]:6d} tris")
     return result
+
+
+def border_vertices(f):
+    """The indices of the vertices on open edges (edges with one triangle)."""
+    e = np.sort(np.vstack([f[:, [0, 1]], f[:, [1, 2]], f[:, [2, 0]]]), axis=1)
+    ue, cnt = np.unique(e, axis=0, return_counts=True)
+    return np.unique(ue[cnt == 1])
+
+
+def snap_border(v, f, v0, f0):
+    """The decimated piece's border vertices put back on the piece's original border: the
+    simplifier moves them off it (a third of the tyre's did), so two parts that met along a
+    seam, decimated apart, came apart along it (test 21: the tyre looked loose on the rim).
+    Each one goes to the nearest original border vertex."""
+    b1 = border_vertices(f)
+    b0 = border_vertices(f0)
+    if len(b1) == 0 or len(b0) == 0:
+        return v
+    orig = v0[b0]
+    out = v.copy()
+    for i in range(0, len(b1), 256):
+        idx = b1[i:i + 256]
+        d = ((v[idx][:, None, :] - orig[None, :, :]) ** 2).sum(axis=2)
+        out[idx] = orig[d.argmin(axis=1)]
+    return out
 
 
 def pieces_of(v, f, least=30):
@@ -263,17 +293,36 @@ def measure_parts(groups, steer=None):
     tall as they are long) give the axles and the wheel radius; the fork tubes (the pieces
     ahead that are long along one raked axis, one each side) give the steering axis. --steer
     overrides the axis (x,y,z of a point on it and the rake in degrees)."""
-    tyres = []
+    rounds = []   # the round rubber pieces as tall as they are long: a tyre, or a layer of one
     for v, f in pieces_of(*groups["material"]):
         lo, hi = v.min(axis=0), v.max(axis=0)
         dy, dz = hi[1] - lo[1], hi[2] - lo[2]
         if dz > 40 and abs(dz - dy) < 4 and hi[0] - lo[0] < 20:
-            tyres.append(((lo + hi) / 2, dz / 2))
+            rounds.append(((lo + hi) / 2, dz / 2))
+    tyres = []   # one per axle: the layers of a tyre (tread, carcass) share its centre
+    for c, r in rounds:
+        for t in tyres:
+            if np.linalg.norm(t[0][1:] - c[1:]) < 4.0:   # the same axle (a tyre's halves sit side by side)
+                t[1] = max(t[1], r)
+                break
+        else:
+            tyres.append([c, r])
     tyres.sort(key=lambda t: t[0][1])
     if len(tyres) != 2:
-        raise ValueError(f"expected two tyres among the rubber pieces, found {len(tyres)}")
+        raise ValueError(f"expected two tyres among the rubber pieces, found {len(tyres)} (of {len(rounds)} round pieces)")
     (front, rf), (rear, rr) = tyres
     parts = dict(front_axle=front, rear_axle=rear, wheel_radius=(rf + rr) / 2)
+    # The rim's lip: the farthest any round non-rubber piece on the front axle reaches.
+    lips = []
+    for mat in ("black_m", "chrome", "silver"):
+        for v, f in pieces_of(*groups.get(mat, (np.zeros((0, 3)), np.zeros((0, 3), np.int64)))):
+            if np.abs(v[:, 0]).max() >= 13.0:
+                continue
+            r = np.hypot(v[:, 1] - front[1], v[:, 2] - front[2])
+            bins = np.unique(np.floor(np.degrees(np.arctan2(v[:, 2] - front[2], v[:, 1] - front[1])) / 10.0).astype(int))
+            if r.max() < rf and len(bins) >= 25:
+                lips.append(float(r.max()))
+    parts["rim_radius"] = max(lips) if lips else 0.0
     if steer:
         x, y, z, rake = steer
         parts["steer_point"] = np.array([x, y, z])
@@ -286,19 +335,24 @@ def measure_parts(groups, steer=None):
             m = v.mean(axis=0)
             if not (m[1] < front[1] + rf + 15 and 4 < abs(m[0]) < 16 and hi[2] - lo[2] > 20 and hi[0] - lo[0] < 8):
                 continue
-            # the long axis of the piece, pointing up
             c = v - m
             _, _, vt = np.linalg.svd(c[:: max(1, len(c) // 2000)], full_matrices=False)
-            axis = vt[0] if vt[0][2] >= 0 else -vt[0]
-            if axis[2] < 0.6:
+            if abs(vt[0][2]) < 0.6:   # not long along something upright
                 continue
-            tubes.append((m, axis))
+            tubes.append(v)
     if not tubes:
         raise ValueError("no fork tubes found ahead: pass --steer x,y,z,rake")
-    axis = np.mean([a for _, a in tubes], axis=0)
+    # The fork assembly's long axis: the principal axis of all the tubes' vertices together
+    # (one tube's own axis wobbles with its lugs and clamps; test 21's came out at 17 degrees
+    # from a lower, 24 from an upper, on a 30-degree fork).
+    allv = np.vstack(tubes)
+    point = allv.mean(axis=0)
+    c = allv - point
+    c[:, 0] = 0.0   # the two sides together, in the centre plane
+    _, _, vt = np.linalg.svd(c[:: max(1, len(c) // 4000)], full_matrices=False)
+    axis = vt[0] if vt[0][2] >= 0 else -vt[0]
     axis[0] = 0.0
     axis /= np.linalg.norm(axis)
-    point = np.mean([m for m, _ in tubes], axis=0)
     point[0] = 0.0
     parts["steer_point"], parts["steer_axis"] = point, axis
     parts["tubes"] = len(tubes)
@@ -326,6 +380,24 @@ def wheel_of(v, parts):
         if r.min() < 9.0 and r.max() > 14.0 and np.abs(v[:, 0] - c[0]).max() < 6.5:   # a spoke (this model's are split in two, 2..6 out)
             return role
     return None
+
+
+def seat_tyre(v, parts, role):
+    """The tyre's inner edge pulled in to the rim: in this model the rim's lip ends 2 units
+    short of the tyre's bead (a ring of nothing between them: test 21's "rims not attached"),
+    so the bead's vertices, from the inner edge to 25 units out, slide in to the lip's radius."""
+    c = parts["front_axle"] if role == "wheelF" else parts["rear_axle"]
+    r = np.hypot(v[:, 1] - c[1], v[:, 2] - c[2])
+    lip, bead = parts.get("rim_radius", 0.0), r.min()
+    if not lip or bead <= lip + 0.3 or bead > lip + 6.0:
+        return v
+    outer = min(bead + 1.7, parts["wheel_radius"] - 2.0)
+    k = np.clip((outer - r) / (outer - bead), 0.0, 1.0)
+    pull = (bead - lip) * k
+    out = v.copy()
+    out[:, 1] -= (v[:, 1] - c[1]) / np.maximum(r, 1e-6) * pull
+    out[:, 2] -= (v[:, 2] - c[2]) / np.maximum(r, 1e-6) * pull
+    return out
 
 
 def role_of(v, parts):
@@ -410,8 +482,7 @@ def shader_setup(shape, base_props, kind, skinned, textures):
         props.Env_Map_Scale = 1.0
         sf1 |= SF1_ENV_MAP
         sf2 |= SF2_ENVMAP_LIGHT_FADE
-    if kind == "glass":
-        sf2 |= SF2_DOUBLE_SIDED
+    sf2 |= SF2_DOUBLE_SIDED   # the model has single-plane bits (rim lips, fender undersides) that vanish from one side otherwise
     props.Shader_Flags_1 = sf1
     props.Shader_Flags_2 = sf2
     props.Glossiness = {"metal": 90.0, "matte": 30.0, "glass": 110.0}[kind]
@@ -539,7 +610,7 @@ def main() -> int:
     parts = measure_parts(groups, [float(t) for t in args.steer.split(",")] if args.steer else None)
     rake = math.degrees(math.atan2(parts["steer_axis"][1], parts["steer_axis"][2]))
     print(f"wheels: front axle ({parts['front_axle'][1]:.1f}, {parts['front_axle'][2]:.1f}), rear ({parts['rear_axle'][1]:.1f}, "
-          f"{parts['rear_axle'][2]:.1f}), radius {parts['wheel_radius']:.1f}; steering axis through "
+          f"{parts['rear_axle'][2]:.1f}), radius {parts['wheel_radius']:.1f}, the rim's lip at {parts['rim_radius']:.1f}; steering axis through "
           f"({parts['steer_point'][1]:.1f}, {parts['steer_point'][2]:.1f}) raked {rake:.0f} deg"
           + (f" (from {parts['tubes']} fork tubes)" if "tubes" in parts else " (--steer)"))
     print(f"decimating to about {args.tris} triangles (the wheels' pieces at 2.5 times their area's share):")
@@ -593,6 +664,8 @@ def main() -> int:
     for name, v, f in pieces:
         role = role_of(v, parts) if args.bar_angle > 0 else ""
         kind = "matte" if role.startswith("wheel") else MATERIALS[name][5]
+        if role.startswith("wheel") and name == "material":
+            v = seat_tyre(v, parts, role)
         buckets.setdefault((role, kind), []).append((name, v, f))
     shapes = {}   # name -> (verts, tris, uvs, normals, kind, role), in the order they're made
     for role in ROLES:

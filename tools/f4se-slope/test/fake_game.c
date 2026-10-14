@@ -984,6 +984,13 @@ static void SlideAndDrive(float dt)
 	}
 }
 
+/* Riding by the keys with the camera swinging left at 60 degrees a second (the bike turns after it). */
+static void TurnWhileRiding(float dt)
+{
+	FakeGameFrame(dt);
+	g_camYaw -= 1.0472f * dt;
+}
+
 /* Rolling backwards at 80 a second, no keys. */
 static void RollBack(float dt)
 {
@@ -1042,6 +1049,15 @@ static void PartsTests(void)
 	Keys(0.0f, 0.0f);
 	RunFrames(1000);
 	CHECK(fabsf(BarAngle()) < 1.0f, "stopped: the bars back straight (%.1f deg)", BarAngle());
+	Keys(0.0f, 1.0f);   /* at speed the bars go over less: 60% of the angle past 400 units/s */
+	RunFrames(3500);
+	g_onFrame = TurnWhileRiding;   /* the camera swinging left at 60 deg/s, the bike following */
+	RunFrames(1000);
+	bar = BarAngle();
+	CHECK(bar > 4.5f && bar < 7.5f, "turning left at speed: the bars over %.1f deg (6: 60%% of 10)", bar);
+	g_onFrame = FakeGameFrame;
+	Keys(0.0f, 0.0f);
+	RunFrames(3000);
 	g_onFrame = RollBack;   /* the game moving the bike backwards (as a reverse does): the wheels turn the other way */
 	RunFrames(800);
 	Mark(p0);
@@ -1131,7 +1147,46 @@ static void InputTests(void)
 	CHECK(Moved(p0) < 80.0f, "on the flat again: no surge from the rough ground's input (%.0f in half a second)", Moved(p0));
 	Keys(1.0f, 1.0f);
 	RunFrames(300);
-	CHECK(MoveInput()[0] == 1.0f && MoveInput()[1] == 1.0f, "forward and right: left alone");
+	CHECK(MoveInput()[0] == 1.0f && MoveInput()[1] > 0.1f && MoveInput()[1] < 0.5f,
+	      "forward and right: the side key as it is, forward building up (%.2f after 0.3 s)", MoveInput()[1]);
+	Keys(0.0f, 0.0f);
+	RunFrames(2500);
+
+	printf("input hook: the throttle (test 21: the game's speed came and went at once):\n");
+	Keys(0.0f, 1.0f);
+	RunFrames(500);
+	Mark(p0);
+	RunFrames(250);
+	float early = Moved(p0) * 4.0f;
+	CHECK(early > 60.0f && early < 600.0f, "half a second in: %.0f a second, building up (900 at the top)", early);
+	RunFrames(3000);
+	Mark(p0);
+	RunFrames(250);
+	float top = Moved(p0) * 4.0f;
+	CHECK(top > 800.0f, "3.5 s in: %.0f a second, at the top", top);
+	Keys(0.0f, 0.0f);
+	RunFrames(400);
+	Mark(p0);
+	RunFrames(250);
+	float coasting = Moved(p0) * 4.0f;
+	CHECK(coasting > 150.0f && coasting < 800.0f, "let go of: still rolling at %.0f a second after 0.4 s (coasting)", coasting);
+	RunFrames(2500);
+	Mark(p0);
+	RunFrames(300);
+	CHECK(Moved(p0) < 2.0f, "and stopped within the 2 s of coasting (moved %.1f)", Moved(p0));
+	Keys(0.0f, 1.0f);
+	RunFrames(2000);
+	Mark(p0);
+	from = *head;
+	Keys(0.0f, -1.0f);   /* back while rolling: a brake first */
+	RunFrames(300);
+	float braking = Along(p0, from);
+	CHECK(braking > 30.0f && braking < 240.0f, "back pressed while rolling: still rolling on, braking (%.0f on in the first 0.3 s, 270 unbraked)", braking);
+	RunFrames(1500);
+	float backed = Along(p0, from);
+	CHECK(backed < braking - 40.0f, "then backing up (%.0f along the heading from the press)", backed);
+	Keys(0.0f, 0.0f);
+	RunFrames(600);
 	Keys(0.0f, 0.0f);
 	RunFrames(600);
 

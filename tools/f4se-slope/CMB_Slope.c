@@ -342,6 +342,17 @@ static int g_reverse = 1;                 /* 1 = holding back backs the bike up 
 static int g_inputHook = 1;               /* 1 = change the move input before the game uses it (creep, reverse) */
 static int g_creep = 1;                   /* 1 = a side key from a stop creeps forward round a CreepRadius circle */
 static float g_creepStart = 0.1f;         /* the first forward input tried for the creep (then learnt) */
+/* The throttle (test 21: the game's own speed is there at once and gone at once): forward
+ * builds up over Accel seconds, rolls on after the key for Coast seconds, and back brakes
+ * it off over Brake seconds before the reverse starts. */
+static int g_throttleOn = 1;
+static float g_accel = 2.5f, g_coast = 2.0f, g_brake = 0.4f;
+static float g_throttle;                   /* 0..1, how far the forward input has built up */
+static float g_throttleMag = 1.0f;         /* the forward key's own size (a stick's), kept while coasting */
+static bool g_throttleWrote;               /* this frame's input is the throttle's */
+static float g_barAtSpeed = 0.6f;          /* the bars go over this much of BarAngle at speed (from 150 to 400 units/s) */
+static float g_keys[2];                    /* the keys as read (defined with the input hook below) */
+static bool g_inputActive;                 /* the input hook is live (defined with it below) */
 static float g_creepBelow = 100.0f;       /* a side key alone creeps below this speed */
 static float g_creepRadius = 55.0f;       /* the creep goes round this circle (test 15: a bit more than 40) */
 static float g_backSpeed = 80.0f;         /* units a second the bike is pushed back */
@@ -654,6 +665,19 @@ static void ReadSettings(void)
 	if (!(g_backSink >= -5.0f && g_backSink <= 5.0f))
 		g_backSink = 0.0f;
 	g_backSupportCheck = (int)GetPrivateProfileIntA("Steer", "BackSupportCheck", 0, ini);
+	g_throttleOn = (int)GetPrivateProfileIntA("Steer", "Throttle", 1, ini);
+	GetPrivateProfileStringA("Steer", "Accel", "2.5", value, sizeof(value), ini);
+	g_accel = strtof(value, NULL);
+	if (!(g_accel >= 0.0f && g_accel <= 10.0f))
+		g_accel = 2.5f;
+	GetPrivateProfileStringA("Steer", "Coast", "2.0", value, sizeof(value), ini);
+	g_coast = strtof(value, NULL);
+	if (!(g_coast >= 0.0f && g_coast <= 10.0f))
+		g_coast = 2.0f;
+	GetPrivateProfileStringA("Steer", "Brake", "0.4", value, sizeof(value), ini);
+	g_brake = strtof(value, NULL);
+	if (!(g_brake >= 0.0f && g_brake <= 5.0f))
+		g_brake = 0.4f;
 	GetPrivateProfileStringA("Tilt", "Shapes", "CMB_BikeWorn", g_shapePrefix, sizeof(g_shapePrefix), ini);
 	GetPrivateProfileStringA("Tilt", "Layout", "auto", value, sizeof(value), ini);
 	g_layoutSetting = _stricmp(value, "file") == 0 ? LAYOUT_FILE : _stricmp(value, "transposed") == 0 ? LAYOUT_TRANSPOSED : LAYOUT_UNKNOWN;
@@ -669,9 +693,10 @@ static void ReadSettings(void)
 	    g_layoutSetting == LAYOUT_FILE ? "file" : g_layoutSetting == LAYOUT_TRANSPOSED ? "transposed" : "auto");
 	static const char *const pushValueNames[] = { "delta", "ray", "mod", "velocity", "position", "off" };
 	Log("  steer: Enabled=%d FullSpeed=%g InputHook=%d Creep=%d CreepInput=%g CreepBelow=%g CreepRadius=%g Reverse=%d BackSpeed=%g "
-	    "BackPush=%s BackClearance=%g BackSink=%g BackSupportCheck=%d",
+	    "BackPush=%s BackClearance=%g BackSink=%g BackSupportCheck=%d Throttle=%d Accel=%g Coast=%g Brake=%g",
 	    g_steer, g_fullSpeed, g_inputHook, g_creep, g_creepStart, g_creepBelow, g_creepRadius, g_reverse, g_backSpeed,
-	    g_backPushAuto ? "auto" : pushValueNames[g_backPushFirst], g_backClearance, g_backSink, g_backSupportCheck);
+	    g_backPushAuto ? "auto" : pushValueNames[g_backPushFirst], g_backClearance, g_backSink, g_backSupportCheck,
+	    g_throttleOn, g_accel, g_coast, g_brake);
 	ReadParts(ini);
 }
 
@@ -710,6 +735,9 @@ static void ReadParts(const char *ini)
 	g_frontMinY = ReadNum(file, "FrontMinY", 0.0f);
 	g_barAngle = ReadNum(file, "BarAngle", 0.0f);
 	g_barFullAt = ReadNum(ini, "BarFullAt", 45.0f);
+	g_barAtSpeed = ReadNum(ini, "BarAtSpeed", 0.6f);
+	if (!(g_barAtSpeed >= 0.0f && g_barAtSpeed <= 1.0f))
+		g_barAtSpeed = 0.6f;
 	float len = sqrtf(g_steerAxis[0] * g_steerAxis[0] + g_steerAxis[1] * g_steerAxis[1] + g_steerAxis[2] * g_steerAxis[2]);
 	if (!(len > 0.5f) || !(g_wheelRadius > 5.0f && g_wheelRadius < 100.0f))
 		g_partsOk = false;
@@ -721,9 +749,9 @@ static void ReadParts(const char *ini)
 		for (int i = 0; i < 3; i++)
 			g_steerAxis[i] /= len;
 		Log("  parts (%s): wheels of radius %.1f on axles at y %.1f and %.1f, the bar assembly beyond y %.1f turning up to %g deg "
-		    "about the axis through (%.1f, %.1f, %.1f) along (%.2f, %.2f, %.2f), fully over from %g deg/s of turning",
+		    "about the axis through (%.1f, %.1f, %.1f) along (%.2f, %.2f, %.2f), fully over from %g deg/s of turning, %g of it at speed",
 		    file == ini ? "in the settings" : g_partsFile, g_wheelRadius, g_frontAxle[1], g_rearAxle[1], g_frontMinY, g_barAngle,
-		    g_steerPoint[0], g_steerPoint[1], g_steerPoint[2], g_steerAxis[0], g_steerAxis[1], g_steerAxis[2], g_barFullAt);
+		    g_steerPoint[0], g_steerPoint[1], g_steerPoint[2], g_steerAxis[0], g_steerAxis[1], g_steerAxis[2], g_barFullAt, g_barAtSpeed);
 	} else {
 		Log("  parts: none (%s not found or incomplete): nothing on the bike moves", g_partsFile);
 	}
@@ -2143,7 +2171,12 @@ static void FrameTilt(void)
 		g_headingRate += (rate - g_headingRate) * (1.0f - expf(-g_frameDt / 0.1f));
 		float f = g_headingRate / g_barFullAt;
 		f = f > 1.0f ? 1.0f : f < -1.0f ? -1.0f : f;
-		float barTarget = g_partsOk ? -g_barAngle * f : 0.0f;
+		/* Less at speed (a bike's bars barely move there, and the game's lean clips, posed
+		 * with the bars at BarAtSpeed of the angle, play then): full to 150 units/s, down to
+		 * BarAtSpeed of it by 400. */
+		float atSpeed = (g_speed - 150.0f) / 250.0f;
+		atSpeed = atSpeed < 0.0f ? 0.0f : atSpeed > 1.0f ? 1.0f : atSpeed;
+		float barTarget = g_partsOk ? -g_barAngle * f * (1.0f - (1.0f - g_barAtSpeed) * atSpeed) : 0.0f;
 		g_barNow += (barTarget - g_barNow) * (1.0f - expf(-g_frameDt / 0.15f));
 		if (g_partsOk) {
 			g_wheelAngle -= g_speedAlong / g_wheelRadius * g_frameDt;   /* forward: the top of the wheel goes forward */
@@ -2212,6 +2245,9 @@ static void FrameTilt(void)
 		    medianPitch, medianRoll, g_trackPitchOk ? "" : "(none) ", g_trackPitchOk ? g_trackPitch : 0.0f, source,
 		    g_pitchSmooth, g_rollSmooth, g_pitchNow, g_rollNow, g_speed, g_speedAlong, g_steerRadius, g_steerWanted, g_steerAllowed,
 		    g_steerClamped, g_inputMode == INPUT_BACK ? " | back" : g_inputMode == INPUT_CREEP ? " | creep" : "");
+		if (g_throttleOn && g_inputActive)
+			Log("throttle: %.2f (keys %.2f, %.2f%s)", g_throttle, g_keys[0], g_keys[1],
+			    g_throttleWrote ? ", the game gets the throttle's" : "");
 		if (g_partsOk)
 			Log("parts: bars %+.1f deg (turning %+.0f deg/s), wheels at %.2f rad", g_barNow, g_headingRate, g_wheelAngle);
 		g_steerWanted = 0.0f;
@@ -2753,18 +2789,49 @@ static void AfterInput(void)
 	}
 	g_keys[0] = x;
 	g_keys[1] = y;
+	g_throttleWrote = false;
+	bool keysOk = g_inputActive && isfinite(x) && isfinite(y);
+	bool forward = keysOk && y > 0.2f, back = keysOk && y < -0.2f;
+	/* The throttle: forward builds the input up over Accel seconds, lets it roll on after the
+	 * key for Coast seconds, and back brakes it off over Brake seconds; only once it's off
+	 * does back reverse and a side key creep. Off (Throttle=0), the keys go through as they are. */
+	if (keysOk && g_throttleOn && g_frameDt > 0.0f) {
+		if (forward) {
+			g_throttle += g_frameDt / (g_accel > 0.05f ? g_accel : 0.05f);
+			g_throttleMag = y;
+		} else if (back) {
+			g_throttle -= g_frameDt / (g_brake > 0.05f ? g_brake : 0.05f);
+		} else {
+			g_throttle -= g_frameDt / (g_coast > 0.05f ? g_coast : 0.05f);
+		}
+		g_throttle = g_throttle > 1.0f ? 1.0f : g_throttle < 0.0f ? 0.0f : g_throttle;
+	} else if (!keysOk || !g_throttleOn) {
+		g_throttle = 0.0f;
+	}
+	bool rolling = g_throttleOn && g_throttle > 0.0f;
 	int mode = INPUT_PASS;
-	if (g_inputActive && isfinite(x) && isfinite(y)) {
-		if (y < -0.2f)
+	if (keysOk) {
+		if (back && !rolling)
 			mode = g_reverse ? INPUT_BACK : INPUT_PASS;
-		else if (y <= 0.2f && fabsf(x) > 0.05f && (g_inputMode == INPUT_CREEP || g_speed < g_creepBelow))
+		else if (!back && !rolling && y <= 0.2f && fabsf(x) > 0.05f && (g_inputMode == INPUT_CREEP || g_speed < g_creepBelow))
 			mode = INPUT_CREEP;
 	}
 	if (mode != g_inputMode)
 		g_modeChanges++;
 	g_inputMode = mode;
-	if (mode == INPUT_PASS)
+	if (mode == INPUT_PASS) {
+		if (rolling) {
+			/* The input the throttle says, with the side key as it is (the game turns on it). */
+			float t = g_throttle, ramp = 0.12f + 0.88f * t;
+			g_wroteMove[0] = x == 0.0f ? copysignf(0.0f, -1.0f) : x;
+			g_wroteMove[1] = g_throttleMag * ramp;
+			memcpy(g_moveVec, g_wroteMove, sizeof(g_wroteMove));
+			g_wrote = true;
+			g_throttleWrote = true;
+		}
 		return;
+	}
+	g_throttle = 0.0f;
 	g_wroteMove[0] = copysignf(0.0f, -1.0f);
 	g_wroteMove[1] = mode == INPUT_CREEP && g_creep ? g_creepInput : copysignf(0.0f, -1.0f);
 	memcpy(g_moveVec, g_wroteMove, sizeof(g_wroteMove));
@@ -2827,7 +2894,7 @@ static void HookOutput(uintptr_t self, uintptr_t id, uintptr_t out, uintptr_t d)
 	/* Right before the game works the input into its movement: ours again, whatever cleared
 	 * it since the last key event (test 19: on some frames the game's own clear came after
 	 * the last of the three calls above, and the movement got (0, 0)). */
-	if (g_inputActive && g_inputMode != INPUT_PASS && g_moveVec) {
+	if (g_inputActive && (g_inputMode != INPUT_PASS || g_throttleWrote) && g_moveVec) {
 		memcpy(g_moveVec, g_wroteMove, sizeof(g_wroteMove));
 		g_wrote = true;
 	}
@@ -2851,6 +2918,8 @@ static void StopPush(void);
 static void EndInput(void)
 {
 	g_inputActive = false;
+	g_throttle = 0.0f;
+	g_throttleWrote = false;
 	if (StillOurs()) {
 		g_moveVec[0] = g_rawMove[0];
 		g_moveVec[1] = g_rawMove[1];
