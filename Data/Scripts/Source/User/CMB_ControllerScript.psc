@@ -98,7 +98,7 @@ Group Optional
 	{What CMB_Slope.dll reads: CMB_RidingCameraDistance while riding, 0 otherwise. Set by this script.}
 	GlobalVariable Property CMB_MaxSlope Auto Const
 	{Steepest slope you can ride up, in degrees. Needs F4SE and the CMB_Slope.dll plugin.
-	0 = the game's own limit. Default 60.}
+	0 = the game's own limit. Default 45 (on foot the game allows 47).}
 	GlobalVariable Property CMB_SlopeLive Auto Const
 	{What CMB_Slope.dll reads: CMB_MaxSlope while riding, 0 otherwise. Set by this script.}
 	GlobalVariable Property CMB_MaxTilt Auto Const
@@ -355,6 +355,15 @@ Function UpgradeSettings()
 			Log("Bike tilt: the old default 15 is now 20.")
 		endif
 		settingsVersion = 4
+	endif
+	if settingsVersion < 5
+		; Test 24: a road bike shouldn't climb the hill by Vault 111; 60 became 45 (on foot the
+		; game allows 47).
+		if CMB_MaxSlope && CMB_MaxSlope.GetValue() == 60.0
+			CMB_MaxSlope.SetValue(45.0)
+			Log("Steepest slope while riding: the old default 60 is now 45.")
+		endif
+		settingsVersion = 5
 	endif
 EndFunction
 

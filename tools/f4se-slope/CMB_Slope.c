@@ -506,8 +506,8 @@ static int g_skinCount;
  * never written: each held shape's skin instance is pointed at a copy of ours while riding
  * and back after. Plain shapes under the bones (a holstered weapon, the Pip-Boy) get the same
  * map in front of their own transform. */
-#define MAX_RIDER 96
-#define MAX_RIDER_BONES 200
+#define MAX_RIDER 160
+#define MAX_RIDER_BONES 320
 #define REPLICA_REFS 0x100000
 typedef struct {
 	uintptr_t shape;                    /* BSGeometry, a reference of ours */
@@ -526,7 +526,8 @@ typedef struct { uintptr_t obj; uint8_t *entries; int capacity; bool inUse; } Re
 static Replica g_replicas[MAX_RIDER * 2];   /* never freed: a reference the game still holds must never find them gone */
 static int g_replicaCount;
 static int g_riderTilt = 1;
-static bool g_riderWorldChecked, g_riderWorldOk, g_riderBoneWarned, g_riderFullWarned, g_riderBonesWarned;
+static bool g_riderWorldChecked, g_riderWorldOk, g_riderBoneWarned;
+static bool g_riderBlocked;                 /* this ride: a skinned shape couldn't be held, so none is (a part-tilted rider tears) */
 static float g_riderPivot[3];
 static bool g_riderApplied;                 /* this frame: the rider's shapes carried by the tilt */
 
@@ -1445,6 +1446,18 @@ static void ApplySlope(uintptr_t target, float degrees)
 		return;
 	if (!g_applied) {
 		float current = *slot;
+		if (g_writtenValue != 0.0f && current == g_writtenValue && Plausible(g_originalValue) && !AsExpected(current)) {
+			/* Our own riding value, still there after a load (test 24: a save loaded on the bike
+			 * kept 60 deg on foot for the rest of the session): ours again, put back at the dismount. */
+			g_writtenValue = Steeper(FromDegrees(degrees), g_originalValue);
+			g_applied = true;
+			g_appliedTarget = target;
+			g_revertCount = 0;
+			Log("%s+0x%X holds our riding value (%.2f deg) from before the load: taken as ours again, back to %.2f deg at the dismount",
+			    TargetName(), g_slopeOffset, ToDegrees(current), ToDegrees(g_originalValue));
+			*slot = g_writtenValue;
+			return;
+		}
 		if (!Plausible(current) || !AsExpected(current)) {
 			if (!g_badValueLogged)
 				Log("%s+0x%X holds %g (%.2f deg), not the expected %g deg: not touching it",
@@ -1857,6 +1870,7 @@ static void LetGoAll(const char *why)
 		LetGo(g_skinCount - 1, why);
 	LetGoAllRider(why);
 	g_riderWorldChecked = false;
+	g_riderBlocked = false;
 	ResetTilt();
 }
 
@@ -2212,6 +2226,62 @@ static bool LooksLikeTransform(const uint8_t *t)
 	return true;
 }
 
+/* A rider's bone entry: a sphere (empty allowed: test 24's suit had a bone with no vertices
+ * and a radius of 0, and the whole suit was left level) and a rigid transform. False with
+ * the reason. */
+static bool RiderBoneOk(const uint8_t *bone, char *why, size_t size)
+{
+	const float *r = (const float *)(bone + OFF_BONE_ROT), *pos = (const float *)(bone + OFF_BONE_POS);
+	float radius = *(const float *)(bone + OFF_BONE_RADIUS);
+	if (!(radius >= 0.0f && radius < 10000.0f)) {
+		snprintf(why, size, "sphere radius %g", radius);
+		return false;
+	}
+	for (int i = 0; i < 3; i++) {
+		if (!(fabsf(pos[i]) < 10000.0f)) {
+			snprintf(why, size, "position (%g, %g, %g)", pos[0], pos[1], pos[2]);
+			return false;
+		}
+		for (int j = 0; j < 3; j++) {
+			float d = r[i * 4] * r[j * 4] + r[i * 4 + 1] * r[j * 4 + 1] + r[i * 4 + 2] * r[j * 4 + 2];
+			if (!(fabsf(d - (i == j ? 1.0f : 0.0f)) < 0.01f)) {
+				snprintf(why, size, "rotation rows %d and %d (dot %g, rows (%g, %g, %g) (%g, %g, %g) (%g, %g, %g))", i, j, d,
+				         r[0], r[1], r[2], r[4], r[5], r[6], r[8], r[9], r[10]);
+				return false;
+			}
+		}
+	}
+	return true;
+}
+
+/* A skinned shape of the rider: can it be held? False with the reason (the first bone that fails). */
+static bool RiderSkinOk(uintptr_t skin, uintptr_t data, char *why, size_t size)
+{
+	uintptr_t array = data + OFF_BONE_TRANSFORMS;
+	uintptr_t bones = ReadPtr(array + OFF_ARRAY_ENTRIES);
+	uint32_t count = Accessible(array + OFF_ARRAY_COUNT, 4, false) ? *(const uint32_t *)(array + OFF_ARRAY_COUNT) : 0;
+	if (!bones || count < 1 || count > MAX_RIDER_BONES || !Accessible(bones, count * BONE_SIZE, false)) {
+		snprintf(why, size, "%u bones, or their transforms can't be read", count);
+		return false;
+	}
+	if (!Accessible(skin + OFF_SKIN_BONE_DATA, 8, true)) {
+		snprintf(why, size, "its skin instance can't be written");
+		return false;
+	}
+	for (uint32_t b = 0; b < count; b++) {
+		char reason[200];
+		if (!RiderBoneOk((const uint8_t *)(bones + b * BONE_SIZE), reason, sizeof(reason))) {
+			snprintf(why, size, "bone %u of %u: %s", b, count, reason);
+			return false;
+		}
+	}
+	if (!SkinBoneNodes(skin, count)) {
+		snprintf(why, size, "its skin instance doesn't list its %u bones where expected", count);
+		return false;
+	}
+	return true;
+}
+
 /* A node's world transform (rotation as x' = N x, position, scale), if it reads as one. */
 static bool NodeWorld(uintptr_t node, float N[9], float n[3], float *s)
 {
@@ -2328,26 +2398,13 @@ static void HoldRider(uintptr_t shape, uintptr_t skin, uintptr_t data, const cha
 		uintptr_t array = data + OFF_BONE_TRANSFORMS;
 		uintptr_t bones = ReadPtr(array + OFF_ARRAY_ENTRIES);
 		uint32_t count = Accessible(array + OFF_ARRAY_COUNT, 4, false) ? *(const uint32_t *)(array + OFF_ARRAY_COUNT) : 0;
-		if (!bones || count < 1 || count > MAX_RIDER_BONES || !Accessible(bones, count * BONE_SIZE, false) ||
-		    !Accessible(skin + OFF_SKIN_BONE_DATA, 8, true)) {
+		char why[300];
+		if (!RiderSkinOk(skin, data, why, sizeof(why))) {
+			Log("rider: %s can't be held (%s)", name, why);
 			Refuse(shape);
 			return;
 		}
-		for (uint32_t b = 0; b < count; b++)
-			if (!LooksLikeBone((const uint8_t *)(bones + b * BONE_SIZE))) {
-				Log("rider: %s's skin data doesn't look like bone transforms: left level", name);
-				Refuse(shape);
-				return;
-			}
 		uintptr_t nodes = SkinBoneNodes(skin, count);
-		if (!nodes) {
-			if (!g_riderBonesWarned) {
-				g_riderBonesWarned = true;
-				Log("rider: %s's skin instance doesn't list its bones where expected: left level (and any other like it)", name);
-			}
-			Refuse(shape);
-			return;
-		}
 		Replica *r = TakeReplica(data, (int)count);
 		if (!r) {
 			Refuse(shape);
@@ -2419,49 +2476,109 @@ static void LetGoAllRider(const char *why)
 		Log("rider: %d shape(s) back as they were and let go (%s)", had, why);
 }
 
+/* Names, a line at a time (test 24's list was cut at 400 characters). */
+static void LogNames(const char *prefix, const SkinList *list, const bool *pick, bool skinned)
+{
+	char line[360];
+	size_t len = 0;
+	int shown = 0;
+	for (int j = 0; j < list->riderCount; j++) {
+		if (!pick[j])
+			continue;
+		const char *name = list->riderName[j] && list->riderName[j][0] ? list->riderName[j] : "(unnamed)";
+		char item[120];
+		if (skinned) {
+			uintptr_t array = list->riderData[j] + OFF_BONE_TRANSFORMS;
+			uint32_t count = Accessible(array + OFF_ARRAY_COUNT, 4, false) ? *(const uint32_t *)(array + OFF_ARRAY_COUNT) : 0;
+			snprintf(item, sizeof(item), "%.80s (%u bones)", name, count);
+		} else {
+			snprintf(item, sizeof(item), "%.80s", name);
+		}
+		if (len && len + strlen(item) + 2 > sizeof(line) - 1) {
+			Log("%s%s", prefix, line);
+			len = 0;
+		}
+		len += (size_t)snprintf(line + len, sizeof(line) - len, "%s%s", len ? ", " : "", item);
+		shown++;
+	}
+	if (len)
+		Log("%s%s", prefix, line);
+}
+
 static void SyncRider(uintptr_t player, const SkinList *list, bool wanted)
 {
+	int gone = 0;
 	for (int i = g_riderCount - 1; i >= 0; i--) {
 		bool still = false;
 		for (int j = 0; wanted && j < list->riderCount && !still; j++)
 			still = list->riderShape[j] == g_rider[i].shape;
-		if (!still)
+		if (!still) {
 			LetGoRider(i, wanted ? "no longer on the rider" : "the tilt is off");
+			gone++;
+		}
 	}
-	if (!wanted || !list->riderCount || !RiderWorldOk(player))
+	if (gone)
+		Log("rider: %d shape(s) back as they were and let go (%s), %d still held", gone, wanted ? "no longer on the rider" : "the tilt is off", g_riderCount);
+	if (!wanted || g_riderBlocked || !list->riderCount || !RiderWorldOk(player))
 		return;
+	/* All or nothing: a skinned shape that can't be held leaves the rider level (test 24: the
+	 * suit stayed level while the body under it pitched, and the rider tore). */
+	for (int j = 0; j < list->riderCount; j++) {
+		if (!list->riderSkin[j])
+			continue;
+		bool held = false;
+		for (int i = 0; i < g_riderCount && !held; i++)
+			held = g_rider[i].shape == list->riderShape[j];
+		char why[300];
+		if (held || RiderSkinOk(list->riderSkin[j], list->riderData[j], why, sizeof(why)))
+			continue;
+		Log("rider: %s can't be held (%s): the rider stays level this ride", list->riderName[j] ? list->riderName[j] : "(unnamed shape)", why);
+		g_riderBlocked = true;
+		LetGoAllRider("a shape of the rider can't be held");
+		return;
+	}
+	if (list->riderOver) {
+		Log("rider: more than %d shapes on the rider (%d over): the rider stays level this ride", MAX_RIDER, list->riderOver);
+		g_riderBlocked = true;
+		LetGoAllRider("too many shapes");
+		return;
+	}
 	int before = g_riderCount, skinned = 0;
-	char names[400];
-	size_t len = 0;
-	names[0] = 0;
+	bool pickSkinned[MAX_RIDER], pickPlain[MAX_RIDER];
+	memset(pickSkinned, 0, sizeof(pickSkinned));
+	memset(pickPlain, 0, sizeof(pickPlain));
 	for (int j = 0; j < list->riderCount; j++) {
 		uintptr_t shape = list->riderShape[j];
-		if (g_riderCount >= MAX_RIDER) {
-			if (!g_riderFullWarned) {
-				g_riderFullWarned = true;
-				Log("rider: more than %d shapes on the rider: the rest stay level", MAX_RIDER);
-			}
+		if (g_riderCount >= MAX_RIDER)
 			break;
-		}
 		bool held = false;
 		for (int i = 0; i < g_riderCount && !held; i++)
 			held = g_rider[i].shape == shape;
-		if (held || Refused(shape))
+		if (held || (!list->riderSkin[j] && Refused(shape)))   /* a skinned one refused before is checked afresh above */
 			continue;
 		int was = g_riderCount;
 		HoldRider(shape, list->riderSkin[j], list->riderData[j], list->riderName[j]);
 		if (g_riderCount > was) {
-			skinned += list->riderSkin[j] != 0;
-			if (len < sizeof(names) - 4)
-				len += (size_t)snprintf(names + len, sizeof(names) - len, "%s%.40s", len ? ", " : "", list->riderName[j] ? list->riderName[j] : "?");
+			if (list->riderSkin[j]) {
+				skinned++;
+				pickSkinned[j] = true;
+			} else {
+				pickPlain[j] = true;
+			}
+		} else if (list->riderSkin[j]) {
+			g_riderBlocked = true;   /* checked above and still not held: nothing of the rider, then */
+			Log("rider: %s couldn't be held after all: the rider stays level this ride", list->riderName[j] ? list->riderName[j] : "(unnamed shape)");
+			LetGoAllRider("a shape of the rider can't be held");
+			return;
 		}
 	}
-	if (g_riderCount != before)
-		Log("rider: holding %d shape(s) of the rider to tilt with the bike (%d skinned, %d plain, %d in all): %s%s", g_riderCount - before,
-		    skinned, g_riderCount - before - skinned, g_riderCount, names, len >= sizeof(names) - 4 ? "..." : "");
-	if (list->riderOver && !g_riderFullWarned) {
-		g_riderFullWarned = true;
-		Log("rider: more than %d shapes on the rider: %d stay level", MAX_RIDER, list->riderOver);
+	if (g_riderCount != before) {
+		Log("rider: holding %d more shape(s) of the rider to tilt with the bike (%d skinned, %d plain), %d in all", g_riderCount - before,
+		    skinned, g_riderCount - before - skinned, g_riderCount);
+		if (skinned)
+			LogNames("rider:   skinned: ", list, pickSkinned, true);
+		if (g_riderCount - before - skinned)
+			LogNames("rider:   plain: ", list, pickPlain, false);
 	}
 }
 
@@ -2531,10 +2648,10 @@ static void FrameRider(bool tilt, const float R[9], const float P[3])
 				PutInFront(saved, live, OFF_BONE_ROT, OFF_BONE_POS, C, c);
 				/* The culling sphere (bone space) goes to C centre + c: grown by the move. */
 				const float *centre = (const float *)saved;
-				float moved[3];
+				float moved[3], radius = *(const float *)(saved + OFF_BONE_RADIUS);
 				MulV(C, centre, moved);
 				float dx = moved[0] + c[0] - centre[0], dy = moved[1] + c[1] - centre[1], dz = moved[2] + c[2] - centre[2];
-				*(float *)(live + OFF_BONE_RADIUS) = *(const float *)(saved + OFF_BONE_RADIUS) + sqrtf(dx * dx + dy * dy + dz * dz);
+				*(float *)(live + OFF_BONE_RADIUS) = radius > 0.0f ? radius + sqrtf(dx * dx + dy * dy + dz * dz) : radius;   /* an empty sphere stays empty */
 			}
 		} else {
 			if (!Accessible((uintptr_t)p->live, 0x40, true))
@@ -4538,7 +4655,7 @@ static void Tick(DWORD now)
 	if (tilt > 0.0f || (riding && g_partsOk)) {
 		SyncSkins(Player(), tilt > 0.0f);
 	} else {
-		if (g_skinCount)
+		if (g_skinCount || g_riderCount)   /* test 24: the bike's skins had gone first, and the rider's stayed held */
 			LetGoAll("got off");
 		else
 			ResetTilt();

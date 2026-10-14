@@ -178,8 +178,8 @@ public static class Program
                     "CMB_SpeedPercent", 100, 500, 10),
                 Switcher("Seated riding animations", "Needs CMB_RiderPose.esp (make_rider_pose.bat). Off: you run in place over the bike. Takes effect the next time you get on.", "CMB_UseRiderPose"),
                 Switcher("Switch to third person", "Switch to third person when getting on, so you see the bike.", "CMB_ForceThirdPerson"),
-                Slider("Steepest slope while riding", "How steep a slope you can ride up, in degrees. Needs F4SE and the CMB_Slope.dll plugin. 0 = the same as on foot. Takes effect the next time you get on.",
-                    "CMB_MaxSlope", 0, 80, 5),
+                Slider("Steepest slope while riding", "How steep a slope you can ride up, in degrees (on foot the game allows 47; 45 keeps a road bike off rock faces). Needs F4SE and the CMB_Slope.dll plugin. 0 = the same as on foot. Takes effect the next time you get on.",
+                    "CMB_MaxSlope", 0, 80, 1),
                 Slider("Riding camera distance", "How far back the third-person camera sits while riding (the game's own is about 150). Needs F4SE and the CMB_Slope.dll plugin. 0 = leave the camera alone. Takes effect the next time you get on.",
                     "CMB_RidingCameraDistance", 0, 1000, 25),
                 Slider("Turning radius", "The tightest turn the bike makes at riding speed, in game units (about 70 = 1 m): no turning on the spot. Slower, it turns tighter (the next setting). Needs F4SE and the CMB_Slope.dll plugin. 0 = turn like on foot.",
@@ -385,7 +385,7 @@ public static class Program
 
         // Steeper slopes (F4SE plugin CMB_Slope.dll, tools/f4se-slope). The plugin finds
         // CMB_SlopeLive by its form ID (0x82A) and editor ID: keep these two in this order.
-        var gMaxSlope = Global(mod, "CMB_MaxSlope", 60);
+        var gMaxSlope = Global(mod, "CMB_MaxSlope", 45);
         var gSlopeLive = Global(mod, "CMB_SlopeLive", 0);
         if (gSlopeLive.FormKey.ID != 0x82A)
             throw new InvalidOperationException($"CMB_SlopeLive must be 0x82A (CMB_Slope.dll looks for it), got {gSlopeLive.FormKey.ID:X}");

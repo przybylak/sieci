@@ -43,11 +43,11 @@
     {
       "type": "slider",
       "text": "Steepest slope while riding",
-      "help": "How steep a slope you can ride up, in degrees. Needs F4SE and the CMB_Slope.dll plugin. 0 = the same as on foot. Takes effect the next time you get on.",
+      "help": "How steep a slope you can ride up, in degrees (on foot the game allows 47; 45 keeps a road bike off rock faces). Needs F4SE and the CMB_Slope.dll plugin. 0 = the same as on foot. Takes effect the next time you get on.",
       "valueOptions": {
         "min": 0,
         "max": 80,
-        "step": 5,
+        "step": 1,
         "sourceType": "GlobalValue",
         "sourceForm": "CommonwealthMotorbike.esp|829"
       }

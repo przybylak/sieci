@@ -125,8 +125,8 @@ static uint8_t *g_partData[3], *g_partBones[3];   /* the Harley build's moving p
 static uint8_t g_partBonesOriginal[3][0x50];
 /* The rider: the body skinned to two bones, the COM the bike hangs off, a plain shape (the
  * Pip-Boy's) under a bone of its own. Their world transforms follow the player (SyncFakeWorld). */
-static uint8_t *g_bodyShape, *g_bodySkin, *g_bodyData, *g_bodyBones, *g_bodyNodes[2], *g_comNode, *g_pipboyBone, *g_pipboyShape, *g_npcRoot;
-static uint8_t g_bodyBonesOriginal[2 * 0x50], g_pipboyLocalOriginal[0x40];
+static uint8_t *g_bodyShape, *g_bodySkin, *g_bodyData, *g_bodyBones, *g_bodyNodes[3], *g_comNode, *g_pipboyBone, *g_pipboyShape, *g_npcRoot;
+static uint8_t g_bodyBonesOriginal[3 * 0x50], g_pipboyLocalOriginal[0x40];
 static uint8_t *g_parkGlobals[7], *g_trackSlope, *g_turnRadius, *g_turnStand, *g_turnSlow, *g_controls;
 static uint8_t *g_thirdState;   /* ThirdPersonState: zoom target +0xE8, current +0xEC */
 static uint8_t *g_moveHandler;  /* MovementHandler: its vtable read-only, as in the game */
@@ -528,7 +528,8 @@ static void BuildGame(void)
 	*(uint8_t **)(g_comNode + 0x28) = npcRoot;
 	g_bodyNodes[0] = NewNode(vtNode, "NPC Pelvis [Pelv]", 0);
 	g_bodyNodes[1] = NewNode(vtNode, "NPC Spine [Spn0]", 0);
-	for (int i = 0; i < 2; i++) {
+	g_bodyNodes[2] = NewNode(vtNode, "NPC Spine1 [Spn1]", 0);   /* in the skin with no vertices of its own (test 24) */
+	for (int i = 0; i < 3; i++) {
 		AddChild(npcRoot, g_bodyNodes[i]);
 		*(uint8_t **)(g_bodyNodes[i] + 0x28) = npcRoot;
 	}
@@ -594,14 +595,15 @@ static void BuildGame(void)
 	*(uint8_t **)(g_bodySkin + 0x40) = g_bodyData;
 	g_bodyBones = (uint8_t *)VirtualAlloc(NULL, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 	*(uint8_t **)(g_bodyData + 0x10) = g_bodyBones;
-	*(uint32_t *)(g_bodyData + 0x18) = 2;
-	*(uint32_t *)(g_bodyData + 0x20) = 2;
+	*(uint32_t *)(g_bodyData + 0x18) = 3;
+	*(uint32_t *)(g_bodyData + 0x20) = 3;
 	uint8_t **bodyList = (uint8_t **)VirtualAlloc(NULL, 0x100, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 	bodyList[0] = g_bodyNodes[0];
 	bodyList[1] = g_bodyNodes[1];
+	bodyList[2] = g_bodyNodes[2];
 	*(uint8_t ***)(g_bodySkin + 0x28) = bodyList;
-	*(uint32_t *)(g_bodySkin + 0x30) = 2;
-	*(uint32_t *)(g_bodySkin + 0x38) = 2;
+	*(uint32_t *)(g_bodySkin + 0x30) = 3;
+	*(uint32_t *)(g_bodySkin + 0x38) = 3;
 
 	/* The moving parts of the Harley build: three more shapes under the bike's node, each
 	 * with its own skin and bone data (the same bind; their culling spheres on the axles
@@ -683,7 +685,7 @@ static void SyncFakeWorld(void)
 	float h = *(float *)(g_player + 0xC8), c = cosf(h), sn = sinf(h);
 	const float heading[9] = { c, sn, 0, -sn, c, 0, 0, 0, 1 };
 	const float *pp = PlayerPos();
-	static const float comOff[3] = { 0, 0, 60 }, pelvOff[3] = { 0, -5, 70 }, spineOff[3] = { 0, -3, 95 }, pipOff[3] = { 25, 8, 85 };
+	static const float comOff[3] = { 0, 0, 60 }, pelvOff[3] = { 0, -5, 70 }, spineOff[3] = { 0, -3, 95 }, spine1Off[3] = { 0, -2, 105 }, pipOff[3] = { 25, 8, 85 };
 	static const float leanBack[9] = { 1, 0, 0, 0, 0.96593f, -0.25882f, 0, 0.25882f, 0.96593f };   /* 15 deg about x */
 	static const float rx40[9] = { 1, 0, 0, 0, 0.76604f, -0.64279f, 0, 0.64279f, 0.76604f }, rz20[9] = { 0.93969f, -0.34202f, 0, 0.34202f, 0.93969f, 0, 0, 0, 1 };
 	float off[3], pos[3], rot[9], pipTurn[9];
@@ -701,6 +703,10 @@ static void SyncFakeWorld(void)
 	for (int i = 0; i < 3; i++)
 		pos[i] = pp[i] + off[i];
 	SetWorld(g_bodyNodes[1], rot, pos, 1.0f);
+	Apply3(heading, spine1Off, off);
+	for (int i = 0; i < 3; i++)
+		pos[i] = pp[i] + off[i];
+	SetWorld(g_bodyNodes[2], rot, pos, 1.0f);
 	MulM3(rz20, rx40, pipTurn);
 	MulM3(heading, pipTurn, rot);
 	Apply3(heading, pipOff, off);
@@ -733,10 +739,10 @@ static void SetLayouts(bool skinTransposed, bool rootTransposed)
 		memcpy(g_partBonesOriginal[i], g_partBones[i], sizeof(g_partBonesOriginal[i]));
 	}
 	/* The rider's body: two bones with binds of their own; the Pip-Boy's shape's own transform. */
-	static const float bindRot[2][9] = { { 0, 0, 1, 0, 1, 0, -1, 0, 0 }, { 1, 0, 0, 0, 0, -1, 0, 1, 0 } };
-	static const float bindPos[2][3] = { { 0, 0, -70 }, { 3, -95, 0 } };
-	static const float bodySpheres[2][4] = { { 0, 0, 20, 40 }, { 0, 0, 30, 50 } };
-	for (int i = 0; i < 2; i++) {
+	static const float bindRot[3][9] = { { 0, 0, 1, 0, 1, 0, -1, 0, 0 }, { 1, 0, 0, 0, 0, -1, 0, 1, 0 }, { 1, 0, 0, 0, 1, 0, 0, 0, 1 } };
+	static const float bindPos[3][3] = { { 0, 0, -70 }, { 3, -95, 0 }, { 0, -100, 0 } };
+	static const float bodySpheres[3][4] = { { 0, 0, 20, 40 }, { 0, 0, 30, 50 }, { 0, 0, 0, 0 } };   /* the third: no vertices */
+	for (int i = 0; i < 3; i++) {
 		float *bb = (float *)(g_bodyBones + i * 0x50);
 		memcpy(bb, bodySpheres[i], sizeof(bodySpheres[i]));
 		StoreRotation(bb + 4, bindRot[i], skinTransposed);
@@ -2026,8 +2032,8 @@ static void TiltTests(void)
 
 	printf("tilt: the rider pitches with the bike (Rider=1):\n");
 	uint8_t *bodyDataNow = *(uint8_t **)(g_bodySkin + 0x40);
-	CHECK(bodyDataNow && bodyDataNow != g_bodyData && *(void **)bodyDataNow == *(void **)g_bodyData && *(uint32_t *)(bodyDataNow + 0x20) == 2,
-	      "the body's skin instance points at the plugin's own copy of its bone data (the game's vtable, 2 bones)");
+	CHECK(bodyDataNow && bodyDataNow != g_bodyData && *(void **)bodyDataNow == *(void **)g_bodyData && *(uint32_t *)(bodyDataNow + 0x20) == 3,
+	      "the body's skin instance points at the plugin's own copy of its bone data (the game's vtable, 3 bones)");
 	CHECK(memcmp(g_bodyBones, g_bodyBonesOriginal, sizeof(g_bodyBonesOriginal)) == 0 && *(int32_t *)(g_bodyData + 0x08) == 2,
 	      "the game's own bone data, shared with every NPC in that mesh, untouched (references %d)", *(int32_t *)(g_bodyData + 0x08));
 	CHECK(*(int32_t *)(g_bodySkin + 0x08) == 2 && *(int32_t *)(g_bodyShape + 0x08) == 2 && *(int32_t *)(g_pipboyShape + 0x08) == 2,
@@ -2036,7 +2042,7 @@ static void TiltTests(void)
 	ExpectedTilt(Rw, Pw);
 	const uint8_t *copy = bodyDataNow && *(const uint8_t **)(bodyDataNow + 0x10) ? *(const uint8_t **)(bodyDataNow + 0x10) : g_bodyBones;
 	static const float probes[2][3] = { { 0, 0, 0 }, { 10, 20, 30 } };
-	for (int b = 0; b < 2; b++)
+	for (int b = 0; b < 3; b++)
 		for (int k = 0; k < 2; k++) {
 			float before[3], after[3];
 			WorldOfBone(g_bodyNodes[b], g_bodyBonesOriginal + b * 0x50, probes[k], before);
@@ -2049,6 +2055,7 @@ static void TiltTests(void)
 	CHECK(worst < 0.05f && farthest > 5.0f, "the body's bones carry the mesh with the bike: points land within %.3f of the bike's tilt about its pivot (the farthest moved %.1f)", worst, farthest);
 	CHECK(*(const float *)(copy + 0x50 + 0x0C) > *(const float *)(g_bodyBonesOriginal + 0x50 + 0x0C) + 1.0f,
 	      "the spine's culling sphere grown (%.1f from %.1f)", *(const float *)(copy + 0x50 + 0x0C), *(const float *)(g_bodyBonesOriginal + 0x50 + 0x0C));
+	CHECK(*(const float *)(copy + 2 * 0x50 + 0x0C) == 0.0f, "a bone with no vertices (sphere radius 0, test 24's suit) held with the rest, its sphere left empty");
 	{
 		static const float q[3] = { 5, 0, 2 };
 		float before[3], after[3];
@@ -2119,6 +2126,32 @@ static void TiltTests(void)
 	*slotPart = g_bikeNode;
 	*BoneDataRefs() = 2;
 	g_deleted = 0;
+	CHECK(*(uint8_t **)(g_bodySkin + 0x40) != g_bodyData, "the rider still held meanwhile (level)");
+	SetTilt(0.0f);
+	RunFrames(300);
+	CHECK(*(uint8_t **)(g_bodySkin + 0x40) == g_bodyData && *(int32_t *)(g_bodySkin + 0x08) == 1 && memcmp(g_pipboyShape + 0x30, g_pipboyLocalOriginal, 0x40) == 0,
+	      "and let go of at the dismount, though the bike's skins went first (test 24 kept it)");
+
+	printf("tilt: a shape of the rider whose skin data isn't right: nothing of the rider is held:\n");
+	float *bodyRows = (float *)(g_bodyBones + 0x10);
+	float wasRow0 = bodyRows[0];
+	bodyRows[0] = 2.0f;   /* the body's first bone: not a rotation any more */
+	memcpy(g_bodyBonesOriginal, g_bodyBones, sizeof(g_bodyBonesOriginal));
+	SetNormalTowards(back, 20.0f);
+	SetTilt(30.0f);
+	RunFrames(800);
+	CHECK(*BoneDataRefs() == 3, "the bike held and tilted (references %d)", *BoneDataRefs());
+	CHECK(*(uint8_t **)(g_bodySkin + 0x40) == g_bodyData && *(int32_t *)(g_bodySkin + 0x08) == 1 && *(int32_t *)(g_bodyShape + 0x08) == 1,
+	      "the body not held (the log says which bone and why)");
+	CHECK(memcmp(g_pipboyShape + 0x30, g_pipboyLocalOriginal, 0x40) == 0 && *(int32_t *)(g_pipboyShape + 0x08) == 1,
+	      "and nothing else of the rider either: all or nothing (a part-tilted rider tears)");
+	SetTilt(0.0f);
+	RunFrames(300);
+	bodyRows[0] = wasRow0;
+	memcpy(g_bodyBonesOriginal, g_bodyBones, sizeof(g_bodyBonesOriginal));
+	SetTilt(30.0f);
+	RunFrames(800);
+	CHECK(*(uint8_t **)(g_bodySkin + 0x40) != g_bodyData && *(int32_t *)(g_bodySkin + 0x08) == 2, "the data right again: held on the next ride");
 	SetTilt(0.0f);
 	RunFrames(300);
 
@@ -2279,6 +2312,17 @@ int main(int argc, char **argv)
 	SetLive(0.0f);
 	RunFrames(400);
 	CHECK(Near(*Slope(), COS47), "and back to 47 deg (got %f)", *Slope());
+
+	printf("a save loaded on the bike: the controller lives on with the riding value in it (test 24):\n");
+	SetLive(60.0f);
+	RunFrames(300);
+	CHECK(Near(*Slope(), 0.5f), "riding at 60 deg");
+	Send(3, 1);   /* PostLoadGame: the plugin forgets what it applied; the controller still holds 0.5 */
+	RunFrames(400);
+	CHECK(Near(*Slope(), 0.5f), "after the load still 60 deg, taken as ours again");
+	SetLive(0.0f);
+	RunFrames(400);
+	CHECK(Near(*Slope(), COS47), "and back to 47 deg at the dismount (got %f; test 24 kept 60 on foot)", *Slope());
 
 	printf("the controller goes away mid-ride (loading screen):\n");
 	SetLive(60.0f);

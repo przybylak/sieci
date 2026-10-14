@@ -93,7 +93,7 @@ Details for every step: [docs/BUILD_GUIDE.md](docs/BUILD_GUIDE.md).
 | `set CMB_EngineVolume to <0–100>` | 70 |
 | `set CMB_MaxTilt to <0–30>` (how far the bike pitches with the ground while riding, F4SE plugin; 0 = always level, parked too) | 15 |
 | `set CMB_RidingCameraDistance to <units>` (F4SE plugin; the game's own is about 150) | 450 |
-| `set CMB_MaxSlope to <degrees>` (steepest slope while riding, F4SE plugin) | 60 |
+| `set CMB_MaxSlope to <degrees>` (steepest slope while riding, F4SE plugin; on foot the game allows 47) | 45 |
 | `set CMB_TurnRadius to <units>` (tightest turn at riding speed, F4SE plugin; 0 = turn like on foot) | 180 |
 | `set CMB_TurnRadiusSlow to <units>` (tightest turn at walking pace, F4SE plugin) | 50 |
 | `set CMB_StandTurnRate to <deg/s>` (turning when stopped, F4SE plugin) | 60 |
