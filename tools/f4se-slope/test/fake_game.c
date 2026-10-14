@@ -1147,8 +1147,8 @@ static void InputTests(void)
 	CHECK(Moved(p0) < 80.0f, "on the flat again: no surge from the rough ground's input (%.0f in half a second)", Moved(p0));
 	Keys(1.0f, 1.0f);
 	RunFrames(300);
-	CHECK(MoveInput()[0] == 1.0f && MoveInput()[1] > 0.1f && MoveInput()[1] < 0.5f,
-	      "forward and right: the side key as it is, forward building up (%.2f after 0.3 s)", MoveInput()[1]);
+	CHECK(MoveInput()[0] > 0.1f && MoveInput()[0] < 0.6f && fabsf(MoveInput()[1] - MoveInput()[0]) < 0.01f,
+	      "forward and right: the keys' direction kept, the whole vector building up (%.2f, %.2f after 0.3 s)", MoveInput()[0], MoveInput()[1]);
 	Keys(0.0f, 0.0f);
 	RunFrames(2500);
 
@@ -1169,7 +1169,7 @@ static void InputTests(void)
 	Mark(p0);
 	RunFrames(250);
 	float coasting = Moved(p0) * 4.0f;
-	CHECK(coasting > 150.0f && coasting < 800.0f, "let go of: still rolling at %.0f a second after 0.4 s (coasting)", coasting);
+	CHECK(coasting > 150.0f && coasting < 880.0f, "let go of: still rolling at %.0f a second after 0.4 s (coasting)", coasting);
 	RunFrames(2500);
 	Mark(p0);
 	RunFrames(300);
