@@ -145,6 +145,10 @@
 #define OFF_BONE_ROT          0x10          /* NiTransform::rot: 3 rows of 4 floats */
 #define OFF_BONE_POS          0x40          /* NiTransform::pos */
 #define OFF_PARENT            0x28          /* NiAVObject::m_parent */
+#define OFF_LOCAL_ROT         0x30          /* NiAVObject::m_localTransform: rot (3 rows of 4), pos +0x30, scale +0x3C */
+#define OFF_WORLD_POS         0xA0          /* NiAVObject::m_worldTransform.pos (its rot is OFF_WORLD_ROT) */
+#define OFF_WORLD_SCALE       0xAC
+#define OFF_SKIN_BONES        0x28          /* BSSkin::Instance::bones (tArray<NiAVObject *>), one per bone entry */
 #define OFF_REFR_POS          0xD0          /* TESObjectREFR::pos */
 #define OFF_ACTOR_BIPED       0x428         /* Actor::biped (BSTSmartPointer<BipedAnim>) */
 #define OFF_BIPED_ROOT        0x08          /* BipedAnim::root */
@@ -352,6 +356,9 @@ static float g_throttleMag = 1.0f;         /* the forward key's own size (a stic
 static bool g_throttleWrote;               /* this frame's input is the throttle's */
 static double g_throttleAt;                /* when the throttle last moved (its own clock: the hooks don't run once a frame) */
 static double g_forwardAt = -100.0, g_backAt = -100.0;   /* when the forward and back keys were last read */
+static float g_lead = 0.2f;                /* how far (of the top) the throttle may run ahead of the measured speed */
+static float g_backBelow = 30.0f;          /* back reverses only once the bike moves slower than this (units/s) */
+static bool g_throttleCapped;
 static float g_barAtSpeed = 0.6f;          /* the bars go over this much of BarAngle at speed (from 150 to 400 units/s) */
 static float g_pivotForward = 12.0f;       /* the tilt's pivot this far ahead of the seat (towards the bars: the hands drift less) */
 static float InputForSpeed(float speed);   /* defined with the input hook */
@@ -483,9 +490,45 @@ typedef struct {
 	char name[48];
 	int role;                           /* which moving part it is (ROLE_*), told by its culling sphere */
 	float centre[3];                    /* its culling sphere's centre in the bike's own space */
+	uintptr_t skin;                     /* its BSSkin::Instance */
+	uintptr_t node;                     /* the bone it's bound to (COM), through the instance's bone list; 0 if not found */
 } HeldSkin;
 static HeldSkin g_skins[MAX_SKINS];
 static int g_skinCount;
+
+/* The rider (test 23: on a slope the bike pitched and the rider stayed level, the hands in
+ * the air). The plugin runs before the animation writes the bones, so it can't pitch the
+ * skeleton; what it can do is what it does for the bike: skin data. Every skinned shape of
+ * the player's 3D but the bike's (the body, the outfit, the head, the hair) gets its
+ * skin-to-bone transforms rewritten each frame so that, with the bones where they were last
+ * frame, the mesh lands where the bike's tilt about the pivot would put it. The game's own
+ * bone data is shared with every NPC wearing the same mesh (and the model cache), so it's
+ * never written: each held shape's skin instance is pointed at a copy of ours while riding
+ * and back after. Plain shapes under the bones (a holstered weapon, the Pip-Boy) get the same
+ * map in front of their own transform. */
+#define MAX_RIDER 96
+#define MAX_RIDER_BONES 200
+#define REPLICA_REFS 0x100000
+typedef struct {
+	uintptr_t shape;                    /* BSGeometry, a reference of ours */
+	uintptr_t skin;                     /* BSSkin::Instance, a reference of ours; 0 for a plain shape */
+	uintptr_t original;                 /* the instance's own BoneData, put back on letting go */
+	uintptr_t replica;                  /* ours, in its place while held */
+	uint8_t *live;                      /* the replica's transforms (count x BONE_SIZE), or the shape's local transform */
+	uint8_t *saved;                     /* what they were */
+	uintptr_t nodes;                    /* the instance's bone nodes (NiAVObject * each) */
+	int count;
+	char name[40];
+} RiderPart;
+static RiderPart g_rider[MAX_RIDER];
+static int g_riderCount;
+typedef struct { uintptr_t obj; uint8_t *entries; int capacity; bool inUse; } Replica;
+static Replica g_replicas[MAX_RIDER * 2];   /* never freed: a reference the game still holds must never find them gone */
+static int g_replicaCount;
+static int g_riderTilt = 1;
+static bool g_riderWorldChecked, g_riderWorldOk, g_riderBoneWarned, g_riderFullWarned, g_riderBonesWarned;
+static float g_riderPivot[3];
+static bool g_riderApplied;                 /* this frame: the rider's shapes carried by the tilt */
 
 /* The moving parts (CMB_BikeParts.ini, written by harley_meshes.py next to the meshes, in
  * the worn bike's own space: +Y forward, Z up). A shape whose culling sphere sits on an
@@ -686,6 +729,15 @@ static void ReadSettings(void)
 	g_brake = strtof(value, NULL);
 	if (!(g_brake >= 0.0f && g_brake <= 5.0f))
 		g_brake = 0.4f;
+	GetPrivateProfileStringA("Steer", "Lead", "0.2", value, sizeof(value), ini);
+	g_lead = strtof(value, NULL);
+	if (!(g_lead >= 0.0f && g_lead <= 1.0f))
+		g_lead = 0.2f;
+	GetPrivateProfileStringA("Steer", "BackBelow", "30", value, sizeof(value), ini);
+	g_backBelow = strtof(value, NULL);
+	if (!(g_backBelow >= 0.0f && g_backBelow <= 1000.0f))
+		g_backBelow = 30.0f;
+	g_riderTilt = (int)GetPrivateProfileIntA("Tilt", "Rider", 1, ini);
 	GetPrivateProfileStringA("Tilt", "Shapes", "CMB_BikeWorn", g_shapePrefix, sizeof(g_shapePrefix), ini);
 	GetPrivateProfileStringA("Tilt", "Layout", "auto", value, sizeof(value), ini);
 	g_layoutSetting = _stricmp(value, "file") == 0 ? LAYOUT_FILE : _stricmp(value, "transposed") == 0 ? LAYOUT_TRANSPOSED : LAYOUT_UNKNOWN;
@@ -696,15 +748,15 @@ static void ReadSettings(void)
 	    g_probe, (unsigned long)g_interval, g_dumpPointerCount);
 	Log("  camera: Setting=%s ZoomOut=%d ZoomTargetOffset=0x%X ZoomCurrentOffset=0x%X", g_cameraSettingName, g_zoomOut,
 	    g_zoomTargetOffset, g_zoomCurrentOffset);
-	Log("  tilt: NormalOffset=0x%X StateOffset=0x%X Smoothing=%g MedianTime=%g MaxRate=%g MaxRoll=%g PivotHeight=%g PivotForward=%g Trace=%d Shapes=%s Layout=%s",
-	    g_normalOffset, g_stateOffset, g_smoothing, g_medianTime, g_maxRate, g_maxRoll, g_pivotHeight, g_pivotForward, g_trace, g_shapePrefix,
+	Log("  tilt: NormalOffset=0x%X StateOffset=0x%X Smoothing=%g MedianTime=%g MaxRate=%g MaxRoll=%g PivotHeight=%g PivotForward=%g Rider=%d Trace=%d Shapes=%s Layout=%s",
+	    g_normalOffset, g_stateOffset, g_smoothing, g_medianTime, g_maxRate, g_maxRoll, g_pivotHeight, g_pivotForward, g_riderTilt, g_trace, g_shapePrefix,
 	    g_layoutSetting == LAYOUT_FILE ? "file" : g_layoutSetting == LAYOUT_TRANSPOSED ? "transposed" : "auto");
 	static const char *const pushValueNames[] = { "delta", "ray", "mod", "velocity", "position", "off" };
 	Log("  steer: Enabled=%d FullSpeed=%g InputHook=%d Creep=%d CreepInput=%g CreepBelow=%g CreepRadius=%g Reverse=%d BackSpeed=%g "
-	    "BackPush=%s BackClearance=%g BackSink=%g BackSupportCheck=%d Throttle=%d Accel=%g Coast=%g Brake=%g",
+	    "BackPush=%s BackClearance=%g BackSink=%g BackSupportCheck=%d Throttle=%d Accel=%g Coast=%g Brake=%g Lead=%g BackBelow=%g",
 	    g_steer, g_fullSpeed, g_inputHook, g_creep, g_creepStart, g_creepBelow, g_creepRadius, g_reverse, g_backSpeed,
 	    g_backPushAuto ? "auto" : pushValueNames[g_backPushFirst], g_backClearance, g_backSink, g_backSupportCheck,
-	    g_throttleOn, g_accel, g_coast, g_brake);
+	    g_throttleOn, g_accel, g_coast, g_brake, g_lead, g_backBelow);
 	ReadParts(ini);
 }
 
@@ -1632,6 +1684,30 @@ static bool LooksLikeBone(const uint8_t *bone)
 	return true;
 }
 
+/* The skin instance's bone nodes, one per bone entry (BSSkin::Instance::bones), where they're
+ * expected and, failing that, in the instance's other array; 0 if neither holds NiAVObjects. */
+static uintptr_t SkinBoneNodes(uintptr_t skin, uint32_t count)
+{
+	static const uintptr_t candidates[2] = { OFF_SKIN_BONES, 0x10 };
+	for (int k = 0; k < 2; k++) {
+		uintptr_t array = skin + candidates[k];
+		if (!skin || !Accessible(array, 0x18, false))
+			continue;
+		uintptr_t entries = ReadPtr(array + OFF_ARRAY_ENTRIES);
+		uint32_t n = *(const uint32_t *)(array + OFF_ARRAY_COUNT);
+		if (!entries || n != count || !Accessible(entries, (size_t)count * 8, false))
+			continue;
+		bool ok = true;
+		for (uint32_t b = 0; b < count && ok; b++) {
+			uintptr_t node = ((const uintptr_t *)entries)[b];
+			ok = !node || IsA(node, RTTI_AVOBJECT);
+		}
+		if (ok)
+			return entries;
+	}
+	return 0;
+}
+
 static void Refuse(uintptr_t data)
 {
 	g_refused[g_refusedCount++ % 8] = data;
@@ -1645,7 +1721,7 @@ static bool Refused(uintptr_t data)
 	return false;
 }
 
-static void HoldSkin(uintptr_t data, const char *name)
+static void HoldSkin(uintptr_t data, uintptr_t skin, const char *name)
 {
 	uintptr_t array = data + OFF_BONE_TRANSFORMS;
 	uintptr_t bones = ReadPtr(array + OFF_ARRAY_ENTRIES);
@@ -1671,6 +1747,11 @@ static void HoldSkin(uintptr_t data, const char *name)
 	h->bones = bones;
 	h->count = (int)count;
 	h->role = ROLE_UNKNOWN;
+	h->skin = skin;
+	h->node = 0;
+	uintptr_t nodes = SkinBoneNodes(skin, count);
+	if (nodes)
+		h->node = ReadPtr(nodes);
 	memcpy(h->original, (const void *)bones, count * BONE_SIZE);
 	snprintf(h->name, sizeof(h->name), "%s", name);
 	int layout = LayoutFromSkin(h->original[0]);
@@ -1769,10 +1850,13 @@ static void DetectRole(HeldSkin *h)
 	    RoleName(h->role), h->centre[0], h->centre[1], h->centre[2], radius);
 }
 
+static void LetGoAllRider(const char *why);
 static void LetGoAll(const char *why)
 {
 	while (g_skinCount)
 		LetGo(g_skinCount - 1, why);
+	LetGoAllRider(why);
+	g_riderWorldChecked = false;
 	ResetTilt();
 }
 
@@ -1784,9 +1868,14 @@ static void LetGoAll(const char *why)
 
 typedef struct {
 	uintptr_t found[MAX_SKINS];
+	uintptr_t skins[MAX_SKINS];
 	const char *names[MAX_SKINS];
 	int count;
 	bool byBind[MAX_SKINS];
+	/* The rider's: every other skinned shape (with its instance and bone data) and the plain ones. */
+	uintptr_t riderShape[MAX_RIDER], riderSkin[MAX_RIDER], riderData[MAX_RIDER];
+	const char *riderName[MAX_RIDER];
+	int riderCount, riderOver;
 } SkinList;
 
 #define WALK_LINES 48
@@ -1842,7 +1931,7 @@ static bool IsComBikeBind(const uint8_t *bone)
 	       fabsf(pos[1]) < 2.0f && fabsf(pos[2]) < 2.0f;
 }
 
-static void AddSkin(SkinList *list, uintptr_t data, const char *name, bool byBind)
+static void AddSkin(SkinList *list, uintptr_t data, uintptr_t skin, const char *name, bool byBind)
 {
 	for (int i = 0; i < list->count; i++)
 		if (list->found[i] == data)
@@ -1851,7 +1940,23 @@ static void AddSkin(SkinList *list, uintptr_t data, const char *name, bool byBin
 		return;
 	list->names[list->count] = name ? name : "(unnamed shape)";
 	list->byBind[list->count] = byBind;
+	list->skins[list->count] = skin;
 	list->found[list->count++] = data;
+}
+
+static void AddRider(SkinList *list, uintptr_t shape, uintptr_t skin, uintptr_t data, const char *name)
+{
+	for (int i = 0; i < list->riderCount; i++)
+		if (list->riderShape[i] == shape)
+			return;
+	if (list->riderCount >= MAX_RIDER) {
+		list->riderOver++;
+		return;
+	}
+	list->riderName[list->riderCount] = name ? name : "(unnamed shape)";
+	list->riderSkin[list->riderCount] = skin;
+	list->riderData[list->riderCount] = data;
+	list->riderShape[list->riderCount++] = shape;
 }
 
 static void InspectShape(uintptr_t shape, int depth, SkinList *list)
@@ -1879,7 +1984,13 @@ static void InspectShape(uintptr_t shape, int depth, SkinList *list)
 	bool byBind = !byName && bones == 1 && bone0 && (held || IsComBikeBind(bone0));
 	bool byAddon = !byName && !byBind && g_walkOurs && bones >= 1 && bones <= MAX_BONES;
 	if ((byName || byBind || byAddon) && isBoneData && bones >= 1)
-		AddSkin(list, data, name, byBind || byAddon);
+		AddSkin(list, data, skin, name, byBind || byAddon);
+	else if (!(byName || byBind || byAddon) && !held && g_riderTilt) {
+		if (skin && isBoneData && bones >= 1 && bones <= MAX_RIDER_BONES)
+			AddRider(list, shape, skin, data, name);
+		else if (!skin)
+			AddRider(list, shape, 0, 0, name);
+	}
 	WalkLine("  shape (depth %d) '%.40s' %s | skin %s | bone data %s | %d bone(s)%s", depth, OrNone(name),
 	         OrNone(ObjectTypeName(shape)), skin ? OrNone(ObjectTypeName(skin)) : "none",
 	         data ? OrNone(ObjectTypeName(data)) : "none", bones,
@@ -2053,7 +2164,393 @@ static void Diagnose(uintptr_t player)
 
 /* Every IntervalMs while the bike may tilt: hold the skins of the bike the player wears
  * now, let go of any that are gone (taken off, or the 3D was rebuilt). */
-static void SyncSkins(uintptr_t player)
+/* --- The rider's shapes ------------------------------------------------------- */
+
+static void Retain(uintptr_t obj)
+{
+	InterlockedIncrement((volatile LONG *)(obj + OFF_REFCOUNT));
+}
+
+/* The game's 3 rows of 4 floats <-> a rotation x' = R x (row-major), the layout known. */
+static void ReadRot(const float *rows, float R[9])
+{
+	for (int i = 0; i < 3; i++)
+		for (int j = 0; j < 3; j++)
+			R[i * 3 + j] = g_layout == LAYOUT_FILE ? rows[i * 4 + j] : rows[j * 4 + i];
+}
+
+static void WriteRot(float *rows, const float R[9])
+{
+	for (int i = 0; i < 3; i++)
+		for (int j = 0; j < 3; j++)
+			rows[g_layout == LAYOUT_FILE ? i * 4 + j : j * 4 + i] = R[i * 3 + j];
+}
+
+static void Transpose3(const float *a, float *out)
+{
+	for (int i = 0; i < 3; i++)
+		for (int j = 0; j < 3; j++)
+			out[i * 3 + j] = a[j * 3 + i];
+}
+
+/* A transform as the game keeps it (rows at +0, position at +0x30, scale at +0x3C): rigid? */
+static bool LooksLikeTransform(const uint8_t *t)
+{
+	const float *r = (const float *)t, *pos = (const float *)(t + 0x30);
+	float scale = *(const float *)(t + 0x3C);
+	if (!(scale > 0.001f && scale < 1000.0f))
+		return false;
+	for (int i = 0; i < 3; i++) {
+		if (!(fabsf(pos[i]) < 100000.0f))
+			return false;
+		for (int j = 0; j < 3; j++) {
+			float d = r[i * 4] * r[j * 4] + r[i * 4 + 1] * r[j * 4 + 1] + r[i * 4 + 2] * r[j * 4 + 2];
+			if (!(fabsf(d - (i == j ? 1.0f : 0.0f)) < 0.01f))
+				return false;
+		}
+	}
+	return true;
+}
+
+/* A node's world transform (rotation as x' = N x, position, scale), if it reads as one. */
+static bool NodeWorld(uintptr_t node, float N[9], float n[3], float *s)
+{
+	if (!node || (node & 7) || !Accessible(node + OFF_WORLD_ROT, 0x40, false))
+		return false;
+	ReadRot((const float *)(node + OFF_WORLD_ROT), N);
+	memcpy(n, (const void *)(node + OFF_WORLD_POS), 12);
+	*s = *(const float *)(node + OFF_WORLD_SCALE);
+	if (!(*s > 0.001f && *s < 1000.0f) || !isfinite(n[0]) || !isfinite(n[1]) || !isfinite(n[2]))
+		return false;
+	for (int i = 0; i < 3; i++) {
+		float d = N[i * 3] * N[i * 3] + N[i * 3 + 1] * N[i * 3 + 1] + N[i * 3 + 2] * N[i * 3 + 2];
+		if (!(fabsf(d - 1.0f) < 0.02f))
+			return false;
+	}
+	return true;
+}
+
+/* The world map z -> Rw (z - Pw) + Pw in the frame of a node with world (N, n, s): y -> C y + c,
+ * C = N^T Rw N, c = N^T (Rw (n - Pw) + Pw - n) / s. */
+static void Correction(const float N[9], const float n[3], float s, const float Rw[9], const float Pw[3], float C[9], float c[3])
+{
+	float Nt[9], T[9], d[3], Rd[3], e[3];
+	Transpose3(N, Nt);
+	Mul3(Rw, N, T);
+	Mul3(Nt, T, C);
+	for (int i = 0; i < 3; i++)
+		d[i] = n[i] - Pw[i];
+	MulV(Rw, d, Rd);
+	for (int i = 0; i < 3; i++)
+		e[i] = Rd[i] + Pw[i] - n[i];
+	MulV(Nt, e, c);
+	for (int i = 0; i < 3; i++)
+		c[i] /= s;
+}
+
+/* saved -> live: the transform (rows at +rotOff, position at +posOff) with C, c put in front. */
+static void PutInFront(const uint8_t *saved, uint8_t *live, int rotOff, int posOff, const float C[9], const float c[3])
+{
+	float A[9], B[9], p[3], Cp[3];
+	ReadRot((const float *)(saved + rotOff), A);
+	Mul3(C, A, B);
+	WriteRot((float *)(live + rotOff), B);
+	memcpy(p, saved + posOff, 12);
+	MulV(C, p, Cp);
+	for (int i = 0; i < 3; i++)
+		((float *)(live + posOff))[i] = Cp[i] + c[i];
+}
+
+/* A BoneData of ours for a shape: the game's vtable (it's one of them to the game), a
+ * reference count that never reaches zero (the game's last reference must never delete it),
+ * its transforms in a buffer of ours. Reused once nothing of the game refers to it. */
+static Replica *TakeReplica(uintptr_t original, int count)
+{
+	Replica *r = NULL;
+	for (int i = 0; i < g_replicaCount && !r; i++)
+		if (!g_replicas[i].inUse && g_replicas[i].capacity >= count &&
+		    *(const volatile uint32_t *)(g_replicas[i].obj + OFF_REFCOUNT) == REPLICA_REFS)
+			r = &g_replicas[i];
+	if (!r) {
+		if (g_replicaCount >= (int)(sizeof(g_replicas) / sizeof(g_replicas[0])))
+			return NULL;
+		int capacity = count < 32 ? 32 : count;
+		uint8_t *block = (uint8_t *)VirtualAlloc(NULL, 0x40 + (size_t)capacity * BONE_SIZE, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+		if (!block)
+			return NULL;
+		r = &g_replicas[g_replicaCount++];
+		r->obj = (uintptr_t)block;
+		r->entries = block + 0x40;
+		r->capacity = capacity;
+	}
+	uint8_t *o = (uint8_t *)r->obj;
+	memset(o, 0, 0x40);
+	*(uintptr_t *)o = ReadPtr(original);
+	*(uint32_t *)(o + OFF_REFCOUNT) = REPLICA_REFS;
+	*(uint8_t **)(o + OFF_BONE_TRANSFORMS + OFF_ARRAY_ENTRIES) = r->entries;
+	*(uint32_t *)(o + OFF_BONE_TRANSFORMS + 8) = (uint32_t)count;
+	*(uint32_t *)(o + OFF_BONE_TRANSFORMS + OFF_ARRAY_COUNT) = (uint32_t)count;
+	r->inUse = true;
+	return r;
+}
+
+static void FreeReplica(uintptr_t obj)
+{
+	for (int i = 0; i < g_replicaCount; i++)
+		if (g_replicas[i].obj == obj)
+			g_replicas[i].inUse = false;
+}
+
+/* NiAVObject's world transform where it's expected? The player's 3D root sits at the player. */
+static bool RiderWorldOk(uintptr_t player)
+{
+	if (g_riderWorldChecked)
+		return g_riderWorldOk;
+	uintptr_t root = Root3D(player);
+	if (!root || !Accessible(root + OFF_WORLD_ROT, 0x40, false) || !Accessible(player + OFF_REFR_POS, 12, false))
+		return false;
+	const float *w = (const float *)(root + OFF_WORLD_POS), *p = (const float *)(player + OFF_REFR_POS);
+	float s = *(const float *)(root + OFF_WORLD_SCALE);
+	float d = sqrtf((w[0] - p[0]) * (w[0] - p[0]) + (w[1] - p[1]) * (w[1] - p[1]) + (w[2] - p[2]) * (w[2] - p[2]));
+	g_riderWorldChecked = true;
+	g_riderWorldOk = isfinite(d) && d < 64.0f && s > 0.2f && s < 5.0f;
+	if (!g_riderWorldOk)
+		Log("rider: the player's 3D root reads as at (%.0f, %.0f, %.0f), scale %g, the player at (%.0f, %.0f, %.0f): not NiAVObject's"
+		    " world transform as expected; the rider stays level", w[0], w[1], w[2], s, p[0], p[1], p[2]);
+	return g_riderWorldOk;
+}
+
+static void HoldRider(uintptr_t shape, uintptr_t skin, uintptr_t data, const char *name)
+{
+	RiderPart *p = &g_rider[g_riderCount];
+	memset(p, 0, sizeof(*p));
+	if (skin) {
+		uintptr_t array = data + OFF_BONE_TRANSFORMS;
+		uintptr_t bones = ReadPtr(array + OFF_ARRAY_ENTRIES);
+		uint32_t count = Accessible(array + OFF_ARRAY_COUNT, 4, false) ? *(const uint32_t *)(array + OFF_ARRAY_COUNT) : 0;
+		if (!bones || count < 1 || count > MAX_RIDER_BONES || !Accessible(bones, count * BONE_SIZE, false) ||
+		    !Accessible(skin + OFF_SKIN_BONE_DATA, 8, true)) {
+			Refuse(shape);
+			return;
+		}
+		for (uint32_t b = 0; b < count; b++)
+			if (!LooksLikeBone((const uint8_t *)(bones + b * BONE_SIZE))) {
+				Log("rider: %s's skin data doesn't look like bone transforms: left level", name);
+				Refuse(shape);
+				return;
+			}
+		uintptr_t nodes = SkinBoneNodes(skin, count);
+		if (!nodes) {
+			if (!g_riderBonesWarned) {
+				g_riderBonesWarned = true;
+				Log("rider: %s's skin instance doesn't list its bones where expected: left level (and any other like it)", name);
+			}
+			Refuse(shape);
+			return;
+		}
+		Replica *r = TakeReplica(data, (int)count);
+		if (!r) {
+			Refuse(shape);
+			return;
+		}
+		p->saved = (uint8_t *)malloc(count * BONE_SIZE);
+		if (!p->saved) {
+			FreeReplica(r->obj);
+			Refuse(shape);
+			return;
+		}
+		memcpy(p->saved, (const void *)bones, count * BONE_SIZE);
+		memcpy(r->entries, (const void *)bones, count * BONE_SIZE);
+		p->live = r->entries;
+		p->replica = r->obj;
+		p->original = data;
+		p->nodes = nodes;
+		p->count = (int)count;
+		p->skin = skin;
+		Retain(skin);
+		Retain(shape);
+		*(volatile uintptr_t *)(skin + OFF_SKIN_BONE_DATA) = r->obj;
+	} else {
+		uintptr_t parent = ReadPtr(shape + OFF_PARENT);
+		if (!Accessible(shape + OFF_LOCAL_ROT, 0x40, true) || !LooksLikeTransform((const uint8_t *)(shape + OFF_LOCAL_ROT)) ||
+		    !parent || !IsA(parent, RTTI_AVOBJECT) || !Accessible(parent + OFF_WORLD_ROT, 0x40, false)) {
+			Refuse(shape);
+			return;
+		}
+		p->saved = (uint8_t *)malloc(0x40);
+		if (!p->saved) {
+			Refuse(shape);
+			return;
+		}
+		memcpy(p->saved, (const void *)(shape + OFF_LOCAL_ROT), 0x40);
+		p->live = (uint8_t *)(shape + OFF_LOCAL_ROT);
+		p->count = 1;
+		Retain(shape);
+	}
+	p->shape = shape;
+	snprintf(p->name, sizeof(p->name), "%s", name ? name : "(unnamed shape)");
+	g_riderCount++;
+}
+
+static void LetGoRider(int i, const char *why)
+{
+	RiderPart *p = &g_rider[i];
+	if (p->skin) {
+		if (Accessible(p->skin + OFF_SKIN_BONE_DATA, 8, true) && *(const volatile uintptr_t *)(p->skin + OFF_SKIN_BONE_DATA) == p->replica)
+			*(volatile uintptr_t *)(p->skin + OFF_SKIN_BONE_DATA) = p->original;
+		else
+			Log("rider: %s's skin no longer points at our bone data: left as it is (%s)", p->name, why);
+		FreeReplica(p->replica);
+		Release(p->skin);
+	} else if (Accessible((uintptr_t)p->live, 0x40, true)) {
+		memcpy(p->live, p->saved, 0x3C);
+	}
+	Release(p->shape);
+	free(p->saved);
+	g_rider[i] = g_rider[--g_riderCount];
+}
+
+static void LetGoAllRider(const char *why)
+{
+	int had = g_riderCount;
+	while (g_riderCount)
+		LetGoRider(g_riderCount - 1, why);
+	if (had)
+		Log("rider: %d shape(s) back as they were and let go (%s)", had, why);
+}
+
+static void SyncRider(uintptr_t player, const SkinList *list, bool wanted)
+{
+	for (int i = g_riderCount - 1; i >= 0; i--) {
+		bool still = false;
+		for (int j = 0; wanted && j < list->riderCount && !still; j++)
+			still = list->riderShape[j] == g_rider[i].shape;
+		if (!still)
+			LetGoRider(i, wanted ? "no longer on the rider" : "the tilt is off");
+	}
+	if (!wanted || !list->riderCount || !RiderWorldOk(player))
+		return;
+	int before = g_riderCount, skinned = 0;
+	char names[400];
+	size_t len = 0;
+	names[0] = 0;
+	for (int j = 0; j < list->riderCount; j++) {
+		uintptr_t shape = list->riderShape[j];
+		if (g_riderCount >= MAX_RIDER) {
+			if (!g_riderFullWarned) {
+				g_riderFullWarned = true;
+				Log("rider: more than %d shapes on the rider: the rest stay level", MAX_RIDER);
+			}
+			break;
+		}
+		bool held = false;
+		for (int i = 0; i < g_riderCount && !held; i++)
+			held = g_rider[i].shape == shape;
+		if (held || Refused(shape))
+			continue;
+		int was = g_riderCount;
+		HoldRider(shape, list->riderSkin[j], list->riderData[j], list->riderName[j]);
+		if (g_riderCount > was) {
+			skinned += list->riderSkin[j] != 0;
+			if (len < sizeof(names) - 4)
+				len += (size_t)snprintf(names + len, sizeof(names) - len, "%s%.40s", len ? ", " : "", list->riderName[j] ? list->riderName[j] : "?");
+		}
+	}
+	if (g_riderCount != before)
+		Log("rider: holding %d shape(s) of the rider to tilt with the bike (%d skinned, %d plain, %d in all): %s%s", g_riderCount - before,
+		    skinned, g_riderCount - before - skinned, g_riderCount, names, len >= sizeof(names) - 4 ? "..." : "");
+	if (list->riderOver && !g_riderFullWarned) {
+		g_riderFullWarned = true;
+		Log("rider: more than %d shapes on the rider: %d stay level", MAX_RIDER, list->riderOver);
+	}
+}
+
+static void RestoreRider(void)
+{
+	for (int i = 0; i < g_riderCount; i++) {
+		RiderPart *p = &g_rider[i];
+		if (p->skin)
+			memcpy(p->live, p->saved, (size_t)p->count * BONE_SIZE);
+		else if (Accessible((uintptr_t)p->live, 0x40, true))
+			memcpy(p->live, p->saved, 0x3C);
+	}
+}
+
+/* Every frame, after the bike: the rider's shapes carried by the same tilt R about the same
+ * pivot P (the bike's own space), taken to world through the bike's bind and bone. */
+static void FrameRider(bool tilt, const float R[9], const float P[3])
+{
+	if (!g_riderCount)
+		return;
+	HeldSkin *bike = NULL;
+	for (int k = 0; k < g_skinCount; k++)
+		if (g_skins[k].node && (!bike || (bike->role != ROLE_NONE && g_skins[k].role == ROLE_NONE)))
+			bike = &g_skins[k];
+	float Nb[9], nb[3], sb;
+	bool ready = tilt && g_riderTilt && bike && NodeWorld(bike->node, Nb, nb, &sb);
+	g_riderApplied = ready;
+	if (!ready) {
+		if (tilt && g_riderTilt && g_skinCount && !g_riderBoneWarned) {
+			g_riderBoneWarned = true;
+			Log("rider: the bike's bone can't be read (its skin instance doesn't list it where expected): the rider stays level");
+		}
+		RestoreRider();
+		return;
+	}
+	float A[9], t[3], At[9], AP[3], Pbone[3], T9[9], ARA[9], Nbt[9], Pw[3], Rw[9], NP[3];
+	ReadRot((const float *)(bike->original[0] + OFF_BONE_ROT), A);
+	memcpy(t, bike->original[0] + OFF_BONE_POS, 12);
+	Transpose3(A, At);
+	MulV(A, P, AP);
+	for (int i = 0; i < 3; i++)
+		Pbone[i] = AP[i] + t[i];
+	MulV(Nb, Pbone, NP);
+	for (int i = 0; i < 3; i++)
+		Pw[i] = sb * NP[i] + nb[i];
+	Mul3(A, R, T9);
+	Mul3(T9, At, ARA);
+	Transpose3(Nb, Nbt);
+	Mul3(Nb, ARA, T9);
+	Mul3(T9, Nbt, Rw);
+	memcpy(g_riderPivot, Pw, sizeof(g_riderPivot));
+	for (int i = 0; i < g_riderCount; i++) {
+		RiderPart *p = &g_rider[i];
+		float N[9], n[3], s, C[9], c[3];
+		if (p->skin) {
+			if (!Accessible(p->nodes, (size_t)p->count * 8, false))
+				continue;
+			for (int b = 0; b < p->count; b++) {
+				uintptr_t node = ((const uintptr_t *)p->nodes)[b];
+				const uint8_t *saved = p->saved + (size_t)b * BONE_SIZE;
+				uint8_t *live = p->live + (size_t)b * BONE_SIZE;
+				if (!NodeWorld(node, N, n, &s)) {
+					memcpy(live, saved, BONE_SIZE);
+					continue;
+				}
+				Correction(N, n, s, Rw, Pw, C, c);
+				PutInFront(saved, live, OFF_BONE_ROT, OFF_BONE_POS, C, c);
+				/* The culling sphere (bone space) goes to C centre + c: grown by the move. */
+				const float *centre = (const float *)saved;
+				float moved[3];
+				MulV(C, centre, moved);
+				float dx = moved[0] + c[0] - centre[0], dy = moved[1] + c[1] - centre[1], dz = moved[2] + c[2] - centre[2];
+				*(float *)(live + OFF_BONE_RADIUS) = *(const float *)(saved + OFF_BONE_RADIUS) + sqrtf(dx * dx + dy * dy + dz * dz);
+			}
+		} else {
+			if (!Accessible((uintptr_t)p->live, 0x40, true))
+				continue;
+			uintptr_t parent = ReadPtr(p->shape + OFF_PARENT);
+			if (!NodeWorld(parent, N, n, &s)) {
+				memcpy(p->live, p->saved, 0x3C);
+				continue;
+			}
+			Correction(N, n, s, Rw, Pw, C, c);
+			PutInFront(p->saved, p->live, 0, 0x30, C, c);
+		}
+	}
+}
+
+static void SyncSkins(uintptr_t player, bool riderWanted)
 {
 	SkinList list = { .count = 0 };
 	uintptr_t root = Root3D(player);
@@ -2089,8 +2586,9 @@ static void SyncSkins(uintptr_t player)
 		for (int i = 0; i < g_skinCount; i++)
 			held |= g_skins[i].boneData == list.found[j];
 		if (!held && !Refused(list.found[j]))
-			HoldSkin(list.found[j], list.names[j]);
+			HoldSkin(list.found[j], list.skins[j], list.names[j]);
 	}
+	SyncRider(player, &list, riderWanted && g_riderTilt);
 	if (g_layoutFromRoot == LAYOUT_UNKNOWN && player) {
 		g_layoutFromRoot = LayoutFromRoot(player);
 		if (g_layoutFromRoot != LAYOUT_UNKNOWN)
@@ -2254,10 +2752,13 @@ static void FrameTilt(void)
 		    g_pitchSmooth, g_rollSmooth, g_pitchNow, g_rollNow, g_speed, g_speedAlong, g_steerRadius, g_steerWanted, g_steerAllowed,
 		    g_steerClamped, g_inputMode == INPUT_BACK ? " | back" : g_inputMode == INPUT_CREEP ? " | creep" : "");
 		if (g_throttleOn && g_inputActive)
-			Log("throttle: speed %.2f of the top, input %.2f (keys %.2f, %.2f%s)", g_throttle, InputForSpeed(g_throttle),
-			    g_keys[0], g_keys[1], g_throttleWrote ? ", the game gets the throttle's" : "");
+			Log("throttle: speed %.2f of the top, input %.2f (keys %.2f, %.2f%s%s)", g_throttle, InputForSpeed(g_throttle),
+			    g_keys[0], g_keys[1], g_throttleWrote ? ", the game gets the throttle's" : "", g_throttleCapped ? ", held to the measured speed" : "");
 		if (g_partsOk)
 			Log("parts: bars %+.1f deg (turning %+.0f deg/s), wheels at %.2f rad", g_barNow, g_headingRate, g_wheelAngle);
+		if (g_riderCount)
+			Log(g_riderApplied ? "rider: %d shape(s) tilted with the bike about (%.0f, %.0f, %.0f)" : "rider: %d shape(s) held, level",
+			    g_riderCount, g_riderPivot[0], g_riderPivot[1], g_riderPivot[2]);
 		g_steerWanted = 0.0f;
 		g_steerClamped = 0;
 	}
@@ -2313,6 +2814,7 @@ static void FrameTilt(void)
 			*(float *)(live + OFF_BONE_RADIUS) = radius + sqrtf(dx * dx + dy * dy + dz * dz);
 		}
 	}
+	FrameRider(tilt, R, P);
 }
 
 /* ------------------------------------------------------------------------- */
@@ -2857,13 +3359,30 @@ static void AfterInput(void)
 			g_throttle -= dt / (g_coast > 0.05f ? g_coast : 0.05f);
 		}
 		g_throttle = g_throttle > 1.0f ? 1.0f : g_throttle < 0.0f ? 0.0f : g_throttle;
+		/* Never far ahead of the bike (test 23: from a stop the game's speed lagged the throttle
+		 * for a second and then surged to catch up; stuck on a hillside with W held, the throttle
+		 * sat at 0.8 and would have lunged once free): at most Lead above the measured speed. */
+		g_throttleCapped = false;
+		if (g_lead > 0.0f && g_lead < 1.0f && g_fullSpeed > 0.0f && g_throttle > 0.1f) {
+			float measured = (g_speedAlong > 0.0f ? g_speedAlong : 0.0f) / g_fullSpeed, cap = measured + g_lead;
+			if (cap < 0.1f)
+				cap = 0.1f;
+			if (g_throttle > cap) {
+				g_throttle = cap;
+				g_throttleCapped = true;
+			}
+		}
 	} else if (!keysOk || !g_throttleOn) {
 		g_throttle = 0.0f;
 	}
 	bool rolling = g_throttleOn && g_throttle > 0.0f;
+	/* Back reverses only once the bike has stopped (test 23: the reverse push started while
+	 * the bike still rolled on at 500 and left a roll back after the stop); braked off and
+	 * still rolling, the game gets nothing until then. */
+	bool stopped = !g_throttleOn || g_speedAlong < g_backBelow;
 	int mode = INPUT_PASS;
 	if (keysOk) {
-		if (back && !rolling)
+		if (back && !rolling && stopped)
 			mode = g_reverse ? INPUT_BACK : INPUT_PASS;
 		else if (!back && !forward && !rolling && y <= 0.2f && fabsf(x) > 0.05f && (g_inputMode == INPUT_CREEP || g_speed < g_creepBelow))
 			mode = INPUT_CREEP;
@@ -2886,6 +3405,11 @@ static void AfterInput(void)
 			}
 			g_wroteMove[0] = dx == 0.0f ? copysignf(0.0f, -1.0f) : dx / len * size;
 			g_wroteMove[1] = dy / len * size;
+			memcpy(g_moveVec, g_wroteMove, sizeof(g_wroteMove));
+			g_wrote = true;
+			g_throttleWrote = true;
+		} else if (back && !stopped && g_reverse) {
+			g_wroteMove[0] = g_wroteMove[1] = copysignf(0.0f, -1.0f);   /* braked off, still rolling: nothing until it has stopped */
 			memcpy(g_moveVec, g_wroteMove, sizeof(g_wroteMove));
 			g_wrote = true;
 			g_throttleWrote = true;
@@ -4012,7 +4536,7 @@ static void Tick(DWORD now)
 	/* The skins are held while the tilt is on, or on any ride when the bike has moving parts
 	 * (the tilt turned off in the menu still leaves the wheels spinning). */
 	if (tilt > 0.0f || (riding && g_partsOk)) {
-		SyncSkins(Player());
+		SyncSkins(Player(), tilt > 0.0f);
 	} else {
 		if (g_skinCount)
 			LetGoAll("got off");
