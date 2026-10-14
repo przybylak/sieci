@@ -125,8 +125,9 @@ static uint8_t *g_partData[3], *g_partBones[3];   /* the Harley build's moving p
 static uint8_t g_partBonesOriginal[3][0x50];
 /* The rider: the body skinned to two bones, the COM the bike hangs off, a plain shape (the
  * Pip-Boy's) under a bone of its own. Their world transforms follow the player (SyncFakeWorld). */
-static uint8_t *g_bodyShape, *g_bodySkin, *g_bodyData, *g_bodyBones, *g_bodyNodes[4], *g_comNode, *g_pipboyBone, *g_pipboyShape, *g_npcRoot;
-static uint8_t g_bodyBonesOriginal[4 * 0x50], g_pipboyLocalOriginal[0x40];
+static uint8_t *g_bodyShape, *g_bodySkin, *g_bodyData, *g_bodyBones, *g_bodyNodes[5], *g_comNode, *g_pipboyBone, *g_pipboyShape, *g_npcRoot;
+static uint8_t g_bodyBonesOriginal[5 * 0x50], g_pipboyLocalOriginal[0x40];
+static void **g_vtSkin;
 static uint8_t *g_parkGlobals[7], *g_trackSlope, *g_turnRadius, *g_turnStand, *g_turnSlow, *g_controls;
 static uint8_t *g_thirdState;   /* ThirdPersonState: zoom target +0xE8, current +0xEC */
 static uint8_t *g_moveHandler;  /* MovementHandler: its vtable read-only, as in the game */
@@ -512,6 +513,7 @@ static void BuildGame(void)
 	void **vtSkin = MakeClass(skin, 2), **vtBone = MakeClass(bone, 2);
 	vtBone[1] = (void *)FakeDeleteThis;
 	vtSkin[1] = (void *)FakeDeleteThis;
+	g_vtSkin = vtSkin;
 	g_root = NewNode(vtFade, "skeleton.nif", 8);
 	uint8_t *loaded = (uint8_t *)VirtualAlloc(NULL, 0x100, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 	*(uint8_t **)(loaded + 0x08) = g_root;
@@ -530,7 +532,8 @@ static void BuildGame(void)
 	g_bodyNodes[1] = NewNode(vtNode, "NPC Spine [Spn0]", 0);
 	g_bodyNodes[2] = NewNode(vtNode, "NPC Spine1 [Spn1]", 0);   /* in the skin with no vertices of its own (test 24) */
 	g_bodyNodes[3] = NewNode(vtNode, "NPC Neck [Neck]", 0);      /* its node scaled to 0: hidden (test 27's backpack bone) */
-	for (int i = 0; i < 4; i++) {
+	g_bodyNodes[4] = NewNode(vtNode, "Cloth_BN_Purse_001", 0);   /* a cloth bone: its world matrix sheared, not orthonormal (test 28) */
+	for (int i = 0; i < 5; i++) {
 		AddChild(npcRoot, g_bodyNodes[i]);
 		*(uint8_t **)(g_bodyNodes[i] + 0x28) = npcRoot;
 	}
@@ -596,14 +599,14 @@ static void BuildGame(void)
 	*(uint8_t **)(g_bodySkin + 0x40) = g_bodyData;
 	g_bodyBones = (uint8_t *)VirtualAlloc(NULL, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 	*(uint8_t **)(g_bodyData + 0x10) = g_bodyBones;
-	*(uint32_t *)(g_bodyData + 0x18) = 4;
-	*(uint32_t *)(g_bodyData + 0x20) = 4;
+	*(uint32_t *)(g_bodyData + 0x18) = 5;
+	*(uint32_t *)(g_bodyData + 0x20) = 5;
 	uint8_t **bodyList = (uint8_t **)VirtualAlloc(NULL, 0x100, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-	for (int i = 0; i < 4; i++)
+	for (int i = 0; i < 5; i++)
 		bodyList[i] = g_bodyNodes[i];
 	*(uint8_t ***)(g_bodySkin + 0x28) = bodyList;
-	*(uint32_t *)(g_bodySkin + 0x30) = 4;
-	*(uint32_t *)(g_bodySkin + 0x38) = 4;
+	*(uint32_t *)(g_bodySkin + 0x30) = 5;
+	*(uint32_t *)(g_bodySkin + 0x38) = 5;
 
 	/* The moving parts of the Harley build: three more shapes under the bike's node, each
 	 * with its own skin and bone data (the same bind; their culling spheres on the axles
@@ -709,6 +712,13 @@ static void SyncFakeWorld(void)
 		pos[i] = pp[i] + off[i];
 	SetWorld(g_bodyNodes[2], rot, pos, 1.0f);
 	SetWorld(g_bodyNodes[3], zero, pos, 0.0f);   /* hidden: no rotation, scale 0 */
+	static const float shear[9] = { 1.0f, 0.3f, 0.0f, 0.0f, 0.9f, 0.1f, 0.2f, 0.0f, 1.1f };   /* a cloth bone's: not orthonormal */
+	static const float clothOff[3] = { -12, -18, 90 };
+	MulM3(heading, shear, rot);
+	Apply3(heading, clothOff, off);
+	for (int i = 0; i < 3; i++)
+		pos[i] = pp[i] + off[i];
+	SetWorld(g_bodyNodes[4], rot, pos, 1.0f);
 	MulM3(rz20, rx40, pipTurn);
 	MulM3(heading, pipTurn, rot);
 	Apply3(heading, pipOff, off);
@@ -741,10 +751,10 @@ static void SetLayouts(bool skinTransposed, bool rootTransposed)
 		memcpy(g_partBonesOriginal[i], g_partBones[i], sizeof(g_partBonesOriginal[i]));
 	}
 	/* The rider's body: two bones with binds of their own; the Pip-Boy's shape's own transform. */
-	static const float bindRot[4][9] = { { 0, 0, 1, 0, 1, 0, -1, 0, 0 }, { 1, 0, 0, 0, 0, -1, 0, 1, 0 }, { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, { 1, 0, 0, 0, 1, 0, 0, 0, 1 } };
-	static const float bindPos[4][3] = { { 0, 0, -70 }, { 3, -95, 0 }, { 0, -100, 0 }, { 0, -120, 0 } };
-	static const float bodySpheres[4][4] = { { 0, 0, 20, 40 }, { 0, 0, 30, 50 }, { 0, 0, 0, 0 }, { 0, 0, 5, 10 } };   /* the third: no vertices */
-	for (int i = 0; i < 4; i++) {
+	static const float bindRot[5][9] = { { 0, 0, 1, 0, 1, 0, -1, 0, 0 }, { 1, 0, 0, 0, 0, -1, 0, 1, 0 }, { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, { 0, 1, 0, -1, 0, 0, 0, 0, 1 } };
+	static const float bindPos[5][3] = { { 0, 0, -70 }, { 3, -95, 0 }, { 0, -100, 0 }, { 0, -120, 0 }, { 10, 20, -90 } };
+	static const float bodySpheres[5][4] = { { 0, 0, 20, 40 }, { 0, 0, 30, 50 }, { 0, 0, 0, 0 }, { 0, 0, 5, 10 }, { 0, 0, 0, 8 } };   /* the third: no vertices */
+	for (int i = 0; i < 5; i++) {
 		float *bb = (float *)(g_bodyBones + i * 0x50);
 		memcpy(bb, bodySpheres[i], sizeof(bodySpheres[i]));
 		StoreRotation(bb + 4, bindRot[i], skinTransposed);
@@ -2034,8 +2044,8 @@ static void TiltTests(void)
 
 	printf("tilt: the rider pitches with the bike (Rider=1):\n");
 	uint8_t *bodyDataNow = *(uint8_t **)(g_bodySkin + 0x40);
-	CHECK(bodyDataNow && bodyDataNow != g_bodyData && *(void **)bodyDataNow == *(void **)g_bodyData && *(uint32_t *)(bodyDataNow + 0x20) == 4,
-	      "the body's skin instance points at the plugin's own copy of its bone data (the game's vtable, 4 bones)");
+	CHECK(bodyDataNow && bodyDataNow != g_bodyData && *(void **)bodyDataNow == *(void **)g_bodyData && *(uint32_t *)(bodyDataNow + 0x20) == 5,
+	      "the body's skin instance points at the plugin's own copy of its bone data (the game's vtable, 5 bones)");
 	CHECK(memcmp(g_bodyBones, g_bodyBonesOriginal, sizeof(g_bodyBonesOriginal)) == 0 && *(int32_t *)(g_bodyData + 0x08) == 2,
 	      "the game's own bone data, shared with every NPC in that mesh, untouched (references %d)", *(int32_t *)(g_bodyData + 0x08));
 	CHECK(*(int32_t *)(g_bodySkin + 0x08) == 2 && *(int32_t *)(g_bodyShape + 0x08) == 2 && *(int32_t *)(g_pipboyShape + 0x08) == 2,
@@ -2060,6 +2070,14 @@ static void TiltTests(void)
 	CHECK(*(const float *)(copy + 2 * 0x50 + 0x0C) == 0.0f, "a bone with no vertices (sphere radius 0, test 24's suit) held with the rest, its sphere left empty");
 	CHECK(memcmp(copy + 3 * 0x50, g_bodyBonesOriginal + 3 * 0x50, 0x50) == 0,
 	      "a bone whose node is scaled to 0 (hidden; test 27's backpack) held with the rest and left as it is (the log says why)");
+	{
+		float before[3], after[3];
+		WorldOfBone(g_bodyNodes[4], g_bodyBonesOriginal + 4 * 0x50, probes[1], before);
+		WorldOfBone(g_bodyNodes[4], copy + 4 * 0x50, probes[1], after);
+		float off = TiltedOff(before, after, Rw, Pw);
+		CHECK(off < 0.05f && memcmp(copy + 4 * 0x50, g_bodyBonesOriginal + 4 * 0x50, 0x50) != 0,
+		      "a cloth bone whose world matrix is sheared (not orthonormal; test 28's purse) carried with the rest, a true inverse (%.3f off)", off);
+	}
 	{
 		static const float q[3] = { 5, 0, 2 };
 		float before[3], after[3];
@@ -2158,6 +2176,35 @@ static void TiltTests(void)
 	CHECK(*(uint8_t **)(g_bodySkin + 0x40) != g_bodyData && *(int32_t *)(g_bodySkin + 0x08) == 2, "the data right again: held on the next ride");
 	SetTilt(0.0f);
 	RunFrames(300);
+
+	printf("tilt: the game gives the body a new skin instance, and points one back at its own bone data (test 28's decal):\n");
+	SetTilt(30.0f);
+	RunFrames(800);
+	uint8_t *oldSkin = g_bodySkin;
+	CHECK(*(uint8_t **)(oldSkin + 0x40) != g_bodyData && *(int32_t *)(oldSkin + 0x08) == 2, "held (the instance points at the copy, references %d)", *(int32_t *)(oldSkin + 0x08));
+	uint8_t *newSkin = (uint8_t *)NewObject(g_vtSkin, 0x100);   /* the game's new instance for the shape: same bones, its own data */
+	*(int32_t *)(newSkin + 0x08) = 1;
+	*(uint8_t **)(newSkin + 0x40) = g_bodyData;
+	*(uint8_t ***)(newSkin + 0x28) = *(uint8_t ***)(oldSkin + 0x28);
+	*(uint32_t *)(newSkin + 0x30) = 5;
+	*(uint32_t *)(newSkin + 0x38) = 5;
+	*(uint8_t **)(g_bodyShape + 0x140) = newSkin;
+	*(uint8_t **)(oldSkin + 0x40) = g_bodyData;   /* the game dropped the old instance: it points at its own data again */
+	*(int32_t *)(oldSkin + 0x08) -= 1;
+	g_bodySkin = newSkin;
+	RunFrames(300);
+	CHECK(*(uint8_t **)(newSkin + 0x40) != g_bodyData && *(uint8_t **)(newSkin + 0x40) != NULL && *(int32_t *)(newSkin + 0x08) == 2,
+	      "the new instance held within a sync: it points at a copy (references %d)", *(int32_t *)(newSkin + 0x08));
+	CHECK(*(int32_t *)(oldSkin + 0x08) == 0 && g_deleted == 1 && *(uint8_t **)(oldSkin + 0x40) == g_bodyData,
+	      "the old one let go of and gone (deleted %d), its pointer left at the game's data", g_deleted);
+	g_deleted = 0;
+	uint8_t *ours = *(uint8_t **)(newSkin + 0x40);
+	*(uint8_t **)(newSkin + 0x40) = g_bodyData;   /* the game points the instance back at its own data */
+	RunFrames(300);
+	CHECK(*(uint8_t **)(newSkin + 0x40) == ours, "pointed back at its own data by the game: ours again within a sync");
+	SetTilt(0.0f);
+	RunFrames(300);
+	CHECK(*(uint8_t **)(newSkin + 0x40) == g_bodyData && *(int32_t *)(newSkin + 0x08) == 1, "getting off: the game's data back, let go of");
 
 	printf("tilt: the rider blocked, then the bike taken off before the dismount (nothing held at it): the next ride starts afresh (test 27):\n");
 	bodyRows[0] = 2.0f;

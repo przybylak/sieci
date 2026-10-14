@@ -531,6 +531,7 @@ static int g_riderSkinned = 1, g_riderPlain = 1, g_riderSwap = 1, g_riderWrite =
 static bool g_riderIdle;                    /* the originals are in place: nothing written since */
 static bool g_riderLevel = true;            /* the tilt is within the deadband: the rider's shapes are left as they are */
 static bool NodeWorld(uintptr_t node, float N[9], float n[3], float *s);          /* defined with the rider */
+static bool Invert3(const float *a, float *out);
 static bool NodeWorldChecked(uintptr_t node, float N[9], float n[3], float *s);
 static char g_iniPath[MAX_PATH];
 /* Where the frame time goes (test 25: about 7 ms a frame lost on the bike): QPC around the
@@ -2367,28 +2368,45 @@ static bool NodeWorld(uintptr_t node, float N[9], float n[3], float *s)
 	*s = *(const float *)(node + OFF_WORLD_SCALE);
 	if (!(*s > 0.001f && *s < 1000.0f) || !isfinite(n[0]) || !isfinite(n[1]) || !isfinite(n[2]))
 		return false;
-	for (int i = 0; i < 3; i++) {
-		float d = N[i * 3] * N[i * 3] + N[i * 3 + 1] * N[i * 3 + 1] + N[i * 3 + 2] * N[i * 3 + 2];
-		if (!(fabsf(d - 1.0f) < 0.02f))
+	/* Any invertible matrix will do (a cloth bone's isn't orthonormal); a hidden bone's, all
+	 * zeros, won't. */
+	float Ni[9];
+	for (int i = 0; i < 9; i++)
+		if (!isfinite(N[i]) || fabsf(N[i]) > 1000.0f)
 			return false;
-	}
+	return Invert3(N, Ni);
+}
+
+/* The inverse of a 3x3, false if it has none (|det| under 1e-4). */
+static bool Invert3(const float *a, float *out)
+{
+	float c0 = a[4] * a[8] - a[5] * a[7], c1 = a[5] * a[6] - a[3] * a[8], c2 = a[3] * a[7] - a[4] * a[6];
+	float det = a[0] * c0 + a[1] * c1 + a[2] * c2;
+	if (!(fabsf(det) > 1e-4f))
+		return false;
+	float inv = 1.0f / det;
+	out[0] = c0 * inv;                               out[1] = (a[2] * a[7] - a[1] * a[8]) * inv; out[2] = (a[1] * a[5] - a[2] * a[4]) * inv;
+	out[3] = c1 * inv;                               out[4] = (a[0] * a[8] - a[2] * a[6]) * inv; out[5] = (a[2] * a[3] - a[0] * a[5]) * inv;
+	out[6] = c2 * inv;                               out[7] = (a[1] * a[6] - a[0] * a[7]) * inv; out[8] = (a[0] * a[4] - a[1] * a[3]) * inv;
 	return true;
 }
 
 /* The world map z -> Rw (z - Pw) + Pw in the frame of a node with world (N, n, s): y -> C y + c,
- * C = N^T Rw N, c = N^T (Rw (n - Pw) + Pw - n) / s. */
+ * C = N^-1 Rw N, c = N^-1 (Rw (n - Pw) + Pw - n) / s. A true inverse, not the transpose: a cloth
+ * bone's world transform isn't orthonormal (test 28: the backpack's purse bones). */
 static void Correction(const float N[9], const float n[3], float s, const float Rw[9], const float Pw[3], float C[9], float c[3])
 {
-	float Nt[9], T[9], d[3], Rd[3], e[3];
-	Transpose3(N, Nt);
+	float Ni[9], T[9], d[3], Rd[3], e[3];
+	if (!Invert3(N, Ni))
+		Transpose3(N, Ni);   /* can't happen: NodeWorld refused it; the transpose is the next best thing */
 	Mul3(Rw, N, T);
-	Mul3(Nt, T, C);
+	Mul3(Ni, T, C);
 	for (int i = 0; i < 3; i++)
 		d[i] = n[i] - Pw[i];
 	MulV(Rw, d, Rd);
 	for (int i = 0; i < 3; i++)
 		e[i] = Rd[i] + Pw[i] - n[i];
-	MulV(Nt, e, c);
+	MulV(Ni, e, c);
 	for (int i = 0; i < 3; i++)
 		c[i] /= s;
 }
@@ -2514,7 +2532,7 @@ static void HoldRider(uintptr_t shape, uintptr_t skin, uintptr_t data, const cha
 			} else if (!NodeWorld(node, N, n, &sc)) {
 				const float *w = (const float *)(node + OFF_WORLD_ROT);
 				p->skip[b] = 1;
-				Log("rider: %s's bone %u of %u ('%.32s'): its node's world transform isn't rigid (rows (%g, %g, %g) (%g, %g, %g) (%g, %g, %g), "
+				Log("rider: %s's bone %u of %u ('%.32s'): its node's world transform can't be inverted, a hidden bone? (rows (%g, %g, %g) (%g, %g, %g) (%g, %g, %g), "
 				    "position (%g, %g, %g), scale %g); that bone is left as it is", name, b, count, OrNone(ObjectName(node)),
 				    w[0], w[1], w[2], w[4], w[5], w[6], w[8], w[9], w[10], w[12], w[13], w[14], w[15]);
 			}
@@ -2638,11 +2656,30 @@ static void SyncRider(uintptr_t player, const SkinList *list, bool wanted)
 {
 	int gone = 0;
 	for (int i = g_riderCount - 1; i >= 0; i--) {
+		RiderPart *p = &g_rider[i];
 		bool still = false;
 		for (int j = 0; wanted && j < list->riderCount && !still; j++)
-			still = list->riderShape[j] == g_rider[i].shape;
-		if (still && BikeSkin(list, g_rider[i].skin))
+			still = list->riderShape[j] == p->shape;
+		if (still && BikeSkin(list, p->skin))
 			still = false;   /* the bike's after all */
+		if (still && p->skin) {
+			/* The game may give a shape a new skin instance (a decal's, test 28), or point the
+			 * instance back at its own bone data: ours again, or held again with the new one. */
+			uintptr_t skinNow = *(const uintptr_t *)(p->shape + OFF_SKIN_INSTANCE);   /* the shape is ours to keep */
+			if (skinNow != p->skin) {
+				Log("rider: %s's skin instance was replaced by the game: held again with the new one", p->name);
+				still = false;
+			} else if (p->replica) {
+				uintptr_t dataNow = *(const volatile uintptr_t *)(p->skin + OFF_SKIN_BONE_DATA);
+				if (dataNow == p->original) {
+					*(volatile uintptr_t *)(p->skin + OFF_SKIN_BONE_DATA) = p->replica;
+					Log("rider: the game pointed %s's skin back at its own bone data: ours again", p->name);
+				} else if (dataNow != p->replica) {
+					Log("rider: %s's skin points at bone data that's neither ours nor its old own: held again", p->name);
+					still = false;
+				}
+			}
+		}
 		if (!still) {
 			LetGoRider(i, wanted ? "no longer on the rider" : "the tilt is off");
 			gone++;
