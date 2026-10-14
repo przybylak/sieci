@@ -125,8 +125,9 @@ static uint8_t *g_partData[3], *g_partBones[3];   /* the Harley build's moving p
 static uint8_t g_partBonesOriginal[3][0x50];
 /* The rider: the body skinned to two bones, the COM the bike hangs off, a plain shape (the
  * Pip-Boy's) under a bone of its own. Their world transforms follow the player (SyncFakeWorld). */
-static uint8_t *g_bodyShape, *g_bodySkin, *g_bodyData, *g_bodyBones, *g_bodyNodes[5], *g_comNode, *g_pipboyBone, *g_pipboyShape, *g_npcRoot;
-static uint8_t g_bodyBonesOriginal[5 * 0x50], g_pipboyLocalOriginal[0x40];
+static uint8_t *g_bodyShape, *g_bodySkin, *g_bodyData, *g_bodyBones, *g_bodyNodes[6], *g_comNode, *g_pipboyBone, *g_pipboyShape, *g_npcRoot;
+static uint8_t g_bodyBonesOriginal[6 * 0x50], g_pipboyLocalOriginal[0x40];
+static uint8_t *g_decalShape, *g_decalSkin;   /* a blood decal: the game clones the body's skin instance for it (test 29) */
 static void **g_vtSkin;
 static uint8_t *g_parkGlobals[7], *g_trackSlope, *g_turnRadius, *g_turnStand, *g_turnSlow, *g_controls;
 static uint8_t *g_thirdState;   /* ThirdPersonState: zoom target +0xE8, current +0xEC */
@@ -518,7 +519,7 @@ static void BuildGame(void)
 	uint8_t *loaded = (uint8_t *)VirtualAlloc(NULL, 0x100, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 	*(uint8_t **)(loaded + 0x08) = g_root;
 	*(uint8_t **)(pl + 0xF0) = loaded;
-	uint8_t *npcRoot = NewNode(vtNode, "NPC Root [Root]", 8);
+	uint8_t *npcRoot = NewNode(vtNode, "NPC Root [Root]", 16);
 	g_npcRoot = npcRoot;
 	AddChild(g_root, npcRoot);
 	*(uint8_t **)(npcRoot + 0x28) = g_root;
@@ -533,7 +534,8 @@ static void BuildGame(void)
 	g_bodyNodes[2] = NewNode(vtNode, "NPC Spine1 [Spn1]", 0);   /* in the skin with no vertices of its own (test 24) */
 	g_bodyNodes[3] = NewNode(vtNode, "NPC Neck [Neck]", 0);      /* its node scaled to 0: hidden (test 27's backpack bone) */
 	g_bodyNodes[4] = NewNode(vtNode, "Cloth_BN_Purse_001", 0);   /* a cloth bone: its world matrix sheared, not orthonormal (test 28) */
-	for (int i = 0; i < 5; i++) {
+	g_bodyNodes[5] = NewNode(vtNode, "LArm_Hand [LHnd]", 0);     /* a hand: turns with the bars (test 29) */
+	for (int i = 0; i < 6; i++) {
 		AddChild(npcRoot, g_bodyNodes[i]);
 		*(uint8_t **)(g_bodyNodes[i] + 0x28) = npcRoot;
 	}
@@ -599,14 +601,24 @@ static void BuildGame(void)
 	*(uint8_t **)(g_bodySkin + 0x40) = g_bodyData;
 	g_bodyBones = (uint8_t *)VirtualAlloc(NULL, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 	*(uint8_t **)(g_bodyData + 0x10) = g_bodyBones;
-	*(uint32_t *)(g_bodyData + 0x18) = 5;
-	*(uint32_t *)(g_bodyData + 0x20) = 5;
+	*(uint32_t *)(g_bodyData + 0x18) = 6;
+	*(uint32_t *)(g_bodyData + 0x20) = 6;
 	uint8_t **bodyList = (uint8_t **)VirtualAlloc(NULL, 0x100, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-	for (int i = 0; i < 5; i++)
+	for (int i = 0; i < 6; i++)
 		bodyList[i] = g_bodyNodes[i];
 	*(uint8_t ***)(g_bodySkin + 0x28) = bodyList;
-	*(uint32_t *)(g_bodySkin + 0x30) = 5;
-	*(uint32_t *)(g_bodySkin + 0x38) = 5;
+	*(uint32_t *)(g_bodySkin + 0x30) = 6;
+	*(uint32_t *)(g_bodySkin + 0x38) = 6;
+	/* A blood decal on the body: its own shape, a skin instance cloned from the body's (the same
+	 * bone list; it points wherever the body's points when it's made: test 29). Not in the 3D yet. */
+	g_decalShape = NewNode(vtTri, "BloodDecal:0", 0);
+	*(uint8_t **)(g_decalShape + 0x28) = npcRoot;
+	g_decalSkin = (uint8_t *)NewObject(vtSkin, 0x100);
+	*(int32_t *)(g_decalSkin + 0x08) = 1;
+	*(uint8_t **)(g_decalShape + 0x140) = g_decalSkin;
+	*(uint8_t ***)(g_decalSkin + 0x28) = bodyList;
+	*(uint32_t *)(g_decalSkin + 0x30) = 6;
+	*(uint32_t *)(g_decalSkin + 0x38) = 6;
 
 	/* The moving parts of the Harley build: three more shapes under the bike's node, each
 	 * with its own skin and bone data (the same bind; their culling spheres on the axles
@@ -719,6 +731,11 @@ static void SyncFakeWorld(void)
 	for (int i = 0; i < 3; i++)
 		pos[i] = pp[i] + off[i];
 	SetWorld(g_bodyNodes[4], rot, pos, 1.0f);
+	static const float handOff[3] = { -20, 75, 120 };   /* about where the left grip is */
+	Apply3(heading, handOff, off);
+	for (int i = 0; i < 3; i++)
+		pos[i] = pp[i] + off[i];
+	SetWorld(g_bodyNodes[5], heading, pos, 1.0f);
 	MulM3(rz20, rx40, pipTurn);
 	MulM3(heading, pipTurn, rot);
 	Apply3(heading, pipOff, off);
@@ -751,10 +768,10 @@ static void SetLayouts(bool skinTransposed, bool rootTransposed)
 		memcpy(g_partBonesOriginal[i], g_partBones[i], sizeof(g_partBonesOriginal[i]));
 	}
 	/* The rider's body: two bones with binds of their own; the Pip-Boy's shape's own transform. */
-	static const float bindRot[5][9] = { { 0, 0, 1, 0, 1, 0, -1, 0, 0 }, { 1, 0, 0, 0, 0, -1, 0, 1, 0 }, { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, { 0, 1, 0, -1, 0, 0, 0, 0, 1 } };
-	static const float bindPos[5][3] = { { 0, 0, -70 }, { 3, -95, 0 }, { 0, -100, 0 }, { 0, -120, 0 }, { 10, 20, -90 } };
-	static const float bodySpheres[5][4] = { { 0, 0, 20, 40 }, { 0, 0, 30, 50 }, { 0, 0, 0, 0 }, { 0, 0, 5, 10 }, { 0, 0, 0, 8 } };   /* the third: no vertices */
-	for (int i = 0; i < 5; i++) {
+	static const float bindRot[6][9] = { { 0, 0, 1, 0, 1, 0, -1, 0, 0 }, { 1, 0, 0, 0, 0, -1, 0, 1, 0 }, { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, { 0, 1, 0, -1, 0, 0, 0, 0, 1 }, { 1, 0, 0, 0, 1, 0, 0, 0, 1 } };
+	static const float bindPos[6][3] = { { 0, 0, -70 }, { 3, -95, 0 }, { 0, -100, 0 }, { 0, -120, 0 }, { 10, 20, -90 }, { 20, -75, -120 } };
+	static const float bodySpheres[6][4] = { { 0, 0, 20, 40 }, { 0, 0, 30, 50 }, { 0, 0, 0, 0 }, { 0, 0, 5, 10 }, { 0, 0, 0, 8 }, { 0, 0, 0, 12 } };   /* the third: no vertices */
+	for (int i = 0; i < 6; i++) {
 		float *bb = (float *)(g_bodyBones + i * 0x50);
 		memcpy(bb, bodySpheres[i], sizeof(bodySpheres[i]));
 		StoreRotation(bb + 4, bindRot[i], skinTransposed);
@@ -872,9 +889,13 @@ static float TurnAbout(const float M[9])
 
 static float BarAngle(void)
 {
-	float M[9];
+	float M[9], T[9], Q[9];
 	AppliedRotationOf(g_partBonesOriginal[2], g_partBones[2], M);
-	return TurnAbout(M);
+	AppliedRotation(T);   /* the fixed part's map is the tilt alone; the bars' is the tilt after their turn */
+	for (int i = 0; i < 3; i++)
+		for (int j = 0; j < 3; j++)
+			Q[i * 3 + j] = T[i] * M[j] + T[3 + i] * M[3 + j] + T[6 + i] * M[6 + j];
+	return TurnAbout(Q);
 }
 
 static bool IsIdentity(const float R[9])
@@ -897,6 +918,25 @@ static void SetNormalTowards(const float dir[3], float degrees)
 {
 	float s = sinf(degrees / DEG);
 	SetNormal(s * dir[0], s * dir[1], cosf(degrees / DEG));
+}
+
+/* The ground the rays see, to match: a plane through the player's feet rising `degrees` the
+ * way the normal leans back from (the normal leaning back = uphill ahead). */
+static void SetGroundTowards(const float dir[3], float degrees)
+{
+	g_slopeK = tanf(degrees / DEG);
+	g_slopeO[0] = PlayerPos()[0];
+	g_slopeO[1] = PlayerPos()[1];
+	g_slopeD[0] = -dir[0];
+	g_slopeD[1] = -dir[1];
+	g_groundZ = PlayerPos()[2];
+}
+
+/* Flat ground at the player's feet for the rays (a slope test leaves its plane behind). */
+static void FlatGround(void)
+{
+	g_slopeK = 0.0f;
+	g_groundZ = PlayerPos()[2];
 }
 
 static int g_fewestRefs;
@@ -924,6 +964,7 @@ static void SkinRouteTests(void)
 	(*rootUsed)--;   /* the bike's node is the root's last child */
 	*(uint8_t **)(g_bikeNode + 0x28) = NULL;
 	SetNormalTowards(back, 20.0f);
+	SetGroundTowards(back, 20.0f);
 	SetTilt(30.0f);
 	RunFrames(1500);
 	AppliedRotation(R);
@@ -969,6 +1010,7 @@ static void SkinRouteTests(void)
 
 	printf("tilt: a ride that ends by taking the bike off, then a new one on flat ground:\n");
 	SetNormalTowards(back, 20.0f);
+	SetGroundTowards(back, 20.0f);
 	SetTilt(30.0f);
 	RunFrames(1500);
 	(*rootUsed)--;
@@ -980,6 +1022,7 @@ static void SkinRouteTests(void)
 	(*rootUsed)++;
 	*slotPart = keep;
 	SetNormal(0.0f, 0.0f, 1.0f);
+	FlatGround();
 	SetTilt(30.0f);
 	RunFrames(200);
 	AppliedRotation(R);
@@ -999,6 +1042,7 @@ static void SkinRouteTests(void)
 	*slotPart = part;
 	(*rootUsed)++;
 	SetNormal(0.0f, 0.0f, 1.0f);
+	FlatGround();
 }
 
 /* Riding along: up a slope at a steady speed (negative speed: backwards), the ground's
@@ -1131,6 +1175,15 @@ static void TurnWhileRiding(float dt)
 	g_camYaw -= 1.0472f * dt;
 }
 
+/* Turned on the spot at g_turnOnSpot radians a second (the game turning the player; no keys). */
+static float g_turnOnSpot;
+static bool g_haveParts;   /* this run has a parts file (the bars turn, the wheels spin) */
+static void TurnOnTheSpot(float dt)
+{
+	float *head = (float *)(g_player + 0xC8);
+	*head = fmodf(*head + g_turnOnSpot * dt + 6.2831853f, 6.2831853f);
+}
+
 /* Rolling backwards at 80 a second, no keys. */
 static void RollOn(float dt)   /* the game's own run-down after the brake: still going forward at 500 whatever the input */
 {
@@ -1157,7 +1210,7 @@ static void PartsTests(void)
 	g_camYaw = *head;
 	g_handlerStyle = 2;
 	g_honour = 4;
-	g_groundZ = PlayerPos()[2];
+	FlatGround();
 	Keys(0.0f, 0.0f);
 	g_onFrame = FakeGameFrame;
 	RunFrames(500);
@@ -1226,7 +1279,7 @@ static void InputTests(void)
 	g_camYaw = *head;
 	g_handlerStyle = 2;
 	g_honour = 4;
-	g_groundZ = PlayerPos()[2];   /* flat ground where the player is (the slope tests left them up a hill) */
+	FlatGround();   /* flat ground where the player is (the slope tests left them up a hill) */
 	Keys(0.0f, 0.0f);
 	g_onFrame = FakeGameFrame;
 	RunFrames(400);
@@ -1635,6 +1688,7 @@ static void BackPushModTests(void)
 	*(float *)(g_turnSlow + 0x30) = 50.0f;
 	*(float *)(g_turnStand + 0x30) = 60.0f;
 	SetNormal(0.0f, 0.0f, 1.0f);
+	FlatGround();
 	SetState(0);
 	SetLive(60.0f);
 	g_handlerStyle = 2;
@@ -1691,6 +1745,7 @@ static void TrackTests(void)
 	const float back[3] = { -sinf(HEADING), -cosf(HEADING), 0.0f };
 	printf("park: riding up a 10 deg slope, then stopping:\n");
 	SetNormalTowards(back, 10.0f);
+	SetGroundTowards(back, 10.0f);
 	SetState(0);
 	SetLive(60.0f);
 	RunFrames(300);
@@ -1716,6 +1771,7 @@ static void TrackTests(void)
 
 	printf("park: riding up a 40 deg slope:\n");
 	SetNormalTowards(back, 40.0f);
+	SetGroundTowards(back, 40.0f);
 	g_rideSlope = 40.0f;
 	g_onFrame = RideAlong;
 	RunFrames(1500);
@@ -1725,6 +1781,7 @@ static void TrackTests(void)
 	CHECK(Park(6) > 0.6f && fabsf(Park(2) - ez) < 1.0f, "a spot on the steep track too (z %.1f, expected %.1f; up z %.3f)", Park(2), ez, Park(6));
 
 	printf("tilt: riding up a 10 deg slope, the ground's normal all over the place:\n");
+	SetGroundTowards(back, 10.0f);   /* the rays see the slope itself; only the normal is noisy */
 	SetTilt(30.0f);
 	g_noise = 40.0f;
 	g_rideSpeed = 300.0f;
@@ -1734,7 +1791,7 @@ static void TrackTests(void)
 	float R[9];
 	AppliedRotation(R);
 	float pitch = asinf(R[7]) * DEG;
-	CHECK(fabsf(pitch - 10.0f) < 1.5f, "pitched by the track: %.1f deg (10)", pitch);
+	CHECK(fabsf(pitch - 10.0f) < 1.5f, "pitched by the track (by the rays under the wheels where they work): %.1f deg (10)", pitch);
 	printf("tilt: backwards down that slope:\n");
 	g_rideSpeed = -150.0f;   /* reversing back down the same slope */
 	RunFrames(2000);
@@ -1753,10 +1810,12 @@ static void TrackTests(void)
 
 	printf("park: up a 60 deg rock face, then getting off:\n");
 	SetNormal(0.0f, 0.0f, 1.0f);
+	FlatGround();
 	g_rideSlope = 0.0f;
 	g_onFrame = RideAlong;
 	RunFrames(1300);
 	SetNormalTowards(back, 60.0f);
+	SetGroundTowards(back, 60.0f);
 	g_rideSlope = 60.0f;
 	RunFrames(900);
 	g_onFrame = NULL;
@@ -1766,10 +1825,12 @@ static void TrackTests(void)
 	CHECK(Park(6) > 0.9f && sqrtf(fdx * fdx + fdy * fdy + fdz * fdz) > 140.0f,
 	      "the spot is back down on the flat (up z %.2f, %.0f away)", Park(6), sqrtf(fdx * fdx + fdy * fdy + fdz * fdz));
 	SetNormal(0.0f, 0.0f, 1.0f);
+	FlatGround();
 
 	printf("tilt: up a 10 deg slope, then turned on the spot:\n");
 	SetTilt(30.0f);
 	SetNormalTowards(back, 10.0f);
+	SetGroundTowards(back, 10.0f);
 	g_rideSlope = 10.0f;
 	g_rideSpeed = 300.0f;
 	g_onFrame = RideAlong;
@@ -1781,11 +1842,17 @@ static void TrackTests(void)
 	*head = heading0 + 1.5708f;
 	RunFrames(800);
 	AppliedRotation(R);
-	CHECK(fabsf(asinf(R[7]) * DEG - 10.0f) < 1.0f, "a quarter turn: the pitch holds (%.1f deg)", asinf(R[7]) * DEG);
+	if (g_picks)   /* the rays under the wheels say what the ground does as the bike turns on it */
+		CHECK(fabsf(asinf(R[7]) * DEG) < 1.5f, "a quarter turn: across the slope by the rays under the wheels, level (%.1f deg)", asinf(R[7]) * DEG);
+	else
+		CHECK(fabsf(asinf(R[7]) * DEG - 10.0f) < 1.0f, "a quarter turn: the pitch holds (%.1f deg)", asinf(R[7]) * DEG);
 	*head = heading0 + 3.14159f;
 	RunFrames(800);
 	AppliedRotation(R);
-	CHECK(fabsf(asinf(R[7]) * DEG - 10.0f) < 1.0f, "a half turn: still holds, no flip (%.1f deg)", asinf(R[7]) * DEG);
+	if (g_picks)
+		CHECK(fabsf(asinf(R[7]) * DEG + 10.0f) < 1.5f, "a half turn: nose down the slope by the rays (%.1f deg)", asinf(R[7]) * DEG);
+	else
+		CHECK(fabsf(asinf(R[7]) * DEG - 10.0f) < 1.0f, "a half turn: still holds, no flip (%.1f deg)", asinf(R[7]) * DEG);
 	*head = heading0;
 	SetTilt(0.0f);
 	RunFrames(300);
@@ -1794,6 +1861,7 @@ static void TrackTests(void)
 	*(float *)(g_turnRadius + 0x30) = 300.0f;
 	*(float *)(g_turnStand + 0x30) = 20.0f;
 	SetNormal(0.0f, 0.0f, 1.0f);
+	FlatGround();
 	g_rideSlope = 0.0f;
 	RunFrames(300);
 	g_steerTarget = heading0 + 1.5708f;   /* the player pulls round to the right */
@@ -1846,6 +1914,7 @@ static void TrackTests(void)
 
 	printf("steepness: turned sideways on a 60 deg face, and a level ride with a wild normal:\n");
 	SetNormalTowards(back, 60.0f);
+	SetGroundTowards(back, 60.0f);
 	g_rideSlope = 60.0f;
 	g_rideSpeed = 300.0f;
 	g_onFrame = RideAlong;
@@ -1856,6 +1925,7 @@ static void TrackTests(void)
 	CHECK(*(float *)(g_trackSlope + 0x30) > 55.0f, "turned on the face: still %.1f deg steep (refused)", *(float *)(g_trackSlope + 0x30));
 	*head = heading0;
 	g_rideSlope = 0.0f;
+	FlatGround();
 	g_noise = 70.0f;
 	g_onFrame = RideAlong;
 	RunFrames(1500);
@@ -1866,15 +1936,18 @@ static void TrackTests(void)
 
 	printf("park: along a steep side slope:\n");
 	SetNormal(0.0f, 0.0f, 1.0f);
+	FlatGround();
 	g_onFrame = RideAlong;
 	RunFrames(1300);   /* level ground first */
 	const float sideways[3] = { cosf(HEADING), -sinf(HEADING), 0.0f };
 	SetNormalTowards(sideways, 40.0f);   /* then a 40 deg slope falling away to the right, ridden level */
+	SetGroundTowards(sideways, 40.0f);
 	RunFrames(1300);
 	g_onFrame = NULL;
 	RunFrames(300);
 	CHECK(Park(6) > 0.934f, "the spot is back where the ground leans 20 deg or less across the bike (up z %.3f)", Park(6));
 	SetNormal(0.0f, 0.0f, 1.0f);
+	FlatGround();
 
 	printf("park: a U-turn just before stopping:\n");
 	g_rideSlope = 0.0f;
@@ -1921,6 +1994,7 @@ static void TrackTests(void)
 	SetLive(0.0f);
 	RunFrames(300);
 	SetNormal(0.0f, 0.0f, 1.0f);
+	FlatGround();
 }
 
 static float g_expectRoll;   /* the INI's MaxRoll for this run */
@@ -2026,8 +2100,13 @@ static void TiltTests(void)
 
 	printf("tilt: riding up a 20 deg slope:\n");
 	SetNormalTowards(back, 20.0f);   /* uphill ahead: the ground's normal leans back */
+	SetGroundTowards(back, 20.0f);   /* and the ground the rays see rises ahead */
 	SetTilt(30.0f);
-	RunFrames(1500);
+	RunFrames(400);
+	AppliedRotation(R);
+	float early = acosf(R[8] > 1.0f ? 1.0f : R[8]) * DEG;
+	CHECK(g_picks == 0 || (early > 15.0f && early < 21.0f), "standing still, the pitch from the rays under the wheels within 0.4 s (%.1f deg; rays %d)", early, g_picks);
+	RunFrames(1100);
 	CHECK(*BoneDataRefs() == 3, "the skin is held (references %d)", *BoneDataRefs());
 	AppliedRotation(R);
 	CHECK(fabsf(R[2]) < 0.01f && fabsf(R[5] + 0.34202f) < 0.01f && fabsf(R[8] - 0.93969f) < 0.01f,
@@ -2044,8 +2123,9 @@ static void TiltTests(void)
 
 	printf("tilt: the rider pitches with the bike (Rider=1):\n");
 	uint8_t *bodyDataNow = *(uint8_t **)(g_bodySkin + 0x40);
-	CHECK(bodyDataNow && bodyDataNow != g_bodyData && *(void **)bodyDataNow == *(void **)g_bodyData && *(uint32_t *)(bodyDataNow + 0x20) == 5,
-	      "the body's skin instance points at the plugin's own copy of its bone data (the game's vtable, 5 bones)");
+	CHECK(bodyDataNow && bodyDataNow != g_bodyData && *(void **)bodyDataNow == *(void **)g_bodyData && *(uint32_t *)(bodyDataNow + 0x20) == 6,
+	      "the body's skin instance points at the plugin's own copy of its bone data (the game's vtable, 6 bones)");
+	CHECK(bodyDataNow && *(uint32_t *)(bodyDataNow + 0x08) == 0x100001u, "the copy's reference count: the base and the instance's one (%#x)", bodyDataNow ? *(uint32_t *)(bodyDataNow + 0x08) : 0);
 	CHECK(memcmp(g_bodyBones, g_bodyBonesOriginal, sizeof(g_bodyBonesOriginal)) == 0 && *(int32_t *)(g_bodyData + 0x08) == 2,
 	      "the game's own bone data, shared with every NPC in that mesh, untouched (references %d)", *(int32_t *)(g_bodyData + 0x08));
 	CHECK(*(int32_t *)(g_bodySkin + 0x08) == 2 && *(int32_t *)(g_bodyShape + 0x08) == 2 && *(int32_t *)(g_pipboyShape + 0x08) == 2,
@@ -2077,10 +2157,86 @@ static void TiltTests(void)
 		float off = TiltedOff(before, after, Rw, Pw);
 		CHECK(off < 0.05f && memcmp(copy + 4 * 0x50, g_bodyBonesOriginal + 4 * 0x50, 0x50) != 0,
 		      "a cloth bone whose world matrix is sheared (not orthonormal; test 28's purse) carried with the rest, a true inverse (%.3f off)", off);
+		WorldOfBone(g_bodyNodes[5], g_bodyBonesOriginal + 5 * 0x50, probes[1], before);
+		WorldOfBone(g_bodyNodes[5], copy + 5 * 0x50, probes[1], after);
+		off = TiltedOff(before, after, Rw, Pw);
+		CHECK(off < 0.05f, "the hand, the bars straight: carried like the rest (%.3f off)", off);
+	}
+
+	printf("tilt: the bars turned: the hand turns with them (test 29):\n");
+	float *headNow = (float *)(g_player + 0xC8), headingBefore = *headNow;
+	g_turnOnSpot = -1.0472f;   /* turning left at 60 deg/s: the bars go over */
+	g_onFrame = TurnOnTheSpot;
+	RunFrames(1500);
+	float barNow = BarAngle();
+	if (!g_haveParts)
+		printf("  (no parts file in this run: nothing turns, the hand is carried like the rest)\n");
+	else
+		CHECK(fabsf(barNow) > 8.0f && fabsf(barNow) < 11.0f, "the bars over %.1f deg (10)", barNow);
+	if (g_haveParts) {
+		/* The hand's expected map: the bars' turn about the steering axis (world), then the tilt. */
+		float A[9], N[9], Aa[3], axisW[3], Ap[3], Bp[3], NBp[3], qW[3], Q[9], Qq[3], q[3], R2[9], t2[3], before[3], after[3], e[3], d[3];
+		static const float steerAxis[3] = { 0, -0.4f, 0.9165f }, steerPoint[3] = { 0, 87.6f, 51.4f };
+		float len = sqrtf(steerAxis[1] * steerAxis[1] + steerAxis[2] * steerAxis[2]);
+		float axisB[3] = { 0, steerAxis[1] / len, steerAxis[2] / len };
+		LoadRotation((const float *)(g_bonesOriginal + 0x10), A, g_skinTransposed);
+		LoadRotation((const float *)(g_comNode + 0x70), N, g_rootTransposed);
+		Apply3(A, axisB, Aa);
+		Apply3(N, Aa, axisW);
+		Apply3(A, steerPoint, Ap);
+		for (int i = 0; i < 3; i++)
+			Bp[i] = Ap[i] + ((const float *)(g_bonesOriginal + 0x40))[i];
+		Apply3(N, Bp, NBp);
+		for (int i = 0; i < 3; i++)
+			qW[i] = NBp[i] + ((const float *)(g_comNode + 0xA0))[i];
+		/* Rodrigues about axisW by the bar angle. */
+		float c = cosf(barNow / DEG), sn = sinf(barNow / DEG), k = 1.0f - c, *u = axisW;
+		Q[0] = c + u[0] * u[0] * k; Q[1] = u[0] * u[1] * k - u[2] * sn; Q[2] = u[0] * u[2] * k + u[1] * sn;
+		Q[3] = u[1] * u[0] * k + u[2] * sn; Q[4] = c + u[1] * u[1] * k; Q[5] = u[1] * u[2] * k - u[0] * sn;
+		Q[6] = u[2] * u[0] * k - u[1] * sn; Q[7] = u[2] * u[1] * k + u[0] * sn; Q[8] = c + u[2] * u[2] * k;
+		Apply3(Q, qW, Qq);
+		for (int i = 0; i < 3; i++)
+			q[i] = qW[i] - Qq[i];
+		ExpectedTilt(Rw, Pw);
+		MulM3(Rw, Q, R2);
+		Apply3(Rw, q, t2);
+		for (int i = 0; i < 3; i++)
+			t2[i] += Pw[i] - (Rw[i * 3] * Pw[0] + Rw[i * 3 + 1] * Pw[1] + Rw[i * 3 + 2] * Pw[2]);
+		const uint8_t *copyNow = *(const uint8_t **)(*(uint8_t **)(g_bodySkin + 0x40) + 0x10);
+		WorldOfBone(g_bodyNodes[5], g_bodyBonesOriginal + 5 * 0x50, probes[1], before);
+		WorldOfBone(g_bodyNodes[5], copyNow + 5 * 0x50, probes[1], after);
+		Apply3(R2, before, e);
+		for (int i = 0; i < 3; i++)
+			d[i] = after[i] - e[i] - t2[i];
+		float off = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+		float tiltOnly = TiltedOff(before, after, Rw, Pw);
+		CHECK(off < 0.1f && tiltOnly > 2.0f, "the hand's bones carry it round the steering axis by the bar angle, then the tilt (%.3f off; %.1f from the tilt alone)", off, tiltOnly);
+		WorldOfBone(g_bodyNodes[0], g_bodyBonesOriginal, probes[1], before);
+		WorldOfBone(g_bodyNodes[0], copyNow, probes[1], after);
+		CHECK(TiltedOff(before, after, Rw, Pw) < 0.05f, "the pelvis only tilted");
+	}
+	g_turnOnSpot = 1.0472f;   /* and back the other way, to where it faced */
+	RunFrames(1500);
+	g_onFrame = NULL;
+	*headNow = headingBefore;
+	RunFrames(1000);   /* the bars straight again */
+
+	printf("tilt: a blood decal cloned from the body (its skin points at our copy):\n");
+	*(uint8_t **)(g_decalSkin + 0x40) = *(uint8_t **)(g_bodySkin + 0x40);   /* the game cloned the body's instance: our copy and all */
+	*(uint32_t *)(*(uint8_t **)(g_bodySkin + 0x40) + 0x08) += 1;               /* with a reference, as a smart pointer takes one */
+	AddChild(g_npcRoot, g_decalShape);
+	RunFrames(400);
+	{
+		uint8_t *bodyCopy = *(uint8_t **)(g_bodySkin + 0x40), *decalCopy = *(uint8_t **)(g_decalSkin + 0x40);
+		CHECK(decalCopy && decalCopy != bodyCopy && decalCopy != g_bodyData && *(int32_t *)(g_decalSkin + 0x08) == 2,
+		      "the decal held with a copy of its own (references %d)", *(int32_t *)(g_decalSkin + 0x08));
+		CHECK(decalCopy && memcmp(*(uint8_t **)(decalCopy + 0x10), *(uint8_t **)(bodyCopy + 0x10), 6 * 0x50) == 0,
+		      "its bones carry it exactly as the body's (from the body's own data, not the tilted copy: no double tilt)");
 	}
 	{
 		static const float q[3] = { 5, 0, 2 };
 		float before[3], after[3];
+		ExpectedTilt(Rw, Pw);   /* the tilt now (the turn on the spot changed it meanwhile) */
 		WorldOfLocal(g_pipboyBone, g_pipboyLocalOriginal, q, before);
 		WorldOfLocal(g_pipboyBone, g_pipboyShape + 0x30, q, after);
 		float off = TiltedOff(before, after, Rw, Pw);
@@ -2090,6 +2246,22 @@ static void TiltTests(void)
 	RunFrames(3000);   /* the published normal is an average over the last 0.6 s or so */
 	CHECK(fabsf(Ground(2) - 0.93969f) < 0.01f && fabsf(Ground(0) + 0.34202f * forward[0]) < 0.01f,
 	      "CMB_GroundNormal, averaged, follows the slope (%.3f, %.3f, %.3f)", Ground(0), Ground(1), Ground(2));
+
+	printf("tilt: a dip between the wheels (the ground 10 above the capsule's contact): the bike lifted onto it:\n");
+	SetNormal(0.0f, 0.0f, 1.0f);
+	g_slopeK = 0.0f;
+	g_groundZ = PlayerPos()[2] + 10.0f;
+	RunFrames(800);
+	SeatInBone(g_bonesOriginal, seatBefore);
+	SeatInBone(g_bones, seatNow);
+	float lifted = sqrtf((seatNow[0] - seatBefore[0]) * (seatNow[0] - seatBefore[0]) + (seatNow[1] - seatBefore[1]) * (seatNow[1] - seatBefore[1]) + (seatNow[2] - seatBefore[2]) * (seatNow[2] - seatBefore[2]));
+	CHECK(g_picks == 0 || (lifted > 9.0f && lifted < 11.0f), "the bike lifted %.1f (10), level", lifted);
+	g_groundZ = PlayerPos()[2] - 10.0f;   /* a crest: the ground below the contact */
+	RunFrames(800);
+	SeatInBone(g_bones, seatNow);
+	lifted = sqrtf((seatNow[0] - seatBefore[0]) * (seatNow[0] - seatBefore[0]) + (seatNow[1] - seatBefore[1]) * (seatNow[1] - seatBefore[1]) + (seatNow[2] - seatBefore[2]) * (seatNow[2] - seatBefore[2]));
+	CHECK(lifted < 0.5f, "on a crest (the ground 10 below): not lowered (%.1f)", lifted);
+	g_groundZ = PlayerPos()[2];
 
 	printf("tilt: a one-frame jump in the ground (a curb's edge):\n");
 	SetNormal(0.0f, 0.0f, 1.0f);
@@ -2104,6 +2276,7 @@ static void TiltTests(void)
 
 	printf("tilt: a 45 deg side slope (MaxRoll %g):\n", g_expectRoll);
 	SetNormalTowards(right, 45.0f);   /* ground falls away to the right */
+	SetGroundTowards(right, 45.0f);
 	RunFrames(1500);
 	AppliedRotation(R);
 	float tilted = acosf(R[8] > 1.0f ? 1.0f : R[8]) * DEG;
@@ -2122,6 +2295,8 @@ static void TiltTests(void)
 	      "in the air CMB_GroundNormalZ is 0, X and Y left alone (%.3f, %.3f, %.3f)", Ground(0), Ground(1), Ground(2));
 	SetState(0);
 	SetNormal(0.0f, 0.0f, 1.0f);
+	g_slopeK = 0.0f;
+	g_groundZ = PlayerPos()[2];
 	RunFrames(300);
 
 	printf("tilt: getting off:\n");
@@ -2132,9 +2307,18 @@ static void TiltTests(void)
 	CHECK(*(uint8_t **)(g_bodySkin + 0x40) == g_bodyData && *(int32_t *)(g_bodySkin + 0x08) == 1 && *(int32_t *)(g_bodyShape + 0x08) == 1 &&
 	      memcmp(g_pipboyShape + 0x30, g_pipboyLocalOriginal, 0x40) == 0 && *(int32_t *)(g_pipboyShape + 0x08) == 1,
 	      "the rider's skin pointed back at the game's bone data, the Pip-Boy's transform back, all let go of");
+	{
+		uint8_t *decalCopy = *(uint8_t **)(g_decalSkin + 0x40);
+		CHECK(decalCopy && decalCopy != g_bodyData && *(int32_t *)(g_decalSkin + 0x08) == 1 && memcmp(*(uint8_t **)(decalCopy + 0x10), g_bodyBonesOriginal, 6 * 0x50) == 0,
+		      "the decal pointed back where the game left it (the body's old copy), which reads level again");
+		CHECK(*(uint32_t *)(decalCopy + 0x08) == 0x100001u, "that copy's references: the base and the decal's own (%#x): reusable once the decal lets go", *(uint32_t *)(decalCopy + 0x08));
+	}
+	*(uint16_t *)(g_npcRoot + 0x132) -= 1;   /* the decal gone again */
+	*(uint8_t **)(g_decalSkin + 0x40) = g_bodyData;
 
 	printf("tilt: the bike taken off mid-ride:\n");
 	SetNormalTowards(back, 20.0f);
+	SetGroundTowards(back, 20.0f);
 	SetTilt(30.0f);
 	RunFrames(500);
 	CHECK(*BoneDataRefs() == 3, "held");
@@ -2160,6 +2344,7 @@ static void TiltTests(void)
 	bodyRows[0] = 2.0f;   /* the body's first bone: not a rotation any more */
 	memcpy(g_bodyBonesOriginal, g_bodyBones, sizeof(g_bodyBonesOriginal));
 	SetNormalTowards(back, 20.0f);
+	SetGroundTowards(back, 20.0f);
 	SetTilt(30.0f);
 	RunFrames(800);
 	CHECK(*BoneDataRefs() == 3, "the bike held and tilted (references %d)", *BoneDataRefs());
@@ -2186,8 +2371,8 @@ static void TiltTests(void)
 	*(int32_t *)(newSkin + 0x08) = 1;
 	*(uint8_t **)(newSkin + 0x40) = g_bodyData;
 	*(uint8_t ***)(newSkin + 0x28) = *(uint8_t ***)(oldSkin + 0x28);
-	*(uint32_t *)(newSkin + 0x30) = 5;
-	*(uint32_t *)(newSkin + 0x38) = 5;
+	*(uint32_t *)(newSkin + 0x30) = *(uint32_t *)(oldSkin + 0x30);
+	*(uint32_t *)(newSkin + 0x38) = *(uint32_t *)(oldSkin + 0x38);
 	*(uint8_t **)(g_bodyShape + 0x140) = newSkin;
 	*(uint8_t **)(oldSkin + 0x40) = g_bodyData;   /* the game dropped the old instance: it points at its own data again */
 	*(int32_t *)(oldSkin + 0x08) -= 1;
@@ -2199,12 +2384,15 @@ static void TiltTests(void)
 	      "the old one let go of and gone (deleted %d), its pointer left at the game's data", g_deleted);
 	g_deleted = 0;
 	uint8_t *ours = *(uint8_t **)(newSkin + 0x40);
-	*(uint8_t **)(newSkin + 0x40) = g_bodyData;   /* the game points the instance back at its own data */
+	*(uint8_t **)(newSkin + 0x40) = g_bodyData;   /* the game points the instance back at its own data... */
+	*(uint32_t *)(ours + 0x08) -= 1;             /* ...letting go of its reference to ours, as a smart pointer does */
 	RunFrames(300);
-	CHECK(*(uint8_t **)(newSkin + 0x40) == ours, "pointed back at its own data by the game: ours again within a sync");
+	CHECK(*(uint8_t **)(newSkin + 0x40) == ours && *(uint32_t *)(ours + 0x08) == 0x100001u,
+	      "pointed back at its own data by the game: ours again within a sync, with the reference taken again (%#x)", *(uint32_t *)(ours + 0x08));
 	SetTilt(0.0f);
 	RunFrames(300);
-	CHECK(*(uint8_t **)(newSkin + 0x40) == g_bodyData && *(int32_t *)(newSkin + 0x08) == 1, "getting off: the game's data back, let go of");
+	CHECK(*(uint8_t **)(newSkin + 0x40) == g_bodyData && *(int32_t *)(newSkin + 0x08) == 1 && *(uint32_t *)(ours + 0x08) == 0x100000u,
+	      "getting off: the game's data back, let go of, the copy at its base count (%#x)", *(uint32_t *)(ours + 0x08));
 
 	printf("tilt: the rider blocked, then the bike taken off before the dismount (nothing held at it): the next ride starts afresh (test 27):\n");
 	bodyRows[0] = 2.0f;
@@ -2238,6 +2426,7 @@ static void TiltTests(void)
 	rows[0] = 2.0f;   /* not a rotation any more */
 	memcpy(g_bonesOriginal, g_bones, sizeof(g_bonesOriginal));
 	SetNormalTowards(back, 20.0f);
+	SetGroundTowards(back, 20.0f);
 	SetTilt(30.0f);
 	RunFrames(500);
 	CHECK(memcmp(g_bones, g_bonesOriginal, 0x50) == 0 && *BoneDataRefs() == 2, "not touched, not held");
@@ -2253,6 +2442,7 @@ static void RiderSwitchTests(int mode)
 	const float back[3] = { -sinf(HEADING), -cosf(HEADING), 0.0f };
 	printf("rider switches (%s):\n", mode == 7 ? "RiderSwap=0 RiderPlain=0" : "RiderWrite=0 RiderSkinned=0");
 	SetNormalTowards(back, 20.0f);
+	SetGroundTowards(back, 20.0f);
 	SetTilt(30.0f);
 	RunFrames(1500);
 	CHECK(*BoneDataRefs() == 3, "the bike held and tilted (references %d)", *BoneDataRefs());
@@ -2290,6 +2480,7 @@ int main(int argc, char **argv)
 {
 	const char *dllPath = argc > 1 ? argv[1] : "CMB_Slope.dll";
 	int mode = argc > 2 ? atoi(argv[2]) : 0;   /* 0 = full test, 1 = probe only, 2 = wrong game version */
+	g_haveParts = mode == 0 || mode == 7 || mode == 8;   /* run.sh gives those a [Parts] section */
 	g_base = (uintptr_t)GetModuleHandleA(NULL);
 	if ((uintptr_t)g_space > g_base + 0x00300000u || (uintptr_t)g_space + sizeof(g_space) < g_base + RVA_INI_SETTINGS + 8) {
 		printf("image layout doesn't cover the game addresses (g_space at +0x%llx)\n", (unsigned long long)((uintptr_t)g_space - g_base));

@@ -188,8 +188,8 @@ public static class Program
                     "CMB_TurnRadiusSlow", 0, 300, 10),
                 Slider("Turning when stopped (deg/s)", "How fast the bike can be walked round when it isn't moving (and the least it turns at any speed). Needs F4SE and the CMB_Slope.dll plugin.",
                     "CMB_StandTurnRate", 0, 180, 10),
-                Slider("Bike tilts with the ground (max degrees)", "While riding, the bike pitches with the ground by at most this much (needs F4SE and the CMB_Slope.dll plugin). The rider doesn't tilt with it: the hands drift off the grips by about half a unit a degree, so more than about 25 looks odd, and on steeper faces the front wheel goes into the ground. The parked bike pitches up to 45 and rolls up to 10 whatever this says. 0 = always level, parked too.",
-                    "CMB_MaxTilt", 0, 35, 5),
+                Slider("Bike tilts with the ground (max degrees)", "While riding, the bike and the rider pitch with the ground by at most this much (needs F4SE and the CMB_Slope.dll plugin; 45 follows any slope you can climb). Takes effect the next time you get on.",
+                    "CMB_MaxTilt", 0, 50, 1),
                 Switcher("Allow combat while riding", "Weapons and VATS stay usable while riding. Takes effect the next time you get on.", "CMB_AllowCombat"),
                 Switcher("Thrown off when hit", "A big hit from an enemy knocks you off the bike, so you can fight back. Off: you keep riding; a hint says how to get off when a fight starts.", "CMB_DismountOnHit"),
                 Slider("Big hit (% of max health)", "How much of your max health a hit (or several within about a second) must take to knock you off. Power attacks and explosions always do. 0 = any hit. Not in the first 3 seconds after getting on.",
@@ -400,7 +400,7 @@ public static class Program
         var gGround = new[] { "X", "Y", "Z" }.Select(axis => Global(mod, "CMB_GroundNormal" + axis, 0)).ToArray();
         if (gTiltLive.FormKey.ID != 0x82C || gGround[0].FormKey.ID != 0x82D || gGround[2].FormKey.ID != 0x82F)
             throw new InvalidOperationException($"CMB_TiltLive and CMB_GroundNormalX/Y/Z must be 0x82C-0x82F (CMB_Slope.dll looks for them), got {gTiltLive.FormKey.ID:X}, {gGround[0].FormKey.ID:X}");
-        var gMaxTilt = Global(mod, "CMB_MaxTilt", 20);
+        var gMaxTilt = Global(mod, "CMB_MaxTilt", 45);
         // Where to park: on the ground just ridden (the plugin writes these while riding).
         // Fixed IDs too, 0x831-0x837; ParkUpZ 0 = no spot.
         var gPark = new[] { "X", "Y", "Z", "Angle", "UpX", "UpY", "UpZ" }.Select(n => Global(mod, "CMB_Park" + n, 0)).ToArray();

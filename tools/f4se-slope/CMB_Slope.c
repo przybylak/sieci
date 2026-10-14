@@ -517,10 +517,13 @@ typedef struct {
 	uint8_t *live;                      /* the replica's transforms (count x BONE_SIZE), or the shape's local transform */
 	uint8_t *saved;                     /* what they were */
 	uint8_t *skip;                      /* per bone: 1 = left as it is (its node can't be read, or isn't a rigid transform) */
+	float *hand;                        /* per bone: how much of the bars' turn it gets (a hand 1, the forearm part of it); a plain shape's in [0] */
 	uintptr_t nodes;                    /* the instance's bone nodes (NiAVObject * each) */
 	int count;
 	char name[40];
 } RiderPart;
+static RiderPart *OwnerOfReplica(uintptr_t data);
+static bool IsReplica(uintptr_t data);
 static RiderPart g_rider[MAX_RIDER];
 static int g_riderCount;
 typedef struct { uintptr_t obj; uint8_t *entries; int capacity; bool inUse; } Replica;
@@ -528,11 +531,21 @@ static Replica g_replicas[MAX_RIDER * 2];   /* never freed: a reference the game
 static int g_replicaCount;
 static int g_riderTilt = 1;
 static int g_riderSkinned = 1, g_riderPlain = 1, g_riderSwap = 1, g_riderWrite = 1;   /* A/B switches (test 25: 30 fps lost) */
+static int g_riderHands = 1;                /* the hands (and part of the forearms) turn with the bars (test 29: the clips keep them at the straight grips) */
+static float g_liftNow;                     /* the bike (and rider) lifted this much along the bike's up: the wheels onto the ground between the rays */
+static bool g_wheelPitchOk;                 /* this frame: both wheel rays hit, g_wheelPitch is their pitch, g_wheelLift the lift */
+static float g_wheelPitch, g_wheelLift;
+static float g_pitchVel, g_rollVel;         /* the damped filter's velocities (degrees a second) */
+static float g_airFor;                      /* how long the controller has said "in the air" (hysteresis: test 29's state flapped every frame) */
+static int g_wheelRaysMissed;               /* for the trace */
 static bool g_riderIdle;                    /* the originals are in place: nothing written since */
 static bool g_riderLevel = true;            /* the tilt is within the deadband: the rider's shapes are left as they are */
-static bool NodeWorld(uintptr_t node, float N[9], float n[3], float *s);          /* defined with the rider */
+static bool NodeWorld(uintptr_t node, float N[9], float n[3], float *s, float Ni[9]);   /* defined with the rider */
 static bool Invert3(const float *a, float *out);
-static bool NodeWorldChecked(uintptr_t node, float N[9], float n[3], float *s);
+static float CastRay(uintptr_t cell, const float a[3], const float b[3]);   /* defined with the reverse's rays */
+static bool RaysReady(uintptr_t player);
+static float HandWeight(const char *name);
+static bool NodeWorldChecked(uintptr_t node, float N[9], float n[3], float *s, float Ni[9]);
 static char g_iniPath[MAX_PATH];
 /* Where the frame time goes (test 25: about 7 ms a frame lost on the bike): QPC around the
  * frame, the bike's part, the rider's and the skin sync, averaged and the worst, per trace line. */
@@ -633,9 +646,11 @@ static void ReadRiderSwitches(bool log)
 	g_riderPlain = (int)GetPrivateProfileIntA("Tilt", "RiderPlain", 1, ini);
 	g_riderSwap = (int)GetPrivateProfileIntA("Tilt", "RiderSwap", 1, ini);
 	g_riderWrite = (int)GetPrivateProfileIntA("Tilt", "RiderWrite", 1, ini);
-	if (log || was[0] != g_riderTilt || was[1] != g_riderSkinned || was[2] != g_riderPlain || was[3] != g_riderSwap || was[4] != g_riderWrite)
-		Log("  rider: Rider=%d RiderSkinned=%d RiderPlain=%d RiderSwap=%d RiderWrite=%d%s", g_riderTilt, g_riderSkinned, g_riderPlain,
-		    g_riderSwap, g_riderWrite, log ? "" : " (read again on getting on)");
+	int hadHands = g_riderHands;
+	g_riderHands = (int)GetPrivateProfileIntA("Tilt", "RiderHands", 1, ini);
+	if (log || was[0] != g_riderTilt || was[1] != g_riderSkinned || was[2] != g_riderPlain || was[3] != g_riderSwap || was[4] != g_riderWrite || hadHands != g_riderHands)
+		Log("  rider: Rider=%d RiderSkinned=%d RiderPlain=%d RiderSwap=%d RiderWrite=%d RiderHands=%d%s", g_riderTilt, g_riderSkinned, g_riderPlain,
+		    g_riderSwap, g_riderWrite, g_riderHands, log ? "" : " (read again on getting on)");
 }
 
 static void ReadSettings(void)
@@ -697,14 +712,14 @@ static void ReadSettings(void)
 	g_maxRoll = strtof(value, NULL);
 	if (!(g_maxRoll >= 0.0f && g_maxRoll <= 45.0f))
 		g_maxRoll = 0.0f;
-	GetPrivateProfileStringA("Tilt", "PivotHeight", "74", value, sizeof(value), ini);
+	GetPrivateProfileStringA("Tilt", "PivotHeight", "0", value, sizeof(value), ini);
 	g_pivotHeight = strtof(value, NULL);
 	if (!(g_pivotHeight >= -50.0f && g_pivotHeight <= 200.0f))
-		g_pivotHeight = 74.0f;
-	GetPrivateProfileStringA("Tilt", "PivotForward", "12", value, sizeof(value), ini);
+		g_pivotHeight = 0.0f;
+	GetPrivateProfileStringA("Tilt", "PivotForward", "0", value, sizeof(value), ini);
 	g_pivotForward = strtof(value, NULL);
 	if (!(g_pivotForward >= -50.0f && g_pivotForward <= 100.0f))
-		g_pivotForward = 12.0f;
+		g_pivotForward = 0.0f;
 	g_trace = (int)GetPrivateProfileIntA("Tilt", "Trace", 0, ini);
 	g_steer = (int)GetPrivateProfileIntA("Steer", "Enabled", 1, ini);
 	GetPrivateProfileStringA("Steer", "FullSpeed", "900", value, sizeof(value), ini);
@@ -1828,7 +1843,7 @@ static void HoldSkin(uintptr_t data, uintptr_t skin, const char *name)
 	if (nodes) {
 		float N[9], n[3], sc;
 		uintptr_t node = ReadPtr(nodes);
-		if (node && NodeWorldChecked(node, N, n, &sc))
+		if (node && NodeWorldChecked(node, N, n, &sc, NULL))
 			h->node = node;
 	}
 	memcpy(h->original, (const void *)bones, count * BONE_SIZE);
@@ -1853,6 +1868,7 @@ static void ResetTilt(void)
 {
 	g_tiltSampleCount = 0;
 	g_pitchSmooth = g_rollSmooth = g_pitchNow = g_rollNow = 0.0f;
+	g_pitchVel = g_rollVel = g_liftNow = 0.0f;
 	g_tiltMax = g_tiltNow = 0.0f;
 	g_wheelAngle = g_barNow = g_headingRate = 0.0f;
 	g_haveLastHeading = false;
@@ -2321,9 +2337,9 @@ static bool RiderBoneOk(const uint8_t *bone, char *why, size_t size)
 }
 
 /* A node readable, and its world transform one? For the hold: each frame then reads without asking. */
-static bool NodeWorldChecked(uintptr_t node, float N[9], float n[3], float *s)
+static bool NodeWorldChecked(uintptr_t node, float N[9], float n[3], float *s, float Ni[9])
 {
-	return node && !(node & 7) && Accessible(node + OFF_WORLD_ROT, 0x40, false) && NodeWorld(node, N, n, s);
+	return node && !(node & 7) && Accessible(node + OFF_WORLD_ROT, 0x40, false) && NodeWorld(node, N, n, s, Ni);
 }
 
 /* A skinned shape of the rider: can it be held? False with the reason (the first bone that fails). */
@@ -2340,9 +2356,18 @@ static bool RiderSkinOk(uintptr_t skin, uintptr_t data, char *why, size_t size)
 		snprintf(why, size, "its skin instance can't be written");
 		return false;
 	}
+	/* The data is one of our copies (a decal cloned from a held shape, test 29): its entries
+	 * are the tilted ones (a cloth bone's isn't a rotation then); the owner's level ones are
+	 * what the bones are checked by. */
+	const uint8_t *level = NULL;
+	if (IsReplica(data)) {
+		RiderPart *owner = OwnerOfReplica(data);
+		if (owner && owner->count == (int)count)
+			level = owner->saved;
+	}
 	for (uint32_t b = 0; b < count; b++) {
 		char reason[200];
-		if (!RiderBoneOk((const uint8_t *)(bones + b * BONE_SIZE), reason, sizeof(reason))) {
+		if (!RiderBoneOk(level ? level + b * BONE_SIZE : (const uint8_t *)(bones + b * BONE_SIZE), reason, sizeof(reason))) {
 			snprintf(why, size, "bone %u of %u: %s", b, count, reason);
 			return false;
 		}
@@ -2359,7 +2384,7 @@ static bool RiderSkinOk(uintptr_t skin, uintptr_t data, char *why, size_t size)
 /* A node's world transform (rotation as x' = N x, position, scale), if it reads as one. No
  * accessibility check (test 26: a VirtualQuery a bone was the frame's whole cost): the node
  * was read at hold time, and the player's 3D is walked again every 0.1 s. */
-static bool NodeWorld(uintptr_t node, float N[9], float n[3], float *s)
+static bool NodeWorld(uintptr_t node, float N[9], float n[3], float *s, float Ni[9])
 {
 	if (!node || (node & 7))
 		return false;
@@ -2369,12 +2394,12 @@ static bool NodeWorld(uintptr_t node, float N[9], float n[3], float *s)
 	if (!(*s > 0.001f && *s < 1000.0f) || !isfinite(n[0]) || !isfinite(n[1]) || !isfinite(n[2]))
 		return false;
 	/* Any invertible matrix will do (a cloth bone's isn't orthonormal); a hidden bone's, all
-	 * zeros, won't. */
-	float Ni[9];
+	 * zeros, won't. The inverse goes out, for the correction (once a frame a bone). */
+	float own[9];
 	for (int i = 0; i < 9; i++)
 		if (!isfinite(N[i]) || fabsf(N[i]) > 1000.0f)
 			return false;
-	return Invert3(N, Ni);
+	return Invert3(N, Ni ? Ni : own);
 }
 
 /* The inverse of a 3x3, false if it has none (|det| under 1e-4). */
@@ -2391,24 +2416,49 @@ static bool Invert3(const float *a, float *out)
 	return true;
 }
 
-/* The world map z -> Rw (z - Pw) + Pw in the frame of a node with world (N, n, s): y -> C y + c,
- * C = N^-1 Rw N, c = N^-1 (Rw (n - Pw) + Pw - n) / s. A true inverse, not the transpose: a cloth
+/* The world map z -> R z + t in the frame of a node with world (N, n, s) and inverse Ni:
+ * y -> C y + c, C = Ni R N, c = Ni (R n + t - n) / s. A true inverse, not the transpose: a cloth
  * bone's world transform isn't orthonormal (test 28: the backpack's purse bones). */
-static void Correction(const float N[9], const float n[3], float s, const float Rw[9], const float Pw[3], float C[9], float c[3])
+static void Correction(const float N[9], const float Ni[9], const float n[3], float s, const float R[9], const float t[3], float C[9], float c[3])
 {
-	float Ni[9], T[9], d[3], Rd[3], e[3];
-	if (!Invert3(N, Ni))
-		Transpose3(N, Ni);   /* can't happen: NodeWorld refused it; the transpose is the next best thing */
-	Mul3(Rw, N, T);
+	float T[9], Rn[3], e[3];
+	Mul3(R, N, T);
 	Mul3(Ni, T, C);
+	MulV(R, n, Rn);
 	for (int i = 0; i < 3; i++)
-		d[i] = n[i] - Pw[i];
-	MulV(Rw, d, Rd);
-	for (int i = 0; i < 3; i++)
-		e[i] = Rd[i] + Pw[i] - n[i];
+		e[i] = Rn[i] + t[i] - n[i];
 	MulV(Ni, e, c);
 	for (int i = 0; i < 3; i++)
 		c[i] /= s;
+}
+
+/* The maps' composition: first z -> Q z + q, then z -> R z + t: z -> (R Q) z + (R q + t). */
+static void Compose(const float R[9], const float t[3], const float Q[9], const float q[3], float out[9], float outT[3])
+{
+	float Rq[3];
+	Mul3(R, Q, out);
+	MulV(R, q, Rq);
+	for (int i = 0; i < 3; i++)
+		outT[i] = Rq[i] + t[i];
+}
+
+/* How much of the bars' turn a bone gets, by its name (FO4's: "LArm_Hand [LHnd]",
+ * "RArm_ForeArm3 [RLar3]", "LArm_Finger22 [LF22]"...): the hands and fingers all of it, the
+ * forearm less and less towards the elbow (a cheap IK; the clips keep the hands at the straight
+ * grips since test 29). */
+static float HandWeight(const char *name)
+{
+	if (!name)
+		return 0.0f;
+	if (strstr(name, "Arm_Hand") || strstr(name, "Arm_Finger"))
+		return 1.0f;
+	if (strstr(name, "Arm_ForeArm3") || strstr(name, "Arm_ForeTwist2"))
+		return 0.8f;
+	if (strstr(name, "Arm_ForeArm2"))
+		return 0.55f;
+	if (strstr(name, "Arm_ForeArm1") || strstr(name, "Arm_ForeTwist1"))
+		return 0.3f;
+	return 0.0f;
 }
 
 /* saved -> live: the transform (rows at +rotOff, position at +posOff) with C, c put in front. */
@@ -2429,10 +2479,13 @@ static void PutInFront(const uint8_t *saved, uint8_t *live, int rotOff, int posO
  * its transforms in a buffer of ours. Reused once nothing of the game refers to it. */
 static Replica *TakeReplica(uintptr_t original, int count)
 {
+	/* Reused once nothing of the game refers to it: at or under the base count (the game's
+	 * smart-pointer assignment lets one go when it points a skin elsewhere; test 29: a count
+	 * one under the base kept slots from ever being reused). */
 	Replica *r = NULL;
 	for (int i = 0; i < g_replicaCount && !r; i++)
 		if (!g_replicas[i].inUse && g_replicas[i].capacity >= count &&
-		    *(const volatile uint32_t *)(g_replicas[i].obj + OFF_REFCOUNT) == REPLICA_REFS)
+		    *(const volatile uint32_t *)(g_replicas[i].obj + OFF_REFCOUNT) <= REPLICA_REFS)
 			r = &g_replicas[i];
 	if (!r) {
 		if (g_replicaCount >= (int)(sizeof(g_replicas) / sizeof(g_replicas[0])))
@@ -2462,6 +2515,24 @@ static void FreeReplica(uintptr_t obj)
 	for (int i = 0; i < g_replicaCount; i++)
 		if (g_replicas[i].obj == obj)
 			g_replicas[i].inUse = false;
+}
+
+/* Which held part's copy this is, if any (test 29: a blood decal cloned from the suit came
+ * with the suit's skin instance, pointing at our copy). */
+static RiderPart *OwnerOfReplica(uintptr_t data)
+{
+	for (int i = 0; i < g_riderCount; i++)
+		if (g_rider[i].replica && g_rider[i].replica == data)
+			return &g_rider[i];
+	return NULL;
+}
+
+static bool IsReplica(uintptr_t data)
+{
+	for (int i = 0; i < g_replicaCount; i++)
+		if (g_replicas[i].obj == data)
+			return true;
+	return false;
 }
 
 /* NiAVObject's world transform where it's expected? The player's 3D root sits at the player. */
@@ -2500,24 +2571,41 @@ static void HoldRider(uintptr_t shape, uintptr_t skin, uintptr_t data, const cha
 		uintptr_t nodes = SkinBoneNodes(skin, count);
 		Replica *r = g_riderSwap ? TakeReplica(data, (int)count) : NULL;
 		if (g_riderSwap && !r) {
+			Log("rider: %s not held: no room for a copy of its bone data (%d copies in use)", name, g_replicaCount);
 			Refuse(shape);
 			return;
 		}
 		if (!g_riderSwap && !Accessible(bones, count * BONE_SIZE, true)) {
+			Log("rider: %s not held: its bone data can't be written in place", name);
 			Refuse(shape);
 			return;
 		}
 		p->saved = (uint8_t *)malloc(count * BONE_SIZE);
 		p->skip = (uint8_t *)calloc(count, 1);
-		if (!p->saved || !p->skip) {
+		p->hand = (float *)calloc(count, sizeof(float));
+		if (!p->saved || !p->skip || !p->hand) {
+			Log("rider: %s not held: out of memory", name);
 			free(p->saved);
 			free(p->skip);
+			free(p->hand);
 			if (r)
 				FreeReplica(r->obj);
 			Refuse(shape);
 			return;
 		}
 		memcpy(p->saved, (const void *)bones, count * BONE_SIZE);
+		/* The data is one of our copies (test 29: the game cloned the suit's skin instance for a
+		 * blood decal, our copy and all): the originals are the owning part's, and the decal is
+		 * pointed back where the game left it on letting go. */
+		if (IsReplica(data)) {
+			RiderPart *owner = OwnerOfReplica(data);
+			if (owner && owner->count == (int)count) {
+				memcpy(p->saved, owner->saved, count * BONE_SIZE);
+				Log("rider: %s's skin points at the copy made for %s (cloned from it): held from that shape's own data", name, owner->name);
+			} else {
+				Log("rider: %s's skin points at a copy of ours that no held shape owns: held from the copy as it is", name);
+			}
+		}
 		/* A bone whose node can't be read, or whose world transform isn't a rigid one (a hidden
 		 * bone scaled to 0, say), is left at its own transform (test 27: the backpack's bone 16
 		 * refused the whole shape, and the rider stayed level all session). */
@@ -2529,12 +2617,14 @@ static void HoldRider(uintptr_t shape, uintptr_t skin, uintptr_t data, const cha
 			} else if (!Accessible(node + OFF_WORLD_ROT, 0x40, false)) {
 				p->skip[b] = 1;
 				Log("rider: %s's bone %u of %u: its node %p can't be read; that bone is left as it is", name, b, count, (void *)node);
-			} else if (!NodeWorld(node, N, n, &sc)) {
+			} else if (!NodeWorld(node, N, n, &sc, NULL)) {
 				const float *w = (const float *)(node + OFF_WORLD_ROT);
 				p->skip[b] = 1;
 				Log("rider: %s's bone %u of %u ('%.32s'): its node's world transform can't be inverted, a hidden bone? (rows (%g, %g, %g) (%g, %g, %g) (%g, %g, %g), "
 				    "position (%g, %g, %g), scale %g); that bone is left as it is", name, b, count, OrNone(ObjectName(node)),
 				    w[0], w[1], w[2], w[4], w[5], w[6], w[8], w[9], w[10], w[12], w[13], w[14], w[15]);
+			} else {
+				p->hand[b] = HandWeight(ObjectName(node));
 			}
 		}
 		if (r) {
@@ -2551,8 +2641,10 @@ static void HoldRider(uintptr_t shape, uintptr_t skin, uintptr_t data, const cha
 		p->skin = skin;
 		Retain(skin);
 		Retain(shape);
-		if (r)
+		if (r) {
+			Retain(r->obj);   /* the skin instance's reference to it, as the game would take one */
 			*(volatile uintptr_t *)(skin + OFF_SKIN_BONE_DATA) = r->obj;
+		}
 	} else {
 		uintptr_t parent = ReadPtr(shape + OFF_PARENT);
 		if (!Accessible(shape + OFF_LOCAL_ROT, 0x40, true) || !LooksLikeTransform((const uint8_t *)(shape + OFF_LOCAL_ROT)) ||
@@ -2561,13 +2653,24 @@ static void HoldRider(uintptr_t shape, uintptr_t skin, uintptr_t data, const cha
 			return;
 		}
 		p->saved = (uint8_t *)malloc(0x40);
-		if (!p->saved) {
+		p->hand = (float *)calloc(1, sizeof(float));
+		if (!p->saved || !p->hand) {
+			free(p->saved);
+			free(p->hand);
 			Refuse(shape);
 			return;
 		}
 		memcpy(p->saved, (const void *)(shape + OFF_LOCAL_ROT), 0x40);
 		p->live = (uint8_t *)(shape + OFF_LOCAL_ROT);
 		p->count = 1;
+		/* Under a hand or forearm bone (the Pip-Boy's, a ring's): it turns with the bars as that bone does. */
+		uintptr_t up = parent;
+		for (int depth = 0; depth < 4 && up && p->hand[0] == 0.0f; depth++) {
+			p->hand[0] = HandWeight(ObjectName(up));
+			up = ReadPtr(up + OFF_PARENT);
+			if (up && !IsA(up, RTTI_AVOBJECT))
+				up = 0;
+		}
 		Retain(shape);
 	}
 	p->shape = shape;
@@ -2583,10 +2686,13 @@ static void LetGoRider(int i, const char *why)
 			memcpy(p->live, p->saved, (size_t)p->count * BONE_SIZE);
 		Release(p->skin);
 	} else if (p->skin) {
-		if (Accessible(p->skin + OFF_SKIN_BONE_DATA, 8, true) && *(const volatile uintptr_t *)(p->skin + OFF_SKIN_BONE_DATA) == p->replica)
+		memcpy(p->live, p->saved, (size_t)p->count * BONE_SIZE);   /* level again: anything else still pointing at the copy sees the originals */
+		if (Accessible(p->skin + OFF_SKIN_BONE_DATA, 8, true) && *(const volatile uintptr_t *)(p->skin + OFF_SKIN_BONE_DATA) == p->replica) {
 			*(volatile uintptr_t *)(p->skin + OFF_SKIN_BONE_DATA) = p->original;
-		else
+			InterlockedDecrement((volatile LONG *)(p->replica + OFF_REFCOUNT));   /* the instance's reference, given back */
+		} else {
 			Log("rider: %s's skin no longer points at our bone data: left as it is (%s)", p->name, why);
+		}
 		FreeReplica(p->replica);
 		Release(p->skin);
 	} else if (Accessible((uintptr_t)p->live, 0x40, true)) {
@@ -2595,6 +2701,7 @@ static void LetGoRider(int i, const char *why)
 	Release(p->shape);
 	free(p->saved);
 	free(p->skip);
+	free(p->hand);
 	g_rider[i] = g_rider[--g_riderCount];
 }
 
@@ -2672,11 +2779,26 @@ static void SyncRider(uintptr_t player, const SkinList *list, bool wanted)
 			} else if (p->replica) {
 				uintptr_t dataNow = *(const volatile uintptr_t *)(p->skin + OFF_SKIN_BONE_DATA);
 				if (dataNow == p->original) {
+					Retain(p->replica);
 					*(volatile uintptr_t *)(p->skin + OFF_SKIN_BONE_DATA) = p->replica;
 					Log("rider: the game pointed %s's skin back at its own bone data: ours again", p->name);
 				} else if (dataNow != p->replica) {
-					Log("rider: %s's skin points at bone data that's neither ours nor its old own: held again", p->name);
-					still = false;
+					/* New bone data of the game's own: if it's a copy of our tilted entries (test
+					 * 29), its entries are put level from the originals and it's the original now. */
+					uintptr_t array = dataNow + OFF_BONE_TRANSFORMS;
+					uintptr_t entries = dataNow && IsA(dataNow, RTTI_BONE_DATA) ? ReadPtr(array + OFF_ARRAY_ENTRIES) : 0;
+					uint32_t n = entries && Accessible(array + OFF_ARRAY_COUNT, 4, false) ? *(const uint32_t *)(array + OFF_ARRAY_COUNT) : 0;
+					if (entries && n == (uint32_t)p->count && Accessible(entries, n * BONE_SIZE, true) &&
+					    memcmp((const void *)entries, p->live, n * BONE_SIZE) == 0) {
+						memcpy((void *)entries, p->saved, n * BONE_SIZE);
+						p->original = dataNow;
+						Retain(p->replica);
+						*(volatile uintptr_t *)(p->skin + OFF_SKIN_BONE_DATA) = p->replica;
+						Log("rider: the game gave %s's skin a copy of our tilted bone data: put level, and ours again", p->name);
+					} else {
+						Log("rider: %s's skin points at bone data that's neither ours nor its old own: held again", p->name);
+						still = false;
+					}
 				}
 			}
 		}
@@ -2775,14 +2897,15 @@ static void FrameRider(bool tilt, const float R[9], const float P[3])
 	for (int k = 0; k < g_skinCount; k++)
 		if (g_skins[k].node && (!bike || (bike->role != ROLE_NONE && g_skins[k].role == ROLE_NONE)))
 			bike = &g_skins[k];
-	float Nb[9], nb[3], sb;
+	float Nb[9], nb[3], sb, Nbi[9];
 	/* Level: the originals are right and nothing need be written. With a deadband (test 26: the
 	 * applied pitch wobbles a degree on ordinary ground): level under half a degree, tilted
-	 * again over one. */
+	 * again over one. The bars turned (the hands follow them) or the bike lifted count too. */
 	if (g_riderLevel ? g_tiltNow > 1.0f : g_tiltNow < 0.5f)
 		g_riderLevel = !g_riderLevel;
-	bool level = g_riderLevel;
-	bool ready = tilt && g_riderTilt && g_riderWrite && !level && bike && NodeWorld(bike->node, Nb, nb, &sb);
+	bool hands = g_riderHands && g_partsOk && fabsf(g_barNow) > 0.3f;
+	bool level = g_riderLevel && !hands && fabsf(g_liftNow) < 0.5f;
+	bool ready = (tilt || hands) && g_riderTilt && g_riderWrite && !level && bike && NodeWorld(bike->node, Nb, nb, &sb, Nbi);
 	g_riderApplied = ready;
 	if (!ready) {
 		if (tilt && g_riderTilt && g_skinCount && !level && !bike && !g_riderBoneWarned) {
@@ -2796,7 +2919,9 @@ static void FrameRider(bool tilt, const float R[9], const float P[3])
 		return;
 	}
 	g_riderIdle = false;
-	float A[9], t[3], At[9], AP[3], Pbone[3], T9[9], ARA[9], Nbt[9], Pw[3], Rw[9], NP[3];
+	/* The bike's own map, x -> R (x - P) + P + lift (its own space), taken to world through
+	 * the bind (A, t) and the bone (Nb, nb, sb): z -> Rw z + tw. */
+	float A[9], t[3], At[9], AP[3], Pbone[3], T9[9], ARA[9], Pw[3], Rw[9], NP[3], tw[3], liftBike[3] = { 0.0f, 0.0f, g_liftNow }, liftW[3], AL[3];
 	ReadRot((const float *)(bike->original[0] + OFF_BONE_ROT), A);
 	memcpy(t, bike->original[0] + OFF_BONE_POS, 12);
 	Transpose3(A, At);
@@ -2808,13 +2933,36 @@ static void FrameRider(bool tilt, const float R[9], const float P[3])
 		Pw[i] = sb * NP[i] + nb[i];
 	Mul3(A, R, T9);
 	Mul3(T9, At, ARA);
-	Transpose3(Nb, Nbt);
 	Mul3(Nb, ARA, T9);
-	Mul3(T9, Nbt, Rw);
+	Mul3(T9, Nbi, Rw);
+	MulV(A, liftBike, AL);
+	MulV(Nb, AL, liftW);
+	float RwPw[3];
+	MulV(Rw, Pw, RwPw);
+	for (int i = 0; i < 3; i++)
+		tw[i] = Pw[i] - RwPw[i] + sb * liftW[i];
 	memcpy(g_riderPivot, Pw, sizeof(g_riderPivot));
+	/* The bars' turn, for the hands: about the steering axis through the steering point, in
+	 * world, by the bar angle (or a part of it, nearer the elbow), before the tilt. */
+	float axisW[3] = { 0, 0, 0 }, qW[3] = { 0, 0, 0 };
+	if (hands) {
+		float Aa[3], Ap[3], Bp[3], NBp[3];
+		MulV(A, g_steerAxis, Aa);
+		MulV(Nb, Aa, axisW);
+		float len = sqrtf(axisW[0] * axisW[0] + axisW[1] * axisW[1] + axisW[2] * axisW[2]);
+		if (len > 0.0001f)
+			for (int i = 0; i < 3; i++)
+				axisW[i] /= len;
+		MulV(A, g_steerPoint, Ap);
+		for (int i = 0; i < 3; i++)
+			Bp[i] = Ap[i] + t[i];
+		MulV(Nb, Bp, NBp);
+		for (int i = 0; i < 3; i++)
+			qW[i] = sb * NBp[i] + nb[i];
+	}
 	for (int i = 0; i < g_riderCount; i++) {
 		RiderPart *p = &g_rider[i];
-		float N[9], n[3], s, C[9], c[3];
+		float N[9], n[3], s, Ni[9], C[9], c[3];
 		if (p->skin) {
 			for (int b = 0; b < p->count; b++) {
 				if (p->skip[b])
@@ -2822,11 +2970,21 @@ static void FrameRider(bool tilt, const float R[9], const float P[3])
 				uintptr_t node = ((const uintptr_t *)p->nodes)[b];
 				const uint8_t *saved = p->saved + (size_t)b * BONE_SIZE;
 				uint8_t *live = p->live + (size_t)b * BONE_SIZE;
-				if (!NodeWorld(node, N, n, &s)) {
+				if (!NodeWorld(node, N, n, &s, Ni)) {
 					memcpy(live, saved, BONE_SIZE);
 					continue;
 				}
-				Correction(N, n, s, Rw, Pw, C, c);
+				if (hands && p->hand[b] > 0.0f) {
+					float Q[9], q[3], Qq[3], R2[9], t2[3];
+					AxisRotation(axisW, p->hand[b] * g_barNow / 57.29578f, Q);
+					MulV(Q, qW, Qq);
+					for (int k = 0; k < 3; k++)
+						q[k] = qW[k] - Qq[k];
+					Compose(Rw, tw, Q, q, R2, t2);
+					Correction(N, Ni, n, s, R2, t2, C, c);
+				} else {
+					Correction(N, Ni, n, s, Rw, tw, C, c);
+				}
 				PutInFront(saved, live, OFF_BONE_ROT, OFF_BONE_POS, C, c);
 				/* The culling sphere (bone space) goes to C centre + c: grown by the move. */
 				const float *centre = (const float *)saved;
@@ -2837,11 +2995,21 @@ static void FrameRider(bool tilt, const float R[9], const float P[3])
 			}
 		} else {
 			uintptr_t parent = *(const uintptr_t *)(p->shape + OFF_PARENT);   /* the shape is ours to keep: readable */
-			if (!NodeWorld(parent, N, n, &s)) {
+			if (!NodeWorld(parent, N, n, &s, Ni)) {
 				memcpy(p->live, p->saved, 0x3C);
 				continue;
 			}
-			Correction(N, n, s, Rw, Pw, C, c);
+			if (hands && p->hand[0] > 0.0f) {
+				float Q[9], q[3], Qq[3], R2[9], t2[3];
+				AxisRotation(axisW, p->hand[0] * g_barNow / 57.29578f, Q);
+				MulV(Q, qW, Qq);
+				for (int k = 0; k < 3; k++)
+					q[k] = qW[k] - Qq[k];
+				Compose(Rw, tw, Q, q, R2, t2);
+				Correction(N, Ni, n, s, R2, t2, C, c);
+			} else {
+				Correction(N, Ni, n, s, Rw, tw, C, c);
+			}
 			PutInFront(p->saved, p->live, 0, 0x30, C, c);
 		}
 	}
@@ -2937,11 +3105,6 @@ static float RecentMedian(int which)
 	return n & 1 ? values[n / 2] : 0.5f * (values[n / 2 - 1] + values[n / 2]);
 }
 
-static float Toward(float from, float to, float maxStep)
-{
-	return to > from + maxStep ? from + maxStep : to < from - maxStep ? from - maxStep : to;
-}
-
 static float Clamp(float v, float limit)
 {
 	return v > limit ? limit : v < -limit ? -limit : v;
@@ -3024,19 +3187,32 @@ static void FrameTilt(void)
 	 * degrees from frame to frame, even on a road); the normal's median only until there's
 	 * a wheelbase of track. In the air, and standing still, it holds. */
 	float medianPitch = onGround ? RecentMedian(0) : 0.0f, medianRoll = onGround ? RecentMedian(1) : 0.0f;
-	bool useNormal = !g_trackPitchOk && onGround && !g_hadTrackPitch;   /* only before the track has said anything */
-	const char *source = !tilt ? "off" : g_trackPitchOk ? "track" : useNormal ? "normal" : "held";
+	bool useWheels = g_wheelPitchOk && onGround;   /* the rays under the wheels: no lag at a lip or a crest (test 29) */
+	bool useNormal = !useWheels && !g_trackPitchOk && onGround && !g_hadTrackPitch;   /* only before the track has said anything */
+	const char *source = !tilt ? "off" : useWheels ? "wheels" : g_trackPitchOk ? "track" : useNormal ? "normal" : "held";
 	if (tilt) {
 		float maxRoll = g_maxRoll < maxDegrees ? g_maxRoll : maxDegrees;
-		float targetPitch = g_trackPitchOk ? Clamp(g_trackPitch, maxDegrees) : useNormal ? Clamp(medianPitch, maxDegrees) : g_pitchSmooth;
+		float targetPitch = useWheels ? Clamp(g_wheelPitch, maxDegrees) : g_trackPitchOk ? Clamp(g_trackPitch, maxDegrees)
+		                  : useNormal ? Clamp(medianPitch, maxDegrees) : g_pitchSmooth;
 		float targetRoll = onGround ? Clamp(medianRoll, maxRoll) : g_rollSmooth;
-		/* Capped before smoothing, so coming off a steep slope starts easing back at once. */
-		float k = g_smoothing > 0.0f ? 1.0f - expf(-g_frameDt / g_smoothing) : 1.0f;
-		g_pitchSmooth += (targetPitch - g_pitchSmooth) * k;
-		g_rollSmooth += (targetRoll - g_rollSmooth) * k;
-		float step = g_maxRate > 0.0f ? g_maxRate * g_frameDt : 1000.0f;
-		g_pitchNow = Toward(g_pitchNow, g_pitchSmooth, step);
-		g_rollNow = Toward(g_rollNow, g_rollSmooth, step);
+		g_pitchSmooth = targetPitch;
+		g_rollSmooth = targetRoll;
+		/* A critically damped spring to the target (test 29: smoothing then a rate cap saw-sawed
+		 * when the source switched), its speed capped at MaxRate. */
+		float w = g_smoothing > 0.01f ? 3.0f / g_smoothing : 300.0f, cap = g_maxRate > 0.0f ? g_maxRate : 1000.0f;
+		float dt = g_frameDt > 0.05f ? 0.05f : g_frameDt;
+		g_pitchVel += (w * w * (targetPitch - g_pitchNow) - 2.0f * w * g_pitchVel) * dt;
+		g_rollVel += (w * w * (targetRoll - g_rollNow) - 2.0f * w * g_rollVel) * dt;
+		g_pitchVel = Clamp(g_pitchVel, cap);
+		g_rollVel = Clamp(g_rollVel, cap);
+		g_pitchNow += g_pitchVel * dt;
+		g_rollNow += g_rollVel * dt;
+		/* The lift: the wheels onto the ground between the rays when it's above the capsule's
+		 * contact (a dip, a lip under the front); never down (on a crest the bike sits on it). */
+		float targetLift = useWheels && g_wheelLift > 0.0f ? (g_wheelLift < 40.0f ? g_wheelLift : 40.0f) : 0.0f;
+		g_liftNow += (targetLift - g_liftNow) * (1.0f - expf(-g_frameDt / 0.15f));
+	} else {
+		g_liftNow = 0.0f;
 	}
 
 	float R[9];
@@ -3051,11 +3227,13 @@ static void FrameTilt(void)
 	}
 	if (g_trace && g_clock - g_lastTrace >= 0.25f) {
 		g_lastTrace = g_clock;
-		Log("trace: normal (%.3f, %.3f, %.3f) state %d%s | raw pitch %.1f roll %.1f | median %.1f %.1f | track %s%.1f | pitch from %s | smooth %.1f %.1f | applied %.1f %.1f | speed %.0f (%+.0f along the heading), radius %.0f, turn asked %.0f allowed %.0f deg/s, clamped %d%s",
+		Log("trace: normal (%.3f, %.3f, %.3f) state %d%s | raw pitch %.1f roll %.1f | median %.1f %.1f | track %s%.1f | wheels %s%.1f lift %.1f (%d missed) | pitch from %s | target %.1f %.1f | applied %.1f %.1f | speed %.0f (%+.0f along the heading), radius %.0f, turn asked %.0f allowed %.0f deg/s, clamped %d%s",
 		    g_groundN[0], g_groundN[1], g_groundN[2], g_lastState, onGround ? "" : " (off the ground)", rawPitch, rawRoll,
-		    medianPitch, medianRoll, g_trackPitchOk ? "" : "(none) ", g_trackPitchOk ? g_trackPitch : 0.0f, source,
+		    medianPitch, medianRoll, g_trackPitchOk ? "" : "(none) ", g_trackPitchOk ? g_trackPitch : 0.0f,
+		    g_wheelPitchOk ? "" : "(none) ", g_wheelPitchOk ? g_wheelPitch : 0.0f, g_liftNow, g_wheelRaysMissed, source,
 		    g_pitchSmooth, g_rollSmooth, g_pitchNow, g_rollNow, g_speed, g_speedAlong, g_steerRadius, g_steerWanted, g_steerAllowed,
 		    g_steerClamped, g_inputMode == INPUT_BACK ? " | back" : g_inputMode == INPUT_CREEP ? " | creep" : "");
+		g_wheelRaysMissed = 0;
 		if (g_throttleOn && g_inputActive)
 			Log("throttle: speed %.2f of the top, input %.2f (keys %.2f, %.2f%s%s)", g_throttle, InputForSpeed(g_throttle),
 			    g_keys[0], g_keys[1], g_throttleWrote ? ", the game gets the throttle's" : "", g_throttleCapped ? ", held to the measured speed" : "");
@@ -3103,6 +3281,7 @@ static void FrameTilt(void)
 			memcpy(M, M2, sizeof(M2));
 			for (int i = 0; i < 3; i++)
 				m[i] = m2[i] + P[i] - RP[i];
+			m[2] += g_liftNow;
 		}
 		(void)zAxis;
 		for (int b = 0; b < hs->count; b++) {
@@ -3207,6 +3386,41 @@ static void TrackPitch(uintptr_t player, const float pos[3])
 }
 
 /* Every frame: read the ground once (tilt, average, track all use it). */
+/* Two rays down, at the front and rear wheels' contact points (the parts file's axles, the
+ * bike's own space taken along the heading): the pitch between the two hits, and how far the
+ * ground between them sits above the capsule's contact under the rider (the lift that puts
+ * the wheels on it). No track lag at a lip or a crest (test 29: the leading wheel went into
+ * the new slope). Both rays must hit within 70 units above and 160 below; else the track. */
+static void WheelRays(uintptr_t player, bool onGround)
+{
+	g_wheelPitchOk = false;
+	if (!g_riding || !onGround || !g_partsOk || !player || !Accessible(player + OFF_REFR_HEADING, 4, false) || !RaysReady(player))
+		return;
+	uintptr_t cell = ReadPtr(player + OFF_REFR_CELL);
+	if (!cell || !IsA(cell, RTTI_CELL))
+		return;
+	const float *pos = (const float *)(player + OFF_REFR_POS);
+	float h = *(const float *)(player + OFF_REFR_HEADING), sh = sinf(h), ch = cosf(h);
+	float fy = g_frontAxle[1], ry = g_rearAxle[1], z[2];
+	const float ys[2] = { fy, ry };
+	for (int i = 0; i < 2; i++) {
+		float a[3] = { pos[0] + sh * ys[i], pos[1] + ch * ys[i], pos[2] + 70.0f };
+		float b[3] = { a[0], a[1], pos[2] - 160.0f };
+		float f = CastRay(cell, a, b);
+		if (!(f > 0.0f && f < 1.0f)) {
+			g_wheelRaysMissed++;
+			return;
+		}
+		z[i] = a[2] + (b[2] - a[2]) * f - pos[2];
+	}
+	float base = fy - ry;
+	if (!(base > 10.0f))
+		return;
+	g_wheelPitch = atan2f(z[0] - z[1], base) * 57.29578f;
+	g_wheelLift = z[1] + (0.0f - ry) / base * (z[0] - z[1]);   /* the ground line at the contact under the rider */
+	g_wheelPitchOk = true;
+}
+
 static void SampleGround(void)
 {
 	g_trackPitchOk = g_trackSteepOk = false;
@@ -3223,8 +3437,16 @@ static void SampleGround(void)
 		g_groundOk = true;
 		memcpy(n, g_rayNormal, sizeof(n));
 	}
+	/* In the air only after 50 ms of it (test 29: the state flapped air/ground every frame for
+	 * a third of a second, and the tilt's samples went with it). */
+	if (air)
+		g_airFor += g_frameDt;
+	else
+		g_airFor = 0.0f;
+	air = air && g_airFor >= 0.05f;
 	g_groundAir = air;
 	bool onGround = g_groundOk && !air;
+	WheelRays(player, onGround);
 	if (onGround) {
 		memcpy(g_groundN, n, sizeof(n));
 		float k = g_avgAge > 0.0f ? 1.0f - expf(-g_frameDt / GROUND_AVERAGE_TIME) : 1.0f;

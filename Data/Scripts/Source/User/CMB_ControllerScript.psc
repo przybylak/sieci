@@ -102,9 +102,10 @@ Group Optional
 	GlobalVariable Property CMB_SlopeLive Auto Const
 	{What CMB_Slope.dll reads: CMB_MaxSlope while riding, 0 otherwise. Set by this script.}
 	GlobalVariable Property CMB_MaxTilt Auto Const
-	{The most the bike pitches with the ground while riding, in degrees (needs F4SE and the
-	CMB_Slope.dll plugin; the rider doesn't tilt, so more looks odd). The parked bike pitches
-	up to ParkMaxPitch and rolls up to ParkMaxRoll. 0 = always level, parked too. Default 15.}
+	{The most the bike and the rider pitch with the ground while riding, in degrees (needs
+	F4SE and the CMB_Slope.dll plugin; 45 follows any slope you can climb). The parked bike
+	pitches up to ParkMaxPitch and rolls up to ParkMaxRoll. 0 = always level, parked too.
+	Default 45.}
 	GlobalVariable Property CMB_TiltLive Auto Const
 	{What CMB_Slope.dll reads: CMB_MaxTilt while riding, 0 otherwise. Set by this script.}
 	GlobalVariable Property CMB_GroundNormalX Auto Const
@@ -364,6 +365,15 @@ Function UpgradeSettings()
 			Log("Steepest slope while riding: the old default 60 is now 45.")
 		endif
 		settingsVersion = 5
+	endif
+	if settingsVersion < 6
+		; Test 29: the rider tilts with the bike now, and the bike pitches about the ground under
+		; it, so the pitch can follow any slope you can climb: 20 became 45.
+		if CMB_MaxTilt && CMB_MaxTilt.GetValue() == 20.0
+			CMB_MaxTilt.SetValue(45.0)
+			Log("Bike tilt: the old default 20 is now 45.")
+		endif
+		settingsVersion = 6
 	endif
 EndFunction
 

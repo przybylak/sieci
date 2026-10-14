@@ -103,11 +103,11 @@
     {
       "type": "slider",
       "text": "Bike tilts with the ground (max degrees)",
-      "help": "While riding, the bike pitches with the ground by at most this much (needs F4SE and the CMB_Slope.dll plugin). The rider doesn\u0027t tilt with it: the hands drift off the grips by about half a unit a degree, so more than about 25 looks odd, and on steeper faces the front wheel goes into the ground. The parked bike pitches up to 45 and rolls up to 10 whatever this says. 0 = always level, parked too.",
+      "help": "While riding, the bike and the rider pitch with the ground by at most this much (needs F4SE and the CMB_Slope.dll plugin; 45 follows any slope you can climb). Takes effect the next time you get on.",
       "valueOptions": {
         "min": 0,
-        "max": 35,
-        "step": 5,
+        "max": 50,
+        "step": 1,
         "sourceType": "GlobalValue",
         "sourceForm": "CommonwealthMotorbike.esp|830"
       }

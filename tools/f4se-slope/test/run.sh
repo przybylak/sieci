@@ -10,7 +10,9 @@ x86_64-w64-mingw32-gcc -std=c11 -O1 -Wall -Wextra -o "$WORK/fake_game.exe" "$HER
 WINE="${WINE:-$(command -v wine64 || echo /usr/lib/wine/wine64)}"
 export WINEDEBUG=-all WINEPREFIX="${WINEPREFIX:-$WORK/prefix}"
 status=0
+ONLY="${ONLY:-}"   # ONLY=full bash run.sh: just that run, for a quick turn
 run() { # <name> <mode> <ini body>
+  if [ -n "$ONLY" ] && [ "$ONLY" != "$1" ]; then return; fi
   mkdir -p "$WORK/$1"
   cp "$HERE/../../../Data/F4SE/Plugins/CMB_Slope.dll" "$WORK/$1/"
   printf '%b' "$3" > "$WORK/$1/CMB_Slope.ini"
@@ -21,14 +23,14 @@ run() { # <name> <mode> <ini body>
 }
 KNOWN='[Slope]\nTarget=controller\nSlopeOffset=0x418\nSlopeUnit=cosine\nExpectedDegrees=47\nProbe=1\nIntervalMs=100\nDumpPointers=0x2B8\n'
 PARTS='[Parts]\nFrontAxle=0.4,99.6,29.9\nRearAxle=0.4,-36.7,29.9\nWheelRadius=29.9\nSteerPoint=0,87.6,51.4\nSteerAxis=0,-0.4,0.9165\nFrontMinY=44.2\nBarAngle=10\nBarFullAt=45\n'
-TILT0='[Tilt]\nPivotForward=0\n'   # the tilt about the seat itself, as the checks expect
-run full 0 "$KNOWN[Tilt]\nMaxRoll=10\nTrace=1\nPivotForward=0\n$PARTS"
+TILT0='[Tilt]\nPivotHeight=74\nPivotForward=0\n'   # the tilt about the seat itself, as the checks expect (the game's default is the ground since test 29)
+run full 0 "$KNOWN[Tilt]\nMaxRoll=10\nTrace=1\nPivotHeight=74\nPivotForward=0\n$PARTS"
 run probe 1 '[Slope]\nSlopeOffset=\nProbe=1\nIntervalMs=100\nDumpPointers=0x2B8\n'
 run guard 3 "$KNOWN$TILT0"
 run wrongversion 2 "$KNOWN$TILT0"
 run transposed 4 "$KNOWN$TILT0"
 run disagree 5 "$KNOWN$TILT0"
-run backpush 6 "$KNOWN[Tilt]\nTrace=1\nPivotForward=0\n[Steer]\nBackPush=mod\n"
-run riderinplace 7 "$KNOWN[Tilt]\nMaxRoll=10\nPivotForward=0\nRiderSwap=0\nRiderPlain=0\n$PARTS"
-run riderheldonly 8 "$KNOWN[Tilt]\nMaxRoll=10\nPivotForward=0\nRiderWrite=0\nRiderSkinned=0\n$PARTS"
+run backpush 6 "$KNOWN[Tilt]\nTrace=1\nPivotHeight=74\nPivotForward=0\n[Steer]\nBackPush=mod\n"
+run riderinplace 7 "$KNOWN[Tilt]\nMaxRoll=10\nPivotHeight=74\nPivotForward=0\nRiderSwap=0\nRiderPlain=0\n$PARTS"
+run riderheldonly 8 "$KNOWN[Tilt]\nMaxRoll=10\nPivotHeight=74\nPivotForward=0\nRiderWrite=0\nRiderSkinned=0\n$PARTS"
 exit $status

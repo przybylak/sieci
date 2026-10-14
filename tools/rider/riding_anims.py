@@ -106,6 +106,7 @@ def grips(steer):
 
 
 FAST_BARS = 0.6   # at jogging speed and above the bars go over this much of the full angle (the plugin does the same past 150 units/s)
+STRAIGHT_HANDS = True   # the hands at the straight grips in every clip: the plugin turns them with the bars (test 29)
 
 
 def steer_for(roll, fast=False):
@@ -208,8 +209,10 @@ class Rider:
         toe = (1 - p.foot_down) * (PEG_L + [0, 6, 1]) + p.foot_down * (unroll @ (GROUND_FOOT_L + [-2, 9, 1]))
         self._leg(pose, "L", ankle, toe=toe, pole=[-0.45 - 0.4 * p.foot_down, 1, 0.3])
 
-        # Arms and hands on the grips (where the turned bars put them).
-        grip_r, grip_l = grips(p.steer)
+        # Arms and hands on the grips (where the turned bars put them; with STRAIGHT_HANDS at the
+        # straight grips in every clip, and CMB_Slope.dll turns the hands and forearms with the
+        # live bar angle, so the hands follow the bars whatever clip plays: test 29).
+        grip_r, grip_l = grips(0.0 if STRAIGHT_HANDS else p.steer)
         self._arm(pose, "R", grip_r, pole=[1.0, -0.6, -0.7])
         self._arm(pose, "L", grip_l, pole=[-1.0, -0.6, -0.7])
 
@@ -688,12 +691,17 @@ def main() -> int:
     ap.add_argument("--game-files", type=Path,
                     help="list of the archive's character animation files, to report clips that "
                          "weren't extracted from the folder the game uses")
+    ap.add_argument("--hands-on-bars", action="store_true",
+                    help="the old clips: hands at the turned grips in turn and lean clips (the plugin turns them now)")
     ap.add_argument("--fit", type=Path,
                     help="bike-fit file with the seat, grips and pegs of another bike model "
                          "(harley_meshes.py writes CMB_BikeFit.json); default: the vanilla motorcycle")
     args = ap.parse_args()
     if args.fit:
         apply_fit(args.fit)
+    if args.hands_on_bars:
+        global STRAIGHT_HANDS
+        STRAIGHT_HANDS = False
         print(f"fitted to: {FIT_NAME} (seat top {SEAT_TOP_Z}, grips {GRIP_R.tolist()}, pegs {PEG_R.tolist()}"
               + (f", bars turning {BAR_ANGLE:g} deg in turns" if BAR_ANGLE else "") + ")")
     game_files = read_game_files(args.game_files) if args.game_files else None
