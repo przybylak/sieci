@@ -516,6 +516,7 @@ typedef struct {
 	uintptr_t replica;                  /* ours, in its place while held */
 	uint8_t *live;                      /* the replica's transforms (count x BONE_SIZE), or the shape's local transform */
 	uint8_t *saved;                     /* what they were */
+	uint8_t *skip;                      /* per bone: 1 = left as it is (its node can't be read, or isn't a rigid transform) */
 	uintptr_t nodes;                    /* the instance's bone nodes (NiAVObject * each) */
 	int count;
 	char name[40];
@@ -884,8 +885,9 @@ static bool Accessible(uintptr_t p, size_t n, bool write)
  * region of a huge committed heap), so emptying the cache every frame cost 11 queries a
  * frame on the bike and 39 with the rider held (3.5 ms), and 45 a skin sync (4.5 ms every
  * 0.1 s). The cache is kept across frames now: emptied on a load or a new game, when the
- * player's 3D changes, and every 5 s in case the game gave a region back. Everything the
- * plugin touches lives in the game's heaps, which it never unmaps. */
+ * player's 3D changes, and every 30 s in case the game gave a region back (test 27: a 5 s
+ * backstop's flush cost 2-6 ms a time). Everything the plugin touches lives in the game's
+ * heaps, which it never unmaps. */
 static void ForgetRegions(void)
 {
 	g_regionCount = 0;
@@ -2349,14 +2351,7 @@ static bool RiderSkinOk(uintptr_t skin, uintptr_t data, char *why, size_t size)
 		snprintf(why, size, "its skin instance doesn't list its %u bones where expected", count);
 		return false;
 	}
-	for (uint32_t b = 0; b < count; b++) {
-		uintptr_t node = ((const uintptr_t *)nodes)[b];
-		float N[9], n[3], sc;
-		if (node && !NodeWorldChecked(node, N, n, &sc)) {
-			snprintf(why, size, "bone %u of %u: its node's world transform can't be read", b, count);
-			return false;
-		}
-	}
+	(void)nodes;   /* a node that can't be read, or isn't rigid, leaves its bone alone (HoldRider): no reason to refuse */
 	return true;
 }
 
@@ -2495,13 +2490,35 @@ static void HoldRider(uintptr_t shape, uintptr_t skin, uintptr_t data, const cha
 			return;
 		}
 		p->saved = (uint8_t *)malloc(count * BONE_SIZE);
-		if (!p->saved) {
+		p->skip = (uint8_t *)calloc(count, 1);
+		if (!p->saved || !p->skip) {
+			free(p->saved);
+			free(p->skip);
 			if (r)
 				FreeReplica(r->obj);
 			Refuse(shape);
 			return;
 		}
 		memcpy(p->saved, (const void *)bones, count * BONE_SIZE);
+		/* A bone whose node can't be read, or whose world transform isn't a rigid one (a hidden
+		 * bone scaled to 0, say), is left at its own transform (test 27: the backpack's bone 16
+		 * refused the whole shape, and the rider stayed level all session). */
+		for (uint32_t b = 0; b < count; b++) {
+			uintptr_t node = ((const uintptr_t *)nodes)[b];
+			float N[9], n[3], sc;
+			if (!node) {
+				p->skip[b] = 1;
+			} else if (!Accessible(node + OFF_WORLD_ROT, 0x40, false)) {
+				p->skip[b] = 1;
+				Log("rider: %s's bone %u of %u: its node %p can't be read; that bone is left as it is", name, b, count, (void *)node);
+			} else if (!NodeWorld(node, N, n, &sc)) {
+				const float *w = (const float *)(node + OFF_WORLD_ROT);
+				p->skip[b] = 1;
+				Log("rider: %s's bone %u of %u ('%.32s'): its node's world transform isn't rigid (rows (%g, %g, %g) (%g, %g, %g) (%g, %g, %g), "
+				    "position (%g, %g, %g), scale %g); that bone is left as it is", name, b, count, OrNone(ObjectName(node)),
+				    w[0], w[1], w[2], w[4], w[5], w[6], w[8], w[9], w[10], w[12], w[13], w[14], w[15]);
+			}
+		}
 		if (r) {
 			memcpy(r->entries, (const void *)bones, count * BONE_SIZE);
 			p->live = r->entries;
@@ -2559,6 +2576,7 @@ static void LetGoRider(int i, const char *why)
 	}
 	Release(p->shape);
 	free(p->saved);
+	free(p->skip);
 	g_rider[i] = g_rider[--g_riderCount];
 }
 
@@ -2762,6 +2780,8 @@ static void FrameRider(bool tilt, const float R[9], const float P[3])
 		float N[9], n[3], s, C[9], c[3];
 		if (p->skin) {
 			for (int b = 0; b < p->count; b++) {
+				if (p->skip[b])
+					continue;   /* never written: still its own */
 				uintptr_t node = ((const uintptr_t *)p->nodes)[b];
 				const uint8_t *saved = p->saved + (size_t)b * BONE_SIZE;
 				uint8_t *live = p->live + (size_t)b * BONE_SIZE;
@@ -3723,9 +3743,9 @@ static bool ReadableNow(uintptr_t p, size_t n)
 {
 	if (p < 0x10000)
 		return false;
-	DWORD now = GetTickCount();   /* a few regions remembered for 5 s, on this thread (test 26: the query is dear) */
+	DWORD now = GetTickCount();   /* a few regions remembered for 30 s, on this thread (test 26: the query is dear) */
 	for (int i = 0; i < 4; i++)
-		if (t_readable[i].end && p >= t_readable[i].start && p + n <= t_readable[i].end && now - t_readable[i].at < 5000)
+		if (t_readable[i].end && p >= t_readable[i].start && p + n <= t_readable[i].end && now - t_readable[i].at < 30000)
 			return true;
 	MEMORY_BASIC_INFORMATION mbi;
 	g_queries++;
@@ -4810,8 +4830,14 @@ static void Tick(DWORD now)
 
 	/* The skins are held while the tilt is on, or on any ride when the bike has moving parts
 	 * (the tilt turned off in the menu still leaves the wheels spinning). */
-	if (riding && !g_wasRiding)
+	if (riding && !g_wasRiding) {
 		ReadRiderSwitches(false);
+		/* Test 27: the block of a ride carried into the next one when nothing was held at the
+		 * dismount (the bike's skins had gone first): a ride starts afresh. */
+		g_riderBlocked = false;
+		g_riderWorldChecked = false;
+		g_riderBoneWarned = false;
+	}
 	if (tilt > 0.0f || (riding && g_partsOk)) {
 		double t0 = Clock();
 		int q0 = g_queries;
@@ -4902,7 +4928,7 @@ static void Task_Run(Task *self)
 	if (!g_dataReady)
 		return;
 	DWORD now = GetTickCount();
-	if (now - g_regionsAt >= 5000)
+	if (now - g_regionsAt >= 30000)   /* test 27: the 5 s backstop's flush cost 23 queries a sync (2-6 ms) */
 		ForgetRegions();
 	if (now - g_lastTick >= g_interval) {
 		g_lastTick = now;
@@ -4936,6 +4962,9 @@ static void OnF4SEMessage(F4SEMessage *msg)
 		g_dumpedThisLoad = false;
 		g_wasRiding = false;
 		g_stateCtrl = 0;   /* the held skins are let go of on the next check: not in the new 3D */
+		g_riderBlocked = false;
+		g_riderWorldChecked = false;
+		g_riderBoneWarned = false;
 		g_zoomRiding = g_zoomTouched = false;   /* a new camera: nothing of ours to put back */
 		g_steerHave = false;                    /* steer from the loaded heading */
 		g_pushCtrl = 0;                         /* the old controller is gone: nothing to undo */
