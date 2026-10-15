@@ -263,6 +263,30 @@
     },
     {
       "type": "section",
+      "text": "Headlamp"
+    },
+    {
+      "type": "stepper",
+      "text": "Headlamp",
+      "help": "The bike\u0027s headlamp (needs F4SE and the CMB_Slope.dll plugin): off, on while riding, or on at night (19:00 to 6:30). The hotkey below switches it while you ride.",
+      "valueOptions": {
+        "options": [
+          "Off",
+          "On",
+          "On at night"
+        ],
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|83C"
+      }
+    },
+    {
+      "type": "hotkey",
+      "id": "ToggleHeadlamp",
+      "text": "Headlamp on / off",
+      "help": "Switches the headlamp while riding (and sets the setting above to on or off)."
+    },
+    {
+      "type": "section",
       "text": "Hotkeys"
     },
     {

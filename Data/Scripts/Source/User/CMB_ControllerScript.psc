@@ -134,6 +134,12 @@ Group Optional
 	{Steering (CMB_Slope.dll reads them, the MCM sets them): the tightest turn at riding speed,
 	and how fast the bike is walked round when stopped. Here only to bring old defaults up to
 	date (UpgradeSettings).}
+	GlobalVariable Property CMB_HeadlampMode Auto Const
+	{The MCM's headlamp: 0 off, 1 on while riding, 2 on at night (19:00 to 6:30). The hotkey
+	sets it to 1 or 0.}
+	GlobalVariable Property CMB_HeadlampLive Auto Const
+	{1 while the headlamp should be lit: CMB_Slope.dll (optional, F4SE) shows its light while
+	it is. Written on getting on, every tick and on getting off.}
 	ObjectReference Property GroundProbeRef Auto Const
 	{An XMarker in CMB_HoldingCell. Without the plugin, it feels for the navmesh around the
 	parked bike to tilt it.}
@@ -302,6 +308,7 @@ Function OnGameReloaded()
 		SetCameraLive(true)
 		SetSlopeLive(true)
 		SetTiltLive(true)
+	SetHeadlampLive(true)
 		RegisterForPlayerTeleport()
 		hitGrace = false
 		healthMark = PlayerRef.GetValuePercentage(Health)
@@ -408,6 +415,56 @@ Function SetTiltLive(bool abRiding)
 			degrees = CMB_MaxTilt.GetValue()
 		endif
 		CMB_TiltLive.SetValue(degrees)
+	endif
+EndFunction
+
+; The headlamp (optional, F4SE plugin CMB_Slope.dll): it lights the lamp while
+; CMB_HeadlampLive is 1. The mode decides: on, off, or on at night.
+Function SetHeadlampLive(bool abRiding)
+	if !CMB_HeadlampLive
+		return
+	endif
+	float want = 0.0
+	if abRiding && CMB_HeadlampMode
+		int mode = CMB_HeadlampMode.GetValue() as int
+		if mode == 1 || (mode == 2 && IsNight())
+			want = 1.0
+		endif
+	endif
+	if CMB_HeadlampLive.GetValue() != want
+		CMB_HeadlampLive.SetValue(want)
+		if want > 0.0
+			Log("Headlamp lit.")
+		else
+			Log("Headlamp out.")
+		endif
+	endif
+EndFunction
+
+bool Function IsNight()
+	float days = Utility.GetCurrentGameTime()
+	float hour = (days - Math.Floor(days)) * 24.0
+	return hour < 6.5 || hour >= 19.0
+EndFunction
+
+; The headlamp hotkey (MCM): on or off while riding, which also sets the MCM's mode.
+Function HeadlampPressed()
+	if !CMB_HeadlampMode || !CMB_HeadlampLive
+		return
+	endif
+	bool lit = CMB_HeadlampLive.GetValue() > 0.0
+	if lit
+		CMB_HeadlampMode.SetValue(0.0)
+	else
+		CMB_HeadlampMode.SetValue(1.0)
+	endif
+	SetHeadlampLive(riding)
+	if riding
+		if lit
+			Debug.Notification("Headlamp off")
+		else
+			Debug.Notification("Headlamp on")
+		endif
 	endif
 EndFunction
 
@@ -554,6 +611,7 @@ Function Mount()
 	WatchFootsteps()
 	SetSlopeLive(true)
 	SetTiltLive(true)
+	SetHeadlampLive(true)
 	; Whatever is there is old (or from a game with the plugin): it writes them again at once.
 	if CMB_GroundNormalZ
 		CMB_GroundNormalZ.SetValue(0.0)
@@ -758,6 +816,7 @@ Function RideTick()
 		return
 	endif
 	UpdateEngineSound(stepDistance)
+	SetHeadlampLive(true)
 
 	; The disabled bike follows the player, so it can be dropped here at any moment.
 	if !StillRiding()
@@ -832,6 +891,7 @@ Function FinishRide()
 	SetCameraLive(false)
 	SetSlopeLive(false)
 	SetTiltLive(false)
+	SetHeadlampLive(false)
 	if CMB_ParkUpZ
 		CMB_ParkUpZ.SetValue(0.0)   ; that spot is used up
 	endif

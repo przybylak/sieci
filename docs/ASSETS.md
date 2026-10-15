@@ -8,11 +8,11 @@ from your own copy of the game and the downloaded model:
 
 | File (under `Data\`) | Built by | What it is |
 |---|---|---|
-| `Meshes\CMB\CMB_BikeParked.nif` | `harley_meshes.py` (`build_bike_meshes.py` for the vanilla bike) | the vanilla motorcycle nif with its own shape hidden and the Harley's three shapes added, so its collision is kept |
-| `Meshes\CMB\CMB_BikeWornRider.nif`, `CMB_BikeWornRiderF.nif` | `harley_meshes.py --seat` | the same model as wearable armor: faces forward, seat over the origin, hanging off the rider's `COM` bone (male and female seat heights) |
+| `Meshes\CMB\CMB_BikeParked.nif` | `harley_meshes.py` (`build_bike_meshes.py` for the vanilla bike) | the vanilla motorcycle nif with its own shape hidden and the Harley's nine shapes added (the headlamp's lit parts among them), so its collision is kept |
+| `Meshes\CMB\CMB_BikeWornRider.nif`, `CMB_BikeWornRiderF.nif` | `harley_meshes.py --seat` | the same model as wearable armor: faces forward, seat over the origin, hanging off the rider's `COM` bone (male and female seat heights); two `BSValueNode`s under the root (`CMB_Headlamp`, `CMB_HeadlampShadow`) for the headlamp's lights, which `CMB_Slope.dll` keeps at the lens |
 | `Meshes\CMB\CMB_BikeWorn.nif` | `harley_meshes.py` | the same again, skinned to the `AnimObjectA` bone on the ground: used when the rider isn't seated |
 | `Meshes\CMB\CMB_BikeFit.json` | `harley_meshes.py` | where the Harley's seat, grips, pegs and steering axis are, for the riding clips (`riding_anims.py --fit`) |
-| `Meshes\CMB\CMB_BikeParts.ini` | `harley_meshes.py` | the axles, wheel radius and steering axis for `CMB_Slope.dll`, which spins the wheels and turns the bars (install it with the meshes) |
+| `Meshes\CMB\CMB_BikeParts.ini` | `harley_meshes.py` | the axles, wheel radius, steering axis and the headlamp's lens for `CMB_Slope.dll`, which spins the wheels, turns the bars and places the lamp's light (install it with the meshes) |
 | `Textures\CMB\CMB_Harley_d.dds`, `_n.dds`, `_s.dds` | `harley_meshes.py` | the Harley's textures: one colour block per part (the download has none) |
 | `Meshes\Actors\Character\Animations\MT\CMB_Rider\*.hkx` and `...\CMB_Rider\Female\*.hkx` | `riding_anims.py` | seated riding versions of the holstered walk/run/turn/start/stop/idle clips, and of the jump/fall/land clips when those were extracted |
 | `...\CMB_Rider\CMB_RiderClips.json` (and `Female\`) | `riding_anims.py` | each clip's root motion and events, for the step below |
@@ -85,8 +85,8 @@ the clips takes a while (around 25 minutes for both sets).
 for the triangle budget (default 90000; the result runs about a fifth over it), `--sit` for how far back on
 the seat the rider sits (0.27 of the seat's length from its front: snug behind the tank, where the arms still reach the
 turned bars) and `--bar-angle` for how far the bars turn
-(20 degrees; 0 builds one static set of shapes). The model comes out as eight shapes: three fixed, three that turn
-with the bars and the two wheels, which the F4SE plugin moves (DESIGN.md); the clips' hands follow the bars. The model is scaled to the vanilla bike's
+(20 degrees; 0 builds one static set of shapes). The model comes out as nine shapes: three fixed, four that turn
+with the bars (metal, matte, glass and the headlamp's lit parts: the model's own lamp is dropped and a 5.75" LED unit lathed in its place) and the two wheels, which the F4SE plugin moves (DESIGN.md); the plugin turns the rider's hands with the bars. The model is scaled to the vanilla bike's
 length so the collision and the F4SE plugin's clearances still fit, which makes it about a quarter bigger than a
 real Iron 883 next to the character, as the vanilla bike is.
 

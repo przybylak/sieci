@@ -11,6 +11,17 @@
         "function": "HotkeyPressed",
         "params": []
       }
+    },
+    {
+      "id": "ToggleHeadlamp",
+      "desc": "Motorbike: headlamp on / off",
+      "action": {
+        "type": "CallFunction",
+        "form": "CommonwealthMotorbike.esp|80D",
+        "scriptName": "CMB_ControllerScript",
+        "function": "HeadlampPressed",
+        "params": []
+      }
     }
   ]
 }

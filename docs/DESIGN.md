@@ -151,6 +151,25 @@ forearm bones a fraction of it (ForeArm3 and ForeTwist2 0.8, ForeArm2 0.55, Fore
 turns it off), so the hands follow the grips through any bar angle. A cable from the bars to the engine goes with whichever side its middle is on, so its far end opens
 a small gap in a turn. Shapes are held on any ride once there are moving parts, tilt setting or not.
 
+The headlamp (test 29's wish): the model's own was a plain can whose centre sat 20 units behind the steering head,
+past `role_of`'s 16, so it never turned with the forks. `harley_meshes.py` drops its pieces (the lens, two bezel rings,
+the face and the bucket: everything wholly inside the lamp's cylinder) and lathes a 5.75-inch LED unit in their place,
+15 units across on the fork bracket, in the bar assembly: a gloss-black bucket, a chrome bezel and reflector dish, a
+projector with a lit face, a lit running-light ring and a shallow glass lens (the lit parts are a `glow` kind:
+`Own_Emit`, the emissive colour white at 6, no reflection, so they show whenever the bike does). The beam is a real
+light: the game hangs an ADDN record's light on a `BSValueNode` whose value is the record's node index, so the worn
+nifs carry two such nodes under their root, `CMB_Headlamp` (ADDN 31985, a plain spotlight: warm white, radius 1400,
+55 degrees, fade 1.5) and `CMB_HeadlampShadow` (31986, the shadow-casting kind). A node under the nif's root doesn't
+follow the bone the bike hangs off, so the plugin places it: every frame the chosen node's local transform is written
+so that its world transform is the lens, taken through the same map as the bar assembly's shape (the bars' turn, the
+tilt, the lift, the bind, the COM bone), with the beam down the node's `BeamAxis` (+X by default, Gamebryo's light
+direction, an INI setting because it's untested) dipped `Pitch` degrees, and its hidden flag (NiAVObject's flags, bit 0
+at +0x100) cleared; while the lamp is off, or for the node `Shadows=` doesn't pick, the node is hidden and sunk 20000
+units below. `CMB_HeadlampLive` (0x83D) says whether it's lit: the controller script sets it from the MCM's mode (off,
+on, on at night: 19:00 to 6:30 by `Utility.GetCurrentGameTime`) on getting on, every tick and on getting off, and the
+MCM hotkey toggles the mode. The node's own transform and flags go back on letting go. What the game actually hangs off
+the node is logged (`lamp:` lines) for the next round, since none of this could be tried outside the game.
+
 The shading has no material files: each shape's `BSLightingShaderProperty` carries its textures and flags, the metal
 ones environment-mapped with the game's default outdoor cubemap. Test 20 showed the first palette's chrome (light grey,
 full specular, full mask) as flat white in the sun: a bright cubemap reflected in full is white. Chrome is now a mid

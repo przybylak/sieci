@@ -37,6 +37,7 @@
 #define TURN_RADIUS_FORMID    (0xFE000000u | (LIGHT_INDEX << 12) | 0x839u)
 #define TURN_STAND_FORMID     (0xFE000000u | (LIGHT_INDEX << 12) | 0x83Au)
 #define TURN_SLOW_FORMID      (0xFE000000u | (LIGHT_INDEX << 12) | 0x83Bu)
+#define HEADLAMP_FORMID       (0xFE000000u | (LIGHT_INDEX << 12) | 0x83Du)
 #define RVA_PLAYER_CONTROLS   0x031F0B80u
 #define RVA_MOVE_HANDLER_VTBL 0x02571B38u  /* where 1.11.240 has them (test 13) */
 #define RVA_CONTROLS_IMOVE_VTBL 0x02571AA0u
@@ -121,6 +122,7 @@ static uint8_t *g_cameraSetting;
 static void **g_vtProxy, **g_vtWrapper, **g_vtCtrl;
 static uint8_t *g_tiltGlobal, *g_groundGlobals[3];
 static uint8_t *g_player, *g_root, *g_bikeNode, *g_bikeShape, *g_boneData, *g_bones, *g_biped;
+static uint8_t *g_lampNode, *g_headlampLive, g_lampLocalOriginal[0x40];
 static uint8_t *g_partData[3], *g_partBones[3];   /* the Harley build's moving parts: front wheel, rear wheel, bar assembly */
 static uint8_t g_partBonesOriginal[3][0x50];
 /* The rider: the body skinned to two bones, the COM the bike hangs off, a plain shape (the
@@ -306,6 +308,7 @@ static float *CameraDist(void) { return (float *)(g_cameraSetting + 0x08); }
 static void SetLive(float degrees) { *(float *)(g_global + 0x30) = degrees; }
 static void SetCamera(float distance) { *(float *)(g_cameraGlobal + 0x30) = distance; }
 static void SetTilt(float degrees) { *(float *)(g_tiltGlobal + 0x30) = degrees; }
+static void SetHeadlamp(float on) { *(float *)(g_headlampLive + 0x30) = on; }
 static float Ground(int i) { return *(float *)(g_groundGlobals[i] + 0x30); }
 static float Park(int i) { return *(float *)(g_parkGlobals[i] + 0x30); }
 static float *PlayerPos(void) { return (float *)(g_player + 0xD0); }
@@ -332,6 +335,8 @@ static uintptr_t FakeLookupFormByID(uint32_t id)
 		return (uintptr_t)g_turnStand;
 	if (id == TURN_SLOW_FORMID)
 		return (uintptr_t)g_turnSlow;
+	if (id == HEADLAMP_FORMID)
+		return (uintptr_t)g_headlampLive;
 	return id == SLOPE_GLOBAL_FORMID ? (uintptr_t)g_global : id == CAMERA_GLOBAL_FORMID ? (uintptr_t)g_cameraGlobal
 	     : id == TILT_GLOBAL_FORMID ? (uintptr_t)g_tiltGlobal : 0;
 }
@@ -465,6 +470,7 @@ static void BuildGame(void)
 	g_turnRadius = NewGlobal(TURN_RADIUS_FORMID, "CMB_TurnRadius");     /* 0: steering off until a test sets it */
 	g_turnStand = NewGlobal(TURN_STAND_FORMID, "CMB_StandTurnRate");
 	g_turnSlow = NewGlobal(TURN_SLOW_FORMID, "CMB_TurnRadiusSlow");
+	g_headlampLive = NewGlobal(HEADLAMP_FORMID, "CMB_HeadlampLive");
 	static const char *controls[] = { ".?AVPlayerControls@@", ".?AVBSInputEventReceiver@@" };
 	void **vtControls = MakeClass(controls, 2);
 	g_controls = (uint8_t *)NewObject(vtControls, 0x300);
@@ -550,6 +556,20 @@ static void BuildGame(void)
 	uint8_t *shape = NewNode(vtTri, "CMB_BikeWornRider", 0);
 	g_bikeShape = shape;
 	AddChild(g_bikeNode, shape);
+	/* The headlamp's add-on node (BSValueNode in the game; a node by name here), where the
+	 * nif puts it: at the lens in the bike's space, under the nif's root. */
+	g_lampNode = NewNode(vtNode, "CMB_Headlamp", 0);
+	AddChild(g_bikeNode, g_lampNode);
+	*(uint8_t **)(g_lampNode + 0x28) = g_bikeNode;
+	{
+		float *rows = (float *)(g_lampNode + 0x30);
+		rows[0] = rows[5] = rows[10] = 1.0f;
+		rows[12] = 0.3f;
+		rows[13] = 76.3f;
+		rows[14] = 81.9f;
+		rows[15] = 1.0f;
+		memcpy(g_lampLocalOriginal, rows, 0x40);
+	}
 	AddChild(g_root, g_bikeNode);
 	*(uint8_t **)(shape + 0x28) = g_bikeNode;   /* NiAVObject::m_parent */
 	*(uint8_t **)(g_bikeNode + 0x28) = g_root;
@@ -706,6 +726,7 @@ static void SyncFakeWorld(void)
 	static const float rx40[9] = { 1, 0, 0, 0, 0.76604f, -0.64279f, 0, 0.64279f, 0.76604f }, rz20[9] = { 0.93969f, -0.34202f, 0, 0.34202f, 0.93969f, 0, 0, 0, 1 };
 	float off[3], pos[3], rot[9], pipTurn[9];
 	SetWorld(g_root, heading, pp, 1.0f);
+	SetWorld(g_bikeNode, heading, pp, 1.0f);   /* the worn nif's root sits at the actor's */
 	Apply3(heading, comOff, off);
 	for (int i = 0; i < 3; i++)
 		pos[i] = pp[i] + off[i];
@@ -2221,6 +2242,51 @@ static void TiltTests(void)
 	*headNow = headingBefore;
 	RunFrames(1000);   /* the bars straight again */
 
+	printf("lamp: the headlamp's add-on node at the lens while CMB_HeadlampLive is 1, hidden while 0:\n");
+	{
+		/* Expected: the lens (0.3, 76.3, 81.9) in the bike's space, through the bind and COM,
+		 * tilted as the bike is; the beam (bike +Y, dipped 0 here) along the node's +X. */
+		static const float lens[3] = { 0.3f, 76.3f, 81.9f }, lensAhead[3] = { 0.3f, 77.3f, 81.9f };
+		float Rw[9], Pw[3], w[3], wa[3], e[3], ea[3], H[9], Lr[9], HL[9], lp[3], actual[3], beam[3], axisX[3];
+		SetHeadlamp(1.0f);
+		RunFrames(400);
+		ExpectedTilt(Rw, Pw);
+		WorldOfBone(g_comNode, g_bonesOriginal, lens, w);
+		WorldOfBone(g_comNode, g_bonesOriginal, lensAhead, wa);
+		for (int i = 0; i < 3; i++) {
+			e[i] = Pw[i] + Rw[i * 3] * (w[0] - Pw[0]) + Rw[i * 3 + 1] * (w[1] - Pw[1]) + Rw[i * 3 + 2] * (w[2] - Pw[2]);
+			ea[i] = Pw[i] + Rw[i * 3] * (wa[0] - Pw[0]) + Rw[i * 3 + 1] * (wa[1] - Pw[1]) + Rw[i * 3 + 2] * (wa[2] - Pw[2]);
+			beam[i] = ea[i] - e[i];
+		}
+		LoadRotation((const float *)(g_bikeNode + 0x70), H, g_rootTransposed);
+		LoadRotation((const float *)(g_lampNode + 0x30), Lr, g_rootTransposed);
+		memcpy(lp, g_lampNode + 0x60, 12);
+		Apply3(H, lp, actual);
+		for (int i = 0; i < 3; i++)
+			actual[i] += ((const float *)(g_bikeNode + 0xA0))[i];
+		MulM3(H, Lr, HL);
+		axisX[0] = HL[0]; axisX[1] = HL[3]; axisX[2] = HL[6];
+		float off = sqrtf((actual[0] - e[0]) * (actual[0] - e[0]) + (actual[1] - e[1]) * (actual[1] - e[1]) + (actual[2] - e[2]) * (actual[2] - e[2]));
+		float boff = sqrtf((axisX[0] - beam[0]) * (axisX[0] - beam[0]) + (axisX[1] - beam[1]) * (axisX[1] - beam[1]) + (axisX[2] - beam[2]) * (axisX[2] - beam[2]));
+		uint64_t flags = *(uint64_t *)(g_lampNode + 0x100);
+		CHECK(off < 0.1f && !(flags & 1), "lit: the node at the lens, tilted with the bike (%.3f off), not hidden (flags %#llx)", off, (unsigned long long)flags);
+		CHECK(boff < 0.02f && ((const float *)(g_lampNode + 0x30))[15] == 1.0f, "its +X axis down the beam (%.3f off), scale 1", boff);
+		CHECK(*(int32_t *)(g_lampNode + 0x08) == 2, "held (references %d)", *(int32_t *)(g_lampNode + 0x08));
+		SetHeadlamp(0.0f);
+		RunFrames(300);
+		flags = *(uint64_t *)(g_lampNode + 0x100);
+		CHECK((flags & 1) && ((const float *)(g_lampNode + 0x60))[2] < -10000.0f, "out: hidden (flags %#llx) and sunk (z %.0f)", (unsigned long long)flags, ((const float *)(g_lampNode + 0x60))[2]);
+		SetHeadlamp(1.0f);
+		RunFrames(300);
+		flags = *(uint64_t *)(g_lampNode + 0x100);
+		memcpy(lp, g_lampNode + 0x60, 12);
+		Apply3(H, lp, actual);
+		for (int i = 0; i < 3; i++)
+			actual[i] += ((const float *)(g_bikeNode + 0xA0))[i];
+		off = sqrtf((actual[0] - e[0]) * (actual[0] - e[0]) + (actual[1] - e[1]) * (actual[1] - e[1]) + (actual[2] - e[2]) * (actual[2] - e[2]));
+		CHECK(!(flags & 1) && off < 0.1f, "lit again: back at the lens (%.3f off), not hidden", off);
+	}
+
 	printf("tilt: a blood decal cloned from the body (its skin points at our copy):\n");
 	*(uint8_t **)(g_decalSkin + 0x40) = *(uint8_t **)(g_bodySkin + 0x40);   /* the game cloned the body's instance: our copy and all */
 	*(uint32_t *)(*(uint8_t **)(g_bodySkin + 0x40) + 0x08) += 1;               /* with a reference, as a smart pointer takes one */
@@ -2304,6 +2370,8 @@ static void TiltTests(void)
 	RunFrames(300);
 	CHECK(memcmp(g_bones, g_bonesOriginal, 0x50) == 0, "the skin back exactly as it was");
 	CHECK(*BoneDataRefs() == 2 && g_deleted == 0, "let go of (references %d)", *BoneDataRefs());
+	CHECK(memcmp(g_lampNode + 0x30, g_lampLocalOriginal, 0x40) == 0 && *(uint64_t *)(g_lampNode + 0x100) == 0 && *(int32_t *)(g_lampNode + 0x08) == 1,
+	      "the headlamp's node back where the nif put it, its flags as they were, let go of (references %d)", *(int32_t *)(g_lampNode + 0x08));
 	CHECK(*(uint8_t **)(g_bodySkin + 0x40) == g_bodyData && *(int32_t *)(g_bodySkin + 0x08) == 1 && *(int32_t *)(g_bodyShape + 0x08) == 1 &&
 	      memcmp(g_pipboyShape + 0x30, g_pipboyLocalOriginal, 0x40) == 0 && *(int32_t *)(g_pipboyShape + 0x08) == 1,
 	      "the rider's skin pointed back at the game's bone data, the Pip-Boy's transform back, all let go of");

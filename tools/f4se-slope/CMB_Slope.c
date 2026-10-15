@@ -177,6 +177,8 @@
 #define TURN_RADIUS_GLOBAL_ID 0x839u        /* CMB_TurnRadius (MCM): the tightest turn while riding, 0 = off */
 #define TURN_STAND_GLOBAL_ID  0x83Au        /* CMB_StandTurnRate (MCM): degrees a second when stopped */
 #define TURN_SLOW_GLOBAL_ID   0x83Bu        /* CMB_TurnRadiusSlow (MCM): the tightest turn at walking pace */
+#define HEADLAMP_GLOBAL_ID    0x83Du        /* CMB_HeadlampLive (CMB_ControllerScript): 1 while the headlamp should be lit */
+#define OFF_AV_FLAGS          0x100         /* NiAVObject::flags (bit 0: hidden, app culled); [Lamp] FlagsOffset= overrides */
 #define OFF_MOVE_INPUT        0x44          /* PlayerControls: moveInputVec x (strafe), y (forward +1, back -1) */
 #define OFF_PREV_MOVE         0x5C          /* PlayerControls: prevMoveVec (what the movement used last) */
 #define OFF_CONTROLS_IMOVE    0x30          /* PlayerControls' IMovementPlayerControls base (CommonLibF4) */
@@ -381,6 +383,26 @@ static volatile bool g_dataReady;
 static uintptr_t g_slopeGlobal, g_cameraGlobal;   /* TESGlobal * */
 static uintptr_t g_tiltGlobal, g_groundGlobals[3], g_parkGlobals[7], g_trackSlopeGlobal;
 static uintptr_t g_turnRadiusGlobal, g_turnStandGlobal, g_turnSlowGlobal;
+static uintptr_t g_headlampGlobal;
+
+/* The headlamp's light (test 29's wish): the game hangs the ADDN's light on an add-on node
+ * (BSValueNode) in the worn bike's nif. The node is put at the lens every frame, with the
+ * bars' turn and the tilt, while CMB_HeadlampLive is 1, and hidden (and sunk far below the
+ * world) otherwise; its own transform and flags go back on letting go. Two nodes: the plain
+ * light's and the shadow-casting light's ([Lamp] Shadows= picks one, the other stays hidden). */
+typedef struct {
+	uintptr_t node;
+	uint8_t saved[0x40];
+	uint64_t savedFlags;
+	bool lit, placed;
+} LampNode;
+static LampNode g_lamp[2];
+static int g_lampEnabled = 1, g_lampShadows, g_lampBeamAxis, g_lampBeamSign = 1, g_lampLogged;
+static float g_lampPitch;
+static uint32_t g_lampFlagsOff = OFF_AV_FLAGS;
+static char g_lampNodeName[2][48] = { "CMB_Headlamp", "CMB_HeadlampShadow" };
+static float g_lampPoint[3], g_lampAxis[3] = { 0.0f, 1.0f, 0.0f };
+static bool g_lampOk;
 static uint32_t g_ourPrefix, g_ourMask;   /* our plugin's form IDs: (id & mask) == prefix */
 static DWORD g_lastGlobalTry;
 static bool g_globalsMissingLogged;
@@ -635,6 +657,7 @@ static void OpenLog(void)
 }
 
 static void ReadParts(const char *ini);
+static void ReadLampSettings(const char *ini);
 
 /* The rider's switches, read again on every mount (an A/B needs no restart; test 25). */
 static void ReadRiderSwitches(bool log)
@@ -806,6 +829,7 @@ static void ReadSettings(void)
 	    g_throttleOn, g_accel, g_coast, g_brake, g_lead, g_backBelow);
 	ReadRiderSwitches(true);
 	ReadParts(ini);
+	ReadLampSettings(ini);
 }
 
 static bool ReadVec(const char *file, const char *key, float out[3])
@@ -842,6 +866,12 @@ static void ReadParts(const char *ini)
 	g_wheelRadius = ReadNum(file, "WheelRadius", 0.0f);
 	g_frontMinY = ReadNum(file, "FrontMinY", 0.0f);
 	g_barAngle = ReadNum(file, "BarAngle", 0.0f);
+	g_lampOk = ReadVec(file, "LampPoint", g_lampPoint);
+	if (!ReadVec(file, "LampAxis", g_lampAxis) || !(fabsf(g_lampAxis[0]) + fabsf(g_lampAxis[1]) + fabsf(g_lampAxis[2]) > 0.5f)) {
+		g_lampAxis[0] = 0.0f;
+		g_lampAxis[1] = 1.0f;
+		g_lampAxis[2] = 0.0f;
+	}
 	g_barFullAt = ReadNum(ini, "BarFullAt", 90.0f);
 	g_barAtSpeed = ReadNum(ini, "BarAtSpeed", 0.6f);
 	if (!(g_barAtSpeed >= 0.0f && g_barAtSpeed <= 1.0f))
@@ -863,6 +893,39 @@ static void ReadParts(const char *ini)
 	} else {
 		Log("  parts: none (%s not found or incomplete): nothing on the bike moves", g_partsFile);
 	}
+	if (g_lampOk)
+		Log("  headlamp: the lens at (%.1f, %.1f, %.1f) in the bike's space, the beam along (%.2f, %.2f, %.2f)",
+		    g_lampPoint[0], g_lampPoint[1], g_lampPoint[2], g_lampAxis[0], g_lampAxis[1], g_lampAxis[2]);
+}
+
+static void ReadLampSettings(const char *ini)
+{
+	char value[64];
+	g_lampEnabled = (int)GetPrivateProfileIntA("Lamp", "Enabled", 1, ini) != 0;
+	g_lampShadows = (int)GetPrivateProfileIntA("Lamp", "Shadows", 0, ini) != 0;
+	GetPrivateProfileStringA("Lamp", "BeamAxis", "x", value, sizeof(value), ini);
+	const char *v = value;
+	g_lampBeamSign = 1;
+	if (*v == '-') {
+		g_lampBeamSign = -1;
+		v++;
+	} else if (*v == '+') {
+		v++;
+	}
+	g_lampBeamAxis = (*v == 'y' || *v == 'Y') ? 1 : (*v == 'z' || *v == 'Z') ? 2 : 0;
+	GetPrivateProfileStringA("Lamp", "Pitch", "0", value, sizeof(value), ini);
+	g_lampPitch = (float)atof(value);
+	if (!(g_lampPitch > -45.0f && g_lampPitch < 45.0f))
+		g_lampPitch = 0.0f;
+	GetPrivateProfileStringA("Lamp", "FlagsOffset", "0x100", value, sizeof(value), ini);
+	g_lampFlagsOff = (uint32_t)strtoul(value, NULL, 0);
+	if (g_lampFlagsOff < 0x30 || g_lampFlagsOff > 0x1F0 || (g_lampFlagsOff & 7))
+		g_lampFlagsOff = OFF_AV_FLAGS;
+	GetPrivateProfileStringA("Lamp", "Node", "CMB_Headlamp", g_lampNodeName[0], sizeof(g_lampNodeName[0]), ini);
+	GetPrivateProfileStringA("Lamp", "ShadowNode", "CMB_HeadlampShadow", g_lampNodeName[1], sizeof(g_lampNodeName[1]), ini);
+	Log("  headlamp: %s; the %s light's node ('%s'), the beam along the node's %c%c axis, pitched down %g deg; flags at +0x%X",
+	    g_lampEnabled ? "on" : "off (Enabled=0)", g_lampShadows ? "shadow-casting" : "plain", g_lampNodeName[g_lampShadows ? 1 : 0],
+	    g_lampBeamSign < 0 ? '-' : '+', "xyz"[g_lampBeamAxis], g_lampPitch, g_lampFlagsOff);
 }
 
 /* ------------------------------------------------------------------------- */
@@ -1096,6 +1159,7 @@ static void FindGlobals(void)
 	g_turnRadiusGlobal = FindGlobal(prefix, shift, TURN_RADIUS_GLOBAL_ID, "CMB_TurnRadius");
 	g_turnStandGlobal = FindGlobal(prefix, shift, TURN_STAND_GLOBAL_ID, "CMB_StandTurnRate");
 	g_turnSlowGlobal = FindGlobal(prefix, shift, TURN_SLOW_GLOBAL_ID, "CMB_TurnRadiusSlow");
+	g_headlampGlobal = FindGlobal(prefix, shift, HEADLAMP_GLOBAL_ID, "CMB_HeadlampLive");
 	g_globalsMissingLogged = true;   /* found or not, don't look again */
 }
 
@@ -1946,11 +2010,14 @@ static void DetectRole(HeldSkin *h)
 }
 
 static void LetGoAllRider(const char *why);
+static void LetGoLamp(int i, const char *why);
 static void LetGoAll(const char *why)
 {
 	while (g_skinCount)
 		LetGo(g_skinCount - 1, why);
 	LetGoAllRider(why);
+	LetGoLamp(0, why);
+	LetGoLamp(1, why);
 	g_riderWorldChecked = false;
 	g_riderBlocked = false;
 	ResetTilt();
@@ -1972,6 +2039,7 @@ typedef struct {
 	uintptr_t riderShape[MAX_RIDER], riderSkin[MAX_RIDER], riderData[MAX_RIDER];
 	const char *riderName[MAX_RIDER];
 	int riderCount, riderOver;
+	uintptr_t lamp[2];                  /* the headlamp's add-on nodes, by name */
 } SkinList;
 
 #define WALK_LINES 48
@@ -2109,6 +2177,12 @@ static void Visit(uintptr_t obj, int depth, SkinList *list)
 	}
 	if (!IsA(obj, RTTI_NODE) || !Accessible(obj + OFF_CHILDREN, 0x10, false))
 		return;
+	if (g_lampEnabled) {
+		const char *nm = ObjectName(obj);
+		for (int i = 0; nm && i < 2; i++)
+			if (!list->lamp[i] && g_lampNodeName[i][0] && strcmp(nm, g_lampNodeName[i]) == 0)
+				list->lamp[i] = obj;
+	}
 	uintptr_t children = ReadPtr(obj + OFF_CHILDREN);
 	unsigned used = *(const uint16_t *)(obj + OFF_CHILDREN_USED);
 	unsigned cap = *(const uint16_t *)(obj + OFF_CHILDREN_CAP);
@@ -3015,7 +3089,184 @@ static void FrameRider(bool tilt, const float R[9], const float P[3])
 	}
 }
 
+/* The headlamp's add-on node every frame: at the lens (the bike's space, turned with the bars
+ * and tilted, through the bind and the bone), its BeamAxis along the beam, while the lamp is
+ * lit; hidden and sunk 20000 below otherwise. The node's local transform is written (its
+ * parent's world undone), as for the rider's plain shapes; the game takes it from there. */
+static void FrameLamp(bool tilt, const float R[9], const float P[3])
+{
+	if (!g_lamp[0].node && !g_lamp[1].node)
+		return;
+	const HeldSkin *bike = NULL;
+	for (int k = 0; k < g_skinCount; k++)
+		if (g_skins[k].node && (!bike || (bike->role != ROLE_NONE && g_skins[k].role == ROLE_NONE)))
+			bike = &g_skins[k];
+	float Nb[9], nb[3], sb, Nbi[9];
+	bool ready = bike && g_lampOk && NodeWorld(bike->node, Nb, nb, &sb, Nbi);
+	bool want = ready && g_lampEnabled && GlobalValue(g_headlampGlobal) > 0.5f;
+	float M[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, m[3] = { 0, 0, 0 };
+	if (ready) {
+		if (g_partsOk)
+			Turn(M, m, g_steerAxis, g_steerPoint, g_barNow / 57.29578f);
+		if (tilt) {
+			float M2[9], m2[3], RP[3];
+			Mul3(R, M, M2);
+			MulV(R, m, m2);
+			MulV(R, P, RP);
+			memcpy(M, M2, sizeof(M2));
+			for (int i = 0; i < 3; i++)
+				m[i] = m2[i] + P[i] - RP[i];
+			m[2] += g_liftNow;
+		}
+	}
+	for (int i = 0; i < 2; i++) {
+		LampNode *l = &g_lamp[i];
+		if (!l->node)
+			continue;
+		bool lit = want && (i == 1) == (g_lampShadows != 0);
+		uintptr_t parent = ReadPtr(l->node + OFF_PARENT);
+		float Np[9], np[3], sp, Npi[9];
+		if (lit && (!parent || !NodeWorld(parent, Np, np, &sp, Npi)))
+			lit = false;
+		float *rows = (float *)(l->node + OFF_LOCAL_ROT), *pos = rows + 12, *scale = rows + 15;
+		volatile uint64_t *flags = (volatile uint64_t *)(l->node + g_lampFlagsOff);
+		if (!lit) {
+			if (l->lit || !l->placed) {
+				memcpy(rows, l->saved, 0x30);
+				pos[0] = pos[1] = 0.0f;
+				pos[2] = -20000.0f;   /* far below the world: lights nothing even if the flag doesn't cull it */
+				*scale = 1.0f;
+				*flags = l->savedFlags | 1u;
+				if (l->lit)
+					Log("lamp: '%s' out", g_lampNodeName[i]);
+				l->lit = false;
+				l->placed = true;
+			}
+			continue;
+		}
+		/* The lens: bike space -> bone space through the bind (A, t) -> world through the bone. */
+		float A[9], t[3], L[3], AL[3], bone[3], Nbone[3], w[3];
+		ReadRot((const float *)(bike->original[0] + OFF_BONE_ROT), A);
+		memcpy(t, bike->original[0] + OFF_BONE_POS, 12);
+		MulV(M, g_lampPoint, L);
+		for (int k = 0; k < 3; k++)
+			L[k] += m[k];
+		MulV(A, L, AL);
+		for (int k = 0; k < 3; k++)
+			bone[k] = AL[k] + t[k];
+		MulV(Nb, bone, Nbone);
+		for (int k = 0; k < 3; k++)
+			w[k] = sb * Nbone[k] + nb[k];
+		/* The node's frame in the bike's space: the beam (the lamp's axis pitched down) along
+		 * BeamAxis, up kept near the bike's; a right-handed set, whichever axis the beam is. */
+		static const float xAxis[3] = { 1.0f, 0.0f, 0.0f };
+		float Qp[9], f[3], u[3] = { 0.0f, 0.0f, 1.0f }, r[3], F[9], MF[9], AMF[9], W[9], Lr[9], d[3], lp[3];
+		AxisRotation(xAxis, -g_lampPitch / 57.29578f, Qp);
+		MulV(Qp, g_lampAxis, f);
+		float fl = sqrtf(f[0] * f[0] + f[1] * f[1] + f[2] * f[2]);
+		for (int k = 0; k < 3; k++)
+			f[k] /= fl > 0.0001f ? fl : 1.0f;
+		r[0] = f[1] * u[2] - f[2] * u[1];
+		r[1] = f[2] * u[0] - f[0] * u[2];
+		r[2] = f[0] * u[1] - f[1] * u[0];   /* right = forward x up */
+		float rl = sqrtf(r[0] * r[0] + r[1] * r[1] + r[2] * r[2]);
+		if (rl < 0.0001f) {
+			r[0] = 1.0f;
+			r[1] = r[2] = 0.0f;
+			rl = 1.0f;
+		}
+		for (int k = 0; k < 3; k++)
+			r[k] /= rl;
+		u[0] = r[1] * f[2] - r[2] * f[1];
+		u[1] = r[2] * f[0] - r[0] * f[2];
+		u[2] = r[0] * f[1] - r[1] * f[0];   /* up = right x forward */
+		const float *cols[3];
+		float nr[3] = { -r[0], -r[1], -r[2] }, nu[3] = { -u[0], -u[1], -u[2] }, nf[3] = { -f[0], -f[1], -f[2] };
+		if (g_lampBeamAxis == 0) {
+			cols[0] = f; cols[1] = nr; cols[2] = u;
+		} else if (g_lampBeamAxis == 1) {
+			cols[0] = r; cols[1] = f; cols[2] = u;
+		} else {
+			cols[0] = r; cols[1] = nu; cols[2] = f;
+		}
+		if (g_lampBeamSign < 0) {   /* the beam the other way, and one more column flipped to keep the hand */
+			cols[g_lampBeamAxis] = nf;
+			cols[(g_lampBeamAxis + 1) % 3] = cols[(g_lampBeamAxis + 1) % 3] == r ? nr : cols[(g_lampBeamAxis + 1) % 3] == nr ? r
+			                             : cols[(g_lampBeamAxis + 1) % 3] == u ? nu : u;
+		}
+		for (int row = 0; row < 3; row++)
+			for (int col = 0; col < 3; col++)
+				F[row * 3 + col] = cols[col][row];
+		Mul3(M, F, MF);
+		Mul3(A, MF, AMF);
+		Mul3(Nb, AMF, W);          /* the node's world rotation */
+		Mul3(Npi, W, Lr);          /* local = parent^-1 world */
+		for (int k = 0; k < 3; k++)
+			d[k] = w[k] - np[k];
+		MulV(Npi, d, lp);
+		for (int k = 0; k < 3; k++)
+			lp[k] /= sp > 0.0001f ? sp : 1.0f;
+		for (int row = 0; row < 3; row++)
+			for (int col = 0; col < 3; col++)
+				rows[row * 4 + col] = g_layout == LAYOUT_FILE ? Lr[row * 3 + col] : Lr[col * 3 + row];
+		memcpy(pos, lp, 12);
+		*scale = 1.0f;
+		*flags = l->savedFlags & ~(uint64_t)1;
+		if (!l->lit) {
+			Log("lamp: '%s' lit: the lens at (%.0f, %.0f, %.0f) in the world, the beam along (%.2f, %.2f, %.2f)", g_lampNodeName[i],
+			    w[0], w[1], w[2], W[0 * 3 + g_lampBeamAxis] * g_lampBeamSign, W[1 * 3 + g_lampBeamAxis] * g_lampBeamSign, W[2 * 3 + g_lampBeamAxis] * g_lampBeamSign);
+			l->lit = true;
+			l->placed = true;
+		}
+	}
+}
+
 static uintptr_t g_lastRoot;
+
+static void LetGoLamp(int i, const char *why)
+{
+	LampNode *l = &g_lamp[i];
+	if (!l->node)
+		return;
+	if (Accessible(l->node + OFF_LOCAL_ROT, 0x40, true))
+		memcpy((void *)(l->node + OFF_LOCAL_ROT), l->saved, 0x40);
+	if (Accessible(l->node + g_lampFlagsOff, 8, true))
+		*(volatile uint64_t *)(l->node + g_lampFlagsOff) = l->savedFlags;
+	Log("lamp: '%s' put back and let go (%s)", g_lampNodeName[i], why);
+	Release(l->node);
+	memset(l, 0, sizeof(*l));
+}
+
+static void HoldLamp(int i, uintptr_t node)
+{
+	LampNode *l = &g_lamp[i];
+	uintptr_t parent = ReadPtr(node + OFF_PARENT);
+	if (!Accessible(node + OFF_LOCAL_ROT, 0x40, true) || !Accessible(node + g_lampFlagsOff, 8, true) ||
+	    !parent || !IsA(parent, RTTI_AVOBJECT) || !Accessible(parent + OFF_WORLD_ROT, 0x40, false)) {
+		if (!(g_lampLogged & (1 << i))) {
+			g_lampLogged |= 1 << i;
+			Log("lamp: '%s' found but can't be held (its transform, its flags or its parent can't be read)", g_lampNodeName[i]);
+		}
+		return;
+	}
+	memset(l, 0, sizeof(*l));
+	l->node = node;
+	memcpy(l->saved, (const void *)(node + OFF_LOCAL_ROT), 0x40);
+	l->savedFlags = *(const volatile uint64_t *)(node + g_lampFlagsOff);
+	Retain(node);
+	/* What hangs off it (the game's light, if the add-on node took): logged for the next round. */
+	unsigned used = Accessible(node + OFF_CHILDREN, 0x10, false) ? *(const uint16_t *)(node + OFF_CHILDREN_USED) : 0;
+	uintptr_t children = used ? ReadPtr(node + OFF_CHILDREN) : 0;
+	char kids[240] = "";
+	int len = 0;
+	if (children && used && Accessible(children, used * 8u, false))
+		for (unsigned k = 0; k < used && k < 8 && len < (int)sizeof(kids) - 70; k++) {
+			uintptr_t c = ((const uintptr_t *)children)[k];
+			len += snprintf(kids + len, sizeof(kids) - len, "%s%s '%.24s'", k ? ", " : ": ", c ? OrNone(ObjectTypeName(c)) : "(null)", c ? OrNone(ObjectName(c)) : "");
+		}
+	Log("lamp: holding '%s' (%s under '%.32s', flags %#llx, %u child(ren)%s)", g_lampNodeName[i], OrNone(ObjectTypeName(node)),
+	    OrNone(ObjectName(parent)), (unsigned long long)l->savedFlags, used, kids);
+}
 
 static void SyncSkins(uintptr_t player, bool riderWanted)
 {
@@ -3060,6 +3311,12 @@ static void SyncSkins(uintptr_t player, bool riderWanted)
 			held |= g_skins[i].boneData == list.found[j];
 		if (!held && !Refused(list.found[j]))
 			HoldSkin(list.found[j], list.skins[j], list.names[j]);
+	}
+	for (int i = 0; i < 2; i++) {
+		if (g_lamp[i].node && g_lamp[i].node != list.lamp[i])
+			LetGoLamp(i, list.lamp[i] ? "the node was replaced" : "no longer worn");
+		if (!g_lamp[i].node && list.lamp[i] && g_skinCount)
+			HoldLamp(i, list.lamp[i]);
 	}
 	SyncRider(player, &list, riderWanted && g_riderTilt);
 	if (g_layoutFromRoot == LAYOUT_UNKNOWN && player) {
@@ -3311,6 +3568,7 @@ static void FrameTilt(void)
 	TimeAdd(&g_tTilt, tBike);
 	double tRider = Clock();
 	FrameRider(tilt, R, P);
+	FrameLamp(tilt, R, P);
 	TimeAdd(&g_tRider, tRider);
 }
 

@@ -216,6 +216,14 @@ public static class Program
                 Slider("Side bag capacity", "Pounds with F4SE (items without it). 0 = unlimited.", "CMB_BagCapacity", 0, 500, 10),
                 Section("Sound"),
                 Slider("Engine volume", "0 = silent. The engine loops pick it up the next time you get on.", "CMB_EngineVolume", 0, 100, 5),
+                Section("Headlamp"),
+                new
+                {
+                    type = "stepper", text = "Headlamp",
+                    help = "The bike's headlamp (needs F4SE and the CMB_Slope.dll plugin): off, on while riding, or on at night (19:00 to 6:30). The hotkey below switches it while you ride.",
+                    valueOptions = new { options = new[] { "Off", "On", "On at night" }, sourceType = "GlobalValue", sourceForm = Form(Rec("CMB_HeadlampMode")) },
+                },
+                new { type = "hotkey", id = "ToggleHeadlamp", text = "Headlamp on / off", help = "Switches the headlamp while riding (and sets the setting above to on or off)." },
                 Section("Hotkeys"),
                 new { type = "hotkey", id = "ToggleRide", text = "Get on / off / call the bike", help = "If you use this, set the built-in hotkey below to 0 so the key doesn't fire twice." },
                 Slider("Built-in hotkey (scan code)", "The F4SE hotkey that works without MCM. 48 = B, 34 = G, 47 = V, 0 = off. Press Apply after changing it.",
@@ -232,6 +240,7 @@ public static class Program
             keybinds = new object[]
             {
                 new { id = "ToggleRide", desc = "Motorbike: get on / off / call", action = Call("HotkeyPressed") },
+                new { id = "ToggleHeadlamp", desc = "Motorbike: headlamp on / off", action = Call("HeadlampPressed") },
             },
         };
         var dir = Path.Combine(dataDir, "MCM", "Config", modName);
@@ -420,6 +429,17 @@ public static class Program
         if (gTurnRadius.FormKey.ID != 0x839 || gStandTurn.FormKey.ID != 0x83A || gTurnSlow.FormKey.ID != 0x83B)
             throw new InvalidOperationException($"CMB_TurnRadius, CMB_StandTurnRate and CMB_TurnRadiusSlow must be 0x839-0x83B (CMB_Slope.dll looks for them), got {gTurnRadius.FormKey.ID:X}, {gStandTurn.FormKey.ID:X}, {gTurnSlow.FormKey.ID:X}");
 
+        // --- The headlamp (test 29's wish): the MCM's mode, the live switch the plugin reads, and the
+        // lights the game hangs on the worn bike's add-on nodes (CMB_Headlamp 31985, CMB_HeadlampShadow 31986).
+        var gHeadlampMode = Global(mod, "CMB_HeadlampMode", 2);   // 0 off, 1 on while riding, 2 on at night
+        var gHeadlampLive = Global(mod, "CMB_HeadlampLive", 0);   // 1 while the lamp should be lit (CMB_Slope.dll reads it)
+        if (gHeadlampMode.FormKey.ID != 0x83C || gHeadlampLive.FormKey.ID != 0x83D)
+            throw new InvalidOperationException($"CMB_HeadlampMode and CMB_HeadlampLive must be 0x83C-0x83D (CMB_Slope.dll looks for them), got {gHeadlampMode.FormKey.ID:X}, {gHeadlampLive.FormKey.ID:X}");
+        var lampLight = Headlamp(mod, "CMB_HeadlampLight", false);
+        var lampLightShadow = Headlamp(mod, "CMB_HeadlampLightShadow", true);
+        HeadlampNode(mod, "CMB_HeadlampAddOn", HeadlampNodeIndex, lampLight);
+        HeadlampNode(mod, "CMB_HeadlampShadowAddOn", HeadlampNodeIndex + 1, lampLightShadow);
+
         // --- Controller quest ---
         quest.Name = "Commonwealth Motorbike";
         quest.Data = new QuestData
@@ -468,6 +488,8 @@ public static class Program
             Obj("CMB_EngineCruiseSound", sndCruise),
             Obj("CMB_EngineVolume", gEngineVolume),
             Obj("CMB_FallDamageCut", gFallCut),
+            Obj("CMB_HeadlampMode", gHeadlampMode),
+            Obj("CMB_HeadlampLive", gHeadlampLive),
             Obj("CMB_DismountOnHit", gDismountOnHit),
             Obj("CMB_BikeFollowsRider", gFollowsRider),
             Obj("CMB_KnockOffDamage", gKnockOff),
@@ -599,6 +621,45 @@ public static class Program
         armor.Value = 0;
         armor.Weight = 0;
         return armor;
+    }
+
+    // The headlamp's beam: a spotlight the game hangs on the worn bike's add-on node (BSValueNode
+    // CMB_Headlamp in the worn nifs, CMB_Slope.dll puts it at the lens): warm white, 14 m, 55 degrees
+    // wide; the shadow-casting kind on the second node (CMB_Slope.ini Shadows=1 picks it).
+    const uint HeadlampNodeIndex = 31985;
+    static Light Headlamp(Fallout4Mod mod, string editorId, bool shadow)
+    {
+        var light = mod.Lights.AddNew(editorId);
+        light.ObjectBounds = new ObjectBounds();
+        light.Time = -1;
+        light.Radius = 1400;
+        light.Color = System.Drawing.Color.FromArgb(0, 255, 241, 224);
+        light.Flags = shadow ? Light.Flag.ShadowSpotlight : Light.Flag.NonShadowSpotlight;
+        light.FalloffExponent = 1.0f;
+        light.FOV = 55.0f;
+        light.NearClip = 15.0f;
+        light.FlickerPeriod = 0.0f;
+        light.FlickerIntensityAmplitude = 0.0f;
+        light.FlickerMovementAmplitude = 0.0f;
+        light.Constant = 1.0f;
+        light.Scalar = 1.0f;
+        light.Exponent = 1.0f;
+        light.GodRaysNearClip = 0.0f;
+        light.Value = 0;
+        light.Weight = 0.0f;
+        light.FadeValue = 1.5f;
+        return light;
+    }
+
+    static AddonNode HeadlampNode(Fallout4Mod mod, string editorId, uint nodeIndex, Light light)
+    {
+        var node = mod.AddonNodes.AddNew(editorId);
+        node.ObjectBounds = new ObjectBounds();
+        node.NodeIndex = nodeIndex;
+        node.Light.SetTo(light);
+        node.MasterParticleSystemCap = 0;
+        node.Flags = AddonNode.Flag.AlwaysLoaded;
+        return node;
     }
 
     static Message MessageBox(Fallout4Mod mod, string editorId, string title, string text, params string[] buttons)

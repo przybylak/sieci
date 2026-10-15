@@ -87,19 +87,30 @@ MATERIALS = {
     "glass":       ((150, 160, 170), 90, 120, 240, 120, "glass"),     # the headlight
     "o_glass":     ((232, 128, 24), 150, 150, 230, 90, "glass"),      # indicators
     "r_glass":     ((196, 24, 24), 150, 150, 230, 90, "glass"),       # the tail light
+    "lamp_black":  ((18, 18, 20), 255, 120, 235, 110, "metal"),       # our headlamp's bucket and projector: gloss black
+    "lamp_led":    ((236, 242, 255), 255, 40, 60, 0, "glow"),         # its running-light ring and projector face: lit
 }
 # Test 20: with the first palette (chrome 176 grey, specular 255, mask 255) the forks, exhausts
 # and the headlight face rendered flat white in the sun, and the tan tank badge showed as a
 # patch; so chrome is a mid grey with the reflection at 60%, the lens darker and duller, the
 # badge satin black.
 
-KINDS = ("metal", "matte", "glass")
+KINDS = ("metal", "matte", "glass", "glow")   # glow: lit (emissive), no reflection
 ROLES = ("", "front", "wheelF", "wheelR")   # static; turns with the bars; spins; spins
 BAR_HEIGHT = 85.0   # above this (parked frame) and ahead of the seat it's the bar assembly
 
 # BSLightingShaderProperty flags (nif.xml's SkyrimShaderPropertyFlags, as Fallout 4 still uses them)
 SF1_SPECULAR, SF1_SKINNED, SF1_ENV_MAP, SF1_RECEIVE_SHADOWS, SF1_CAST_SHADOWS = 0x1, 0x2, 0x80, 0x100, 0x200
 SF1_ZBUFFER_TEST = 0x80000000
+SF1_OWN_EMIT = 0x400000   # the shape glows by its emissive colour
+
+# Our headlamp (the model's own, a plain can, sat still while the forks turned: its centre is
+# 20 units behind the steering head, past role_of's 16): a 5.75" Harley LED unit, 15 across,
+# on the fork bracket where the model's was, in the worn bike's space (+Y forward, Z up).
+LAMP_X, LAMP_Z = 0.3, 81.9          # the lamp's axis
+LAMP_FACE_Y, LAMP_R = 75.0, 7.5     # the lens sits here; the bucket runs 13 back from it
+LAMP_LENS = (LAMP_X, LAMP_FACE_Y + 1.3, LAMP_Z)   # the lens's centre: where the light comes from
+HEADLAMP_NODE_INDEX = 31985   # the add-on node index (ADDN) of the light; +1 the shadow-casting one
 SF2_ZBUFFER_WRITE, SF2_DOUBLE_SIDED, SF2_ENVMAP_LIGHT_FADE = 0x1, 0x10, 0x8000
 SHADER_DEFAULT, SHADER_ENV_MAP = 0, 1
 ALPHA_BLEND_FLAGS = 4845   # blend src alpha / inv src alpha, test greater
@@ -414,6 +425,70 @@ def role_of(v, parts):
     return ""
 
 
+def lathe(profile, segments=32, inside=False):
+    """A surface of revolution about the Y axis (x = r cos, z = r sin) from a profile of (r, y)
+    points, wound so the normals face outward along the profile's direction (right-hand rule:
+    a profile running forward (+y) faces outward, one running inward in r at one y faces +y);
+    inside=True turns it inside out (a reflector dish seen from the front)."""
+    rings, verts = [], []
+    for r, y in profile:
+        ring = []
+        for s in range(segments):
+            a = 2.0 * math.pi * s / segments
+            ring.append(len(verts))
+            verts.append((r * math.cos(a), y, r * math.sin(a)))
+        rings.append(ring)
+    tris = []
+    for k in range(len(rings) - 1):
+        a, b = rings[k], rings[k + 1]
+        for s in range(segments):
+            s2 = (s + 1) % segments
+            tris.append((a[s], b[s], b[s2]))
+            tris.append((a[s], b[s2], a[s2]))
+    v = np.array(verts, dtype=np.float64)
+    f = np.array(tris, dtype=np.int64)
+    t = v[f]
+    area = np.linalg.norm(np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0]), axis=1)
+    f = f[area > 1e-6]   # the apex rings (r = 0) make degenerate triangles
+    if inside:
+        f = f[:, [0, 2, 1]]
+    return v, f
+
+
+def headlamp_pieces(seat_at, flip):
+    """Our headlamp, as (material, verts, tris) pieces in the parked model's frame: a gloss
+    black bucket with a chrome bezel, a chrome reflector dish, a projector in the middle with
+    a lit face, a lit running-light ring inside the bezel and a shallow glass lens."""
+    yF, R = LAMP_FACE_Y, LAMP_R
+
+    def place(v):   # lathe space (about the lamp's axis) -> worn -> parked (a half turn about z: the winding holds)
+        w = v + np.array([LAMP_X, 0.0, LAMP_Z])
+        return np.column_stack([-w[:, 0], seat_at - w[:, 1], w[:, 2]])
+
+    def piece(material, profile, inside=False):
+        v, f = lathe(profile, 32, inside)
+        if flip:   # the main loop flips every piece to the vanilla's winding: ours is right already
+            f = f[:, [0, 2, 1]]
+        return material, place(v), f
+
+    return [
+        piece("lamp_black", [(0.0, yF - 13.0), (3.5, yF - 12.8), (6.0, yF - 12.0), (7.1, yF - 10.5), (R, yF - 8.5), (R, yF - 1.5), (6.6, yF - 1.5)]),
+        piece("chrome", [(6.6, yF - 1.6), (R + 0.1, yF - 1.6), (R + 0.7, yF - 0.9), (R + 0.7, yF + 0.3), (R + 0.1, yF + 1.0), (6.8, yF + 1.0), (6.8, yF + 0.2)]),
+        piece("chrome", [(2.7, yF - 8.6), (4.6, yF - 6.2), (5.9, yF - 3.6), (6.6, yF - 1.4), (6.8, yF - 0.6)], inside=True),
+        piece("lamp_black", [(0.0, yF - 9.0), (2.7, yF - 9.0), (2.7, yF - 3.2), (2.3, yF - 3.0)]),
+        piece("lamp_led", [(2.3, yF - 3.0), (0.0, yF - 3.0)]),
+        piece("lamp_led", [(6.5, yF - 1.0), (5.6, yF - 1.0)]),
+        piece("glass", [(6.8, yF + 0.2), (5.4, yF + 0.8), (3.0, yF + 1.2), (0.0, yF + 1.3)]),
+    ]
+
+
+def old_headlamp(v, seat_at):
+    """A piece of the model's own headlamp (lens, bezel rings, face, bucket): wholly inside the
+    cylinder our lamp fills, in the parked frame."""
+    x, y, z = -v[:, 0], seat_at - v[:, 1], v[:, 2]
+    return bool(np.all((np.abs(x - LAMP_X) < 8.5) & (np.abs(z - LAMP_Z) < 8.5) & (y > 61.0) & (y < 77.0)))
+
+
 def rows(a):
     """An array's rows as tuples (what PyNifly's ctypes buffers take)."""
     return [tuple(r) for r in a.tolist()]
@@ -483,13 +558,17 @@ def shader_setup(shape, base_props, kind, skinned, textures):
         sf1 |= SF1_ENV_MAP
         sf2 |= SF2_ENVMAP_LIGHT_FADE
     sf2 |= SF2_DOUBLE_SIDED   # the model has single-plane bits (rim lips, fender undersides) that vanish from one side otherwise
-    props.Shader_Flags_1 = sf1
     props.Shader_Flags_2 = sf2
-    props.Glossiness = {"metal": 90.0, "matte": 30.0, "glass": 110.0}[kind]
+    if kind == "glow":   # lit by itself: the headlamp's running light and projector face
+        sf1 |= SF1_OWN_EMIT
+        for i in range(4):
+            props.Emissive_Color[i] = 1.0
+    props.Shader_Flags_1 = sf1
+    props.Glossiness = {"metal": 90.0, "matte": 30.0, "glass": 110.0, "glow": 30.0}[kind]
     props.Spec_Str = 1.0
     props.Spec_Color[0] = props.Spec_Color[1] = props.Spec_Color[2] = 1.0
     props.Alpha = 1.0
-    props.Emissive_Mult = 1.0
+    props.Emissive_Mult = 6.0 if kind == "glow" else 1.0
     shape.shader.name = ""
     shape.shader._properties = props
     shape.save_shader_attributes()
@@ -529,6 +608,67 @@ def add_shape(nif, name, verts, tris, uvs, normals, base_props, use_type, kind, 
         new.setShapeWeights(bone, [(i, 1.0) for i in range(len(verts))])
     shader_setup(new, base_props.shader_props, kind, skinned, texture_paths(kind))
     return new
+
+
+def make_value_nodes(path: Path, values: dict):
+    """Turns the NiNode blocks named in `values` into BSValueNodes (an NiNode plus a uint value
+    and a byte of flags): the type is added to the header's type table, the blocks' type index
+    and size changed, the five bytes appended. The game hangs an ADDN record's light or particles
+    on a BSValueNode whose value is the record's node index."""
+    data = bytes(path.read_bytes())
+    i = data.index(b"\n") + 1 + 9
+    nblocks = struct.unpack_from("<I", data, i)[0]
+    i += 8
+    for _ in range(4):
+        i += 1 + data[i]
+    types_at = i
+    ntypes = struct.unpack_from("<H", data, i)[0]
+    i += 2
+    types = []
+    for _ in range(ntypes):
+        n = struct.unpack_from("<I", data, i)[0]
+        types.append(data[i + 4:i + 4 + n].decode())
+        i += 4 + n
+    type_idx = list(struct.unpack_from(f"<{nblocks}H", data, i))
+    i += 2 * nblocks
+    sizes = list(struct.unpack_from(f"<{nblocks}I", data, i))
+    i += 4 * nblocks
+    rest_at = i   # the strings and groups, kept as they are
+    nstrings = struct.unpack_from("<I", data, i)[0]
+    i += 8
+    strings = []
+    for _ in range(nstrings):
+        n = struct.unpack_from("<I", data, i)[0]
+        strings.append(data[i + 4:i + 4 + n].decode())
+        i += 4 + n
+    i += 4 + 4 * struct.unpack_from("<I", data, i)[0]
+    blocks_at = i
+    if "BSValueNode" not in types:
+        types.append("BSValueNode")
+    value_type = types.index("BSValueNode")
+    blocks = []
+    pos = blocks_at
+    done = set()
+    for b in range(nblocks):
+        block = data[pos:pos + sizes[b]]
+        pos += sizes[b]
+        if types[type_idx[b] & 0x7FFF] == "NiNode":
+            name_id = struct.unpack_from("<I", block, 0)[0]
+            name = strings[name_id] if name_id < len(strings) else None
+            if name in values:
+                block += struct.pack("<IB", values[name], 0)
+                type_idx[b] = value_type
+                sizes[b] = len(block)
+                done.add(name)
+        blocks.append(block)
+    missing = set(values) - done
+    if missing:
+        raise ValueError(f"{path}: no NiNode named {sorted(missing)} to make a BSValueNode of")
+    head = data[:types_at] + struct.pack("<H", len(types))
+    for t in types:
+        head += struct.pack("<I", len(t)) + t.encode()
+    head += struct.pack(f"<{nblocks}H", *type_idx) + struct.pack(f"<{nblocks}I", *sizes)
+    path.write_bytes(head + data[rest_at:blocks_at] + b"".join(blocks))
 
 
 def fix_all_bone_bounds(path: Path, spheres, skin_to_bone=None):
@@ -654,19 +794,28 @@ def main() -> int:
     print(f"the vanilla's triangles wind {'with' if not flip else 'against'} their normals ({agree:+.2f}); "
           f"{'flipping ours' if flip else 'keeping the glTF winding'}")
 
-    order = [m for m in MATERIALS if m in groups]
+    order = [m for m in MATERIALS if m in groups or m in ("lamp_black", "lamp_led")]   # ours too: the headlamp's
     uv_of = write_palette(args.textures, order, body)
     print(f"wrote the palette textures to {args.textures}")
 
     # The shapes: by what moves (ROLES) and how it's shaded (KINDS); a wheel is one matte
     # shape whatever its pieces are made of (black rims, as on the real thing).
     buckets = {}
+    dropped = 0
     for name, v, f in pieces:
+        if old_headlamp(v, seat_at):
+            dropped += 1
+            continue
         role = role_of(v, parts) if args.bar_angle > 0 else ""
         kind = "matte" if role.startswith("wheel") else MATERIALS[name][5]
         if role.startswith("wheel") and name == "material":
             v = seat_tyre(v, parts, role)
         buckets.setdefault((role, kind), []).append((name, v, f))
+    lamp = headlamp_pieces(seat_at, flip)
+    for name, v, f in lamp:
+        buckets.setdefault(("front" if args.bar_angle > 0 else "", MATERIALS[name][5]), []).append((name, v, f))
+    print(f"the headlamp: {len(lamp)} pieces of our own on the fork bracket, turning with the bars; "
+          f"{dropped} piece(s) of the model's own lamp dropped")
     shapes = {}   # name -> (verts, tris, uvs, normals, kind, role), in the order they're made
     for role in ROLES:
         for kind in KINDS:
@@ -723,12 +872,28 @@ def main() -> int:
             allverts.append(tv)
             add_shape(out, f"{path.stem}_{label}", rows(tv), rows(f), rows(u), rows(tn), base, base.use_type, kind,
                       True, bone, bind, TransformBuf)
+        # The headlamp's light: add-on nodes (BSValueNode) the game hangs the ADDN's light on.
+        # CMB_Slope.dll puts the node at the lens every frame (with the bars' turn and the tilt)
+        # and hides it when the lamp is off; the second carries the shadow-casting light. Made
+        # as plain NiNodes here (nifly's typed addBlock crashed) and turned into BSValueNodes in
+        # the file below.
+        lamp_nodes = {"CMB_Headlamp": HEADLAMP_NODE_INDEX, "CMB_HeadlampShadow": HEADLAMP_NODE_INDEX + 1}
+        for node_name in lamp_nodes:
+            xf = TransformBuf()
+            xf.store(list(LAMP_LENS), [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], [1.0, 1.0, 1.0])
+            out.add_node(node_name, xf, out.rootNode)
         out.save()
+        make_value_nodes(path, lamp_nodes)
         allverts = np.vstack(allverts)
         fix_all_bone_bounds(path, list(spheres.values()), rigid_inverse(bind) if bind else None)
         check = NifFile(str(path))
         lo, hi = allverts.min(axis=0), allverts.max(axis=0)
-        print(f"wrote {path}: {len(check.shapes)} shapes on {bone}")
+        node_names = []
+        try:
+            node_names = [n.name for n in check.nodes.values()] if isinstance(check.nodes, dict) else [n.name for n in check.nodes]
+        except Exception as e:   # noqa: BLE001
+            node_names = [f"(nodes unreadable: {e})"]
+        print(f"wrote {path}: {len(check.shapes)} shapes on {bone}; nodes {node_names}")
         print(f"  bounds x[{lo[0]:.1f},{hi[0]:.1f}] y[{lo[1]:.1f},{hi[1]:.1f}] z[{lo[2]:.1f},{hi[2]:.1f}]")
         for s in check.shapes:
             if bind:
@@ -761,7 +926,9 @@ def main() -> int:
         f"SteerPoint={sp[0]},{sp[1]},{sp[2]}\n"
         f"SteerAxis={steer_axis_worn[0]},{steer_axis_worn[1]},{steer_axis_worn[2]}\n"
         f"FrontMinY={front_min_y:.1f}\n"
-        f"BarAngle={args.bar_angle:g}\n")
+        f"BarAngle={args.bar_angle:g}\n"
+        f"LampPoint={LAMP_LENS[0]},{LAMP_LENS[1]},{LAMP_LENS[2]}\n"
+        "LampAxis=0,1,0\n")
     print(f"wrote {partsfile}: front axle {fa}, rear axle {ra}, radius {parts['wheel_radius']:.1f}, "
           f"steering axis through {sp} along {steer_axis_worn}, the bar assembly's spheres beyond y {front_min_y:.1f}")
 
