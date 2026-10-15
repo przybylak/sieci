@@ -2269,8 +2269,13 @@ static void TiltTests(void)
 		float off = sqrtf((actual[0] - e[0]) * (actual[0] - e[0]) + (actual[1] - e[1]) * (actual[1] - e[1]) + (actual[2] - e[2]) * (actual[2] - e[2]));
 		float boff = sqrtf((axisX[0] - beam[0]) * (axisX[0] - beam[0]) + (axisX[1] - beam[1]) * (axisX[1] - beam[1]) + (axisX[2] - beam[2]) * (axisX[2] - beam[2]));
 		uint64_t flags = *(uint64_t *)(g_lampNode + 0x100);
-		CHECK(off < 0.1f && !(flags & 1), "lit: the node at the lens, tilted with the bike (%.3f off), not hidden (flags %#llx)", off, (unsigned long long)flags);
-		CHECK(boff < 0.02f && ((const float *)(g_lampNode + 0x30))[15] == 1.0f, "its +X axis down the beam (%.3f off), scale 1", boff);
+		if (g_haveParts) {
+			CHECK(off < 0.1f && !(flags & 1), "lit: the node at the lens, tilted with the bike (%.3f off), not hidden (flags %#llx)", off, (unsigned long long)flags);
+			CHECK(boff < 0.02f && ((const float *)(g_lampNode + 0x30))[15] == 1.0f, "its +X axis down the beam (%.3f off), scale 1", boff);
+		} else {
+			CHECK(memcmp(g_lampNode + 0x30, g_lampLocalOriginal, 0x40) == 0 && !(flags & 1),
+			      "lit, no parts file (no lens to put it at): left where the nif put it, not hidden (flags %#llx)", (unsigned long long)flags);
+		}
 		CHECK(*(int32_t *)(g_lampNode + 0x08) == 2, "held (references %d)", *(int32_t *)(g_lampNode + 0x08));
 		SetHeadlamp(0.0f);
 		RunFrames(300);
@@ -2284,7 +2289,10 @@ static void TiltTests(void)
 		for (int i = 0; i < 3; i++)
 			actual[i] += ((const float *)(g_bikeNode + 0xA0))[i];
 		off = sqrtf((actual[0] - e[0]) * (actual[0] - e[0]) + (actual[1] - e[1]) * (actual[1] - e[1]) + (actual[2] - e[2]) * (actual[2] - e[2]));
-		CHECK(!(flags & 1) && off < 0.1f, "lit again: back at the lens (%.3f off), not hidden", off);
+		if (g_haveParts)
+			CHECK(!(flags & 1) && off < 0.1f, "lit again: back at the lens (%.3f off), not hidden", off);
+		else
+			CHECK(!(flags & 1) && memcmp(g_lampNode + 0x30, g_lampLocalOriginal, 0x40) == 0, "lit again: back where the nif put it, not hidden");
 	}
 
 	printf("tilt: a blood decal cloned from the body (its skin points at our copy):\n");

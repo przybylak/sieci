@@ -3103,7 +3103,7 @@ static void FrameLamp(bool tilt, const float R[9], const float P[3])
 			bike = &g_skins[k];
 	float Nb[9], nb[3], sb, Nbi[9];
 	bool ready = bike && g_lampOk && NodeWorld(bike->node, Nb, nb, &sb, Nbi);
-	bool want = ready && g_lampEnabled && GlobalValue(g_headlampGlobal) > 0.5f;
+	bool want = g_lampEnabled && GlobalValue(g_headlampGlobal) > 0.5f;
 	float M[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, m[3] = { 0, 0, 0 };
 	if (ready) {
 		if (g_partsOk)
@@ -3126,10 +3126,23 @@ static void FrameLamp(bool tilt, const float R[9], const float P[3])
 		bool lit = want && (i == 1) == (g_lampShadows != 0);
 		uintptr_t parent = ReadPtr(l->node + OFF_PARENT);
 		float Np[9], np[3], sp, Npi[9];
-		if (lit && (!parent || !NodeWorld(parent, Np, np, &sp, Npi)))
-			lit = false;
+		bool placeable = ready && parent && NodeWorld(parent, Np, np, &sp, Npi);
 		float *rows = (float *)(l->node + OFF_LOCAL_ROT), *pos = rows + 12, *scale = rows + 15;
 		volatile uint64_t *flags = (volatile uint64_t *)(l->node + g_lampFlagsOff);
+		if (lit && !placeable) {
+			/* Wanted, but nowhere to put it (no parts file with the lens, the bike's bone unread):
+			 * left where the nif put it, under the actor's root, and shown. */
+			if (l->placed || !l->lit) {
+				memcpy(rows, l->saved, 0x40);
+				*flags = l->savedFlags;
+				if (!l->lit)
+					Log("lamp: '%s' lit where the nif put it (%s)", g_lampNodeName[i],
+					    !g_lampOk ? "no LampPoint in the parts file" : !bike ? "the bike's bone isn't held" : "its parent's transform can't be read");
+				l->lit = true;
+				l->placed = false;
+			}
+			continue;
+		}
 		if (!lit) {
 			if (l->lit || !l->placed) {
 				memcpy(rows, l->saved, 0x30);
