@@ -2536,7 +2536,7 @@ static void TiltTests(void)
 			 * the fingers go with the hand, the wrist end of the forearm with the forearm, a
 			 * stray bone far from the hands with the tilt alone. */
 			const uint8_t *handsCopy = *(const uint8_t **)(*(uint8_t **)(g_handsSkin + 0x40) + 0x10);
-			CHECK(handsCopy != NULL, "the hands' skin (two bones with nodes of 36, in the game) held");
+			CHECK(handsCopy && memcmp(handsCopy, g_handsBonesOriginal, sizeof(g_handsBonesOriginal)) != 0, "the hands' skin (two bones with nodes of 36, in the game) held and written");
 			if (handsCopy) {
 				float P[3], mX[3], mRef[3];
 				const char *parts[5] = { "a finger", "the other finger", "the forearm's wrist end", "", "a stray bone" };
@@ -2797,7 +2797,11 @@ static void TiltTests(void)
 	SeatInBone(g_bones, seatNow);
 	float lifted = sqrtf((seatNow[0] - seatBefore[0]) * (seatNow[0] - seatBefore[0]) + (seatNow[1] - seatBefore[1]) * (seatNow[1] - seatBefore[1]) + (seatNow[2] - seatBefore[2]) * (seatNow[2] - seatBefore[2]));
 	CHECK(g_picks == 0 || (lifted > 7.0f && lifted < 11.0f), "a tenth of a second in: lifted %.1f already (a wheel's bump lift rises over BumpRise 0.12 s, not in a frame: test 34's launched the bike)", lifted);
-	RunFrames(700);
+	RunFrames(250);
+	SeatInBone(g_bones, seatNow);
+	lifted = sqrtf((seatNow[0] - seatBefore[0]) * (seatNow[0] - seatBefore[0]) + (seatNow[1] - seatBefore[1]) * (seatNow[1] - seatBefore[1]) + (seatNow[2] - seatBefore[2]) * (seatNow[2] - seatBefore[2]));
+	CHECK(g_picks == 0 || lifted < 10.6f, "0.35 s in: %.1f, never over the step while it lasts (review: the bump lift settling slower than the filtered lift rose overshot by a fifth)", lifted);
+	RunFrames(450);
 	SeatInBone(g_bones, seatNow);
 	lifted = sqrtf((seatNow[0] - seatBefore[0]) * (seatNow[0] - seatBefore[0]) + (seatNow[1] - seatBefore[1]) * (seatNow[1] - seatBefore[1]) + (seatNow[2] - seatBefore[2]) * (seatNow[2] - seatBefore[2]));
 	CHECK(g_picks == 0 || (lifted > 9.0f && lifted < 11.5f), "the bike lifted %.1f (10), level", lifted);

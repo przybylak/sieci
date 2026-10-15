@@ -2007,13 +2007,26 @@ static uintptr_t SkinBoneTransforms(uintptr_t skin, uint32_t count, uintptr_t no
 		uint32_t n = *(const uint32_t *)(array + OFF_ARRAY_COUNT);
 		if (!entries || entries == nodes || n != count || !Accessible(entries, (size_t)count * 8, false))
 			continue;
+		/* Every entry null or a readable, finite transform (a bone the clips never drive may sit
+		 * with a zero scale: it is skipped on its own at the hold, not the whole array), and at
+		 * least one that reads as a proper transform. */
 		bool ok = true;
+		int proper = 0;
 		for (uint32_t b = 0; b < count && ok; b++) {
 			uintptr_t xf = ((const uintptr_t *)entries)[b];
 			float N[9], pos[3], sc;
-			ok = !xf || (Accessible(xf, 0x40, false) && TransformWorld(xf, N, pos, &sc, NULL));
+			if (!xf)
+				continue;
+			if (!Accessible(xf, 0x40, false)) {
+				ok = false;
+				break;
+			}
+			memcpy(pos, (const void *)(xf + (OFF_WORLD_POS - OFF_WORLD_ROT)), 12);
+			ok = isfinite(pos[0]) && isfinite(pos[1]) && isfinite(pos[2]) && fabsf(pos[0]) < 1e7f && fabsf(pos[1]) < 1e7f && fabsf(pos[2]) < 1e7f;
+			if (ok && TransformWorld(xf, N, pos, &sc, NULL))
+				proper++;
 		}
-		if (ok)
+		if (ok && proper)
 			return entries;
 	}
 	return 0;
@@ -3571,6 +3584,7 @@ static void NodelessRoles(void)
 			float N[9], n[3], sc;
 			if (!TransformWorld(((const uintptr_t *)p->xforms)[b], N, n, &sc, NULL)) {
 				p->skip[b] = 1;
+				memcpy(p->live + (size_t)b * BONE_SIZE, p->saved + (size_t)b * BONE_SIZE, BONE_SIZE);   /* its own entry again */
 				continue;
 			}
 			total++;
@@ -3969,7 +3983,8 @@ static void BeamPlace(float w[3], const float W[9])
 	for (int k = 0; k < 3; k++)
 		w[k] += g_lampAhead * W[k * 3 + g_lampBeamAxis] * (float)g_lampBeamSign;
 	if (g_lampLead > 0.0f && g_frameDt > 0.0f && g_speedAlongFast > 0.0f) {
-		float on = g_speedAlongFast * g_frameDt * g_lampLead;
+		float dt = g_frameDt > 0.05f ? 0.05f : g_frameDt;   /* a hitch frame mustn't throw the light ahead */
+		float on = g_speedAlongFast * dt * g_lampLead;
 		w[0] += sinf(g_headingNow) * on;
 		w[1] += cosf(g_headingNow) * on;
 	}
@@ -4062,7 +4077,7 @@ static void FrameLamp(bool tilt, const float R[9], const float P[3])
 		*flags = l->savedFlags & ~(uint64_t)1;
 		nodeLit = true;
 		if (!l->lit) {
-			Log("lamp: '%s' lit: the lens at (%.0f, %.0f, %.0f) in the world, the beam along (%.2f, %.2f, %.2f)", g_lampNodeName[i],
+			Log("lamp: '%s' lit: the light at (%.0f, %.0f, %.0f) in the world (%g along the beam from the lens), the beam along (%.2f, %.2f, %.2f)", g_lampNodeName[i], g_lampAhead,
 			    w[0], w[1], w[2], W[0 * 3 + g_lampBeamAxis] * g_lampBeamSign, W[1 * 3 + g_lampBeamAxis] * g_lampBeamSign, W[2 * 3 + g_lampBeamAxis] * g_lampBeamSign);
 			l->lit = true;
 			l->placed = true;
@@ -4180,8 +4195,8 @@ static void FrameLamp(bool tilt, const float R[9], const float P[3])
 				uintptr_t c = ((const uintptr_t *)children)[k];
 				len += snprintf(kids + len, sizeof(kids) - len, "%s%s '%.24s'", k ? ", " : ": ", c ? OrNone(ObjectTypeName(c)) : "(null)", c ? OrNone(ObjectName(c)) : "");
 			}
-		Log("lamp: the light reference %08X the script placed: its 3D '%.32s' (%s, %u child(ren)%s) put at the lens (%.0f, %.0f, %.0f) each frame, the beam along (%.2f, %.2f, %.2f)",
-		    g_lampRefId, OrNone(ObjectName(root)), OrNone(ObjectTypeName(root)), used, kids, w[0], w[1], w[2],
+		Log("lamp: the light reference %08X the script placed: its 3D '%.32s' (%s, %u child(ren)%s) put at (%.0f, %.0f, %.0f) each frame (%g along the beam from the lens), the beam along (%.2f, %.2f, %.2f)",
+		    g_lampRefId, OrNone(ObjectName(root)), OrNone(ObjectTypeName(root)), used, kids, w[0], w[1], w[2], g_lampAhead,
 		    W[0 * 3 + g_lampBeamAxis] * g_lampBeamSign, W[1 * 3 + g_lampBeamAxis] * g_lampBeamSign, W[2 * 3 + g_lampBeamAxis] * g_lampBeamSign);
 	}
 }
@@ -4497,6 +4512,8 @@ static void FrameTilt(void)
 			g_bumpLift = 0.0f;
 		else if (bump > g_bumpLift)
 			g_bumpLift += (bump - g_bumpLift) * (1.0f - expf(-dtb / g_bumpRise));
+		else if (bump > 0.0f)
+			g_bumpLift = bump;   /* the step persists and the filtered lift is catching up: never above what's left to lift (no overshoot) */
 		else
 			g_bumpLift += (bump - g_bumpLift) * (1.0f - expf(-dtb / g_bumpSettle));
 		if (g_bumpLift < 0.05f)
@@ -4793,8 +4810,10 @@ static void FaceRays(uintptr_t player, bool onGround)
 	 * with the wheel's bump lift. Something at both: the slope between the hits, over the
 	 * bike's pitch: WallAngle or steeper is a wall, the throttle eased off to nothing at the
 	 * wheel; between the climb limit and that, an obstacle; under the climb limit, a slope. */
-	float heights[2] = { R, 1.5f * R }, d[2];
-	for (int i = 0; i < 2; i++) {
+	/* A third ray at half a radius tells a low obstacle from a slope whose hit at 1.5 radii
+	 * lies beyond the rays' reach (review: a climbable slope's approach read as an obstacle). */
+	float heights[3] = { R, 1.5f * R, 0.5f * R }, d[3];
+	for (int i = 0; i < 3; i++) {
 		float a[3], b[3];
 		for (int k = 0; k < 3; k++) {
 			a[k] = pos[k] + up[k] * heights[i];
@@ -4812,6 +4831,14 @@ static void FaceRays(uintptr_t player, bool onGround)
 	const char *what;
 	bool wall;
 	if (d[1] < 0.0f) {
+		/* Nothing at 1.5 radii: lower than that, or a slope the upper ray didn't reach. The
+		 * slope between half a radius and the axle says which: steep is an obstacle. */
+		if (d[2] < 0.0f)
+			return;
+		float run = d[0] - d[2];
+		slope = g_pitchNow + atan2f(heights[0] - heights[2], run > 0.0f ? run : 0.0f) * 57.29578f;
+		if (slope < climb)
+			return;
 		what = "an obstacle lower than 1.5 wheel radii";
 		wall = false;
 	} else {
