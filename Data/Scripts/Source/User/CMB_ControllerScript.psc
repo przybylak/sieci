@@ -140,6 +140,18 @@ Group Optional
 	GlobalVariable Property CMB_HeadlampLive Auto Const
 	{1 while the headlamp should be lit: CMB_Slope.dll (optional, F4SE) shows its light while
 	it is. Written on getting on, every tick and on getting off.}
+	Light Property CMB_HeadlampLight Auto Const
+	{The headlamp's beam: a spotlight placed at the rider on getting on (the game keeps no
+	add-on node of a worn mesh, test 30), enabled while the lamp is lit, and kept at the lens
+	by CMB_Slope.dll (optional, F4SE). Removed on getting off.}
+	Light Property CMB_HeadlampLightShadow Auto Const
+	{The same, casting shadows.}
+	GlobalVariable Property CMB_HeadlampShadows Auto Const
+	{MCM: 1 = the shadow-casting beam is placed instead.}
+	GlobalVariable Property CMB_HeadlampRefHi Auto Const
+	GlobalVariable Property CMB_HeadlampRefLo Auto Const
+	{The placed light's form id for CMB_Slope.dll, its high and low 16 bits (0 when there is
+	none).}
 	ObjectReference Property GroundProbeRef Auto Const
 	{An XMarker in CMB_HoldingCell. Without the plugin, it feels for the navmesh around the
 	parked bike to tilt it.}
@@ -294,6 +306,9 @@ Function OnGameReloaded()
 		bag.OnGameReloaded()
 	endif
 
+	if !riding && headlampRef
+		RemoveHeadlamp()
+	endif
 	if riding
 		; Input layers and the engine's cached movement speed do not reliably
 		; survive a reload, so put the riding setup back in place.
@@ -308,7 +323,10 @@ Function OnGameReloaded()
 		SetCameraLive(true)
 		SetSlopeLive(true)
 		SetTiltLive(true)
-	SetHeadlampLive(true)
+		if !headlampRef
+			PlaceHeadlamp()
+		endif
+		SetHeadlampLive(true)
 		RegisterForPlayerTeleport()
 		hitGrace = false
 		healthMark = PlayerRef.GetValuePercentage(Health)
@@ -433,11 +451,56 @@ Function SetHeadlampLive(bool abRiding)
 	endif
 	if CMB_HeadlampLive.GetValue() != want
 		CMB_HeadlampLive.SetValue(want)
+		if headlampRef
+			if want > 0.0
+				headlampRef.Enable()
+			else
+				headlampRef.Disable()
+			endif
+		endif
 		if want > 0.0
 			Log("Headlamp lit.")
 		else
 			Log("Headlamp out.")
 		endif
+	endif
+EndFunction
+
+; The beam: a light reference placed at the rider while riding (the game keeps no add-on node
+; of a worn mesh, test 30); disabled until the lamp is lit; CMB_Slope.dll keeps it at the lens.
+ObjectReference headlampRef = None
+
+Function PlaceHeadlamp()
+	RemoveHeadlamp()
+	if !CMB_HeadlampLight || !CMB_HeadlampRefHi || !CMB_HeadlampRefLo
+		return
+	endif
+	Light lamp = CMB_HeadlampLight
+	if CMB_HeadlampLightShadow && CMB_HeadlampShadows && CMB_HeadlampShadows.GetValue() > 0.0
+		lamp = CMB_HeadlampLightShadow
+	endif
+	headlampRef = PlayerRef.PlaceAtMe(lamp, 1, false, true, false)
+	if headlampRef
+		int id = headlampRef.GetFormID()
+		CMB_HeadlampRefHi.SetValue(Math.LogicalAnd(Math.RightShift(id, 16), 65535) as float)
+		CMB_HeadlampRefLo.SetValue(Math.LogicalAnd(id, 65535) as float)
+		Log("Headlamp light placed (" + id + ").")
+	else
+		Log("Headlamp light could not be placed.")
+	endif
+EndFunction
+
+Function RemoveHeadlamp()
+	if CMB_HeadlampRefHi
+		CMB_HeadlampRefHi.SetValue(0.0)
+	endif
+	if CMB_HeadlampRefLo
+		CMB_HeadlampRefLo.SetValue(0.0)
+	endif
+	if headlampRef
+		headlampRef.Disable()
+		headlampRef.Delete()
+		headlampRef = None
 	endif
 EndFunction
 
@@ -611,6 +674,7 @@ Function Mount()
 	WatchFootsteps()
 	SetSlopeLive(true)
 	SetTiltLive(true)
+	PlaceHeadlamp()
 	SetHeadlampLive(true)
 	; Whatever is there is old (or from a game with the plugin): it writes them again at once.
 	if CMB_GroundNormalZ
@@ -892,6 +956,7 @@ Function FinishRide()
 	SetSlopeLive(false)
 	SetTiltLive(false)
 	SetHeadlampLive(false)
+	RemoveHeadlamp()
 	if CMB_ParkUpZ
 		CMB_ParkUpZ.SetValue(0.0)   ; that spot is used up
 	endif

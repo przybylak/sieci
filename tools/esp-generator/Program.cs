@@ -224,6 +224,7 @@ public static class Program
                     valueOptions = new { options = new[] { "Off", "On", "On at night" }, sourceType = "GlobalValue", sourceForm = Form(Rec("CMB_HeadlampMode")) },
                 },
                 new { type = "hotkey", id = "ToggleHeadlamp", text = "Headlamp on / off", help = "Switches the headlamp while riding (and sets the setting above to on or off)." },
+                Switcher("Headlamp casts shadows", "The beam casts shadows (costlier: the game runs only a few shadow lights at once). Takes effect the next time you get on.", "CMB_HeadlampShadows"),
                 Section("Hotkeys"),
                 new { type = "hotkey", id = "ToggleRide", text = "Get on / off / call the bike", help = "If you use this, set the built-in hotkey below to 0 so the key doesn't fire twice." },
                 Slider("Built-in hotkey (scan code)", "The F4SE hotkey that works without MCM. 48 = B, 34 = G, 47 = V, 0 = off. Press Apply after changing it.",
@@ -439,6 +440,14 @@ public static class Program
         var lampLightShadow = Headlamp(mod, "CMB_HeadlampLightShadow", true);
         HeadlampNode(mod, "CMB_HeadlampAddOn", HeadlampNodeIndex, lampLight);
         HeadlampNode(mod, "CMB_HeadlampShadowAddOn", HeadlampNodeIndex + 1, lampLightShadow);
+        // Test 30: the game keeps no add-on node of a worn mesh, so the controller script places the light
+        // as a reference and tells the plugin its form id (two globals: the high and low 16 bits), and the
+        // plugin keeps it at the lens.
+        var gHeadlampShadows = Global(mod, "CMB_HeadlampShadows", 0);
+        var gHeadlampRefHi = Global(mod, "CMB_HeadlampRefHi", 0);
+        var gHeadlampRefLo = Global(mod, "CMB_HeadlampRefLo", 0);
+        if (gHeadlampShadows.FormKey.ID != 0x842 || gHeadlampRefHi.FormKey.ID != 0x843 || gHeadlampRefLo.FormKey.ID != 0x844)
+            throw new InvalidOperationException($"CMB_HeadlampShadows, CMB_HeadlampRefHi and CMB_HeadlampRefLo must be 0x842-0x844 (CMB_Slope.dll looks for them), got {gHeadlampShadows.FormKey.ID:X}, {gHeadlampRefHi.FormKey.ID:X}, {gHeadlampRefLo.FormKey.ID:X}");
 
         // --- Controller quest ---
         quest.Name = "Commonwealth Motorbike";
@@ -490,6 +499,11 @@ public static class Program
             Obj("CMB_FallDamageCut", gFallCut),
             Obj("CMB_HeadlampMode", gHeadlampMode),
             Obj("CMB_HeadlampLive", gHeadlampLive),
+            Obj("CMB_HeadlampLight", lampLight),
+            Obj("CMB_HeadlampLightShadow", lampLightShadow),
+            Obj("CMB_HeadlampShadows", gHeadlampShadows),
+            Obj("CMB_HeadlampRefHi", gHeadlampRefHi),
+            Obj("CMB_HeadlampRefLo", gHeadlampRefLo),
             Obj("CMB_DismountOnHit", gDismountOnHit),
             Obj("CMB_BikeFollowsRider", gFollowsRider),
             Obj("CMB_KnockOffDamage", gKnockOff),
@@ -634,7 +648,7 @@ public static class Program
         light.Time = -1;
         light.Radius = 1400;
         light.Color = System.Drawing.Color.FromArgb(0, 255, 241, 224);
-        light.Flags = shadow ? Light.Flag.ShadowSpotlight : Light.Flag.NonShadowSpotlight;
+        light.Flags = (Light.Flag)1 | (shadow ? Light.Flag.ShadowSpotlight : Light.Flag.NonShadowSpotlight);   // 1: Dynamic (it moves)
         light.FalloffExponent = 1.0f;
         light.FOV = 55.0f;
         light.NearClip = 15.0f;

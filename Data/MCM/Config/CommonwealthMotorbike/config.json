@@ -286,6 +286,15 @@
       "help": "Switches the headlamp while riding (and sets the setting above to on or off)."
     },
     {
+      "type": "switcher",
+      "text": "Headlamp casts shadows",
+      "help": "The beam casts shadows (costlier: the game runs only a few shadow lights at once). Takes effect the next time you get on.",
+      "valueOptions": {
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|842"
+      }
+    },
+    {
       "type": "section",
       "text": "Hotkeys"
     },

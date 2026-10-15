@@ -14,6 +14,7 @@ from pathlib import Path
 
 # Papyrus property type -> record types (Mutagen class names) that can fill it.
 COMPATIBLE = {
+    "light": {"Light"},
     "actor": {"PlacedNpc"},
     "objectreference": {"PlacedObject", "PlacedNpc"},
     "globalvariable": {"GlobalFloat", "GlobalInt", "GlobalShort", "GlobalBool"},

@@ -7,6 +7,8 @@ Function Enable(bool abFadeIn = false) native
 Function Disable(bool abFadeOut = false) native
 bool Function IsDisabled() native
 bool Function Is3DLoaded() native
+ObjectReference Function PlaceAtMe(Form akFormToPlace, int aiCount = 1, bool abForcePersist = false, bool abInitiallyDisabled = false, bool abDeleteWhenAble = true) native
+Function Delete() native
 bool Function IsInInterior() native
 Function MoveTo(ObjectReference akTarget, float afXOffset = 0.0, float afYOffset = 0.0, float afZOffset = 0.0, bool abMatchRotation = true) native
 float Function GetDistance(ObjectReference akOther) native

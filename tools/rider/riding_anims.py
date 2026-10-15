@@ -699,11 +699,11 @@ def main() -> int:
     args = ap.parse_args()
     if args.fit:
         apply_fit(args.fit)
+        print(f"fitted to: {FIT_NAME} (seat top {SEAT_TOP_Z}, grips {GRIP_R.tolist()}, pegs {PEG_R.tolist()}"
+              + (f", bars turning {BAR_ANGLE:g} deg in turns" if BAR_ANGLE else "") + ")")
     if args.hands_on_bars:
         global STRAIGHT_HANDS
         STRAIGHT_HANDS = False
-        print(f"fitted to: {FIT_NAME} (seat top {SEAT_TOP_Z}, grips {GRIP_R.tolist()}, pegs {PEG_R.tolist()}"
-              + (f", bars turning {BAR_ANGLE:g} deg in turns" if BAR_ANGLE else "") + ")")
     game_files = read_game_files(args.game_files) if args.game_files else None
 
     sys.path.insert(0, str(args.pynifly))

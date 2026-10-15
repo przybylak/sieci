@@ -668,7 +668,7 @@ def make_value_nodes(path: Path, values: dict):
     for t in types:
         head += struct.pack("<I", len(t)) + t.encode()
     head += struct.pack(f"<{nblocks}H", *type_idx) + struct.pack(f"<{nblocks}I", *sizes)
-    path.write_bytes(head + data[rest_at:blocks_at] + b"".join(blocks))
+    path.write_bytes(head + data[rest_at:blocks_at] + b"".join(blocks) + data[pos:])   # and the footer: the root list
 
 
 def fix_all_bone_bounds(path: Path, spheres, skin_to_bone=None):
@@ -847,7 +847,8 @@ def main() -> int:
     old = nif.shapes[0]
     old.flags = old.flags | 1   # hidden
     for label, (v, f, u, n, kind, _) in shapes.items():
-        add_shape(nif, f"CMB_Harley_{label}", rows(v), rows(f), rows(u), rows(n), base, base.use_type, kind, False)
+        # Parked, nothing is lit: the lamp's lit parts are plain white there.
+        add_shape(nif, f"CMB_Harley_{label}", rows(v), rows(f), rows(u), rows(n), base, base.use_type, "matte" if kind == "glow" else kind, False)
     nif.save()
     check = NifFile(str(parked))
     names = [s.name for s in check.shapes]
@@ -873,15 +874,19 @@ def main() -> int:
             add_shape(out, f"{path.stem}_{label}", rows(tv), rows(f), rows(u), rows(tn), base, base.use_type, kind,
                       True, bone, bind, TransformBuf)
         # The headlamp's light: add-on nodes (BSValueNode) the game hangs the ADDN's light on.
-        # CMB_Slope.dll puts the node at the lens every frame (with the bars' turn and the tilt)
-        # and hides it when the lamp is off; the second carries the shadow-casting light. Made
-        # as plain NiNodes here (nifly's typed addBlock crashed) and turned into BSValueNodes in
-        # the file below.
+        # Test 30: the game keeps only the skinned shapes of a worn nif, not a node under its
+        # root, so the nodes go under the bone the bike hangs off (COM, or AnimObjectA), at the
+        # lens in the bone's space, in case nodes named for a bone are kept with it. CMB_Slope.dll
+        # puts a node it finds at the lens every frame; the light the script places does the
+        # job otherwise. Made as plain NiNodes (nifly's typed addBlock crashed) and turned into
+        # BSValueNodes in the file below.
         lamp_nodes = {"CMB_Headlamp": HEADLAMP_NODE_INDEX, "CMB_HeadlampShadow": HEADLAMP_NODE_INDEX + 1}
+        lens_bone = list(apply(bind, LAMP_LENS)) if bind else list(LAMP_LENS)
+        rot_bone = [list(bind[i][:3]) for i in range(3)] if bind else [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
         for node_name in lamp_nodes:
             xf = TransformBuf()
-            xf.store(list(LAMP_LENS), [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], [1.0, 1.0, 1.0])
-            out.add_node(node_name, xf, out.rootNode)
+            xf.store(lens_bone, rot_bone, [1.0, 1.0, 1.0])
+            out.add_node(node_name, xf, bone)
         out.save()
         make_value_nodes(path, lamp_nodes)
         allverts = np.vstack(allverts)

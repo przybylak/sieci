@@ -32,3 +32,26 @@ Event OnKeyDown(int keyCode)
 		Controller.HotkeyPressed()
 	endif
 EndEvent
+
+; MCM's keybinds and buttons call a function on the controller quest, and may land on this
+; script rather than CMB_ControllerScript (test 30: "Failed to call member function
+; HeadlampPressed on CMB_HotkeyF4SE"): relayed.
+Function HotkeyPressed()
+	Controller.HotkeyPressed()
+EndFunction
+
+Function HeadlampPressed()
+	Controller.HeadlampPressed()
+EndFunction
+
+Function RefreshHotkey()
+	RegisterHotkey()
+EndFunction
+
+Function ForceGiveKeys()
+	Controller.ForceGiveKeys()
+EndFunction
+
+Function EmergencyReset()
+	Controller.EmergencyReset()
+EndFunction
