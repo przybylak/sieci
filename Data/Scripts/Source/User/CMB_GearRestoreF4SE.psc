@@ -5,6 +5,8 @@ Whatever you wear in the bike's biped slot comes off when you get on; this
 remembers it and puts it back on when you get off. Without F4SE that gear
 just stays in your inventory.}
 
+CMB_ControllerScript Property Controller Auto Const
+{CMB_ControllerQuest, for MCM's calls that land here (test 31).}
 Armor Property CMB_BikeRiderArmor Auto Const Mandatory
 Armor Property CMB_BikeRiderArmorFrame Auto Const
 {The ground-planted version of the worn bike.}
@@ -27,4 +29,25 @@ Function RestoreSlot(Actor akActor)
 	if item && akActor.GetItemCount(item) > 0 && !akActor.IsEquipped(item)
 		akActor.EquipItem(item, false, true)
 	endif
+EndFunction
+
+; MCM's keybinds and buttons may call this script instead of the controller (test 31): relayed.
+Function HotkeyPressed()
+	Controller.HotkeyPressed()
+EndFunction
+
+Function HeadlampPressed()
+	Controller.HeadlampPressed()
+EndFunction
+
+Function RefreshHotkey()
+	Controller.RefreshHotkey()
+EndFunction
+
+Function ForceGiveKeys()
+	Controller.ForceGiveKeys()
+EndFunction
+
+Function EmergencyReset()
+	Controller.EmergencyReset()
 EndFunction

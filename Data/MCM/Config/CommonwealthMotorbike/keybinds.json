@@ -5,9 +5,8 @@
       "id": "ToggleRide",
       "desc": "Motorbike: get on / off / call",
       "action": {
-        "type": "CallFunction",
-        "form": "CommonwealthMotorbike.esp|80D",
-        "scriptName": "CMB_ControllerScript",
+        "type": "CallGlobalFunction",
+        "script": "CMB_MCMRelay",
         "function": "HotkeyPressed",
         "params": []
       }
@@ -16,9 +15,8 @@
       "id": "ToggleHeadlamp",
       "desc": "Motorbike: headlamp on / off",
       "action": {
-        "type": "CallFunction",
-        "form": "CommonwealthMotorbike.esp|80D",
-        "scriptName": "CMB_ControllerScript",
+        "type": "CallGlobalFunction",
+        "script": "CMB_MCMRelay",
         "function": "HeadlampPressed",
         "params": []
       }

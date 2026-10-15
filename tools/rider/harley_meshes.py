@@ -873,22 +873,7 @@ def main() -> int:
             allverts.append(tv)
             add_shape(out, f"{path.stem}_{label}", rows(tv), rows(f), rows(u), rows(tn), base, base.use_type, kind,
                       True, bone, bind, TransformBuf)
-        # The headlamp's light: add-on nodes (BSValueNode) the game hangs the ADDN's light on.
-        # Test 30: the game keeps only the skinned shapes of a worn nif, not a node under its
-        # root, so the nodes go under the bone the bike hangs off (COM, or AnimObjectA), at the
-        # lens in the bone's space, in case nodes named for a bone are kept with it. CMB_Slope.dll
-        # puts a node it finds at the lens every frame; the light the script places does the
-        # job otherwise. Made as plain NiNodes (nifly's typed addBlock crashed) and turned into
-        # BSValueNodes in the file below.
-        lamp_nodes = {"CMB_Headlamp": HEADLAMP_NODE_INDEX, "CMB_HeadlampShadow": HEADLAMP_NODE_INDEX + 1}
-        lens_bone = list(apply(bind, LAMP_LENS)) if bind else list(LAMP_LENS)
-        rot_bone = [list(bind[i][:3]) for i in range(3)] if bind else [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
-        for node_name in lamp_nodes:
-            xf = TransformBuf()
-            xf.store(lens_bone, rot_bone, [1.0, 1.0, 1.0])
-            out.add_node(node_name, xf, bone)
         out.save()
-        make_value_nodes(path, lamp_nodes)
         allverts = np.vstack(allverts)
         fix_all_bone_bounds(path, list(spheres.values()), rigid_inverse(bind) if bind else None)
         check = NifFile(str(path))
@@ -937,6 +922,36 @@ def main() -> int:
     print(f"wrote {partsfile}: front axle {fa}, rear axle {ra}, radius {parts['wheel_radius']:.1f}, "
           f"steering axis through {sp} along {steer_axis_worn}, the bar assembly's spheres beyond y {front_min_y:.1f}")
 
+    # The headlamp's light: add-on nodes (BSValueNode) the game hangs an ADDN record's light
+    # on. Tests 30 and 31: the game keeps only the skinned shapes of a worn nif (lifted under
+    # the actor's root), but an unskinned worn nif, such as the Pip-Boy's, keeps its nodes and
+    # its lights work. So the nodes go in an unskinned nif of their own, a second armor addon
+    # of the bike's armor: a speck of geometry (an empty nif might not be kept) and the two
+    # nodes at the lens, in the bike's space (the nif sits at the actor's root; CMB_Slope.dll
+    # puts a kept node at the lens every frame). Made as plain NiNodes (nifly's typed addBlock
+    # crashed) and turned into BSValueNodes in the file.
+    def lamp_nif(path: Path):
+        out = NifFile()
+        out.initialize("FO4", str(path), "NiNode", path.stem)
+        v = np.array([[LAMP_X - 0.2, LAMP_FACE_Y - 6.0, LAMP_Z - 0.2], [LAMP_X + 0.2, LAMP_FACE_Y - 6.0, LAMP_Z - 0.2], [LAMP_X, LAMP_FACE_Y - 6.0, LAMP_Z + 0.2]])
+        f = np.array([[0, 1, 2]], dtype=np.int64)
+        u = np.tile(np.array(uv_of["lamp_black"]), (3, 1))
+        add_shape(out, f"{path.stem}_speck", rows(v), rows(f), rows(u), rows(vertex_normals(v, f)), base, base.use_type, "metal", False)
+        lamp_nodes = {"CMB_Headlamp": HEADLAMP_NODE_INDEX, "CMB_HeadlampShadow": HEADLAMP_NODE_INDEX + 1}
+        for node_name in lamp_nodes:
+            xf = TransformBuf()
+            xf.store(list(LAMP_LENS), [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], [1.0, 1.0, 1.0])
+            out.add_node(node_name, xf, out.rootNode)
+        out.save()
+        make_value_nodes(path, lamp_nodes)
+        check = NifFile(str(path))
+        try:
+            node_names = [n.name for n in check.nodes.values()] if isinstance(check.nodes, dict) else [n.name for n in check.nodes]
+        except Exception as e:   # noqa: BLE001
+            node_names = [f"(nodes unreadable: {e})"]
+        print(f"wrote {path}: the headlamp's add-on nodes (unskinned, a second armor addon): {len(check.shapes)} shape, nodes {node_names}")
+
+    lamp_nif(args.out / "CMB_BikeLamp.nif")
     worn(args.out / "CMB_BikeWorn.nif", BIKE_BONE, None)
     if args.seat:
         male = read_seat(args.seat)

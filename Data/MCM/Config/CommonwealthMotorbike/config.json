@@ -321,9 +321,8 @@
       "text": "Apply built-in hotkey",
       "help": "Re-registers the built-in hotkey after changing it.",
       "action": {
-        "type": "CallFunction",
-        "form": "CommonwealthMotorbike.esp|80D",
-        "scriptName": "CMB_ControllerScript",
+        "type": "CallGlobalFunction",
+        "script": "CMB_MCMRelay",
         "function": "RefreshHotkey",
         "params": []
       }
@@ -337,9 +336,8 @@
       "text": "Give me the keys",
       "help": "For alternative starts that skip the Pip-Boy: hands over the Motorbike Keys now.",
       "action": {
-        "type": "CallFunction",
-        "form": "CommonwealthMotorbike.esp|80D",
-        "scriptName": "CMB_ControllerScript",
+        "type": "CallGlobalFunction",
+        "script": "CMB_MCMRelay",
         "function": "ForceGiveKeys",
         "params": []
       }
@@ -349,9 +347,8 @@
       "text": "Emergency reset",
       "help": "Gets you off the bike and undoes everything riding changed: speed, controls, animations, hidden companions.",
       "action": {
-        "type": "CallFunction",
-        "form": "CommonwealthMotorbike.esp|80D",
-        "scriptName": "CMB_ControllerScript",
+        "type": "CallGlobalFunction",
+        "script": "CMB_MCMRelay",
         "function": "EmergencyReset",
         "params": []
       }

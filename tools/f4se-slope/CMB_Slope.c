@@ -135,6 +135,7 @@
 #define STRING_EXTERNAL       0x4000u
 #define STRING_WIDE           0x8000u
 #define OFF_WORLD_ROT         0x70          /* NiAVObject::m_worldTransform.rot (3 rows of 4 floats) */
+#define OFF_WORLD_BOUND       0xB0          /* NiAVObject::m_worldBound (centre, radius) */
 #define OFF_CHILDREN          0x128         /* NiNode::m_children.m_data */
 #define OFF_CHILDREN_CAP      0x130         /* NiNode::m_children.m_arrayBufLen (UInt16) */
 #define OFF_CHILDREN_USED     0x132         /* NiNode::m_children.m_emptyRunStart (UInt16) */
@@ -344,6 +345,11 @@ static float g_smoothing = 0.25f;         /* seconds: how quickly the tilt follo
 static float g_medianTime = 0.25f;        /* seconds of samples the median is taken over */
 static float g_maxRate = 90.0f;           /* degrees per second at most */
 static float g_maxRoll;                   /* degrees: a two-wheeler stays upright across a slope */
+static float g_maxLean = 20.0f;             /* [Tilt] MaxLean: the centripetal lean into turns, at most (0: none) */
+static int g_headLevel = 1;                 /* [Tilt] HeadLevel: the head kept level as the bike rolls */
+static float g_headingNow;                  /* the player's heading this frame (FrameTilt), for the head's counter-roll */
+static float g_wallAheadAt = -100.0f;       /* when the front ray last found a face ahead (the throttle is cut for a quarter second after) */
+static int g_wallLogs;
 static float g_pivotHeight = 74.0f;       /* the seat (the rider's hips) above the feet */
 static int g_trace;                       /* 1 = log the tilt every 0.25 s while riding */
 static int g_steer = 1;                   /* 1 = limit how fast the bike turns (CMB_TurnRadius) */
@@ -744,6 +750,12 @@ static void ReadSettings(void)
 	g_maxRoll = strtof(value, NULL);
 	if (!(g_maxRoll >= 0.0f && g_maxRoll <= 45.0f))
 		g_maxRoll = 0.0f;
+	GetPrivateProfileStringA("Tilt", "MaxLean", "20", value, sizeof(value), ini);
+	g_maxLean = strtof(value, NULL);
+	if (!(g_maxLean >= 0.0f && g_maxLean <= 45.0f))
+		g_maxLean = 20.0f;
+	g_headLevel = (int)GetPrivateProfileIntA("Tilt", "HeadLevel", 1, ini) != 0;
+	Log("  lean: into turns up to %g deg (MaxLean), the head %s", g_maxLean, g_headLevel ? "kept level" : "tilting with the bike");
 	GetPrivateProfileStringA("Tilt", "PivotHeight", "0", value, sizeof(value), ini);
 	g_pivotHeight = strtof(value, NULL);
 	if (!(g_pivotHeight >= -50.0f && g_pivotHeight <= 200.0f))
@@ -2564,8 +2576,42 @@ static uint8_t ArmRole(const char *name)
  * forearm bone's node) swings in its own bend plane, the wrist (the hand's node) lands on the
  * grip turned with the bars. The nodes are noted as the rider's shapes are held. */
 typedef struct { uintptr_t upper, elbow, hand; } ArmChain;
-typedef struct { bool ok; float R1[9], t1[3], R2[9], t2[3]; } ArmMap;   /* world maps, before the tilt: the upper arm's and the forearm's */
+typedef struct { bool ok; float R1[9], t1[3], R2[9], t2[3]; float L1, L2, reach, elbowMove; } ArmMap;   /* world maps, before the tilt: the upper arm's and the forearm's (or, for the head, R1/t1 alone) */
 static ArmChain g_arm[2];
+static uintptr_t g_headNode;                /* the head's bone (HEAD), the joint the head is kept level about */
+static bool g_armLogged[2];
+
+/* The head's bone by name (HEAD, or Skyrim's NPC Head). */
+static bool HeadName(const char *name)
+{
+	if (!name)
+		return false;
+	if (_strnicmp(name, "HEAD", 4) == 0 && (name[4] == 0 || name[4] == ' ' || name[4] == '['))
+		return true;
+	return strstr(name, "NPC Head") != NULL;
+}
+
+/* 4 for the head's bone and whatever hangs under it (the face, the eyes, a helmet's node). */
+static uint8_t HeadRole(uintptr_t node)
+{
+	uintptr_t up = node;
+	for (int depth = 0; depth < 8 && up; depth++) {
+		if (HeadName(ObjectName(up)))
+			return 4;
+		up = ReadPtr(up + OFF_PARENT);
+		if (up && !IsA(up, RTTI_AVOBJECT))
+			up = 0;
+	}
+	return 0;
+}
+
+static const char *RoleWord(uint8_t role)
+{
+	int kind = role & 0xF;
+	bool right = (role & 0x10) != 0;
+	return kind == 4 ? "the head" : kind == 3 ? (right ? "the right hand" : "the left hand") : kind == 2 ? (right ? "the right forearm" : "the left forearm")
+	     : kind == 1 ? (right ? "the right upper arm" : "the left upper arm") : "-";
+}
 
 static void NoteArmNode(uint8_t role, uintptr_t node, const char *name)
 {
@@ -2668,6 +2714,10 @@ static bool SolveArm(const ArmChain *chain, const float Q[9], const float q[3], 
 		v1n[i] = E2[i] - S[i];
 		v2n[i] = T[i] - E2[i];
 	}
+	out->L1 = L1;
+	out->L2 = L2;
+	out->reach = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+	out->elbowMove = sqrtf((E2[0] - E[0]) * (E2[0] - E[0]) + (E2[1] - E[1]) * (E2[1] - E[1]) + (E2[2] - E[2]) * (E2[2] - E[2]));
 	RotationBetween(v1, v1n, out->R1);
 	RotationBetween(v2, v2n, out->R2);
 	MulV(out->R1, S, R1S);
@@ -2683,11 +2733,20 @@ static bool SolveArm(const ArmChain *chain, const float Q[9], const float q[3], 
 /* The world map (before the tilt) an arm bone gets for the bars' turn: the hand and fingers
  * the turn itself, the upper arm and the forearm their side's solve, or, with no chain to
  * solve, the forearm part of the turn (the old way). False: no map. */
-static bool ArmMapFor(uint8_t role, bool hands, const ArmMap arm[2], const float Qb[9], const float qb[3], const float axisW[3], const float qW[3], float R[9], float t[3])
+static bool ArmMapFor(uint8_t role, bool hands, const ArmMap arm[3], const float Qb[9], const float qb[3], const float axisW[3], const float qW[3], float R[9], float t[3])
 {
-	if (!hands || !role)
+	if (!role)
 		return false;
 	int side = (role & 0x10) ? 1 : 0, kind = role & 0xF;
+	if (kind == 4) {   /* the head, kept level: arm[2] holds its map */
+		if (!arm[2].ok)
+			return false;
+		memcpy(R, arm[2].R1, sizeof(float) * 9);
+		memcpy(t, arm[2].t1, sizeof(float) * 3);
+		return true;
+	}
+	if (!hands)
+		return false;
 	if (kind == 3) {
 		memcpy(R, Qb, sizeof(float) * 9);
 		memcpy(t, qb, sizeof(float) * 3);
@@ -2874,6 +2933,10 @@ static void HoldRider(uintptr_t shape, uintptr_t skin, uintptr_t data, const cha
 			} else {
 				p->arm[b] = ArmRole(ObjectName(node));
 				NoteArmNode(p->arm[b], node, ObjectName(node));
+				if (!p->arm[b])
+					p->arm[b] = HeadRole(node);
+				if (p->arm[b] == 4 && !g_headNode && HeadName(ObjectName(node)))
+					g_headNode = node;
 			}
 		}
 		if (r) {
@@ -2914,8 +2977,10 @@ static void HoldRider(uintptr_t shape, uintptr_t skin, uintptr_t data, const cha
 		p->count = 1;
 		/* Under a hand or forearm bone (the Pip-Boy's, a ring's): it turns with the bars as that bone does. */
 		uintptr_t up = parent;
-		for (int depth = 0; depth < 4 && up && p->arm[0] == 0; depth++) {
+		for (int depth = 0; depth < 12 && up && p->arm[0] == 0; depth++) {   /* 12: the Pip-Boy's screen sits deep under the forearm (test 31) */
 			p->arm[0] = ArmRole(ObjectName(up));
+			if (!p->arm[0] && HeadName(ObjectName(up)))
+				p->arm[0] = 4;
 			up = ReadPtr(up + OFF_PARENT);
 			if (up && !IsA(up, RTTI_AVOBJECT))
 				up = 0;
@@ -2957,6 +3022,8 @@ static void LetGoRider(int i, const char *why)
 static void LetGoAllRider(const char *why)
 {
 	memset(g_arm, 0, sizeof(g_arm));
+	g_headNode = 0;
+	g_armLogged[0] = g_armLogged[1] = false;
 	int had = g_riderCount;
 	while (g_riderCount)
 		LetGoRider(g_riderCount - 1, why);
@@ -3085,8 +3152,10 @@ static void SyncRider(uintptr_t player, const SkinList *list, bool wanted)
 		LetGoAllRider("too many shapes");
 		return;
 	}
-	if (!g_riderCount)
+	if (!g_riderCount) {
 		memset(g_arm, 0, sizeof(g_arm));   /* the chains are found again with the shapes */
+		g_headNode = 0;
+	}
 	int before = g_riderCount, skinned = 0;
 	bool pickSkinned[MAX_RIDER], pickPlain[MAX_RIDER];
 	memset(pickSkinned, 0, sizeof(pickSkinned));
@@ -3125,6 +3194,16 @@ static void SyncRider(uintptr_t player, const SkinList *list, bool wanted)
 			LogNames("rider:   skinned: ", list, pickSkinned, true);
 		if (g_riderCount - before - skinned)
 			LogNames("rider:   plain: ", list, pickPlain, false);
+		Log("rider:   the arms' chains: left shoulder %s, elbow %s, hand %s; right shoulder %s, elbow %s, hand %s; the head %s",
+		    g_arm[0].upper ? "found" : "missing", g_arm[0].elbow ? "found" : "missing", g_arm[0].hand ? "found" : "missing",
+		    g_arm[1].upper ? "found" : "missing", g_arm[1].elbow ? "found" : "missing", g_arm[1].hand ? "found" : "missing", g_headNode ? "found" : "missing");
+		char roles[480] = "";
+		int rl = 0;
+		for (int i = 0; i < g_riderCount && rl < (int)sizeof(roles) - 70; i++)
+			if (!g_rider[i].skin && g_rider[i].arm[0])
+				rl += snprintf(roles + rl, sizeof(roles) - rl, "%s%s (%s)", rl ? ", " : "", g_rider[i].name, RoleWord(g_rider[i].arm[0]));
+		if (rl)
+			Log("rider:   plain shapes moving with the arms or the head: %s", roles);
 	}
 }
 
@@ -3215,16 +3294,35 @@ static void FrameRider(bool tilt, const float R[9], const float P[3])
 	/* The bars' turn about that axis, and each arm's solve (the shoulder stays, the elbow
 	 * swings, the wrist lands on the turned grip). */
 	float Qb[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, qb[3] = { 0, 0, 0 };
-	ArmMap arm[2];
-	arm[0].ok = arm[1].ok = false;
+	ArmMap arm[3];
+	arm[0].ok = arm[1].ok = arm[2].ok = false;
 	if (hands) {
 		float Qq[3];
 		AxisRotation(axisW, g_barNow / 57.29578f, Qb);
 		MulV(Qb, qW, Qq);
 		for (int i = 0; i < 3; i++)
 			qb[i] = qW[i] - Qq[i];
-		for (int side = 0; side < 2; side++)
+		for (int side = 0; side < 2; side++) {
 			SolveArm(&g_arm[side], Qb, qb, &arm[side]);
+			if (arm[side].ok && !g_armLogged[side]) {
+				g_armLogged[side] = true;
+				Log("rider: the %s arm solved: upper arm %.1f, forearm %.1f, the grip %.1f from the shoulder, the elbow moved %.1f (the bars %.1f deg)",
+				    side ? "right" : "left", arm[side].L1, arm[side].L2, arm[side].reach, arm[side].elbowMove, g_barNow);
+			}
+		}
+	}
+	/* The head kept level (test 31's wish): the head's bones (HEAD and what hangs under it: the
+	 * face, the eyes, a helmet) turned back by the bike's roll about the heading, through the
+	 * head's own joint, before the tilt; the pitch still goes with the bike. */
+	if (g_headLevel && g_headNode && fabsf(g_rollNow) > 0.3f) {
+		float Nh[9], hp[3], sh, fwd[3] = { sinf(g_headingNow), cosf(g_headingNow), 0.0f }, Rp[3];
+		if (NodeWorld(g_headNode, Nh, hp, &sh, NULL)) {
+			AxisRotation(fwd, -g_rollNow / 57.29578f, arm[2].R1);
+			MulV(arm[2].R1, hp, Rp);
+			for (int i = 0; i < 3; i++)
+				arm[2].t1[i] = hp[i] - Rp[i];
+			arm[2].ok = true;
+		}
 	}
 	for (int i = 0; i < g_riderCount; i++) {
 		RiderPart *p = &g_rider[i];
@@ -3358,7 +3456,7 @@ static void PropagateWorld(uintptr_t node, const float W[9], const float w[3], f
 		return;
 	for (unsigned i = 0; i < used; i++) {
 		uintptr_t c = ((const uintptr_t *)children)[i];
-		if (!c || !IsA(c, RTTI_AVOBJECT) || !Accessible(c + OFF_LOCAL_ROT, 0x80, true))
+		if (!c || !IsA(c, RTTI_AVOBJECT) || !Accessible(c + OFF_LOCAL_ROT, 0x90, true))
 			continue;
 		float L[9], l[3], Wc[9], Wl[3], wc[3], sc;
 		ReadRot((const float *)(c + OFF_LOCAL_ROT), L);
@@ -3369,6 +3467,7 @@ static void PropagateWorld(uintptr_t node, const float W[9], const float w[3], f
 		for (int k = 0; k < 3; k++)
 			wc[k] = w[k] + s * Wl[k];
 		WriteTransform(c, OFF_WORLD_ROT, Wc, wc, s * sc);
+		memcpy((void *)(c + OFF_WORLD_BOUND), wc, 12);
 		PropagateWorld(c, Wc, wc, s * sc, depth + 1);
 	}
 }
@@ -3501,6 +3600,7 @@ static void FrameLamp(bool tilt, const float R[9], const float P[3])
 	LensWorld(bike, Nb, nb, sb, M, m, w, W);
 	WriteTransform(root, OFF_LOCAL_ROT, W, w, 1.0f);
 	WriteTransform(root, OFF_WORLD_ROT, W, w, 1.0f);
+	memcpy((void *)(root + OFF_WORLD_BOUND), w, 12);   /* the bound's centre with it (the renderer culls by it) */
 	PropagateWorld(root, W, w, 1.0f, 0);
 	memcpy((void *)(g_lampRef + OFF_REFR_POS), w, 12);
 	g_lampRefParked = false;
@@ -3683,6 +3783,7 @@ static void FrameTilt(void)
 	float h = *(const float *)(player + OFF_REFR_HEADING);
 	if (!isfinite(h))
 		return;
+	g_headingNow = h;
 
 	/* The moving parts: the wheels spin with the distance ridden (back when reversing); the
 	 * bars go over with the rider's turning (the heading grows turning right), smoothed. */
@@ -3751,7 +3852,18 @@ static void FrameTilt(void)
 		float maxRoll = g_maxRoll < maxDegrees ? g_maxRoll : maxDegrees;
 		float targetPitch = useWheels ? Clamp(g_wheelPitch, maxDegrees) : g_trackPitchOk ? Clamp(g_trackPitch, maxDegrees)
 		                  : useNormal ? Clamp(medianPitch, maxDegrees) : g_pitchSmooth;
-		float targetRoll = onGround ? Clamp(medianRoll, maxRoll) : g_rollSmooth;
+		/* Leaning into turns (test 31's wish: the rider in line with the bike in bends): the
+		 * centripetal lean atan(v w / g) for the speed and the turning rate (g 687 units/s^2,
+		 * 70 units a metre), none at a creep and full from 150 units/s, at most MaxLean, on top
+		 * of the ground's roll; the rider leans with the bike. */
+		float lean = 0.0f;
+		if (g_maxLean > 0.0f && onGround) {
+			float v = g_speed > 0.0f ? g_speed : 0.0f, w = g_headingRate / 57.29578f;
+			float fade = (v - 50.0f) / 100.0f;
+			fade = fade < 0.0f ? 0.0f : fade > 1.0f ? 1.0f : fade;
+			lean = Clamp(atan2f(v * w, 687.0f) * 57.29578f * fade, g_maxLean);
+		}
+		float targetRoll = onGround ? Clamp(medianRoll, maxRoll) + lean : g_rollSmooth;
 		g_pitchSmooth = targetPitch;
 		g_rollSmooth = targetRoll;
 		/* A critically damped spring to the target (test 29: smoothing then a rate cap saw-sawed
@@ -3766,7 +3878,7 @@ static void FrameTilt(void)
 		g_rollNow += g_rollVel * dt;
 		/* The lift: the wheels onto the ground between the rays when it's above the capsule's
 		 * contact (a dip, a lip under the front); never down (on a crest the bike sits on it). */
-		float targetLift = useWheels && g_wheelLift > 0.0f ? (g_wheelLift < 40.0f ? g_wheelLift : 40.0f) : 0.0f;
+		float targetLift = useWheels && g_wheelLift > 0.0f ? (g_wheelLift < 60.0f ? g_wheelLift : 60.0f) : 0.0f;   /* 60: a ditch's wheels bridge it (test 31) */
 		g_liftNow += (targetLift - g_liftNow) * (1.0f - expf(-g_frameDt / 0.15f));
 	} else {
 		g_liftNow = 0.0f;
@@ -3953,6 +4065,24 @@ static void TrackPitch(uintptr_t player, const float pos[3])
  * ground between them sits above the capsule's contact under the rider (the lift that puts
  * the wheels on it). No track lag at a lip or a crest (test 29: the leading wheel went into
  * the new slope). Both rays must hit within 70 units above and 160 below; else the track. */
+/* The front ray found a surface higher than the front wheel could climb: a face ahead (test
+ * 31: a boulder the capsule stepped up while the front wheel, a wheelbase ahead of it, went
+ * into it) or a ceiling. A ray forward at axle height tells them apart; against a face the
+ * throttle is cut while it's there (turning or backing off is still the rider's). */
+static void WallAhead(uintptr_t cell, const float pos[3], float sh, float ch, float hitZ)
+{
+	float reach = g_frontAxle[1] + 10.0f;
+	float a[3] = { pos[0], pos[1], pos[2] + g_wheelRadius }, b[3] = { pos[0] + sh * reach, pos[1] + ch * reach, pos[2] + g_wheelRadius };
+	float f = CastRay(cell, a, b);
+	if (!(f > 0.0f && f < 1.0f))
+		return;
+	if ((float)g_clock - g_wallAheadAt > 1.0f && g_wallLogs < 20) {
+		g_wallLogs++;
+		Log("rays: a face ahead of the front wheel (the ground %.0f above the feet at its contact; something %.0f ahead at axle height): the throttle cut while it's there", hitZ, f * reach);
+	}
+	g_wallAheadAt = (float)g_clock;
+}
+
 static void WheelRays(uintptr_t player, bool onGround)
 {
 	g_wheelPitchOk = false;
@@ -3980,7 +4110,9 @@ static void WheelRays(uintptr_t player, bool onGround)
 		}
 		z[i] = a[2] + (b[2] - a[2]) * f - pos[2];
 		if (z[i] > rise) {
-			g_wheelRaysMissed++;   /* something overhead */
+			g_wheelRaysMissed++;   /* something overhead, or a face ahead taller than a wheel climbs */
+			if (i == 0)
+				WallAhead(cell, pos, sh, ch, z[i]);
 			return;
 		}
 	}
@@ -4517,6 +4649,8 @@ static void AfterInput(void)
 			 * made it a unit long and the speed full at once); its direction is the keys'
 			 * (straight on with none, so the game turns on a side key while rolling). */
 			float size = InputForSpeed(g_throttle) * (forward ? g_throttleMag : 1.0f);
+			if ((float)g_clock - g_wallAheadAt < 0.25f)
+				size = 0.0f;   /* a face ahead of the front wheel (WallAhead): no forward drive into it */
 			float dx = x, dy = forward && y > 0.2f ? y : 1.0f;   /* a side key's own read: forward is still held */
 			float len = sqrtf(dx * dx + dy * dy);
 			if (!(len > 0.0f)) {

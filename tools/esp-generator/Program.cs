@@ -162,7 +162,8 @@ public static class Program
         };
         object Switcher(string text, string help, string global) => new { type = "switcher", text, help, valueOptions = Global(global) };
         object Section(string text) => new { type = "section", text };
-        object Call(string function) => new { type = "CallFunction", form = quest, scriptName = "CMB_ControllerScript", function, @params = Array.Empty<object>() };
+        // Global functions on CMB_MCMRelay (tests 30 and 31: MCM called the quest's other scripts).
+        object Call(string function) => new { type = "CallGlobalFunction", script = "CMB_MCMRelay", function, @params = Array.Empty<object>() };
         object Button(string text, string help, string function) => new { type = "button", text, help, action = Call(function) };
 
         var config = new
@@ -287,6 +288,8 @@ public static class Program
 
         // --- Controller quest (created early so other records can point at it) ---
         var quest = mod.Quests.AddNew("CMB_ControllerQuest");
+        if (quest.FormKey.ID != 0x80D)
+            throw new InvalidOperationException($"CMB_ControllerQuest must be 0x80D (CMB_MCMRelay.psc looks it up), got {quest.FormKey.ID:X}");
 
         // --- Worn bike: hangs off the seated rider (the ground-planted one is further down) ---
         var armor = WornBike(mod, "CMB_BikeRiderAA", "CMB_BikeRiderArmor", RiderBikeModel, RiderBikeModelFemale);
@@ -448,6 +451,8 @@ public static class Program
         var gHeadlampRefLo = Global(mod, "CMB_HeadlampRefLo", 0);
         if (gHeadlampShadows.FormKey.ID != 0x842 || gHeadlampRefHi.FormKey.ID != 0x843 || gHeadlampRefLo.FormKey.ID != 0x844)
             throw new InvalidOperationException($"CMB_HeadlampShadows, CMB_HeadlampRefHi and CMB_HeadlampRefLo must be 0x842-0x844 (CMB_Slope.dll looks for them), got {gHeadlampShadows.FormKey.ID:X}, {gHeadlampRefHi.FormKey.ID:X}, {gHeadlampRefLo.FormKey.ID:X}");
+        AddLampAddon(mod, armor, "CMB_BikeRiderLampAA");
+        AddLampAddon(mod, armorFrame, "CMB_BikeRiderFrameLampAA");
 
         // --- Controller quest ---
         quest.Name = "Commonwealth Motorbike";
@@ -534,6 +539,7 @@ public static class Program
             Obj("CMB_HotkeyCode", gHotkey));
         // Optional too: puts slot-57 gear back on after a ride (F4SE's GetWornItem).
         var gear = Script("CMB_GearRestoreF4SE",
+            Obj("Controller", quest),
             Obj("CMB_BikeRiderArmor", armor),
             Obj("CMB_BikeRiderArmorFrame", armorFrame),
             Int("BikeSlotIndex", BikeSlotIndex));
@@ -637,32 +643,50 @@ public static class Program
         return armor;
     }
 
-    // The headlamp's beam: a spotlight the game hangs on the worn bike's add-on node (BSValueNode
-    // CMB_Headlamp in the worn nifs, CMB_Slope.dll puts it at the lens): warm white, 14 m, 55 degrees
-    // wide; the shadow-casting kind on the second node (CMB_Slope.ini Shadows=1 picks it).
+    // The headlamp's beam: a spotlight like the game's own power armor headlamp (test 31: with
+    // attenuation 1/1/1 and 55 degrees ours lit nothing; the game's lights all have Constant 0,
+    // Scalar 1, Exponent 2, FOV 70-100, radius 1420-2130), warm white, 30 m, 70 degrees, dynamic,
+    // brighter than the stock lamp (fade 2); the second the shadow-casting kind. Hung on the lamp
+    // nif's add-on nodes by the game, or placed as a reference by the controller script.
     const uint HeadlampNodeIndex = 31985;
     static Light Headlamp(Fallout4Mod mod, string editorId, bool shadow)
     {
         var light = mod.Lights.AddNew(editorId);
         light.ObjectBounds = new ObjectBounds();
         light.Time = -1;
-        light.Radius = 1400;
+        light.Radius = 2130;
         light.Color = System.Drawing.Color.FromArgb(0, 255, 241, 224);
         light.Flags = (Light.Flag)1 | (shadow ? Light.Flag.ShadowSpotlight : Light.Flag.NonShadowSpotlight);   // 1: Dynamic (it moves)
         light.FalloffExponent = 1.0f;
-        light.FOV = 55.0f;
-        light.NearClip = 15.0f;
+        light.FOV = 70.0f;
+        light.NearClip = 10.0f;
         light.FlickerPeriod = 0.0f;
         light.FlickerIntensityAmplitude = 0.0f;
         light.FlickerMovementAmplitude = 0.0f;
-        light.Constant = 1.0f;
+        light.Constant = 0.0f;
         light.Scalar = 1.0f;
-        light.Exponent = 1.0f;
+        light.Exponent = 2.0f;
         light.GodRaysNearClip = 0.0f;
         light.Value = 0;
         light.Weight = 0.0f;
-        light.FadeValue = 1.5f;
+        light.FadeValue = 2.0f;
         return light;
+    }
+
+    // The headlamp's add-on nodes ride in an unskinned nif of their own (CMB_BikeLamp.nif), a second
+    // armor addon of the bike's armor: the game keeps an unskinned worn nif's nodes, not a skinned
+    // one's (tests 30 and 31), and hangs the ADDN records' lights on them. Made after every record
+    // with a fixed form id (the plugin's globals), so none of those move.
+    static void AddLampAddon(Fallout4Mod mod, Armor armor, string addonId)
+    {
+        const string lampModel = "CMB\\CMB_BikeLamp.nif";
+        var lampArma = mod.ArmorAddons.AddNew(addonId);
+        lampArma.BodyTemplate = new BodyTemplate { FirstPersonFlags = BikeSlot };
+        lampArma.Race.SetTo(Vanilla.HumanRace);
+        lampArma.Priority = new GenderedItem<byte>(0, 0);
+        lampArma.WeightSliderEnabled = new GenderedItem<bool>(false, false);
+        lampArma.WorldModel = new GenderedItem<Model?>(new Model { File = lampModel }, new Model { File = lampModel });
+        armor.Armatures.Add(new ArmorAddonModel { AddonIndex = (ushort)armor.Armatures.Count, ArmorAddon = lampArma.ToNullableLink() });
     }
 
     static AddonNode HeadlampNode(Fallout4Mod mod, string editorId, uint nodeIndex, Light light)
