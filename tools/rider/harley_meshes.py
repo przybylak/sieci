@@ -110,7 +110,9 @@ SF1_OWN_EMIT = 0x400000   # the shape glows by its emissive colour
 LAMP_X, LAMP_Z = 0.3, 81.9          # the lamp's axis
 LAMP_FACE_Y, LAMP_R = 75.0, 7.5     # the lens sits here; the bucket runs 13 back from it
 LAMP_LENS = (LAMP_X, LAMP_FACE_Y + 1.3, LAMP_Z)   # the lens's centre: where the light comes from
-HEADLAMP_NODE_INDEX = 31985   # the add-on node index (ADDN) of the light; +1 the shadow-casting one
+# The headlamp's light is a reference the controller script places at the lens (LampPoint in
+# CMB_BikeParts.ini, kept there by the plugin); the lamp piece nifs of tests 32-35 (the light's
+# add-on nodes in an unskinned armor addon of their own) never reached the player's 3D.
 SF2_ZBUFFER_WRITE, SF2_DOUBLE_SIDED, SF2_ENVMAP_LIGHT_FADE = 0x1, 0x10, 0x8000
 SHADER_DEFAULT, SHADER_ENV_MAP = 0, 1
 ALPHA_BLEND_FLAGS = 4845   # blend src alpha / inv src alpha, test greater
@@ -420,7 +422,14 @@ def role_of(v, parts):
         return wheel
     cx, cy, cz = v.mean(axis=0)
     sp = parts["steer_point"]
-    if cy < sp[1] + 16 or (cz > BAR_HEIGHT and cy < sp[1] + 45):   # the mirrors reach back over the tank
+    # Up at bar height: within 45 of the steering head anything (the risers, the clamp, the
+    # speedo, the mirrors that reach back over the tank), and out to 65 only what sits off the
+    # centre line: the grips, levers, switch housings and the left mirror sit 45-57 behind the
+    # head on this model (the bars sweep back), so with one line at 45 they stayed with the
+    # frame while the bars turned (test 35: 590 vertices of bar end in the fixed shapes); but
+    # the tank's chrome filler cap, on the centre line 55 behind the head, has its centre just
+    # above BAR_HEIGHT too, and a plain 65 would have turned it with the bars.
+    if cy < sp[1] + 16 or (cz > BAR_HEIGHT and (cy < sp[1] + 45 or (abs(cx) > 12 and cy < sp[1] + 65))):
         return "front"
     return ""
 
@@ -592,7 +601,7 @@ def texture_paths(kind):
     return t
 
 
-def add_shape(nif, name, verts, tris, uvs, normals, base_props, use_type, kind, skinned, bone=None, bind=None, TransformBuf=None):
+def add_shape(nif, name, verts, tris, uvs, normals, base_props, use_type, kind, skinned, bone=None, bind=None, TransformBuf=None, casts=True):
     props = base_props.copy()
     props.nameID = props.controllerID = props.collisionID = -1
     props.skinInstanceID = props.shaderPropertyID = props.alphaPropertyID = -1
@@ -608,86 +617,8 @@ def add_shape(nif, name, verts, tris, uvs, normals, base_props, use_type, kind, 
         new.add_bone(bone, buf(bind) if bind else identity)
         new.set_skin_to_bone_xform(bone, buf(rigid_inverse(bind)) if bind else identity)
         new.setShapeWeights(bone, [(i, 1.0) for i in range(len(verts))])
-    # The bar assembly and the front wheel cast no shadow: the bike's front end must not shadow the headlamp's beam (test 34).
-    shader_setup(new, base_props.shader_props, kind, skinned, texture_paths(kind), casts=not ("_front" in name or "_wheelF" in name))
+    shader_setup(new, base_props.shader_props, kind, skinned, texture_paths(kind), casts=casts)
     return new
-
-
-def quaternion_of(r):
-    """(w, x, y, z) of a 3x3 rotation (rows), as nifly stores a connect point's rotation."""
-    t = r[0][0] + r[1][1] + r[2][2]
-    if t > 0.0:
-        s = math.sqrt(t + 1.0) * 2.0
-        return 0.25 * s, (r[2][1] - r[1][2]) / s, (r[0][2] - r[2][0]) / s, (r[1][0] - r[0][1]) / s
-    if r[0][0] > r[1][1] and r[0][0] > r[2][2]:
-        s = math.sqrt(1.0 + r[0][0] - r[1][1] - r[2][2]) * 2.0
-        return (r[2][1] - r[1][2]) / s, 0.25 * s, (r[0][1] + r[1][0]) / s, (r[0][2] + r[2][0]) / s
-    if r[1][1] > r[2][2]:
-        s = math.sqrt(1.0 + r[1][1] - r[0][0] - r[2][2]) * 2.0
-        return (r[0][2] - r[2][0]) / s, (r[0][1] + r[1][0]) / s, 0.25 * s, (r[1][2] + r[2][1]) / s
-    s = math.sqrt(1.0 + r[2][2] - r[0][0] - r[1][1]) * 2.0
-    return (r[1][0] - r[0][1]) / s, (r[0][2] + r[2][0]) / s, (r[1][2] + r[2][1]) / s, 0.25 * s
-
-
-def make_value_nodes(path: Path, values: dict):
-    """Turns the NiNode blocks named in `values` into BSValueNodes (an NiNode plus a uint value
-    and a byte of flags): the type is added to the header's type table, the blocks' type index
-    and size changed, the five bytes appended. The game hangs an ADDN record's light or particles
-    on a BSValueNode whose value is the record's node index."""
-    data = bytes(path.read_bytes())
-    i = data.index(b"\n") + 1 + 9
-    nblocks = struct.unpack_from("<I", data, i)[0]
-    i += 8
-    for _ in range(4):
-        i += 1 + data[i]
-    types_at = i
-    ntypes = struct.unpack_from("<H", data, i)[0]
-    i += 2
-    types = []
-    for _ in range(ntypes):
-        n = struct.unpack_from("<I", data, i)[0]
-        types.append(data[i + 4:i + 4 + n].decode())
-        i += 4 + n
-    type_idx = list(struct.unpack_from(f"<{nblocks}H", data, i))
-    i += 2 * nblocks
-    sizes = list(struct.unpack_from(f"<{nblocks}I", data, i))
-    i += 4 * nblocks
-    rest_at = i   # the strings and groups, kept as they are
-    nstrings = struct.unpack_from("<I", data, i)[0]
-    i += 8
-    strings = []
-    for _ in range(nstrings):
-        n = struct.unpack_from("<I", data, i)[0]
-        strings.append(data[i + 4:i + 4 + n].decode())
-        i += 4 + n
-    i += 4 + 4 * struct.unpack_from("<I", data, i)[0]
-    blocks_at = i
-    if "BSValueNode" not in types:
-        types.append("BSValueNode")
-    value_type = types.index("BSValueNode")
-    blocks = []
-    pos = blocks_at
-    done = set()
-    for b in range(nblocks):
-        block = data[pos:pos + sizes[b]]
-        pos += sizes[b]
-        if types[type_idx[b] & 0x7FFF] == "NiNode":
-            name_id = struct.unpack_from("<I", block, 0)[0]
-            name = strings[name_id] if name_id < len(strings) else None
-            if name in values:
-                block += struct.pack("<IB", values[name], 0)
-                type_idx[b] = value_type
-                sizes[b] = len(block)
-                done.add(name)
-        blocks.append(block)
-    missing = set(values) - done
-    if missing:
-        raise ValueError(f"{path}: no NiNode named {sorted(missing)} to make a BSValueNode of")
-    head = data[:types_at] + struct.pack("<H", len(types))
-    for t in types:
-        head += struct.pack("<I", len(t)) + t.encode()
-    head += struct.pack(f"<{nblocks}H", *type_idx) + struct.pack(f"<{nblocks}I", *sizes)
-    path.write_bytes(head + data[rest_at:blocks_at] + b"".join(blocks) + data[pos:])   # and the footer: the root list
 
 
 def fix_all_bone_bounds(path: Path, spheres, skin_to_bone=None):
@@ -886,12 +817,15 @@ def main() -> int:
         out = NifFile()
         out.initialize("FO4", str(path), "NiNode", path.stem)
         allverts = []
-        for label, (v, f, u, n, kind, _) in shapes.items():
+        for label, (v, f, u, n, kind, role) in shapes.items():
             tv = turned(v)
             tn = np.column_stack([-n[:, 0], -n[:, 1], n[:, 2]])
             allverts.append(tv)
+            # The bar assembly and the front wheel cast no shadow: the bike's front end must not
+            # shadow the headlamp's beam (test 34). The worn bike's only: the parked bike has no
+            # beam and keeps its sun shadow whole (test 35's cleared them by name in every output).
             add_shape(out, f"{path.stem}_{label}", rows(tv), rows(f), rows(u), rows(tn), base, base.use_type, kind,
-                      True, bone, bind, TransformBuf)
+                      True, bone, bind, TransformBuf, casts=role not in ("front", "wheelF"))
         out.save()
         allverts = np.vstack(allverts)
         fix_all_bone_bounds(path, list(spheres.values()), rigid_inverse(bind) if bind else None)
@@ -941,62 +875,6 @@ def main() -> int:
     print(f"wrote {partsfile}: front axle {fa}, rear axle {ra}, radius {parts['wheel_radius']:.1f}, "
           f"steering axis through {sp} along {steer_axis_worn}, the bar assembly's spheres beyond y {front_min_y:.1f}")
 
-    # The headlamp's light: add-on nodes (BSValueNode) the game hangs an ADDN record's light
-    # on. Tests 30 and 31: the game keeps only the skinned shapes of a worn nif (lifted under
-    # the actor's root), but an unskinned worn nif, such as the Pip-Boy's, keeps its nodes and
-    # its lights work. So the nodes go in an unskinned nif of their own, a second armor addon
-    # of the bike's armor: a speck of geometry (an empty nif might not be kept) and the two
-    # nodes at the lens, in the bike's space (the nif sits at the actor's root; CMB_Slope.dll
-    # puts a kept node at the lens every frame). Made as plain NiNodes (nifly's typed addBlock
-    # crashed) and turned into BSValueNodes in the file.
-    def lamp_nif(path: Path, bone: str, bind):
-        """The headlamp's light nodes as an unskinned piece of their own (test 32: as a plain nif
-        in the bike's slot it never reached the player's 3D). Like the Pip-Boy's mesh, its root
-        carries a Prn naming the bone to hang it on (the one the bike is skinned to), so the game
-        parents the whole piece there; the nodes sit where the bike's skin-to-bone transform puts
-        the lens in that bone's space (right even with no plugin), their +X down the beam. A
-        P-AttachLightOverride connect point at the lens besides (a helmet lamp's way of taking the
-        Pip-Boy's light over), and BSX flags for a nif with add-on nodes whose transforms move."""
-        from pyn.pynifly import BSXFlags, NiStringExtraData
-        from pyn.nifdefs import ConnectPointBuf
-        out = NifFile()
-        out.initialize("FO4", str(path), "NiNode", path.stem)
-        inv = rigid_inverse(bind) if bind else [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]]
-        v = np.array([[LAMP_X - 0.2, LAMP_FACE_Y - 6.0, LAMP_Z - 0.2], [LAMP_X + 0.2, LAMP_FACE_Y - 6.0, LAMP_Z - 0.2], [LAMP_X, LAMP_FACE_Y - 6.0, LAMP_Z + 0.2]])
-        v = np.array([apply(inv, p) for p in v])
-        f = np.array([[0, 1, 2]], dtype=np.int64)
-        u = np.tile(np.array(uv_of["lamp_black"]), (3, 1))
-        add_shape(out, f"{path.stem}_speck", rows(v), rows(f), rows(u), rows(vertex_normals(v, f)), base, base.use_type, "metal", False)
-        # The lens in the bone's space, and a frame whose +X runs down the beam (+Y of the bike).
-        lens = list(apply(inv, LAMP_LENS))
-        beam = [[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]]   # x -> y
-        rot = mat_mul([r[:3] + [0.0] for r in inv[:3]] + [[0.0, 0.0, 0.0, 1.0]], [r + [0.0] for r in beam] + [[0.0, 0.0, 0.0, 1.0]])
-        rot3 = [r[:3] for r in rot[:3]]
-        lamp_nodes = {"CMB_Headlamp": HEADLAMP_NODE_INDEX, "CMB_HeadlampShadow": HEADLAMP_NODE_INDEX + 1}
-        for node_name in lamp_nodes:
-            xf = TransformBuf()
-            xf.store(lens, rot3, [1.0, 1.0, 1.0])
-            out.add_node(node_name, xf, out.rootNode)
-        NiStringExtraData.New(out, name="Prn", string_value=bone, parent=out.rootNode)
-        BSXFlags.New(out, name="BSX", flags=16 | 256, parent=out.rootNode)   # add-on nodes; their transforms move
-        cp = ConnectPointBuf()
-        cp.parent = b""
-        cp.name = b"P-AttachLightOverride"
-        w, x, y, z = quaternion_of(rot3)
-        cp.rotation[0], cp.rotation[1], cp.rotation[2], cp.rotation[3] = w, x, y, z
-        cp.translation[0], cp.translation[1], cp.translation[2] = lens
-        cp.scale = 1.0
-        out.connect_points_parent = [cp]
-        out.save()
-        make_value_nodes(path, lamp_nodes)
-        check = NifFile(str(path))
-        try:
-            node_names = [n.name for n in check.nodes.values()] if isinstance(check.nodes, dict) else [n.name for n in check.nodes]
-        except Exception as e:   # noqa: BLE001
-            node_names = [f"(nodes unreadable: {e})"]
-        print(f"wrote {path}: the headlamp's add-on nodes (unskinned, a second armor addon): {len(check.shapes)} shape, nodes {node_names}")
-
-    lamp_nif(args.out / "CMB_BikeLampFrame.nif", BIKE_BONE, None)
     worn(args.out / "CMB_BikeWorn.nif", BIKE_BONE, None)
     if args.seat:
         male = read_seat(args.seat)
@@ -1011,8 +889,6 @@ def main() -> int:
         female = read_seat(args.seat / "Female") or male
         for (bone, bind), name in ((male, "CMB_BikeWornRider.nif"), (female, "CMB_BikeWornRiderF.nif")):
             worn(args.out / name, bone, bind)
-        for (bone, bind), name in ((male, "CMB_BikeLamp.nif"), (female, "CMB_BikeLampF.nif")):
-            lamp_nif(args.out / name, bone, bind)
     return 0
 
 

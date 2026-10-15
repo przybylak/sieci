@@ -9,7 +9,7 @@ A rideable motorbike for Fallout 4:
 - **park it, call it, ride it**: activate the bike or use its keys (favorite them to a hotkey); optional F4SE hotkey
 - **seated riding animations** with lean in turns and ridden U-turns; the bike turns with you on the spot and in conversations; an **engine sound** that follows your speed
 - **a Harley-Davidson Iron 883** as the bike (Nieve5677's Sketchfab model, CC-BY), on the vanilla motorcycle's collision; with F4SE its wheels spin with the distance ridden and the bars turn with you (the hands go with them); the vanilla bike can be built instead
-- **a headlamp** (the Harley build, F4SE): a round LED lamp on the fork bracket with its running light lit, and a real spot beam (like the power armor's, from an unskinned lamp piece) that turns with the bars and tilts with the bike; MCM: off, on, or on at night, and a hotkey
+- **a headlamp** (the Harley build, F4SE): a round LED lamp on the fork bracket with its running light lit, and a real spot beam (like the power armor's, a light the mod places at the lamp) that turns with the bars and tilts with the bike; MCM: off, on, or on at night, and a hotkey
 - **rides like a vehicle, not a person**: 75% less fall damage while riding (adjustable), deep water ends the ride and leaves the bike on the bank, and an enemy's hit knocks you off (optional)
 - **follows the ground**: the parked bike stands on the ground, tilted to match the slope (with F4SE, on the ground you just rode over); with F4SE, the bike also pitches with the ground while you ride, leans into turns at speed (the rider with it, head level), stops short of boulder faces, keeps its tyres on top of small bumps, turns in a circle rather than on the spot, climbs slopes too steep to walk up, and the camera sits farther back
 - **MCM menu** for every setting (with MCM installed); with F4SE, gear in the bike's slot goes back on after a ride
@@ -56,7 +56,7 @@ Getting off reverses all of that and parks the bike next to you. Indoors, power 
 | **Python 3** | `make_rider_pose.bat` builds `CMB_RiderPose.esp` and its animation data from your load order and game files |
 | Python + [PyNifly](https://github.com/BadDogSkyrim/PyNifly), Bethesda Archive Extractor | only to build the bike meshes and riding clips yourself (the meshes put the Sketchfab model on the vanilla bike's collision and the clips are derived from the game's files, so none of it is in the repository) |
 | Creation Kit (optional) | not needed: the scripts can be compiled with Caprica (`tools/syntax-check`); `compile_scripts.bat` uses the Creation Kit's compiler if you have it |
-| F4SE (optional) | dedicated hotkey, weight-based side bag, slot-57 (and the lamp piece's slot-58) gear put back on after a ride, steeper slopes, a camera farther back and the bike tilting with the ground while riding, and the parked bike laid on the ground under you (the `CMB_Slope.dll` plugin, Fallout 4 1.11.240 only), MCM menu; without it you favorite the keys for a hotkey and the bag counts items |
+| F4SE (optional) | dedicated hotkey, weight-based side bag, slot-57 gear put back on after a ride, steeper slopes, a camera farther back and the bike tilting with the ground while riding, and the parked bike laid on the ground under you (the `CMB_Slope.dll` plugin, Fallout 4 1.11.240 only), MCM menu; without it you favorite the keys for a hotkey and the bag counts items |
 | Testing in game + Papyrus log | I can't run the game; the log and screenshots are how fixes happen |
 
 ## Getting started

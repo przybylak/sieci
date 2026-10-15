@@ -69,10 +69,6 @@ public static class Program
     // "Unnamed" slot (60 would also be free in some setups, but it's the
     // slot named "Pipboy"). Change it here if another mod of yours uses 57.
     public const BipedObjectFlag BikeSlot = BipedObjectFlag.Unnamed57;
-    // The headlamp piece's own slot (test 32: as a second addon in the bike's slot it never reached the
-    // player's 3D; the biped keeps one part per slot). CMB_GearRestoreF4SE puts this slot's gear back too.
-    public const BipedObjectFlag LampSlot = BipedObjectFlag.Unnamed58;
-    public static int LampSlotIndex => System.Numerics.BitOperations.TrailingZeroCount((uint)LampSlot);
     // F4SE counts slots from 30: slot 57 is index 27, the flag's bit number.
     public static int BikeSlotIndex => System.Numerics.BitOperations.TrailingZeroCount((uint)BikeSlot);
 
@@ -437,8 +433,12 @@ public static class Program
         if (gTurnRadius.FormKey.ID != 0x839 || gStandTurn.FormKey.ID != 0x83A || gTurnSlow.FormKey.ID != 0x83B)
             throw new InvalidOperationException($"CMB_TurnRadius, CMB_StandTurnRate and CMB_TurnRadiusSlow must be 0x839-0x83B (CMB_Slope.dll looks for them), got {gTurnRadius.FormKey.ID:X}, {gStandTurn.FormKey.ID:X}, {gTurnSlow.FormKey.ID:X}");
 
-        // --- The headlamp (test 29's wish): the MCM's mode, the live switch the plugin reads, and the
-        // lights the game hangs on the worn bike's add-on nodes (CMB_Headlamp 31985, CMB_HeadlampShadow 31986).
+        // --- The headlamp (test 29's wish): the MCM's mode, the live switch the plugin reads, the two
+        // lights (plain and shadow-casting), and the ADDN records that would hang them on a nif's add-on
+        // nodes (CMB_Headlamp 31985, CMB_HeadlampShadow 31986). No nif carries those node indices since
+        // the lamp piece went (test 35: its slot read "nothing" at tick 2 as well), so the ADDN records
+        // and the plugin's add-on-node path are dormant; the light that works is the reference the
+        // controller script places (below).
         var gHeadlampMode = Global(mod, "CMB_HeadlampMode", 2);   // 0 off, 1 on while riding, 2 on at night
         var gHeadlampLive = Global(mod, "CMB_HeadlampLive", 0);   // 1 while the lamp should be lit (CMB_Slope.dll reads it)
         if (gHeadlampMode.FormKey.ID != 0x83C || gHeadlampLive.FormKey.ID != 0x83D)
@@ -449,17 +449,12 @@ public static class Program
         HeadlampNode(mod, "CMB_HeadlampShadowAddOn", HeadlampNodeIndex + 1, lampLightShadow);
         // Test 30: the game keeps no add-on node of a worn mesh, so the controller script places the light
         // as a reference and tells the plugin its form id (two globals: the high and low 16 bits), and the
-        // plugin keeps it at the lens.
+        // plugin keeps it at the lens. This is the path that lights the lamp (tests 32 to 35).
         var gHeadlampShadows = Global(mod, "CMB_HeadlampShadows", 0);
         var gHeadlampRefHi = Global(mod, "CMB_HeadlampRefHi", 0);
         var gHeadlampRefLo = Global(mod, "CMB_HeadlampRefLo", 0);
         if (gHeadlampShadows.FormKey.ID != 0x842 || gHeadlampRefHi.FormKey.ID != 0x843 || gHeadlampRefLo.FormKey.ID != 0x844)
             throw new InvalidOperationException($"CMB_HeadlampShadows, CMB_HeadlampRefHi and CMB_HeadlampRefLo must be 0x842-0x844 (CMB_Slope.dll looks for them), got {gHeadlampShadows.FormKey.ID:X}, {gHeadlampRefHi.FormKey.ID:X}, {gHeadlampRefLo.FormKey.ID:X}");
-        // One nif per bone the bike hangs off (its root carries a Prn naming it, and the bike's own
-        // skin-to-bone transform, so the nodes sit at the lens): the seated bike's COM, male and female
-        // seat heights, and the planted bike's AnimObjectA.
-        AddLampAddon(mod, armor, "CMB_BikeRiderLampAA", "CMB\\CMB_BikeLamp.nif", "CMB\\CMB_BikeLampF.nif");
-        AddLampAddon(mod, armorFrame, "CMB_BikeRiderFrameLampAA", "CMB\\CMB_BikeLampFrame.nif", "CMB\\CMB_BikeLampFrame.nif");
 
         // --- Controller quest ---
         quest.Name = "Commonwealth Motorbike";
@@ -549,8 +544,7 @@ public static class Program
             Obj("Controller", quest),
             Obj("CMB_BikeRiderArmor", armor),
             Obj("CMB_BikeRiderArmorFrame", armorFrame),
-            Int("BikeSlotIndex", BikeSlotIndex),
-            Int("LampSlotIndex", LampSlotIndex));
+            Int("BikeSlotIndex", BikeSlotIndex));
 
         quest.VirtualMachineAdapter = new QuestAdapter
         {
@@ -643,7 +637,7 @@ public static class Program
         armor.MajorFlags |= Armor.MajorFlag.NonPlayable;
         armor.Name = "Motorbike";
         armor.ObjectBounds = new ObjectBounds();
-        armor.BipedBodyTemplate = new BipedBodyTemplate { FirstPersonFlags = BikeSlot | LampSlot };
+        armor.BipedBodyTemplate = new BipedBodyTemplate { FirstPersonFlags = BikeSlot };
         armor.Race.SetTo(Vanilla.HumanRace);
         armor.Armatures.Add(new ArmorAddonModel { AddonIndex = 0, ArmorAddon = arma.ToNullableLink() });
         armor.Value = 0;
@@ -654,8 +648,9 @@ public static class Program
     // The headlamp's beam: a spotlight like the game's own power armor headlamp (test 31: with
     // attenuation 1/1/1 and 55 degrees ours lit nothing; the game's lights all have Constant 0,
     // Scalar 1, Exponent 2, FOV 70-100, radius 1420-2130), warm white, 30 m, 70 degrees, dynamic,
-    // brighter than the stock lamp (fade 2); the second the shadow-casting kind. Hung on the lamp
-    // nif's add-on nodes by the game, or placed as a reference by the controller script.
+    // brighter than the stock lamp (fade 2); the second the shadow-casting kind. Placed as a
+    // reference by the controller script (the ADDN records below would hang them on add-on nodes,
+    // but no nif carries those since the lamp piece went, test 35).
     const uint HeadlampNodeIndex = 31985;
     static Light Headlamp(Fallout4Mod mod, string editorId, bool shadow)
     {
@@ -666,7 +661,7 @@ public static class Program
         light.Color = System.Drawing.Color.FromArgb(0, 255, 241, 224);
         light.Flags = (Light.Flag)1 | (shadow ? Light.Flag.ShadowSpotlight : Light.Flag.NonShadowSpotlight);   // 1: Dynamic (it moves)
         light.FalloffExponent = 1.0f;
-        light.FOV = 85.0f;
+        light.FOV = 78.0f;   // test 35: "a bit too wide and a little too bright" (was 85 / 2.7)
         light.NearClip = 10.0f;
         light.FlickerPeriod = 0.0f;
         light.FlickerIntensityAmplitude = 0.0f;
@@ -677,25 +672,14 @@ public static class Program
         light.GodRaysNearClip = 0.0f;
         light.Value = 0;
         light.Weight = 0.0f;
-        light.FadeValue = 2.7f;
+        light.FadeValue = 2.4f;
         return light;
     }
 
-    // The headlamp's add-on nodes ride in an unskinned nif of their own (CMB_BikeLamp.nif), a second
-    // armor addon of the bike's armor: the game keeps an unskinned worn nif's nodes, not a skinned
-    // one's (tests 30 and 31), and hangs the ADDN records' lights on them. Made after every record
-    // with a fixed form id (the plugin's globals), so none of those move.
-    static void AddLampAddon(Fallout4Mod mod, Armor armor, string addonId, string maleModel, string femaleModel)
-    {
-        var lampArma = mod.ArmorAddons.AddNew(addonId);
-        lampArma.BodyTemplate = new BodyTemplate { FirstPersonFlags = LampSlot };
-        lampArma.Race.SetTo(Vanilla.HumanRace);
-        lampArma.Priority = new GenderedItem<byte>(0, 0);
-        lampArma.WeightSliderEnabled = new GenderedItem<bool>(false, false);
-        lampArma.WorldModel = new GenderedItem<Model?>(new Model { File = maleModel }, new Model { File = femaleModel });
-        armor.Armatures.Add(new ArmorAddonModel { AddonIndex = (ushort)armor.Armatures.Count, ArmorAddon = lampArma.ToNullableLink() });
-    }
-
+    // An ADDN record: the game hangs its light on a BSValueNode whose value is the node index. The two
+    // records stay (CMB_Slope.dll's add-on-node path looks for them), but no nif carries these indices
+    // since the unskinned lamp piece went (test 35: the game never took that addon; the placed reference
+    // lights the lamp), so the path is dormant.
     static AddonNode HeadlampNode(Fallout4Mod mod, string editorId, uint nodeIndex, Light light)
     {
         var node = mod.AddonNodes.AddNew(editorId);

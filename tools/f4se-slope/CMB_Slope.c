@@ -362,11 +362,17 @@ static float g_faceLook = 0.3f;             /* [Steer] FaceLook: a face ahead is
 static float g_turnEaseIn = 0.14f;          /* [Steer] TurnEaseIn: the turning rate the keys ask eases in over this many seconds (test 33: a snake on A/D; test 34: 0.35 felt heavy) */
 static float g_turnEaseOut = 0.08f;         /* [Steer] TurnEaseOut: ... and out over this many seconds when the key is let go */
 static float g_yawEased;                    /* the eased turning rate (radians a second) */
-static float g_bumpRise = 0.12f;            /* [Tilt] BumpRise: a wheel's bump lift rises over about this many seconds (test 34: 60 units in a frame launched the bike) */
-static float g_bumpMax = 30.0f;             /* [Tilt] BumpMax: and never more than this in one go (a wheel radius) */
+static float g_liftRate = 120.0f;           /* [Tilt] LiftRate: the whole lift (the wheels onto the ground, plus a bump) rises at most this many units a second (0: unlimited; test 35: +34 in a quarter second at 900 u/s jumped the bike) */
+static float g_bumpMax = 30.0f;             /* [Tilt] BumpMax: a wheel's bump lift is never more than this in one go (a wheel radius; 1.5 radii while an obstacle is being ridden over) */
 static float g_bumpSettle = 0.45f;          /* [Tilt] BumpSettle: and settles over this many seconds as the filtered values catch up or the bump passes */
 static float g_wallAngle = 55.0f;           /* [Steer] WallAngle: a face this steep or steeper, solid at axle height and 1.5 radii, is a wall */
 static float g_obstacleThrottle = 0.4f;     /* [Steer] ObstacleThrottle: an obstacle lower than 1.5 radii, or a face under WallAngle, holds the throttle to this share (0: stop) */
+static float g_obstacleHold = 1.0f;         /* [Steer] ObstacleHold: an obstacle verdict stays in force this many seconds after the rays last said obstacle */
+static int g_wallFrames = 5;                /* [Steer] WallFrames: while an obstacle verdict is in force, a wall must be seen ahead of the wheel this many frames running before it counts */
+static float g_faceObstacleAt = -100.0f;    /* when the face rays last said obstacle (the verdict in force for ObstacleHold after) */
+static int g_wallSeen;                      /* frames running the face rays' raw verdict has been a wall with its hit ahead of the wheel */
+static int g_faceKind;                      /* the face rays' last verdict: 0 nothing, 1 an obstacle, 2 a wall (a line is logged when it changes) */
+static float g_faceNoneSince = -1.0f;       /* since when the rays have found nothing after a verdict (logged as gone after a quarter second: at the rays' reach a hit comes and goes by the frame) */
 static float g_bumpLift, g_liftSmooth;      /* the bump lift now; the filtered lift the bump sits on */
 static float g_wheelZ[2];                   /* this frame's raw ray hits under the wheels (front, rear), above the feet */
 static bool g_wheelZOk;
@@ -375,13 +381,16 @@ static bool g_torsoFinal;
 static float g_rideStartClock;
 static float g_jumpMax;                     /* the arm bones' biggest move between frames since the last trace line (test 33: stretched fingers) */
 static char g_jumpName[96];
-static bool g_lampPieceLogged;
 static float g_faceEase = 1.0f;             /* this frame: what a face ahead leaves of the throttle (1: nothing ahead) */
+static float g_holdWaitSince;               /* when a hold first found an arm's chain half built and let go to wait for the skeleton (test 35); 0 = no wait on */
 static int g_faceLogs;
 static float g_faceLoggedAt = -100.0f;
 static float g_headingNow;                  /* the player's heading this frame (FrameTilt), for the head's counter-roll */
 static float g_wallAheadAt = -100.0f;       /* when the front ray last found a face ahead (the throttle is cut for a quarter second after) */
 static int g_wallLogs;
+static float g_wallLoggedAt = -100.0f;
+static const char *g_rayWhat;               /* what the last ray hit (its 3D's name), for the log (CastRay) */
+static uint32_t g_rayLayer;                 /* the last hit's collision layer */
 static float g_pivotHeight = 74.0f;       /* the seat (the rider's hips) above the feet */
 static int g_trace;                       /* 1 = log the tilt every 0.25 s while riding */
 static int g_steer = 1;                   /* 1 = limit how fast the bike turns (CMB_TurnRadius) */
@@ -742,24 +751,28 @@ static void ReadLeanSettings(const char *ini, bool log)
 	g_armReach = IniFloat(ini, "Tilt", "ArmReach", 0.88f, 0.5f, 1.0f);
 	g_torsoTwist = IniFloat(ini, "Tilt", "TorsoTwist", 0.4f, 0.0f, 1.0f);
 	g_faceLook = IniFloat(ini, "Steer", "FaceLook", 0.3f, 0.0f, 3.0f);
-	float wasMore[7] = { g_turnEaseIn, g_turnEaseOut, g_bumpRise, g_bumpMax, g_bumpSettle, g_wallAngle, g_obstacleThrottle };
+	float wasMore[9] = { g_turnEaseIn, g_turnEaseOut, g_liftRate, g_bumpMax, g_bumpSettle, g_wallAngle, g_obstacleThrottle, g_obstacleHold, (float)g_wallFrames };
 	g_turnEaseIn = IniFloat(ini, "Steer", "TurnEaseIn", 0.14f, 0.0f, 3.0f);
 	g_turnEaseOut = IniFloat(ini, "Steer", "TurnEaseOut", 0.08f, 0.0f, 3.0f);
-	g_bumpRise = IniFloat(ini, "Tilt", "BumpRise", 0.12f, 0.0f, 3.0f);
+	g_liftRate = IniFloat(ini, "Tilt", "LiftRate", 120.0f, 0.0f, 2000.0f);
 	g_bumpMax = IniFloat(ini, "Tilt", "BumpMax", 30.0f, 0.0f, 60.0f);
 	g_bumpSettle = IniFloat(ini, "Tilt", "BumpSettle", 0.45f, 0.0f, 5.0f);
 	g_wallAngle = IniFloat(ini, "Steer", "WallAngle", 55.0f, 20.0f, 90.0f);
 	g_obstacleThrottle = IniFloat(ini, "Steer", "ObstacleThrottle", 0.4f, 0.0f, 1.0f);
+	g_obstacleHold = IniFloat(ini, "Steer", "ObstacleHold", 1.0f, 0.2f, 5.0f);
+	g_wallFrames = (int)GetPrivateProfileIntA("Steer", "WallFrames", 5, ini);
+	if (g_wallFrames < 1 || g_wallFrames > 30)
+		g_wallFrames = 5;
 	/* The light's placing, read again on getting on as well (an A/B needs no restart). */
 	g_lampAhead = IniFloat(ini, "Lamp", "Ahead", 28.0f, -100.0f, 200.0f);
 	g_lampLead = IniFloat(ini, "Lamp", "Lead", 1.0f, 0.0f, 5.0f);
 	g_lampHandoverFrames = (int)GetPrivateProfileIntA("Lamp", "HandoverFrames", 5, ini);
 	if (g_lampHandoverFrames < 0 || g_lampHandoverFrames > 100)
 		g_lampHandoverFrames = 5;
-	float nowMore[7] = { g_turnEaseIn, g_turnEaseOut, g_bumpRise, g_bumpMax, g_bumpSettle, g_wallAngle, g_obstacleThrottle };
+	float nowMore[9] = { g_turnEaseIn, g_turnEaseOut, g_liftRate, g_bumpMax, g_bumpSettle, g_wallAngle, g_obstacleThrottle, g_obstacleHold, (float)g_wallFrames };
 	float now[10] = { g_maxLean, g_leanRate, g_leanSmooth, g_leanDead, g_leanGain, g_torsoLeanSetting, g_armReach, g_torsoTwist, g_faceLook, (float)g_headLevel };
 	bool changed = false;
-	for (int i = 0; i < 7; i++)
+	for (int i = 0; i < 9; i++)
 		changed = changed || wasMore[i] != nowMore[i];
 	for (int i = 0; i < 10; i++)
 		changed = changed || was[i] != now[i];
@@ -773,9 +786,10 @@ static void ReadLeanSettings(const char *ini, bool log)
 		    "the head %s (HeadLevel); the upper body %s (TorsoLean), the grips at %g of the arms' reach (ArmReach), turned %g of the bars (TorsoTwist); a face ahead looked for %g s of the speed (FaceLook)%s",
 		    g_maxLean, g_leanRate, g_leanSmooth, g_leanDead, g_leanGain, g_headLevel ? "kept level" : "tilting with the bike", torso, g_armReach, g_torsoTwist, g_faceLook,
 		    log ? "" : " (read again on getting on)");
-		Log("  steer: the keys' turning rate eases in over %g s and out over %g s (TurnEaseIn, TurnEaseOut); a wall is a face of %g deg or more (WallAngle), an obstacle holds the throttle to %g (ObstacleThrottle); "
-		    "a wheel's bump lift rises over %g s, at most %g, and settles over %g s (BumpRise, BumpMax, BumpSettle); the light %g ahead of the lens, led by %g frames of the speed, the old one kept %d frames at a handover (Ahead, Lead, HandoverFrames)",
-		    g_turnEaseIn, g_turnEaseOut, g_wallAngle, g_obstacleThrottle, g_bumpRise, g_bumpMax, g_bumpSettle, g_lampAhead, g_lampLead, g_lampHandoverFrames);
+		Log("  steer: the keys' turning rate eases in over %g s and out over %g s (TurnEaseIn, TurnEaseOut); a wall is a face of %g deg or more (WallAngle), an obstacle holds the throttle to %g (ObstacleThrottle), "
+		    "its verdict in force for %g s after the rays last saw one (ObstacleHold), in which a wall counts only after %d frames seen ahead of the wheel (WallFrames); "
+		    "the lift rises at most %g units a second (LiftRate), a wheel's bump lift at most %g in one go and settles over %g s (BumpMax, BumpSettle); the light %g ahead of the lens, led by %g frames of the speed, the old one kept %d frames at a handover (Ahead, Lead, HandoverFrames)",
+		    g_turnEaseIn, g_turnEaseOut, g_wallAngle, g_obstacleThrottle, g_obstacleHold, g_wallFrames, g_liftRate, g_bumpMax, g_bumpSettle, g_lampAhead, g_lampLead, g_lampHandoverFrames);
 	}
 }
 
@@ -2106,11 +2120,15 @@ static void ResetTilt(void)
 	g_rideStartClock = (float)g_clock;
 	g_torsoFinal = false;
 	g_torsoSolvedAt = -100.0f;
-	g_lampPieceLogged = false;
 	g_tiltMax = g_tiltNow = 0.0f;
 	g_wheelAngle = g_barNow = g_headingRate = 0.0f;
 	g_leanNow = g_yawForLean = 0.0f;
 	g_faceEase = 1.0f;
+	g_faceObstacleAt = -100.0f;   /* no obstacle in force: the rays start afresh */
+	g_wallSeen = 0;
+	g_faceKind = 0;
+	g_faceNoneSince = -1.0f;
+	g_faceLogs = g_wallLogs = 0;   /* the rays' lines are capped per ride */
 	g_torsoLeanSet = false;
 	g_torsoLean = 0.0f;
 	g_torsoTries = 0;
@@ -2206,6 +2224,7 @@ static void LetGoAll(const char *why)
 	LetGoLamp(1, why);
 	g_riderWorldChecked = false;
 	g_riderBlocked = false;
+	g_holdWaitSince = 0.0f;
 	ResetTilt();
 }
 
@@ -2226,7 +2245,6 @@ typedef struct {
 	const char *riderName[MAX_RIDER];
 	int riderCount, riderOver;
 	uintptr_t lamp[2];                  /* the headlamp's add-on nodes, by name */
-	uintptr_t lampPiece;                /* anything named CMB_BikeLamp* (the unskinned piece's root or speck), for the log */
 } SkinList;
 
 #define WALK_LINES 48
@@ -2314,8 +2332,6 @@ static void InspectShape(uintptr_t shape, int depth, SkinList *list)
 {
 	g_walk.geometries++;
 	const char *name = ObjectName(shape);
-	if (name && !list->lampPiece && strncmp(name, "CMB_BikeLamp", 12) == 0)
-		list->lampPiece = shape;
 	uintptr_t skin = ReadPtr(shape + OFF_SKIN_INSTANCE);
 	uintptr_t data = skin && IsA(skin, RTTI_SKIN) ? ReadPtr(skin + OFF_SKIN_BONE_DATA) : 0;
 	bool isBoneData = data && IsA(data, RTTI_BONE_DATA);
@@ -2371,8 +2387,6 @@ static void Visit(uintptr_t obj, int depth, SkinList *list)
 		for (int i = 0; nm && i < 2; i++)
 			if (!list->lamp[i] && g_lampNodeName[i][0] && strcmp(nm, g_lampNodeName[i]) == 0)
 				list->lamp[i] = obj;
-		if (nm && !list->lampPiece && strncmp(nm, "CMB_BikeLamp", 12) == 0)
-			list->lampPiece = obj;
 	}
 	uintptr_t children = ReadPtr(obj + OFF_CHILDREN);
 	unsigned used = *(const uint16_t *)(obj + OFF_CHILDREN_USED);
@@ -3174,6 +3188,32 @@ static bool RiderWorldOk(uintptr_t player)
 	return g_riderWorldOk;
 }
 
+/* The hands' bones (test 33: the fingers stretched into spikes): each bone's part and how far
+ * its node sits from its side's hand node, to see whether every finger bone is read and mapped
+ * like the hand. */
+static void LogHandBones(const char *name, const uintptr_t *nodes, const uintptr_t *xforms, const uint8_t *skip, const uint8_t *arm, int count)
+{
+	char line[440];
+	int len = 0;
+	line[0] = 0;
+	for (int b = 0; b < count; b++) {
+		uintptr_t node = nodes[b];
+		float N[9], n[3], H[3], sc, dist = -1.0f;
+		int side = (arm[b] & 0x10) ? 1 : 0;
+		if (!skip[b] && g_arm[side].hand && BoneWorld(nodes, xforms, (uint32_t)b, N, n, &sc, NULL) && NodeWorld(g_arm[side].hand, N, H, &sc, NULL))
+			dist = Dist3f(n, H);
+		len += snprintf(line + len, sizeof(line) - len, "%s%d %.26s (%s)", len ? ", " : "", b, node ? OrNone(ObjectName(node)) : skip[b] ? "(no node)" : "(no node, its own transform)",
+		                skip[b] ? "left as it is" : node ? RoleWord(arm[b]) : "part given with the hands");
+		if (dist >= 0.0f)
+			len += snprintf(line + len, sizeof(line) - len, " %.1f from the hand", dist);
+		if (len > 330 || b + 1 == count) {
+			Log("rider:   %s's bones: %s", name, line);
+			len = 0;
+			line[0] = 0;
+		}
+	}
+}
+
 static void HoldRider(uintptr_t shape, uintptr_t skin, uintptr_t data, const char *name)
 {
 	RiderPart *p = &g_rider[g_riderCount];
@@ -3265,30 +3305,10 @@ static void HoldRider(uintptr_t shape, uintptr_t skin, uintptr_t data, const cha
 					g_torsoNode = node;
 			}
 		}
-		/* The hands' bones, once per hold (test 33: the fingers stretched into spikes): each
-		 * bone's part and how far its node sits from its side's hand node, to see whether every
-		 * finger bone is read and mapped like the hand. */
-		if (NameHas(name, "hand")) {
-			char line[440];
-			int len = 0;
-			line[0] = 0;
-			for (uint32_t b = 0; b < count; b++) {
-				uintptr_t node = ((const uintptr_t *)nodes)[b];
-				float N[9], n[3], H[3], sc, dist = -1.0f;
-				int side = (p->arm[b] & 0x10) ? 1 : 0;
-				if (!p->skip[b] && g_arm[side].hand && BoneWorld((const uintptr_t *)nodes, (const uintptr_t *)xforms, b, N, n, &sc, NULL) && NodeWorld(g_arm[side].hand, N, H, &sc, NULL))
-					dist = Dist3f(n, H);
-				len += snprintf(line + len, sizeof(line) - len, "%s%u %.26s (%s)", len ? ", " : "", b, node ? OrNone(ObjectName(node)) : p->skip[b] ? "(no node)" : "(no node, its own transform)",
-				                p->skip[b] ? "left as it is" : node ? RoleWord(p->arm[b]) : "part given with the hands");
-				if (dist >= 0.0f)
-					len += snprintf(line + len, sizeof(line) - len, " %.1f from the hand", dist);
-				if (len > 330 || b + 1 == count) {
-					Log("rider:   %s's bones: %s", name, line);
-					len = 0;
-					line[0] = 0;
-				}
-			}
-		}
+		/* The hands' bones, once per hold (test 33: the fingers stretched into spikes); while
+		 * a hold waits for the skeleton (below) they're logged once it's over. */
+		if (NameHas(name, "hand") && g_holdWaitSince == 0.0f)
+			LogHandBones(name, (const uintptr_t *)nodes, (const uintptr_t *)xforms, p->skip, p->arm, (int)count);
 		if (r) {
 			memcpy(r->entries, (const void *)bones, count * BONE_SIZE);
 			p->live = r->entries;
@@ -3375,7 +3395,8 @@ static void LetGoRider(int i, const char *why)
 	g_rider[i] = g_rider[--g_riderCount];
 }
 
-static void LetGoAllRider(const char *why)
+/* quiet: no summary line (a hold let go to wait for the skeleton, every 0.1 s). */
+static void LetGoAllRiderWhy(const char *why, bool quiet)
 {
 	memset(g_arm, 0, sizeof(g_arm));
 	g_headNode = 0;
@@ -3384,8 +3405,13 @@ static void LetGoAllRider(const char *why)
 	int had = g_riderCount;
 	while (g_riderCount)
 		LetGoRider(g_riderCount - 1, why);
-	if (had)
+	if (had && !quiet)
 		Log("rider: %d shape(s) back as they were and let go (%s)", had, why);
+}
+
+static void LetGoAllRider(const char *why)
+{
+	LetGoAllRiderWhy(why, false);
 }
 
 /* Names, a line at a time (test 24's list was cut at 400 characters). */
@@ -3515,6 +3541,7 @@ static void SyncRider(uintptr_t player, const SkinList *list, bool wanted)
 		g_torsoNode = 0;
 	}
 	int before = g_riderCount, skinned = 0;
+	bool waited = g_holdWaitSince != 0.0f;   /* this pass is a retry of a hold that found the skeleton half built */
 	bool pickSkinned[MAX_RIDER], pickPlain[MAX_RIDER];
 	memset(pickSkinned, 0, sizeof(pickSkinned));
 	memset(pickPlain, 0, sizeof(pickPlain));
@@ -3544,6 +3571,40 @@ static void SyncRider(uintptr_t player, const SkinList *list, bool wanted)
 			LetGoAllRider("a shape of the rider can't be held");
 			return;
 		}
+	}
+	/* Test 35: the first hold right after a save load ran against a half-built skeleton (the
+	 * shoulders missing from both arms' chains, 49 of the suit's bones without a node), which
+	 * the game had replaced 0.1 s later. A side whose hand was found but whose shoulder or
+	 * elbow wasn't is an arm still being built (a side with no hand at all is a skin without
+	 * arms): nothing of the rider is held for now, and the hold is tried again every sync, for
+	 * a second at most; then it's held as it is. A complete hold ends the wait. */
+	if (skinned) {
+		char missing[120] = "";
+		int ml = 0;
+		for (int side = 0; side < 2; side++) {
+			if (!g_arm[side].hand || (g_arm[side].upper && g_arm[side].elbow))
+				continue;
+			if (!g_arm[side].upper)
+				ml += snprintf(missing + ml, sizeof(missing) - ml, "%s%s shoulder missing", ml ? ", " : "", side ? "right" : "left");
+			if (!g_arm[side].elbow)
+				ml += snprintf(missing + ml, sizeof(missing) - ml, "%s%s elbow missing", ml ? ", " : "", side ? "right" : "left");
+		}
+		if (ml) {
+			if (!waited) {
+				g_holdWaitSince = (float)g_clock > 0.0f ? (float)g_clock : 1e-6f;
+				Log("rider: the skeleton isn't complete yet (%s): nothing of the rider held; tried again every 0.1 s, for a second at most", missing);
+			}
+			if ((float)g_clock - g_holdWaitSince < 1.0f) {
+				LetGoAllRiderWhy("the skeleton isn't complete yet", true);
+				return;
+			}
+			Log("rider: the arms' chains are still incomplete after a second: held as they are");
+		}
+		if (waited)   /* the hands' bones, left out of the log while the hold waited */
+			for (int i = before; i < g_riderCount; i++)
+				if (g_rider[i].skin && NameHas(g_rider[i].name, "hand"))
+					LogHandBones(g_rider[i].name, (const uintptr_t *)g_rider[i].nodes, (const uintptr_t *)g_rider[i].xforms, g_rider[i].skip, g_rider[i].arm, g_rider[i].count);
+		g_holdWaitSince = 0.0f;
 	}
 	if (g_riderCount != before) {
 		Log("rider: holding %d more shape(s) of the rider to tilt with the bike (%d skinned, %d plain), %d in all", g_riderCount - before,
@@ -4292,23 +4353,6 @@ static void SyncSkins(uintptr_t player, bool riderWanted)
 		if (!held && !Refused(list.found[j]))
 			HoldSkin(list.found[j], list.skins[j], list.names[j]);
 	}
-	/* Whether the unskinned lamp piece (slot 58) is on the player's 3D at all (test 33: its
-	 * nodes were never found), once per ride. */
-	if (!g_lampPieceLogged && g_skinCount && g_lampEnabled) {
-		g_lampPieceLogged = true;
-		if (list.lampPiece) {
-			char chain[200] = "";
-			int len = 0;
-			uintptr_t up = ReadPtr(list.lampPiece + OFF_PARENT);
-			for (int d = 0; d < 4 && up && IsA(up, RTTI_AVOBJECT) && len < 150; d++) {
-				len += snprintf(chain + len, sizeof(chain) - len, "%s'%.32s'", d ? " < " : "", OrNone(ObjectName(up)));
-				up = ReadPtr(up + OFF_PARENT);
-			}
-			Log("lamp: the lamp piece is on the player's 3D: '%.40s' (%s), under %s", OrNone(ObjectName(list.lampPiece)), OrNone(ObjectTypeName(list.lampPiece)), chain);
-		} else {
-			Log("lamp: nothing named CMB_BikeLamp* on the player's 3D: the slot-58 piece isn't worn, or the game didn't load it (the Papyrus log's \"Slot 58:\" line says what's worn there)");
-		}
-	}
 	for (int i = 0; i < 2; i++) {
 		if (g_lamp[i].node && g_lamp[i].node != list.lamp[i])
 			LetGoLamp(i, list.lamp[i] ? "the node was replaced" : "no longer worn");
@@ -4492,10 +4536,10 @@ static void FrameTilt(void)
 		g_liftSmooth += (targetLift - g_liftSmooth) * (1.0f - expf(-g_frameDt / 0.15f));
 		/* A bump (test 33: the tyres sank into small hills, stones and curbs that passed under a
 		 * wheel before the median and the spring reacted): whichever wheel would sit below its
-		 * own ray's hit, with the pitch and lift as applied, is lifted out at once, and that
-		 * lift settles over BumpSettle as the filtered values catch up or the bump passes. */
+		 * own ray's hit, with the pitch and lift as applied, is lifted out, and that lift
+		 * settles over BumpSettle as the filtered values catch up or the bump passes. */
 		float bump = 0.0f;
-		bool bumpOn = g_bumpRise > 0.0f && g_bumpMax > 0.0f && g_bumpSettle > 0.0f;
+		bool bumpOn = g_bumpMax > 0.0f && g_bumpSettle > 0.0f;
 		if (bumpOn && useWheels && g_wheelZOk) {
 			float tp = tanf(g_pitchNow / 57.29578f);
 			for (int i = 0; i < 2; i++) {
@@ -4503,24 +4547,38 @@ static void FrameTilt(void)
 				if (deficit > bump)
 					bump = deficit;
 			}
-			if (bump > g_bumpMax)
-				bump = g_bumpMax;   /* a wheel radius at most in one go (test 34: 60 in a frame launched the bike) */
+			/* A wheel radius at most in one go (test 34: 60 in a frame launched the bike); while
+			 * an obstacle verdict is in force, 1.5 radii, as high as the face rays let an obstacle
+			 * be (test 35: a 35 to 45 unit stone passed as one and the lift stopped at 30, the
+			 * tyre 15 units into it). */
+			float cap = g_bumpMax;
+			if ((float)g_clock - g_faceObstacleAt < g_obstacleHold && 1.5f * g_wheelRadius > cap)
+				cap = 1.5f * g_wheelRadius;
+			if (bump > cap)
+				bump = cap;
 		}
-		/* Towards the wheel's deficit over BumpRise, back down over BumpSettle. */
+		/* Straight to the wheel's deficit while the step lasts (never above what's left to lift:
+		 * no overshoot), back down over BumpSettle once it's gone; the rate below paces the rise. */
 		float dtb = g_frameDt > 0.05f ? 0.05f : g_frameDt;
 		if (!bumpOn)
 			g_bumpLift = 0.0f;
-		else if (bump > g_bumpLift)
-			g_bumpLift += (bump - g_bumpLift) * (1.0f - expf(-dtb / g_bumpRise));
 		else if (bump > 0.0f)
-			g_bumpLift = bump;   /* the step persists and the filtered lift is catching up: never above what's left to lift (no overshoot) */
+			g_bumpLift = bump;
 		else
 			g_bumpLift += (bump - g_bumpLift) * (1.0f - expf(-dtb / g_bumpSettle));
 		if (g_bumpLift < 0.05f)
 			g_bumpLift = 0.0f;
-		g_liftNow = g_liftSmooth + g_bumpLift;
-		if (g_liftNow > 60.0f)
-			g_liftNow = 60.0f;
+		/* The whole lift rises at most LiftRate units a second (test 35: the bump lift's +34 in
+		 * a quarter second at 900 units a second jumped the bike); down it goes as it likes. */
+		float targetNow = g_liftSmooth + g_bumpLift;
+		if (targetNow > 60.0f)
+			targetNow = 60.0f;
+		if (g_liftRate > 0.0f && targetNow > g_liftNow) {
+			float most = g_liftNow + g_liftRate * dtb;
+			g_liftNow = targetNow < most ? targetNow : most;
+		} else {
+			g_liftNow = targetNow;
+		}
 	} else {
 		g_liftNow = g_liftSmooth = g_bumpLift = 0.0f;
 	}
@@ -4712,7 +4770,10 @@ static void TrackPitch(uintptr_t player, const float pos[3])
 /* The front ray found a surface higher than the front wheel could climb: a face ahead (test
  * 31: a boulder the capsule stepped up while the front wheel, a wheelbase ahead of it, went
  * into it) or a ceiling. A ray forward at axle height tells them apart; against a face the
- * throttle is cut while it's there (turning or backing off is still the rider's). */
+ * throttle is cut while it's there (turning or backing off is still the rider's). Not while
+ * an obstacle verdict is in force (FaceRays): on top of a stone the front wheel's ray reads
+ * the stone's far side as a face (test 35: the bike stopped on everything it could ride over,
+ * then went on), and the obstacle's throttle has it. */
 static void WallAhead(uintptr_t cell, const float pos[3], float sh, float ch, float hitZ)
 {
 	float reach = g_frontAxle[1] + 10.0f;
@@ -4720,11 +4781,15 @@ static void WallAhead(uintptr_t cell, const float pos[3], float sh, float ch, fl
 	float f = CastRay(cell, a, b);
 	if (!(f > 0.0f && f < 1.0f))
 		return;
-	if ((float)g_clock - g_wallAheadAt > 1.0f && g_wallLogs < 20) {
+	bool obstacle = (float)g_clock - g_faceObstacleAt < g_obstacleHold;
+	if ((float)g_clock - g_wallAheadAt > 1.0f && (float)g_clock - g_wallLoggedAt >= 1.0f && g_wallLogs < 20) {
 		g_wallLogs++;
-		Log("rays: a face ahead of the front wheel (the ground %.0f above the feet at its contact; something %.0f ahead at axle height): the throttle cut while it's there", hitZ, f * reach);
+		g_wallLoggedAt = (float)g_clock;
+		Log("rays: a face ahead of the front wheel (the ground %.0f above the feet at its contact; something %.0f ahead at axle height): %s", hitZ, f * reach,
+		    obstacle ? "while an obstacle is being ridden over: left to the obstacle's throttle" : "the throttle cut while it's there");
 	}
-	g_wallAheadAt = (float)g_clock;
+	if (!obstacle)
+		g_wallAheadAt = (float)g_clock;
 }
 
 static void WheelRays(uintptr_t player, bool onGround)
@@ -4788,9 +4853,17 @@ static void WheelRays(uintptr_t player, bool onGround)
  * limit puts the upper hit further on by its rise over its tangent; a step lower than the
  * wheel's top misses the upper ray); the throttle is eased off with the distance left to it,
  * to nothing at the wheel, so the bike stops short. Turning or backing off is the rider's. */
+/* The verdict has state (test 35: on top of a stone the rays read its far side, behind the
+ * front wheel's edge, as a wall one frame and an obstacle the next, and the throttle went
+ * 0%, 40%, 0%): a hit behind the wheel's edge is under the bike, an obstacle it has climbed
+ * onto, never a wall; and for ObstacleHold seconds after an obstacle verdict a wall needs its
+ * hit ahead of the wheel on WallFrames frames running before it counts (an obstacle till
+ * then). A line is logged when the verdict's kind changes, else at most one a second. */
 static void FaceRays(uintptr_t player, bool onGround)
 {
 	g_faceEase = 1.0f;
+	int seen = g_wallSeen;   /* counts on only through frames whose raw verdict is a wall ahead of the wheel */
+	g_wallSeen = 0;
 	if (!g_riding || !onGround || !g_partsOk || g_faceLook <= 0.0f || !player || !Accessible(player + OFF_REFR_HEADING, 4, false) || !RaysReady(player))
 		return;
 	if (!(g_throttleOn && g_throttle > 0.0f) && g_speedAlong < 30.0f)   /* standing, backing, or no throttle: nothing to ease */
@@ -4813,6 +4886,8 @@ static void FaceRays(uintptr_t player, bool onGround)
 	/* A third ray at half a radius tells a low obstacle from a slope whose hit at 1.5 radii
 	 * lies beyond the rays' reach (review: a climbable slope's approach read as an obstacle). */
 	float heights[3] = { R, 1.5f * R, 0.5f * R }, d[3];
+	const char *hitWhat = NULL;   /* what the axle-height ray hit, and its layer (test 35: bushes with food items stopped the bike like a wall) */
+	uint32_t hitLayer = 0;
 	for (int i = 0; i < 3; i++) {
 		float a[3], b[3];
 		for (int k = 0; k < 3; k++) {
@@ -4821,45 +4896,86 @@ static void FaceRays(uintptr_t player, bool onGround)
 		}
 		float f = CastRay(cell, a, b);
 		d[i] = f > 0.0f && f < 1.0f ? f * L : -1.0f;
+		if (i == 0) {
+			hitWhat = g_rayWhat;   /* before the next cast overwrites them */
+			hitLayer = g_rayLayer;
+		}
 	}
-	if (d[0] < 0.0f)
-		return;
 	float climb = GlobalValue(g_tiltGlobal);
 	if (!(climb >= 20.0f))
 		climb = 45.0f;
 	float ahead = d[0] - wheelFront, slope = 0.0f;
-	const char *what;
-	bool wall;
-	if (d[1] < 0.0f) {
+	const char *what = NULL;
+	bool wall = false;
+	if (d[0] >= 0.0f && d[1] < 0.0f) {
 		/* Nothing at 1.5 radii: lower than that, or a slope the upper ray didn't reach. The
 		 * slope between half a radius and the axle says which: steep is an obstacle. */
-		if (d[2] < 0.0f)
-			return;
-		float run = d[0] - d[2];
-		slope = g_pitchNow + atan2f(heights[0] - heights[2], run > 0.0f ? run : 0.0f) * 57.29578f;
-		if (slope < climb)
-			return;
-		what = "an obstacle lower than 1.5 wheel radii";
-		wall = false;
-	} else {
+		if (d[2] >= 0.0f) {
+			float run = d[0] - d[2];
+			slope = g_pitchNow + atan2f(heights[0] - heights[2], run > 0.0f ? run : 0.0f) * 57.29578f;
+			if (slope >= climb)
+				what = "an obstacle lower than 1.5 wheel radii";
+		}
+	} else if (d[0] >= 0.0f) {
 		float run = d[1] - d[0];
 		slope = g_pitchNow + atan2f(heights[1] - heights[0], run > 0.0f ? run : 0.0f) * 57.29578f;
-		if (slope < climb)
-			return;
-		wall = slope >= g_wallAngle;
-		what = wall ? "a wall" : "a face under WallAngle, an obstacle";
+		if (slope >= climb) {
+			wall = slope >= g_wallAngle;
+			what = wall ? "a wall" : "a face under WallAngle, an obstacle";
+		}
 	}
+	if (!what) {
+		/* Nothing ahead (or a slope under the climb limit): the throttle free. Logged as gone
+		 * once it has been for a quarter second (at the rays' reach a hit comes and goes by
+		 * the frame as the speed, and with it the reach, changes). */
+		if (g_faceKind) {
+			if (g_faceNoneSince < 0.0f) {
+				g_faceNoneSince = (float)g_clock;
+			} else if ((float)g_clock - g_faceNoneSince >= 0.25f) {
+				if (g_faceLogs < 60) {
+					g_faceLogs++;
+					g_faceLoggedAt = (float)g_clock;
+					Log("rays: nothing ahead now (was %s): the throttle free", g_faceKind == 2 ? "a wall" : "an obstacle");
+				}
+				g_faceKind = 0;
+			}
+		}
+		return;
+	}
+	g_faceNoneSince = -1.0f;
+	/* The raw verdict, then the state: (a) a wall whose axle-height hit is behind the front
+	 * wheel's edge is under the bike: an obstacle it has climbed onto (half a radius behind at
+	 * least: stopped against a wall the bike sits at the edge itself, a unit or two either
+	 * way; test 35's hits were 63 to 126 behind); (b) while an obstacle verdict is in force,
+	 * a wall needs its hit ahead of the wheel on WallFrames frames running. */
+	char note[80] = "";
+	bool forNow = false;   /* a wall held back by (b): it doesn't renew the hold, or a wall the bike stops at (its hit at the wheel's edge) would stay an obstacle for good */
+	if (wall && ahead > 0.0f)
+		g_wallSeen = seen + 1;
+	if (wall && ahead < -0.5f * R) {
+		wall = false;
+		snprintf(note, sizeof(note), " (under the bike: an obstacle, not a wall)");
+	} else if (wall && (float)g_clock - g_faceObstacleAt < g_obstacleHold && g_wallSeen < g_wallFrames) {
+		wall = false;
+		forNow = true;
+		snprintf(note, sizeof(note), " (a wall only after %d frames ahead of the wheel: an obstacle for now)", g_wallFrames);
+	}
+	if (!wall && !forNow)
+		g_faceObstacleAt = (float)g_clock;
 	float ease;
 	if (wall || g_obstacleThrottle <= 0.0f)
 		ease = ahead <= 0.0f ? 0.0f : ahead >= span ? 1.0f : ahead / span;
 	else
 		ease = g_obstacleThrottle;
 	g_faceEase = ease;
-	if ((float)g_clock - g_faceLoggedAt >= 1.0f && g_faceLogs < 40) {
+	int kind = wall ? 2 : 1;
+	if ((kind != g_faceKind || (float)g_clock - g_faceLoggedAt >= 1.0f) && g_faceLogs < 60) {
 		g_faceLogs++;
 		g_faceLoggedAt = (float)g_clock;
-		Log("rays: %s ahead (%.0f deg): %.0f past the front wheel at axle height, the throttle %s %.0f%%", what, slope, ahead, wall ? "eased to" : "held to", ease * 100.0f);
+		Log("rays: %s ahead (%.0f deg): %.0f past the front wheel at axle height (%s, layer %u), the throttle %s %.0f%%%s", what, slope, ahead,
+		    hitWhat && *hitWhat ? hitWhat : "unnamed", hitLayer, wall ? "eased to" : "held to", ease * 100.0f, note);
 	}
+	g_faceKind = kind;
 }
 
 static void SampleGround(void)
@@ -5380,8 +5496,8 @@ static void AfterInput(void)
 			 * (straight on with none, so the game turns on a side key while rolling). */
 			float size = InputForSpeed(g_throttle) * (forward ? g_throttleMag : 1.0f);
 			if ((float)g_clock - g_wallAheadAt < 0.25f)
-				size = 0.0f;   /* a face ahead of the front wheel (WallAhead): no forward drive into it */
-			size *= g_faceEase;   /* eased off towards a face seen ahead (FaceRays) */
+				size = 0.0f;   /* a face ahead of the front wheel (WallAhead; not while an obstacle is being ridden over): no forward drive into it */
+			size *= g_faceEase;   /* eased off towards a face seen ahead, or held to the obstacle's share (FaceRays) */
 			float dx = x, dy = forward && y > 0.2f ? y : 1.0f;   /* a side key's own read: forward is still held */
 			float len = sqrtf(dx * dx + dy * dy);
 			if (!(len > 0.0f)) {
@@ -5718,10 +5834,8 @@ static CellPickFn g_cellPick;
 static int g_pickFuncs;             /* 0 not looked for, 1 found (and the pick data made), -1 not */
 static int g_pickState;             /* 0 not tested (since a load), 1 rays work, -1 they can't be used */
 static __attribute__((aligned(16))) uint8_t g_pick[PICK_DATA_SIZE + 0x20];   /* one, reused: no world reference per ray */
-static const char *g_rayWhat;       /* what the last ray hit (its 3D's name), for the log */
 static uint32_t g_rayFilter = LAYER_CHAR_CONTROLLER;   /* the rays' collision filter (0 = everything, if the test says) */
-static uint32_t g_rayLayer;         /* the last hit's collision layer */
-static float g_rayHit[3];           /* and where it was */
+static float g_rayHit[3];           /* where the last ray's hit was (what it hit and its layer: g_rayWhat, g_rayLayer, with the tilt's state) */
 static float g_rayGroundNear, g_rayGroundFar;   /* the ground just behind and under the rear, for the trace */
 static float g_rayFeetGap = -99.0f, g_rayDz;   /* the feet ray's gap under the feet (-99: no ray) and the step's dz, for the trace */
 static float g_pickRetryAt;         /* a failed test ray is tried again from then */
@@ -6560,6 +6674,7 @@ static void Tick(DWORD now)
 		g_riderBlocked = false;
 		g_riderWorldChecked = false;
 		g_riderBoneWarned = false;
+		g_holdWaitSince = 0.0f;
 	}
 	if (tilt > 0.0f || (riding && g_partsOk)) {
 		double t0 = Clock();
@@ -6688,6 +6803,7 @@ static void OnF4SEMessage(F4SEMessage *msg)
 		g_riderBlocked = false;
 		g_riderWorldChecked = false;
 		g_riderBoneWarned = false;
+		g_holdWaitSince = 0.0f;
 		g_zoomRiding = g_zoomTouched = false;   /* a new camera: nothing of ours to put back */
 		g_steerHave = false;                    /* steer from the loaded heading */
 		g_pushCtrl = 0;                         /* the old controller is gone: nothing to undo */

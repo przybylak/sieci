@@ -185,6 +185,7 @@ static void FakeGetControllerOutput(uint8_t *self, uint32_t id, float *out)
 	g_outputCalls++;
 }
 static float *PlayerPosition(void);
+static float PlayerHeading(void);
 static void FakeGetPosition(uint8_t *self, float *out, bool centre)
 {
 	(void)self; (void)centre;
@@ -202,11 +203,20 @@ static void FakeSetPosition(uint8_t *self, const float *p, bool centre, bool war
 static void FakeGetVelocity(uint8_t *self, float *out) { (void)self; memcpy(out, g_fakeVel, 16); }
 
 /* The world the rays see: flat ground at g_groundZ (none past the drop's edge, when there's
- * one, layer 13 terrain), and up to three vertical planes (walls, layer 1 static, or a trigger
- * volume, layer 12) facing the bike. The game's picking: bhkPickData (ours: start +0x20, end
- * +0x30, hit +0x60, fraction +0x64, the hit's layer +0xAC, world +0xC0), TESObjectCELL::Pick,
- * found through an Address Library file the test writes next to the plugin. */
-typedef struct { bool on; float point[2], normal[2]; uint32_t layer; float top; } FakePlane;   /* top: this high above the ground, 0 = no top (a wall) */
+ * one, layer 13 terrain), up to three vertical planes (walls, layer 1 static, or a trigger
+ * volume, layer 12) facing the bike, and a shelf (a horizontal disc of radius 60, layer 1,
+ * g_shelfHeight above the ground, g_shelfAhead ahead of the player along their heading: the
+ * front wheel's down-ray reading a face taller than the wheel climbs, test 35). The game's
+ * picking: bhkPickData (ours: start +0x20, end +0x30, hit +0x60, fraction +0x64, the hit's
+ * layer +0xAC, world +0xC0), TESObjectCELL::Pick, found through an Address Library file the
+ * test writes next to the plugin. */
+/* top: this high above the ground, 0 = no top (a wall); bottom: from this high up (a rail at
+ * axle height), 0 = from the ground; follow: 0 = where point and normal say, else this far
+ * ahead of the player along their heading, facing them, wherever they go (test 35: a face
+ * behind the front wheel's edge, the bike on top of a thing it climbed). */
+typedef struct { bool on; float point[2], normal[2]; uint32_t layer; float top, bottom, follow; } FakePlane;
+static bool g_shelfOn;
+static float g_shelfHeight, g_shelfAhead;
 static float g_groundZ = 100.0f;
 static float g_slopeK, g_slopeO[2], g_slopeD[2];   /* the ground rises g_slopeK per unit along g_slopeD from g_slopeO */
 static bool g_dropOn, g_frozen;   /* g_frozen: the movement can't move the player (stuck against something) */
@@ -215,7 +225,7 @@ static int g_pileCount;           /* a pile of clutter (layer 4): this many surf
 static float g_pilePoint[2];
 static FakePlane g_planes[3];
 static float g_dropPoint[2], g_dropDir[2];
-static uint8_t *g_wallObj, *g_groundObj, g_fakeWorld[64];
+static uint8_t *g_wallObj, *g_groundObj, *g_shelfObj, g_fakeWorld[64];
 static int g_picks;
 static void *FakePickCtor(uint8_t *pick)
 {
@@ -261,16 +271,39 @@ static uint8_t *FakeCellPick(uint8_t *cell, uint8_t *pick)
 			layer = 4;
 		}
 	}
+	if (g_shelfOn && b[2] != a[2]) {
+		float tp = (g_groundZ + g_shelfHeight - a[2]) / (b[2] - a[2]);
+		float h = PlayerHeading(), cx = PlayerPosition()[0] + sinf(h) * g_shelfAhead, cy = PlayerPosition()[1] + cosf(h) * g_shelfAhead;
+		float x = a[0] + (b[0] - a[0]) * tp, y = a[1] + (b[1] - a[1]) * tp;
+		if (tp >= 0.0f && tp <= 1.0f && tp < t && hypotf(x - cx, y - cy) < 60.0f) {
+			t = tp;
+			what = g_shelfObj;
+			layer = 1;
+		}
+	}
 	for (int i = 0; i < 3; i++) {
 		const FakePlane *w = &g_planes[i];
 		if (!w->on)
 			continue;
-		float da = (a[0] - w->point[0]) * w->normal[0] + (a[1] - w->point[1]) * w->normal[1];
-		float db = (b[0] - w->point[0]) * w->normal[0] + (b[1] - w->point[1]) * w->normal[1];
-		if (w->top > 0.0f && da > 0.0f && db <= 0.0f && a[2] + (b[2] - a[2]) * (da / (da - db)) > g_groundZ + w->top)
+		float point[2] = { w->point[0], w->point[1] }, normal[2] = { w->normal[0], w->normal[1] };
+		if (w->follow != 0.0f) {   /* resolved per cast: wherever the player is now, facing them */
+			float h = PlayerHeading(), fx = sinf(h), fy = cosf(h);
+			point[0] = PlayerPosition()[0] + fx * w->follow;
+			point[1] = PlayerPosition()[1] + fy * w->follow;
+			normal[0] = -fx;
+			normal[1] = -fy;
+		}
+		float da = (a[0] - point[0]) * normal[0] + (a[1] - point[1]) * normal[1];
+		float db = (b[0] - point[0]) * normal[0] + (b[1] - point[1]) * normal[1];
+		if (!(da > 0.0f && db <= 0.0f))
+			continue;
+		float tp = da / (da - db), z = a[2] + (b[2] - a[2]) * tp;
+		if (w->top > 0.0f && z > g_groundZ + w->top)
 			continue;   /* over the top of it */
-		if (da > 0.0f && db <= 0.0f && da / (da - db) < t) {
-			t = da / (da - db);
+		if (w->bottom > 0.0f && z < g_groundZ + w->bottom)
+			continue;   /* under it */
+		if (tp < t) {
+			t = tp;
 			what = w->layer == 12 ? NULL : g_wallObj;
 			layer = w->layer;
 		}
@@ -353,6 +386,7 @@ static float Ground(int i) { return *(float *)(g_groundGlobals[i] + 0x30); }
 static float Park(int i) { return *(float *)(g_parkGlobals[i] + 0x30); }
 static float *PlayerPos(void) { return (float *)(g_player + 0xD0); }
 static float *PlayerPosition(void) { return PlayerPos(); }
+static float PlayerHeading(void) { return *(const float *)(g_player + 0xC8); }
 static void SetNormal(float x, float y, float z)
 {
 	float *n = (float *)(g_controller + 0x1E0);
@@ -565,6 +599,7 @@ static void BuildGame(void)
 	void **vtFade = MakeClass(fade, 4), **vtNode = MakeClass(node, 3), **vtTri = MakeClass(tri, 5);
 	g_wallObj = NewNode(vtNode, "FakeWall", 0);
 	g_groundObj = NewNode(vtNode, "FakeGround", 0);
+	g_shelfObj = NewNode(vtNode, "FakeShelf", 0);
 	static const char *cell[] = { ".?AVTESObjectCELL@@", ".?AVTESForm@@" };
 	*(void **)(g_player + 0xB8) = NewObject(MakeClass(cell, 2), 0x200);
 	void **vtSkin = MakeClass(skin, 2), **vtBone = MakeClass(bone, 2);
@@ -1789,6 +1824,64 @@ static void InputTests(void)
 		RunFrames(300);
 		face->on = false;
 		face->top = 0.0f;
+
+		/* Test 35's verdicts with state. First a reference: full throttle for 2 s from a stop. */
+		RunFrames(2500);   /* rolled off, at rest */
+		Mark(p0);
+		Keys(0.0f, 1.0f);
+		RunFrames(2000);
+		float fullRun = Moved(p0);
+		Keys(0.0f, 0.0f);
+		RunFrames(2500);
+		printf("input hook: a face between the rider and the front wheel's edge (the bike on top of a thing it climbed; test 35), W held: an obstacle, not a wall:\n");
+		Mark(p0);
+		face->follow = 60.0f;   /* 60 ahead of the rider wherever they go: 70 behind the front wheel's edge, at any height */
+		face->on = true;
+		Keys(0.0f, 1.0f);
+		RunFrames(2000);
+		CHECK(Moved(p0) > 100.0f && Moved(p0) < 0.6f * fullRun, "rolls on at the obstacle's throttle: %.0f in 2 s (%.0f at full throttle; a wall at the wheel would have held it)", Moved(p0), fullRun);
+		printf("input hook: that face under the bike for half a second more, then a wall 400 ahead instead: a wall is still a wall once the obstacle's hold has passed (ObstacleHold 1, WallFrames 5):\n");
+		RunFrames(500);
+		face->follow = 0.0f;
+		face->point[0] = PlayerPos()[0] + fwd2[0] * 400.0f;
+		face->point[1] = PlayerPos()[1] + fwd2[1] * 400.0f;
+		face->normal[0] = -fwd2[0];
+		face->normal[1] = -fwd2[1];
+		Mark(p0);
+		RunFrames(6000);
+		left = (face->point[0] - PlayerPos()[0]) * fwd2[0] + (face->point[1] - PlayerPos()[1]) * fwd2[1];
+		CHECK(Moved(p0) > 150.0f && left > 100.0f && left < 220.0f, "rode on %.0f and stopped with the front wheel short of the wall (%.0f from the rider to it)", Moved(p0), left);
+		Keys(0.0f, 0.0f);
+		RunFrames(300);
+		face->on = false;
+		printf("input hook: the front wheel's down-ray reads a face taller than the wheel climbs (a shelf 140 above the feet over the front axle), a rail at axle height 60 ahead: the throttle cut (WallAhead):\n");
+		Mark(p0);
+		g_shelfOn = true;
+		g_shelfHeight = 140.0f;   /* over the rise the ray accepts: 99.6 x 1.1918 + 10 = 128.7 */
+		g_shelfAhead = 99.6f;
+		FakePlane *rail = &g_planes[1];
+		rail->follow = 60.0f;
+		rail->bottom = 20.0f;   /* from 20 to 35 above the ground: the axle-height ray hits it, the ones at half a radius and 1.5 radii don't (no obstacle verdict) */
+		rail->top = 35.0f;
+		rail->layer = 1;
+		rail->on = true;
+		Keys(0.0f, 1.0f);
+		RunFrames(2000);
+		CHECK(Moved(p0) < 100.0f, "the bike stands: %.0f in 2 s (no obstacle in force)", Moved(p0));
+		printf("input hook: the same with the face under the bike as well (an obstacle in force): the down-ray's face is left to the obstacle's throttle:\n");
+		face->follow = 60.0f;
+		face->on = true;
+		Mark(p0);
+		RunFrames(2000);
+		CHECK(Moved(p0) > 100.0f && Moved(p0) < 0.6f * fullRun, "rolls on at the obstacle's throttle: %.0f in 2 s", Moved(p0));
+		Keys(0.0f, 0.0f);
+		RunFrames(300);
+		face->on = false;
+		face->follow = 0.0f;
+		rail->on = false;
+		rail->follow = rail->bottom = rail->top = 0.0f;
+		g_shelfOn = false;
+		RunFrames(2500);   /* rolled off, at rest */
 	}
 
 	printf("input hook: a trigger volume 80 behind (not solid):\n");
@@ -2618,6 +2711,65 @@ static void TiltTests(void)
 		CHECK(TiltedOff(S, mS, Rw2, Pw2) < 0.05f, "TorsoLean=0 again on the next ride: the shoulder where the clips have it (%.3f off)", TiltedOff(S, mS, Rw2, Pw2));
 	}
 
+	printf("tilt: a hold against a half-built skeleton (test 35: right after a save load the arms' shoulders were missing for 0.1 s): nothing held till the arms are whole, for a second at most:\n");
+	{
+		uint8_t **bodyList = *(uint8_t ***)(g_bodySkin + 0x28);
+		bodyList[6] = NULL;   /* LArm_UpperArm's node gone from the body's skin: the left hand and elbow there, the shoulder not */
+		SetTilt(0.0f);
+		RunFrames(300);
+		SetTilt(30.0f);
+		RunFrames(500);
+		CHECK(*(uint8_t **)(g_bodySkin + 0x40) == g_bodyData && *(int32_t *)(g_bodySkin + 0x08) == 1 && memcmp(g_bodyBones, g_bodyBonesOriginal, sizeof(g_bodyBonesOriginal)) == 0,
+		      "half a second in: the body not held, its bone data untouched (the hold waits for the skeleton)");
+		CHECK(*(uint8_t **)(g_handsSkin + 0x40) == g_handsData && memcmp(g_handsBones, g_handsBonesOriginal, sizeof(g_handsBonesOriginal)) == 0,
+		      "nothing written to the hands' skin either (nothing of the rider held)");
+		bodyList[6] = g_bodyNodes[6];   /* the game finished the skeleton */
+		RunFrames(300);
+		uint8_t *heldData = *(uint8_t **)(g_bodySkin + 0x40);
+		CHECK(heldData && heldData != g_bodyData && *(int32_t *)(g_bodySkin + 0x08) == 2, "the node back within the second: the rider held on the next try (references %d)", *(int32_t *)(g_bodySkin + 0x08));
+		if (heldData && heldData != g_bodyData) {
+			float before[3], after[3], Rw3[9], Pw3[3];
+			const uint8_t *copy3 = *(const uint8_t **)(heldData + 0x10);
+			ExpectedTilt(Rw3, Pw3);
+			WorldOfBone(g_bodyNodes[0], g_bodyBonesOriginal, probes[1], before);
+			WorldOfBone(g_bodyNodes[0], copy3, probes[1], after);
+			CHECK(TiltedOff(before, after, Rw3, Pw3) < 0.05f, "and tilted with the bike (%.3f off)", TiltedOff(before, after, Rw3, Pw3));
+			if (g_haveParts) {
+				/* The upper arm has its part in the arm's chain again: with the bars over, the
+				 * shoulder swings with the upper body's twist, off the tilt alone. */
+				float S[3], mS[3];
+				g_turnOnSpot = -1.0472f;
+				g_onFrame = TurnOnTheSpot;
+				RunFrames(1500);
+				copy3 = *(const uint8_t **)(*(uint8_t **)(g_bodySkin + 0x40) + 0x10);
+				ExpectedTilt(Rw3, Pw3);
+				memcpy(S, g_bodyNodes[6] + 0xA0, 12);
+				MapBone(g_bodyNodes[6], g_bodyBonesOriginal + 6 * 0x50, copy3 + 6 * 0x50, S, mS);
+				CHECK(fabsf(BarAngle()) > 8.0f && TiltedOff(S, mS, Rw3, Pw3) > 0.5f,
+				      "LArm_UpperArm has its part in the arm's chain again: the bars over %.1f deg, the shoulder swung with the twist (%.2f off the tilt alone)", BarAngle(), TiltedOff(S, mS, Rw3, Pw3));
+				g_turnOnSpot = 1.0472f;
+				RunFrames(1500);
+				g_onFrame = NULL;
+				*headNow = headingBefore;
+				RunFrames(1000);
+			}
+		}
+		printf("tilt: the skeleton still half built after a second: held as it is:\n");
+		bodyList[6] = NULL;
+		SetTilt(0.0f);
+		RunFrames(300);
+		SetTilt(30.0f);
+		RunFrames(1300);
+		heldData = *(uint8_t **)(g_bodySkin + 0x40);
+		CHECK(heldData && heldData != g_bodyData && *(int32_t *)(g_bodySkin + 0x08) == 2, "held anyway after the second (references %d)", *(int32_t *)(g_bodySkin + 0x08));
+		bodyList[6] = g_bodyNodes[6];
+		SetTilt(0.0f);
+		RunFrames(300);
+		SetTilt(30.0f);
+		RunFrames(600);
+		CHECK(*(uint8_t **)(g_bodySkin + 0x40) != g_bodyData, "the node back and the rider held again for what follows");
+	}
+
 	printf("lamp: the headlamp's add-on node at the lens while CMB_HeadlampLive is 1, hidden while 0:\n");
 	{
 		/* Expected: the lens (0.3, 76.3, 81.9) in the bike's space, through the bind and COM,
@@ -2784,8 +2936,9 @@ static void TiltTests(void)
 	printf("tilt: a dip between the wheels (the ground 10 above the capsule's contact): the bike lifted onto it:\n");
 	SetNormal(0.0f, 0.0f, 1.0f);
 	g_slopeK = 0.0f;
-	if (g_haveParts) {   /* the bump lift on for this test (off in the run's INI: the other checks expect the filtered lift alone) */
-		RewriteIni("BumpRise=0", "BumpRise=0.12");
+	if (g_haveParts) {   /* the bump lift and the lift rate on for this test (off in the run's INI: the other checks expect the filtered lift alone) */
+		RewriteIni("BumpMax=0", "BumpMax=30");
+		RewriteIni("LiftRate=0", "LiftRate=120");
 		SetTilt(0.0f);
 		RunFrames(300);
 		SetTilt(30.0f);
@@ -2796,7 +2949,7 @@ static void TiltTests(void)
 	SeatInBone(g_bonesOriginal, seatBefore);
 	SeatInBone(g_bones, seatNow);
 	float lifted = sqrtf((seatNow[0] - seatBefore[0]) * (seatNow[0] - seatBefore[0]) + (seatNow[1] - seatBefore[1]) * (seatNow[1] - seatBefore[1]) + (seatNow[2] - seatBefore[2]) * (seatNow[2] - seatBefore[2]));
-	CHECK(g_picks == 0 || (lifted > 7.0f && lifted < 11.0f), "a tenth of a second in: lifted %.1f already (a wheel's bump lift rises over BumpRise 0.12 s, not in a frame: test 34's launched the bike)", lifted);
+	CHECK(g_picks == 0 || (lifted > 9.0f && lifted < 10.6f), "a tenth of a second in: lifted %.1f already (the bump fills the wheel's deficit at once, under LiftRate 120 a second: 12 would be allowed; test 34's rise in a frame launched the bike)", lifted);
 	RunFrames(250);
 	SeatInBone(g_bones, seatNow);
 	lifted = sqrtf((seatNow[0] - seatBefore[0]) * (seatNow[0] - seatBefore[0]) + (seatNow[1] - seatBefore[1]) * (seatNow[1] - seatBefore[1]) + (seatNow[2] - seatBefore[2]) * (seatNow[2] - seatBefore[2]));
@@ -2812,7 +2965,33 @@ static void TiltTests(void)
 	CHECK(lifted < 0.5f, "on a crest (the ground 10 below): not lowered (%.1f)", lifted);
 	g_groundZ = PlayerPos()[2];
 	if (g_haveParts) {
-		RewriteIni("BumpRise=0.12", "BumpRise=0");
+		/* A 30 unit step (a wheel radius, BumpMax): the lift paced by LiftRate (test 35: the
+		 * bump lift's +34 in a quarter second at 900 units a second jumped the bike). */
+		printf("tilt: a 30 unit step under the wheels (BumpMax 30): the lift rises at LiftRate 120 a second:\n");
+		RunFrames(600);
+		LARGE_INTEGER qf, q0, q1;   /* the time this run's frames took (a frame is 5 to 7 ms here: 0.1 s is 15 to 20 of them, plus a part of one) */
+		QueryPerformanceFrequency(&qf);
+		QueryPerformanceCounter(&q0);
+		g_groundZ = PlayerPos()[2] + 30.0f;
+		RunFrames(100);
+		QueryPerformanceCounter(&q1);
+		float took = (float)(q1.QuadPart - q0.QuadPart) / (float)qf.QuadPart;
+		SeatInBone(g_bones, seatNow);
+		lifted = sqrtf((seatNow[0] - seatBefore[0]) * (seatNow[0] - seatBefore[0]) + (seatNow[1] - seatBefore[1]) * (seatNow[1] - seatBefore[1]) + (seatNow[2] - seatBefore[2]) * (seatNow[2] - seatBefore[2]));
+		CHECK(g_picks == 0 || (lifted > 120.0f * took - 3.0f && lifted < 120.0f * took + 2.0f && lifted < 20.0f),
+		      "a tenth of a second in (%.3f s): lifted %.1f (%.1f at 120 a second; the deficit would have it at 30 at once)", took, lifted, 120.0f * took);
+		RunFrames(150);
+		SeatInBone(g_bones, seatNow);
+		lifted = sqrtf((seatNow[0] - seatBefore[0]) * (seatNow[0] - seatBefore[0]) + (seatNow[1] - seatBefore[1]) * (seatNow[1] - seatBefore[1]) + (seatNow[2] - seatBefore[2]) * (seatNow[2] - seatBefore[2]));
+		CHECK(g_picks == 0 || (lifted > 27.0f && lifted < 30.6f), "a quarter second in: lifted %.1f (30 over 0.25 s), never over the step", lifted);
+		RunFrames(600);
+		SeatInBone(g_bones, seatNow);
+		lifted = sqrtf((seatNow[0] - seatBefore[0]) * (seatNow[0] - seatBefore[0]) + (seatNow[1] - seatBefore[1]) * (seatNow[1] - seatBefore[1]) + (seatNow[2] - seatBefore[2]) * (seatNow[2] - seatBefore[2]));
+		CHECK(g_picks == 0 || (lifted > 29.0f && lifted < 31.0f), "the bike lifted %.1f (30), level", lifted);
+		g_groundZ = PlayerPos()[2];
+		RunFrames(800);
+		RewriteIni("BumpMax=30", "BumpMax=0");
+		RewriteIni("LiftRate=120", "LiftRate=0");
 		SetTilt(0.0f);
 		RunFrames(300);
 		SetTilt(30.0f);

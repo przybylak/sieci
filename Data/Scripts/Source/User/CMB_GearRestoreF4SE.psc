@@ -12,47 +12,30 @@ Armor Property CMB_BikeRiderArmorFrame Auto Const
 {The ground-planted version of the worn bike.}
 int Property BikeSlotIndex Auto Const Mandatory
 {The bike's biped slot minus 30 (slot 57 = 27). Filled by the plugin generator from BikeSlot.}
-int Property LampSlotIndex = 0 Auto Const
-{The headlamp piece's biped slot minus 30 (slot 58 = 28; 0 = none). Filled by the generator from LampSlot.}
 
 Form rememberedItem = None
-Form rememberedLampItem = None
 
 Function RememberSlot(Actor akActor)
 	rememberedItem = None
-	rememberedLampItem = None
 	Actor:WornItem worn = akActor.GetWornItem(BikeSlotIndex)
 	if worn && worn.item && worn.item != CMB_BikeRiderArmor && worn.item != CMB_BikeRiderArmorFrame
 		rememberedItem = worn.item
-	endif
-	if LampSlotIndex > 0
-		worn = akActor.GetWornItem(LampSlotIndex)
-		if worn && worn.item && worn.item != CMB_BikeRiderArmor && worn.item != CMB_BikeRiderArmorFrame && worn.item != rememberedItem
-			rememberedLampItem = worn.item
-		endif
 	endif
 EndFunction
 
 Function RestoreSlot(Actor akActor)
 	Form item = rememberedItem
-	Form lampItem = rememberedLampItem
 	rememberedItem = None
-	rememberedLampItem = None
 	if item && akActor.GetItemCount(item) > 0 && !akActor.IsEquipped(item)
 		akActor.EquipItem(item, false, true)
 	endif
-	if lampItem && akActor.GetItemCount(lampItem) > 0 && !akActor.IsEquipped(lampItem)
-		akActor.EquipItem(lampItem, false, true)
-	endif
 EndFunction
 
-; What the biped holds in the bike's and the lamp piece's slots once the bike is on (test 33:
-; the lamp piece's nodes were never found on the player's 3D).
+; What the biped holds in the bike's slot once the bike is on (test 33: a reading of the worn
+; slots told an addon the game never took from a timing gap; the lamp piece and its own slot
+; went after test 35, the bike's slot is still logged).
 Function LogWornSlots(Actor akActor)
 	LogSlot(akActor, BikeSlotIndex)
-	if LampSlotIndex > 0
-		LogSlot(akActor, LampSlotIndex)
-	endif
 EndFunction
 
 Function LogSlot(Actor akActor, int aiSlotIndex)
