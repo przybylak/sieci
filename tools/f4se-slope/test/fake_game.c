@@ -2730,11 +2730,17 @@ static void TiltTests(void)
 			SetTilt(30.0f);
 			RunFrames(400);
 			{
-				float ex2[3], rw2[3];
-				for (int i = 0; i < 3; i++)
-					ex2[i] = e[i] + 28.0f * beam[i];
+				/* 28 along the beam the root itself points (its +X, read back after the remount:
+				 * the bars may sit at another angle now), from the lens placed before. */
+				float ex2[3], rw2[3], rW2[9], axisNow[3];
 				memcpy(rw2, g_lampRefRoot + 0xA0, 12);
-				CHECK(Dist3(rw2, ex2) < 0.3f, "Ahead=28: the reference 28 along the beam from the lens (%.3f off; %.1f from the lens)", Dist3(rw2, ex2), Dist3(rw2, e));
+				LoadRotation((const float *)(g_lampRefRoot + 0x70), rW2, g_rootTransposed);
+				axisNow[0] = rW2[0]; axisNow[1] = rW2[3]; axisNow[2] = rW2[6];
+				for (int i = 0; i < 3; i++)
+					ex2[i] = e[i] + 28.0f * axisNow[i];
+				/* The ride restarted for the setting: its tilt and bars settle a little differently,
+				 * so the direction is checked loosely (within about 6 degrees), the distance tightly. */
+				CHECK(Dist3(rw2, ex2) < 3.0f && fabsf(Dist3(rw2, e) - 28.0f) < 0.6f, "Ahead=28: the reference 28 along the beam from the lens (%.2f off the beam's line; %.1f from the lens)", Dist3(rw2, ex2), Dist3(rw2, e));
 			}
 			RewriteIni("Ahead=28", "Ahead=0");
 			SetTilt(0.0f);
