@@ -484,6 +484,8 @@ EndFunction
 ; The beam: a light reference placed at the rider while riding (the game keeps no add-on node
 ; of a worn mesh, test 30); disabled until the lamp is lit; CMB_Slope.dll keeps it at the lens.
 ObjectReference headlampRef = None
+; Ticks of the ride so far (test 34: a second reading of the worn slots two ticks in).
+int ticksThisRide = 0
 ; The one before a handover, retired a moment later (test 33: moving the one reference at
 ; every cell crossing reloaded its 3D and the beam flickered; now a fresh one is placed in
 ; the player's cell once the bike is two cells from the old one's, the plugin keeps the old
@@ -759,6 +761,7 @@ Function Mount()
 	HandleFollowersOnMount()
 
 	riding = true
+	ticksThisRide = 0
 	hasLastPos = false
 	combatHinted = false
 	RegisterForPlayerTeleport()
@@ -977,6 +980,11 @@ Function RideTick()
 		return
 	endif
 	UpdateEngineSound(stepDistance)
+	ticksThisRide += 1
+	if ticksThisRide == 2
+		; Test 34: slot 58 read "nothing" in the frame the bike went on; a reading 2 s later tells a timing gap from an addon the game never took.
+		CallGearRestore("LogWornSlots")
+	endif
 	SetHeadlampLive(true)
 	FollowHeadlamp()
 

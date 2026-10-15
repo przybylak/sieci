@@ -542,11 +542,13 @@ def write_palette(folder: Path, order, body):
 
 # --- nif ---------------------------------------------------------------------------------
 
-def shader_setup(shape, base_props, kind, skinned, textures):
+def shader_setup(shape, base_props, kind, skinned, textures, casts=True):
     """Our own textures and settings on the shape (no materials file, so the nif's count)."""
     props = base_props.copy()
     props.nameID = props.controllerID = -1
-    sf1 = SF1_SPECULAR | SF1_RECEIVE_SHADOWS | SF1_CAST_SHADOWS | SF1_ZBUFFER_TEST
+    sf1 = SF1_SPECULAR | SF1_RECEIVE_SHADOWS | SF1_ZBUFFER_TEST
+    if casts:
+        sf1 |= SF1_CAST_SHADOWS
     sf2 = SF2_ZBUFFER_WRITE
     if skinned:
         sf1 |= SF1_SKINNED
@@ -606,7 +608,8 @@ def add_shape(nif, name, verts, tris, uvs, normals, base_props, use_type, kind, 
         new.add_bone(bone, buf(bind) if bind else identity)
         new.set_skin_to_bone_xform(bone, buf(rigid_inverse(bind)) if bind else identity)
         new.setShapeWeights(bone, [(i, 1.0) for i in range(len(verts))])
-    shader_setup(new, base_props.shader_props, kind, skinned, texture_paths(kind))
+    # The bar assembly and the front wheel cast no shadow: the bike's front end must not shadow the headlamp's beam (test 34).
+    shader_setup(new, base_props.shader_props, kind, skinned, texture_paths(kind), casts=not ("_front" in name or "_wheelF" in name))
     return new
 
 

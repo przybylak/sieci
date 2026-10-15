@@ -346,7 +346,7 @@ static float g_medianTime = 0.25f;        /* seconds of samples the median is ta
 static float g_maxRate = 90.0f;           /* degrees per second at most */
 static float g_maxRoll;                   /* degrees: a two-wheeler stays upright across a slope */
 static float g_maxLean = 14.0f;             /* [Tilt] MaxLean: the lean into turns, at most (0: none) */
-static float g_leanRate = 30.0f;            /* [Tilt] LeanRate: the lean changes at most this fast, degrees a second (test 32: 18 deg jumps between quarter seconds) */
+static float g_leanRate = 50.0f;            /* [Tilt] LeanRate: the lean changes at most this fast, degrees a second (test 32: 18 deg jumps between quarter seconds; test 34: 30 lagged the eased key turn) */
 static float g_leanSmooth = 0.45f;          /* [Tilt] LeanSmooth: the turning rate is smoothed over this many seconds for the lean (a key asks 300 deg/s at once) */
 static float g_leanDead = 0.08f;            /* [Tilt] LeanDead: v w / g (the tangent of the physical lean) under this gives none: a small correction barely leans */
 static float g_leanGain = 0.5f;             /* [Tilt] LeanGain: the lean as this fraction of the physical atan(v w / g) */
@@ -359,9 +359,14 @@ static float g_torsoLean;                   /* this ride: degrees forward, from 
 static bool g_torsoLeanSet;
 static int g_torsoTries;
 static float g_faceLook = 0.3f;             /* [Steer] FaceLook: a face ahead is looked for this many seconds of the speed past the front wheel (0: off) */
-static float g_turnEase = 0.35f;            /* [Steer] TurnEase: the turning rate the keys ask eases in over this many seconds (test 33: a snake on A/D) */
+static float g_turnEaseIn = 0.14f;          /* [Steer] TurnEaseIn: the turning rate the keys ask eases in over this many seconds (test 33: a snake on A/D; test 34: 0.35 felt heavy) */
+static float g_turnEaseOut = 0.08f;         /* [Steer] TurnEaseOut: ... and out over this many seconds when the key is let go */
 static float g_yawEased;                    /* the eased turning rate (radians a second) */
-static float g_bumpSettle = 0.2f;           /* [Tilt] BumpSettle: a wheel's lift over a bump it would sink into rises at once and settles over this (0: off) */
+static float g_bumpRise = 0.12f;            /* [Tilt] BumpRise: a wheel's bump lift rises over about this many seconds (test 34: 60 units in a frame launched the bike) */
+static float g_bumpMax = 30.0f;             /* [Tilt] BumpMax: and never more than this in one go (a wheel radius) */
+static float g_bumpSettle = 0.45f;          /* [Tilt] BumpSettle: and settles over this many seconds as the filtered values catch up or the bump passes */
+static float g_wallAngle = 55.0f;           /* [Steer] WallAngle: a face this steep or steeper, solid at axle height and 1.5 radii, is a wall */
+static float g_obstacleThrottle = 0.4f;     /* [Steer] ObstacleThrottle: an obstacle lower than 1.5 radii, or a face under WallAngle, holds the throttle to this share (0: stop) */
 static float g_bumpLift, g_liftSmooth;      /* the bump lift now; the filtered lift the bump sits on */
 static float g_wheelZ[2];                   /* this frame's raw ray hits under the wheels (front, rear), above the feet */
 static bool g_wheelZOk;
@@ -444,6 +449,10 @@ typedef struct {
 static LampNode g_lamp[2];
 static int g_lampEnabled = 1, g_lampShadows, g_lampBeamAxis, g_lampBeamSign = 1, g_lampLogged;
 static float g_lampPitch;
+static float g_lampAhead = 28.0f;           /* [Lamp] Ahead: the light placed this far along the beam from the lens (test 34: inside the housing on fast frames, the beam blacked out) */
+static float g_lampLead = 1.0f;             /* [Lamp] Lead: and moved on by this many frames of the bike's speed (the renderer lights with the transform a frame late) */
+static int g_lampHandoverFrames = 5;        /* [Lamp] HandoverFrames: at a handover the old light stays at the lens this many frames after the new one has its 3D */
+static int g_lampRefNewFrames;              /* frames the new reference has had its 3D during a handover */
 static uint32_t g_lampFlagsOff = OFF_AV_FLAGS;
 static char g_lampNodeName[2][48] = { "CMB_Headlamp", "CMB_HeadlampShadow" };
 static float g_lampPoint[3], g_lampAxis[3] = { 0.0f, 1.0f, 0.0f };
@@ -585,7 +594,8 @@ typedef struct {
 	uint8_t *saved;                     /* what they were */
 	uint8_t *skip;                      /* per bone: 1 = left as it is (its node can't be read, or isn't a rigid transform) */
 	uint8_t *arm;                      /* each bone's part in the arms (ArmRole), for the bars' turn */
-	float *lastPos;                    /* each bone's node position last frame (the jump stat, test 33) */
+	uintptr_t xforms;                  /* the skin's array of each bone's world transform pointer, for bones without a node (test 34) */
+	float *lastPos;                    /* each bone's node position last frame, relative to the bike's bone (the jump stat, test 33) */
 	bool lastPosOk;
 	uintptr_t nodes;                    /* the instance's bone nodes (NiAVObject * each) */
 	int count;
@@ -610,6 +620,8 @@ static int g_wheelRaysMissed;               /* for the trace */
 static bool g_riderIdle;                    /* the originals are in place: nothing written since */
 static bool g_riderLevel = true;            /* the tilt is within the deadband: the rider's shapes are left as they are */
 static bool NodeWorld(uintptr_t node, float N[9], float n[3], float *s, float Ni[9]);   /* defined with the rider */
+static bool TransformWorld(uintptr_t xf, float N[9], float n[3], float *s, float Ni[9]);   /* defined with the rider */
+static void NodelessRoles(void);
 static bool Invert3(const float *a, float *out);
 static float CastRay(uintptr_t cell, const float a[3], const float b[3]);   /* defined with the reverse's rays */
 static bool RaysReady(uintptr_t player);
@@ -721,7 +733,7 @@ static void ReadLeanSettings(const char *ini, bool log)
 {
 	float was[10] = { g_maxLean, g_leanRate, g_leanSmooth, g_leanDead, g_leanGain, g_torsoLeanSetting, g_armReach, g_torsoTwist, g_faceLook, (float)g_headLevel };
 	g_maxLean = IniFloat(ini, "Tilt", "MaxLean", 14.0f, 0.0f, 45.0f);
-	g_leanRate = IniFloat(ini, "Tilt", "LeanRate", 30.0f, 0.0f, 1000.0f);
+	g_leanRate = IniFloat(ini, "Tilt", "LeanRate", 50.0f, 0.0f, 1000.0f);
 	g_leanSmooth = IniFloat(ini, "Tilt", "LeanSmooth", 0.45f, 0.0f, 5.0f);
 	g_leanDead = IniFloat(ini, "Tilt", "LeanDead", 0.08f, 0.0f, 2.0f);
 	g_leanGain = IniFloat(ini, "Tilt", "LeanGain", 0.5f, 0.0f, 2.0f);
@@ -730,11 +742,25 @@ static void ReadLeanSettings(const char *ini, bool log)
 	g_armReach = IniFloat(ini, "Tilt", "ArmReach", 0.88f, 0.5f, 1.0f);
 	g_torsoTwist = IniFloat(ini, "Tilt", "TorsoTwist", 0.4f, 0.0f, 1.0f);
 	g_faceLook = IniFloat(ini, "Steer", "FaceLook", 0.3f, 0.0f, 3.0f);
-	float wasEase = g_turnEase, wasBump = g_bumpSettle;
-	g_turnEase = IniFloat(ini, "Steer", "TurnEase", 0.35f, 0.0f, 3.0f);
-	g_bumpSettle = IniFloat(ini, "Tilt", "BumpSettle", 0.2f, 0.0f, 3.0f);
+	float wasMore[7] = { g_turnEaseIn, g_turnEaseOut, g_bumpRise, g_bumpMax, g_bumpSettle, g_wallAngle, g_obstacleThrottle };
+	g_turnEaseIn = IniFloat(ini, "Steer", "TurnEaseIn", 0.14f, 0.0f, 3.0f);
+	g_turnEaseOut = IniFloat(ini, "Steer", "TurnEaseOut", 0.08f, 0.0f, 3.0f);
+	g_bumpRise = IniFloat(ini, "Tilt", "BumpRise", 0.12f, 0.0f, 3.0f);
+	g_bumpMax = IniFloat(ini, "Tilt", "BumpMax", 30.0f, 0.0f, 60.0f);
+	g_bumpSettle = IniFloat(ini, "Tilt", "BumpSettle", 0.45f, 0.0f, 5.0f);
+	g_wallAngle = IniFloat(ini, "Steer", "WallAngle", 55.0f, 20.0f, 90.0f);
+	g_obstacleThrottle = IniFloat(ini, "Steer", "ObstacleThrottle", 0.4f, 0.0f, 1.0f);
+	/* The light's placing, read again on getting on as well (an A/B needs no restart). */
+	g_lampAhead = IniFloat(ini, "Lamp", "Ahead", 28.0f, -100.0f, 200.0f);
+	g_lampLead = IniFloat(ini, "Lamp", "Lead", 1.0f, 0.0f, 5.0f);
+	g_lampHandoverFrames = (int)GetPrivateProfileIntA("Lamp", "HandoverFrames", 5, ini);
+	if (g_lampHandoverFrames < 0 || g_lampHandoverFrames > 100)
+		g_lampHandoverFrames = 5;
+	float nowMore[7] = { g_turnEaseIn, g_turnEaseOut, g_bumpRise, g_bumpMax, g_bumpSettle, g_wallAngle, g_obstacleThrottle };
 	float now[10] = { g_maxLean, g_leanRate, g_leanSmooth, g_leanDead, g_leanGain, g_torsoLeanSetting, g_armReach, g_torsoTwist, g_faceLook, (float)g_headLevel };
-	bool changed = wasEase != g_turnEase || wasBump != g_bumpSettle;
+	bool changed = false;
+	for (int i = 0; i < 7; i++)
+		changed = changed || wasMore[i] != nowMore[i];
 	for (int i = 0; i < 10; i++)
 		changed = changed || was[i] != now[i];
 	if (log || changed) {
@@ -747,7 +773,9 @@ static void ReadLeanSettings(const char *ini, bool log)
 		    "the head %s (HeadLevel); the upper body %s (TorsoLean), the grips at %g of the arms' reach (ArmReach), turned %g of the bars (TorsoTwist); a face ahead looked for %g s of the speed (FaceLook)%s",
 		    g_maxLean, g_leanRate, g_leanSmooth, g_leanDead, g_leanGain, g_headLevel ? "kept level" : "tilting with the bike", torso, g_armReach, g_torsoTwist, g_faceLook,
 		    log ? "" : " (read again on getting on)");
-		Log("  steer: the keys' turning rate eases in over %g s (TurnEase); a wheel's bump lift settles over %g s (BumpSettle)", g_turnEase, g_bumpSettle);
+		Log("  steer: the keys' turning rate eases in over %g s and out over %g s (TurnEaseIn, TurnEaseOut); a wall is a face of %g deg or more (WallAngle), an obstacle holds the throttle to %g (ObstacleThrottle); "
+		    "a wheel's bump lift rises over %g s, at most %g, and settles over %g s (BumpRise, BumpMax, BumpSettle); the light %g ahead of the lens, led by %g frames of the speed, the old one kept %d frames at a handover (Ahead, Lead, HandoverFrames)",
+		    g_turnEaseIn, g_turnEaseOut, g_wallAngle, g_obstacleThrottle, g_bumpRise, g_bumpMax, g_bumpSettle, g_lampAhead, g_lampLead, g_lampHandoverFrames);
 	}
 }
 
@@ -1011,6 +1039,11 @@ static void ReadLampSettings(const char *ini)
 	g_lampPitch = (float)atof(value);
 	if (!(g_lampPitch > -45.0f && g_lampPitch < 45.0f))
 		g_lampPitch = 0.0f;
+	g_lampAhead = IniFloat(ini, "Lamp", "Ahead", 28.0f, -100.0f, 200.0f);
+	g_lampLead = IniFloat(ini, "Lamp", "Lead", 1.0f, 0.0f, 5.0f);
+	g_lampHandoverFrames = (int)GetPrivateProfileIntA("Lamp", "HandoverFrames", 5, ini);
+	if (g_lampHandoverFrames < 0 || g_lampHandoverFrames > 100)
+		g_lampHandoverFrames = 5;
 	GetPrivateProfileStringA("Lamp", "FlagsOffset", "0x108", value, sizeof(value), ini);
 	g_lampFlagsOff = (uint32_t)strtoul(value, NULL, 0);
 	if (g_lampFlagsOff < 0x30 || g_lampFlagsOff > 0x1F0 || (g_lampFlagsOff & 7))
@@ -1958,6 +1991,34 @@ static uintptr_t SkinBoneNodes(uintptr_t skin, uint32_t count)
 	return 0;
 }
 
+/* The skin instance's other array: a pointer to each bone's world transform (F4SE's
+ * BSSkin::Instance::worldTransforms, "pointers to the corresponding bone's"), which the engine
+ * keeps for every bone, node or not: test 34's finger bones (34 of the hands' 36) had no node
+ * and were left where the animation had them while the palm went to the grip, the skin
+ * between them a spike. The entries must read as transforms; 0 if the array isn't one. */
+static uintptr_t SkinBoneTransforms(uintptr_t skin, uint32_t count, uintptr_t nodes)
+{
+	static const uintptr_t candidates[2] = { OFF_SKIN_BONES, 0x10 };
+	for (int k = 0; k < 2; k++) {
+		uintptr_t array = skin + candidates[k];
+		if (!skin || !Accessible(array, 0x18, false))
+			continue;
+		uintptr_t entries = ReadPtr(array + OFF_ARRAY_ENTRIES);
+		uint32_t n = *(const uint32_t *)(array + OFF_ARRAY_COUNT);
+		if (!entries || entries == nodes || n != count || !Accessible(entries, (size_t)count * 8, false))
+			continue;
+		bool ok = true;
+		for (uint32_t b = 0; b < count && ok; b++) {
+			uintptr_t xf = ((const uintptr_t *)entries)[b];
+			float N[9], pos[3], sc;
+			ok = !xf || (Accessible(xf, 0x40, false) && TransformWorld(xf, N, pos, &sc, NULL));
+		}
+		if (ok)
+			return entries;
+	}
+	return 0;
+}
+
 static void Refuse(uintptr_t data)
 {
 	g_refused[g_refusedCount++ % 8] = data;
@@ -2575,13 +2636,16 @@ static bool RiderSkinOk(uintptr_t skin, uintptr_t data, char *why, size_t size)
 /* A node's world transform (rotation as x' = N x, position, scale), if it reads as one. No
  * accessibility check (test 26: a VirtualQuery a bone was the frame's whole cost): the node
  * was read at hold time, and the player's 3D is walked again every 0.1 s. */
-static bool NodeWorld(uintptr_t node, float N[9], float n[3], float *s, float Ni[9])
+/* A world transform as the game lays one out (NiTransform: the rotation, the position at
+ * +0x30, the scale at +0x3C): a node's at +0x70, or a bone's own in the actor's flattened
+ * bone tree (test 34: the hands' finger bones have no node, only that). */
+static bool TransformWorld(uintptr_t xf, float N[9], float n[3], float *s, float Ni[9])
 {
-	if (!node || (node & 7))
+	if (!xf || (xf & 3))
 		return false;
-	ReadRot((const float *)(node + OFF_WORLD_ROT), N);
-	memcpy(n, (const void *)(node + OFF_WORLD_POS), 12);
-	*s = *(const float *)(node + OFF_WORLD_SCALE);
+	ReadRot((const float *)xf, N);
+	memcpy(n, (const void *)(xf + (OFF_WORLD_POS - OFF_WORLD_ROT)), 12);
+	*s = *(const float *)(xf + (OFF_WORLD_SCALE - OFF_WORLD_ROT));
 	if (!(*s > 0.001f && *s < 1000.0f) || !isfinite(n[0]) || !isfinite(n[1]) || !isfinite(n[2]))
 		return false;
 	/* Any invertible matrix will do (a cloth bone's isn't orthonormal); a hidden bone's, all
@@ -2591,6 +2655,21 @@ static bool NodeWorld(uintptr_t node, float N[9], float n[3], float *s, float Ni
 		if (!isfinite(N[i]) || fabsf(N[i]) > 1000.0f)
 			return false;
 	return Invert3(N, Ni ? Ni : own);
+}
+
+static bool NodeWorld(uintptr_t node, float N[9], float n[3], float *s, float Ni[9])
+{
+	if (!node || (node & 7))
+		return false;
+	return TransformWorld(node + OFF_WORLD_ROT, N, n, s, Ni);
+}
+
+/* A held part's bone b: its node's world transform, or, with no node, the bone's own. */
+static bool BoneWorld(const uintptr_t *nodes, const uintptr_t *xforms, uint32_t b, float N[9], float n[3], float *s, float Ni[9])
+{
+	if (nodes[b])
+		return NodeWorld(nodes[b], N, n, s, Ni);
+	return xforms && xforms[b] && TransformWorld(xforms[b], N, n, s, Ni);
 }
 
 /* The inverse of a 3x3, false if it has none (|det| under 1e-4). */
@@ -3097,6 +3176,7 @@ static void HoldRider(uintptr_t shape, uintptr_t skin, uintptr_t data, const cha
 			return;
 		}
 		uintptr_t nodes = SkinBoneNodes(skin, count);
+		uintptr_t xforms = SkinBoneTransforms(skin, count, nodes);
 		Replica *r = g_riderSwap ? TakeReplica(data, (int)count) : NULL;
 		if (g_riderSwap && !r) {
 			Log("rider: %s not held: no room for a copy of its bone data (%d copies in use)", name, g_replicaCount);
@@ -3144,7 +3224,12 @@ static void HoldRider(uintptr_t shape, uintptr_t skin, uintptr_t data, const cha
 			uintptr_t node = ((const uintptr_t *)nodes)[b];
 			float N[9], n[3], sc;
 			if (!node) {
-				p->skip[b] = 1;
+				/* No node: held through the bone's own world transform if the skin carries
+				 * one (its part in the arms is given once every shape is held, by where it
+				 * sits against the hands); left as it is otherwise. */
+				uintptr_t xf = xforms ? ((const uintptr_t *)xforms)[b] : 0;
+				if (!xf || !TransformWorld(xf, N, n, &sc, NULL))
+					p->skip[b] = 1;
 			} else if (!Accessible(node + OFF_WORLD_ROT, 0x40, false)) {
 				p->skip[b] = 1;
 				Log("rider: %s's bone %u of %u: its node %p can't be read; that bone is left as it is", name, b, count, (void *)node);
@@ -3178,9 +3263,10 @@ static void HoldRider(uintptr_t shape, uintptr_t skin, uintptr_t data, const cha
 				uintptr_t node = ((const uintptr_t *)nodes)[b];
 				float N[9], n[3], H[3], sc, dist = -1.0f;
 				int side = (p->arm[b] & 0x10) ? 1 : 0;
-				if (node && g_arm[side].hand && NodeWorld(node, N, n, &sc, NULL) && NodeWorld(g_arm[side].hand, N, H, &sc, NULL))
+				if (!p->skip[b] && g_arm[side].hand && BoneWorld((const uintptr_t *)nodes, (const uintptr_t *)xforms, b, N, n, &sc, NULL) && NodeWorld(g_arm[side].hand, N, H, &sc, NULL))
 					dist = Dist3f(n, H);
-				len += snprintf(line + len, sizeof(line) - len, "%s%u %.26s (%s)", len ? ", " : "", b, node ? OrNone(ObjectName(node)) : "(no node)", p->skip[b] ? "left as it is" : RoleWord(p->arm[b]));
+				len += snprintf(line + len, sizeof(line) - len, "%s%u %.26s (%s)", len ? ", " : "", b, node ? OrNone(ObjectName(node)) : p->skip[b] ? "(no node)" : "(no node, its own transform)",
+				                p->skip[b] ? "left as it is" : node ? RoleWord(p->arm[b]) : "part given with the hands");
 				if (dist >= 0.0f)
 					len += snprintf(line + len, sizeof(line) - len, " %.1f from the hand", dist);
 				if (len > 330 || b + 1 == count) {
@@ -3200,6 +3286,7 @@ static void HoldRider(uintptr_t shape, uintptr_t skin, uintptr_t data, const cha
 		}
 		p->original = data;
 		p->nodes = nodes;
+		p->xforms = xforms;
 		p->count = (int)count;
 		p->skin = skin;
 		Retain(skin);
@@ -3452,6 +3539,7 @@ static void SyncRider(uintptr_t player, const SkinList *list, bool wanted)
 			LogNames("rider:   skinned: ", list, pickSkinned, true);
 		if (g_riderCount - before - skinned)
 			LogNames("rider:   plain: ", list, pickPlain, false);
+		NodelessRoles();
 		Log("rider:   the arms' chains: left shoulder %s, elbow %s, hand %s; right shoulder %s, elbow %s, hand %s; the head %s; the spine's joint %s",
 		    g_arm[0].upper ? "found" : "missing", g_arm[0].elbow ? "found" : "missing", g_arm[0].hand ? "found" : "missing",
 		    g_arm[1].upper ? "found" : "missing", g_arm[1].elbow ? "found" : "missing", g_arm[1].hand ? "found" : "missing", g_headNode ? "found" : "missing",
@@ -3463,6 +3551,66 @@ static void SyncRider(uintptr_t player, const SkinList *list, bool wanted)
 				rl += snprintf(roles + rl, sizeof(roles) - rl, "%s%s (%s)", rl ? ", " : "", g_rider[i].name, RoleWord(g_rider[i].arm[0]));
 		if (rl)
 			Log("rider:   plain shapes moving with the arms or the head: %s", roles);
+	}
+}
+
+/* Bones without a node (test 34: the hands' fingers and the wrist end of the forearm) get
+ * their part in the arms by where they sit against the hands' nodes: within 30 of a hand and
+ * beyond it (away from the elbow), a finger: the hand's part; behind it along the forearm,
+ * within the forearm's length, the forearm's; anything else is carried with the tilt alone. */
+static void NodelessRoles(void)
+{
+	for (int i = 0; i < g_riderCount; i++) {
+		RiderPart *p = &g_rider[i];
+		if (!p->skin || !p->xforms)
+			continue;
+		int hand[2] = { 0, 0 }, fore = 0, alone = 0, total = 0;
+		for (int b = 0; b < p->count; b++) {
+			if (p->skip[b] || ((const uintptr_t *)p->nodes)[b])
+				continue;
+			float N[9], n[3], sc;
+			if (!TransformWorld(((const uintptr_t *)p->xforms)[b], N, n, &sc, NULL)) {
+				p->skip[b] = 1;
+				continue;
+			}
+			total++;
+			uint8_t role = 0;
+			float best = 1e9f;
+			for (int side = 0; side < 2; side++) {
+				float Nh[9], H[3], E[3], sh;
+				if (!g_arm[side].hand || !NodeWorld(g_arm[side].hand, Nh, H, &sh, NULL))
+					continue;
+				float d = Dist3f(n, H);
+				if (d >= best)
+					continue;
+				float along = 0.0f, L2 = 0.0f;
+				if (g_arm[side].elbow && NodeWorld(g_arm[side].elbow, Nh, E, &sh, NULL)) {
+					float u[3] = { H[0] - E[0], H[1] - E[1], H[2] - E[2] };
+					L2 = sqrtf(u[0] * u[0] + u[1] * u[1] + u[2] * u[2]);
+					if (L2 > 1.0f)
+						along = ((n[0] - H[0]) * u[0] + (n[1] - H[1]) * u[1] + (n[2] - H[2]) * u[2]) / L2;   /* + beyond the hand, - back towards the elbow */
+				}
+				uint8_t r = 0;
+				if (d < 30.0f && along >= -3.0f)
+					r = (uint8_t)(3 | (side ? 0x10 : 0));
+				else if (along < 0.0f && -along <= L2 + 5.0f && d < L2 + 10.0f)
+					r = (uint8_t)(2 | (side ? 0x10 : 0));
+				if (r) {
+					best = d;
+					role = r;
+				}
+			}
+			p->arm[b] = role;
+			if ((role & 0xF) == 3)
+				hand[(role & 0x10) ? 1 : 0]++;
+			else if ((role & 0xF) == 2)
+				fore++;
+			else
+				alone++;
+		}
+		if (total)
+			Log("rider: %s: %d bones without a node, held through their own transforms: %d with the left hand, %d with the right, %d with a forearm, %d carried with the tilt alone",
+			    p->name, total, hand[0], hand[1], fore, alone);
 	}
 }
 
@@ -3654,21 +3802,21 @@ static void FrameRider(bool tilt, const float R[9], const float P[3])
 				uintptr_t node = ((const uintptr_t *)p->nodes)[b];
 				const uint8_t *saved = p->saved + (size_t)b * BONE_SIZE;
 				uint8_t *live = p->live + (size_t)b * BONE_SIZE;
-				if (!NodeWorld(node, N, n, &s, Ni)) {
+				if (!BoneWorld((const uintptr_t *)p->nodes, (const uintptr_t *)p->xforms, b, N, n, &s, Ni)) {
 					memcpy(live, saved, BONE_SIZE);
 					continue;
 				}
-				if (p->lastPos) {   /* the arm bones' biggest move between frames, for the trace (test 33) */
-					float *lp = p->lastPos + 3 * b;
+				if (p->lastPos) {   /* the arm bones' biggest move between frames, relative to the bike's bone (test 33; test 34: the bike's own motion swamped it) */
+					float *lp = p->lastPos + 3 * b, rel[3] = { n[0] - nb[0], n[1] - nb[1], n[2] - nb[2] };
 					int kind = p->arm[b] & 0xF;
 					if (p->lastPosOk && kind >= 1 && kind <= 3) {
-						float dj = Dist3f(n, lp);
+						float dj = Dist3f(rel, lp);
 						if (dj > g_jumpMax) {
 							g_jumpMax = dj;
-							snprintf(g_jumpName, sizeof(g_jumpName), "%.24s's %.32s", p->name, OrNone(ObjectName(node)));
+							snprintf(g_jumpName, sizeof(g_jumpName), "%.24s's %s%.32s", p->name, node ? "" : "nodeless bone ", node ? OrNone(ObjectName(node)) : "");
 						}
 					}
-					memcpy(lp, n, 12);
+					memcpy(lp, rel, 12);
 				}
 				float Qa[9], qa[3], R2[9], t2[3];
 				if (ArmMapFor(p->arm[b], hands, arm, Qb, qb, axisW, qW, Qa, qa)) {
@@ -3812,6 +3960,21 @@ static void PropagateWorld(uintptr_t node, const float W[9], const float w[3], f
  * placed (its form id in CMB_HeadlampRefHi/Lo) does the job without a node: its 3D is put at
  * the lens, the world transforms beneath it with it, while it's loaded (the script disables
  * it when the lamp is off); it's parked far below when a kept node does the lighting. */
+/* Where the light itself goes: Ahead units along the beam from the lens (test 34: on fast
+ * frames the light fell inside the lamp housing, which shadowed its own beam for a frame) and
+ * Lead frames of the bike's speed on along the heading (the renderer lights with the
+ * transform a frame late). */
+static void BeamPlace(float w[3], const float W[9])
+{
+	for (int k = 0; k < 3; k++)
+		w[k] += g_lampAhead * W[k * 3 + g_lampBeamAxis] * (float)g_lampBeamSign;
+	if (g_lampLead > 0.0f && g_frameDt > 0.0f && g_speedAlongFast > 0.0f) {
+		float on = g_speedAlongFast * g_frameDt * g_lampLead;
+		w[0] += sinf(g_headingNow) * on;
+		w[1] += cosf(g_headingNow) * on;
+	}
+}
+
 /* A reference's 3D root, if it has one that can be written. */
 static uintptr_t RefRoot3D(uintptr_t ref)
 {
@@ -3888,6 +4051,7 @@ static void FrameLamp(bool tilt, const float R[9], const float P[3])
 		}
 		float w[3], W[9], Lr[9], d[3], lp[3];
 		LensWorld(bike, Nb, nb, sb, M, m, w, W);
+		BeamPlace(w, W);
 		Mul3(Npi, W, Lr);          /* local = parent^-1 world */
 		for (int k = 0; k < 3; k++)
 			d[k] = w[k] - np[k];
@@ -3915,6 +4079,7 @@ static void FrameLamp(bool tilt, const float R[9], const float P[3])
 			g_lampRefOld = g_lampRef;
 			g_lampRefOldId = g_lampRefId;
 			g_lampRefOldSince = (float)g_clock;
+			g_lampRefNewFrames = 0;
 		}
 		g_lampRefId = id;
 		g_lampRef = 0;
@@ -3932,12 +4097,13 @@ static void FrameLamp(bool tilt, const float R[9], const float P[3])
 		uintptr_t oldRoot = RefRoot3D(g_lampRefOld), newRoot = g_lampRef ? RefRoot3D(g_lampRef) : 0;
 		const char *why = NULL;
 		bool park = false;
+		g_lampRefNewFrames = newRoot ? g_lampRefNewFrames + 1 : 0;
 		if (!oldRoot)
 			why = "its 3D is gone";
 		else if ((float)g_clock - g_lampRefOldSince > 2.0f)
 			why = "2 s passed", park = true;
-		else if (newRoot || !ready || !want)
-			why = newRoot ? "the new one has its 3D" : !want ? "the lamp is out" : "the lens can't be placed", park = true;
+		else if (g_lampRefNewFrames > g_lampHandoverFrames || !ready || !want)
+			why = newRoot ? "the new one has had its 3D for the HandoverFrames" : !want ? "the lamp is out" : "the lens can't be placed", park = true;
 		if (park) {
 			static const float identity[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
 			float below[3] = { 0.0f, 0.0f, -20000.0f };
@@ -3952,6 +4118,7 @@ static void FrameLamp(bool tilt, const float R[9], const float P[3])
 		} else {
 			float w[3], W[9];
 			LensWorld(bike, Nb, nb, sb, M, m, w, W);
+			BeamPlace(w, W);
 			WriteTransform(oldRoot, OFF_LOCAL_ROT, W, w, 1.0f);
 			WriteTransform(oldRoot, OFF_WORLD_ROT, W, w, 1.0f);
 			memcpy((void *)(oldRoot + OFF_WORLD_BOUND), w, 12);
@@ -3995,6 +4162,7 @@ static void FrameLamp(bool tilt, const float R[9], const float P[3])
 		return;
 	}
 	LensWorld(bike, Nb, nb, sb, M, m, w, W);
+	BeamPlace(w, W);
 	WriteTransform(root, OFF_LOCAL_ROT, W, w, 1.0f);
 	WriteTransform(root, OFF_WORLD_ROT, W, w, 1.0f);
 	memcpy((void *)(root + OFF_WORLD_BOUND), w, 12);   /* the bound's centre with it (the renderer culls by it) */
@@ -4312,16 +4480,25 @@ static void FrameTilt(void)
 		 * own ray's hit, with the pitch and lift as applied, is lifted out at once, and that
 		 * lift settles over BumpSettle as the filtered values catch up or the bump passes. */
 		float bump = 0.0f;
-		if (g_bumpSettle > 0.0f && useWheels && g_wheelZOk) {
+		bool bumpOn = g_bumpRise > 0.0f && g_bumpMax > 0.0f && g_bumpSettle > 0.0f;
+		if (bumpOn && useWheels && g_wheelZOk) {
 			float tp = tanf(g_pitchNow / 57.29578f);
 			for (int i = 0; i < 2; i++) {
 				float bottom = g_liftSmooth + (i == 0 ? g_frontAxle[1] : g_rearAxle[1]) * tp, deficit = g_wheelZ[i] - bottom;
 				if (deficit > bump)
 					bump = deficit;
 			}
+			if (bump > g_bumpMax)
+				bump = g_bumpMax;   /* a wheel radius at most in one go (test 34: 60 in a frame launched the bike) */
 		}
-		float settled = g_bumpSettle > 0.0f ? g_bumpLift * expf(-g_frameDt / g_bumpSettle) : 0.0f;
-		g_bumpLift = bump > settled ? bump : settled;
+		/* Towards the wheel's deficit over BumpRise, back down over BumpSettle. */
+		float dtb = g_frameDt > 0.05f ? 0.05f : g_frameDt;
+		if (!bumpOn)
+			g_bumpLift = 0.0f;
+		else if (bump > g_bumpLift)
+			g_bumpLift += (bump - g_bumpLift) * (1.0f - expf(-dtb / g_bumpRise));
+		else
+			g_bumpLift += (bump - g_bumpLift) * (1.0f - expf(-dtb / g_bumpSettle));
 		if (g_bumpLift < 0.05f)
 			g_bumpLift = 0.0f;
 		g_liftNow = g_liftSmooth + g_bumpLift;
@@ -4610,7 +4787,13 @@ static void FaceRays(uintptr_t player, bool onGround)
 	float fwd[3] = { sh * cp, ch * cp, sp }, up[3] = { -sh * sp, -ch * sp, cp };
 	float R = g_wheelRadius > 1.0f ? g_wheelRadius : 30.0f, wheelFront = g_frontAxle[1] + R;
 	float v = g_speedAlong > 0.0f ? g_speedAlong : 0.0f, span = v * g_faceLook + 5.0f, L = wheelFront + span;
-	float heights[2] = { R, 1.8f * R }, d[2];
+	/* Two rays: at axle height and at 1.5 radii (test 34's wish: ride over a fallen tree or a
+	 * knee-high stone while slowing). Nothing at axle height: nothing ahead. Something there
+	 * and nothing at 1.5 radii: an obstacle lower than that, ridden over at ObstacleThrottle
+	 * with the wheel's bump lift. Something at both: the slope between the hits, over the
+	 * bike's pitch: WallAngle or steeper is a wall, the throttle eased off to nothing at the
+	 * wheel; between the climb limit and that, an obstacle; under the climb limit, a slope. */
+	float heights[2] = { R, 1.5f * R }, d[2];
 	for (int i = 0; i < 2; i++) {
 		float a[3], b[3];
 		for (int k = 0; k < 3; k++) {
@@ -4620,22 +4803,35 @@ static void FaceRays(uintptr_t player, bool onGround)
 		float f = CastRay(cell, a, b);
 		d[i] = f > 0.0f && f < 1.0f ? f * L : -1.0f;
 	}
-	if (d[0] < 0.0f || d[1] < 0.0f)
+	if (d[0] < 0.0f)
 		return;
 	float climb = GlobalValue(g_tiltGlobal);
 	if (!(climb >= 20.0f))
 		climb = 45.0f;
-	float run = d[1] - d[0];
-	float slope = g_pitchNow + atan2f(heights[1] - heights[0], run > 0.0f ? run : 0.0f) * 57.29578f;
-	if (slope < climb)
-		return;
-	float ahead = d[0] - wheelFront;
-	float ease = ahead <= 0.0f ? 0.0f : ahead >= span ? 1.0f : ahead / span;
+	float ahead = d[0] - wheelFront, slope = 0.0f;
+	const char *what;
+	bool wall;
+	if (d[1] < 0.0f) {
+		what = "an obstacle lower than 1.5 wheel radii";
+		wall = false;
+	} else {
+		float run = d[1] - d[0];
+		slope = g_pitchNow + atan2f(heights[1] - heights[0], run > 0.0f ? run : 0.0f) * 57.29578f;
+		if (slope < climb)
+			return;
+		wall = slope >= g_wallAngle;
+		what = wall ? "a wall" : "a face under WallAngle, an obstacle";
+	}
+	float ease;
+	if (wall || g_obstacleThrottle <= 0.0f)
+		ease = ahead <= 0.0f ? 0.0f : ahead >= span ? 1.0f : ahead / span;
+	else
+		ease = g_obstacleThrottle;
 	g_faceEase = ease;
-	if ((float)g_clock - g_faceLoggedAt >= 1.0f && g_faceLogs < 30) {
+	if ((float)g_clock - g_faceLoggedAt >= 1.0f && g_faceLogs < 40) {
 		g_faceLogs++;
 		g_faceLoggedAt = (float)g_clock;
-		Log("rays: a face ahead (%.0f deg): %.0f past the front wheel at axle height, the throttle eased to %.0f%%", slope, ahead, ease * 100.0f);
+		Log("rays: %s ahead (%.0f deg): %.0f past the front wheel at axle height, the throttle %s %.0f%%", what, slope, ahead, wall ? "eased to" : "held to", ease * 100.0f);
 	}
 }
 
@@ -6176,8 +6372,12 @@ static void FrameSteer(void)
 		 * clamp, and the heading never overshoots what was asked. */
 		float wantRate = g_frameDt > 0.0f ? wanted / g_frameDt : 0.0f;
 		wantRate = wantRate > rate ? rate : wantRate < -rate ? -rate : wantRate;
-		if (g_turnEase > 0.0f && g_frameDt > 0.0f)
-			g_yawEased += (wantRate - g_yawEased) * (1.0f - expf(-g_frameDt / g_turnEase));
+		/* In over TurnEaseIn while the rate asked grows the same way, out over TurnEaseOut
+		 * when the key is let go or reversed (test 34: one time constant felt heavy). */
+		bool growing = fabsf(wantRate) > fabsf(g_yawEased) && wantRate * g_yawEased >= 0.0f;
+		float tau = growing ? g_turnEaseIn : g_turnEaseOut;
+		if (tau > 0.0f && g_frameDt > 0.0f)
+			g_yawEased += (wantRate - g_yawEased) * (1.0f - expf(-g_frameDt / tau));
 		else
 			g_yawEased = wantRate;
 		float eased = g_yawEased * g_frameDt, delta = wanted;

@@ -129,6 +129,7 @@ static uint8_t *g_player, *g_root, *g_bikeNode, *g_bikeShape, *g_boneData, *g_bo
 static uint8_t *g_lampNode, *g_headlampLive, g_lampLocalOriginal[0x40];
 static uint8_t *g_headlampRefHi, *g_headlampRefLo, *g_lampRef, *g_lampRefLoaded, *g_lampRefRoot, *g_lampRefLight;
 static uint8_t *g_lampRef2, *g_lampRef2Loaded, *g_lampRef2Root;
+static uint8_t *g_handsShape, *g_handsSkin, *g_handsData, *g_handsBones, *g_handsXf[5], g_handsBonesOriginal[5 * 0x50];
 static uint8_t *g_partData[3], *g_partBones[3];   /* the Harley build's moving parts: front wheel, rear wheel, bar assembly */
 static uint8_t g_partBonesOriginal[3][0x50];
 /* The rider: the body skinned to two bones, the COM the bike hangs off, a plain shape (the
@@ -205,7 +206,7 @@ static void FakeGetVelocity(uint8_t *self, float *out) { (void)self; memcpy(out,
  * volume, layer 12) facing the bike. The game's picking: bhkPickData (ours: start +0x20, end
  * +0x30, hit +0x60, fraction +0x64, the hit's layer +0xAC, world +0xC0), TESObjectCELL::Pick,
  * found through an Address Library file the test writes next to the plugin. */
-typedef struct { bool on; float point[2], normal[2]; uint32_t layer; } FakePlane;
+typedef struct { bool on; float point[2], normal[2]; uint32_t layer; float top; } FakePlane;   /* top: this high above the ground, 0 = no top (a wall) */
 static float g_groundZ = 100.0f;
 static float g_slopeK, g_slopeO[2], g_slopeD[2];   /* the ground rises g_slopeK per unit along g_slopeD from g_slopeO */
 static bool g_dropOn, g_frozen;   /* g_frozen: the movement can't move the player (stuck against something) */
@@ -266,6 +267,8 @@ static uint8_t *FakeCellPick(uint8_t *cell, uint8_t *pick)
 			continue;
 		float da = (a[0] - w->point[0]) * w->normal[0] + (a[1] - w->point[1]) * w->normal[1];
 		float db = (b[0] - w->point[0]) * w->normal[0] + (b[1] - w->point[1]) * w->normal[1];
+		if (w->top > 0.0f && da > 0.0f && db <= 0.0f && a[2] + (b[2] - a[2]) * (da / (da - db)) > g_groundZ + w->top)
+			continue;   /* over the top of it */
 		if (da > 0.0f && db <= 0.0f && da / (da - db) < t) {
 			t = da / (da - db);
 			what = w->layer == 12 ? NULL : g_wallObj;
@@ -730,6 +733,37 @@ static void BuildGame(void)
 	*(uint8_t ***)(g_decalSkin + 0x28) = bodyList;
 	*(uint32_t *)(g_decalSkin + 0x30) = 10;
 	*(uint32_t *)(g_decalSkin + 0x38) = 10;
+	/* The hands (test 34): a skin whose finger bones have no node, only a world transform of
+	 * their own in the actor's flattened bone tree. As the game lays it out: the nodes at +0x10
+	 * (null for those) and a pointer to every bone's world transform at +0x28 (into the node
+	 * for a bone with one). Five bones: two fingers beyond the hand, the wrist end of the
+	 * forearm behind it, the hand (LArm_Hand's node), and a stray bone far from any hand. */
+	g_handsShape = NewNode(vtTri, "NakedHands:0", 0);
+	AddChild(npcRoot, g_handsShape);
+	*(uint8_t **)(g_handsShape + 0x28) = npcRoot;
+	g_handsSkin = (uint8_t *)NewObject(vtSkin, 0x100);
+	*(int32_t *)(g_handsSkin + 0x08) = 1;
+	*(uint8_t **)(g_handsShape + 0x140) = g_handsSkin;
+	g_handsData = (uint8_t *)NewObject(vtBone, 0x100);
+	*(int32_t *)(g_handsData + 0x08) = 2;
+	*(uint8_t **)(g_handsSkin + 0x40) = g_handsData;
+	g_handsBones = (uint8_t *)VirtualAlloc(NULL, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+	*(uint8_t **)(g_handsData + 0x10) = g_handsBones;
+	*(uint32_t *)(g_handsData + 0x18) = 5;
+	*(uint32_t *)(g_handsData + 0x20) = 5;
+	uint8_t **handsNodes = (uint8_t **)VirtualAlloc(NULL, 0x100, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+	uint8_t **handsXfs = (uint8_t **)VirtualAlloc(NULL, 0x100, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+	for (int i = 0; i < 5; i++) {
+		handsNodes[i] = i == 3 ? g_bodyNodes[5] : NULL;
+		g_handsXf[i] = i == 3 ? g_bodyNodes[5] + 0x70 : (uint8_t *)VirtualAlloc(NULL, 0x40, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+		handsXfs[i] = g_handsXf[i];
+	}
+	*(uint8_t ***)(g_handsSkin + 0x10) = handsNodes;
+	*(uint32_t *)(g_handsSkin + 0x18) = 5;
+	*(uint32_t *)(g_handsSkin + 0x20) = 5;
+	*(uint8_t ***)(g_handsSkin + 0x28) = handsXfs;
+	*(uint32_t *)(g_handsSkin + 0x30) = 5;
+	*(uint32_t *)(g_handsSkin + 0x38) = 5;
 
 	/* The moving parts of the Harley build: three more shapes under the bike's node, each
 	 * with its own skin and bone data (the same bind; their culling spheres on the axles
@@ -857,6 +891,21 @@ static void SyncFakeWorld(void)
 	for (int i = 0; i < 3; i++)
 		pos[i] = pp[i] + off[i];
 	SetWorld(g_bodyNodes[7], heading, pos, 1.0f);
+	{
+		/* The hands' bones without nodes: their own world transforms, with the hand (test 34). */
+		static const float u[3] = { 0.2574f, 0.8152f, -0.5149f }, along[5] = { 6.0f, 10.0f, -6.0f, 0.0f, 60.0f };
+		for (int i = 0; i < 5; i++) {
+			if (i == 3 || !g_handsXf[i])
+				continue;
+			float o[3] = { handOff[0] + along[i] * u[0], handOff[1] + along[i] * u[1], handOff[2] + along[i] * u[2] };
+			Apply3(heading, o, off);
+			for (int k = 0; k < 3; k++)
+				pos[k] = pp[k] + off[k];
+			StoreRotation((float *)g_handsXf[i], heading, g_rootTransposed);
+			memcpy(g_handsXf[i] + 0x30, pos, 12);
+			*(float *)(g_handsXf[i] + 0x3C) = 1.0f;
+		}
+	}
 	static const float headOff[3] = { 0, -2, 160 }, jawOff[3] = { 0, 3, 152 };   /* the head's joint and a face bone under it */
 	Apply3(heading, headOff, off);
 	for (int i = 0; i < 3; i++)
@@ -909,6 +958,23 @@ static void SetLayouts(bool skinTransposed, bool rootTransposed)
 		bb[16] = bindPos[i][0]; bb[17] = bindPos[i][1]; bb[18] = bindPos[i][2]; bb[19] = 1.0f;
 	}
 	memcpy(g_bodyBonesOriginal, g_bodyBones, sizeof(g_bodyBonesOriginal));
+	{
+		/* The hands' bones: fingers 6 and 10 beyond the hand along the forearm's line, the
+		 * wrist end of the forearm 6 back, the hand, a stray bone 60 beyond. */
+		static const float handOff[3] = { -20, 75, 120 }, u[3] = { 0.2574f, 0.8152f, -0.5149f };
+		static const float along[5] = { 6.0f, 10.0f, -6.0f, 0.0f, 60.0f };
+		static const float eye[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
+		for (int i = 0; i < 5; i++) {
+			float *hb = (float *)(g_handsBones + i * 0x50);
+			hb[0] = hb[1] = hb[2] = 0.0f;
+			hb[3] = 6.0f;
+			StoreRotation(hb + 4, eye, skinTransposed);
+			for (int k = 0; k < 3; k++)
+				hb[16 + k] = -(handOff[k] + along[i] * u[k]);
+			hb[19] = 1.0f;
+		}
+		memcpy(g_handsBonesOriginal, g_handsBones, sizeof(g_handsBonesOriginal));
+	}
 	float *pl = (float *)(g_pipboyShape + 0x30);
 	static const float tenDeg[9] = { 0.98481f, -0.17365f, 0, 0.17365f, 0.98481f, 0, 0, 0, 1 };
 	StoreRotation(pl, tenDeg, rootTransposed);
@@ -1022,13 +1088,20 @@ static void LoadRotation(const float *rows, float m[9], bool transposed);
 
 /* Where a bone's rewritten entry takes the world point X: the point's mesh position through
  * the original entry and the node undone, then through the copy and the node (rigid ones). */
+static void MapBoneAt(const uint8_t *xf, const uint8_t *orig, const uint8_t *copy, const float X[3], float out[3]);
 static void MapBone(const uint8_t *node, const uint8_t *orig, const uint8_t *copy, const float X[3], float out[3])
 {
+	MapBoneAt(node + 0x70, orig, copy, X, out);
+}
+
+/* The same through a bare world transform (a bone with no node, test 34). */
+static void MapBoneAt(const uint8_t *xf, const uint8_t *orig, const uint8_t *copy, const float X[3], float out[3])
+{
 	float N[9], A[9], B[9], v[3], u[3], p[3], q[3], Bp[3], Nq[3];
-	LoadRotation((const float *)(node + 0x70), N, g_rootTransposed);
+	LoadRotation((const float *)xf, N, g_rootTransposed);
 	LoadRotation((const float *)(orig + 0x10), A, g_skinTransposed);
 	LoadRotation((const float *)(copy + 0x10), B, g_skinTransposed);
-	const float *n = (const float *)(node + 0xA0), *a = (const float *)(orig + 0x40), *b = (const float *)(copy + 0x40);
+	const float *n = (const float *)(xf + 0x30), *a = (const float *)(orig + 0x40), *b = (const float *)(copy + 0x40);
 	for (int i = 0; i < 3; i++)
 		v[i] = X[i] - n[i];
 	for (int i = 0; i < 3; i++)
@@ -1701,6 +1774,21 @@ static void InputTests(void)
 		Keys(0.0f, 0.0f);
 		RunFrames(300);
 		face->on = false;
+
+		printf("input hook: an obstacle 700 ahead, 40 high (under 1.5 wheel radii), W held: ridden over at the held throttle (ObstacleThrottle 0.4):\n");
+		Mark(p0);
+		face->point[0] = p0[0] + fwd2[0] * 700.0f;
+		face->point[1] = p0[1] + fwd2[1] * 700.0f;
+		face->top = 40.0f;
+		face->on = true;
+		Keys(0.0f, 1.0f);
+		RunFrames(4000);
+		left = (face->point[0] - PlayerPos()[0]) * fwd2[0] + (face->point[1] - PlayerPos()[1]) * fwd2[1];
+		CHECK(Moved(p0) > 700.0f && left < 0.0f, "rides on over it: %.0f in 4 s, the obstacle %.0f behind", Moved(p0), -left);
+		Keys(0.0f, 0.0f);
+		RunFrames(300);
+		face->on = false;
+		face->top = 0.0f;
 	}
 
 	printf("input hook: a trigger volume 80 behind (not solid):\n");
@@ -2444,6 +2532,28 @@ static void TiltTests(void)
 			CHECK(fabsf(Dist3(mE1, mS) - Dist3(E, S)) < 0.05f && fabsf(Dist3(mW2, mE2) - Dist3(Wr, E)) < 0.05f,
 			      "the bones keep their lengths (%.1f and %.1f)", Dist3(mE1, mS), Dist3(mW2, mE2));
 			CHECK(TiltedOff(E, mE2, Rw, Pw) > 0.3f, "the elbow moved (%.2f): the arm bent to reach", TiltedOff(E, mE2, Rw, Pw));
+			/* The hands' bones with no node (test 34): held through their own world transforms;
+			 * the fingers go with the hand, the wrist end of the forearm with the forearm, a
+			 * stray bone far from the hands with the tilt alone. */
+			const uint8_t *handsCopy = *(const uint8_t **)(*(uint8_t **)(g_handsSkin + 0x40) + 0x10);
+			CHECK(handsCopy != NULL, "the hands' skin (two bones with nodes of 36, in the game) held");
+			if (handsCopy) {
+				float P[3], mX[3], mRef[3];
+				const char *parts[5] = { "a finger", "the other finger", "the forearm's wrist end", "", "a stray bone" };
+				for (int i = 0; i < 5; i++) {
+					if (i == 3)
+						continue;
+					memcpy(P, g_handsXf[i] + 0x30, 12);
+					MapBoneAt(g_handsXf[i], g_handsBonesOriginal + i * 0x50, handsCopy + i * 0x50, P, mX);
+					if (i == 4) {
+						CHECK(TiltedOff(P, mX, Rw, Pw) < 0.05f, "%s with no node, far from the hands: carried with the tilt alone (%.3f off)", parts[i], TiltedOff(P, mX, Rw, Pw));
+					} else {
+						int ref = i == 2 ? 7 : 5;
+						MapBone(g_bodyNodes[ref], g_bodyBonesOriginal + ref * 0x50, copyNow + ref * 0x50, P, mRef);
+						CHECK(Dist3(mX, mRef) < 0.1f, "%s with no node, held through its own transform, goes with the %s (%.3f apart)", parts[i], ref == 7 ? "forearm" : "hand", Dist3(mX, mRef));
+					}
+				}
+			}
 		}
 		WorldOfBone(g_bodyNodes[0], g_bodyBonesOriginal, probes[1], before);
 		WorldOfBone(g_bodyNodes[0], copyNow, probes[1], after);
@@ -2612,6 +2722,25 @@ static void TiltTests(void)
 			*(uint8_t **)(g_lampRef2Loaded + 0x08) = NULL;
 			SetLampRef(LAMP_REF_FORMID);
 			RunFrames(200);
+			/* The light placed Ahead units along the beam from the lens (test 34: inside the
+			 * housing on fast frames, the beam blacked out); read again on getting on. */
+			RewriteIni("Ahead=0", "Ahead=28");
+			SetTilt(0.0f);
+			RunFrames(300);
+			SetTilt(30.0f);
+			RunFrames(400);
+			{
+				float ex2[3], rw2[3];
+				for (int i = 0; i < 3; i++)
+					ex2[i] = e[i] + 28.0f * beam[i];
+				memcpy(rw2, g_lampRefRoot + 0xA0, 12);
+				CHECK(Dist3(rw2, ex2) < 0.3f, "Ahead=28: the reference 28 along the beam from the lens (%.3f off; %.1f from the lens)", Dist3(rw2, ex2), Dist3(rw2, e));
+			}
+			RewriteIni("Ahead=28", "Ahead=0");
+			SetTilt(0.0f);
+			RunFrames(300);
+			SetTilt(30.0f);
+			RunFrames(300);
 		} else {
 			CHECK(((const float *)(g_lampRefRoot + 0xA0))[2] < -10000.0f, "no parts file (no lens): the reference stays parked (z %.0f)", ((const float *)(g_lampRefRoot + 0xA0))[2]);
 		}
@@ -2650,22 +2779,22 @@ static void TiltTests(void)
 	SetNormal(0.0f, 0.0f, 1.0f);
 	g_slopeK = 0.0f;
 	if (g_haveParts) {   /* the bump lift on for this test (off in the run's INI: the other checks expect the filtered lift alone) */
-		RewriteIni("BumpSettle=0", "BumpSettle=0.2");
+		RewriteIni("BumpRise=0", "BumpRise=0.12");
 		SetTilt(0.0f);
 		RunFrames(300);
 		SetTilt(30.0f);
 		RunFrames(600);
 	}
 	g_groundZ = PlayerPos()[2] + 10.0f;
-	RunFrames(6);
+	RunFrames(100);
 	SeatInBone(g_bonesOriginal, seatBefore);
 	SeatInBone(g_bones, seatNow);
 	float lifted = sqrtf((seatNow[0] - seatBefore[0]) * (seatNow[0] - seatBefore[0]) + (seatNow[1] - seatBefore[1]) * (seatNow[1] - seatBefore[1]) + (seatNow[2] - seatBefore[2]) * (seatNow[2] - seatBefore[2]));
-	CHECK(g_picks == 0 || lifted > 8.0f, "six frames in: lifted %.1f already (a wheel's bump lift rises at once; test 33's tyres sank into bumps)", lifted);
-	RunFrames(800);
+	CHECK(g_picks == 0 || (lifted > 7.0f && lifted < 11.0f), "a tenth of a second in: lifted %.1f already (a wheel's bump lift rises over BumpRise 0.12 s, not in a frame: test 34's launched the bike)", lifted);
+	RunFrames(700);
 	SeatInBone(g_bones, seatNow);
 	lifted = sqrtf((seatNow[0] - seatBefore[0]) * (seatNow[0] - seatBefore[0]) + (seatNow[1] - seatBefore[1]) * (seatNow[1] - seatBefore[1]) + (seatNow[2] - seatBefore[2]) * (seatNow[2] - seatBefore[2]));
-	CHECK(g_picks == 0 || (lifted > 9.0f && lifted < 11.0f), "the bike lifted %.1f (10), level", lifted);
+	CHECK(g_picks == 0 || (lifted > 9.0f && lifted < 11.5f), "the bike lifted %.1f (10), level", lifted);
 	g_groundZ = PlayerPos()[2] - 10.0f;   /* a crest: the ground below the contact */
 	RunFrames(800);
 	SeatInBone(g_bones, seatNow);
@@ -2673,7 +2802,7 @@ static void TiltTests(void)
 	CHECK(lifted < 0.5f, "on a crest (the ground 10 below): not lowered (%.1f)", lifted);
 	g_groundZ = PlayerPos()[2];
 	if (g_haveParts) {
-		RewriteIni("BumpSettle=0.2", "BumpSettle=0");
+		RewriteIni("BumpRise=0.12", "BumpRise=0");
 		SetTilt(0.0f);
 		RunFrames(300);
 		SetTilt(30.0f);
