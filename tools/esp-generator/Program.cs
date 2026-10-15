@@ -662,7 +662,7 @@ public static class Program
         var light = mod.Lights.AddNew(editorId);
         light.ObjectBounds = new ObjectBounds();
         light.Time = -1;
-        light.Radius = 2130;
+        light.Radius = 3000;   // test 33: further and a fifth brighter than the power armor lamp's 2130 / 2.0
         light.Color = System.Drawing.Color.FromArgb(0, 255, 241, 224);
         light.Flags = (Light.Flag)1 | (shadow ? Light.Flag.ShadowSpotlight : Light.Flag.NonShadowSpotlight);   // 1: Dynamic (it moves)
         light.FalloffExponent = 1.0f;
@@ -677,7 +677,7 @@ public static class Program
         light.GodRaysNearClip = 0.0f;
         light.Value = 0;
         light.Weight = 0.0f;
-        light.FadeValue = 2.0f;
+        light.FadeValue = 2.4f;
         return light;
     }
 

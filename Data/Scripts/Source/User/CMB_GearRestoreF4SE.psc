@@ -46,6 +46,27 @@ Function RestoreSlot(Actor akActor)
 	endif
 EndFunction
 
+; What the biped holds in the bike's and the lamp piece's slots once the bike is on (test 33:
+; the lamp piece's nodes were never found on the player's 3D).
+Function LogWornSlots(Actor akActor)
+	LogSlot(akActor, BikeSlotIndex)
+	if LampSlotIndex > 0
+		LogSlot(akActor, LampSlotIndex)
+	endif
+EndFunction
+
+Function LogSlot(Actor akActor, int aiSlotIndex)
+	if !Controller
+		return
+	endif
+	Actor:WornItem worn = akActor.GetWornItem(aiSlotIndex)
+	if worn && worn.item
+		Controller.Log("Slot " + (aiSlotIndex + 30) + ": " + worn.item.GetName() + " (" + worn.item.GetFormID() + "), model " + worn.modelName)
+	else
+		Controller.Log("Slot " + (aiSlotIndex + 30) + ": nothing")
+	endif
+EndFunction
+
 ; MCM's keybinds and buttons may call this script instead of the controller (test 31): relayed.
 Function HotkeyPressed()
 	Controller.HotkeyPressed()

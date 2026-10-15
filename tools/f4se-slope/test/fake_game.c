@@ -41,6 +41,7 @@
 #define HEADLAMP_REF_HI_FORMID (0xFE000000u | (LIGHT_INDEX << 12) | 0x843u)
 #define HEADLAMP_REF_LO_FORMID (0xFE000000u | (LIGHT_INDEX << 12) | 0x844u)
 #define LAMP_REF_FORMID       0xFF001234u   /* the light reference "the script placed" */
+#define LAMP_REF2_FORMID      0xFF001235u   /* the fresh one of a handover (test 33) */
 #define RVA_PLAYER_CONTROLS   0x031F0B80u
 #define RVA_MOVE_HANDLER_VTBL 0x02571B38u  /* where 1.11.240 has them (test 13) */
 #define RVA_CONTROLS_IMOVE_VTBL 0x02571AA0u
@@ -127,6 +128,7 @@ static uint8_t *g_tiltGlobal, *g_groundGlobals[3];
 static uint8_t *g_player, *g_root, *g_bikeNode, *g_bikeShape, *g_boneData, *g_bones, *g_biped;
 static uint8_t *g_lampNode, *g_headlampLive, g_lampLocalOriginal[0x40];
 static uint8_t *g_headlampRefHi, *g_headlampRefLo, *g_lampRef, *g_lampRefLoaded, *g_lampRefRoot, *g_lampRefLight;
+static uint8_t *g_lampRef2, *g_lampRef2Loaded, *g_lampRef2Root;
 static uint8_t *g_partData[3], *g_partBones[3];   /* the Harley build's moving parts: front wheel, rear wheel, bar assembly */
 static uint8_t g_partBonesOriginal[3][0x50];
 /* The rider: the body skinned to two bones, the COM the bike hangs off, a plain shape (the
@@ -378,6 +380,8 @@ static uintptr_t FakeLookupFormByID(uint32_t id)
 		return (uintptr_t)g_headlampRefLo;
 	if (id == LAMP_REF_FORMID)
 		return (uintptr_t)g_lampRef;
+	if (id == LAMP_REF2_FORMID)
+		return (uintptr_t)g_lampRef2;
 	return id == SLOPE_GLOBAL_FORMID ? (uintptr_t)g_global : id == CAMERA_GLOBAL_FORMID ? (uintptr_t)g_cameraGlobal
 	     : id == TILT_GLOBAL_FORMID ? (uintptr_t)g_tiltGlobal : 0;
 }
@@ -641,6 +645,22 @@ static void BuildGame(void)
 		rr[15] = 1.0f;
 	}
 	*(uint8_t **)(g_lampRefLoaded + 0x08) = g_lampRefRoot;
+	/* The fresh reference of a handover: the same again, its 3D not in yet. */
+	g_lampRef2 = (uint8_t *)NewObject(MakeClass(refNames, 3), 0x200);
+	g_lampRef2[0x1A] = 0x40;
+	*(uint32_t *)(g_lampRef2 + 0x14) = LAMP_REF2_FORMID;
+	g_lampRef2Loaded = (uint8_t *)VirtualAlloc(NULL, 0x100, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+	*(uint8_t **)(g_lampRef2 + 0xF0) = g_lampRef2Loaded;
+	g_lampRef2Root = NewNode(vtNode, "CMB_HeadlampLight", 2);
+	{
+		uint8_t *light2 = NewNode(vtNode, "Light", 0);
+		AddChild(g_lampRef2Root, light2);
+		*(uint8_t **)(light2 + 0x28) = g_lampRef2Root;
+		float *rr2 = (float *)(g_lampRef2Root + 0x30);
+		rr2[0] = rr2[5] = rr2[10] = 1.0f;
+		rr2[15] = 1.0f;
+	}
+	*(uint8_t **)(g_lampRef2Loaded + 0x08) = NULL;
 	AddChild(g_root, g_bikeNode);
 	*(uint8_t **)(shape + 0x28) = g_bikeNode;   /* NiAVObject::m_parent */
 	*(uint8_t **)(g_bikeNode + 0x28) = g_root;
@@ -2074,7 +2094,7 @@ static void TrackTests(void)
 	g_steerTarget = from + 1.5708f;
 	RunFrames(500);
 	turned = (*head - from) * DEG;
-	CHECK(turned > 20.0f && turned < 38.0f, "stopped: %.1f deg in half a second (about 30)", turned);
+	CHECK(turned > 9.0f && turned < 38.0f, "stopped: %.1f deg in half a second (about 14: the keys' turning rate eases in over TurnEase 0.35 s)", turned);
 	from = *head;
 	g_steerTarget = from + 1.5708f;
 	g_steerMove = 300.0f;
@@ -2575,6 +2595,23 @@ static void TiltTests(void)
 			RunFrames(200);
 			CHECK(true, "no 3D (disabled): nothing written, nothing wrong");
 			*(uint8_t **)(g_lampRefLoaded + 0x08) = g_lampRefRoot;
+			RunFrames(100);
+			/* A handover (test 33): the script names a fresh reference whose 3D isn't in yet; the
+			 * old one stays at the lens meanwhile, and is parked once the new one's 3D is in. */
+			SetLampRef(LAMP_REF2_FORMID);
+			RunFrames(200);
+			memcpy(rw, g_lampRefRoot + 0xA0, 12);
+			roff = sqrtf((rw[0] - e[0]) * (rw[0] - e[0]) + (rw[1] - e[1]) * (rw[1] - e[1]) + (rw[2] - e[2]) * (rw[2] - e[2]));
+			CHECK(roff < 0.1f, "handed over to a reference with no 3D yet: the old one still at the lens (%.3f off)", roff);
+			*(uint8_t **)(g_lampRef2Loaded + 0x08) = g_lampRef2Root;   /* the new one's 3D in */
+			RunFrames(200);
+			memcpy(rw, g_lampRef2Root + 0xA0, 12);
+			roff = sqrtf((rw[0] - e[0]) * (rw[0] - e[0]) + (rw[1] - e[1]) * (rw[1] - e[1]) + (rw[2] - e[2]) * (rw[2] - e[2]));
+			CHECK(roff < 0.1f && ((const float *)(g_lampRefRoot + 0xA0))[2] < -10000.0f,
+			      "the new one's 3D in: the new at the lens (%.3f off), the old parked far below (z %.0f)", roff, ((const float *)(g_lampRefRoot + 0xA0))[2]);
+			*(uint8_t **)(g_lampRef2Loaded + 0x08) = NULL;
+			SetLampRef(LAMP_REF_FORMID);
+			RunFrames(200);
 		} else {
 			CHECK(((const float *)(g_lampRefRoot + 0xA0))[2] < -10000.0f, "no parts file (no lens): the reference stays parked (z %.0f)", ((const float *)(g_lampRefRoot + 0xA0))[2]);
 		}
@@ -2612,11 +2649,22 @@ static void TiltTests(void)
 	printf("tilt: a dip between the wheels (the ground 10 above the capsule's contact): the bike lifted onto it:\n");
 	SetNormal(0.0f, 0.0f, 1.0f);
 	g_slopeK = 0.0f;
+	if (g_haveParts) {   /* the bump lift on for this test (off in the run's INI: the other checks expect the filtered lift alone) */
+		RewriteIni("BumpSettle=0", "BumpSettle=0.2");
+		SetTilt(0.0f);
+		RunFrames(300);
+		SetTilt(30.0f);
+		RunFrames(600);
+	}
 	g_groundZ = PlayerPos()[2] + 10.0f;
-	RunFrames(800);
+	RunFrames(6);
 	SeatInBone(g_bonesOriginal, seatBefore);
 	SeatInBone(g_bones, seatNow);
 	float lifted = sqrtf((seatNow[0] - seatBefore[0]) * (seatNow[0] - seatBefore[0]) + (seatNow[1] - seatBefore[1]) * (seatNow[1] - seatBefore[1]) + (seatNow[2] - seatBefore[2]) * (seatNow[2] - seatBefore[2]));
+	CHECK(g_picks == 0 || lifted > 8.0f, "six frames in: lifted %.1f already (a wheel's bump lift rises at once; test 33's tyres sank into bumps)", lifted);
+	RunFrames(800);
+	SeatInBone(g_bones, seatNow);
+	lifted = sqrtf((seatNow[0] - seatBefore[0]) * (seatNow[0] - seatBefore[0]) + (seatNow[1] - seatBefore[1]) * (seatNow[1] - seatBefore[1]) + (seatNow[2] - seatBefore[2]) * (seatNow[2] - seatBefore[2]));
 	CHECK(g_picks == 0 || (lifted > 9.0f && lifted < 11.0f), "the bike lifted %.1f (10), level", lifted);
 	g_groundZ = PlayerPos()[2] - 10.0f;   /* a crest: the ground below the contact */
 	RunFrames(800);
@@ -2624,6 +2672,13 @@ static void TiltTests(void)
 	lifted = sqrtf((seatNow[0] - seatBefore[0]) * (seatNow[0] - seatBefore[0]) + (seatNow[1] - seatBefore[1]) * (seatNow[1] - seatBefore[1]) + (seatNow[2] - seatBefore[2]) * (seatNow[2] - seatBefore[2]));
 	CHECK(lifted < 0.5f, "on a crest (the ground 10 below): not lowered (%.1f)", lifted);
 	g_groundZ = PlayerPos()[2];
+	if (g_haveParts) {
+		RewriteIni("BumpSettle=0.2", "BumpSettle=0");
+		SetTilt(0.0f);
+		RunFrames(300);
+		SetTilt(30.0f);
+		RunFrames(600);
+	}
 
 	printf("tilt: a one-frame jump in the ground (a curb's edge):\n");
 	SetNormal(0.0f, 0.0f, 1.0f);

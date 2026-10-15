@@ -470,6 +470,9 @@ Function SetHeadlampLive(bool abRiding)
 				headlampRef.Disable()
 			endif
 		endif
+		if headlampRefOld && want == 0.0
+			headlampRefOld.Disable()
+		endif
 		if want > 0.0
 			Log("Headlamp lit.")
 		else
@@ -481,6 +484,15 @@ EndFunction
 ; The beam: a light reference placed at the rider while riding (the game keeps no add-on node
 ; of a worn mesh, test 30); disabled until the lamp is lit; CMB_Slope.dll keeps it at the lens.
 ObjectReference headlampRef = None
+; The one before a handover, retired a moment later (test 33: moving the one reference at
+; every cell crossing reloaded its 3D and the beam flickered; now a fresh one is placed in
+; the player's cell once the bike is two cells from the old one's, the plugin keeps the old
+; one lit until the new one's 3D is in, and the old one is deleted 2.5 s later).
+ObjectReference headlampRefOld = None
+int lampCellX = 0
+int lampCellY = 0
+float lampPlacedAt = 0.0
+float lampRetireAt = 0.0
 ; The hotkey's say while riding (test 32: it wrote the MCM's mode, so one press wiped "On at
 ; night" and the lamp lit by day): 0 none, 1 off, 2 on; cleared on getting off and whenever
 ; the mode's own answer changes (dusk, dawn, the MCM).
@@ -492,18 +504,60 @@ Function PlaceHeadlamp()
 	if !CMB_HeadlampLight || !CMB_HeadlampRefHi || !CMB_HeadlampRefLo
 		return
 	endif
+	Light lamp = HeadlampForm()
+	headlampRef = PlayerRef.PlaceAtMe(lamp, 1, false, true, false)
+	if headlampRef
+		TellPluginHeadlamp()
+		Log("Headlamp light placed (" + headlampRef.GetFormID() + ").")
+	else
+		Log("Headlamp light could not be placed.")
+	endif
+EndFunction
+
+Light Function HeadlampForm()
 	Light lamp = CMB_HeadlampLight
 	if CMB_HeadlampLightShadow && CMB_HeadlampShadows && CMB_HeadlampShadows.GetValue() > 0.0
 		lamp = CMB_HeadlampLightShadow
 	endif
-	headlampRef = PlayerRef.PlaceAtMe(lamp, 1, false, true, false)
-	if headlampRef
-		int id = headlampRef.GetFormID()
-		CMB_HeadlampRefHi.SetValue(Math.LogicalAnd(Math.RightShift(id, 16), 65535) as float)
-		CMB_HeadlampRefLo.SetValue(Math.LogicalAnd(id, 65535) as float)
-		Log("Headlamp light placed (" + id + ").")
-	else
-		Log("Headlamp light could not be placed.")
+	return lamp
+EndFunction
+
+; The plugin learns the current reference's form id from two globals (16 bits each), and
+; notes where it was placed.
+Function TellPluginHeadlamp()
+	int id = headlampRef.GetFormID()
+	CMB_HeadlampRefHi.SetValue(Math.LogicalAnd(Math.RightShift(id, 16), 65535) as float)
+	CMB_HeadlampRefLo.SetValue(Math.LogicalAnd(id, 65535) as float)
+	lampCellX = Math.Floor(PlayerRef.GetPositionX() / 4096.0)
+	lampCellY = Math.Floor(PlayerRef.GetPositionY() / 4096.0)
+	lampPlacedAt = Utility.GetCurrentRealTime()
+EndFunction
+
+; A fresh reference at the player, lit if the lamp is; the old one retired after 2.5 s (the
+; plugin has long parked it by then: it does so as soon as the new one's 3D is in).
+Function HandOverHeadlamp()
+	Light lamp = HeadlampForm()
+	if !lamp
+		return
+	endif
+	bool lit = CMB_HeadlampLive && CMB_HeadlampLive.GetValue() > 0.0
+	ObjectReference fresh = PlayerRef.PlaceAtMe(lamp, 1, false, !lit, false)
+	if !fresh
+		return
+	endif
+	RetireOldHeadlamp()
+	headlampRefOld = headlampRef
+	headlampRef = fresh
+	TellPluginHeadlamp()
+	lampRetireAt = lampPlacedAt + 2.5
+	Log("Headlamp light handed over (" + fresh.GetFormID() + ") in cell " + lampCellX + ", " + lampCellY + ".")
+EndFunction
+
+Function RetireOldHeadlamp()
+	if headlampRefOld
+		headlampRefOld.Disable()
+		headlampRefOld.Delete()
+		headlampRefOld = None
 	endif
 EndFunction
 
@@ -515,12 +569,18 @@ Function FollowHeadlamp()
 	if !headlampRef || !riding
 		return
 	endif
-	Cell here = PlayerRef.GetParentCell()
-	if here && headlampRef.GetParentCell() != here
+	float now = Utility.GetCurrentRealTime()
+	if headlampRefOld && now >= lampRetireAt
+		RetireOldHeadlamp()
+	endif
+	int cx = Math.Floor(PlayerRef.GetPositionX() / 4096.0)
+	int cy = Math.Floor(PlayerRef.GetPositionY() / 4096.0)
+	if Math.Abs(cx - lampCellX) >= 2 || Math.Abs(cy - lampCellY) >= 2
+		; Two cells on from where it was placed: the next crossing could unload that cell.
+		HandOverHeadlamp()
+	elseif CMB_HeadlampLive && CMB_HeadlampLive.GetValue() > 0.0 && now - lampPlacedAt > 1.5 && !headlampRef.Is3DLoaded()
 		headlampRef.MoveTo(PlayerRef)
-		Log("Headlamp light moved into the player's cell.")
-	elseif CMB_HeadlampLive && CMB_HeadlampLive.GetValue() > 0.0 && !headlampRef.Is3DLoaded()
-		headlampRef.MoveTo(PlayerRef)
+		lampPlacedAt = now
 		Log("Headlamp light moved to the player: its 3D was gone.")
 	endif
 EndFunction
@@ -537,6 +597,7 @@ Function RemoveHeadlamp()
 		headlampRef.Delete()
 		headlampRef = None
 	endif
+	RetireOldHeadlamp()
 EndFunction
 
 bool Function IsNight()
@@ -1368,6 +1429,7 @@ Function EquipBike()
 			PlayerRef.AddItem(wanted, 1, true)
 		endif
 		PlayerRef.EquipItem(wanted, true, true)
+		CallGearRestore("LogWornSlots")
 	endif
 	RemoveArmor(other)
 EndFunction
