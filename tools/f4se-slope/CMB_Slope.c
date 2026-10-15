@@ -345,8 +345,23 @@ static float g_smoothing = 0.25f;         /* seconds: how quickly the tilt follo
 static float g_medianTime = 0.25f;        /* seconds of samples the median is taken over */
 static float g_maxRate = 90.0f;           /* degrees per second at most */
 static float g_maxRoll;                   /* degrees: a two-wheeler stays upright across a slope */
-static float g_maxLean = 20.0f;             /* [Tilt] MaxLean: the centripetal lean into turns, at most (0: none) */
+static float g_maxLean = 14.0f;             /* [Tilt] MaxLean: the lean into turns, at most (0: none) */
+static float g_leanRate = 30.0f;            /* [Tilt] LeanRate: the lean changes at most this fast, degrees a second (test 32: 18 deg jumps between quarter seconds) */
+static float g_leanSmooth = 0.45f;          /* [Tilt] LeanSmooth: the turning rate is smoothed over this many seconds for the lean (a key asks 300 deg/s at once) */
+static float g_leanDead = 0.08f;            /* [Tilt] LeanDead: v w / g (the tangent of the physical lean) under this gives none: a small correction barely leans */
+static float g_leanGain = 0.5f;             /* [Tilt] LeanGain: the lean as this fraction of the physical atan(v w / g) */
+static float g_leanNow, g_yawForLean;       /* the lean applied (rate-limited), and the turning rate smoothed for it */
 static int g_headLevel = 1;                 /* [Tilt] HeadLevel: the head kept level as the bike rolls */
+static float g_torsoLeanSetting = -1.0f;    /* [Tilt] TorsoLean: degrees the upper body leans forward (-1: enough to bring the grips to ArmReach of the arms' reach) */
+static float g_armReach = 0.88f;            /* [Tilt] ArmReach: where the grips sit, as a fraction of the arms' reach, with the bars straight */
+static float g_torsoTwist = 0.4f;           /* [Tilt] TorsoTwist: the upper body turns this fraction of the bars' angle toward the far grip */
+static float g_torsoLean;                   /* this ride: degrees forward, from TorsoLean or solved for ArmReach */
+static bool g_torsoLeanSet;
+static int g_torsoTries;
+static float g_faceLook = 0.3f;             /* [Steer] FaceLook: a face ahead is looked for this many seconds of the speed past the front wheel (0: off) */
+static float g_faceEase = 1.0f;             /* this frame: what a face ahead leaves of the throttle (1: nothing ahead) */
+static int g_faceLogs;
+static float g_faceLoggedAt = -100.0f;
 static float g_headingNow;                  /* the player's heading this frame (FrameTilt), for the head's counter-roll */
 static float g_wallAheadAt = -100.0f;       /* when the front ray last found a face ahead (the throttle is cut for a quarter second after) */
 static int g_wallLogs;
@@ -396,7 +411,7 @@ static uintptr_t g_turnRadiusGlobal, g_turnStandGlobal, g_turnSlowGlobal;
 static uintptr_t g_headlampGlobal, g_headlampRefGlobals[2];
 static uintptr_t g_lampRef;                 /* the light reference the script placed (CMB_HeadlampRefHi/Lo), looked up once per id */
 static uint32_t g_lampRefId;
-static bool g_lampRefLogged, g_lampRefParked;
+static bool g_lampRefLogged, g_lampRefParked, g_lampRefHad3D, g_lampRefGoneLogged;
 static float g_wheelHist[3];                /* the wheels' pitch over the last three frames: a median drops a one-frame hole */
 static int g_wheelHistAt, g_wheelHistN;
 
@@ -674,6 +689,47 @@ static void OpenLog(void)
 static void ReadParts(const char *ini);
 static void ReadLampSettings(const char *ini);
 
+static float IniFloat(const char *ini, const char *section, const char *key, float fallback, float lo, float hi)
+{
+	char value[64], def[32];
+	snprintf(def, sizeof(def), "%g", fallback);
+	GetPrivateProfileStringA(section, key, def, value, sizeof(value), ini);
+	float v = strtof(value, NULL);
+	return v >= lo && v <= hi ? v : fallback;
+}
+
+/* The lean into turns, the upper body and the face look-ahead, read again on every mount (an
+ * A/B needs no restart). */
+static void ReadLeanSettings(const char *ini, bool log)
+{
+	float was[10] = { g_maxLean, g_leanRate, g_leanSmooth, g_leanDead, g_leanGain, g_torsoLeanSetting, g_armReach, g_torsoTwist, g_faceLook, (float)g_headLevel };
+	g_maxLean = IniFloat(ini, "Tilt", "MaxLean", 14.0f, 0.0f, 45.0f);
+	g_leanRate = IniFloat(ini, "Tilt", "LeanRate", 30.0f, 0.0f, 1000.0f);
+	g_leanSmooth = IniFloat(ini, "Tilt", "LeanSmooth", 0.45f, 0.0f, 5.0f);
+	g_leanDead = IniFloat(ini, "Tilt", "LeanDead", 0.08f, 0.0f, 2.0f);
+	g_leanGain = IniFloat(ini, "Tilt", "LeanGain", 0.5f, 0.0f, 2.0f);
+	g_headLevel = (int)GetPrivateProfileIntA("Tilt", "HeadLevel", 1, ini) != 0;
+	g_torsoLeanSetting = IniFloat(ini, "Tilt", "TorsoLean", -1.0f, -1.0f, 30.0f);
+	g_armReach = IniFloat(ini, "Tilt", "ArmReach", 0.88f, 0.5f, 1.0f);
+	g_torsoTwist = IniFloat(ini, "Tilt", "TorsoTwist", 0.4f, 0.0f, 1.0f);
+	g_faceLook = IniFloat(ini, "Steer", "FaceLook", 0.3f, 0.0f, 3.0f);
+	float now[10] = { g_maxLean, g_leanRate, g_leanSmooth, g_leanDead, g_leanGain, g_torsoLeanSetting, g_armReach, g_torsoTwist, g_faceLook, (float)g_headLevel };
+	bool changed = false;
+	for (int i = 0; i < 10; i++)
+		changed = changed || was[i] != now[i];
+	if (log || changed) {
+		char torso[48];
+		if (g_torsoLeanSetting < 0.0f)
+			snprintf(torso, sizeof(torso), "leaned forward as needed");
+		else
+			snprintf(torso, sizeof(torso), "leaned %g deg forward", g_torsoLeanSetting);
+		Log("  lean: into turns up to %g deg (MaxLean), at most %g deg/s (LeanRate), the turning rate over %g s (LeanSmooth), none under %g (LeanDead), %g of the physical lean (LeanGain); "
+		    "the head %s (HeadLevel); the upper body %s (TorsoLean), the grips at %g of the arms' reach (ArmReach), turned %g of the bars (TorsoTwist); a face ahead looked for %g s of the speed (FaceLook)%s",
+		    g_maxLean, g_leanRate, g_leanSmooth, g_leanDead, g_leanGain, g_headLevel ? "kept level" : "tilting with the bike", torso, g_armReach, g_torsoTwist, g_faceLook,
+		    log ? "" : " (read again on getting on)");
+	}
+}
+
 /* The rider's switches, read again on every mount (an A/B needs no restart; test 25). */
 static void ReadRiderSwitches(bool log)
 {
@@ -689,6 +745,7 @@ static void ReadRiderSwitches(bool log)
 	if (log || was[0] != g_riderTilt || was[1] != g_riderSkinned || was[2] != g_riderPlain || was[3] != g_riderSwap || was[4] != g_riderWrite || hadHands != g_riderHands)
 		Log("  rider: Rider=%d RiderSkinned=%d RiderPlain=%d RiderSwap=%d RiderWrite=%d RiderHands=%d%s", g_riderTilt, g_riderSkinned, g_riderPlain,
 		    g_riderSwap, g_riderWrite, g_riderHands, log ? "" : " (read again on getting on)");
+	ReadLeanSettings(ini, false);
 }
 
 static void ReadSettings(void)
@@ -750,12 +807,7 @@ static void ReadSettings(void)
 	g_maxRoll = strtof(value, NULL);
 	if (!(g_maxRoll >= 0.0f && g_maxRoll <= 45.0f))
 		g_maxRoll = 0.0f;
-	GetPrivateProfileStringA("Tilt", "MaxLean", "20", value, sizeof(value), ini);
-	g_maxLean = strtof(value, NULL);
-	if (!(g_maxLean >= 0.0f && g_maxLean <= 45.0f))
-		g_maxLean = 20.0f;
-	g_headLevel = (int)GetPrivateProfileIntA("Tilt", "HeadLevel", 1, ini) != 0;
-	Log("  lean: into turns up to %g deg (MaxLean), the head %s", g_maxLean, g_headLevel ? "kept level" : "tilting with the bike");
+	ReadLeanSettings(ini, true);
 	GetPrivateProfileStringA("Tilt", "PivotHeight", "0", value, sizeof(value), ini);
 	g_pivotHeight = strtof(value, NULL);
 	if (!(g_pivotHeight >= -50.0f && g_pivotHeight <= 200.0f))
@@ -1958,6 +2010,11 @@ static void ResetTilt(void)
 	g_pitchVel = g_rollVel = g_liftNow = 0.0f;
 	g_tiltMax = g_tiltNow = 0.0f;
 	g_wheelAngle = g_barNow = g_headingRate = 0.0f;
+	g_leanNow = g_yawForLean = 0.0f;
+	g_faceEase = 1.0f;
+	g_torsoLeanSet = false;
+	g_torsoLean = 0.0f;
+	g_torsoTries = 0;
 	g_haveLastHeading = false;
 	g_wheelHistN = g_wheelHistAt = 0;
 }
@@ -2579,7 +2636,24 @@ typedef struct { uintptr_t upper, elbow, hand; } ArmChain;
 typedef struct { bool ok; float R1[9], t1[3], R2[9], t2[3]; float L1, L2, reach, elbowMove; } ArmMap;   /* world maps, before the tilt: the upper arm's and the forearm's (or, for the head, R1/t1 alone) */
 static ArmChain g_arm[2];
 static uintptr_t g_headNode;                /* the head's bone (HEAD), the joint the head is kept level about */
+static uintptr_t g_torsoNode;               /* the lowest spine bone (SPINE1): the joint the upper body leans and twists about */
 static bool g_armLogged[2];
+
+/* 5 for the upper body's bones above the pelvis, which lean and twist with the torso: the
+ * spine (SPINE1, SPINE2), the chest, the collarbones and the neck. */
+static uint8_t TorsoRole(const char *name)
+{
+	if (!name)
+		return 0;
+	if (NameHas(name, "spine") || NameHas(name, "chest") || NameHas(name, "collarbone") || NameHas(name, "clavicle") || NameHas(name, "neck"))
+		return 5;
+	return 0;
+}
+
+static bool TorsoPivotName(const char *name)
+{
+	return name && NameHas(name, "spine1");
+}
 
 /* The head's bone by name (HEAD, or Skyrim's NPC Head). */
 static bool HeadName(const char *name)
@@ -2609,7 +2683,7 @@ static const char *RoleWord(uint8_t role)
 {
 	int kind = role & 0xF;
 	bool right = (role & 0x10) != 0;
-	return kind == 4 ? "the head" : kind == 3 ? (right ? "the right hand" : "the left hand") : kind == 2 ? (right ? "the right forearm" : "the left forearm")
+	return kind == 5 ? "the upper body" : kind == 4 ? "the head" : kind == 3 ? (right ? "the right hand" : "the left hand") : kind == 2 ? (right ? "the right forearm" : "the left forearm")
 	     : kind == 1 ? (right ? "the right upper arm" : "the left upper arm") : "-";
 }
 
@@ -2659,7 +2733,10 @@ static void RotationBetween(const float a[3], const float b[3], float R[9])
 	AxisRotation(axis, atan2f(s, c), R);
 }
 
-static bool SolveArm(const ArmChain *chain, const float Q[9], const float q[3], ArmMap *out)
+/* With a torso map (Tr, tt): the arm is first carried by the upper body's lean and twist (the
+ * shoulder, the elbow and the wrist with it), then solved from there to the grip, which stays
+ * where the bars put it; the bones' maps come out composed with the torso's. */
+static bool SolveArm(const ArmChain *chain, const float Q[9], const float q[3], const float Tr[9], const float tt[3], bool torso, ArmMap *out)
 {
 	float N[9], S[3], E[3], W[3], sc;
 	out->ok = false;
@@ -2669,8 +2746,20 @@ static bool SolveArm(const ArmChain *chain, const float Q[9], const float q[3], 
 		return false;
 	float QW[3], T[3], d[3], v1[3], v2[3];
 	MulV(Q, W, QW);
+	for (int i = 0; i < 3; i++)
+		T[i] = QW[i] + q[i];   /* the grip turned with the bars: where the hand goes, torso or not */
+	if (torso) {
+		float S2[3], E2t[3], W2[3];
+		MulV(Tr, S, S2);
+		MulV(Tr, E, E2t);
+		MulV(Tr, W, W2);
+		for (int i = 0; i < 3; i++) {
+			S[i] = S2[i] + tt[i];
+			E[i] = E2t[i] + tt[i];
+			W[i] = W2[i] + tt[i];
+		}
+	}
 	for (int i = 0; i < 3; i++) {
-		T[i] = QW[i] + q[i];
 		d[i] = T[i] - S[i];
 		v1[i] = E[i] - S[i];
 		v2[i] = W[i] - E[i];
@@ -2726,23 +2815,119 @@ static bool SolveArm(const ArmChain *chain, const float Q[9], const float q[3], 
 		out->t1[i] = S[i] - R1S[i];
 		out->t2[i] = E2[i] - R2E[i];
 	}
+	if (torso) {   /* the torso's map first, then the swing */
+		float Rc[9], tc[3];
+		Compose(out->R1, out->t1, Tr, tt, Rc, tc);
+		memcpy(out->R1, Rc, sizeof(Rc));
+		memcpy(out->t1, tc, sizeof(tc));
+		Compose(out->R2, out->t2, Tr, tt, Rc, tc);
+		memcpy(out->R2, Rc, sizeof(Rc));
+		memcpy(out->t2, tc, sizeof(tc));
+	}
 	out->ok = true;
 	return true;
+}
+
+static float Dist3f(const float a[3], const float b[3])
+{
+	return sqrtf((a[0] - b[0]) * (a[0] - b[0]) + (a[1] - b[1]) * (a[1] - b[1]) + (a[2] - b[2]) * (a[2] - b[2]));
+}
+
+/* The grips' distance from the shoulders swung forward by lean degrees about the spine's
+ * joint, over the arms' reach, averaged over the chains found (the bars straight: the hands
+ * are on the grips as the clips pose them). */
+static float GripReachAt(float lean, const float pivot[3], const float rightW[3], float sign, const float S[2][3], const float W[2][3], const float reach[2], int sides)
+{
+	float Rl[9], sum = 0.0f;
+	AxisRotation(rightW, sign * lean / 57.29578f, Rl);
+	for (int k = 0; k < sides; k++) {
+		float rel[3] = { S[k][0] - pivot[0], S[k][1] - pivot[1], S[k][2] - pivot[2] }, Rr[3], S2[3];
+		MulV(Rl, rel, Rr);
+		for (int i = 0; i < 3; i++)
+			S2[i] = Rr[i] + pivot[i];
+		sum += Dist3f(S2, W[k]) / reach[k];
+	}
+	return sum / (float)sides;
+}
+
+/* The upper body's forward lean for this ride: TorsoLean degrees, or, by default, the least
+ * that brings the straight grips to ArmReach of the arms' reach (test 32: the arms were
+ * locked straight as the clips pose them, the grips at 100% of the reach, so a turn put the
+ * far grip out of reach and the wrist stretched). Bisection, up to 15 degrees. Needs a chain:
+ * tried again next frame otherwise, for 300 frames of the ride. */
+static void SolveTorsoLean(void)
+{
+	float Nt[9], pivot[3], st;
+	if (g_torsoLeanSetting >= 0.0f) {
+		g_torsoLean = g_torsoLeanSetting;
+		g_torsoLeanSet = true;
+		Log("rider: the upper body leaned %.1f deg forward (TorsoLean), turned %g of the bars' angle in a turn (TorsoTwist)", g_torsoLean, g_torsoTwist);
+		return;
+	}
+	if (++g_torsoTries > 300) {
+		g_torsoLean = 0.0f;
+		g_torsoLeanSet = true;
+		Log("rider: no arm chain to lean the upper body for: it stays as the clips pose it");
+		return;
+	}
+	if (!NodeWorld(g_torsoNode, Nt, pivot, &st, NULL))
+		return;
+	float rightW[3] = { cosf(g_headingNow), -sinf(g_headingNow), 0.0f }, fwdW[3] = { sinf(g_headingNow), cosf(g_headingNow), 0.0f }, upW[3] = { 0, 0, 1 }, Rl[9], probe[3];
+	float S[2][3], W[2][3], reach[2];
+	int sides = 0;
+	for (int side = 0; side < 2; side++) {
+		const ArmChain *c = &g_arm[side];
+		float N[9], E[3], sc;
+		if (!c->upper || !c->elbow || !c->hand || !NodeWorld(c->upper, N, S[sides], &sc, NULL) || !NodeWorld(c->elbow, N, E, &sc, NULL) || !NodeWorld(c->hand, N, W[sides], &sc, NULL))
+			continue;
+		float L1 = Dist3f(S[sides], E), L2 = Dist3f(E, W[sides]);
+		if (L1 < 1.0f || L2 < 1.0f)
+			continue;
+		reach[sides] = L1 + L2;
+		sides++;
+	}
+	if (!sides)
+		return;
+	/* Which way AxisRotation leans forward: the way that takes the up vector towards the front. */
+	AxisRotation(rightW, 1.0f / 57.29578f, Rl);
+	MulV(Rl, upW, probe);
+	float sign = probe[0] * fwdW[0] + probe[1] * fwdW[1] >= 0.0f ? 1.0f : -1.0f;
+	float r0 = GripReachAt(0.0f, pivot, rightW, sign, S, W, reach, sides), lean = 0.0f;
+	if (r0 > g_armReach) {
+		float lo = 0.0f, hi = 15.0f;
+		if (GripReachAt(hi, pivot, rightW, sign, S, W, reach, sides) > g_armReach) {
+			lean = hi;
+		} else {
+			for (int it = 0; it < 24; it++) {
+				float mid = 0.5f * (lo + hi);
+				if (GripReachAt(mid, pivot, rightW, sign, S, W, reach, sides) > g_armReach)
+					lo = mid;
+				else
+					hi = mid;
+			}
+			lean = hi;
+		}
+	}
+	g_torsoLean = lean;
+	g_torsoLeanSet = true;
+	Log("rider: the upper body leaned %.1f deg forward about the spine's joint: the grips at %.0f%% of the arms' reach with the bars straight (%.0f%% as the clips pose it; ArmReach %g, %d arm%s), turned %g of the bars' angle in a turn (TorsoTwist)",
+	    lean, GripReachAt(lean, pivot, rightW, sign, S, W, reach, sides) * 100.0f, r0 * 100.0f, g_armReach, sides, sides == 1 ? "" : "s", g_torsoTwist);
 }
 
 /* The world map (before the tilt) an arm bone gets for the bars' turn: the hand and fingers
  * the turn itself, the upper arm and the forearm their side's solve, or, with no chain to
  * solve, the forearm part of the turn (the old way). False: no map. */
-static bool ArmMapFor(uint8_t role, bool hands, const ArmMap arm[3], const float Qb[9], const float qb[3], const float axisW[3], const float qW[3], float R[9], float t[3])
+static bool ArmMapFor(uint8_t role, bool hands, const ArmMap arm[4], const float Qb[9], const float qb[3], const float axisW[3], const float qW[3], float R[9], float t[3])
 {
 	if (!role)
 		return false;
 	int side = (role & 0x10) ? 1 : 0, kind = role & 0xF;
-	if (kind == 4) {   /* the head, kept level: arm[2] holds its map */
-		if (!arm[2].ok)
+	if (kind == 4 || kind == 5) {   /* the head (arm[2] holds its map) and the upper body (arm[3]) */
+		const ArmMap *m = &arm[kind == 4 ? 2 : 3];
+		if (!m->ok)
 			return false;
-		memcpy(R, arm[2].R1, sizeof(float) * 9);
-		memcpy(t, arm[2].t1, sizeof(float) * 3);
+		memcpy(R, m->R1, sizeof(float) * 9);
+		memcpy(t, m->t1, sizeof(float) * 3);
 		return true;
 	}
 	if (!hands)
@@ -2935,8 +3120,12 @@ static void HoldRider(uintptr_t shape, uintptr_t skin, uintptr_t data, const cha
 				NoteArmNode(p->arm[b], node, ObjectName(node));
 				if (!p->arm[b])
 					p->arm[b] = HeadRole(node);
+				if (!p->arm[b])
+					p->arm[b] = TorsoRole(ObjectName(node));
 				if (p->arm[b] == 4 && !g_headNode && HeadName(ObjectName(node)))
 					g_headNode = node;
+				if (p->arm[b] == 5 && !g_torsoNode && TorsoPivotName(ObjectName(node)))
+					g_torsoNode = node;
 			}
 		}
 		if (r) {
@@ -2981,6 +3170,8 @@ static void HoldRider(uintptr_t shape, uintptr_t skin, uintptr_t data, const cha
 			p->arm[0] = ArmRole(ObjectName(up));
 			if (!p->arm[0] && HeadName(ObjectName(up)))
 				p->arm[0] = 4;
+			if (!p->arm[0])
+				p->arm[0] = TorsoRole(ObjectName(up));
 			up = ReadPtr(up + OFF_PARENT);
 			if (up && !IsA(up, RTTI_AVOBJECT))
 				up = 0;
@@ -3023,6 +3214,7 @@ static void LetGoAllRider(const char *why)
 {
 	memset(g_arm, 0, sizeof(g_arm));
 	g_headNode = 0;
+	g_torsoNode = 0;
 	g_armLogged[0] = g_armLogged[1] = false;
 	int had = g_riderCount;
 	while (g_riderCount)
@@ -3155,6 +3347,7 @@ static void SyncRider(uintptr_t player, const SkinList *list, bool wanted)
 	if (!g_riderCount) {
 		memset(g_arm, 0, sizeof(g_arm));   /* the chains are found again with the shapes */
 		g_headNode = 0;
+		g_torsoNode = 0;
 	}
 	int before = g_riderCount, skinned = 0;
 	bool pickSkinned[MAX_RIDER], pickPlain[MAX_RIDER];
@@ -3194,9 +3387,10 @@ static void SyncRider(uintptr_t player, const SkinList *list, bool wanted)
 			LogNames("rider:   skinned: ", list, pickSkinned, true);
 		if (g_riderCount - before - skinned)
 			LogNames("rider:   plain: ", list, pickPlain, false);
-		Log("rider:   the arms' chains: left shoulder %s, elbow %s, hand %s; right shoulder %s, elbow %s, hand %s; the head %s",
+		Log("rider:   the arms' chains: left shoulder %s, elbow %s, hand %s; right shoulder %s, elbow %s, hand %s; the head %s; the spine's joint %s",
 		    g_arm[0].upper ? "found" : "missing", g_arm[0].elbow ? "found" : "missing", g_arm[0].hand ? "found" : "missing",
-		    g_arm[1].upper ? "found" : "missing", g_arm[1].elbow ? "found" : "missing", g_arm[1].hand ? "found" : "missing", g_headNode ? "found" : "missing");
+		    g_arm[1].upper ? "found" : "missing", g_arm[1].elbow ? "found" : "missing", g_arm[1].hand ? "found" : "missing", g_headNode ? "found" : "missing",
+		    g_torsoNode ? "found" : "missing");
 		char roles[480] = "";
 		int rl = 0;
 		for (int i = 0; i < g_riderCount && rl < (int)sizeof(roles) - 70; i++)
@@ -3234,7 +3428,17 @@ static void FrameRider(bool tilt, const float R[9], const float P[3])
 	 * again over one. The bars turned (the hands follow them) or the bike lifted count too. */
 	if (g_riderLevel ? g_tiltNow > 1.0f : g_tiltNow < 0.5f)
 		g_riderLevel = !g_riderLevel;
-	bool hands = g_riderHands && g_partsOk && fabsf(g_barNow) > 0.3f;
+	/* The upper body (test 32: the arms were locked straight at rest, the grips at the arms'
+	 * full reach, so a turn put the far grip out of reach): leaned forward about the lowest
+	 * spine bone's joint by TorsoLean degrees, or, by default, by enough to bring the grips to
+	 * ArmReach of the reach (solved once a ride, as soon as a chain is found), and turned
+	 * toward the far grip by TorsoTwist of the bars' angle; the arms are solved from the
+	 * moved shoulders and the hands stay on the grips. With it the rider is written every
+	 * frame, level or not. */
+	if (g_riderHands && g_partsOk && g_torsoNode && !g_torsoLeanSet)
+		SolveTorsoLean();
+	bool torso = g_riderHands && g_partsOk && g_torsoNode && g_torsoLeanSet && (g_torsoLean > 0.05f || (g_torsoTwist > 0.0f && fabsf(g_barNow) > 0.3f));
+	bool hands = g_riderHands && g_partsOk && (fabsf(g_barNow) > 0.3f || torso);
 	bool level = g_riderLevel && !hands && fabsf(g_liftNow) < 0.5f;
 	bool ready = (tilt || hands) && g_riderTilt && g_riderWrite && !level && bike && NodeWorld(bike->node, Nb, nb, &sb, Nbi);
 	g_riderApplied = ready;
@@ -3291,11 +3495,41 @@ static void FrameRider(bool tilt, const float R[9], const float P[3])
 		for (int i = 0; i < 3; i++)
 			qW[i] = sb * NBp[i] + nb[i];
 	}
-	/* The bars' turn about that axis, and each arm's solve (the shoulder stays, the elbow
-	 * swings, the wrist lands on the turned grip). */
+	/* The upper body's map (world, before the tilt): the lean about the rider's sideways axis
+	 * and the twist about the vertical, both through the spine's joint. The sense of each is
+	 * checked on a vector rather than assumed of AxisRotation. */
+	float Tr[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, tt[3] = { 0, 0, 0 }, Rt[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, pivot[3] = { 0, 0, 0 };
+	if (torso) {
+		float Nt[9], st, Rl[9], probe[3], Tp[3];
+		float rightW[3] = { cosf(g_headingNow), -sinf(g_headingNow), 0.0f }, fwdW[3] = { sinf(g_headingNow), cosf(g_headingNow), 0.0f }, upW[3] = { 0, 0, 1 };
+		if (!NodeWorld(g_torsoNode, Nt, pivot, &st, NULL)) {
+			torso = false;
+		} else {
+			AxisRotation(rightW, g_torsoLean / 57.29578f, Rl);
+			MulV(Rl, upW, probe);
+			if (probe[0] * fwdW[0] + probe[1] * fwdW[1] < 0.0f)   /* that leant back: the other way */
+				AxisRotation(rightW, -g_torsoLean / 57.29578f, Rl);
+			float twist = g_torsoTwist * g_barNow / 57.29578f;
+			AxisRotation(upW, twist, Rt);
+			MulV(Rt, fwdW, probe);
+			if (twist != 0.0f && (probe[0] * rightW[0] + probe[1] * rightW[1]) * g_barNow > 0.0f)   /* the chest turns the way the bars do (+ left) */
+				AxisRotation(upW, -twist, Rt);
+			Mul3(Rt, Rl, Tr);
+			MulV(Tr, pivot, Tp);
+			for (int i = 0; i < 3; i++)
+				tt[i] = pivot[i] - Tp[i];
+		}
+	}
+	/* The bars' turn about that axis, and each arm's solve (the shoulder goes with the upper
+	 * body, the elbow swings, the wrist lands on the turned grip). */
 	float Qb[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, qb[3] = { 0, 0, 0 };
-	ArmMap arm[3];
-	arm[0].ok = arm[1].ok = arm[2].ok = false;
+	ArmMap arm[4];
+	arm[0].ok = arm[1].ok = arm[2].ok = arm[3].ok = false;
+	if (torso) {
+		memcpy(arm[3].R1, Tr, sizeof(Tr));
+		memcpy(arm[3].t1, tt, sizeof(tt));
+		arm[3].ok = true;
+	}
 	if (hands) {
 		float Qq[3];
 		AxisRotation(axisW, g_barNow / 57.29578f, Qb);
@@ -3303,24 +3537,44 @@ static void FrameRider(bool tilt, const float R[9], const float P[3])
 		for (int i = 0; i < 3; i++)
 			qb[i] = qW[i] - Qq[i];
 		for (int side = 0; side < 2; side++) {
-			SolveArm(&g_arm[side], Qb, qb, &arm[side]);
+			SolveArm(&g_arm[side], Qb, qb, Tr, tt, torso, &arm[side]);
 			if (arm[side].ok && !g_armLogged[side]) {
 				g_armLogged[side] = true;
-				Log("rider: the %s arm solved: upper arm %.1f, forearm %.1f, the grip %.1f from the shoulder, the elbow moved %.1f (the bars %.1f deg)",
-				    side ? "right" : "left", arm[side].L1, arm[side].L2, arm[side].reach, arm[side].elbowMove, g_barNow);
+				Log("rider: the %s arm solved: upper arm %.1f, forearm %.1f, the grip %.1f from the shoulder (%.0f%% of the reach), the elbow moved %.1f (the bars %.1f deg, the upper body %.1f deg forward)",
+				    side ? "right" : "left", arm[side].L1, arm[side].L2, arm[side].reach, arm[side].reach / (arm[side].L1 + arm[side].L2) * 100.0f, arm[side].elbowMove, g_barNow, torso ? g_torsoLean : 0.0f);
 			}
 		}
 	}
-	/* The head kept level (test 31's wish): the head's bones (HEAD and what hangs under it: the
-	 * face, the eyes, a helmet) turned back by the bike's roll about the heading, through the
-	 * head's own joint, before the tilt; the pitch still goes with the bike. */
-	if (g_headLevel && g_headNode && fabsf(g_rollNow) > 0.3f) {
-		float Nh[9], hp[3], sh, fwd[3] = { sinf(g_headingNow), cosf(g_headingNow), 0.0f }, Rp[3];
+	/* The head: its joint goes where the upper body's lean and twist put it, turned with the
+	 * twist but not pitched with the lean (the rider keeps the head up), and, with HeadLevel
+	 * (test 31's wish), turned back by the bike's roll about that joint (the face, the eyes, a
+	 * helmet with it), before the tilt; the pitch still goes with the bike. */
+	bool levelHead = g_headLevel && fabsf(g_rollNow) > 0.3f;
+	if (g_headNode && (torso || levelHead)) {
+		float Nh[9], hp[3], sh, fwd[3] = { sinf(g_headingNow), cosf(g_headingNow), 0.0f }, Rp[3], hp2[3], Th[3];
 		if (NodeWorld(g_headNode, Nh, hp, &sh, NULL)) {
-			AxisRotation(fwd, -g_rollNow / 57.29578f, arm[2].R1);
-			MulV(arm[2].R1, hp, Rp);
+			float Rh[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, th[3] = { 0, 0, 0 };
+			MulV(Tr, hp, Th);
 			for (int i = 0; i < 3; i++)
-				arm[2].t1[i] = hp[i] - Rp[i];
+				hp2[i] = Th[i] + tt[i];   /* the joint, moved with the upper body */
+			if (torso) {
+				memcpy(Rh, Rt, sizeof(Rh));
+				MulV(Rt, hp, Rp);
+				for (int i = 0; i < 3; i++)
+					th[i] = hp2[i] - Rp[i];
+			}
+			if (levelHead) {
+				float Rl2[9], tl[3], Rr[9], tr[3];
+				AxisRotation(fwd, -g_rollNow / 57.29578f, Rl2);
+				MulV(Rl2, hp2, Rp);
+				for (int i = 0; i < 3; i++)
+					tl[i] = hp2[i] - Rp[i];
+				Compose(Rl2, tl, Rh, th, Rr, tr);
+				memcpy(Rh, Rr, sizeof(Rh));
+				memcpy(th, tr, sizeof(th));
+			}
+			memcpy(arm[2].R1, Rh, sizeof(Rh));
+			memcpy(arm[2].t1, th, sizeof(th));
 			arm[2].ok = true;
 		}
 	}
@@ -3567,7 +3821,7 @@ static void FrameLamp(bool tilt, const float R[9], const float P[3])
 	if (id != g_lampRefId) {
 		g_lampRefId = id;
 		g_lampRef = 0;
-		g_lampRefLogged = g_lampRefParked = false;
+		g_lampRefLogged = g_lampRefParked = g_lampRefHad3D = g_lampRefGoneLogged = false;
 		if (id) {
 			uintptr_t form = ((LookupFormByID_t)(g_base + RVA_LOOKUP_FORM))(id);
 			if (form && Accessible(form, 0x100, false) && *(const uint8_t *)(form + OFF_FORM_TYPE) == FORM_TYPE_REFR && IsA(form, RTTI_REFR) &&
@@ -3581,8 +3835,24 @@ static void FrameLamp(bool tilt, const float R[9], const float P[3])
 		return;
 	uintptr_t loaded = ReadPtr(g_lampRef + OFF_REFR_LOADED);
 	uintptr_t root = loaded ? ReadPtr(loaded + OFF_LOADED_ROOT) : 0;
-	if (!root || !IsA(root, RTTI_AVOBJECT) || !Accessible(root + OFF_LOCAL_ROT, 0xC0, true))
-		return;   /* not loaded: the lamp is off (the script disabled it), or not in yet */
+	if (!root || !IsA(root, RTTI_AVOBJECT) || !Accessible(root + OFF_LOCAL_ROT, 0xC0, true)) {
+		/* Not loaded: the lamp is off (the script disabled it), not in yet, or its cell has gone
+		 * (test 32: the beam went after 25 s of riding, the reference left in the cell it was
+		 * placed in; the script moves it into the player's cell now). Said once each time. */
+		if (g_lampRefHad3D && want && !g_lampRefGoneLogged) {
+			g_lampRefGoneLogged = true;
+			Log("lamp: the light reference %08X has no 3D now while the lamp is wanted (its cell unloaded?): no beam until the script moves it to the player", g_lampRefId);
+		}
+		g_lampRefHad3D = false;
+		return;
+	}
+	if (!g_lampRefHad3D) {
+		g_lampRefHad3D = true;
+		if (g_lampRefGoneLogged) {
+			g_lampRefGoneLogged = false;
+			Log("lamp: the light reference %08X has its 3D again", g_lampRefId);
+		}
+	}
 	float w[3], W[9];
 	const float *pos = (const float *)(g_lampRef + OFF_REFR_POS);
 	if (nodeLit || !ready) {
@@ -3858,10 +4128,23 @@ static void FrameTilt(void)
 		 * of the ground's roll; the rider leans with the bike. */
 		float lean = 0.0f;
 		if (g_maxLean > 0.0f && onGround) {
-			float v = g_speed > 0.0f ? g_speed : 0.0f, w = g_headingRate / 57.29578f;
+			/* Test 32: a side key asks 300 deg/s at once and the atan sat at the cap, the roll
+			 * jumping 18 deg between quarter seconds. The turning rate is smoothed over
+			 * LeanSmooth, a small correction (v w / g under LeanDead) gives nothing, the lean is
+			 * LeanGain of the physical one, and it changes at most LeanRate a second. */
+			float v = g_speed > 0.0f ? g_speed : 0.0f, dtl = g_frameDt > 0.05f ? 0.05f : g_frameDt;
+			if (dtl > 0.0f)
+				g_yawForLean += (g_headingRate - g_yawForLean) * (1.0f - expf(-dtl / (g_leanSmooth > 0.01f ? g_leanSmooth : 0.01f)));
+			float x = v * (g_yawForLean / 57.29578f) / 687.0f;
+			float xd = x > g_leanDead ? x - g_leanDead : x < -g_leanDead ? x + g_leanDead : 0.0f;
 			float fade = (v - 50.0f) / 100.0f;
 			fade = fade < 0.0f ? 0.0f : fade > 1.0f ? 1.0f : fade;
-			lean = Clamp(atan2f(v * w, 687.0f) * 57.29578f * fade, g_maxLean);
+			float target = Clamp(atanf(xd) * 57.29578f * g_leanGain * fade, g_maxLean);
+			float step = g_leanRate > 0.0f ? g_leanRate * dtl : 1000.0f, d = target - g_leanNow;
+			g_leanNow += d > step ? step : d < -step ? -step : d;
+			lean = g_leanNow;
+		} else if (g_maxLean <= 0.0f) {
+			g_leanNow = g_yawForLean = 0.0f;
 		}
 		float targetRoll = onGround ? Clamp(medianRoll, maxRoll) + lean : g_rollSmooth;
 		g_pitchSmooth = targetPitch;
@@ -4133,6 +4416,58 @@ static void WheelRays(uintptr_t player, bool onGround)
 	g_wheelPitchOk = true;
 }
 
+/* A face ahead, seen in time (test 32: the down-ray's word came with the face already at
+ * the wheel, 16 to 81 ahead at axle height): two rays forward along the bike's pitched axis,
+ * at axle height and near the top of the wheel, as far as FaceLook seconds of the speed past
+ * the front wheel. Both hitting at about the same distance is a face (a slope under the climb
+ * limit puts the upper hit further on by its rise over its tangent; a step lower than the
+ * wheel's top misses the upper ray); the throttle is eased off with the distance left to it,
+ * to nothing at the wheel, so the bike stops short. Turning or backing off is the rider's. */
+static void FaceRays(uintptr_t player, bool onGround)
+{
+	g_faceEase = 1.0f;
+	if (!g_riding || !onGround || !g_partsOk || g_faceLook <= 0.0f || !player || !Accessible(player + OFF_REFR_HEADING, 4, false) || !RaysReady(player))
+		return;
+	if (!(g_throttleOn && g_throttle > 0.0f) && g_speedAlong < 30.0f)   /* standing, backing, or no throttle: nothing to ease */
+		return;
+	uintptr_t cell = ReadPtr(player + OFF_REFR_CELL);
+	if (!cell || !IsA(cell, RTTI_CELL))
+		return;
+	const float *pos = (const float *)(player + OFF_REFR_POS);
+	float h = *(const float *)(player + OFF_REFR_HEADING), sh = sinf(h), ch = cosf(h);
+	float p = g_pitchNow / 57.29578f, cp = cosf(p), sp = sinf(p);
+	float fwd[3] = { sh * cp, ch * cp, sp }, up[3] = { -sh * sp, -ch * sp, cp };
+	float R = g_wheelRadius > 1.0f ? g_wheelRadius : 30.0f, wheelFront = g_frontAxle[1] + R;
+	float v = g_speedAlong > 0.0f ? g_speedAlong : 0.0f, span = v * g_faceLook + 5.0f, L = wheelFront + span;
+	float heights[2] = { R, 1.8f * R }, d[2];
+	for (int i = 0; i < 2; i++) {
+		float a[3], b[3];
+		for (int k = 0; k < 3; k++) {
+			a[k] = pos[k] + up[k] * heights[i];
+			b[k] = a[k] + fwd[k] * L;
+		}
+		float f = CastRay(cell, a, b);
+		d[i] = f > 0.0f && f < 1.0f ? f * L : -1.0f;
+	}
+	if (d[0] < 0.0f || d[1] < 0.0f)
+		return;
+	float climb = GlobalValue(g_tiltGlobal);
+	if (!(climb >= 20.0f))
+		climb = 45.0f;
+	float run = d[1] - d[0];
+	float slope = g_pitchNow + atan2f(heights[1] - heights[0], run > 0.0f ? run : 0.0f) * 57.29578f;
+	if (slope < climb)
+		return;
+	float ahead = d[0] - wheelFront;
+	float ease = ahead <= 0.0f ? 0.0f : ahead >= span ? 1.0f : ahead / span;
+	g_faceEase = ease;
+	if ((float)g_clock - g_faceLoggedAt >= 1.0f && g_faceLogs < 30) {
+		g_faceLogs++;
+		g_faceLoggedAt = (float)g_clock;
+		Log("rays: a face ahead (%.0f deg): %.0f past the front wheel at axle height, the throttle eased to %.0f%%", slope, ahead, ease * 100.0f);
+	}
+}
+
 static void SampleGround(void)
 {
 	g_trackPitchOk = g_trackSteepOk = false;
@@ -4159,6 +4494,7 @@ static void SampleGround(void)
 	g_groundAir = air;
 	bool onGround = g_groundOk && !air;
 	WheelRays(player, onGround);
+	FaceRays(player, onGround);
 	if (onGround) {
 		memcpy(g_groundN, n, sizeof(n));
 		float k = g_avgAge > 0.0f ? 1.0f - expf(-g_frameDt / GROUND_AVERAGE_TIME) : 1.0f;
@@ -4651,6 +4987,7 @@ static void AfterInput(void)
 			float size = InputForSpeed(g_throttle) * (forward ? g_throttleMag : 1.0f);
 			if ((float)g_clock - g_wallAheadAt < 0.25f)
 				size = 0.0f;   /* a face ahead of the front wheel (WallAhead): no forward drive into it */
+			size *= g_faceEase;   /* eased off towards a face seen ahead (FaceRays) */
 			float dx = x, dy = forward && y > 0.2f ? y : 1.0f;   /* a side key's own read: forward is still held */
 			float len = sqrtf(dx * dx + dy * dy);
 			if (!(len > 0.0f)) {

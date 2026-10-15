@@ -437,17 +437,29 @@ Function SetTiltLive(bool abRiding)
 EndFunction
 
 ; The headlamp (optional, F4SE plugin CMB_Slope.dll): it lights the lamp while
-; CMB_HeadlampLive is 1. The mode decides: on, off, or on at night.
+; CMB_HeadlampLive is 1. The mode decides: on, off, or on at night; the hotkey's say
+; (headlampOverride) comes first while it stands.
 Function SetHeadlampLive(bool abRiding)
 	if !CMB_HeadlampLive
 		return
 	endif
-	float want = 0.0
-	if abRiding && CMB_HeadlampMode
+	bool ruleLit = false
+	if CMB_HeadlampMode
 		int mode = CMB_HeadlampMode.GetValue() as int
-		if mode == 1 || (mode == 2 && IsNight())
+		ruleLit = mode == 1 || (mode == 2 && IsNight())
+	endif
+	if ruleLit != headlampRuleLit
+		; Dusk, dawn or the MCM changed the answer: the hotkey's say is over.
+		headlampRuleLit = ruleLit
+		headlampOverride = 0
+	endif
+	float want = 0.0
+	if abRiding
+		if headlampOverride == 2 || (headlampOverride == 0 && ruleLit)
 			want = 1.0
 		endif
+	else
+		headlampOverride = 0
 	endif
 	if CMB_HeadlampLive.GetValue() != want
 		CMB_HeadlampLive.SetValue(want)
@@ -469,6 +481,11 @@ EndFunction
 ; The beam: a light reference placed at the rider while riding (the game keeps no add-on node
 ; of a worn mesh, test 30); disabled until the lamp is lit; CMB_Slope.dll keeps it at the lens.
 ObjectReference headlampRef = None
+; The hotkey's say while riding (test 32: it wrote the MCM's mode, so one press wiped "On at
+; night" and the lamp lit by day): 0 none, 1 off, 2 on; cleared on getting off and whenever
+; the mode's own answer changes (dusk, dawn, the MCM).
+int headlampOverride = 0
+bool headlampRuleLit = false
 
 Function PlaceHeadlamp()
 	RemoveHeadlamp()
@@ -487,6 +504,24 @@ Function PlaceHeadlamp()
 		Log("Headlamp light placed (" + id + ").")
 	else
 		Log("Headlamp light could not be placed.")
+	endif
+EndFunction
+
+; The light reference stays in the cell it was placed in (test 32: the beam went after 25 s
+; of riding, that cell unloaded behind the bike while the plugin moved only its 3D): it is
+; moved along into the player's cell as the bike crosses into another, and moved to the
+; player if its 3D is gone while the lamp is lit.
+Function FollowHeadlamp()
+	if !headlampRef || !riding
+		return
+	endif
+	Cell here = PlayerRef.GetParentCell()
+	if here && headlampRef.GetParentCell() != here
+		headlampRef.MoveTo(PlayerRef)
+		Log("Headlamp light moved into the player's cell.")
+	elseif CMB_HeadlampLive && CMB_HeadlampLive.GetValue() > 0.0 && !headlampRef.Is3DLoaded()
+		headlampRef.MoveTo(PlayerRef)
+		Log("Headlamp light moved to the player: its 3D was gone.")
 	endif
 EndFunction
 
@@ -510,16 +545,17 @@ bool Function IsNight()
 	return hour < 6.5 || hour >= 19.0
 EndFunction
 
-; The headlamp hotkey (MCM): on or off while riding, which also sets the MCM's mode.
+; The headlamp hotkey (MCM): on or off while riding, until getting off or the next dusk or
+; dawn; the MCM's mode stays as it is.
 Function HeadlampPressed()
-	if !CMB_HeadlampMode || !CMB_HeadlampLive
+	if !CMB_HeadlampMode || !CMB_HeadlampLive || !riding
 		return
 	endif
 	bool lit = CMB_HeadlampLive.GetValue() > 0.0
 	if lit
-		CMB_HeadlampMode.SetValue(0.0)
+		headlampOverride = 1
 	else
-		CMB_HeadlampMode.SetValue(1.0)
+		headlampOverride = 2
 	endif
 	SetHeadlampLive(riding)
 	if riding
@@ -881,6 +917,7 @@ Function RideTick()
 	endif
 	UpdateEngineSound(stepDistance)
 	SetHeadlampLive(true)
+	FollowHeadlamp()
 
 	; The disabled bike follows the player, so it can be dropped here at any moment.
 	if !StillRiding()

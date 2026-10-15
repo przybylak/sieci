@@ -312,6 +312,36 @@ static float *CameraDist(void) { return (float *)(g_cameraSetting + 0x08); }
 static void SetLive(float degrees) { *(float *)(g_global + 0x30) = degrees; }
 static void SetCamera(float distance) { *(float *)(g_cameraGlobal + 0x30) = distance; }
 static void SetTilt(float degrees) { *(float *)(g_tiltGlobal + 0x30) = degrees; }
+
+/* A setting changed in this run's CMB_Slope.ini (next to the plugin, the working directory): the
+ * plugin reads some again on getting on. */
+static void RewriteIni(const char *from, const char *to)
+{
+	static char buf[16384], out[16384];
+	FILE *f = fopen("CMB_Slope.ini", "rb");
+	if (!f) {
+		printf("  (no CMB_Slope.ini here to rewrite)\n");
+		return;
+	}
+	size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+	fclose(f);
+	buf[n] = 0;
+	char *at = strstr(buf, from);
+	if (!at) {
+		printf("  (%s not in CMB_Slope.ini)\n", from);
+		return;
+	}
+	size_t head = (size_t)(at - buf);
+	memcpy(out, buf, head);
+	out[head] = 0;
+	strcat(out, to);
+	strcat(out, at + strlen(from));
+	f = fopen("CMB_Slope.ini", "wb");
+	if (f) {
+		fwrite(out, 1, strlen(out), f);
+		fclose(f);
+	}
+}
 static void SetHeadlamp(float on) { *(float *)(g_headlampLive + 0x30) = on; }
 static void SetLampRef(uint32_t id) { *(float *)(g_headlampRefHi + 0x30) = (float)(id >> 16); *(float *)(g_headlampRefLo + 0x30) = (float)(id & 0xFFFFu); }
 static float Ground(int i) { return *(float *)(g_groundGlobals[i] + 0x30); }
@@ -1633,6 +1663,26 @@ static void InputTests(void)
 	RunFrames(300);
 	wall->on = false;
 
+	printf("input hook: a face 700 ahead, W held: the throttle eased off, the bike stops short of it (FaceLook 0.3):\n");
+	{
+		float fwd2[2] = { sinf(from), cosf(from) };
+		Mark(p0);
+		FakePlane *face = &g_planes[0];
+		face->point[0] = p0[0] + fwd2[0] * 700.0f;
+		face->point[1] = p0[1] + fwd2[1] * 700.0f;
+		face->normal[0] = -fwd2[0];
+		face->normal[1] = -fwd2[1];
+		face->layer = 1;
+		face->on = true;
+		Keys(0.0f, 1.0f);
+		RunFrames(6000);
+		float left = (face->point[0] - PlayerPos()[0]) * fwd2[0] + (face->point[1] - PlayerPos()[1]) * fwd2[1];
+		CHECK(Moved(p0) > 300.0f && left > 100.0f && left < 220.0f, "rides %.0f and stops with the front wheel short of the face (%.0f from the rider to the face; the wheel's front is 130 ahead)", Moved(p0), left);
+		Keys(0.0f, 0.0f);
+		RunFrames(300);
+		face->on = false;
+	}
+
 	printf("input hook: a trigger volume 80 behind (not solid):\n");
 	Mark(p0);
 	FakePlane *trigger = &g_planes[1];
@@ -2007,7 +2057,7 @@ static void TrackTests(void)
 		float R2[9];
 		AppliedRotation(R2);
 		float lean = asinf(R2[2] > 1.0f ? 1.0f : R2[2] < -1.0f ? -1.0f : R2[2]) * DEG;
-		CHECK(lean > 8.0f && lean < 21.0f, "leaning into the turn, right side down (%.1f deg; at most MaxLean 20)", lean);
+		CHECK(lean > 2.0f && lean < 15.0f, "leaning into the turn, right side down (%.1f deg: LeanGain 0.5 of the physical lean, smoothed and rate-limited, at most MaxLean 14)", lean);
 	}
 	SetTilt(0.0f);
 	RunFrames(500);
@@ -2356,7 +2406,19 @@ static void TiltTests(void)
 			MapBone(g_bodyNodes[7], g_bodyBonesOriginal + 7 * 0x50, copyNow + 7 * 0x50, E, mE2);
 			MapBone(g_bodyNodes[7], g_bodyBonesOriginal + 7 * 0x50, copyNow + 7 * 0x50, Wr, mW2);
 			MapBone(g_bodyNodes[5], g_bodyBonesOriginal + 5 * 0x50, copyNow + 5 * 0x50, Wr, mW3);
-			CHECK(TiltedOff(S, mS, Rw, Pw) < 0.05f, "the arm's solve: the shoulder stays (%.3f off)", TiltedOff(S, mS, Rw, Pw));
+			/* The shoulder goes with the upper body's twist (test 32): about the spine's joint, by
+			 * TorsoTwist (0.4) of the bars' angle, the chest turning the way the bars do (left
+			 * here), so the left shoulder swings back and out; its distance from the joint is
+			 * kept. TorsoLean=0 in this run's INI: no forward lean yet. */
+			float pivot[3], twist = 0.4f * barNow / DEG, ct = cosf(twist), stw = sinf(twist), rel[3], Sx[3];
+			memcpy(pivot, g_bodyNodes[2] + 0xA0, 12);
+			for (int i = 0; i < 3; i++)
+				rel[i] = S[i] - pivot[i];
+			Sx[0] = ct * rel[0] - stw * rel[1] + pivot[0];
+			Sx[1] = stw * rel[0] + ct * rel[1] + pivot[1];
+			Sx[2] = rel[2] + pivot[2];
+			CHECK(TiltedOff(Sx, mS, Rw, Pw) < 0.1f && TiltedOff(S, mS, Rw, Pw) > 0.5f,
+			      "the arm's solve: the shoulder swung with the upper body's twist, %.1f deg about the spine's joint (%.3f off that; %.2f from where the clips had it)", twist * DEG, TiltedOff(Sx, mS, Rw, Pw), TiltedOff(S, mS, Rw, Pw));
 			CHECK(Dist3(mE1, mE2) < 0.1f, "the upper arm and the forearm meet at the elbow (%.3f apart)", Dist3(mE1, mE2));
 			CHECK(Dist3(mW2, mW3) < 0.1f, "the forearm and the hand meet at the wrist, on the turned grip (%.3f apart)", Dist3(mW2, mW3));
 			CHECK(fabsf(Dist3(mE1, mS) - Dist3(E, S)) < 0.05f && fabsf(Dist3(mW2, mE2) - Dist3(Wr, E)) < 0.05f,
@@ -2372,6 +2434,59 @@ static void TiltTests(void)
 	g_onFrame = NULL;
 	*headNow = headingBefore;
 	RunFrames(1000);   /* the bars straight again */
+
+	if (g_haveParts) {
+		printf("tilt: the upper body leaned forward for the arms' reach (TorsoLean=-1 for a ride; ArmReach 0.88):\n");
+		RewriteIni("TorsoLean=0", "TorsoLean=-1");   /* read again on getting on */
+		SetTilt(0.0f);
+		RunFrames(300);
+		SetTilt(30.0f);
+		RunFrames(600);
+		float Rw2[9], Pw2[3], S[3], E[3], Wr[3], Hd[3], Up[3], pivot[3], mS[3], mE1[3], mE2[3], mW2[3], mW3[3], mH[3], mUp[3], d0[3], Rd[3], TP[3], upT[3];
+		const uint8_t *copyNow = *(const uint8_t **)(*(uint8_t **)(g_bodySkin + 0x40) + 0x10);
+		ExpectedTilt(Rw2, Pw2);
+		memcpy(S, g_bodyNodes[6] + 0xA0, 12);
+		memcpy(E, g_bodyNodes[7] + 0xA0, 12);
+		memcpy(Wr, g_bodyNodes[5] + 0xA0, 12);
+		memcpy(Hd, g_bodyNodes[8] + 0xA0, 12);
+		memcpy(pivot, g_bodyNodes[2] + 0xA0, 12);
+		for (int i = 0; i < 3; i++)
+			Up[i] = Hd[i] + (i == 2 ? 10.0f : 0.0f);
+		MapBone(g_bodyNodes[6], g_bodyBonesOriginal + 6 * 0x50, copyNow + 6 * 0x50, S, mS);
+		MapBone(g_bodyNodes[6], g_bodyBonesOriginal + 6 * 0x50, copyNow + 6 * 0x50, E, mE1);
+		MapBone(g_bodyNodes[7], g_bodyBonesOriginal + 7 * 0x50, copyNow + 7 * 0x50, E, mE2);
+		MapBone(g_bodyNodes[7], g_bodyBonesOriginal + 7 * 0x50, copyNow + 7 * 0x50, Wr, mW2);
+		MapBone(g_bodyNodes[5], g_bodyBonesOriginal + 5 * 0x50, copyNow + 5 * 0x50, Wr, mW3);
+		MapBone(g_bodyNodes[8], g_bodyBonesOriginal + 8 * 0x50, copyNow + 8 * 0x50, Hd, mH);
+		MapBone(g_bodyNodes[8], g_bodyBonesOriginal + 8 * 0x50, copyNow + 8 * 0x50, Up, mUp);
+		float reach = Dist3(S, E) + Dist3(E, Wr), ratio = Dist3(mS, mW3) / reach, was = Dist3(S, Wr) / reach;
+		CHECK(was > 0.9f && ratio > 0.86f && ratio < 0.9f, "the grip %.0f%% of the arms' reach from the shoulder (%.0f%% as the clips pose it; ArmReach 0.88)", ratio * 100.0f, was * 100.0f);
+		for (int i = 0; i < 3; i++)
+			d0[i] = pivot[i] - Pw2[i];
+		Apply3(Rw2, d0, Rd);
+		for (int i = 0; i < 3; i++)
+			TP[i] = Rd[i] + Pw2[i];
+		CHECK(TiltedOff(S, mS, Rw2, Pw2) > 1.0f && fabsf(Dist3(mS, TP) - Dist3(S, pivot)) < 0.1f,
+		      "the shoulder swung forward about the spine's joint (%.1f; its distance from the joint %.1f, was %.1f)", TiltedOff(S, mS, Rw2, Pw2), Dist3(mS, TP), Dist3(S, pivot));
+		CHECK(Dist3(mE1, mE2) < 0.1f && Dist3(mW2, mW3) < 0.1f, "the chain stays joined at the elbow and the wrist, the hand on the grip (%.3f, %.3f apart)", Dist3(mE1, mE2), Dist3(mW2, mW3));
+		CHECK(fabsf(Dist3(mE1, mS) - Dist3(E, S)) < 0.05f && fabsf(Dist3(mW2, mE2) - Dist3(Wr, E)) < 0.05f,
+		      "the bones keep their lengths (%.1f and %.1f)", Dist3(mE1, mS), Dist3(mW2, mE2));
+		{
+			static const float ten[3] = { 0, 0, 10 };
+			Apply3(Rw2, ten, upT);
+			CHECK(TiltedOff(Hd, mH, Rw2, Pw2) > 1.0f && fabsf(mUp[0] - mH[0] - upT[0]) < 0.05f && fabsf(mUp[1] - mH[1] - upT[1]) < 0.05f && fabsf(mUp[2] - mH[2] - upT[2]) < 0.05f,
+			      "the head's joint goes forward with the upper body (%.1f) and the head keeps its own pitch, not leaned with it", TiltedOff(Hd, mH, Rw2, Pw2));
+		}
+		RewriteIni("TorsoLean=-1", "TorsoLean=0");
+		SetTilt(0.0f);
+		RunFrames(300);
+		SetTilt(30.0f);
+		RunFrames(600);
+		copyNow = *(const uint8_t **)(*(uint8_t **)(g_bodySkin + 0x40) + 0x10);
+		ExpectedTilt(Rw2, Pw2);   /* this ride's tilt */
+		MapBone(g_bodyNodes[6], g_bodyBonesOriginal + 6 * 0x50, copyNow + 6 * 0x50, S, mS);
+		CHECK(TiltedOff(S, mS, Rw2, Pw2) < 0.05f, "TorsoLean=0 again on the next ride: the shoulder where the clips have it (%.3f off)", TiltedOff(S, mS, Rw2, Pw2));
+	}
 
 	printf("lamp: the headlamp's add-on node at the lens while CMB_HeadlampLive is 1, hidden while 0:\n");
 	{

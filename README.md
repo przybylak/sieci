@@ -56,7 +56,7 @@ Getting off reverses all of that and parks the bike next to you. Indoors, power 
 | **Python 3** | `make_rider_pose.bat` builds `CMB_RiderPose.esp` and its animation data from your load order and game files |
 | Python + [PyNifly](https://github.com/BadDogSkyrim/PyNifly), Bethesda Archive Extractor | only to build the bike meshes and riding clips yourself (the meshes put the Sketchfab model on the vanilla bike's collision and the clips are derived from the game's files, so none of it is in the repository) |
 | Creation Kit (optional) | not needed: the scripts can be compiled with Caprica (`tools/syntax-check`); `compile_scripts.bat` uses the Creation Kit's compiler if you have it |
-| F4SE (optional) | dedicated hotkey, weight-based side bag, slot-57 gear put back on after a ride, steeper slopes, a camera farther back and the bike tilting with the ground while riding, and the parked bike laid on the ground under you (the `CMB_Slope.dll` plugin, Fallout 4 1.11.240 only), MCM menu; without it you favorite the keys for a hotkey and the bag counts items |
+| F4SE (optional) | dedicated hotkey, weight-based side bag, slot-57 (and the lamp piece's slot-58) gear put back on after a ride, steeper slopes, a camera farther back and the bike tilting with the ground while riding, and the parked bike laid on the ground under you (the `CMB_Slope.dll` plugin, Fallout 4 1.11.240 only), MCM menu; without it you favorite the keys for a hotkey and the bag counts items |
 | Testing in game + Papyrus log | I can't run the game; the log and screenshots are how fixes happen |
 
 ## Getting started
@@ -93,7 +93,7 @@ Details for every step: [docs/BUILD_GUIDE.md](docs/BUILD_GUIDE.md).
 | `set CMB_UseRiderPose to <0/1>` (seated riding animations, needs `CMB_RiderPose.esp`) | 1 |
 | `set CMB_EngineVolume to <0–100>` | 70 |
 | `set CMB_MaxTilt to <0–50>` (how far the bike and the rider pitch with the ground while riding, F4SE plugin; 0 = always level, parked too) | 45 |
-| `set CMB_HeadlampMode to <0/1/2>` (the headlamp: off, on while riding, on at night; F4SE plugin and the Harley build; the MCM hotkey toggles it) | 2 |
+| `set CMB_HeadlampMode to <0/1/2>` (the headlamp: off, on while riding, on at night; F4SE plugin and the Harley build; the MCM hotkey switches it for the ride without changing this) | 2 |
 | `set CMB_RidingCameraDistance to <units>` (F4SE plugin; the game's own is about 150) | 450 |
 | `set CMB_MaxSlope to <degrees>` (steepest slope while riding, F4SE plugin; on foot the game allows 47) | 45 |
 | `set CMB_TurnRadius to <units>` (tightest turn at riding speed, F4SE plugin; 0 = turn like on foot) | 180 |

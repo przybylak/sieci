@@ -69,6 +69,10 @@ public static class Program
     // "Unnamed" slot (60 would also be free in some setups, but it's the
     // slot named "Pipboy"). Change it here if another mod of yours uses 57.
     public const BipedObjectFlag BikeSlot = BipedObjectFlag.Unnamed57;
+    // The headlamp piece's own slot (test 32: as a second addon in the bike's slot it never reached the
+    // player's 3D; the biped keeps one part per slot). CMB_GearRestoreF4SE puts this slot's gear back too.
+    public const BipedObjectFlag LampSlot = BipedObjectFlag.Unnamed58;
+    public static int LampSlotIndex => System.Numerics.BitOperations.TrailingZeroCount((uint)LampSlot);
     // F4SE counts slots from 30: slot 57 is index 27, the flag's bit number.
     public static int BikeSlotIndex => System.Numerics.BitOperations.TrailingZeroCount((uint)BikeSlot);
 
@@ -224,7 +228,7 @@ public static class Program
                     help = "The bike's headlamp (needs F4SE and the CMB_Slope.dll plugin): off, on while riding, or on at night (19:00 to 6:30). The hotkey below switches it while you ride.",
                     valueOptions = new { options = new[] { "Off", "On", "On at night" }, sourceType = "GlobalValue", sourceForm = Form(Rec("CMB_HeadlampMode")) },
                 },
-                new { type = "hotkey", id = "ToggleHeadlamp", text = "Headlamp on / off", help = "Switches the headlamp while riding (and sets the setting above to on or off)." },
+                new { type = "hotkey", id = "ToggleHeadlamp", text = "Headlamp on / off", help = "Switches the headlamp while riding, until you get off or the next dusk or dawn; the setting above stays as it is." },
                 Switcher("Headlamp casts shadows", "The beam casts shadows (costlier: the game runs only a few shadow lights at once). Takes effect the next time you get on.", "CMB_HeadlampShadows"),
                 Section("Hotkeys"),
                 new { type = "hotkey", id = "ToggleRide", text = "Get on / off / call the bike", help = "If you use this, set the built-in hotkey below to 0 so the key doesn't fire twice." },
@@ -451,8 +455,11 @@ public static class Program
         var gHeadlampRefLo = Global(mod, "CMB_HeadlampRefLo", 0);
         if (gHeadlampShadows.FormKey.ID != 0x842 || gHeadlampRefHi.FormKey.ID != 0x843 || gHeadlampRefLo.FormKey.ID != 0x844)
             throw new InvalidOperationException($"CMB_HeadlampShadows, CMB_HeadlampRefHi and CMB_HeadlampRefLo must be 0x842-0x844 (CMB_Slope.dll looks for them), got {gHeadlampShadows.FormKey.ID:X}, {gHeadlampRefHi.FormKey.ID:X}, {gHeadlampRefLo.FormKey.ID:X}");
-        AddLampAddon(mod, armor, "CMB_BikeRiderLampAA");
-        AddLampAddon(mod, armorFrame, "CMB_BikeRiderFrameLampAA");
+        // One nif per bone the bike hangs off (its root carries a Prn naming it, and the bike's own
+        // skin-to-bone transform, so the nodes sit at the lens): the seated bike's COM, male and female
+        // seat heights, and the planted bike's AnimObjectA.
+        AddLampAddon(mod, armor, "CMB_BikeRiderLampAA", "CMB\\CMB_BikeLamp.nif", "CMB\\CMB_BikeLampF.nif");
+        AddLampAddon(mod, armorFrame, "CMB_BikeRiderFrameLampAA", "CMB\\CMB_BikeLampFrame.nif", "CMB\\CMB_BikeLampFrame.nif");
 
         // --- Controller quest ---
         quest.Name = "Commonwealth Motorbike";
@@ -542,7 +549,8 @@ public static class Program
             Obj("Controller", quest),
             Obj("CMB_BikeRiderArmor", armor),
             Obj("CMB_BikeRiderArmorFrame", armorFrame),
-            Int("BikeSlotIndex", BikeSlotIndex));
+            Int("BikeSlotIndex", BikeSlotIndex),
+            Int("LampSlotIndex", LampSlotIndex));
 
         quest.VirtualMachineAdapter = new QuestAdapter
         {
@@ -635,7 +643,7 @@ public static class Program
         armor.MajorFlags |= Armor.MajorFlag.NonPlayable;
         armor.Name = "Motorbike";
         armor.ObjectBounds = new ObjectBounds();
-        armor.BipedBodyTemplate = new BipedBodyTemplate { FirstPersonFlags = BikeSlot };
+        armor.BipedBodyTemplate = new BipedBodyTemplate { FirstPersonFlags = BikeSlot | LampSlot };
         armor.Race.SetTo(Vanilla.HumanRace);
         armor.Armatures.Add(new ArmorAddonModel { AddonIndex = 0, ArmorAddon = arma.ToNullableLink() });
         armor.Value = 0;
@@ -677,15 +685,14 @@ public static class Program
     // armor addon of the bike's armor: the game keeps an unskinned worn nif's nodes, not a skinned
     // one's (tests 30 and 31), and hangs the ADDN records' lights on them. Made after every record
     // with a fixed form id (the plugin's globals), so none of those move.
-    static void AddLampAddon(Fallout4Mod mod, Armor armor, string addonId)
+    static void AddLampAddon(Fallout4Mod mod, Armor armor, string addonId, string maleModel, string femaleModel)
     {
-        const string lampModel = "CMB\\CMB_BikeLamp.nif";
         var lampArma = mod.ArmorAddons.AddNew(addonId);
-        lampArma.BodyTemplate = new BodyTemplate { FirstPersonFlags = BikeSlot };
+        lampArma.BodyTemplate = new BodyTemplate { FirstPersonFlags = LampSlot };
         lampArma.Race.SetTo(Vanilla.HumanRace);
         lampArma.Priority = new GenderedItem<byte>(0, 0);
         lampArma.WeightSliderEnabled = new GenderedItem<bool>(false, false);
-        lampArma.WorldModel = new GenderedItem<Model?>(new Model { File = lampModel }, new Model { File = lampModel });
+        lampArma.WorldModel = new GenderedItem<Model?>(new Model { File = maleModel }, new Model { File = femaleModel });
         armor.Armatures.Add(new ArmorAddonModel { AddonIndex = (ushort)armor.Armatures.Count, ArmorAddon = lampArma.ToNullableLink() });
     }
 

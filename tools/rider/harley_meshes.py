@@ -610,6 +610,22 @@ def add_shape(nif, name, verts, tris, uvs, normals, base_props, use_type, kind, 
     return new
 
 
+def quaternion_of(r):
+    """(w, x, y, z) of a 3x3 rotation (rows), as nifly stores a connect point's rotation."""
+    t = r[0][0] + r[1][1] + r[2][2]
+    if t > 0.0:
+        s = math.sqrt(t + 1.0) * 2.0
+        return 0.25 * s, (r[2][1] - r[1][2]) / s, (r[0][2] - r[2][0]) / s, (r[1][0] - r[0][1]) / s
+    if r[0][0] > r[1][1] and r[0][0] > r[2][2]:
+        s = math.sqrt(1.0 + r[0][0] - r[1][1] - r[2][2]) * 2.0
+        return (r[2][1] - r[1][2]) / s, 0.25 * s, (r[0][1] + r[1][0]) / s, (r[0][2] + r[2][0]) / s
+    if r[1][1] > r[2][2]:
+        s = math.sqrt(1.0 + r[1][1] - r[0][0] - r[2][2]) * 2.0
+        return (r[0][2] - r[2][0]) / s, (r[0][1] + r[1][0]) / s, 0.25 * s, (r[1][2] + r[2][1]) / s
+    s = math.sqrt(1.0 + r[2][2] - r[0][0] - r[1][1]) * 2.0
+    return (r[1][0] - r[0][1]) / s, (r[0][2] + r[2][0]) / s, (r[1][2] + r[2][1]) / s, 0.25 * s
+
+
 def make_value_nodes(path: Path, values: dict):
     """Turns the NiNode blocks named in `values` into BSValueNodes (an NiNode plus a uint value
     and a byte of flags): the type is added to the header's type table, the blocks' type index
@@ -930,18 +946,44 @@ def main() -> int:
     # nodes at the lens, in the bike's space (the nif sits at the actor's root; CMB_Slope.dll
     # puts a kept node at the lens every frame). Made as plain NiNodes (nifly's typed addBlock
     # crashed) and turned into BSValueNodes in the file.
-    def lamp_nif(path: Path):
+    def lamp_nif(path: Path, bone: str, bind):
+        """The headlamp's light nodes as an unskinned piece of their own (test 32: as a plain nif
+        in the bike's slot it never reached the player's 3D). Like the Pip-Boy's mesh, its root
+        carries a Prn naming the bone to hang it on (the one the bike is skinned to), so the game
+        parents the whole piece there; the nodes sit where the bike's skin-to-bone transform puts
+        the lens in that bone's space (right even with no plugin), their +X down the beam. A
+        P-AttachLightOverride connect point at the lens besides (a helmet lamp's way of taking the
+        Pip-Boy's light over), and BSX flags for a nif with add-on nodes whose transforms move."""
+        from pyn.pynifly import BSXFlags, NiStringExtraData
+        from pyn.nifdefs import ConnectPointBuf
         out = NifFile()
         out.initialize("FO4", str(path), "NiNode", path.stem)
+        inv = rigid_inverse(bind) if bind else [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]]
         v = np.array([[LAMP_X - 0.2, LAMP_FACE_Y - 6.0, LAMP_Z - 0.2], [LAMP_X + 0.2, LAMP_FACE_Y - 6.0, LAMP_Z - 0.2], [LAMP_X, LAMP_FACE_Y - 6.0, LAMP_Z + 0.2]])
+        v = np.array([apply(inv, p) for p in v])
         f = np.array([[0, 1, 2]], dtype=np.int64)
         u = np.tile(np.array(uv_of["lamp_black"]), (3, 1))
         add_shape(out, f"{path.stem}_speck", rows(v), rows(f), rows(u), rows(vertex_normals(v, f)), base, base.use_type, "metal", False)
+        # The lens in the bone's space, and a frame whose +X runs down the beam (+Y of the bike).
+        lens = list(apply(inv, LAMP_LENS))
+        beam = [[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]]   # x -> y
+        rot = mat_mul([r[:3] + [0.0] for r in inv[:3]] + [[0.0, 0.0, 0.0, 1.0]], [r + [0.0] for r in beam] + [[0.0, 0.0, 0.0, 1.0]])
+        rot3 = [r[:3] for r in rot[:3]]
         lamp_nodes = {"CMB_Headlamp": HEADLAMP_NODE_INDEX, "CMB_HeadlampShadow": HEADLAMP_NODE_INDEX + 1}
         for node_name in lamp_nodes:
             xf = TransformBuf()
-            xf.store(list(LAMP_LENS), [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], [1.0, 1.0, 1.0])
+            xf.store(lens, rot3, [1.0, 1.0, 1.0])
             out.add_node(node_name, xf, out.rootNode)
+        NiStringExtraData.New(out, name="Prn", string_value=bone, parent=out.rootNode)
+        BSXFlags.New(out, name="BSX", flags=16 | 256, parent=out.rootNode)   # add-on nodes; their transforms move
+        cp = ConnectPointBuf()
+        cp.parent = b""
+        cp.name = b"P-AttachLightOverride"
+        w, x, y, z = quaternion_of(rot3)
+        cp.rotation[0], cp.rotation[1], cp.rotation[2], cp.rotation[3] = w, x, y, z
+        cp.translation[0], cp.translation[1], cp.translation[2] = lens
+        cp.scale = 1.0
+        out.connect_points_parent = [cp]
         out.save()
         make_value_nodes(path, lamp_nodes)
         check = NifFile(str(path))
@@ -951,7 +993,7 @@ def main() -> int:
             node_names = [f"(nodes unreadable: {e})"]
         print(f"wrote {path}: the headlamp's add-on nodes (unskinned, a second armor addon): {len(check.shapes)} shape, nodes {node_names}")
 
-    lamp_nif(args.out / "CMB_BikeLamp.nif")
+    lamp_nif(args.out / "CMB_BikeLampFrame.nif", BIKE_BONE, None)
     worn(args.out / "CMB_BikeWorn.nif", BIKE_BONE, None)
     if args.seat:
         male = read_seat(args.seat)
@@ -966,6 +1008,8 @@ def main() -> int:
         female = read_seat(args.seat / "Female") or male
         for (bone, bind), name in ((male, "CMB_BikeWornRider.nif"), (female, "CMB_BikeWornRiderF.nif")):
             worn(args.out / name, bone, bind)
+        for (bone, bind), name in ((male, "CMB_BikeLamp.nif"), (female, "CMB_BikeLampF.nif")):
+            lamp_nif(args.out / name, bone, bind)
     return 0
 
 

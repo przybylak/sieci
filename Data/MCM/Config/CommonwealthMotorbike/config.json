@@ -283,7 +283,7 @@
       "type": "hotkey",
       "id": "ToggleHeadlamp",
       "text": "Headlamp on / off",
-      "help": "Switches the headlamp while riding (and sets the setting above to on or off)."
+      "help": "Switches the headlamp while riding, until you get off or the next dusk or dawn; the setting above stays as it is."
     },
     {
       "type": "switcher",
