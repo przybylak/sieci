@@ -1066,6 +1066,7 @@ static void Send(uint32_t type, uintptr_t data)
 
 static void (*g_onFrame)(float dt);   /* moves the player, when a test rides somewhere */
 
+static double g_cappedSeconds;   /* the frames' times summed as the plugin caps them (0.05 s each): what a rate a second may have risen by */
 static void RunFrames(int ms)
 {
 	DWORD end = GetTickCount() + (DWORD)ms;
@@ -1074,8 +1075,10 @@ static void RunFrames(int ms)
 	QueryPerformanceCounter(&last);
 	while ((int32_t)(GetTickCount() - end) < 0) {
 		QueryPerformanceCounter(&now);
+		float dt = (float)(now.QuadPart - last.QuadPart) / (float)frequency.QuadPart;
+		g_cappedSeconds += dt > 0.05f ? 0.05 : dt;
 		if (g_onFrame)
-			g_onFrame((float)(now.QuadPart - last.QuadPart) / (float)frequency.QuadPart);
+			g_onFrame(dt);
 		last = now;
 		SyncFakeWorld();
 		((void (*)(Task *))g_task->vtbl[1])(g_task);
@@ -1833,27 +1836,78 @@ static void InputTests(void)
 		float fullRun = Moved(p0);
 		Keys(0.0f, 0.0f);
 		RunFrames(2500);
-		printf("input hook: a face between the rider and the front wheel's edge (the bike on top of a thing it climbed; test 35), W held: an obstacle, not a wall:\n");
+		float groundZ0 = g_groundZ;
+		printf("input hook: a face between the rider and the front wheel's edge, the ground 40 up under the wheels (the bike on top of a thing it climbed; test 35), W held: an obstacle, not a wall:\n");
 		Mark(p0);
+		g_groundZ = groundZ0 + 40.0f;   /* the wheel rays find the ground 40 above the capsule's contact: the front wheel is on the thing */
 		face->follow = 60.0f;   /* 60 ahead of the rider wherever they go: 70 behind the front wheel's edge, at any height */
 		face->on = true;
 		Keys(0.0f, 1.0f);
 		RunFrames(2000);
 		CHECK(Moved(p0) > 100.0f && Moved(p0) < 0.6f * fullRun, "rolls on at the obstacle's throttle: %.0f in 2 s (%.0f at full throttle; a wall at the wheel would have held it)", Moved(p0), fullRun);
-		printf("input hook: that face under the bike for half a second more, then a wall 400 ahead instead: a wall is still a wall once the obstacle's hold has passed (ObstacleHold 1, WallFrames 5):\n");
-		RunFrames(500);
+		printf("input hook: the same face with the ground flat under the wheels (a wall the bike has nosed or turned into, its front wheel through it; review): an obstacle for the hold's second, then a wall, the throttle cut:\n");
+		g_groundZ = groundZ0;
+		Mark(p0);
+		RunFrames(1500);   /* the hold lapses after a second (an obstacle for now doesn't renew it) */
+		float onTheHold = Moved(p0);
+		Mark(p0);
+		RunFrames(1000);
+		CHECK(onTheHold > 60.0f && Moved(p0) < 30.0f && MoveInput()[1] == 0.0f, "rolled %.0f on the hold's second, then stands: %.0f in the next second, no forward input (%.3f)", onTheHold, Moved(p0), MoveInput()[1]);
+		printf("input hook: the hold in force (the face under the bike on the step), then a wall fixed 125 ahead of the rider (its hit 4.5 behind the wheel's edge: the edge itself, neither under the bike nor ahead of the wheel), the bike held by the game's collision: an obstacle for now, a wall once the hold has lapsed (ObstacleHold 1):\n");
+		g_groundZ = groundZ0 + 40.0f;
+		RunFrames(600);   /* obstacle verdicts again: the hold in force */
+		g_frozen = true;   /* against the wall: the bike can't move */
+		g_groundZ = groundZ0;
 		face->follow = 0.0f;
-		face->point[0] = PlayerPos()[0] + fwd2[0] * 400.0f;
-		face->point[1] = PlayerPos()[1] + fwd2[1] * 400.0f;
+		face->point[0] = PlayerPos()[0] + fwd2[0] * 125.0f;
+		face->point[1] = PlayerPos()[1] + fwd2[1] * 125.0f;
 		face->normal[0] = -fwd2[0];
 		face->normal[1] = -fwd2[1];
+		RunFrames(500);
+		float forNow = MoveInput()[1];
+		RunFrames(800);
+		CHECK(forNow > 0.02f && MoveInput()[1] == 0.0f, "half a second in still the obstacle's share (forward input %.2f), 1.3 s in a wall and no forward input (%.3f): the obstacle for now didn't renew the hold", forNow, MoveInput()[1]);
+		printf("input hook: the hold in force, then a wall fixed 135 ahead of the rider (5 ahead of the wheel's edge), the bike rolling: a wall after WallFrames (5) frames of it, the bike stops at once:\n");
+		g_frozen = false;
+		g_groundZ = groundZ0 + 40.0f;
+		face->follow = 60.0f;
+		RunFrames(600);   /* rolling at the obstacle's share, the hold in force */
+		g_groundZ = groundZ0;
+		face->follow = 0.0f;
+		face->point[0] = PlayerPos()[0] + fwd2[0] * 135.0f;
+		face->point[1] = PlayerPos()[1] + fwd2[1] * 135.0f;
 		Mark(p0);
-		RunFrames(6000);
-		left = (face->point[0] - PlayerPos()[0]) * fwd2[0] + (face->point[1] - PlayerPos()[1]) * fwd2[1];
-		CHECK(Moved(p0) > 150.0f && left > 100.0f && left < 220.0f, "rode on %.0f and stopped with the front wheel short of the wall (%.0f from the rider to it)", Moved(p0), left);
+		RunFrames(500);
+		CHECK(Moved(p0) < 40.0f, "stops within the half second (%.0f; the obstacle's share would have made 100): a wall ahead of the wheel counts after 5 frames running", Moved(p0));
+		printf("input hook: a wall fixed 120 ahead of the rider (9.5 behind the wheel's edge, within half a radius), the ground 40 up, the bike held: a wall still, the hit at the edge, not under the bike:\n");
 		Keys(0.0f, 0.0f);
-		RunFrames(300);
 		face->on = false;
+		RunFrames(1500);   /* at rest, the hold long lapsed */
+		g_groundZ = groundZ0 + 40.0f;
+		g_frozen = true;
+		face->point[0] = PlayerPos()[0] + fwd2[0] * 120.0f;
+		face->point[1] = PlayerPos()[1] + fwd2[1] * 120.0f;
+		face->on = true;
+		Keys(0.0f, 1.0f);
+		RunFrames(600);
+		CHECK(MoveInput()[1] == 0.0f, "no forward input (%.3f): a hit 9.5 behind the wheel's edge is a wall at the wheel", MoveInput()[1]);
+		printf("input hook: the hold in force, then a load (PostLoadGame): the verdict's state starts afresh, a wall at the edge is a wall at once:\n");
+		g_frozen = false;
+		face->follow = 60.0f;
+		RunFrames(600);   /* on the step, the hold in force */
+		Send(3, 1);   /* PostLoadGame: a new ride's state */
+		g_frozen = true;
+		g_groundZ = groundZ0;
+		face->follow = 0.0f;
+		face->point[0] = PlayerPos()[0] + fwd2[0] * 125.0f;
+		face->point[1] = PlayerPos()[1] + fwd2[1] * 125.0f;
+		RunFrames(400);
+		CHECK(MoveInput()[1] == 0.0f, "no forward input 0.4 s after the load (%.3f): no hold carried over", MoveInput()[1]);
+		Keys(0.0f, 0.0f);
+		g_frozen = false;
+		face->on = false;
+		g_camYaw = *head;
+		RunFrames(1500);
 		printf("input hook: the front wheel's down-ray reads a face taller than the wheel climbs (a shelf 140 above the feet over the front axle), a rail at axle height 60 ahead: the throttle cut (WallAhead):\n");
 		Mark(p0);
 		g_shelfOn = true;
@@ -1868,8 +1922,10 @@ static void InputTests(void)
 		Keys(0.0f, 1.0f);
 		RunFrames(2000);
 		CHECK(Moved(p0) < 100.0f, "the bike stands: %.0f in 2 s (no obstacle in force)", Moved(p0));
-		printf("input hook: the same with the face under the bike as well (an obstacle in force): the down-ray's face is left to the obstacle's throttle:\n");
+		printf("input hook: the same with an obstacle lower than 1.5 radii 60 ahead as well (the rays' own verdict, in force): the down-ray's face is left to the obstacle's throttle:\n");
+		rail->on = false;
 		face->follow = 60.0f;
+		face->top = 40.0f;   /* the axle-height ray hits it, the one at 1.5 radii passes over: an obstacle by height, wherever it is */
 		face->on = true;
 		Mark(p0);
 		RunFrames(2000);
@@ -1877,10 +1933,10 @@ static void InputTests(void)
 		Keys(0.0f, 0.0f);
 		RunFrames(300);
 		face->on = false;
-		face->follow = 0.0f;
-		rail->on = false;
+		face->follow = face->top = 0.0f;
 		rail->follow = rail->bottom = rail->top = 0.0f;
 		g_shelfOn = false;
+		g_groundZ = groundZ0;
 		RunFrames(2500);   /* rolled off, at rest */
 	}
 
@@ -2721,8 +2777,8 @@ static void TiltTests(void)
 		RunFrames(500);
 		CHECK(*(uint8_t **)(g_bodySkin + 0x40) == g_bodyData && *(int32_t *)(g_bodySkin + 0x08) == 1 && memcmp(g_bodyBones, g_bodyBonesOriginal, sizeof(g_bodyBonesOriginal)) == 0,
 		      "half a second in: the body not held, its bone data untouched (the hold waits for the skeleton)");
-		CHECK(*(uint8_t **)(g_handsSkin + 0x40) == g_handsData && memcmp(g_handsBones, g_handsBonesOriginal, sizeof(g_handsBonesOriginal)) == 0,
-		      "nothing written to the hands' skin either (nothing of the rider held)");
+		CHECK(*(uint8_t **)(g_handsSkin + 0x40) == g_handsData && *(int32_t *)(g_handsSkin + 0x08) == 1 && memcmp(g_handsBones, g_handsBonesOriginal, sizeof(g_handsBonesOriginal)) == 0,
+		      "nothing written to the hands' skin either, its instance let go (references %d)", *(int32_t *)(g_handsSkin + 0x08));
 		bodyList[6] = g_bodyNodes[6];   /* the game finished the skeleton */
 		RunFrames(300);
 		uint8_t *heldData = *(uint8_t **)(g_bodySkin + 0x40);
@@ -2969,13 +3025,10 @@ static void TiltTests(void)
 		 * bump lift's +34 in a quarter second at 900 units a second jumped the bike). */
 		printf("tilt: a 30 unit step under the wheels (BumpMax 30): the lift rises at LiftRate 120 a second:\n");
 		RunFrames(600);
-		LARGE_INTEGER qf, q0, q1;   /* the time this run's frames took (a frame is 5 to 7 ms here: 0.1 s is 15 to 20 of them, plus a part of one) */
-		QueryPerformanceFrequency(&qf);
-		QueryPerformanceCounter(&q0);
+		g_cappedSeconds = 0.0;   /* the time this run's frames took, as the plugin caps a frame (a frame is 5 to 7 ms here: 0.1 s is 15 to 20 of them, plus a part of one; review: a stall over 50 ms counts as 50) */
 		g_groundZ = PlayerPos()[2] + 30.0f;
 		RunFrames(100);
-		QueryPerformanceCounter(&q1);
-		float took = (float)(q1.QuadPart - q0.QuadPart) / (float)qf.QuadPart;
+		float took = (float)g_cappedSeconds;
 		SeatInBone(g_bones, seatNow);
 		lifted = sqrtf((seatNow[0] - seatBefore[0]) * (seatNow[0] - seatBefore[0]) + (seatNow[1] - seatBefore[1]) * (seatNow[1] - seatBefore[1]) + (seatNow[2] - seatBefore[2]) * (seatNow[2] - seatBefore[2]));
 		CHECK(g_picks == 0 || (lifted > 120.0f * took - 3.0f && lifted < 120.0f * took + 2.0f && lifted < 20.0f),
