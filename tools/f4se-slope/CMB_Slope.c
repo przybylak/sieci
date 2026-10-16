@@ -111,6 +111,7 @@
 #define OFF_DH_LOADED_MODS    (0xFB0 + 0x10) /* DataHandler::modList.loadedMods */
 #define OFF_DH_LIGHT_MODS     (0xFB0 + 0x28) /* DataHandler::modList.lightMods */
 #define OFF_ARRAY_ENTRIES     0x00          /* tArray::entries */
+#define OFF_ARRAY_CAPACITY    0x08          /* tArray::capacity (UInt32) */
 #define OFF_ARRAY_COUNT       0x10          /* tArray::count */
 #define OFF_MOD_NAME          0x70          /* ModInfo::name[MAX_PATH] */
 #define OFF_MOD_INDEX         0x370         /* ModInfo::modIndex (UInt8) */
@@ -218,6 +219,9 @@
 #define OFF_PICK_FILTER       0x0C          /* bhkPickData: castQuery's collision filter info (0 after the ctor) */
 #define OFF_PICK_HIT_LAYER    0xAC          /* bhkPickData: the hit's collision filter info (layer & 0x7F; test 16) */
 #define LAYER_CHAR_CONTROLLER 30            /* COL_LAYER::kCharController: hit what the player's capsule would */
+#define COLL_CHAR_CONTROLLER  0x0008877Fu   /* Fallout4.esm's COLL record for that layer: what the capsule collides with (test 36) */
+#define OFF_COLL_INDEX        0x30          /* BGSCollisionLayer::collisionIdx: TESForm (0x20), TESDescription (0x10), then it */
+#define OFF_COLL_COLLIDES     0x48          /* BGSCollisionLayer::collidesWith (BSTArray<BGSCollisionLayer *>), after debugColor, flags and the name */
 
 /* RTTI names (MSVC mangled) of the objects we look for. */
 #define RTTI_PLAYER     ".?AVPlayerCharacter@@"
@@ -235,6 +239,7 @@
 #define RTTI_CONTROLS   ".?AVPlayerControls@@"
 #define RTTI_CELL       ".?AVTESObjectCELL@@"
 #define RTTI_REFR       ".?AVTESObjectREFR@@"
+#define RTTI_COLLISION_LAYER ".?AVBGSCollisionLayer@@"
 #define RTTI_MOVE_HANDLER ".?AUMovementHandler@@"  /* a struct in the game, like all its input handlers (test 13) */
 #define RTTI_MOVE_HANDLER_CLASS ".?AVMovementHandler@@"
 
@@ -365,6 +370,12 @@ static float g_yawEased;                    /* the eased turning rate (radians a
 static float g_liftRate = 120.0f;           /* [Tilt] LiftRate: the whole lift (the wheels onto the ground, plus a bump) rises at most this many units a second (0: unlimited; test 35: +34 in a quarter second at 900 u/s jumped the bike) */
 static float g_bumpMax = 30.0f;             /* [Tilt] BumpMax: a wheel's bump lift is never more than this in one go (a wheel radius; 1.5 radii while an obstacle is being ridden over) */
 static float g_bumpSettle = 0.45f;          /* [Tilt] BumpSettle: and settles over this many seconds as the filtered values catch up or the bump passes */
+static int g_suspension = 1;                /* [Tilt] Suspension: the wheels follow the ground within SuspTravel of the frame, the frame's lift on a spring and damper (test 36's wish) */
+static float g_suspFrequency = 2.0f;        /* [Tilt] SuspFrequency: the spring's natural frequency, hertz */
+static float g_suspDamping = 0.5f;          /* [Tilt] SuspDamping: its damping ratio (1: no rebound) */
+static float g_suspTravel = 10.0f;          /* [Tilt] SuspTravel: units a wheel may move against the frame, either way */
+static float g_liftVel;                     /* the lift spring's velocity (units a second) */
+static float g_wheelOffset[2];              /* each wheel's move against the frame along the bike's up (front, rear): up into it over a bump, down into a hole */
 static float g_wallAngle = 55.0f;           /* [Steer] WallAngle: a face this steep or steeper, solid at axle height and 1.5 radii, is a wall */
 static float g_obstacleThrottle = 0.4f;     /* [Steer] ObstacleThrottle: an obstacle lower than 1.5 radii, or a face under WallAngle, holds the throttle to this share (0: stop) */
 static float g_obstacleHold = 1.0f;         /* [Steer] ObstacleHold: an obstacle verdict stays in force this many seconds after the rays last said obstacle */
@@ -392,6 +403,7 @@ static int g_wallLogs;
 static float g_wallLoggedAt = -100.0f;
 static const char *g_rayWhat;               /* what the last ray hit (its 3D's name), for the log (CastRay) */
 static uint32_t g_rayLayer;                 /* the last hit's collision layer */
+static uintptr_t g_riderRoot;               /* the player's 3D root this frame: a hit on it or under it is the rider's own body, capsule or bike, passed through (test 36) */
 static float g_pivotHeight = 74.0f;       /* the seat (the rider's hips) above the feet */
 static int g_trace;                       /* 1 = log the tilt every 0.25 s while riding */
 static int g_steer = 1;                   /* 1 = limit how fast the bike turns (CMB_TurnRadius) */
@@ -752,12 +764,17 @@ static void ReadLeanSettings(const char *ini, bool log)
 	g_armReach = IniFloat(ini, "Tilt", "ArmReach", 0.88f, 0.5f, 1.0f);
 	g_torsoTwist = IniFloat(ini, "Tilt", "TorsoTwist", 0.4f, 0.0f, 1.0f);
 	g_faceLook = IniFloat(ini, "Steer", "FaceLook", 0.3f, 0.0f, 3.0f);
-	float wasMore[9] = { g_turnEaseIn, g_turnEaseOut, g_liftRate, g_bumpMax, g_bumpSettle, g_wallAngle, g_obstacleThrottle, g_obstacleHold, (float)g_wallFrames };
+	float wasMore[13] = { g_turnEaseIn, g_turnEaseOut, g_liftRate, g_bumpMax, g_bumpSettle, g_wallAngle, g_obstacleThrottle, g_obstacleHold, (float)g_wallFrames,
+	                      (float)g_suspension, g_suspFrequency, g_suspDamping, g_suspTravel };
 	g_turnEaseIn = IniFloat(ini, "Steer", "TurnEaseIn", 0.14f, 0.0f, 3.0f);
 	g_turnEaseOut = IniFloat(ini, "Steer", "TurnEaseOut", 0.08f, 0.0f, 3.0f);
 	g_liftRate = IniFloat(ini, "Tilt", "LiftRate", 120.0f, 0.0f, 2000.0f);
 	g_bumpMax = IniFloat(ini, "Tilt", "BumpMax", 30.0f, 0.0f, 60.0f);
 	g_bumpSettle = IniFloat(ini, "Tilt", "BumpSettle", 0.45f, 0.0f, 5.0f);
+	g_suspension = (int)GetPrivateProfileIntA("Tilt", "Suspension", 1, ini) != 0;
+	g_suspFrequency = IniFloat(ini, "Tilt", "SuspFrequency", 2.0f, 0.5f, 5.0f);
+	g_suspDamping = IniFloat(ini, "Tilt", "SuspDamping", 0.5f, 0.2f, 1.0f);
+	g_suspTravel = IniFloat(ini, "Tilt", "SuspTravel", 10.0f, 0.0f, 30.0f);
 	g_wallAngle = IniFloat(ini, "Steer", "WallAngle", 55.0f, 20.0f, 90.0f);
 	g_obstacleThrottle = IniFloat(ini, "Steer", "ObstacleThrottle", 0.4f, 0.0f, 1.0f);
 	g_obstacleHold = IniFloat(ini, "Steer", "ObstacleHold", 1.0f, 0.2f, 5.0f);
@@ -770,10 +787,11 @@ static void ReadLeanSettings(const char *ini, bool log)
 	g_lampHandoverFrames = (int)GetPrivateProfileIntA("Lamp", "HandoverFrames", 5, ini);
 	if (g_lampHandoverFrames < 0 || g_lampHandoverFrames > 100)
 		g_lampHandoverFrames = 5;
-	float nowMore[9] = { g_turnEaseIn, g_turnEaseOut, g_liftRate, g_bumpMax, g_bumpSettle, g_wallAngle, g_obstacleThrottle, g_obstacleHold, (float)g_wallFrames };
+	float nowMore[13] = { g_turnEaseIn, g_turnEaseOut, g_liftRate, g_bumpMax, g_bumpSettle, g_wallAngle, g_obstacleThrottle, g_obstacleHold, (float)g_wallFrames,
+	                      (float)g_suspension, g_suspFrequency, g_suspDamping, g_suspTravel };
 	float now[10] = { g_maxLean, g_leanRate, g_leanSmooth, g_leanDead, g_leanGain, g_torsoLeanSetting, g_armReach, g_torsoTwist, g_faceLook, (float)g_headLevel };
 	bool changed = false;
-	for (int i = 0; i < 9; i++)
+	for (int i = 0; i < 13; i++)
 		changed = changed || wasMore[i] != nowMore[i];
 	for (int i = 0; i < 10; i++)
 		changed = changed || was[i] != now[i];
@@ -789,8 +807,11 @@ static void ReadLeanSettings(const char *ini, bool log)
 		    log ? "" : " (read again on getting on)");
 		Log("  steer: the keys' turning rate eases in over %g s and out over %g s (TurnEaseIn, TurnEaseOut); a wall is a face of %g deg or more (WallAngle), an obstacle holds the throttle to %g (ObstacleThrottle), "
 		    "its verdict in force for %g s after the rays last saw one (ObstacleHold), in which a wall counts only after %d frames seen ahead of the wheel (WallFrames); "
-		    "the lift rises at most %g units a second (LiftRate), a wheel's bump lift at most %g in one go and settles over %g s (BumpMax, BumpSettle); the light %g ahead of the lens, led by %g frames of the speed, the old one kept %d frames at a handover (Ahead, Lead, HandoverFrames)",
-		    g_turnEaseIn, g_turnEaseOut, g_wallAngle, g_obstacleThrottle, g_obstacleHold, g_wallFrames, g_liftRate, g_bumpMax, g_bumpSettle, g_lampAhead, g_lampLead, g_lampHandoverFrames);
+		    "the lift rises at most %g units a second (LiftRate), a wheel's bump lift at most %g in one go and settles over %g s (BumpMax, BumpSettle); "
+		    "the suspension %s (Suspension), the frame's lift on a spring of %g Hz with a damping ratio of %g, the wheels within %g units of the frame (SuspFrequency, SuspDamping, SuspTravel); "
+		    "the light %g ahead of the lens, led by %g frames of the speed, the old one kept %d frames at a handover (Ahead, Lead, HandoverFrames)",
+		    g_turnEaseIn, g_turnEaseOut, g_wallAngle, g_obstacleThrottle, g_obstacleHold, g_wallFrames, g_liftRate, g_bumpMax, g_bumpSettle,
+		    g_suspension ? "on" : "off", g_suspFrequency, g_suspDamping, g_suspTravel, g_lampAhead, g_lampLead, g_lampHandoverFrames);
 	}
 }
 
@@ -2118,6 +2139,7 @@ static void ResetTilt(void)
 	g_tiltSampleCount = 0;
 	g_pitchSmooth = g_rollSmooth = g_pitchNow = g_rollNow = 0.0f;
 	g_pitchVel = g_rollVel = g_liftNow = g_liftSmooth = g_bumpLift = 0.0f;
+	g_liftVel = g_wheelOffset[0] = g_wheelOffset[1] = 0.0f;   /* the suspension at rest */
 	g_rideStartClock = (float)g_clock;
 	g_torsoFinal = false;
 	g_torsoSolvedAt = -100.0f;
@@ -4533,17 +4555,36 @@ static void FrameTilt(void)
 		/* The lift: the wheels onto the ground between the rays when it's above the capsule's
 		 * contact (a dip, a lip under the front); never down (on a crest the bike sits on it). */
 		float targetLift = useWheels && g_wheelLift > 0.0f ? (g_wheelLift < 60.0f ? g_wheelLift : 60.0f) : 0.0f;   /* 60: a ditch's wheels bridge it (test 31) */
-		g_liftSmooth += (targetLift - g_liftSmooth) * (1.0f - expf(-g_frameDt / 0.15f));
+		float dtb = g_frameDt > 0.05f ? 0.05f : g_frameDt;
+		if (g_suspension) {
+			/* A suspension (test 36's wish: "the frame and rider follow the wheels through a spring
+			 * and damper, compressing and rebounding over bumps"): the lift follows the wheels' line
+			 * through a spring of SuspFrequency hertz with the damping ratio SuspDamping, so a step
+			 * is met with a compression and a rebound (0.5: a sixth of the step over); the rate cap
+			 * below still bounds the rise. Never below the ground's contact: the rebound of a drop
+			 * ends on the ground, not in it. */
+			float w = 6.2831853f * g_suspFrequency;
+			g_liftVel += (w * w * (targetLift - g_liftSmooth) - 2.0f * g_suspDamping * w * g_liftVel) * dtb;
+			g_liftSmooth += g_liftVel * dtb;
+			if (g_liftSmooth < 0.0f) {
+				g_liftSmooth = 0.0f;
+				if (g_liftVel < 0.0f)
+					g_liftVel = 0.0f;
+			}
+		} else {
+			g_liftSmooth += (targetLift - g_liftSmooth) * (1.0f - expf(-g_frameDt / 0.15f));
+			g_liftVel = 0.0f;
+		}
 		/* A bump (test 33: the tyres sank into small hills, stones and curbs that passed under a
 		 * wheel before the median and the spring reacted): whichever wheel would sit below its
 		 * own ray's hit, with the pitch and lift as applied, is lifted out, and that lift
 		 * settles over BumpSettle as the filtered values catch up or the bump passes. */
-		float bump = 0.0f;
+		float bump = 0.0f, tp = tanf(g_pitchNow / 57.29578f);
 		bool bumpOn = g_bumpMax > 0.0f && g_bumpSettle > 0.0f;
+		float travel = g_suspension ? g_suspTravel : 0.0f;   /* with the suspension, the bump takes only what a wheel's travel can't */
 		if (bumpOn && useWheels && g_wheelZOk) {
-			float tp = tanf(g_pitchNow / 57.29578f);
 			for (int i = 0; i < 2; i++) {
-				float bottom = g_liftSmooth + (i == 0 ? g_frontAxle[1] : g_rearAxle[1]) * tp, deficit = g_wheelZ[i] - bottom;
+				float bottom = g_liftSmooth + (i == 0 ? g_frontAxle[1] : g_rearAxle[1]) * tp, deficit = g_wheelZ[i] - bottom - travel;
 				if (deficit > bump)
 					bump = deficit;
 			}
@@ -4560,7 +4601,6 @@ static void FrameTilt(void)
 		}
 		/* Straight to the wheel's deficit while the step lasts (never above what's left to lift:
 		 * no overshoot), back down over BumpSettle once it's gone; the rate below paces the rise. */
-		float dtb = g_frameDt > 0.05f ? 0.05f : g_frameDt;
 		if (!bumpOn)
 			g_bumpLift = 0.0f;
 		else if (bump > 0.0f)
@@ -4580,8 +4620,28 @@ static void FrameTilt(void)
 		} else {
 			g_liftNow = targetNow;
 		}
+		/* The wheels follow the ground (test 36's wish: "the wheels would follow the ground"):
+		 * each sits on its own ray's hit, moved against the frame by what it lacks from where
+		 * the frame, lifted and pitched as applied this frame, holds it, up to SuspTravel either
+		 * way (up into the frame over a bump, down into a hole). Smoothed over 0.03 s (a
+		 * one-frame ray hole mustn't flick it); eased back over 0.2 s when the rays have no
+		 * word or the bike is in the air. */
+		for (int i = 0; i < 2; i++) {
+			float target = 0.0f, tau = 0.2f;
+			if (!g_suspension) {
+				g_wheelOffset[i] = 0.0f;
+				continue;
+			}
+			if (useWheels && g_wheelZOk && g_suspTravel > 0.0f) {
+				float bottom = g_liftNow + (i == 0 ? g_frontAxle[1] : g_rearAxle[1]) * tp;
+				target = Clamp(g_wheelZ[i] - bottom, g_suspTravel);
+				tau = 0.03f;
+			}
+			g_wheelOffset[i] += (target - g_wheelOffset[i]) * (1.0f - expf(-dtb / tau));
+		}
 	} else {
-		g_liftNow = g_liftSmooth = g_bumpLift = 0.0f;
+		g_liftNow = g_liftSmooth = g_bumpLift = g_liftVel = 0.0f;
+		g_wheelOffset[0] = g_wheelOffset[1] = 0.0f;
 	}
 
 	float R[9];
@@ -4596,12 +4656,15 @@ static void FrameTilt(void)
 	}
 	if (g_trace && g_clock - g_lastTrace >= 0.25f) {
 		g_lastTrace = g_clock;
-		Log("trace: normal (%.3f, %.3f, %.3f) state %d%s | raw pitch %.1f roll %.1f | median %.1f %.1f | track %s%.1f | wheels %s%.1f lift %.1f (%d missed) | pitch from %s | target %.1f %.1f | applied %.1f %.1f | speed %.0f (%+.0f along the heading), radius %.0f, turn asked %.0f allowed %.0f deg/s, clamped %d%s",
+		char susp[48] = "";
+		if (g_suspension)
+			snprintf(susp, sizeof(susp), " | susp F %+.1f R %+.1f", g_wheelOffset[0], g_wheelOffset[1]);
+		Log("trace: normal (%.3f, %.3f, %.3f) state %d%s | raw pitch %.1f roll %.1f | median %.1f %.1f | track %s%.1f | wheels %s%.1f lift %.1f (%d missed) | pitch from %s | target %.1f %.1f | applied %.1f %.1f | speed %.0f (%+.0f along the heading), radius %.0f, turn asked %.0f allowed %.0f deg/s, clamped %d%s%s",
 		    g_groundN[0], g_groundN[1], g_groundN[2], g_lastState, onGround ? "" : " (off the ground)", rawPitch, rawRoll,
 		    medianPitch, medianRoll, g_trackPitchOk ? "" : "(none) ", g_trackPitchOk ? g_trackPitch : 0.0f,
 		    g_wheelPitchOk ? "" : "(none) ", g_wheelPitchOk ? g_wheelPitch : 0.0f, g_liftNow, g_wheelRaysMissed, source,
 		    g_pitchSmooth, g_rollSmooth, g_pitchNow, g_rollNow, g_speed, g_speedAlong, g_steerRadius, g_steerWanted, g_steerAllowed,
-		    g_steerClamped, g_inputMode == INPUT_BACK ? " | back" : g_inputMode == INPUT_CREEP ? " | creep" : "");
+		    g_steerClamped, g_inputMode == INPUT_BACK ? " | back" : g_inputMode == INPUT_CREEP ? " | creep" : "", susp);
 		g_wheelRaysMissed = 0;
 		if (g_jumpMax > 0.5f)
 			Log("trace: the arm bones' biggest move between frames %.1f (%s)", g_jumpMax, g_jumpName);
@@ -4629,10 +4692,11 @@ static void FrameTilt(void)
 
 	/* Each shape's map in the bike's own space, x -> M x + m: a wheel spun about its axle
 	 * (the x axis through it), the front wheel and the bar assembly then turned about the
-	 * steering axis, and everything turned about the seat P by the tilt, x -> R (x - P) + P.
-	 * Mesh -> bone after that: rotation A M, translation t + A m. The culling sphere (bone
-	 * space) is grown by how far the map moves its centre, so the seat and the sphere still
-	 * cover what they did. */
+	 * steering axis, a wheel moved along the bike's up by its suspension offset (before the
+	 * tilt, so it ends up along the tilted up), and everything turned about the seat P by the
+	 * tilt, x -> R (x - P) + P. Mesh -> bone after that: rotation A M, translation t + A m.
+	 * The culling sphere (bone space) is grown by how far the map moves its centre (the
+	 * offset's move with it), so the seat and the sphere still cover what they did. */
 	float P[3] = { 0.0f, g_pivotForward, g_pivotHeight };
 	static const float xAxis[3] = { 1.0f, 0.0f, 0.0f }, zAxis[3] = { 0.0f, 0.0f, 1.0f };
 	bool lampLit = !g_lampEnabled || GlobalValue(g_headlampGlobal) > 0.5f;   /* the lit parts follow the lamp (always on with the lamp system off) */
@@ -4646,6 +4710,8 @@ static void FrameTilt(void)
 			Turn(M, m, xAxis, hs->role == ROLE_WHEEL_F ? g_frontAxle : g_rearAxle, g_wheelAngle);
 		if (hs->role == ROLE_WHEEL_F || hs->role == ROLE_FRONT || hs->role == ROLE_GLOW)
 			Turn(M, m, g_steerAxis, g_steerPoint, g_barNow / 57.29578f);
+		if (hs->role == ROLE_WHEEL_F || hs->role == ROLE_WHEEL_R)
+			m[2] += g_wheelOffset[hs->role == ROLE_WHEEL_F ? 0 : 1];
 		if (tilt) {
 			float M2[9], m2[3], RP[3];
 			Mul3(R, M, M2);
@@ -4872,8 +4938,11 @@ static void FaceRays(uintptr_t player, bool onGround)
 		return;
 	}
 	uintptr_t cell = ReadPtr(player + OFF_REFR_CELL);
-	if (!cell || !IsA(cell, RTTI_CELL))
+	if (!cell || !IsA(cell, RTTI_CELL)) {
+		g_faceKind = 0;   /* no rays either (review of test 36's build) */
+		g_faceNoneSince = -1.0f;
 		return;
+	}
 	const float *pos = (const float *)(player + OFF_REFR_POS);
 	float h = *(const float *)(player + OFF_REFR_HEADING), sh = sinf(h), ch = cosf(h);
 	float p = g_pitchNow / 57.29578f, cp = cosf(p), sp = sinf(p);
@@ -4995,6 +5064,7 @@ static void SampleGround(void)
 {
 	g_trackPitchOk = g_trackSteepOk = false;
 	uintptr_t player = Player();
+	g_riderRoot = Root3D(player);   /* before any ray this frame: a hit on it is the rider's own (test 36) */
 	uintptr_t ctrl = player ? FindController(player, false) : 0;
 	float n[3];
 	bool air = false;
@@ -5846,6 +5916,8 @@ static PickFractionFn g_pickFraction;
 static CellPickFn g_cellPick;
 static int g_pickFuncs;             /* 0 not looked for, 1 found (and the pick data made), -1 not */
 static int g_pickState;             /* 0 not tested (since a load), 1 rays work, -1 they can't be used */
+static uint64_t g_solidMask;        /* the layers the rays stop at, a bit each, from the character controller's collision layer record (0: not read, the built-in table) */
+static bool g_solidMaskRead;        /* the record read this load (at the rays' test) */
 static __attribute__((aligned(16))) uint8_t g_pick[PICK_DATA_SIZE + 0x20];   /* one, reused: no world reference per ray */
 static uint32_t g_rayFilter = LAYER_CHAR_CONTROLLER;   /* the rays' collision filter (0 = everything, if the test says) */
 static float g_rayHit[3];           /* where the last ray's hit was (what it hit and its layer: g_rayWhat, g_rayLayer, with the tilt's state) */
@@ -5897,21 +5969,126 @@ static uintptr_t AddressOf(FILE *f, uint64_t count, uint64_t id)
 	return 0;
 }
 
-/* What a bike can back through: with the player's collision filter every hit is something
- * the capsule collides with, except the phantoms: triggers (12), acoustic spaces (21), actor
+/* What a ray passes through. First the phantoms: triggers (12), acoustic spaces (21), actor
  * zones (22, test 17: the "nothing" test 16 stopped at on a flat slab), projectile zones (23),
  * gas traps (24) and door detection (37); and what the capsule pushes aside or steps over:
  * clutter (4), weapons (5), small debris (19), shell casings (25), dead bodies (32), and water
- * (11: the ground ray then finds the bed, so deep water is a drop). Everything else stops it
- * (test 17: a chain-link fence is layer 26, transparent small, and was passed through). */
+ * (11: the ground ray then finds the bed, so deep water is a drop). Then the character
+ * controller's own collides-with list (ReadSolidMask; test 36: the pick's filter 30 doesn't
+ * keep out what the capsule never meets, and food bushes (15, non-collidable), a fire truck's
+ * navcut shape (49) and a dog (8, biped) read as walls): solid only if the layer is in it.
+ * Without the list everything else stops the bike (test 17: a chain-link fence is layer 26,
+ * transparent small, and was passed through) but those three layers and 64 and over. */
 static bool SolidLayer(uint32_t layer)
 {
 	switch (layer) {
 	case 4: case 5: case 11: case 12: case 19: case 21: case 22: case 23: case 24: case 25: case 32: case 37:
 		return false;
 	default:
-		return true;
+		break;
 	}
+	if (g_solidMask)
+		return layer < 64 && ((g_solidMask >> layer) & 1u);
+	return layer != 8 && layer != 15 && layer != 49 && layer < 64;
+}
+
+/* One candidate layout of the character controller's collision layer record: its collision
+ * index at `idxAt`, its collides-with array at `arrayAt`. Taken only if every read is
+ * accessible, the index is 30, the count 1 to 64 and no more than the capacity, and every
+ * entry a BGSCollisionLayer whose own index (at the same offset) is under 64; else why not. */
+static bool LayerMaskAt(uintptr_t form, uint32_t idxAt, uint32_t arrayAt, uint64_t *mask, char *why, size_t whySize)
+{
+	if (!Accessible(form + idxAt, 4, false) || !Accessible(form + arrayAt, OFF_ARRAY_COUNT + 4, false)) {
+		snprintf(why, whySize, "the fields at +0x%X and +0x%X can't be read", idxAt, arrayAt);
+		return false;
+	}
+	uint32_t idx = *(const uint32_t *)(form + idxAt);
+	if (idx != LAYER_CHAR_CONTROLLER) {
+		snprintf(why, whySize, "the collision index at +0x%X is %u, not %u", idxAt, idx, LAYER_CHAR_CONTROLLER);
+		return false;
+	}
+	uintptr_t entries = ReadPtr(form + arrayAt + OFF_ARRAY_ENTRIES);
+	uint32_t capacity = *(const uint32_t *)(form + arrayAt + OFF_ARRAY_CAPACITY);
+	uint32_t count = *(const uint32_t *)(form + arrayAt + OFF_ARRAY_COUNT);
+	if (count < 1 || count > 64 || count > capacity || !entries || !Accessible(entries, 8u * count, false)) {
+		snprintf(why, whySize, "the collides-with array at +0x%X has %u entries (capacity %u%s)", arrayAt, count, capacity,
+		         entries ? "" : ", no entries pointer");
+		return false;
+	}
+	uint64_t m = 0;
+	for (uint32_t i = 0; i < count; i++) {
+		uintptr_t layer = *(const uintptr_t *)(entries + 8u * i);
+		if (!layer || !IsA(layer, RTTI_COLLISION_LAYER) || !Accessible(layer + idxAt, 4, false)) {
+			snprintf(why, whySize, "entry %u of the collides-with array at +0x%X isn't a BGSCollisionLayer", i, arrayAt);
+			return false;
+		}
+		uint32_t li = *(const uint32_t *)(layer + idxAt);
+		if (li >= 64) {
+			snprintf(why, whySize, "entry %u's collision index at +0x%X is %u, not under 64", i, idxAt, li);
+			return false;
+		}
+		m |= 1ull << li;
+	}
+	*mask = m;
+	return true;
+}
+
+/* The layers the rays stop at (test 36: the pick's filter 30 isn't the capsule's own filter,
+ * and food bushes (layer 15, non-collidable), a fire truck's navcut shape (49) and Dogmeat
+ * (8) read as walls and stopped the bike): the character controller's own collision layer
+ * record, COLL 0008877F in Fallout4.esm, lists what it collides with. BGSCollisionLayer is
+ * TESForm (0x20 bytes), then TESDescription (0x10: a vtable and two ints), then the collision
+ * index, a debug colour, flags, a name and the collides-with array (entries, capacity, count,
+ * as the other arrays read here); should TESDescription be 8 bytes the fields sit 8 earlier,
+ * so that is tried second. Without a record that validates, the built-in table (SolidLayer).
+ * Once per load, at the rays' test. */
+static void ReadSolidMask(void)
+{
+	char why[200], whyB[200];
+	uint64_t mask = 0;
+	g_solidMask = 0;
+	uintptr_t form = ((LookupFormByID_t)(g_base + RVA_LOOKUP_FORM))(COLL_CHAR_CONTROLLER);
+	if (!form) {
+		snprintf(why, sizeof(why), "no such form");
+	} else if (!IsA(form, RTTI_COLLISION_LAYER)) {
+		snprintf(why, sizeof(why), "the form is %.40s, not a BGSCollisionLayer", OrNone(ObjectTypeName(form)));
+	} else if (!LayerMaskAt(form, OFF_COLL_INDEX, OFF_COLL_COLLIDES, &mask, why, sizeof(why)) &&
+	           !LayerMaskAt(form, OFF_COLL_INDEX - 8, OFF_COLL_COLLIDES - 8, &mask, whyB, sizeof(whyB))) {
+		size_t len = strlen(why);
+		snprintf(why + len, sizeof(why) - len, "; %s", whyB);
+	}
+	if (!mask) {
+		Log("rays: COLL %08X can't be read as the character controller's collision layer (%s): the built-in layer table", COLL_CHAR_CONTROLLER, why);
+		return;
+	}
+	char list[256];
+	size_t len = 0;
+	int n = 0;
+	for (uint32_t layer = 0; layer < 64; layer++) {
+		if (!((mask >> layer) & 1u))
+			continue;
+		len += (size_t)snprintf(list + len, sizeof(list) - len, "%s%u", n ? " " : "", layer);
+		n++;
+	}
+	g_solidMask = mask;
+	Log("rays: the character controller's collision layer (COLL %08X) collides with layers %s (%d of them): the rays stop at those, bar the phantoms",
+	    COLL_CHAR_CONTROLLER, list, n);
+}
+
+/* Is the hit's 3D the rider's own: the player's root (the capsule's shape is on it), or under
+ * it (the body, the worn bike)? Test 36: the face rays start at the player's position, inside
+ * the capsule, and read 'skeleton.nif' (layer 30, and the body's 8) as an obstacle a unit past
+ * the front wheel, the throttle held to ObstacleThrottle. Up through the parents, 8 at most. */
+static bool RidersOwn(uintptr_t obj)
+{
+	for (int i = 0; obj && i < 8; i++) {
+		if (obj == g_riderRoot)
+			return true;
+		obj = ReadPtr(obj + OFF_PARENT);
+		if (obj && !IsA(obj, RTTI_AVOBJECT))
+			return false;
+	}
+	return false;
 }
 
 /* One ray from a to b (game units): the fraction along it where it first hits something solid
@@ -5935,13 +6112,19 @@ static float CastRay(uintptr_t cell, const float a[3], const float b[3])
 		g_rayLayer = *(const uint32_t *)(g_pick + OFF_PICK_HIT_LAYER) & 0x7F;
 		for (int i = 0; i < 3; i++)
 			g_rayHit[i] = a[i] + (b[i] - a[i]) * t;
-		if (obj && IsA(obj, RTTI_AVOBJECT))
+		bool own = false;   /* the rider's own 3D: passed through like a layer that isn't solid (test 36) */
+		if (obj && IsA(obj, RTTI_AVOBJECT)) {
 			g_rayWhat = ObjectName(obj);
-		if (SolidLayer(g_rayLayer))
+			own = RidersOwn(obj);
+		}
+		if (!own && SolidLayer(g_rayLayer))
 			return t;
 		if (g_trace && g_clock - g_passedLogged >= 1.0f) {
 			g_passedLogged = g_clock;
-			Log("reverse: a ray passed through %s (layer %u)", g_rayWhat && *g_rayWhat ? g_rayWhat : "unnamed", g_rayLayer);
+			if (own)
+				Log("reverse: a ray passed through the rider's own 3D (%s, layer %u)", g_rayWhat && *g_rayWhat ? g_rayWhat : "unnamed", g_rayLayer);
+			else
+				Log("reverse: a ray passed through %s (layer %u)", g_rayWhat && *g_rayWhat ? g_rayWhat : "unnamed", g_rayLayer);
 		}
 		done = t + 4.0f / (len > 1.0f ? len : 1.0f);   /* on from past it */
 		if (done >= 1.0f)
@@ -6011,6 +6194,10 @@ static bool RaysReady(uintptr_t player)
 	uintptr_t cell = ReadPtr(player + OFF_REFR_CELL);
 	if (!FindPickFunctions())
 		return false;
+	if (!g_solidMaskRead) {   /* the layers the rays stop at: once per load, before the test ray goes by them */
+		g_solidMaskRead = true;
+		ReadSolidMask();
+	}
 	if (!cell || !IsA(cell, RTTI_CELL)) {
 		Log("reverse: no parent cell: no rays");
 		return false;
@@ -6046,6 +6233,7 @@ static bool WayBackClear(uintptr_t player, float heading, float step, float *dz)
 	uintptr_t cell = ReadPtr(player + OFF_REFR_CELL);
 	if (!cell || !IsA(cell, RTTI_CELL))
 		return false;
+	g_riderRoot = Root3D(player);   /* the step runs from the movement hook, maybe before this frame's SampleGround */
 	const float *pos = (const float *)(player + OFF_REFR_POS);
 	float dir[2] = { -sinf(heading), -cosf(heading) }, right[2] = { cosf(heading), -sinf(heading) };
 	const char *why = NULL;
@@ -6825,6 +7013,7 @@ static void OnF4SEMessage(F4SEMessage *msg)
 		g_pushMethod = -1;                      /* try the ways to push back again */
 		g_pickState = 0;                        /* the rays' test ray again (a new world) */
 		g_pickRetryAt = 0.0f;
+		g_solidMaskRead = false;                /* and the collision layer record read again with it */
 		g_pushProven = false;
 		g_pushRetryAt = 0.0f;
 		memset(g_refused, 0, sizeof(g_refused));

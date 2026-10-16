@@ -42,6 +42,7 @@
 #define HEADLAMP_REF_LO_FORMID (0xFE000000u | (LIGHT_INDEX << 12) | 0x844u)
 #define LAMP_REF_FORMID       0xFF001234u   /* the light reference "the script placed" */
 #define LAMP_REF2_FORMID      0xFF001235u   /* the fresh one of a handover (test 33) */
+#define COLL_CHAR_FORMID      0x0008877Fu   /* Fallout4.esm's collision layer record for L_CHARCONTROLLER (test 36) */
 #define RVA_PLAYER_CONTROLS   0x031F0B80u
 #define RVA_MOVE_HANDLER_VTBL 0x02571B38u  /* where 1.11.240 has them (test 13) */
 #define RVA_CONTROLS_IMOVE_VTBL 0x02571AA0u
@@ -129,6 +130,8 @@ static uint8_t *g_player, *g_root, *g_bikeNode, *g_bikeShape, *g_boneData, *g_bo
 static uint8_t *g_lampNode, *g_headlampLive, g_lampLocalOriginal[0x40];
 static uint8_t *g_headlampRefHi, *g_headlampRefLo, *g_lampRef, *g_lampRefLoaded, *g_lampRefRoot, *g_lampRefLight;
 static uint8_t *g_lampRef2, *g_lampRef2Loaded, *g_lampRef2Root;
+static uint8_t *g_collChar;    /* BGSCollisionLayer COLL 0008877F: what the character controller collides with */
+static bool g_collHidden;      /* one test: the form lookup finds no such record */
 static uint8_t *g_handsShape, *g_handsSkin, *g_handsData, *g_handsBones, *g_handsXf[5], g_handsBonesOriginal[5 * 0x50];
 static uint8_t *g_partData[3], *g_partBones[3];   /* the Harley build's moving parts: front wheel, rear wheel, bar assembly */
 static uint8_t g_partBonesOriginal[3][0x50];
@@ -214,7 +217,8 @@ static void FakeGetVelocity(uint8_t *self, float *out) { (void)self; memcpy(out,
  * axle height), 0 = from the ground; follow: 0 = where point and normal say, else this far
  * ahead of the player along their heading, facing them, wherever they go (test 35: a face
  * behind the front wheel's edge, the bike on top of a thing it climbed). */
-typedef struct { bool on; float point[2], normal[2]; uint32_t layer; float top, bottom, follow; } FakePlane;
+/* what: the hit's 3D object (NULL: FakeWall, or nothing for a trigger); test 36's self-hit is the player's root. */
+typedef struct { bool on; float point[2], normal[2]; uint32_t layer; float top, bottom, follow; uint8_t *what; } FakePlane;
 static bool g_shelfOn;
 static float g_shelfHeight, g_shelfAhead;
 static float g_groundZ = 100.0f;
@@ -304,7 +308,7 @@ static uint8_t *FakeCellPick(uint8_t *cell, uint8_t *pick)
 			continue;   /* under it */
 		if (tp < t) {
 			t = tp;
-			what = w->layer == 12 ? NULL : g_wallObj;
+			what = w->what ? w->what : w->layer == 12 ? NULL : g_wallObj;
 			layer = w->layer;
 		}
 	}
@@ -419,6 +423,8 @@ static uintptr_t FakeLookupFormByID(uint32_t id)
 		return (uintptr_t)g_lampRef;
 	if (id == LAMP_REF2_FORMID)
 		return (uintptr_t)g_lampRef2;
+	if (id == COLL_CHAR_FORMID)
+		return g_collHidden ? 0 : (uintptr_t)g_collChar;
 	return id == SLOPE_GLOBAL_FORMID ? (uintptr_t)g_global : id == CAMERA_GLOBAL_FORMID ? (uintptr_t)g_cameraGlobal
 	     : id == TILT_GLOBAL_FORMID ? (uintptr_t)g_tiltGlobal : 0;
 }
@@ -555,6 +561,29 @@ static void BuildGame(void)
 	g_headlampLive = NewGlobal(HEADLAMP_FORMID, "CMB_HeadlampLive");
 	g_headlampRefHi = NewGlobal(HEADLAMP_REF_HI_FORMID, "CMB_HeadlampRefHi");
 	g_headlampRefLo = NewGlobal(HEADLAMP_REF_LO_FORMID, "CMB_HeadlampRefLo");
+	/* The collision layer records (test 36): the character controller's, with what it collides
+	 * with (Fallout4.esm's list: not clutter (4), bipeds (8), non-collidable (15), dead bipeds (32)
+	 * or navcut (49)). TESForm (0x20) and TESDescription (0x10), then the index at +0x30 and the
+	 * collides-with array at +0x48 (entries, capacity, count). */
+	{
+		static const char *coll[] = { ".?AVBGSCollisionLayer@@", ".?AVTESForm@@", ".?AVTESDescription@@" };
+		static const uint32_t with[] = { 1, 2, 3, 9, 10, 12, 13, 14, 17, 18, 20, 21, 22, 26, 27, 28, 29, 30, 31, 33, 35, 36 };
+		void **vtColl = MakeClass(coll, 3);
+		uint8_t **entries = (uint8_t **)VirtualAlloc(NULL, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+		int n = (int)(sizeof(with) / sizeof(with[0]));
+		for (int i = 0; i < n; i++) {
+			uint8_t *layer = (uint8_t *)NewObject(vtColl, 0x100);
+			*(uint32_t *)(layer + 0x14) = 0x00088700u | with[i];
+			*(uint32_t *)(layer + 0x30) = with[i];
+			entries[i] = layer;
+		}
+		g_collChar = (uint8_t *)NewObject(vtColl, 0x100);
+		*(uint32_t *)(g_collChar + 0x14) = COLL_CHAR_FORMID;
+		*(uint32_t *)(g_collChar + 0x30) = 30;
+		*(uint8_t ***)(g_collChar + 0x48) = entries;
+		*(uint32_t *)(g_collChar + 0x50) = 32;   /* the capacity */
+		*(uint32_t *)(g_collChar + 0x58) = (uint32_t)n;
+	}
 	static const char *controls[] = { ".?AVPlayerControls@@", ".?AVBSInputEventReceiver@@" };
 	void **vtControls = MakeClass(controls, 2);
 	g_controls = (uint8_t *)NewObject(vtControls, 0x300);
@@ -1112,6 +1141,46 @@ static float WheelAngle(int part)
 	float M[9];
 	AppliedRotationOf(g_partBonesOriginal[part], g_partBones[part], M);
 	return atan2f(M[7], M[4]);
+}
+
+/* The whole map the plugin put on a shape in the bike's own space, x -> M x + m: the rotation
+ * as above, the translation the bind undone the same way, m = A^T (t' - t) (the plugin writes
+ * t' = t + A m). */
+static void AppliedMapOf(const uint8_t *orig, const uint8_t *live, float M[9], float m[3])
+{
+	const float *o = (const float *)(orig + 0x10), *t = (const float *)(orig + 0x40), *tl = (const float *)(live + 0x40);
+	float A[9], d[3] = { tl[0] - t[0], tl[1] - t[1], tl[2] - t[2] };
+	AppliedRotationOf(orig, live, M);
+	for (int i = 0; i < 3; i++)
+		for (int j = 0; j < 3; j++)
+			A[i * 3 + j] = g_skinTransposed ? o[j * 4 + i] : o[i * 4 + j];
+	for (int i = 0; i < 3; i++)
+		m[i] = A[i] * d[0] + A[3 + i] * d[1] + A[6 + i] * d[2];
+}
+
+/* A wheel's travel against the frame (the suspension, test 36): how far its map takes its axle
+ * from where the frame's own map (the fixed part's) would hold it, along the frame's up; up
+ * into the frame positive, dropped out of it negative. */
+static const float g_axles[2][3] = { { 0.4f, 99.6f, 29.9f }, { 0.4f, -36.7f, 29.9f } };
+static float WheelTravel(int part)
+{
+	float M[9], m[3], F[9], f[3], a[3], b[3];
+	AppliedMapOf(g_partBonesOriginal[part], g_partBones[part], M, m);
+	AppliedMapOf(g_bonesOriginal, g_bones, F, f);
+	Apply3(M, g_axles[part], a);
+	Apply3(F, g_axles[part], b);
+	float d[3] = { a[0] + m[0] - b[0] - f[0], a[1] + m[1] - b[1] - f[1], a[2] + m[2] - b[2] - f[2] };
+	return d[0] * F[2] + d[1] * F[5] + d[2] * F[8];
+}
+
+/* How far a wheel's map moves its axle (its culling sphere's centre) in all. */
+static float WheelMove(int part)
+{
+	float M[9], m[3], a[3];
+	AppliedMapOf(g_partBonesOriginal[part], g_partBones[part], M, m);
+	Apply3(M, g_axles[part], a);
+	return sqrtf((a[0] + m[0] - g_axles[part][0]) * (a[0] + m[0] - g_axles[part][0]) + (a[1] + m[1] - g_axles[part][1]) * (a[1] + m[1] - g_axles[part][1])
+	           + (a[2] + m[2] - g_axles[part][2]) * (a[2] + m[2] - g_axles[part][2]));
 }
 
 /* The turn about the steering axis u in a rotation M: 2 sin(phi) u is M's antisymmetric part. */
@@ -1938,6 +2007,89 @@ static void InputTests(void)
 		g_shelfOn = false;
 		g_groundZ = groundZ0;
 		RunFrames(2500);   /* rolled off, at rest */
+
+		/* Test 36: the pick's filter 30 isn't the capsule's own, and things the capsule never
+		 * meets (food bushes, layer 15; a fire truck's navcut shape, 49; Dogmeat, 8) read as
+		 * walls. The rays stop only at what the character controller's collision layer record
+		 * collides with (the fake's lists 22 layers; 4, 8, 15, 32 and 49 aren't among them). */
+		static const uint32_t through[3] = { 15, 49, 8 };
+		static const char *throughWhat[3] = { "a food bush (layer 15, non-collidable)", "a fire truck's navcut shape (layer 49)", "a dog (layer 8, biped)" };
+		for (int i = 0; i < 3; i++) {
+			printf("input hook: %s 400 ahead, W held 2 s: not in the character controller's collides-with list, ridden through at full throttle (test 36):\n", throughWhat[i]);
+			Mark(p0);
+			face->point[0] = p0[0] + fwd2[0] * 400.0f;
+			face->point[1] = p0[1] + fwd2[1] * 400.0f;
+			face->normal[0] = -fwd2[0];
+			face->normal[1] = -fwd2[1];
+			face->layer = through[i];
+			face->on = true;
+			Keys(0.0f, 1.0f);
+			RunFrames(2000);
+			left = (face->point[0] - PlayerPos()[0]) * fwd2[0] + (face->point[1] - PlayerPos()[1]) * fwd2[1];
+			CHECK(Moved(p0) > 0.85f * fullRun && left < -100.0f, "rides %.0f in 2 s (%.0f at full throttle), the plane %.0f behind", Moved(p0), fullRun, -left);
+			Keys(0.0f, 0.0f);
+			face->on = false;
+			RunFrames(2500);   /* rolled off, at rest */
+		}
+		printf("input hook: a hit on the rider's own 3D (the player's root, layer 30) 2 ahead of the player, where the face rays start (the capsule itself; test 36), W held 2 s: passed through, full throttle:\n");
+		Mark(p0);
+		face->follow = 2.0f;
+		face->layer = 30;
+		face->what = g_root;
+		face->on = true;
+		Keys(0.0f, 1.0f);
+		RunFrames(2000);
+		CHECK(Moved(p0) > 0.85f * fullRun, "rides %.0f in 2 s (%.0f at full throttle)", Moved(p0), fullRun);
+		Keys(0.0f, 0.0f);
+		face->on = false;
+		RunFrames(2500);   /* rolled off, at rest */
+		printf("input hook: the same hit on something else's 3D (layer 30, in the list): a wall at the wheel, the bike held:\n");
+		Mark(p0);
+		face->what = NULL;
+		face->on = true;
+		Keys(0.0f, 1.0f);
+		RunFrames(600);
+		CHECK(Moved(p0) < 40.0f && MoveInput()[1] == 0.0f, "stands: %.0f in 0.6 s, no forward input (%.3f)", Moved(p0), MoveInput()[1]);
+		Keys(0.0f, 0.0f);
+		face->on = false;
+		face->follow = 0.0f;
+		face->layer = 1;
+		RunFrames(300);
+		printf("input hook: no COLL record to read (the form lookup finds none) and a load: the built-in table, a food bush (15) still ridden through, a tree (layer 9) a face the bike stops short of:\n");
+		g_collHidden = true;
+		Send(3, 1);   /* PostLoadGame: the rays' test ray again, the record read again with it */
+		RunFrames(400);
+		g_camYaw = *head;
+		Mark(p0);
+		face->point[0] = p0[0] + fwd2[0] * 400.0f;
+		face->point[1] = p0[1] + fwd2[1] * 400.0f;
+		face->layer = 15;
+		face->on = true;
+		Keys(0.0f, 1.0f);
+		RunFrames(2000);
+		left = (face->point[0] - PlayerPos()[0]) * fwd2[0] + (face->point[1] - PlayerPos()[1]) * fwd2[1];
+		CHECK(Moved(p0) > 0.85f * fullRun && left < -100.0f, "the bush: rides %.0f in 2 s (%.0f at full throttle), the plane %.0f behind", Moved(p0), fullRun, -left);
+		Keys(0.0f, 0.0f);
+		face->on = false;
+		RunFrames(2500);   /* rolled off, at rest */
+		Mark(p0);
+		face->point[0] = p0[0] + fwd2[0] * 700.0f;
+		face->point[1] = p0[1] + fwd2[1] * 700.0f;
+		face->layer = 9;
+		face->on = true;
+		Keys(0.0f, 1.0f);
+		RunFrames(6000);
+		left = (face->point[0] - PlayerPos()[0]) * fwd2[0] + (face->point[1] - PlayerPos()[1]) * fwd2[1];
+		CHECK(Moved(p0) > 300.0f && left > 100.0f && left < 220.0f, "the tree: rides %.0f and stops with the front wheel short of it (%.0f from the rider)", Moved(p0), left);
+		Keys(0.0f, 0.0f);
+		RunFrames(300);
+		face->on = false;
+		face->layer = 1;
+		g_collHidden = false;
+		Send(3, 1);   /* the record back for what follows: read again at the next test ray */
+		RunFrames(400);
+		g_camYaw = *head;
+		RunFrames(2000);   /* at rest */
 	}
 
 	printf("input hook: a trigger volume 80 behind (not solid):\n");
@@ -3043,6 +3195,92 @@ static void TiltTests(void)
 		CHECK(g_picks == 0 || (lifted > 29.0f && lifted < 31.0f), "the bike lifted %.1f (30), level", lifted);
 		g_groundZ = PlayerPos()[2];
 		RunFrames(800);
+		RewriteIni("BumpMax=30", "BumpMax=0");
+		RewriteIni("LiftRate=120", "LiftRate=0");
+		SetTilt(0.0f);
+		RunFrames(300);
+		SetTilt(30.0f);
+		RunFrames(600);
+	}
+	if (g_haveParts) {
+		/* Test 36's suspension (the bumps no longer launch the bike, but it was "still stiff,
+		 * nothing like suspension"): the wheels follow the ground within SuspTravel of the frame,
+		 * the frame's lift follows the wheels' line through a spring and damper (2 Hz, a damping
+		 * ratio of 0.5: a step met with a rebound of a sixth of it) instead of the filter, and the
+		 * bump lift takes only what the travel can't. The bump and the rate on as the game has
+		 * them; the old checks above and below keep their first-order numbers (Suspension=0). */
+		printf("tilt: a suspension (Suspension=1: 2 Hz, damping 0.5, travel 10; the bump and the rate on): a 10 unit step under both wheels, the frame overshoots and settles:\n");
+		RewriteIni("Suspension=0", "Suspension=1");
+		RewriteIni("BumpMax=0", "BumpMax=30");
+		RewriteIni("LiftRate=0", "LiftRate=120");
+		SetTilt(0.0f);
+		RunFrames(300);
+		SetTilt(30.0f);
+		RunFrames(600);
+		g_groundZ = PlayerPos()[2] + 10.0f;
+		float peak = 0.0f, peakAt = 0.0f, peakF = 0.0f, peakR = 0.0f;
+		for (int i = 0; i < 10; i++) {   /* the first half second, sampled every 50 ms: the rebound's peak (at 0.29 s for 2 Hz damped 0.5) */
+			RunFrames(50);
+			SeatInBone(g_bones, seatNow);
+			lifted = sqrtf((seatNow[0] - seatBefore[0]) * (seatNow[0] - seatBefore[0]) + (seatNow[1] - seatBefore[1]) * (seatNow[1] - seatBefore[1]) + (seatNow[2] - seatBefore[2]) * (seatNow[2] - seatBefore[2]));
+			if (lifted > peak) {
+				peak = lifted;
+				peakAt = 0.05f * (float)(i + 1);
+				peakF = WheelTravel(0);
+				peakR = WheelTravel(1);
+			}
+		}
+		CHECK(g_picks == 0 || (peak > 10.5f && peak < 12.5f), "the seat's peak in the first half second: %.1f (the sample %.2f s in; the 10 step and a rebound of a sixth of it: 11.6)", peak, peakAt);
+		CHECK(g_picks == 0 || (peakF < -0.3f && peakR < -0.3f && fabsf(peakF - (10.0f - peak)) < 1.0f && fabsf(peakR - (10.0f - peak)) < 1.0f),
+		      "at the peak the wheels sit lower than the frame, extended by about the overshoot: front %+.1f, rear %+.1f (%.1f)", peakF, peakR, 10.0f - peak);
+		RunFrames(1000);
+		SeatInBone(g_bones, seatNow);
+		lifted = sqrtf((seatNow[0] - seatBefore[0]) * (seatNow[0] - seatBefore[0]) + (seatNow[1] - seatBefore[1]) * (seatNow[1] - seatBefore[1]) + (seatNow[2] - seatBefore[2]) * (seatNow[2] - seatBefore[2]));
+		CHECK(g_picks == 0 || (lifted > 9.5f && lifted < 10.5f), "settled by 1.5 s: the seat %.1f up (10)", lifted);
+		CHECK(g_picks == 0 || (fabsf(WheelTravel(0)) < 1.0f && fabsf(WheelTravel(1)) < 1.0f), "the wheels back against the frame: front %+.1f, rear %+.1f", WheelTravel(0), WheelTravel(1));
+		float grown = *(float *)(g_partBones[0] + 0x0C) - 31.0f;
+		CHECK(g_picks == 0 || fabsf(grown - WheelMove(0)) < 0.3f, "the front wheel's culling sphere grown by its axle's move (%.1f for %.1f)", grown, WheelMove(0));
+		g_groundZ = PlayerPos()[2];
+		RunFrames(1500);
+		printf("tilt: a step of 8 under the front wheel only (a shelf over the front axle): the front wheel takes it within its travel, the frame the wheel line's share:\n");
+		g_shelfOn = true;
+		g_shelfHeight = 8.0f;
+		g_shelfAhead = 99.6f;
+		float peakFront = 0.0f;
+		for (int i = 0; i < 10; i++) {
+			RunFrames(50);
+			float f = WheelTravel(0);
+			if (f > peakFront)
+				peakFront = f;
+		}
+		float rearB = WheelTravel(1);
+		SeatInBone(g_bones, seatNow);
+		float seatB = sqrtf((seatNow[0] - seatBefore[0]) * (seatNow[0] - seatBefore[0]) + (seatNow[1] - seatBefore[1]) * (seatNow[1] - seatBefore[1]) + (seatNow[2] - seatBefore[2]) * (seatNow[2] - seatBefore[2]));
+		CHECK(g_picks == 0 || (peakFront > 5.0f && peakFront < 8.3f), "the front wheel pushed up into the frame by %.1f at most in the half second (the 8 step, within the travel of 10; less as the pitch takes the frame onto it)", peakFront);
+		CHECK(g_picks == 0 || fabsf(rearB) < 1.0f, "the rear wheel stays with the frame (%+.1f)", rearB);
+		CHECK(g_picks == 0 || (seatB > 1.0f && seatB < 5.0f), "the frame lifted %.1f at the half second (the wheel line at the contact: 8 x 36.7/136.3 = 2.2)", seatB);
+		g_shelfOn = false;
+		g_groundZ = PlayerPos()[2];
+		RunFrames(1500);
+		printf("tilt: a step of 25 under the front wheel only: the front wheel's travel saturates at 10 and the frame takes the rest:\n");
+		g_shelfOn = true;
+		g_shelfHeight = 25.0f;
+		peakFront = 0.0f;
+		for (int i = 0; i < 10; i++) {
+			RunFrames(50);
+			float f = WheelTravel(0);
+			if (f > peakFront)
+				peakFront = f;
+		}
+		SeatInBone(g_bones, seatNow);
+		float seatC = sqrtf((seatNow[0] - seatBefore[0]) * (seatNow[0] - seatBefore[0]) + (seatNow[1] - seatBefore[1]) * (seatNow[1] - seatBefore[1]) + (seatNow[2] - seatBefore[2]) * (seatNow[2] - seatBefore[2]));
+		CHECK(g_picks == 0 || (peakFront > 9.0f && peakFront < 10.2f), "the front wheel's travel saturates at %.1f (10)", peakFront);
+		CHECK(g_picks == 0 || seatC > seatB + 2.0f, "the frame takes the rest: the seat %.1f up at the half second (%.1f with the 8 step; the bump lift the 15 over the travel, then the pitch and the wheel line)", seatC, seatB);
+		g_shelfOn = false;
+		g_shelfHeight = g_shelfAhead = 0.0f;
+		g_groundZ = PlayerPos()[2];
+		RunFrames(1500);
+		RewriteIni("Suspension=1", "Suspension=0");
 		RewriteIni("BumpMax=30", "BumpMax=0");
 		RewriteIni("LiftRate=120", "LiftRate=0");
 		SetTilt(0.0f);
