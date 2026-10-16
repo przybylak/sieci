@@ -2038,7 +2038,7 @@ static void InputTests(void)
 	float turnedBy = Turned(from), h1 = *head;
 	float corner[2] = { PlayerPos()[0] - sinf(h1) * 150.0f + cosf(h1) * 20.0f, PlayerPos()[1] - cosf(h1) * 150.0f - sinf(h1) * 20.0f };
 	float inside = (corner[0] - car->point[0]) * car->normal[0] + (corner[1] - car->point[1]) * car->normal[1];
-	CHECK(turnedBy > -12.0f && turnedBy < -1.0f && inside >= 0.0f,
+	CHECK(turnedBy > -12.0f && turnedBy < -1.0f && inside > -0.5f,   /* the corner lands on the car's face itself: a rounding's worth either side (one run in three read -0.0) */
 	      "the rear swings right until its corner reaches the car (%.1f deg, %.1f units clear), not into it", turnedBy, inside);
 	CHECK(Moved(p0) < 40.0f, "then it stops: angled at the car, straight back would hit it too (moved %.0f)", Moved(p0));
 	Mark(p0);
