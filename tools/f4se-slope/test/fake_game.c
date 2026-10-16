@@ -2669,6 +2669,28 @@ static float TiltedOff(const float before[3], const float after[3], const float 
 	return sqrtf(dx * dx + dy * dy + dz * dz);
 }
 
+/* The roll in the spine joint's map, read off its own bone entry (test 36's side lean): a
+ * point 20 to the rider's right of the joint mapped with the joint, the tilt undone, and how
+ * far up it went, in degrees; positive toward the turn the bars are over to (the right side
+ * up when the bars are left, barNow > 0: the chest's top toward the inner grip). The twist
+ * about the vertical doesn't change a point's height, so it drops out. */
+static float SpineRollToward(const uint8_t *copy, const float right[3], const float Rw[9], float barNow)
+{
+	float pivot[3], P[3], mP[3], mPivot[3], d[3], e[3];
+	memcpy(pivot, g_bodyNodes[2] + 0xA0, 12);
+	for (int i = 0; i < 3; i++)
+		P[i] = pivot[i] + 20.0f * right[i];
+	MapBone(g_bodyNodes[2], g_bodyBonesOriginal + 2 * 0x50, copy + 2 * 0x50, P, mP);
+	MapBone(g_bodyNodes[2], g_bodyBonesOriginal + 2 * 0x50, copy + 2 * 0x50, pivot, mPivot);
+	for (int i = 0; i < 3; i++)
+		d[i] = mP[i] - mPivot[i];
+	for (int i = 0; i < 3; i++)
+		e[i] = Rw[i] * d[0] + Rw[3 + i] * d[1] + Rw[6 + i] * d[2];   /* Rw^T d: the tilt undone */
+	float s = e[2] / 20.0f;
+	s = s > 1.0f ? 1.0f : s < -1.0f ? -1.0f : s;
+	return asinf(s) * DEG * (barNow < 0.0f ? -1.0f : 1.0f);
+}
+
 static void SeatInBone(const uint8_t *bone, float out[3])
 {
 	const float *o = (const float *)(bone + 0x10), *t = (const float *)(bone + 0x40);
@@ -2816,23 +2838,37 @@ static void TiltTests(void)
 			MapBone(g_bodyNodes[7], g_bodyBonesOriginal + 7 * 0x50, copyNow + 7 * 0x50, Wr, mW2);
 			MapBone(g_bodyNodes[5], g_bodyBonesOriginal + 5 * 0x50, copyNow + 5 * 0x50, Wr, mW3);
 			/* The shoulder goes with the upper body's twist (test 32): about the spine's joint, by
-			 * TorsoTwist (0.4) of the bars' angle, the chest turning the way the bars do (left
-			 * here), so the left shoulder swings back and out; its distance from the joint is
-			 * kept. TorsoLean=0 in this run's INI: no forward lean yet. */
-			float pivot[3], twist = 0.4f * barNow / DEG, ct = cosf(twist), stw = sinf(twist), rel[3], Sx[3];
+			 * TorsoTwist (0.75 since test 36; 0.4 folded the inner arm tight at full lock) of the
+			 * bars' angle, the chest turning the way the bars do (left here), so the left shoulder
+			 * swings back and out; and with its side lean (test 36), TorsoSideLean (0.25) of the
+			 * bars' angle about the forward axis through the joint, the chest's top toward the
+			 * inner grip, so the right side goes up in this left turn; its distance from the
+			 * joint is kept. TorsoLean=0 in this run's INI: no forward lean yet. */
+			float pivot[3], twist = 0.75f * barNow / DEG, ct = cosf(twist), stw = sinf(twist), rel[3], Sx[3];
+			float hNow = *headNow, fw[3] = { sinf(hNow), cosf(hNow), 0.0f }, rt[3] = { cosf(hNow), -sinf(hNow), 0.0f };
+			float sideLean = 0.25f * barNow / DEG, cs = cosf(sideLean), ss = sinf(sideLean);
 			memcpy(pivot, g_bodyNodes[2] + 0xA0, 12);
 			for (int i = 0; i < 3; i++)
 				rel[i] = S[i] - pivot[i];
+			float a = rel[0] * rt[0] + rel[1] * rt[1], b = rel[0] * fw[0] + rel[1] * fw[1], c2 = rel[2];   /* right, forward, up of the joint */
+			float a2 = a * cs - c2 * ss, c3 = a * ss + c2 * cs;   /* the side lean: right -> up */
+			for (int i = 0; i < 3; i++)
+				rel[i] = a2 * rt[i] + b * fw[i] + (i == 2 ? c3 : 0.0f);
 			Sx[0] = ct * rel[0] - stw * rel[1] + pivot[0];
 			Sx[1] = stw * rel[0] + ct * rel[1] + pivot[1];
 			Sx[2] = rel[2] + pivot[2];
 			CHECK(TiltedOff(Sx, mS, Rw, Pw) < 0.1f && TiltedOff(S, mS, Rw, Pw) > 0.5f,
-			      "the arm's solve: the shoulder swung with the upper body's twist, %.1f deg about the spine's joint (%.3f off that; %.2f from where the clips had it)", twist * DEG, TiltedOff(Sx, mS, Rw, Pw), TiltedOff(S, mS, Rw, Pw));
+			      "the arm's solve: the shoulder swung with the upper body's twist, %.1f deg about the spine's joint, and its side lean of %.1f (%.3f off that; %.2f from where the clips had it)", twist * DEG, sideLean * DEG, TiltedOff(Sx, mS, Rw, Pw), TiltedOff(S, mS, Rw, Pw));
 			CHECK(Dist3(mE1, mE2) < 0.1f, "the upper arm and the forearm meet at the elbow (%.3f apart)", Dist3(mE1, mE2));
 			CHECK(Dist3(mW2, mW3) < 0.1f, "the forearm and the hand meet at the wrist, on the turned grip (%.3f apart)", Dist3(mW2, mW3));
 			CHECK(fabsf(Dist3(mE1, mS) - Dist3(E, S)) < 0.05f && fabsf(Dist3(mW2, mE2) - Dist3(Wr, E)) < 0.05f,
 			      "the bones keep their lengths (%.1f and %.1f)", Dist3(mE1, mS), Dist3(mW2, mE2));
 			CHECK(TiltedOff(E, mE2, Rw, Pw) > 0.3f, "the elbow moved (%.2f): the arm bent to reach", TiltedOff(E, mE2, Rw, Pw));
+			/* Test 36's side lean, read off the spine joint's own map: a roll toward the turn of
+			 * TorsoSideLean (0.25) of the bars' angle. */
+			float roll = SpineRollToward(copyNow, rt, Rw, barNow);
+			CHECK(fabsf(roll - 0.25f * fabsf(barNow)) < 0.3f,
+			      "the upper body leaned into the turn: the spine's map rolls %.2f deg toward it, the chest's top to the inner grip (TorsoSideLean 0.25 of the bars' %.1f: %.2f)", roll, fabsf(barNow), 0.25f * fabsf(barNow));
 			/* The hands' bones with no node (test 34): held through their own world transforms;
 			 * the fingers go with the hand, the wrist end of the forearm with the forearm, a
 			 * stray bone far from the hands with the tilt alone. */
@@ -2917,6 +2953,38 @@ static void TiltTests(void)
 		ExpectedTilt(Rw2, Pw2);   /* this ride's tilt */
 		MapBone(g_bodyNodes[6], g_bodyBonesOriginal + 6 * 0x50, copyNow + 6 * 0x50, S, mS);
 		CHECK(TiltedOff(S, mS, Rw2, Pw2) < 0.05f, "TorsoLean=0 again on the next ride: the shoulder where the clips have it (%.3f off)", TiltedOff(S, mS, Rw2, Pw2));
+	}
+
+	if (g_haveParts) {
+		/* Test 36's side lean turned off for a ride (TorsoSideLean=0, read again on getting
+		 * on): the bars over as before, the spine's map rolls nothing, the twist stays. */
+		printf("tilt: the upper body's side lean off (TorsoSideLean=0 for a ride):\n");
+		RewriteIni("TorsoSideLean=0.25", "TorsoSideLean=0");
+		SetTilt(0.0f);
+		RunFrames(300);
+		SetTilt(30.0f);
+		RunFrames(600);
+		g_turnOnSpot = -1.0472f;
+		g_onFrame = TurnOnTheSpot;
+		RunFrames(1500);
+		float Rw2[9], Pw2[3], S[3], mS[3], hNow = *headNow, rt[3] = { cosf(hNow), -sinf(hNow), 0.0f };
+		const uint8_t *copyNow = *(const uint8_t **)(*(uint8_t **)(g_bodySkin + 0x40) + 0x10);
+		ExpectedTilt(Rw2, Pw2);
+		float bar = BarAngle(), roll = SpineRollToward(copyNow, rt, Rw2, bar);
+		memcpy(S, g_bodyNodes[6] + 0xA0, 12);
+		MapBone(g_bodyNodes[6], g_bodyBonesOriginal + 6 * 0x50, copyNow + 6 * 0x50, S, mS);
+		CHECK(fabsf(bar) > 8.0f && fabsf(roll) < 0.1f, "the bars over %.1f deg, the spine's map rolls %.2f deg: no side lean", bar, roll);
+		CHECK(TiltedOff(S, mS, Rw2, Pw2) > 0.5f, "the shoulder still swung with the twist (%.2f off the tilt alone)", TiltedOff(S, mS, Rw2, Pw2));
+		g_turnOnSpot = 1.0472f;
+		RunFrames(1500);
+		g_onFrame = NULL;
+		*headNow = headingBefore;
+		RunFrames(1000);
+		RewriteIni("TorsoSideLean=0", "TorsoSideLean=0.25");
+		SetTilt(0.0f);
+		RunFrames(300);
+		SetTilt(30.0f);
+		RunFrames(600);
 	}
 
 	printf("tilt: a hold against a half-built skeleton (test 35: right after a save load the arms' shoulders were missing for 0.1 s): nothing held till the arms are whole, for a second at most:\n");
@@ -3099,8 +3167,9 @@ static void TiltTests(void)
 				for (int i = 0; i < 3; i++)
 					ex2[i] = e[i] + 28.0f * axisNow[i];
 				/* The ride restarted for the setting: its tilt and bars settle a little differently,
-				 * so the direction is checked loosely (within about 6 degrees), the distance tightly. */
-				CHECK(Dist3(rw2, ex2) < 3.0f && fabsf(Dist3(rw2, e) - 28.0f) < 0.6f, "Ahead=28: the reference 28 along the beam from the lens (%.2f off the beam's line; %.1f from the lens)", Dist3(rw2, ex2), Dist3(rw2, e));
+				 * so the direction is checked loosely (within about 8 degrees: 400 ms into the remount
+				 * it has read up to 3.3 with another run loading the machine), the distance tightly. */
+				CHECK(Dist3(rw2, ex2) < 4.0f && fabsf(Dist3(rw2, e) - 28.0f) < 0.6f, "Ahead=28: the reference 28 along the beam from the lens (%.2f off the beam's line; %.1f from the lens)", Dist3(rw2, ex2), Dist3(rw2, e));
 			}
 			RewriteIni("Ahead=28", "Ahead=0");
 			SetTilt(0.0f);

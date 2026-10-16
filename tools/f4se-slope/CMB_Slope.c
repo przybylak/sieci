@@ -359,7 +359,8 @@ static float g_leanNow, g_yawForLean;       /* the lean applied (rate-limited), 
 static int g_headLevel = 1;                 /* [Tilt] HeadLevel: the head kept level as the bike rolls */
 static float g_torsoLeanSetting = -1.0f;    /* [Tilt] TorsoLean: degrees the upper body leans forward (-1: enough to bring the grips to ArmReach of the arms' reach) */
 static float g_armReach = 0.88f;            /* [Tilt] ArmReach: where the grips sit, as a fraction of the arms' reach, with the bars straight */
-static float g_torsoTwist = 0.4f;           /* [Tilt] TorsoTwist: the upper body turns this fraction of the bars' angle toward the far grip */
+static float g_torsoTwist = 0.75f;          /* [Tilt] TorsoTwist: the upper body turns this fraction of the bars' angle toward the far grip (test 36: at 0.4 the inner arm folded tight at full lock, the elbow out and back; the inner grip comes back by the grip's radius and the inner shoulder should go back with it) */
+static float g_torsoSideLean = 0.25f;       /* [Tilt] TorsoSideLean: and leans toward the inside of the turn by this many degrees per degree of the bars (test 36: the body didn't lean or shift sideways, so the inner arm had no room) */
 static float g_torsoLean;                   /* this ride: degrees forward, from TorsoLean or solved for ArmReach */
 static bool g_torsoLeanSet;
 static int g_torsoTries;
@@ -753,7 +754,7 @@ static float IniFloat(const char *ini, const char *section, const char *key, flo
  * A/B needs no restart). */
 static void ReadLeanSettings(const char *ini, bool log)
 {
-	float was[10] = { g_maxLean, g_leanRate, g_leanSmooth, g_leanDead, g_leanGain, g_torsoLeanSetting, g_armReach, g_torsoTwist, g_faceLook, (float)g_headLevel };
+	float was[11] = { g_maxLean, g_leanRate, g_leanSmooth, g_leanDead, g_leanGain, g_torsoLeanSetting, g_armReach, g_torsoTwist, g_faceLook, (float)g_headLevel, g_torsoSideLean };
 	g_maxLean = IniFloat(ini, "Tilt", "MaxLean", 14.0f, 0.0f, 45.0f);
 	g_leanRate = IniFloat(ini, "Tilt", "LeanRate", 50.0f, 0.0f, 1000.0f);
 	g_leanSmooth = IniFloat(ini, "Tilt", "LeanSmooth", 0.45f, 0.0f, 5.0f);
@@ -762,7 +763,8 @@ static void ReadLeanSettings(const char *ini, bool log)
 	g_headLevel = (int)GetPrivateProfileIntA("Tilt", "HeadLevel", 1, ini) != 0;
 	g_torsoLeanSetting = IniFloat(ini, "Tilt", "TorsoLean", -1.0f, -1.0f, 30.0f);
 	g_armReach = IniFloat(ini, "Tilt", "ArmReach", 0.88f, 0.5f, 1.0f);
-	g_torsoTwist = IniFloat(ini, "Tilt", "TorsoTwist", 0.4f, 0.0f, 1.0f);
+	g_torsoTwist = IniFloat(ini, "Tilt", "TorsoTwist", 0.75f, 0.0f, 1.0f);
+	g_torsoSideLean = IniFloat(ini, "Tilt", "TorsoSideLean", 0.25f, 0.0f, 1.0f);
 	g_faceLook = IniFloat(ini, "Steer", "FaceLook", 0.3f, 0.0f, 3.0f);
 	float wasMore[13] = { g_turnEaseIn, g_turnEaseOut, g_liftRate, g_bumpMax, g_bumpSettle, g_wallAngle, g_obstacleThrottle, g_obstacleHold, (float)g_wallFrames,
 	                      (float)g_suspension, g_suspFrequency, g_suspDamping, g_suspTravel };
@@ -789,11 +791,11 @@ static void ReadLeanSettings(const char *ini, bool log)
 		g_lampHandoverFrames = 5;
 	float nowMore[13] = { g_turnEaseIn, g_turnEaseOut, g_liftRate, g_bumpMax, g_bumpSettle, g_wallAngle, g_obstacleThrottle, g_obstacleHold, (float)g_wallFrames,
 	                      (float)g_suspension, g_suspFrequency, g_suspDamping, g_suspTravel };
-	float now[10] = { g_maxLean, g_leanRate, g_leanSmooth, g_leanDead, g_leanGain, g_torsoLeanSetting, g_armReach, g_torsoTwist, g_faceLook, (float)g_headLevel };
+	float now[11] = { g_maxLean, g_leanRate, g_leanSmooth, g_leanDead, g_leanGain, g_torsoLeanSetting, g_armReach, g_torsoTwist, g_faceLook, (float)g_headLevel, g_torsoSideLean };
 	bool changed = false;
 	for (int i = 0; i < 13; i++)
 		changed = changed || wasMore[i] != nowMore[i];
-	for (int i = 0; i < 10; i++)
+	for (int i = 0; i < 11; i++)
 		changed = changed || was[i] != now[i];
 	if (log || changed) {
 		char torso[48];
@@ -802,8 +804,8 @@ static void ReadLeanSettings(const char *ini, bool log)
 		else
 			snprintf(torso, sizeof(torso), "leaned %g deg forward", g_torsoLeanSetting);
 		Log("  lean: into turns up to %g deg (MaxLean), at most %g deg/s (LeanRate), the turning rate over %g s (LeanSmooth), none under %g (LeanDead), %g of the physical lean (LeanGain); "
-		    "the head %s (HeadLevel); the upper body %s (TorsoLean), the grips at %g of the arms' reach (ArmReach), turned %g of the bars (TorsoTwist); a face ahead looked for %g s of the speed (FaceLook)%s",
-		    g_maxLean, g_leanRate, g_leanSmooth, g_leanDead, g_leanGain, g_headLevel ? "kept level" : "tilting with the bike", torso, g_armReach, g_torsoTwist, g_faceLook,
+		    "the head %s (HeadLevel); the upper body %s (TorsoLean), the grips at %g of the arms' reach (ArmReach), turned %g of the bars (TorsoTwist), leaned %g deg into the turn per degree of the bars (TorsoSideLean); a face ahead looked for %g s of the speed (FaceLook)%s",
+		    g_maxLean, g_leanRate, g_leanSmooth, g_leanDead, g_leanGain, g_headLevel ? "kept level" : "tilting with the bike", torso, g_armReach, g_torsoTwist, g_torsoSideLean, g_faceLook,
 		    log ? "" : " (read again on getting on)");
 		Log("  steer: the keys' turning rate eases in over %g s and out over %g s (TurnEaseIn, TurnEaseOut); a wall is a face of %g deg or more (WallAngle), an obstacle holds the throttle to %g (ObstacleThrottle), "
 		    "its verdict in force for %g s after the rays last saw one (ObstacleHold), in which a wall counts only after %d frames seen ahead of the wheel (WallFrames); "
@@ -2797,7 +2799,7 @@ typedef struct { bool ok; float R1[9], t1[3], R2[9], t2[3]; float L1, L2, reach,
 static ArmChain g_arm[2];
 static uintptr_t g_headNode;                /* the head's bone (HEAD), the joint the head is kept level about */
 static uintptr_t g_torsoNode;               /* the lowest spine bone (SPINE1): the joint the upper body leans and twists about */
-static bool g_armLogged[2];
+static bool g_armLogged[2], g_armLoggedOver[2];   /* the arm's solve logged once a hold, and once more with the bars over */
 
 /* 5 for the upper body's bones above the pelvis, which lean and twist with the torso: the
  * spine (SPINE1, SPINE2), the chest, the collarbones and the neck. */
@@ -3010,6 +3012,19 @@ static float GripReachAt(float lean, const float pivot[3], const float rightW[3]
 	return sum / (float)sides;
 }
 
+/* How far the wrist is turned from the clips' pose, degrees: the hand's map is the bars' turn
+ * (Qb), the forearm's its swing (R2, with the torso's map in it), so the wrist's relative
+ * rotation changes by R2^T Qb, whose angle this is (test 36: the inner arm looked broken at
+ * full lock; the next log says whether the wrist kinks). */
+static float WristTurn(const float R2[9], const float Qb[9])
+{
+	float R2t[9], M[9];
+	Transpose3(R2, R2t);
+	Mul3(R2t, Qb, M);
+	float c = 0.5f * (M[0] + M[4] + M[8] - 1.0f);
+	return acosf(c > 1.0f ? 1.0f : c < -1.0f ? -1.0f : c) * 57.29578f;
+}
+
 /* The upper body's forward lean for this ride: TorsoLean degrees, or, by default, the least
  * that brings the straight grips to ArmReach of the arms' reach (test 32: the arms were
  * locked straight as the clips pose them, the grips at 100% of the reach, so a turn put the
@@ -3024,7 +3039,7 @@ static void SolveTorsoLean(void)
 	if (g_torsoLeanSetting >= 0.0f) {
 		g_torsoLean = g_torsoLeanSetting;
 		g_torsoLeanSet = g_torsoFinal = true;
-		Log("rider: the upper body leaned %.1f deg forward (TorsoLean), turned %g of the bars' angle in a turn (TorsoTwist)", g_torsoLean, g_torsoTwist);
+		Log("rider: the upper body leaned %.1f deg forward (TorsoLean), turned %g of the bars' angle and leaned %g deg per degree of it into a turn (TorsoTwist, TorsoSideLean)", g_torsoLean, g_torsoTwist, g_torsoSideLean);
 		return;
 	}
 	if (++g_torsoTries > 300) {
@@ -3075,9 +3090,9 @@ static void SolveTorsoLean(void)
 	g_torsoLean = lean;
 	g_torsoLeanSet = true;
 	if (changed)
-		Log("rider: the upper body leaned %.1f deg forward about the spine's joint: the grips at %.0f%% of the arms' reach with the bars straight (%.0f%% as the clips pose it; ArmReach %g, %d arm%s; %.1f s into the ride%s), turned %g of the bars' angle in a turn (TorsoTwist)",
+		Log("rider: the upper body leaned %.1f deg forward about the spine's joint: the grips at %.0f%% of the arms' reach with the bars straight (%.0f%% as the clips pose it; ArmReach %g, %d arm%s; %.1f s into the ride%s), turned %g of the bars' angle and leaned %g deg per degree of it into a turn (TorsoTwist, TorsoSideLean)",
 		    lean, GripReachAt(lean, pivot, rightW, sign, S, W, reach, sides) * 100.0f, r0 * 100.0f, g_armReach, sides, sides == 1 ? "" : "s",
-		    (float)g_clock - g_rideStartClock, g_torsoFinal ? ", final" : "", g_torsoTwist);
+		    (float)g_clock - g_rideStartClock, g_torsoFinal ? ", final" : "", g_torsoTwist, g_torsoSideLean);
 }
 
 /* The world map (before the tilt) an arm bone gets for the bars' turn: the hand and fingers
@@ -3423,7 +3438,7 @@ static void LetGoAllRiderWhy(const char *why, bool quiet)
 	memset(g_arm, 0, sizeof(g_arm));
 	g_headNode = 0;
 	g_torsoNode = 0;
-	g_armLogged[0] = g_armLogged[1] = false;
+	g_armLogged[0] = g_armLogged[1] = g_armLoggedOver[0] = g_armLoggedOver[1] = false;
 	int had = g_riderCount;
 	while (g_riderCount)
 		LetGoRider(g_riderCount - 1, why);
@@ -3741,14 +3756,16 @@ static void FrameRider(bool tilt, const float R[9], const float P[3])
 	/* The upper body (test 32: the arms were locked straight at rest, the grips at the arms'
 	 * full reach, so a turn put the far grip out of reach): leaned forward about the lowest
 	 * spine bone's joint by TorsoLean degrees, or, by default, by enough to bring the grips to
-	 * ArmReach of the reach (solved once a ride, as soon as a chain is found), and turned
-	 * toward the far grip by TorsoTwist of the bars' angle; the arms are solved from the
-	 * moved shoulders and the hands stay on the grips. With it the rider is written every
-	 * frame, level or not. */
+	 * ArmReach of the reach (solved once a ride, as soon as a chain is found), turned
+	 * toward the far grip by TorsoTwist of the bars' angle and leaned into the turn by
+	 * TorsoSideLean of it (test 36: the inner arm folded tight at full lock with the body
+	 * neither leaning nor shifting sideways); the arms are solved from the moved shoulders
+	 * and the hands stay on the grips. With it the rider is written every frame, level or
+	 * not. */
 	if (g_riderHands && g_partsOk && g_torsoNode && (float)g_clock - g_rideStartClock >= 0.5f &&
 	    (!g_torsoLeanSet || (!g_torsoFinal && (float)g_clock - g_torsoSolvedAt >= 0.5f)))
 		SolveTorsoLean();   /* half a second in, and again every half second for 3 s: the pose settles (test 33's first ride solved 15 deg at 100%) */
-	bool torso = g_riderHands && g_partsOk && g_torsoNode && g_torsoLeanSet && (g_torsoLean > 0.05f || (g_torsoTwist > 0.0f && fabsf(g_barNow) > 0.3f));
+	bool torso = g_riderHands && g_partsOk && g_torsoNode && g_torsoLeanSet && (g_torsoLean > 0.05f || ((g_torsoTwist > 0.0f || g_torsoSideLean > 0.0f) && fabsf(g_barNow) > 0.3f));
 	bool hands = g_riderHands && g_partsOk && (fabsf(g_barNow) > 0.3f || torso);
 	bool level = g_riderLevel && !hands && fabsf(g_liftNow) < 0.5f;
 	bool ready = (tilt || hands) && g_riderTilt && g_riderWrite && !level && bike && NodeWorld(bike->node, Nb, nb, &sb, Nbi);
@@ -3806,12 +3823,13 @@ static void FrameRider(bool tilt, const float R[9], const float P[3])
 		for (int i = 0; i < 3; i++)
 			qW[i] = sb * NBp[i] + nb[i];
 	}
-	/* The upper body's map (world, before the tilt): the lean about the rider's sideways axis
-	 * and the twist about the vertical, both through the spine's joint. The sense of each is
-	 * checked on a vector rather than assumed of AxisRotation. */
+	/* The upper body's map (world, before the tilt): the lean about the rider's sideways axis,
+	 * the side lean about the forward axis and the twist about the vertical, all through the
+	 * spine's joint, the lean first. The sense of each is checked on a vector rather than
+	 * assumed of AxisRotation. */
 	float Tr[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, tt[3] = { 0, 0, 0 }, Rt[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, pivot[3] = { 0, 0, 0 };
 	if (torso) {
-		float Nt[9], st, Rl[9], probe[3], Tp[3];
+		float Nt[9], st, Rl[9], Rs[9], Rsl[9], probe[3], Tp[3];
 		float rightW[3] = { cosf(g_headingNow), -sinf(g_headingNow), 0.0f }, fwdW[3] = { sinf(g_headingNow), cosf(g_headingNow), 0.0f }, upW[3] = { 0, 0, 1 };
 		if (!NodeWorld(g_torsoNode, Nt, pivot, &st, NULL)) {
 			torso = false;
@@ -3825,7 +3843,14 @@ static void FrameRider(bool tilt, const float R[9], const float P[3])
 			MulV(Rt, fwdW, probe);
 			if (twist != 0.0f && (probe[0] * rightW[0] + probe[1] * rightW[1]) * g_barNow > 0.0f)   /* the chest turns the way the bars do (+ left) */
 				AxisRotation(upW, -twist, Rt);
-			Mul3(Rt, Rl, Tr);
+			/* The side lean (test 36): the chest's top toward the inner grip, the side the bars turn to. */
+			float side = g_torsoSideLean * g_barNow / 57.29578f;
+			AxisRotation(fwdW, side, Rs);
+			MulV(Rs, upW, probe);
+			if (side != 0.0f && (probe[0] * rightW[0] + probe[1] * rightW[1]) * g_barNow > 0.0f)   /* the top went to the outside: the other way */
+				AxisRotation(fwdW, -side, Rs);
+			Mul3(Rs, Rl, Rsl);
+			Mul3(Rt, Rsl, Tr);
 			MulV(Tr, pivot, Tp);
 			for (int i = 0; i < 3; i++)
 				tt[i] = pivot[i] - Tp[i];
@@ -3851,13 +3876,20 @@ static void FrameRider(bool tilt, const float R[9], const float P[3])
 			SolveArm(&g_arm[side], Qb, qb, Tr, tt, torso, &arm[side]);
 			if (arm[side].ok && !g_armLogged[side]) {
 				g_armLogged[side] = true;
-				Log("rider: the %s arm solved: upper arm %.1f, forearm %.1f, the grip %.1f from the shoulder (%.0f%% of the reach), the elbow moved %.1f (the bars %.1f deg, the upper body %.1f deg forward)",
-				    side ? "right" : "left", arm[side].L1, arm[side].L2, arm[side].reach, arm[side].reach / (arm[side].L1 + arm[side].L2) * 100.0f, arm[side].elbowMove, g_barNow, torso ? g_torsoLean : 0.0f);
+				Log("rider: the %s arm solved: upper arm %.1f, forearm %.1f, the grip %.1f from the shoulder (%.0f%% of the reach), the elbow moved %.1f, the wrist turned %.1f deg from the clips' pose (the bars %.1f deg, the upper body %.1f deg forward)",
+				    side ? "right" : "left", arm[side].L1, arm[side].L2, arm[side].reach, arm[side].reach / (arm[side].L1 + arm[side].L2) * 100.0f, arm[side].elbowMove, WristTurn(arm[side].R2, Qb), g_barNow, torso ? g_torsoLean : 0.0f);
+			} else if (arm[side].ok && !g_armLoggedOver[side] && fabsf(g_barNow) >= 8.0f) {
+				/* And once with the bars well over (test 36's question is the inner wrist at full lock; the first solve is at the straight bars). */
+				g_armLoggedOver[side] = true;
+				Log("rider: the %s arm with the bars %.1f deg over: the grip %.1f from the shoulder (%.0f%% of the reach), the elbow moved %.1f, the wrist turned %.1f deg from the clips' pose (the upper body %.1f deg forward, turned %.1f, leaned %.1f into the turn)",
+				    side ? "right" : "left", g_barNow, arm[side].reach, arm[side].reach / (arm[side].L1 + arm[side].L2) * 100.0f, arm[side].elbowMove, WristTurn(arm[side].R2, Qb),
+				    torso ? g_torsoLean : 0.0f, torso ? g_torsoTwist * g_barNow : 0.0f, torso ? g_torsoSideLean * g_barNow : 0.0f);
 			}
 		}
 	}
-	/* The head: its joint goes where the upper body's lean and twist put it, turned with the
-	 * twist but not pitched with the lean (the rider keeps the head up), and, with HeadLevel
+	/* The head: its joint goes where the upper body's lean, side lean and twist put it, turned
+	 * with the twist but neither pitched with the lean nor rolled with the side lean (the rider
+	 * keeps the head up and level), and, with HeadLevel
 	 * (test 31's wish), turned back by the bike's roll about that joint (the face, the eyes, a
 	 * helmet with it), before the tilt; the pitch still goes with the bike. */
 	bool levelHead = g_headLevel && fabsf(g_rollNow) > 0.3f;

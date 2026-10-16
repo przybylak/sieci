@@ -168,12 +168,18 @@ put the far grip out of reach and the wrist stretched, the solver able only to s
 pelvis (the spine, the chest, the collarbones, the neck; role 5) get a map of their own before the tilt, a forward
 lean about the lowest spine bone's joint (SPINE1) by `TorsoLean` degrees, or, by default, by the least that brings
 the straight grips to `ArmReach` (0.88) of the arms' reach (a bisection over 0 to 15 degrees at the first frame a
-chain is found, logged with the reach before and after), and a twist about the vertical through that joint by
-`TorsoTwist` (0.4) of the bars' angle, the chest turning the way the bars do (the far shoulder forward); the sense
-of each rotation is checked on a vector rather than assumed of the axis-angle routine. Each arm is then solved from
+chain is found, logged with the reach before and after), a twist about the vertical through that joint by
+`TorsoTwist` (0.75) of the bars' angle, the chest turning the way the bars do (the far shoulder forward; test 36: at
+0.4 the inner arm folded tight at full lock, its elbow out and back, the chest only 5 degrees round, while the inner
+grip comes back by the grip's radius and the inner shoulder should go back with it), and a lean toward the inside of
+the turn about the forward axis through the same joint by `TorsoSideLean` (0.25) degrees per degree of the bars
+(test 36: "the body doesn't lean or shift sideways, so the arms have no room"); the sense of each rotation is
+checked on a vector rather than assumed of the axis-angle routine. The arm's one-time log line says how far the
+wrist is turned from the clips' pose (the angle between the forearm's swing and the hand's turn with the bars), and
+a second line says it again the first time the bars pass 8 degrees, where test 36 saw the inner arm look broken. Each arm is then solved from
 the shoulder as the torso moved it (the chain carried rigidly first, the grip where the bars put it), its maps
-composed with the torso's; the head's joint goes with the torso and takes the twist but not the lean (the rider
-keeps the head up), then the head-level counter-roll about the moved joint; plain shapes under those bones go along.
+composed with the torso's; the head's joint goes with the torso and takes the twist but neither the lean nor the side lean (the rider
+keeps the head up and level), then the head-level counter-roll about the moved joint; plain shapes under those bones go along.
 With the torso active the rider is written every frame, level or not. `RiderHands=0` turns it off with the rest. The
 lean is solved half a second into the ride and again every half second for its first 3 s, the last one final (test
 33's first ride solved 15 degrees at 100% in the frame the rider was held, before the pose had settled). The fingers
