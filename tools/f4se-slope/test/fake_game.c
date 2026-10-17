@@ -2773,8 +2773,18 @@ static void BackPushModTests(void)
 	float along = Along(p0, from);
 	CHECK(along < -60.0f && along > -140.0f, "backed up %.0f along the heading in 1.5 s", along);
 	Keys(0.0f, 0.0f);
-	RunFrames(300);
-	CHECK(mod[0] == 0.0f && mod[1] == 0.0f && *modTime == 0.0f, "letting go: velocityMod and its time put back");
+	/* Measured rather than waited for: the plugin keeps the keys 0.2 s (test 19), and a fixed
+	 * 0.3 s wait failed once in three loaded all-mode runs (a slow frame under Wine). Polled
+	 * every 25 ms for a second; it must be back within 0.6 s. */
+	DWORD letGo = GetTickCount(), putBack = 0;
+	while (GetTickCount() - letGo < 1000) {
+		RunFrames(25);
+		if (mod[0] == 0.0f && mod[1] == 0.0f && *modTime == 0.0f) {
+			putBack = GetTickCount() - letGo;
+			break;
+		}
+	}
+	CHECK(putBack > 0 && putBack <= 600, "letting go: velocityMod and its time put back %.2f s after the keys (they're kept 0.2 s)", putBack / 1000.0);
 	g_onFrame = NULL;
 	SetLive(0.0f);
 	RunFrames(300);
