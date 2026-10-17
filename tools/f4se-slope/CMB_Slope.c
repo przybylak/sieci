@@ -220,8 +220,8 @@
 #define OFF_PICK_HIT_LAYER    0xAC          /* bhkPickData: the hit's collision filter info (layer & 0x7F; test 16) */
 #define LAYER_CHAR_CONTROLLER 30            /* COL_LAYER::kCharController: hit what the player's capsule would */
 #define COLL_CHAR_CONTROLLER  0x0008877Fu   /* Fallout4.esm's COLL record for that layer: what the capsule collides with (test 36) */
-#define OFF_COLL_INDEX        0x30          /* BGSCollisionLayer::collisionIdx: TESForm (0x20), TESDescription (0x10), then it */
-#define OFF_COLL_COLLIDES     0x48          /* BGSCollisionLayer::collidesWith (BSTArray<BGSCollisionLayer *>), after debugColor, flags and the name */
+#define OFF_COLL_INDEX        0x38          /* BGSCollisionLayer::collisionIdx: TESForm (0x20), TESDescription (0x18), then it (test 37: +0x30 read 874) */
+#define OFF_COLL_COLLIDES     0x50          /* BGSCollisionLayer::collidesWith (BSTArray<BGSCollisionLayer *>), after debugColor, flags and the name */
 
 /* RTTI names (MSVC mangled) of the objects we look for. */
 #define RTTI_PLAYER     ".?AVPlayerCharacter@@"
@@ -373,12 +373,13 @@ static float g_bumpMax = 30.0f;             /* [Tilt] BumpMax: a wheel's bump li
 static float g_bumpSettle = 0.45f;          /* [Tilt] BumpSettle: and settles over this many seconds as the filtered values catch up or the bump passes */
 static int g_suspension = 1;                /* [Tilt] Suspension: the wheels follow the ground within SuspTravel of the frame, the frame's lift on a spring and damper (test 36's wish) */
 static float g_suspFrequency = 2.0f;        /* [Tilt] SuspFrequency: the spring's natural frequency, hertz */
-static float g_suspDamping = 0.5f;          /* [Tilt] SuspDamping: its damping ratio (1: no rebound) */
+static float g_suspDamping = 0.6f;          /* [Tilt] SuspDamping: its damping ratio (1: no rebound; test 37: 0.5 was "a tad too soft") */
 static float g_suspTravel = 10.0f;          /* [Tilt] SuspTravel: units a wheel may move against the frame, either way */
 static float g_liftVel;                     /* the lift spring's velocity (units a second) */
 static float g_wheelOffset[2];              /* each wheel's move against the frame along the bike's up (front, rear): up into it over a bump, down into a hole */
 static float g_wallAngle = 55.0f;           /* [Steer] WallAngle: a face this steep or steeper, solid at axle height and 1.5 radii, is a wall */
-static float g_obstacleThrottle = 0.4f;     /* [Steer] ObstacleThrottle: an obstacle lower than 1.5 radii, or a face under WallAngle, holds the throttle to this share (0: stop) */
+static float g_obstacleAngle = 50.0f;       /* [Steer] ObstacleAngle: a face this steep or steeper (or the climb limit, if that is higher) is an obstacle; under it, a slope the bike climbs (test 37) */
+static float g_obstacleThrottle = 0.55f;    /* [Steer] ObstacleThrottle: an obstacle lower than 1.5 radii, or a face under WallAngle, holds the throttle to this share (0: stop; test 37: 0.4 crawled) */
 static float g_obstacleHold = 1.0f;         /* [Steer] ObstacleHold: an obstacle verdict stays in force this many seconds after the rays last said obstacle */
 static int g_wallFrames = 5;                /* [Steer] WallFrames: while an obstacle verdict is in force, a wall must be seen ahead of the wheel this many frames running before it counts */
 static float g_faceObstacleAt = -100.0f;    /* when the face rays last said obstacle (the verdict in force for ObstacleHold after) */
@@ -390,6 +391,18 @@ static float g_wheelZ[2];                   /* this frame's raw ray hits under t
 static bool g_wheelZOk;
 static float g_torsoSolvedAt = -100.0f;     /* when the upper body's lean was last solved; solved again for the ride's first 3 s (the pose settles) */
 static bool g_torsoFinal;
+static float g_torsoRetryAt;                /* the solve not tried before this: the grips short of the riding pose's reach, tried again every half second (test 37) */
+static float g_torsoWaitSince = -1.0f;      /* when the solve first found the grips short of the riding pose's reach this ride (-1: not yet) */
+static bool g_torsoWaitLogged;              /* the "not solved yet" line, once a ride */
+static bool g_torsoAsItComes;               /* 20 s of that: the solve taken as it comes */
+static float g_armMoveNow;                  /* the arm chains' joints' biggest move since last frame, relative to the bike's bone (test 37: a Pip-Boy raise moved the arm bones 40.7 in a frame and the lean was solved from that pose) */
+static bool g_armMoveOk;                    /* measured this frame (the joints had positions last frame too) */
+static float g_armMoveLast[2][3][3];        /* each chain's shoulder, elbow and wrist last frame, relative to the bike's bone */
+static uint8_t g_armMoveLastOk[2][3];
+static float g_wristRoll = 1.0f;            /* [Tilt] WristRoll: the hand rolled round the grip's axis by this share of the forearm's twist about it (0: the hand keeps the clips' orientation, turned with the bars; test 37: 25 deg of wrist turn at the straight bars) */
+static float g_wristMax[2] = { -1.0f, -1.0f };   /* each side's largest wrist turn from the clips' pose this ride (-1: no arm solved yet), with the bars, the reach and the roll at that moment, logged at the ride's end */
+static float g_wristMaxBar[2], g_wristMaxReach[2], g_wristMaxRoll[2];
+static float g_suspCompressRear = 4.0f;     /* [Tilt] SuspCompressRear: the rear wheel rises into the frame at most this much (its mudguard is on the frame; test 37: the tyre within 10 of it), its droop SuspTravel */
 static float g_rideStartClock;
 static float g_jumpMax;                     /* the arm bones' biggest move between frames since the last trace line (test 33: stretched fingers) */
 static char g_jumpName[96];
@@ -576,11 +589,12 @@ static uintptr_t g_stateCtrl;           /* the controller the state check below 
 static bool g_stateTrusted;
 static int g_lastState = -1, g_stateLogs;
 
-/* Tilt: the worn bike's skins we hold, and what they were. The Harley build has eight
- * shapes: three static, three that turn with the bars and the two wheels. */
-#define MAX_SKINS 12
+/* Tilt: the worn bike's skins we hold, and what they were. The Harley build has twelve
+ * shapes since test 38: three static, four that turn with the bars, three of the lower fork
+ * (with the bars and the front wheel's travel) and the two wheels. */
+#define MAX_SKINS 16
 #define MAX_BONES 4
-enum { ROLE_UNKNOWN = -1, ROLE_NONE, ROLE_WHEEL_F, ROLE_WHEEL_R, ROLE_FRONT, ROLE_GLOW };   /* GLOW: the headlamp's lit parts, with the bar assembly */
+enum { ROLE_UNKNOWN = -1, ROLE_NONE, ROLE_WHEEL_F, ROLE_WHEEL_R, ROLE_FRONT, ROLE_GLOW, ROLE_FORK };   /* GLOW: the headlamp's lit parts, with the bar assembly; FORK: the lower fork legs, the front mudguard and the caliper, with the bars and the front wheel's travel */
 typedef struct {
 	uintptr_t boneData;                 /* BSSkin::BoneData, with a reference of ours */
 	uintptr_t bones;                    /* its BoneTransforms */
@@ -691,14 +705,15 @@ static int g_emptySyncs;                /* checks in a row this ride that found 
 static bool g_rideDiagnosed, g_rideRouteLogged;
 static int g_refusedCount;
 
-/* Accessible()'s memory regions, for one frame (the scene graph walk reads thousands
- * of pointers; asking Windows about each one would cost milliseconds). */
-typedef struct { uintptr_t start, end; bool writable; } Region;
+/* Accessible()'s memory regions, kept across frames (the scene graph walk reads thousands
+ * of pointers; asking Windows about each one would cost milliseconds); each with the tick
+ * it was read at, good for 30 s and a stagger of its own (ForgetRegions). */
+typedef struct { uintptr_t start, end; bool writable; DWORD at; } Region;
 #define REGIONS 256
 static Region g_regions[REGIONS];
 static int g_regionCount, g_regionNext;
-static DWORD g_regionsAt;                   /* when the cache was last emptied (every 5 s, a load, a changed 3D) */
-static int g_syncQueries;                   /* VirtualQuery calls inside the skin syncs, per trace line */
+static DWORD g_regionTick;                  /* the frame's tick, for the entries' ages (set once a frame: the lookup runs thousands of times) */
+static int g_syncQueries, g_syncQueriesMax; /* VirtualQuery calls inside the skin syncs, per trace line: in all, and the most in one sync */
 
 /* ------------------------------------------------------------------------- */
 /* Log and settings                                                          */
@@ -754,7 +769,7 @@ static float IniFloat(const char *ini, const char *section, const char *key, flo
  * A/B needs no restart). */
 static void ReadLeanSettings(const char *ini, bool log)
 {
-	float was[11] = { g_maxLean, g_leanRate, g_leanSmooth, g_leanDead, g_leanGain, g_torsoLeanSetting, g_armReach, g_torsoTwist, g_faceLook, (float)g_headLevel, g_torsoSideLean };
+	float was[12] = { g_maxLean, g_leanRate, g_leanSmooth, g_leanDead, g_leanGain, g_torsoLeanSetting, g_armReach, g_torsoTwist, g_faceLook, (float)g_headLevel, g_torsoSideLean, g_wristRoll };
 	g_maxLean = IniFloat(ini, "Tilt", "MaxLean", 14.0f, 0.0f, 45.0f);
 	g_leanRate = IniFloat(ini, "Tilt", "LeanRate", 50.0f, 0.0f, 1000.0f);
 	g_leanSmooth = IniFloat(ini, "Tilt", "LeanSmooth", 0.45f, 0.0f, 5.0f);
@@ -765,9 +780,10 @@ static void ReadLeanSettings(const char *ini, bool log)
 	g_armReach = IniFloat(ini, "Tilt", "ArmReach", 0.88f, 0.5f, 1.0f);
 	g_torsoTwist = IniFloat(ini, "Tilt", "TorsoTwist", 0.75f, 0.0f, 1.0f);
 	g_torsoSideLean = IniFloat(ini, "Tilt", "TorsoSideLean", 0.25f, 0.0f, 1.0f);
+	g_wristRoll = IniFloat(ini, "Tilt", "WristRoll", 1.0f, 0.0f, 1.0f);
 	g_faceLook = IniFloat(ini, "Steer", "FaceLook", 0.3f, 0.0f, 3.0f);
-	float wasMore[13] = { g_turnEaseIn, g_turnEaseOut, g_liftRate, g_bumpMax, g_bumpSettle, g_wallAngle, g_obstacleThrottle, g_obstacleHold, (float)g_wallFrames,
-	                      (float)g_suspension, g_suspFrequency, g_suspDamping, g_suspTravel };
+	float wasMore[15] = { g_turnEaseIn, g_turnEaseOut, g_liftRate, g_bumpMax, g_bumpSettle, g_wallAngle, g_obstacleThrottle, g_obstacleHold, (float)g_wallFrames,
+	                      (float)g_suspension, g_suspFrequency, g_suspDamping, g_suspTravel, g_obstacleAngle, g_suspCompressRear };
 	g_turnEaseIn = IniFloat(ini, "Steer", "TurnEaseIn", 0.14f, 0.0f, 3.0f);
 	g_turnEaseOut = IniFloat(ini, "Steer", "TurnEaseOut", 0.08f, 0.0f, 3.0f);
 	g_liftRate = IniFloat(ini, "Tilt", "LiftRate", 120.0f, 0.0f, 2000.0f);
@@ -775,10 +791,12 @@ static void ReadLeanSettings(const char *ini, bool log)
 	g_bumpSettle = IniFloat(ini, "Tilt", "BumpSettle", 0.45f, 0.0f, 5.0f);
 	g_suspension = (int)GetPrivateProfileIntA("Tilt", "Suspension", 1, ini) != 0;
 	g_suspFrequency = IniFloat(ini, "Tilt", "SuspFrequency", 2.0f, 0.5f, 5.0f);
-	g_suspDamping = IniFloat(ini, "Tilt", "SuspDamping", 0.5f, 0.2f, 1.0f);
+	g_suspDamping = IniFloat(ini, "Tilt", "SuspDamping", 0.6f, 0.2f, 1.0f);
 	g_suspTravel = IniFloat(ini, "Tilt", "SuspTravel", 10.0f, 0.0f, 30.0f);
+	g_suspCompressRear = IniFloat(ini, "Tilt", "SuspCompressRear", 4.0f, 0.0f, 30.0f);
 	g_wallAngle = IniFloat(ini, "Steer", "WallAngle", 55.0f, 20.0f, 90.0f);
-	g_obstacleThrottle = IniFloat(ini, "Steer", "ObstacleThrottle", 0.4f, 0.0f, 1.0f);
+	g_obstacleAngle = IniFloat(ini, "Steer", "ObstacleAngle", 50.0f, 20.0f, 80.0f);
+	g_obstacleThrottle = IniFloat(ini, "Steer", "ObstacleThrottle", 0.55f, 0.0f, 1.0f);
 	g_obstacleHold = IniFloat(ini, "Steer", "ObstacleHold", 1.0f, 0.2f, 5.0f);
 	g_wallFrames = (int)GetPrivateProfileIntA("Steer", "WallFrames", 5, ini);
 	if (g_wallFrames < 1 || g_wallFrames > 30)
@@ -789,13 +807,13 @@ static void ReadLeanSettings(const char *ini, bool log)
 	g_lampHandoverFrames = (int)GetPrivateProfileIntA("Lamp", "HandoverFrames", 5, ini);
 	if (g_lampHandoverFrames < 0 || g_lampHandoverFrames > 100)
 		g_lampHandoverFrames = 5;
-	float nowMore[13] = { g_turnEaseIn, g_turnEaseOut, g_liftRate, g_bumpMax, g_bumpSettle, g_wallAngle, g_obstacleThrottle, g_obstacleHold, (float)g_wallFrames,
-	                      (float)g_suspension, g_suspFrequency, g_suspDamping, g_suspTravel };
-	float now[11] = { g_maxLean, g_leanRate, g_leanSmooth, g_leanDead, g_leanGain, g_torsoLeanSetting, g_armReach, g_torsoTwist, g_faceLook, (float)g_headLevel, g_torsoSideLean };
+	float nowMore[15] = { g_turnEaseIn, g_turnEaseOut, g_liftRate, g_bumpMax, g_bumpSettle, g_wallAngle, g_obstacleThrottle, g_obstacleHold, (float)g_wallFrames,
+	                      (float)g_suspension, g_suspFrequency, g_suspDamping, g_suspTravel, g_obstacleAngle, g_suspCompressRear };
+	float now[12] = { g_maxLean, g_leanRate, g_leanSmooth, g_leanDead, g_leanGain, g_torsoLeanSetting, g_armReach, g_torsoTwist, g_faceLook, (float)g_headLevel, g_torsoSideLean, g_wristRoll };
 	bool changed = false;
-	for (int i = 0; i < 13; i++)
+	for (int i = 0; i < 15; i++)
 		changed = changed || wasMore[i] != nowMore[i];
-	for (int i = 0; i < 11; i++)
+	for (int i = 0; i < 12; i++)
 		changed = changed || was[i] != now[i];
 	if (log || changed) {
 		char torso[48];
@@ -804,16 +822,17 @@ static void ReadLeanSettings(const char *ini, bool log)
 		else
 			snprintf(torso, sizeof(torso), "leaned %g deg forward", g_torsoLeanSetting);
 		Log("  lean: into turns up to %g deg (MaxLean), at most %g deg/s (LeanRate), the turning rate over %g s (LeanSmooth), none under %g (LeanDead), %g of the physical lean (LeanGain); "
-		    "the head %s (HeadLevel); the upper body %s (TorsoLean), the grips at %g of the arms' reach (ArmReach), turned %g of the bars (TorsoTwist), leaned %g deg into the turn per degree of the bars (TorsoSideLean); a face ahead looked for %g s of the speed (FaceLook)%s",
-		    g_maxLean, g_leanRate, g_leanSmooth, g_leanDead, g_leanGain, g_headLevel ? "kept level" : "tilting with the bike", torso, g_armReach, g_torsoTwist, g_torsoSideLean, g_faceLook,
+		    "the head %s (HeadLevel); the upper body %s (TorsoLean), the grips at %g of the arms' reach (ArmReach), turned %g of the bars (TorsoTwist), leaned %g deg into the turn per degree of the bars (TorsoSideLean); "
+		    "the hands rolled round the grips by %g of the forearms' twist (WristRoll); a face ahead looked for %g s of the speed (FaceLook)%s",
+		    g_maxLean, g_leanRate, g_leanSmooth, g_leanDead, g_leanGain, g_headLevel ? "kept level" : "tilting with the bike", torso, g_armReach, g_torsoTwist, g_torsoSideLean, g_wristRoll, g_faceLook,
 		    log ? "" : " (read again on getting on)");
-		Log("  steer: the keys' turning rate eases in over %g s and out over %g s (TurnEaseIn, TurnEaseOut); a wall is a face of %g deg or more (WallAngle), an obstacle holds the throttle to %g (ObstacleThrottle), "
-		    "its verdict in force for %g s after the rays last saw one (ObstacleHold), in which a wall counts only after %d frames seen ahead of the wheel (WallFrames); "
+		Log("  steer: the keys' turning rate eases in over %g s and out over %g s (TurnEaseIn, TurnEaseOut); a wall is a face of %g deg or more (WallAngle), an obstacle one of %g deg or more, or the climb limit if that is higher (ObstacleAngle), "
+		    "holding the throttle to %g (ObstacleThrottle), its verdict in force for %g s after the rays last saw one (ObstacleHold), in which a wall counts only after %d frames seen ahead of the wheel (WallFrames); "
 		    "the lift rises at most %g units a second (LiftRate), a wheel's bump lift at most %g in one go and settles over %g s (BumpMax, BumpSettle); "
-		    "the suspension %s (Suspension), the frame's lift on a spring of %g Hz with a damping ratio of %g, the wheels within %g units of the frame (SuspFrequency, SuspDamping, SuspTravel); "
+		    "the suspension %s (Suspension), the frame's lift on a spring of %g Hz with a damping ratio of %g, the wheels within %g units of the frame, the rear rising at most %g into it (SuspFrequency, SuspDamping, SuspTravel, SuspCompressRear); "
 		    "the light %g ahead of the lens, led by %g frames of the speed, the old one kept %d frames at a handover (Ahead, Lead, HandoverFrames)",
-		    g_turnEaseIn, g_turnEaseOut, g_wallAngle, g_obstacleThrottle, g_obstacleHold, g_wallFrames, g_liftRate, g_bumpMax, g_bumpSettle,
-		    g_suspension ? "on" : "off", g_suspFrequency, g_suspDamping, g_suspTravel, g_lampAhead, g_lampLead, g_lampHandoverFrames);
+		    g_turnEaseIn, g_turnEaseOut, g_wallAngle, g_obstacleAngle, g_obstacleThrottle, g_obstacleHold, g_wallFrames, g_liftRate, g_bumpMax, g_bumpSettle,
+		    g_suspension ? "on" : "off", g_suspFrequency, g_suspDamping, g_suspTravel, g_suspCompressRear, g_lampAhead, g_lampLead, g_lampHandoverFrames);
 	}
 }
 
@@ -1101,8 +1120,14 @@ static bool Accessible(uintptr_t p, size_t n, bool write)
 {
 	if (p < 0x10000 || p > 0x7FFFFFFEFFFFull || n > 0x100000)
 		return false;
+	int stale = -1;   /* the first entry past its time: absent, and its slot the next query's */
 	for (int i = 0; i < g_regionCount; i++) {
 		const Region *r = &g_regions[i];
+		if (g_regionTick - r->at >= 30000u + 1000u * (DWORD)(i % 30)) {
+			if (stale < 0)
+				stale = i;
+			continue;
+		}
 		if (p >= r->start && p + n <= r->end && (r->writable || !write))
 			return true;
 	}
@@ -1118,25 +1143,30 @@ static bool Accessible(uintptr_t p, size_t n, bool write)
 	if (!(mbi.Protect & (write ? writable : readable)))
 		return false;
 	uintptr_t end = (uintptr_t)mbi.BaseAddress + mbi.RegionSize;
-	Region *r = &g_regions[g_regionCount < REGIONS ? g_regionCount++ : (g_regionNext++ % REGIONS)];
+	Region *r = &g_regions[stale >= 0 ? stale : g_regionCount < REGIONS ? g_regionCount++ : (g_regionNext++ % REGIONS)];
 	r->start = (uintptr_t)mbi.BaseAddress;
 	r->end = end;
 	r->writable = (mbi.Protect & writable) != 0;
+	r->at = g_regionTick;
 	return p + n <= end;
 }
 
 /* Test 26: one VirtualQuery costs about 100 us on the tester's PC (the kernel sizing a
  * region of a huge committed heap), so emptying the cache every frame cost 11 queries a
  * frame on the bike and 39 with the rider held (3.5 ms), and 45 a skin sync (4.5 ms every
- * 0.1 s). The cache is kept across frames now: emptied on a load or a new game, when the
- * player's 3D changes, and every 30 s in case the game gave a region back (test 27: a 5 s
- * backstop's flush cost 2-6 ms a time). Everything the plugin touches lives in the game's
+ * 0.1 s). The cache is kept across frames: emptied on a load or a new game and when the
+ * player's 3D changes (every entry's time starts afresh), and in case the game gave a region
+ * back each entry is good for 30 s plus a stagger of its own (its index in seconds, modulo
+ * 30), then treated as absent and read again when next asked for, so the re-validation is
+ * spread over 30 s (test 27: a 5 s backstop's flush cost 2-6 ms a time; test 37: the 30 s
+ * flush that replaced it re-walked the rider's 88 regions in the next sync, 12-16 ms at
+ * once, a stutter every half minute). Everything the plugin touches lives in the game's
  * heaps, which it never unmaps. */
 static void ForgetRegions(void)
 {
 	g_regionCount = 0;
 	g_regionNext = 0;
-	g_regionsAt = GetTickCount();
+	g_regionTick = GetTickCount();
 }
 
 static double Clock(void)
@@ -2136,6 +2166,22 @@ static void LetGo(int i, const char *why)
 }
 
 /* A new ride (or none): the filter starts from level. */
+/* The upper body's lean solved afresh: at a ride's start, after a load or a new game, and
+ * whenever the whole rider is let go and held again (test 37: a 0 lean solved with the Pip-Boy
+ * up stuck for five minutes, through a fast travel, until a knock-off). */
+static void ResetTorsoSolve(void)
+{
+	g_torsoLeanSet = g_torsoFinal = false;
+	g_torsoLean = 0.0f;
+	g_torsoTries = 0;
+	g_torsoSolvedAt = -100.0f;
+	g_torsoRetryAt = 0.0f;
+	g_torsoWaitSince = -1.0f;
+	g_torsoWaitLogged = g_torsoAsItComes = false;
+	g_armMoveOk = false;
+	memset(g_armMoveLastOk, 0, sizeof(g_armMoveLastOk));
+}
+
 static void ResetTilt(void)
 {
 	g_tiltSampleCount = 0;
@@ -2143,8 +2189,8 @@ static void ResetTilt(void)
 	g_pitchVel = g_rollVel = g_liftNow = g_liftSmooth = g_bumpLift = 0.0f;
 	g_liftVel = g_wheelOffset[0] = g_wheelOffset[1] = 0.0f;   /* the suspension at rest */
 	g_rideStartClock = (float)g_clock;
-	g_torsoFinal = false;
-	g_torsoSolvedAt = -100.0f;
+	ResetTorsoSolve();
+	g_wristMax[0] = g_wristMax[1] = -1.0f;
 	g_tiltMax = g_tiltNow = 0.0f;
 	g_wheelAngle = g_barNow = g_headingRate = 0.0f;
 	g_leanNow = g_yawForLean = 0.0f;
@@ -2154,9 +2200,6 @@ static void ResetTilt(void)
 	g_faceKind = 0;
 	g_faceNoneSince = -1.0f;
 	g_faceLogs = g_wallLogs = 0;   /* the rays' lines are capped per ride */
-	g_torsoLeanSet = false;
-	g_torsoLean = 0.0f;
-	g_torsoTries = 0;
 	g_haveLastHeading = false;
 	g_wheelHistN = g_wheelHistAt = 0;
 }
@@ -2201,12 +2244,17 @@ static void Turn(float *M, float *t, const float *u, const float *P, float radia
 static const char *RoleName(int role)
 {
 	return role == ROLE_WHEEL_F ? "the front wheel" : role == ROLE_WHEEL_R ? "the rear wheel" : role == ROLE_FRONT ? "the bar assembly"
-	     : role == ROLE_GLOW ? "the headlamp's lit parts (with the bar assembly; a speck while the lamp is off)" : "a fixed part";
+	     : role == ROLE_GLOW ? "the headlamp's lit parts (with the bar assembly; a speck while the lamp is off)"
+	     : role == ROLE_FORK ? "the lower fork (with the bars and the front wheel's travel)" : "a fixed part";
 }
 
 /* Which moving part a held skin is: by where its culling sphere's centre lands in the
- * bike's own space (A^T (c - t), the bind undone). Needs the layout, so it's done on the
- * first tilt frame. */
+ * bike's own space (A^T (c - t), the bind undone), or, for the fork's lower end, by its name
+ * ("_fork": the mesh tool names the lower fork legs, the front mudguard and the caliper so;
+ * test 37: at +10 of travel the tyre went into the mudguard and the axle left the fork ends,
+ * so they go with the front wheel's travel, and with the bars; its sphere sits ahead of the
+ * steering head like the bar assembly's, so the name comes first). Needs the layout, so it's
+ * done on the first tilt frame. */
 static void DetectRole(HeldSkin *h)
 {
 	const float *o = (const float *)(h->original[0] + OFF_BONE_ROT), *t = (const float *)(h->original[0] + OFF_BONE_POS);
@@ -2219,7 +2267,9 @@ static void DetectRole(HeldSkin *h)
 	for (int i = 0; i < 3; i++)
 		h->centre[i] = A[i] * d[0] + A[3 + i] * d[1] + A[6 + i] * d[2];
 	h->role = ROLE_NONE;
-	if (g_partsOk && h->count == 1 && radius < 1.6f * g_wheelRadius) {
+	if (g_partsOk && h->count == 1 && NameHas(h->name, "_fork"))
+		h->role = ROLE_FORK;
+	if (h->role == ROLE_NONE && g_partsOk && h->count == 1 && radius < 1.6f * g_wheelRadius) {
 		float fx = h->centre[0] - g_frontAxle[0], fy = h->centre[1] - g_frontAxle[1], fz = h->centre[2] - g_frontAxle[2];
 		float rx = h->centre[0] - g_rearAxle[0], ry = h->centre[1] - g_rearAxle[1], rz = h->centre[2] - g_rearAxle[2];
 		if (fx * fx + fy * fy + fz * fz < 36.0f)
@@ -2795,11 +2845,29 @@ static uint8_t ArmRole(const char *name)
  * forearm bone's node) swings in its own bend plane, the wrist (the hand's node) lands on the
  * grip turned with the bars. The nodes are noted as the rider's shapes are held. */
 typedef struct { uintptr_t upper, elbow, hand; } ArmChain;
-typedef struct { bool ok; float R1[9], t1[3], R2[9], t2[3]; float L1, L2, reach, elbowMove; } ArmMap;   /* world maps, before the tilt: the upper arm's and the forearm's (or, for the head, R1/t1 alone) */
+typedef struct {
+	bool ok; float R1[9], t1[3], R2[9], t2[3]; float L1, L2, reach, elbowMove;   /* world maps, before the tilt: the upper arm's and the forearm's (or, for the head, R1/t1 alone) */
+	float wrist[3];                     /* the hand's node as the clips have it (the roll's pivot) */
+	bool rolled; float Rh[9], th[3], roll;   /* the hand's map with the wrist roll (WristRoll), and the roll, degrees */
+} ArmMap;
 static ArmChain g_arm[2];
 static uintptr_t g_headNode;                /* the head's bone (HEAD), the joint the head is kept level about */
 static uintptr_t g_torsoNode;               /* the lowest spine bone (SPINE1): the joint the upper body leans and twists about */
-static bool g_armLogged[2], g_armLoggedOver[2];   /* the arm's solve logged once a hold, and once more with the bars over */
+static bool g_armLogged[2];                 /* the arm's solve logged once a hold */
+
+/* Each side's largest wrist turn this ride, at the ride's end (test 37: the one-time line with
+ * the bars 8 deg over came at the first 8 deg, short of full lock, and said nothing of the 25
+ * deg at the straight bars). */
+static void LogWristMax(void)
+{
+	for (int side = 0; side < 2; side++) {
+		if (g_wristMax[side] < 0.0f)
+			continue;
+		Log("rider: the %s wrist turned at most %.1f deg from the clips' pose this ride (the bars %.1f deg over, the grip at %.0f%% of the reach, the hand rolled %.1f round the grip)",
+		    side ? "right" : "left", g_wristMax[side], g_wristMaxBar[side], g_wristMaxReach[side], g_wristMaxRoll[side]);
+		g_wristMax[side] = -1.0f;
+	}
+}
 
 /* 5 for the upper body's bones above the pelvis, which lean and twist with the torso: the
  * spine (SPINE1, SPINE2), the chest, the collarbones and the neck. */
@@ -2908,6 +2976,8 @@ static bool SolveArm(const ArmChain *chain, const float Q[9], const float q[3], 
 		return false;
 	float QW[3], T[3], d[3], v1[3], v2[3];
 	MulV(Q, W, QW);
+	memcpy(out->wrist, W, sizeof(out->wrist));
+	out->rolled = false;
 	for (int i = 0; i < 3; i++)
 		T[i] = QW[i] + q[i];   /* the grip turned with the bars: where the hand goes, torso or not */
 	if (torso) {
@@ -3012,36 +3082,115 @@ static float GripReachAt(float lean, const float pivot[3], const float rightW[3]
 	return sum / (float)sides;
 }
 
-/* How far the wrist is turned from the clips' pose, degrees: the hand's map is the bars' turn
- * (Qb), the forearm's its swing (R2, with the torso's map in it), so the wrist's relative
- * rotation changes by R2^T Qb, whose angle this is (test 36: the inner arm looked broken at
- * full lock; the next log says whether the wrist kinks). */
-static float WristTurn(const float R2[9], const float Qb[9])
+/* How far the wrist is turned from the clips' pose, degrees: the hand's map Mh (the bars' turn
+ * Qb, and the wrist roll since test 37), the forearm's its swing (R2, with the torso's map in
+ * it), so the wrist's relative rotation changes by R2^T Mh, whose angle this is (test 36: the
+ * inner arm looked broken at full lock; the next log says whether the wrist kinks). */
+static float WristTurn(const float R2[9], const float Mh[9])
 {
 	float R2t[9], M[9];
 	Transpose3(R2, R2t);
-	Mul3(R2t, Qb, M);
+	Mul3(R2t, Mh, M);
 	float c = 0.5f * (M[0] + M[4] + M[8] - 1.0f);
 	return acosf(c > 1.0f ? 1.0f : c < -1.0f ? -1.0f : c) * 57.29578f;
+}
+
+/* The twist about the unit axis g in the rotation D (swing-twist, the twist first: D = swing
+ * x twist), radians: with D's quaternion (w, v), 2 atan2(v . g, w). */
+static float TwistAbout(const float D[9], const float g[3])
+{
+	float w, v[3], tr = D[0] + D[4] + D[8];
+	if (tr > 0.0f) {
+		float sq = sqrtf(tr + 1.0f) * 2.0f;
+		w = 0.25f * sq;
+		v[0] = (D[7] - D[5]) / sq;
+		v[1] = (D[2] - D[6]) / sq;
+		v[2] = (D[3] - D[1]) / sq;
+	} else if (D[0] > D[4] && D[0] > D[8]) {
+		float sq = sqrtf(1.0f + D[0] - D[4] - D[8]) * 2.0f;
+		w = (D[7] - D[5]) / sq;
+		v[0] = 0.25f * sq;
+		v[1] = (D[1] + D[3]) / sq;
+		v[2] = (D[2] + D[6]) / sq;
+	} else if (D[4] > D[8]) {
+		float sq = sqrtf(1.0f + D[4] - D[0] - D[8]) * 2.0f;
+		w = (D[2] - D[6]) / sq;
+		v[0] = (D[1] + D[3]) / sq;
+		v[1] = 0.25f * sq;
+		v[2] = (D[5] + D[7]) / sq;
+	} else {
+		float sq = sqrtf(1.0f + D[8] - D[0] - D[4]) * 2.0f;
+		w = (D[3] - D[1]) / sq;
+		v[0] = (D[2] + D[6]) / sq;
+		v[1] = (D[5] + D[7]) / sq;
+		v[2] = 0.25f * sq;
+	}
+	if (w < 0.0f) {   /* the same rotation, the short way round */
+		w = -w;
+		for (int i = 0; i < 3; i++)
+			v[i] = -v[i];
+	}
+	return 2.0f * atan2f(v[0] * g[0] + v[1] * g[1] + v[2] * g[2], w);
+}
+
+/* The arm chains' joints' (the shoulder, the elbow, the wrist) biggest move since last frame,
+ * relative to the bike's bone (test 34: the bike's own motion swamps a world figure), for the
+ * lean solve's guard: the Pip-Boy raise of test 37 moved the arm bones 40.7 in a frame and the
+ * lean was solved from the raised pose. Measured every frame the bike's bone can be read;
+ * false while a joint can be read this frame but not yet last frame (a fresh hold, the first
+ * frame of a ride). With no joint to read at all there's nothing to wait for (true, the move
+ * 0): the solve's own count then gives the chain up as before. */
+static bool ArmChainMove(const float nb[3], float *move)
+{
+	bool measured = false, readable = false;
+	*move = 0.0f;
+	for (int side = 0; side < 2; side++) {
+		const uintptr_t joints[3] = { g_arm[side].upper, g_arm[side].elbow, g_arm[side].hand };
+		for (int j = 0; j < 3; j++) {
+			float N[9], p[3], s, rel[3];
+			bool ok = joints[j] && NodeWorld(joints[j], N, p, &s, NULL);
+			if (ok) {
+				readable = true;
+				for (int i = 0; i < 3; i++)
+					rel[i] = p[i] - nb[i];
+				if (g_armMoveLastOk[side][j]) {
+					float d = Dist3f(rel, g_armMoveLast[side][j]);
+					if (d > *move)
+						*move = d;
+					measured = true;
+				}
+				memcpy(g_armMoveLast[side][j], rel, sizeof(rel));
+			}
+			g_armMoveLastOk[side][j] = ok;
+		}
+	}
+	return measured || !readable;
 }
 
 /* The upper body's forward lean for this ride: TorsoLean degrees, or, by default, the least
  * that brings the straight grips to ArmReach of the arms' reach (test 32: the arms were
  * locked straight as the clips pose them, the grips at 100% of the reach, so a turn put the
  * far grip out of reach and the wrist stretched). Bisection, up to 15 degrees. Needs a chain:
- * tried again next frame otherwise, for 300 frames of the ride. */
+ * tried again next frame otherwise, for 300 frames of the ride. Not solved while the arms
+ * are on the move (over 10 in a frame) or while the clips' own reach is short of the riding
+ * pose's (under 95%: the riding clips put the grips at 100%); neither is a try. Test 37: the
+ * tester opened the Pip-Boy a second after getting on, the arm bones moved 40.7 in a frame,
+ * the grips read 82% of the reach, and the 0 lean solved from that pose stuck for five
+ * minutes. The short reach is tried again every half second, and after 20 s of it the solve
+ * is taken as it comes (another mod's clips may well pose the grips nearer). */
 static void SolveTorsoLean(void)
 {
 	float Nt[9], pivot[3], st;
-	g_torsoSolvedAt = (float)g_clock;
-	if ((float)g_clock - g_rideStartClock >= 3.0f)
-		g_torsoFinal = true;
 	if (g_torsoLeanSetting >= 0.0f) {
+		g_torsoSolvedAt = (float)g_clock;
 		g_torsoLean = g_torsoLeanSetting;
 		g_torsoLeanSet = g_torsoFinal = true;
 		Log("rider: the upper body leaned %.1f deg forward (TorsoLean), turned %g of the bars' angle and leaned %g deg per degree of it into a turn (TorsoTwist, TorsoSideLean)", g_torsoLean, g_torsoTwist, g_torsoSideLean);
 		return;
 	}
+	if (!g_armMoveOk || g_armMoveNow > 10.0f)
+		return;   /* the arms on the move (a Pip-Boy raise, a hit): next frame */
+	g_torsoSolvedAt = (float)g_clock;
 	if (++g_torsoTries > 300) {
 		g_torsoLean = 0.0f;
 		g_torsoLeanSet = g_torsoFinal = true;
@@ -3071,6 +3220,21 @@ static void SolveTorsoLean(void)
 	MulV(Rl, upW, probe);
 	float sign = probe[0] * fwdW[0] + probe[1] * fwdW[1] >= 0.0f ? 1.0f : -1.0f;
 	float r0 = GripReachAt(0.0f, pivot, rightW, sign, S, W, reach, sides), lean = 0.0f;
+	if (r0 < 0.95f && !g_torsoAsItComes) {
+		if (g_torsoWaitSince < 0.0f)
+			g_torsoWaitSince = (float)g_clock;
+		if ((float)g_clock - g_torsoWaitSince < 20.0f) {
+			if (!g_torsoWaitLogged) {
+				g_torsoWaitLogged = true;
+				Log("rider: the upper body's lean not solved yet: the grips at %.0f%% of the reach as the clips pose it (the riding pose puts them at 100%%: a menu, a raised arm?), tried again every half second", r0 * 100.0f);
+			}
+			g_torsoRetryAt = (float)g_clock + 0.5f;
+			return;
+		}
+		g_torsoAsItComes = true;
+	}
+	if ((float)g_clock - g_rideStartClock >= 3.0f)
+		g_torsoFinal = true;
 	if (r0 > g_armReach) {
 		float lo = 0.0f, hi = 15.0f;
 		if (GripReachAt(hi, pivot, rightW, sign, S, W, reach, sides) > g_armReach) {
@@ -3090,13 +3254,14 @@ static void SolveTorsoLean(void)
 	g_torsoLean = lean;
 	g_torsoLeanSet = true;
 	if (changed)
-		Log("rider: the upper body leaned %.1f deg forward about the spine's joint: the grips at %.0f%% of the arms' reach with the bars straight (%.0f%% as the clips pose it; ArmReach %g, %d arm%s; %.1f s into the ride%s), turned %g of the bars' angle and leaned %g deg per degree of it into a turn (TorsoTwist, TorsoSideLean)",
+		Log("rider: the upper body leaned %.1f deg forward about the spine's joint: the grips at %.0f%% of the arms' reach with the bars straight (%.0f%% as the clips pose it; ArmReach %g, %d arm%s; %.1f s into the ride%s%s), turned %g of the bars' angle and leaned %g deg per degree of it into a turn (TorsoTwist, TorsoSideLean)",
 		    lean, GripReachAt(lean, pivot, rightW, sign, S, W, reach, sides) * 100.0f, r0 * 100.0f, g_armReach, sides, sides == 1 ? "" : "s",
-		    (float)g_clock - g_rideStartClock, g_torsoFinal ? ", final" : "", g_torsoTwist, g_torsoSideLean);
+		    (float)g_clock - g_rideStartClock, g_torsoFinal ? ", final" : "", g_torsoAsItComes ? "; taken as it comes after 20 s with the grips short of the riding pose's reach" : "", g_torsoTwist, g_torsoSideLean);
 }
 
 /* The world map (before the tilt) an arm bone gets for the bars' turn: the hand and fingers
- * the turn itself, the upper arm and the forearm their side's solve, or, with no chain to
+ * the turn itself (rolled round the grip with the forearm's twist, WristRoll, when that side's
+ * arm is solved), the upper arm and the forearm their side's solve, or, with no chain to
  * solve, the forearm part of the turn (the old way). False: no map. */
 static bool ArmMapFor(uint8_t role, bool hands, const ArmMap arm[4], const float Qb[9], const float qb[3], const float axisW[3], const float qW[3], float R[9], float t[3])
 {
@@ -3114,8 +3279,13 @@ static bool ArmMapFor(uint8_t role, bool hands, const ArmMap arm[4], const float
 	if (!hands)
 		return false;
 	if (kind == 3) {
-		memcpy(R, Qb, sizeof(float) * 9);
-		memcpy(t, qb, sizeof(float) * 3);
+		if (arm[side].ok && arm[side].rolled) {
+			memcpy(R, arm[side].Rh, sizeof(float) * 9);
+			memcpy(t, arm[side].th, sizeof(float) * 3);
+		} else {
+			memcpy(R, Qb, sizeof(float) * 9);
+			memcpy(t, qb, sizeof(float) * 3);
+		}
 		return true;
 	}
 	if (arm[side].ok) {
@@ -3438,12 +3608,16 @@ static void LetGoAllRiderWhy(const char *why, bool quiet)
 	memset(g_arm, 0, sizeof(g_arm));
 	g_headNode = 0;
 	g_torsoNode = 0;
-	g_armLogged[0] = g_armLogged[1] = g_armLoggedOver[0] = g_armLoggedOver[1] = false;
+	g_armLogged[0] = g_armLogged[1] = false;
 	int had = g_riderCount;
 	while (g_riderCount)
 		LetGoRider(g_riderCount - 1, why);
-	if (had && !quiet)
+	if (had && !quiet) {
 		Log("rider: %d shape(s) back as they were and let go (%s)", had, why);
+		LogWristMax();
+	}
+	if (had)
+		ResetTorsoSolve();   /* held afresh, solved afresh: a knock-off, a fast travel's rebuilt 3D, a skeleton wait (test 37) */
 }
 
 static void LetGoAllRider(const char *why)
@@ -3748,6 +3922,10 @@ static void FrameRider(bool tilt, const float R[9], const float P[3])
 		if (g_skins[k].node && (!bike || (bike->role != ROLE_NONE && g_skins[k].role == ROLE_NONE)))
 			bike = &g_skins[k];
 	float Nb[9], nb[3], sb, Nbi[9];
+	bool bikeOk = bike && NodeWorld(bike->node, Nb, nb, &sb, Nbi);
+	/* The arm chains' move this frame, for the lean solve's guard (test 37): measured whether
+	 * or not the rider is written, so the first solve has a settled frame behind it. */
+	g_armMoveOk = bikeOk && ArmChainMove(nb, &g_armMoveNow);
 	/* Level: the originals are right and nothing need be written. With a deadband (test 26: the
 	 * applied pitch wobbles a degree on ordinary ground): level under half a degree, tilted
 	 * again over one. The bars turned (the hands follow them) or the bike lifted count too. */
@@ -3762,13 +3940,13 @@ static void FrameRider(bool tilt, const float R[9], const float P[3])
 	 * neither leaning nor shifting sideways); the arms are solved from the moved shoulders
 	 * and the hands stay on the grips. With it the rider is written every frame, level or
 	 * not. */
-	if (g_riderHands && g_partsOk && g_torsoNode && (float)g_clock - g_rideStartClock >= 0.5f &&
+	if (g_riderHands && g_partsOk && g_torsoNode && (float)g_clock - g_rideStartClock >= 0.5f && (float)g_clock >= g_torsoRetryAt &&
 	    (!g_torsoLeanSet || (!g_torsoFinal && (float)g_clock - g_torsoSolvedAt >= 0.5f)))
-		SolveTorsoLean();   /* half a second in, and again every half second for 3 s: the pose settles (test 33's first ride solved 15 deg at 100%) */
+		SolveTorsoLean();   /* half a second in, and again every half second for 3 s: the pose settles (test 33's first ride solved 15 deg at 100%); not while the arms move or the grips are short of the riding pose's reach (test 37) */
 	bool torso = g_riderHands && g_partsOk && g_torsoNode && g_torsoLeanSet && (g_torsoLean > 0.05f || ((g_torsoTwist > 0.0f || g_torsoSideLean > 0.0f) && fabsf(g_barNow) > 0.3f));
 	bool hands = g_riderHands && g_partsOk && (fabsf(g_barNow) > 0.3f || torso);
 	bool level = g_riderLevel && !hands && fabsf(g_liftNow) < 0.5f;
-	bool ready = (tilt || hands) && g_riderTilt && g_riderWrite && !level && bike && NodeWorld(bike->node, Nb, nb, &sb, Nbi);
+	bool ready = (tilt || hands) && g_riderTilt && g_riderWrite && !level && bikeOk;
 	g_riderApplied = ready;
 	if (!ready) {
 		if (tilt && g_riderTilt && g_skinCount && !level && !bike && !g_riderBoneWarned) {
@@ -3860,7 +4038,8 @@ static void FrameRider(bool tilt, const float R[9], const float P[3])
 	 * body, the elbow swings, the wrist lands on the turned grip). */
 	float Qb[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, qb[3] = { 0, 0, 0 };
 	ArmMap arm[4];
-	arm[0].ok = arm[1].ok = arm[2].ok = arm[3].ok = false;
+	for (int i = 0; i < 4; i++)
+		arm[i].ok = arm[i].rolled = false;
 	if (torso) {
 		memcpy(arm[3].R1, Tr, sizeof(Tr));
 		memcpy(arm[3].t1, tt, sizeof(tt));
@@ -3873,17 +4052,53 @@ static void FrameRider(bool tilt, const float R[9], const float P[3])
 		for (int i = 0; i < 3; i++)
 			qb[i] = qW[i] - Qq[i];
 		for (int side = 0; side < 2; side++) {
-			SolveArm(&g_arm[side], Qb, qb, Tr, tt, torso, &arm[side]);
-			if (arm[side].ok && !g_armLogged[side]) {
+			ArmMap *am = &arm[side];
+			SolveArm(&g_arm[side], Qb, qb, Tr, tt, torso, am);
+			if (!am->ok)
+				continue;
+			if (g_wristRoll > 0.0f) {
+				/* The wrist roll (test 37: 25 deg of wrist turn at the straight bars once the lean
+				 * and the re-solved elbow had swung the forearm, 42 to 46 on the inner wrist with the
+				 * bars 8 over, the hand keeping the clips' orientation turned with the bars): the
+				 * hand follows the forearm where it can without leaving the grip, rolled round the
+				 * grip's axis (the bike's lateral axis, outward on each side, through the bike's
+				 * bone; the bars' turn Qb goes in front) by WristRoll of the twist about that axis
+				 * in the forearm's map seen from the turned grip, Qb^T R2, the pivot the wrist on
+				 * the grip, so the fingers stay wrapped. What's left (the swing) is the wrist turn
+				 * the log carries. */
+				float ex[3] = { side ? 1.0f : -1.0f, 0.0f, 0.0f }, Ae[3], gb[3], Qbt[9], D[9], Rg[9], RgW[3], QW[3];
+				MulV(A, ex, Ae);
+				MulV(Nb, Ae, gb);
+				float lg = sqrtf(gb[0] * gb[0] + gb[1] * gb[1] + gb[2] * gb[2]);
+				if (lg > 0.0001f) {
+					for (int i = 0; i < 3; i++)
+						gb[i] /= lg;
+					Transpose3(Qb, Qbt);
+					Mul3(Qbt, am->R2, D);
+					float theta = g_wristRoll * TwistAbout(D, gb);
+					AxisRotation(gb, theta, Rg);
+					Mul3(Qb, Rg, am->Rh);
+					MulV(Rg, am->wrist, RgW);
+					for (int i = 0; i < 3; i++)
+						RgW[i] = am->wrist[i] - RgW[i];
+					MulV(Qb, RgW, QW);
+					for (int i = 0; i < 3; i++)
+						am->th[i] = QW[i] + qb[i];
+					am->roll = theta * 57.29578f;
+					am->rolled = true;
+				}
+			}
+			float wrist = WristTurn(am->R2, am->rolled ? am->Rh : Qb), reachShare = am->reach / (am->L1 + am->L2) * 100.0f, roll = am->rolled ? am->roll : 0.0f;
+			if (wrist > g_wristMax[side]) {   /* the ride's largest, logged at its end */
+				g_wristMax[side] = wrist;
+				g_wristMaxBar[side] = g_barNow;
+				g_wristMaxReach[side] = reachShare;
+				g_wristMaxRoll[side] = roll;
+			}
+			if (!g_armLogged[side]) {
 				g_armLogged[side] = true;
-				Log("rider: the %s arm solved: upper arm %.1f, forearm %.1f, the grip %.1f from the shoulder (%.0f%% of the reach), the elbow moved %.1f, the wrist turned %.1f deg from the clips' pose (the bars %.1f deg, the upper body %.1f deg forward)",
-				    side ? "right" : "left", arm[side].L1, arm[side].L2, arm[side].reach, arm[side].reach / (arm[side].L1 + arm[side].L2) * 100.0f, arm[side].elbowMove, WristTurn(arm[side].R2, Qb), g_barNow, torso ? g_torsoLean : 0.0f);
-			} else if (arm[side].ok && !g_armLoggedOver[side] && fabsf(g_barNow) >= 8.0f) {
-				/* And once with the bars well over (test 36's question is the inner wrist at full lock; the first solve is at the straight bars). */
-				g_armLoggedOver[side] = true;
-				Log("rider: the %s arm with the bars %.1f deg over: the grip %.1f from the shoulder (%.0f%% of the reach), the elbow moved %.1f, the wrist turned %.1f deg from the clips' pose (the upper body %.1f deg forward, turned %.1f, leaned %.1f into the turn)",
-				    side ? "right" : "left", g_barNow, arm[side].reach, arm[side].reach / (arm[side].L1 + arm[side].L2) * 100.0f, arm[side].elbowMove, WristTurn(arm[side].R2, Qb),
-				    torso ? g_torsoLean : 0.0f, torso ? g_torsoTwist * g_barNow : 0.0f, torso ? g_torsoSideLean * g_barNow : 0.0f);
+				Log("rider: the %s arm solved: upper arm %.1f, forearm %.1f, the grip %.1f from the shoulder (%.0f%% of the reach), the elbow moved %.1f, the wrist turned %.1f deg from the clips' pose, the hand rolled %.1f round the grip (the bars %.1f deg, the upper body %.1f deg forward)",
+				    side ? "right" : "left", am->L1, am->L2, am->reach, reachShare, am->elbowMove, wrist, roll, g_barNow, torso ? g_torsoLean : 0.0f);
 			}
 		}
 	}
@@ -4613,10 +4828,14 @@ static void FrameTilt(void)
 		 * settles over BumpSettle as the filtered values catch up or the bump passes. */
 		float bump = 0.0f, tp = tanf(g_pitchNow / 57.29578f);
 		bool bumpOn = g_bumpMax > 0.0f && g_bumpSettle > 0.0f;
-		float travel = g_suspension ? g_suspTravel : 0.0f;   /* with the suspension, the bump takes only what a wheel's travel can't */
+		/* With the suspension, the bump takes only what a wheel's travel can't; the rear's
+		 * upward travel is SuspCompressRear at most (its mudguard is on the frame: test 37
+		 * found the tyre within 10 units of it, the closest touching), the frame the rest. */
+		float compressRear = g_suspCompressRear < g_suspTravel ? g_suspCompressRear : g_suspTravel;
+		float travel[2] = { g_suspension ? g_suspTravel : 0.0f, g_suspension ? compressRear : 0.0f };
 		if (bumpOn && useWheels && g_wheelZOk) {
 			for (int i = 0; i < 2; i++) {
-				float bottom = g_liftSmooth + (i == 0 ? g_frontAxle[1] : g_rearAxle[1]) * tp, deficit = g_wheelZ[i] - bottom - travel;
+				float bottom = g_liftSmooth + (i == 0 ? g_frontAxle[1] : g_rearAxle[1]) * tp, deficit = g_wheelZ[i] - bottom - travel[i];
 				if (deficit > bump)
 					bump = deficit;
 			}
@@ -4655,9 +4874,10 @@ static void FrameTilt(void)
 		/* The wheels follow the ground (test 36's wish: "the wheels would follow the ground"):
 		 * each sits on its own ray's hit, moved against the frame by what it lacks from where
 		 * the frame, lifted and pitched as applied this frame, holds it, up to SuspTravel either
-		 * way (up into the frame over a bump, down into a hole). Smoothed over 0.03 s (a
-		 * one-frame ray hole mustn't flick it); eased back over 0.2 s when the rays have no
-		 * word or the bike is in the air. */
+		 * way (up into the frame over a bump, down into a hole; the rear up by SuspCompressRear
+		 * at most: its mudguard is on the frame). Smoothed over 0.03 s (a one-frame ray hole
+		 * mustn't flick it); eased back over 0.2 s when the rays have no word or the bike is
+		 * in the air. */
 		for (int i = 0; i < 2; i++) {
 			float target = 0.0f, tau = 0.2f;
 			if (!g_suspension) {
@@ -4667,6 +4887,8 @@ static void FrameTilt(void)
 			if (useWheels && g_wheelZOk && g_suspTravel > 0.0f) {
 				float bottom = g_liftNow + (i == 0 ? g_frontAxle[1] : g_rearAxle[1]) * tp;
 				target = Clamp(g_wheelZ[i] - bottom, g_suspTravel);
+				if (i == 1 && target > compressRear)
+					target = compressRear;
 				tau = 0.03f;
 			}
 			g_wheelOffset[i] += (target - g_wheelOffset[i]) * (1.0f - expf(-dtb / tau));
@@ -4709,24 +4931,25 @@ static void FrameTilt(void)
 		if (g_riderCount)
 			Log(g_riderApplied ? "rider: %d shape(s) tilted with the bike about (%.0f, %.0f, %.0f)" : "rider: %d shape(s) held, level",
 			    g_riderCount, g_riderPivot[0], g_riderPivot[1], g_riderPivot[2]);
-		Log("time: frame %.0f us avg, %.0f max, over %d (bike %.0f/%.0f, rider %.0f/%.0f); sync %.0f us avg, %.0f max, over %d, %.1f queries each; %.2f memory queries a frame in all",
+		Log("time: frame %.0f us avg, %.0f max, over %d (bike %.0f/%.0f, rider %.0f/%.0f); sync %.0f us avg, %.0f max, over %d, %.1f queries each (%d at most); %.2f memory queries a frame in all",
 		    TimeAvgUs(&g_tFrame), g_tFrame.max * 1e6, g_tFrame.n, TimeAvgUs(&g_tTilt), g_tTilt.max * 1e6, TimeAvgUs(&g_tRider), g_tRider.max * 1e6,
-		    TimeAvgUs(&g_tSync), g_tSync.max * 1e6, g_tSync.n, g_tSync.n ? (double)g_syncQueries / g_tSync.n : 0.0,
+		    TimeAvgUs(&g_tSync), g_tSync.max * 1e6, g_tSync.n, g_tSync.n ? (double)g_syncQueries / g_tSync.n : 0.0, g_syncQueriesMax,
 		    g_queryFrames ? (double)g_queries / g_queryFrames : 0.0);
 		memset(&g_tFrame, 0, sizeof(g_tFrame));
 		memset(&g_tTilt, 0, sizeof(g_tTilt));
 		memset(&g_tRider, 0, sizeof(g_tRider));
 		memset(&g_tSync, 0, sizeof(g_tSync));
-		g_queries = g_queryFrames = g_syncQueries = 0;
+		g_queries = g_queryFrames = g_syncQueries = g_syncQueriesMax = 0;
 		g_steerWanted = 0.0f;
 		g_steerClamped = 0;
 	}
 
 	/* Each shape's map in the bike's own space, x -> M x + m: a wheel spun about its axle
-	 * (the x axis through it), the front wheel and the bar assembly then turned about the
-	 * steering axis, a wheel moved along the bike's up by its suspension offset (before the
-	 * tilt, so it ends up along the tilted up), and everything turned about the seat P by the
-	 * tilt, x -> R (x - P) + P. Mesh -> bone after that: rotation A M, translation t + A m.
+	 * (the x axis through it), the front wheel, the lower fork and the bar assembly then
+	 * turned about the steering axis, a wheel moved along the bike's up by its suspension
+	 * offset (before the tilt, so it ends up along the tilted up; the lower fork by the front
+	 * wheel's, no spin), and everything turned about the seat P by the tilt,
+	 * x -> R (x - P) + P. Mesh -> bone after that: rotation A M, translation t + A m.
 	 * The culling sphere (bone space) is grown by how far the map moves its centre (the
 	 * offset's move with it), so the seat and the sphere still cover what they did. */
 	float P[3] = { 0.0f, g_pivotForward, g_pivotHeight };
@@ -4740,10 +4963,10 @@ static void FrameTilt(void)
 		float M[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, m[3] = { 0, 0, 0 };
 		if (hs->role == ROLE_WHEEL_F || hs->role == ROLE_WHEEL_R)
 			Turn(M, m, xAxis, hs->role == ROLE_WHEEL_F ? g_frontAxle : g_rearAxle, g_wheelAngle);
-		if (hs->role == ROLE_WHEEL_F || hs->role == ROLE_FRONT || hs->role == ROLE_GLOW)
+		if (hs->role == ROLE_WHEEL_F || hs->role == ROLE_FRONT || hs->role == ROLE_GLOW || hs->role == ROLE_FORK)
 			Turn(M, m, g_steerAxis, g_steerPoint, g_barNow / 57.29578f);
-		if (hs->role == ROLE_WHEEL_F || hs->role == ROLE_WHEEL_R)
-			m[2] += g_wheelOffset[hs->role == ROLE_WHEEL_F ? 0 : 1];
+		if (hs->role == ROLE_WHEEL_F || hs->role == ROLE_WHEEL_R || hs->role == ROLE_FORK)
+			m[2] += g_wheelOffset[hs->role == ROLE_WHEEL_R ? 1 : 0];
 		if (tilt) {
 			float M2[9], m2[3], RP[3];
 			Mul3(R, M, M2);
@@ -4986,7 +5209,10 @@ static void FaceRays(uintptr_t player, bool onGround)
 	 * and nothing at 1.5 radii: an obstacle lower than that, ridden over at ObstacleThrottle
 	 * with the wheel's bump lift. Something at both: the slope between the hits, over the
 	 * bike's pitch: WallAngle or steeper is a wall, the throttle eased off to nothing at the
-	 * wheel; between the climb limit and that, an obstacle; under the climb limit, a slope. */
+	 * wheel; between ObstacleAngle (or the climb limit, if that is higher) and that, an
+	 * obstacle; under it, a slope the bike climbs, no verdict (test 37: ten of 39 throttle
+	 * holds were faces of 45 to 49 degrees, over the rays' climb value of 45, which the
+	 * controller climbs at 47). The lower-only obstacle goes by the same angle. */
 	/* A third ray at half a radius tells a low obstacle from a slope whose hit at 1.5 radii
 	 * lies beyond the rays' reach (review: a climbable slope's approach read as an obstacle). */
 	float heights[3] = { R, 1.5f * R, 0.5f * R }, d[3];
@@ -5008,6 +5234,7 @@ static void FaceRays(uintptr_t player, bool onGround)
 	float climb = GlobalValue(g_tiltGlobal);
 	if (!(climb >= 20.0f))
 		climb = 45.0f;
+	float obstacleAngle = g_obstacleAngle > climb ? g_obstacleAngle : climb;
 	float ahead = d[0] - wheelFront, slope = 0.0f;
 	const char *what = NULL;
 	bool wall = false;
@@ -5017,15 +5244,17 @@ static void FaceRays(uintptr_t player, bool onGround)
 		if (d[2] >= 0.0f) {
 			float run = d[0] - d[2];
 			slope = g_pitchNow + atan2f(heights[0] - heights[2], run > 0.0f ? run : 0.0f) * 57.29578f;
-			if (slope >= climb)
+			if (slope >= obstacleAngle)
 				what = "an obstacle lower than 1.5 wheel radii";
 		}
 	} else if (d[0] >= 0.0f) {
 		float run = d[1] - d[0];
 		slope = g_pitchNow + atan2f(heights[1] - heights[0], run > 0.0f ? run : 0.0f) * 57.29578f;
-		if (slope >= climb) {
-			wall = slope >= g_wallAngle;
-			what = wall ? "a wall" : "a face under WallAngle, an obstacle";
+		if (slope >= g_wallAngle) {   /* walls stay at WallAngle, wherever ObstacleAngle is set */
+			wall = true;
+			what = "a wall";
+		} else if (slope >= obstacleAngle) {
+			what = "a face under WallAngle, an obstacle";
 		}
 	}
 	if (!what) {
@@ -5054,10 +5283,14 @@ static void FaceRays(uintptr_t player, bool onGround)
 	 * or two either way; test 35's hits were 63 to 126 behind, the front wheel's ray 20 to 60
 	 * up; without that, a wall the bike has nosed or turned into, its front wheel through it,
 	 * is a wall still: review); (b) while an obstacle verdict is in force, a wall needs its
-	 * hit ahead of the wheel on WallFrames frames running. */
+	 * hit ahead of the wheel on WallFrames frames running; (c) a raw obstacle verdict whose
+	 * axle-height hit is at or behind the front wheel's edge is under the bike already (test
+	 * 37: 16 of 39 throttle holds had the hit 0 to 105 behind the edge, the ground under the
+	 * pitched bike): it sets the hold, for WallAhead and the bump cap, but leaves the throttle
+	 * free, the suspension's to take. */
 	char note[96] = "";
 	bool forNow = false;   /* a wall held back by (b): it doesn't renew the hold, or a wall the bike stops at (its hit at the wheel's edge) would stay an obstacle for good */
-	bool underBike = false;
+	bool underBike = false, atWheel = !wall && ahead <= 0.0f;
 	bool onIt = g_wheelZOk && g_wheelZ[0] > 0.5f * R;   /* the front wheel's ray lands well above the capsule's contact: the bike is on the thing */
 	if (wall && ahead > 0.0f)
 		g_wallSeen = seen + 1;
@@ -5071,14 +5304,18 @@ static void FaceRays(uintptr_t player, bool onGround)
 		snprintf(note, sizeof(note), " (a wall only after %d frames ahead of the wheel: an obstacle for now)", g_wallFrames);
 	} else if (wall && ahead < -0.5f * R) {
 		snprintf(note, sizeof(note), " (behind the wheel's edge, but the front wheel's ray finds the ground %.0f up: a wall the bike has nosed into)", g_wheelZOk ? g_wheelZ[0] : 0.0f);
+	} else if (atWheel) {
+		snprintf(note, sizeof(note), " (at the wheel: the throttle free, the suspension's)");
 	}
 	if (!wall && !forNow)
 		g_faceObstacleAt = (float)g_clock;
 	float ease;
-	if (wall || (g_obstacleThrottle <= 0.0f && !underBike))
+	if (wall)
 		ease = ahead <= 0.0f ? 0.0f : ahead >= span ? 1.0f : ahead / span;
-	else if (underBike && g_obstacleThrottle <= 0.0f)
-		ease = 1.0f;   /* ObstacleThrottle=0 stops short of obstacles; on top of one there's nothing ahead to stop short of (review) */
+	else if (atWheel || (underBike && g_obstacleThrottle <= 0.0f))
+		ease = 1.0f;   /* (c); and ObstacleThrottle=0 stops short of obstacles, but on top of one there's nothing ahead to stop short of (review) */
+	else if (g_obstacleThrottle <= 0.0f)
+		ease = ahead <= 0.0f ? 0.0f : ahead >= span ? 1.0f : ahead / span;   /* a wall held back as an obstacle for now, at the wheel: stopped at too */
 	else
 		ease = g_obstacleThrottle;
 	g_faceEase = ease;
@@ -5087,7 +5324,7 @@ static void FaceRays(uintptr_t player, bool onGround)
 		g_faceLogs++;
 		g_faceLoggedAt = (float)g_clock;
 		Log("rays: %s ahead (%.0f deg): %.0f past the front wheel at axle height (%s, layer %u), the throttle %s %.0f%%%s", what, slope, ahead,
-		    hitWhat && *hitWhat ? hitWhat : "unnamed", hitLayer, wall ? "eased to" : "held to", ease * 100.0f, note);
+		    hitWhat && *hitWhat ? hitWhat : "unnamed", hitLayer, wall ? "eased to" : atWheel ? "left at" : "held to", ease * 100.0f, note);
 	}
 	g_faceKind = kind;
 }
@@ -6003,18 +6240,24 @@ static uintptr_t AddressOf(FILE *f, uint64_t count, uint64_t id)
 
 /* What a ray passes through. First the phantoms: triggers (12), acoustic spaces (21), actor
  * zones (22, test 17: the "nothing" test 16 stopped at on a flat slab), projectile zones (23),
- * gas traps (24) and door detection (37); and what the capsule pushes aside or steps over:
- * clutter (4), weapons (5), small debris (19), shell casings (25), dead bodies (32), and water
- * (11: the ground ray then finds the bed, so deep water is a drop). Then the character
- * controller's own collides-with list (ReadSolidMask; test 36: the pick's filter 30 doesn't
- * keep out what the capsule never meets, and food bushes (15, non-collidable), a fire truck's
- * navcut shape (49) and a dog (8, biped) read as walls): solid only if the layer is in it.
- * Without the list everything else stops the bike (test 17: a chain-link fence is layer 26,
- * transparent small, and was passed through) but those three layers and 64 and over. */
+ * gas traps (24) and door detection (37), and the ones the character controller's own
+ * collides-with list holds as well (test 37: a tripwire or a gas cloud would present as a
+ * wall): spells (7), cloud traps (16), the query and pick layers 38 to 46 (cone projectile,
+ * camera, item picker, line of sight, pathing pick, custom picks, spell explosion 45,
+ * dropping pick 46), living-and-dead actors (52), trap triggers (54) and character bumpers
+ * (56); and what the capsule pushes aside or steps over: clutter (4), weapons (5), small
+ * debris (19), shell casings (25), dead bodies (32), and water (11: the ground ray then
+ * finds the bed, so deep water is a drop). Then the character controller's own collides-with
+ * list (ReadSolidMask; test 36: the pick's filter 30 doesn't keep out what the capsule never
+ * meets, and food bushes (15, non-collidable), a fire truck's navcut shape (49) and a dog (8,
+ * biped) read as walls): solid only if the layer is in it. Without the list everything else
+ * stops the bike (test 17: a chain-link fence is layer 26, transparent small, and was passed
+ * through) but those three layers and 64 and over. */
 static bool SolidLayer(uint32_t layer)
 {
 	switch (layer) {
-	case 4: case 5: case 11: case 12: case 19: case 21: case 22: case 23: case 24: case 25: case 32: case 37:
+	case 4: case 5: case 7: case 11: case 12: case 16: case 19: case 21: case 22: case 23: case 24: case 25: case 32: case 37:
+	case 38: case 39: case 40: case 41: case 42: case 43: case 44: case 45: case 46: case 52: case 54: case 56:
 		return false;
 	default:
 		break;
@@ -6069,14 +6312,16 @@ static bool LayerMaskAt(uintptr_t form, uint32_t idxAt, uint32_t arrayAt, uint64
  * and food bushes (layer 15, non-collidable), a fire truck's navcut shape (49) and Dogmeat
  * (8) read as walls and stopped the bike): the character controller's own collision layer
  * record, COLL 0008877F in Fallout4.esm, lists what it collides with. BGSCollisionLayer is
- * TESForm (0x20 bytes), then TESDescription (0x10: a vtable and two ints), then the collision
- * index, a debug colour, flags, a name and the collides-with array (entries, capacity, count,
- * as the other arrays read here); should TESDescription be 8 bytes the fields sit 8 earlier,
- * so that is tried second. Without a record that validates, the built-in table (SolidLayer).
- * Once per load, at the rays' test. */
+ * TESForm (0x20 bytes), then TESDescription (0x18: a vtable, a file offset, a chunk offset
+ * and a BGSLocalizedStringDL), then the collision index at +0x38, a debug colour, flags, a
+ * name and the collides-with array at +0x50 (entries, capacity, count, as the other arrays
+ * read here; the record is 0x68 bytes). Test 37: the first build tried +0x30 (it read 874)
+ * and +0x28 (328138080), as if TESDescription were 0x10 or 8 bytes; those two layouts are
+ * tried second and third now, and the log says what each read. Without a record that
+ * validates, the built-in table (SolidLayer). Once per load, at the rays' test. */
 static void ReadSolidMask(void)
 {
-	char why[200], whyB[200];
+	char why[640];
 	uint64_t mask = 0;
 	g_solidMask = 0;
 	uintptr_t form = ((LookupFormByID_t)(g_base + RVA_LOOKUP_FORM))(COLL_CHAR_CONTROLLER);
@@ -6084,10 +6329,14 @@ static void ReadSolidMask(void)
 		snprintf(why, sizeof(why), "no such form");
 	} else if (!IsA(form, RTTI_COLLISION_LAYER)) {
 		snprintf(why, sizeof(why), "the form is %.40s, not a BGSCollisionLayer", OrNone(ObjectTypeName(form)));
-	} else if (!LayerMaskAt(form, OFF_COLL_INDEX, OFF_COLL_COLLIDES, &mask, why, sizeof(why)) &&
-	           !LayerMaskAt(form, OFF_COLL_INDEX - 8, OFF_COLL_COLLIDES - 8, &mask, whyB, sizeof(whyB))) {
-		size_t len = strlen(why);
-		snprintf(why + len, sizeof(why) - len, "; %s", whyB);
+	} else {
+		size_t len = 0;
+		for (uint32_t back = 0; back <= 16 && !mask; back += 8) {   /* TESDescription 0x18, 0x10 or 8 bytes: the fields 0, 8 or 16 earlier */
+			char one[200];
+			if (LayerMaskAt(form, OFF_COLL_INDEX - back, OFF_COLL_COLLIDES - back, &mask, one, sizeof(one)))
+				break;
+			len += (size_t)snprintf(why + len, sizeof(why) - len, "%s%s", len ? "; " : "", one);
+		}
 	}
 	if (!mask) {
 		Log("rays: COLL %08X can't be read as the character controller's collision layer (%s): the built-in layer table", COLL_CHAR_CONTROLLER, why);
@@ -6110,10 +6359,12 @@ static void ReadSolidMask(void)
 /* Is the hit's 3D the rider's own: the player's root (the capsule's shape is on it), or under
  * it (the body, the worn bike)? Test 36: the face rays start at the player's position, inside
  * the capsule, and read 'skeleton.nif' (layer 30, and the body's 8) as an obstacle a unit past
- * the front wheel, the throttle held to ObstacleThrottle. Up through the parents, 8 at most. */
+ * the rays' start, 125 behind the front wheel's edge, the throttle held to ObstacleThrottle.
+ * Up through the parents, 24 at most (test 37: the arm bones sit 10 and more deep in the
+ * skeleton, past the 8 the first build walked). */
 static bool RidersOwn(uintptr_t obj)
 {
-	for (int i = 0; obj && i < 8; i++) {
+	for (int i = 0; obj && i < 24; i++) {
 		if (obj == g_riderRoot)
 			return true;
 		obj = ReadPtr(obj + OFF_PARENT);
@@ -6879,8 +7130,10 @@ static void Tick(DWORD now)
 		g_parkValid = false;
 		g_parkPublishedAt = -100.0f;
 	}
-	if (!riding && g_wasRiding)
+	if (!riding && g_wasRiding) {
 		LogParkSpot();
+		LogWristMax();   /* the ride's wrist turn, when the rider was let go quietly before the dismount */
+	}
 	g_riding = riding;
 	PublishGround(Player());
 	/* How steep the ground here is, for the script to refuse getting off on a face too steep
@@ -6916,6 +7169,8 @@ static void Tick(DWORD now)
 		SyncSkins(Player(), tilt > 0.0f);
 		TimeAdd(&g_tSync, t0);
 		g_syncQueries += g_queries - q0;
+		if (g_queries - q0 > g_syncQueriesMax)
+			g_syncQueriesMax = g_queries - q0;
 	} else {
 		if (g_skinCount || g_riderCount)   /* test 24: the bike's skins had gone first, and the rider's stayed held */
 			LetGoAll("got off");
@@ -7000,8 +7255,7 @@ static void Task_Run(Task *self)
 	if (!g_dataReady)
 		return;
 	DWORD now = GetTickCount();
-	if (now - g_regionsAt >= 30000)   /* test 27: the 5 s backstop's flush cost 23 queries a sync (2-6 ms) */
-		ForgetRegions();
+	g_regionTick = now;   /* the region cache's entries age against the frame's tick; each lapses on its own (test 37: the 30 s flush here re-walked the rider in one sync) */
 	if (now - g_lastTick >= g_interval) {
 		g_lastTick = now;
 		Tick(now);
@@ -7039,6 +7293,8 @@ static void OnF4SEMessage(F4SEMessage *msg)
 		g_riderBoneWarned = false;
 		g_holdWaitSince = 0.0f;
 		g_holdWaitExpired = false;
+		ResetTorsoSolve();                      /* the upper body's lean solved again for the loaded pose (test 37) */
+		g_torsoRetryAt = (float)g_clock + 0.5f; /* after the next tick's fresh ride start, not before it */
 		g_zoomRiding = g_zoomTouched = false;   /* a new camera: nothing of ours to put back */
 		g_steerHave = false;                    /* steer from the loaded heading */
 		g_pushCtrl = 0;                         /* the old controller is gone: nothing to undo */

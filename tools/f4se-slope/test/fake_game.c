@@ -58,6 +58,43 @@ static int g_failures;
 #define CHECK(cond, ...) do { if (cond) { printf("  ok   "); } else { printf("  FAIL "); g_failures++; } \
 	printf(__VA_ARGS__); printf("\n"); } while (0)
 
+/* Test 37: the plugin's VirtualQuery calls (its region cache's misses), counted through its
+ * import table, and the most in one frame of the harness. The 30 s flush of that cache
+ * re-walked the rider's 88 regions in the next sync (12-16 ms, a stutter every half
+ * minute); each entry lapses on its own now, the re-check spread over 30 s. */
+static int g_vqCalls, g_vqFrameMax;
+static bool g_vqHooked;
+static SIZE_T WINAPI CountingVirtualQuery(LPCVOID p, PMEMORY_BASIC_INFORMATION mbi, SIZE_T n)
+{
+	g_vqCalls++;
+	return VirtualQuery(p, mbi, n);
+}
+/* One named import of the loaded DLL pointed at ours (the import address table's slot). */
+static bool HookImport(HMODULE dll, const char *name, void *with)
+{
+	uint8_t *base = (uint8_t *)dll;
+	IMAGE_NT_HEADERS64 *nt = (IMAGE_NT_HEADERS64 *)(base + ((IMAGE_DOS_HEADER *)base)->e_lfanew);
+	IMAGE_DATA_DIRECTORY *dir = &nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
+	if (!dir->VirtualAddress)
+		return false;
+	for (IMAGE_IMPORT_DESCRIPTOR *imp = (IMAGE_IMPORT_DESCRIPTOR *)(base + dir->VirtualAddress); imp->Name; imp++) {
+		IMAGE_THUNK_DATA64 *names = (IMAGE_THUNK_DATA64 *)(base + imp->OriginalFirstThunk), *slots = (IMAGE_THUNK_DATA64 *)(base + imp->FirstThunk);
+		for (; names->u1.AddressOfData; names++, slots++) {
+			if (names->u1.Ordinal & IMAGE_ORDINAL_FLAG64)
+				continue;
+			if (strcmp((const char *)((IMAGE_IMPORT_BY_NAME *)(base + names->u1.AddressOfData))->Name, name) != 0)
+				continue;
+			DWORD old;
+			if (!VirtualProtect(&slots->u1.Function, sizeof(slots->u1.Function), PAGE_READWRITE, &old))
+				return false;
+			slots->u1.Function = (ULONGLONG)(uintptr_t)with;
+			VirtualProtect(&slots->u1.Function, sizeof(slots->u1.Function), old, &old);
+			return true;
+		}
+	}
+	return false;
+}
+
 /* --- MSVC RTTI, built inside the image --------------------------------------- */
 
 static uintptr_t RttiAlloc(size_t n)
@@ -133,8 +170,9 @@ static uint8_t *g_lampRef2, *g_lampRef2Loaded, *g_lampRef2Root;
 static uint8_t *g_collChar;    /* BGSCollisionLayer COLL 0008877F: what the character controller collides with */
 static bool g_collHidden;      /* one test: the form lookup finds no such record */
 static uint8_t *g_handsShape, *g_handsSkin, *g_handsData, *g_handsBones, *g_handsXf[5], g_handsBonesOriginal[5 * 0x50];
-static uint8_t *g_partData[3], *g_partBones[3];   /* the Harley build's moving parts: front wheel, rear wheel, bar assembly */
-static uint8_t g_partBonesOriginal[3][0x50];
+static uint8_t *g_partData[4], *g_partBones[4];   /* the Harley build's moving parts: front wheel, rear wheel, bar assembly, the lower fork (test 38) */
+static uint8_t g_partBonesOriginal[4][0x50];
+static bool g_handRaised;         /* the left hand swung up about the elbow, 20% nearer the shoulder (a Pip-Boy raise: test 37's lean solved from it) */
 /* The rider: the body skinned to two bones, the COM the bike hangs off, a plain shape (the
  * Pip-Boy's) under a bone of its own. Their world transforms follow the player (SyncFakeWorld). */
 static uint8_t *g_bodyShape, *g_bodySkin, *g_bodyData, *g_bodyBones, *g_bodyNodes[10], *g_comNode, *g_pipboyBone, *g_pipboyShape, *g_npcRoot;
@@ -218,9 +256,12 @@ static void FakeGetVelocity(uint8_t *self, float *out) { (void)self; memcpy(out,
  * ahead of the player along their heading, facing them, wherever they go (test 35: a face
  * behind the front wheel's edge, the bike on top of a thing it climbed). */
 /* what: the hit's 3D object (NULL: FakeWall, or nothing for a trigger); test 36's self-hit is the player's root. */
-typedef struct { bool on; float point[2], normal[2]; uint32_t layer; float top, bottom, follow; uint8_t *what; } FakePlane;
+/* slant: 0 = a vertical face; else the face rises away from the player at this many degrees
+ * from the horizontal, its foot on the plane's line at ground level (test 37: a hillside of
+ * 47 degrees, which the rays read between the axle and 1.5 radii as 47). */
+typedef struct { bool on; float point[2], normal[2]; uint32_t layer; float top, bottom, follow, slant; uint8_t *what; } FakePlane;
 static bool g_shelfOn;
-static float g_shelfHeight, g_shelfAhead;
+static float g_shelfHeight, g_shelfAhead, g_shelfRadius = 60.0f;
 static float g_groundZ = 100.0f;
 static float g_slopeK, g_slopeO[2], g_slopeD[2];   /* the ground rises g_slopeK per unit along g_slopeD from g_slopeO */
 static bool g_dropOn, g_frozen;   /* g_frozen: the movement can't move the player (stuck against something) */
@@ -279,7 +320,7 @@ static uint8_t *FakeCellPick(uint8_t *cell, uint8_t *pick)
 		float tp = (g_groundZ + g_shelfHeight - a[2]) / (b[2] - a[2]);
 		float h = PlayerHeading(), cx = PlayerPosition()[0] + sinf(h) * g_shelfAhead, cy = PlayerPosition()[1] + cosf(h) * g_shelfAhead;
 		float x = a[0] + (b[0] - a[0]) * tp, y = a[1] + (b[1] - a[1]) * tp;
-		if (tp >= 0.0f && tp <= 1.0f && tp < t && hypotf(x - cx, y - cy) < 60.0f) {
+		if (tp >= 0.0f && tp <= 1.0f && tp < t && hypotf(x - cx, y - cy) < g_shelfRadius) {
 			t = tp;
 			what = g_shelfObj;
 			layer = 1;
@@ -297,8 +338,9 @@ static uint8_t *FakeCellPick(uint8_t *cell, uint8_t *pick)
 			normal[0] = -fx;
 			normal[1] = -fy;
 		}
-		float da = (a[0] - point[0]) * normal[0] + (a[1] - point[1]) * normal[1];
-		float db = (b[0] - point[0]) * normal[0] + (b[1] - point[1]) * normal[1];
+		float cot = w->slant > 0.0f ? 1.0f / tanf(w->slant / DEG) : 0.0f;   /* a slanted face sits further from the player the higher up: its surface is where the distance to the foot line equals the height over the ground times the cotangent */
+		float da = (a[0] - point[0]) * normal[0] + (a[1] - point[1]) * normal[1] + (a[2] - g_groundZ) * cot;
+		float db = (b[0] - point[0]) * normal[0] + (b[1] - point[1]) * normal[1] + (b[2] - g_groundZ) * cot;
 		if (!(da > 0.0f && db <= 0.0f))
 			continue;
 		float tp = da / (da - db), z = a[2] + (b[2] - a[2]) * tp;
@@ -563,26 +605,31 @@ static void BuildGame(void)
 	g_headlampRefLo = NewGlobal(HEADLAMP_REF_LO_FORMID, "CMB_HeadlampRefLo");
 	/* The collision layer records (test 36): the character controller's, with what it collides
 	 * with (Fallout4.esm's list: not clutter (4), bipeds (8), non-collidable (15), dead bipeds (32)
-	 * or navcut (49)). TESForm (0x20) and TESDescription (0x10), then the index at +0x30 and the
-	 * collides-with array at +0x48 (entries, capacity, count). */
+	 * or navcut (49); test 37: the phantoms it does hold, spells (7), cloud traps (16), the
+	 * query and pick layers 38 to 46, living-and-dead actors (52), trap triggers (54) and
+	 * character bumpers (56), which the rays must pass through all the same). TESForm (0x20)
+	 * and TESDescription (0x18, as in the game: test 37 found the index at +0x30 reading 874),
+	 * then the index at +0x38 and the collides-with array at +0x50 (entries, capacity, count);
+	 * the record 0x68 bytes. */
 	{
 		static const char *coll[] = { ".?AVBGSCollisionLayer@@", ".?AVTESForm@@", ".?AVTESDescription@@" };
-		static const uint32_t with[] = { 1, 2, 3, 9, 10, 12, 13, 14, 17, 18, 20, 21, 22, 26, 27, 28, 29, 30, 31, 33, 35, 36 };
+		static const uint32_t with[] = { 1, 2, 3, 7, 9, 10, 12, 13, 14, 16, 17, 18, 20, 21, 22, 26, 27, 28, 29, 30, 31, 33, 35, 36,
+		                                 38, 39, 40, 41, 42, 43, 44, 45, 46, 52, 54, 56 };
 		void **vtColl = MakeClass(coll, 3);
 		uint8_t **entries = (uint8_t **)VirtualAlloc(NULL, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 		int n = (int)(sizeof(with) / sizeof(with[0]));
 		for (int i = 0; i < n; i++) {
-			uint8_t *layer = (uint8_t *)NewObject(vtColl, 0x100);
+			uint8_t *layer = (uint8_t *)NewObject(vtColl, 0x68);
 			*(uint32_t *)(layer + 0x14) = 0x00088700u | with[i];
-			*(uint32_t *)(layer + 0x30) = with[i];
+			*(uint32_t *)(layer + 0x38) = with[i];
 			entries[i] = layer;
 		}
-		g_collChar = (uint8_t *)NewObject(vtColl, 0x100);
+		g_collChar = (uint8_t *)NewObject(vtColl, 0x68);
 		*(uint32_t *)(g_collChar + 0x14) = COLL_CHAR_FORMID;
-		*(uint32_t *)(g_collChar + 0x30) = 30;
-		*(uint8_t ***)(g_collChar + 0x48) = entries;
-		*(uint32_t *)(g_collChar + 0x50) = 32;   /* the capacity */
-		*(uint32_t *)(g_collChar + 0x58) = (uint32_t)n;
+		*(uint32_t *)(g_collChar + 0x38) = 30;
+		*(uint8_t ***)(g_collChar + 0x50) = entries;
+		*(uint32_t *)(g_collChar + 0x58) = 64;   /* the capacity */
+		*(uint32_t *)(g_collChar + 0x60) = (uint32_t)n;
 	}
 	static const char *controls[] = { ".?AVPlayerControls@@", ".?AVBSInputEventReceiver@@" };
 	void **vtControls = MakeClass(controls, 2);
@@ -829,11 +876,12 @@ static void BuildGame(void)
 	*(uint32_t *)(g_handsSkin + 0x30) = 5;
 	*(uint32_t *)(g_handsSkin + 0x38) = 5;
 
-	/* The moving parts of the Harley build: three more shapes under the bike's node, each
+	/* The moving parts of the Harley build: four more shapes under the bike's node, each
 	 * with its own skin and bone data (the same bind; their culling spheres on the axles
-	 * and ahead of the steering head, which is how the plugin tells them apart). */
-	static const char *partNames[3] = { "CMB_BikeWornRider_wheelF", "CMB_BikeWornRider_wheelR", "CMB_BikeWornRider_front_metal" };
-	for (int i = 0; i < 3; i++) {
+	 * and ahead of the steering head, which is how the plugin tells them apart; the lower
+	 * fork's sits low at the front too, and its name says what it is: test 38). */
+	static const char *partNames[4] = { "CMB_BikeWornRider_wheelF", "CMB_BikeWornRider_wheelR", "CMB_BikeWornRider_front_metal", "CMB_BikeWornRider_fork_metal" };
+	for (int i = 0; i < 4; i++) {
 		uint8_t *part = NewNode(vtTri, partNames[i], 0);
 		AddChild(g_bikeNode, part);
 		*(uint8_t **)(part + 0x28) = g_bikeNode;
@@ -941,12 +989,16 @@ static void SyncFakeWorld(void)
 	for (int i = 0; i < 3; i++)
 		pos[i] = pp[i] + off[i];
 	SetWorld(g_bodyNodes[4], rot, pos, 1.0f);
-	static const float handOff[3] = { -20, 75, 120 };   /* about where the left grip is */
-	Apply3(heading, handOff, off);
+	/* The left hand about where the left grip is, the shoulder and the elbow behind it with
+	 * the arm nearly straight, as the riding clips pose it (the grip at 98.5% of the arm's
+	 * reach; test 38: the lean isn't solved under 95%), or, raised, swung up about the elbow
+	 * (the forearm's length kept) to 80% of it: a Pip-Boy raise. */
+	static const float handOff[3] = { -20, 75, 120 }, handRaisedOff[3] = { -4.32f, 69.77f, 132.41f };
+	Apply3(heading, g_handRaised ? handRaisedOff : handOff, off);
 	for (int i = 0; i < 3; i++)
 		pos[i] = pp[i] + off[i];
 	SetWorld(g_bodyNodes[5], heading, pos, 1.0f);
-	static const float upperOff[3] = { -18, 42, 148 }, elbowOff[3] = { -26, 56, 132 };   /* the shoulder and the elbow, the arm bent */
+	static const float upperOff[3] = { -18, 42, 148 }, elbowOff[3] = { -22.5f, 57.5f, 133 };   /* the shoulder and the elbow */
 	Apply3(heading, upperOff, off);
 	for (int i = 0; i < 3; i++)
 		pos[i] = pp[i] + off[i];
@@ -956,12 +1008,17 @@ static void SyncFakeWorld(void)
 		pos[i] = pp[i] + off[i];
 	SetWorld(g_bodyNodes[7], heading, pos, 1.0f);
 	{
-		/* The hands' bones without nodes: their own world transforms, with the hand (test 34). */
-		static const float u[3] = { 0.2574f, 0.8152f, -0.5149f }, along[5] = { 6.0f, 10.0f, -6.0f, 0.0f, 60.0f };
+		/* The hands' bones without nodes: their own world transforms, with the hand (test 34),
+		 * along the forearm's line from the hand in use. */
+		const float *hand = g_handRaised ? handRaisedOff : handOff;
+		float u[3] = { hand[0] - elbowOff[0], hand[1] - elbowOff[1], hand[2] - elbowOff[2] }, lu = sqrtf(u[0] * u[0] + u[1] * u[1] + u[2] * u[2]);
+		static const float along[5] = { 6.0f, 10.0f, -6.0f, 0.0f, 60.0f };
+		for (int k = 0; k < 3; k++)
+			u[k] /= lu;
 		for (int i = 0; i < 5; i++) {
 			if (i == 3 || !g_handsXf[i])
 				continue;
-			float o[3] = { handOff[0] + along[i] * u[0], handOff[1] + along[i] * u[1], handOff[2] + along[i] * u[2] };
+			float o[3] = { hand[0] + along[i] * u[0], hand[1] + along[i] * u[1], hand[2] + along[i] * u[2] };
 			Apply3(heading, o, off);
 			for (int k = 0; k < 3; k++)
 				pos[k] = pp[k] + off[k];
@@ -1001,9 +1058,11 @@ static void SetLayouts(bool skinTransposed, bool rootTransposed)
 	b[16] = -74.17f; b[17] = 0.0f; b[18] = 0.0f; b[19] = 1.0f;  /* translation, scale */
 	memcpy(g_bonesOriginal, g_bones, sizeof(g_bonesOriginal));
 	/* The parts' spheres, bone space: A c + t for the bike-space centres the parts file names
-	 * (the front axle (0.4, 99.6, 29.9), the rear (0.4, -36.7, 29.9), the bar assembly's (1, 85, 57)). */
-	static const float spheres[3][4] = { { -44.27f, 99.6f, -0.4f, 31.0f }, { -44.27f, -36.7f, -0.4f, 31.0f }, { -17.17f, 85.0f, -1.0f, 60.0f } };
-	for (int i = 0; i < 3; i++) {
+	 * (the front axle (0.4, 99.6, 29.9), the rear (0.4, -36.7, 29.9), the bar assembly's (1, 85, 57),
+	 * the lower fork's (0, 85, 45): ahead of the steering head like the bar assembly's, so
+	 * only its name tells the plugin it rides with the front wheel). */
+	static const float spheres[4][4] = { { -44.27f, 99.6f, -0.4f, 31.0f }, { -44.27f, -36.7f, -0.4f, 31.0f }, { -17.17f, 85.0f, -1.0f, 60.0f }, { -29.17f, 85.0f, 0.0f, 30.0f } };
+	for (int i = 0; i < 4; i++) {
 		float *pb = (float *)g_partBones[i];
 		memcpy(pb, spheres[i], sizeof(spheres[i]));
 		StoreRotation(pb + 4, skinToBone, skinTransposed);
@@ -1025,7 +1084,7 @@ static void SetLayouts(bool skinTransposed, bool rootTransposed)
 	{
 		/* The hands' bones: fingers 6 and 10 beyond the hand along the forearm's line, the
 		 * wrist end of the forearm 6 back, the hand, a stray bone 60 beyond. */
-		static const float handOff[3] = { -20, 75, 120 }, u[3] = { 0.2574f, 0.8152f, -0.5149f };
+		static const float handOff[3] = { -20, 75, 120 }, u[3] = { 0.1139f, 0.7975f, -0.5924f };
 		static const float along[5] = { 6.0f, 10.0f, -6.0f, 0.0f, 60.0f };
 		static const float eye[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
 		for (int i = 0; i < 5; i++) {
@@ -1106,11 +1165,14 @@ static void RunFrames(int ms)
 		QueryPerformanceCounter(&now);
 		float dt = (float)(now.QuadPart - last.QuadPart) / (float)frequency.QuadPart;
 		g_cappedSeconds += dt > 0.05f ? 0.05 : dt;
+		int queries = g_vqCalls;
 		if (g_onFrame)
 			g_onFrame(dt);
 		last = now;
 		SyncFakeWorld();
 		((void (*)(Task *))g_task->vtbl[1])(g_task);
+		if (g_vqCalls - queries > g_vqFrameMax)
+			g_vqFrameMax = g_vqCalls - queries;   /* the plugin's memory queries this frame, hooks and task together (test 37) */
 		Sleep(5);
 	}
 }
@@ -1162,15 +1224,38 @@ static void AppliedMapOf(const uint8_t *orig, const uint8_t *live, float M[9], f
  * from where the frame's own map (the fixed part's) would hold it, along the frame's up; up
  * into the frame positive, dropped out of it negative. */
 static const float g_axles[2][3] = { { 0.4f, 99.6f, 29.9f }, { 0.4f, -36.7f, 29.9f } };
-static float WheelTravel(int part)
+static float PartTravel(int part, const float point[3])   /* a part's map against the frame's at a bike-space point, along the frame's up */
 {
 	float M[9], m[3], F[9], f[3], a[3], b[3];
 	AppliedMapOf(g_partBonesOriginal[part], g_partBones[part], M, m);
 	AppliedMapOf(g_bonesOriginal, g_bones, F, f);
-	Apply3(M, g_axles[part], a);
-	Apply3(F, g_axles[part], b);
+	Apply3(M, point, a);
+	Apply3(F, point, b);
 	float d[3] = { a[0] + m[0] - b[0] - f[0], a[1] + m[1] - b[1] - f[1], a[2] + m[2] - b[2] - f[2] };
 	return d[0] * F[2] + d[1] * F[5] + d[2] * F[8];
+}
+static float WheelTravel(int part)
+{
+	return PartTravel(part, g_axles[part]);
+}
+
+/* A rotation's angle (degrees) and unit axis. */
+static float RotationAngle(const float M[9], float axis[3])
+{
+	float v[3] = { M[7] - M[5], M[2] - M[6], M[3] - M[1] }, l = sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+	for (int i = 0; i < 3; i++)
+		axis[i] = l > 1e-6f ? v[i] / l : 0.0f;
+	float c = 0.5f * (M[0] + M[4] + M[8] - 1.0f);
+	return acosf(c > 1.0f ? 1.0f : c < -1.0f ? -1.0f : c) * DEG;
+}
+
+/* The twist about the unit axis g in a rotation D (swing-twist, the twist first), degrees: as
+ * the plugin takes it for the wrist roll (test 38), 2 atan2(v . g, w) of D's quaternion. */
+static float TwistOf(const float D[9], const float g[3])
+{
+	float tr = D[0] + D[4] + D[8], sq = sqrtf((tr > -0.99f ? tr : -0.99f) + 1.0f) * 2.0f;   /* the rotations here are small */
+	float w = 0.25f * sq, v[3] = { (D[7] - D[5]) / sq, (D[2] - D[6]) / sq, (D[3] - D[1]) / sq };
+	return 2.0f * atan2f(v[0] * g[0] + v[1] * g[1] + v[2] * g[2], w) * DEG;
 }
 
 /* How far a wheel's map moves its axle (its culling sphere's centre) in all. */
@@ -1199,6 +1284,61 @@ static void MapBoneAt(const uint8_t *xf, const uint8_t *orig, const uint8_t *cop
 static void MapBone(const uint8_t *node, const uint8_t *orig, const uint8_t *copy, const float X[3], float out[3])
 {
 	MapBoneAt(node + 0x70, orig, copy, X, out);
+}
+
+/* The rotation a held bone's rewritten entry puts on the world before the tilt, Mh (the
+ * bone's map is the tilt Rw after it; test 38: the hand's roll round the grip): Mh d = Rw^T
+ * (m(X + d) - m(X)), a column at a time. */
+static void BoneRotationBefore(const uint8_t *node, const uint8_t *orig, const uint8_t *copy, const float X[3], const float Rw[9], float Mh[9])
+{
+	float m0[3], m1[3];
+	MapBone(node, orig, copy, X, m0);
+	for (int j = 0; j < 3; j++) {
+		float Xd[3] = { X[0], X[1], X[2] }, d[3];
+		Xd[j] += 10.0f;
+		MapBone(node, orig, copy, Xd, m1);
+		for (int i = 0; i < 3; i++)
+			d[i] = (m1[i] - m0[i]) / 10.0f;
+		for (int i = 0; i < 3; i++)
+			Mh[i * 3 + j] = Rw[i] * d[0] + Rw[3 + i] * d[1] + Rw[6 + i] * d[2];   /* Rw^T d */
+	}
+}
+
+/* How many lines of the plugin's log hold the text: the log is where the plugin writes it,
+ * My Documents\My Games\Fallout4\F4SE\CMB_Slope.log, or next to the DLL (test 38: the lean's
+ * "not solved yet" line, the solve coming again after a load). */
+static int LogLines(const char *text)
+{
+	static char path[MAX_PATH];
+	static char line[4096];
+	FILE *f = path[0] ? fopen(path, "rb") : NULL;
+	if (!f) {
+		HMODULE shell = LoadLibraryA("shell32.dll");
+		HRESULT (WINAPI *folder)(HWND, int, HANDLE, DWORD, LPSTR) = shell ? (HRESULT (WINAPI *)(HWND, int, HANDLE, DWORD, LPSTR))(void *)GetProcAddress(shell, "SHGetFolderPathA") : NULL;
+		if (folder && folder(NULL, 0x8005, NULL, 0, path) >= 0) {   /* CSIDL_PERSONAL | CSIDL_FLAG_CREATE, as the plugin asks */
+			strncat(path, "\\My Games\\Fallout4\\F4SE\\CMB_Slope.log", sizeof(path) - strlen(path) - 1);
+			f = fopen(path, "rb");
+		}
+		if (!f) {   /* next to the DLL (where the plugin puts it when My Documents can't be had: this harness under Wine) */
+			HMODULE dll = GetModuleHandleA("CMB_Slope.dll");
+			if (dll && GetModuleFileNameA(dll, path, sizeof(path))) {
+				char *dot = strrchr(path, '.');
+				if (dot)
+					strcpy(dot, ".log");
+				f = fopen(path, "rb");
+			}
+		}
+	}
+	if (!f) {
+		printf("  (no CMB_Slope.log to read, in My Documents or next to the DLL)\n");
+		return -1;
+	}
+	int n = 0;
+	while (fgets(line, sizeof(line), f))
+		if (strstr(line, text))
+			n++;
+	fclose(f);
+	return n;
 }
 
 /* The same through a bare world transform (a bone with no node, test 34). */
@@ -1568,8 +1708,8 @@ static void PartsTests(void)
 	Keys(0.0f, 0.0f);
 	g_onFrame = FakeGameFrame;
 	RunFrames(500);
-	CHECK(*(int32_t *)(g_partData[0] + 0x08) == 3 && *(int32_t *)(g_partData[1] + 0x08) == 3 && *(int32_t *)(g_partData[2] + 0x08) == 3,
-	      "the three parts' skins are held (references %d %d %d)", *(int32_t *)(g_partData[0] + 0x08), *(int32_t *)(g_partData[1] + 0x08), *(int32_t *)(g_partData[2] + 0x08));
+	CHECK(*(int32_t *)(g_partData[0] + 0x08) == 3 && *(int32_t *)(g_partData[1] + 0x08) == 3 && *(int32_t *)(g_partData[2] + 0x08) == 3 && *(int32_t *)(g_partData[3] + 0x08) == 3,
+	      "the four parts' skins are held (references %d %d %d %d)", *(int32_t *)(g_partData[0] + 0x08), *(int32_t *)(g_partData[1] + 0x08), *(int32_t *)(g_partData[2] + 0x08), *(int32_t *)(g_partData[3] + 0x08));
 	Keys(0.0f, 0.1f);   /* forward at about 90 a second */
 	RunFrames(800);
 	Mark(p0);
@@ -1581,6 +1721,8 @@ static void PartsTests(void)
 	      "riding forward %.0f: both wheels turned %.2f and %.2f rad (%.2f: the top of the wheel going forward)", d, da, db, -d / 29.9f);
 	AppliedRotation(R);
 	CHECK(IsIdentity(R) && fabsf(BarAngle()) < 1.0f, "the fixed part not spun, the bars straight (%.1f deg)", BarAngle());
+	AppliedRotationOf(g_partBonesOriginal[3], g_partBones[3], M);
+	CHECK(IsIdentity(M) && fabsf(atan2f(M[7], M[4])) < 0.01f, "the lower fork (named _fork; test 38) not spun with the wheels, the bars straight (%.3f rad about the axle)", atan2f(M[7], M[4]));
 	Keys(0.0f, 0.0f);
 	RunFrames(600);
 	Keys(1.0f, 0.0f);   /* a right turn from a stop: 60 deg/s */
@@ -1595,6 +1737,13 @@ static void PartsTests(void)
 		for (int j = 0; j < 3; j++)
 			D[i * 3 + j] = M[i * 3] * N[j * 3] + M[i * 3 + 1] * N[j * 3 + 1] + M[i * 3 + 2] * N[j * 3 + 2];
 	CHECK(fabsf(TurnAbout(D) - bar) < 1.0f, "the front wheel turned with the bars (%.1f deg) and spinning", TurnAbout(D));
+	AppliedRotationOf(g_partBonesOriginal[3], g_partBones[3], M);
+	AppliedRotationOf(g_partBonesOriginal[2], g_partBones[2], N);
+	for (int i = 0; i < 3; i++)   /* D = M N^T: the fork's rotation over the bar assembly's */
+		for (int j = 0; j < 3; j++)
+			D[i * 3 + j] = M[i * 3] * N[j * 3] + M[i * 3 + 1] * N[j * 3 + 1] + M[i * 3 + 2] * N[j * 3 + 2];
+	float forkAxis[3], forkOver = RotationAngle(D, forkAxis);
+	CHECK(fabsf(TurnAbout(M) - bar) < 1.0f && forkOver < 0.5f, "the lower fork turned with the bars (%.1f deg), no spin: its rotation is the bar assembly's (%.2f deg between them)", TurnAbout(M), forkOver);
 	AppliedRotation(R);
 	CHECK(IsIdentity(R), "the fixed part not turned");
 	Keys(-1.0f, 0.0f);
@@ -1882,7 +2031,7 @@ static void InputTests(void)
 		RunFrames(300);
 		face->on = false;
 
-		printf("input hook: an obstacle 700 ahead, 40 high (under 1.5 wheel radii), W held: ridden over at the held throttle (ObstacleThrottle 0.4):\n");
+		printf("input hook: an obstacle 700 ahead, 40 high (under 1.5 wheel radii), W held: ridden over at the held throttle (ObstacleThrottle 0.55):\n");
 		Mark(p0);
 		face->point[0] = p0[0] + fwd2[0] * 700.0f;
 		face->point[1] = p0[1] + fwd2[1] * 700.0f;
@@ -1913,7 +2062,7 @@ static void InputTests(void)
 		face->on = true;
 		Keys(0.0f, 1.0f);
 		RunFrames(2000);
-		CHECK(Moved(p0) > 100.0f && Moved(p0) < 0.6f * fullRun, "rolls on at the obstacle's throttle: %.0f in 2 s (%.0f at full throttle; a wall at the wheel would have held it)", Moved(p0), fullRun);
+		CHECK(fabsf(Moved(p0) - 0.55f * fullRun) <= 0.15f * fullRun, "rolls on at the obstacle's throttle: %.0f in 2 s (0.55 of %.0f at full throttle, within 15%%; a wall at the wheel would have held it)", Moved(p0), fullRun);
 		printf("input hook: the same face with the ground flat under the wheels (a wall the bike has nosed or turned into, its front wheel through it; review): an obstacle for the hold's second, then a wall, the throttle cut:\n");
 		g_groundZ = groundZ0;
 		Mark(p0);
@@ -1936,18 +2085,18 @@ static void InputTests(void)
 		float forNow = MoveInput()[1];
 		RunFrames(800);
 		CHECK(forNow > 0.02f && MoveInput()[1] == 0.0f, "half a second in still the obstacle's share (forward input %.2f), 1.3 s in a wall and no forward input (%.3f): the obstacle for now didn't renew the hold", forNow, MoveInput()[1]);
-		printf("input hook: the hold in force, then a wall fixed 135 ahead of the rider (5 ahead of the wheel's edge), the bike rolling: a wall after WallFrames (5) frames of it, the bike stops at once:\n");
+		printf("input hook: the hold in force, then a wall fixed 145 ahead of the rider (15 ahead of the wheel's edge), the bike rolling: a wall after WallFrames (5) frames of it, the bike stops at once:\n");
 		g_frozen = false;
 		g_groundZ = groundZ0 + 40.0f;
 		face->follow = 60.0f;
 		RunFrames(600);   /* rolling at the obstacle's share, the hold in force */
 		g_groundZ = groundZ0;
 		face->follow = 0.0f;
-		face->point[0] = PlayerPos()[0] + fwd2[0] * 135.0f;
-		face->point[1] = PlayerPos()[1] + fwd2[1] * 135.0f;
+		face->point[0] = PlayerPos()[0] + fwd2[0] * 145.0f;   /* 15 ahead of the edge: five frames' travel at the share's speed with a margin (test 36's 5 wasn't one when a frame ran long: the hit fell behind the edge before the fifth frame, and the bike rolled through as an obstacle for now) */
+		face->point[1] = PlayerPos()[1] + fwd2[1] * 145.0f;
 		Mark(p0);
 		RunFrames(500);
-		CHECK(Moved(p0) < 40.0f, "stops within the half second (%.0f; the obstacle's share would have made 100): a wall ahead of the wheel counts after 5 frames running", Moved(p0));
+		CHECK(Moved(p0) < 50.0f, "stops within the half second (%.0f; the obstacle's share would have made 100 and more): a wall ahead of the wheel counts after 5 frames running", Moved(p0));
 		printf("input hook: a wall fixed 120 ahead of the rider (9.5 behind the wheel's edge, within half a radius), the ground 40 up, the bike held: a wall still, the hit at the edge, not under the bike:\n");
 		Keys(0.0f, 0.0f);
 		face->on = false;
@@ -1991,14 +2140,22 @@ static void InputTests(void)
 		Keys(0.0f, 1.0f);
 		RunFrames(2000);
 		CHECK(Moved(p0) < 100.0f, "the bike stands: %.0f in 2 s (no obstacle in force)", Moved(p0));
-		printf("input hook: the same with an obstacle lower than 1.5 radii 60 ahead as well (the rays' own verdict, in force): the down-ray's face is left to the obstacle's throttle:\n");
+		printf("input hook: the same with an obstacle lower than 1.5 radii 200 ahead of the rider as well (70 ahead of the wheel's edge, past the down-ray's own forward ray: the face rays' verdict, in force): the throttle held to the obstacle's share:\n");
 		rail->on = false;
-		face->follow = 60.0f;
+		face->follow = 200.0f;
 		face->top = 40.0f;   /* the axle-height ray hits it, the one at 1.5 radii passes over: an obstacle by height, wherever it is */
 		face->on = true;
 		Mark(p0);
 		RunFrames(2000);
-		CHECK(Moved(p0) > 100.0f && Moved(p0) < 0.6f * fullRun, "rolls on at the obstacle's throttle: %.0f in 2 s", Moved(p0));
+		CHECK(fabsf(Moved(p0) - 0.55f * fullRun) <= 0.15f * fullRun, "rolls on at the obstacle's throttle: %.0f in 2 s (0.55 of %.0f at full throttle, within 15%%)", Moved(p0), fullRun);
+		/* Test 37: 16 of 39 holds had the hit at or behind the wheel's edge, the ground under
+		 * the pitched bike. Such a verdict sets the hold (the shelf's cut still deferred to it)
+		 * but leaves the throttle free. */
+		printf("input hook: the same obstacle 60 ahead of the rider (70 behind the wheel's edge: the bike is on it; test 37), the shelf's down-ray face still deferring to the hold: the throttle free:\n");
+		face->follow = 60.0f;
+		Mark(p0);
+		RunFrames(2000);
+		CHECK(Moved(p0) > 0.85f * fullRun, "rolls on at full throttle: %.0f in 2 s (%.0f at full throttle; the share would have made %.0f)", Moved(p0), fullRun, 0.55f * fullRun);
 		Keys(0.0f, 0.0f);
 		RunFrames(300);
 		face->on = false;
@@ -2008,14 +2165,44 @@ static void InputTests(void)
 		g_groundZ = groundZ0;
 		RunFrames(2500);   /* rolled off, at rest */
 
+		/* Test 37: ten of 39 holds were faces of 45 to 49 degrees, which the controller climbs
+		 * at 47. ObstacleAngle (50): a slanted plane, its foot 130 ahead of the rider wherever
+		 * they go and rising away at the angle, which the rays read between the axle and 1.5
+		 * radii as the angle itself (the hits 23 to 28 past the wheel's edge at axle height). */
+		printf("input hook: a face of 47 deg ahead (a slanted plane, its foot 130 ahead of the rider; test 37), W held 2 s: under ObstacleAngle (50), no verdict, full throttle:\n");
+		Mark(p0);
+		face->follow = 130.0f;
+		face->slant = 47.0f;
+		face->on = true;
+		Keys(0.0f, 1.0f);
+		RunFrames(2000);
+		CHECK(Moved(p0) > 0.85f * fullRun, "rides %.0f in 2 s (%.0f at full throttle)", Moved(p0), fullRun);
+		Keys(0.0f, 0.0f);
+		face->on = false;
+		RunFrames(2500);   /* rolled off, at rest */
+		printf("input hook: the same face at 52 deg: an obstacle (over ObstacleAngle, under WallAngle 55), the throttle held to 0.55:\n");
+		Mark(p0);
+		face->slant = 52.0f;
+		face->on = true;
+		Keys(0.0f, 1.0f);
+		RunFrames(2000);
+		CHECK(fabsf(Moved(p0) - 0.55f * fullRun) <= 0.15f * fullRun, "rides %.0f in 2 s (0.55 of %.0f at full throttle, within 15%%)", Moved(p0), fullRun);
+		Keys(0.0f, 0.0f);
+		face->on = false;
+		face->slant = face->follow = 0.0f;
+		RunFrames(2500);   /* rolled off, at rest */
+
 		/* Test 36: the pick's filter 30 isn't the capsule's own, and things the capsule never
 		 * meets (food bushes, layer 15; a fire truck's navcut shape, 49; Dogmeat, 8) read as
 		 * walls. The rays stop only at what the character controller's collision layer record
-		 * collides with (the fake's lists 22 layers; 4, 8, 15, 32 and 49 aren't among them). */
-		static const uint32_t through[3] = { 15, 49, 8 };
-		static const char *throughWhat[3] = { "a food bush (layer 15, non-collidable)", "a fire truck's navcut shape (layer 49)", "a dog (layer 8, biped)" };
-		for (int i = 0; i < 3; i++) {
-			printf("input hook: %s 400 ahead, W held 2 s: not in the character controller's collides-with list, ridden through at full throttle (test 36):\n", throughWhat[i]);
+		 * collides with (the fake's lists 36 layers; 4, 8, 15, 32 and 49 aren't among them), bar
+		 * the phantoms (test 37: a trap trigger, 54, is in the list, and a tripwire would have
+		 * presented as a wall). */
+		static const uint32_t through[4] = { 15, 49, 8, 54 };
+		static const char *throughWhat[4] = { "a food bush (layer 15, non-collidable)", "a fire truck's navcut shape (layer 49)", "a dog (layer 8, biped)", "a tripwire's trigger (layer 54, trap trigger)" };
+		static const char *throughWhy[4] = { "not in the character controller's collides-with list (test 36)", "not in the list (test 36)", "not in the list (test 36)", "in the list, but a phantom (test 37)" };
+		for (int i = 0; i < 4; i++) {
+			printf("input hook: %s 400 ahead, W held 2 s: %s, ridden through at full throttle:\n", throughWhat[i], throughWhy[i]);
 			Mark(p0);
 			face->point[0] = p0[0] + fwd2[0] * 400.0f;
 			face->point[1] = p0[1] + fwd2[1] * 400.0f;
@@ -2817,14 +3004,30 @@ static void TiltTests(void)
 		for (int i = 0; i < 3; i++)
 			t2[i] += Pw[i] - (Rw[i * 3] * Pw[0] + Rw[i * 3 + 1] * Pw[1] + Rw[i * 3 + 2] * Pw[2]);
 		const uint8_t *copyNow = *(const uint8_t **)(*(uint8_t **)(g_bodySkin + 0x40) + 0x10);
-		WorldOfBone(g_bodyNodes[5], g_bodyBonesOriginal + 5 * 0x50, probes[1], before);
-		WorldOfBone(g_bodyNodes[5], copyNow + 5 * 0x50, probes[1], after);
+		/* The wrist itself (test 38: the hand is rolled round the grip's axis through it, so a
+		 * point off the wrist goes round that too). */
+		memcpy(before, g_bodyNodes[5] + 0xA0, 12);
+		MapBone(g_bodyNodes[5], g_bodyBonesOriginal + 5 * 0x50, copyNow + 5 * 0x50, before, after);
 		Apply3(R2, before, e);
 		for (int i = 0; i < 3; i++)
 			d[i] = after[i] - e[i] - t2[i];
 		float off = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
 		float tiltOnly = TiltedOff(before, after, Rw, Pw);
-		CHECK(off < 0.1f && tiltOnly > 2.0f, "the hand's bones carry it round the steering axis by the bar angle, then the tilt (%.3f off; %.1f from the tilt alone)", off, tiltOnly);
+		CHECK(off < 0.1f && tiltOnly > 2.0f, "the hand's bones carry the wrist round the steering axis by the bar angle, then the tilt (%.3f off; %.1f from the tilt alone)", off, tiltOnly);
+		{
+			/* And the hand's rotation: the bars' turn, then a roll about the grip's axis (the
+			 * bike's x through the bind, the bone and the turn; test 38's WristRoll). */
+			float Mh[9], Qt[9], Dh[9], ex[3] = { -1.0f, 0.0f, 0.0f }, Ae[3], gb[3], rollAxis[3];
+			BoneRotationBefore(g_bodyNodes[5], g_bodyBonesOriginal + 5 * 0x50, copyNow + 5 * 0x50, before, Rw, Mh);
+			for (int i = 0; i < 3; i++)
+				for (int j = 0; j < 3; j++)
+					Qt[i * 3 + j] = Q[j * 3 + i];
+			MulM3(Qt, Mh, Dh);   /* the roll seen before the bars' turn: about the grip's axis as the clips have it */
+			Apply3(A, ex, Ae);
+			Apply3(N, Ae, gb);
+			float roll = RotationAngle(Dh, rollAxis), axisOff = acosf(fabsf(rollAxis[0] * gb[0] + rollAxis[1] * gb[1] + rollAxis[2] * gb[2]) > 1.0f ? 1.0f : fabsf(rollAxis[0] * gb[0] + rollAxis[1] * gb[1] + rollAxis[2] * gb[2])) * DEG;
+			CHECK(roll < 0.5f || axisOff < 10.0f, "the hand's rotation is the bars' turn and a roll of %.1f deg about the grip's axis (the roll's axis %.1f deg off it; WristRoll 1.0)", roll, roll < 0.5f ? 0.0f : axisOff);
+		}
 		{
 			/* The arm's two-bone solve (test 30): the shoulder stays, the chain stays joined at
 			 * the elbow and the wrist, the bones keep their lengths, and the elbow moved. */
@@ -2944,6 +3147,44 @@ static void TiltTests(void)
 			CHECK(TiltedOff(Hd, mH, Rw2, Pw2) > 1.0f && fabsf(mUp[0] - mH[0] - upT[0]) < 0.05f && fabsf(mUp[1] - mH[1] - upT[1]) < 0.05f && fabsf(mUp[2] - mH[2] - upT[2]) < 0.05f,
 			      "the head's joint goes forward with the upper body (%.1f) and the head keeps its own pitch, not leaned with it", TiltedOff(Hd, mH, Rw2, Pw2));
 		}
+		{
+			/* The wrist roll (test 37: 25 deg of wrist turn at the straight bars, the forearm
+			 * swung by the lean and the re-solved elbow, the hand keeping the clips' orientation):
+			 * the hand's map, the bars straight, is no longer the identity but a roll about the
+			 * grip's axis (the bike's x through the bind and the bone) by the forearm's twist
+			 * about it, so the wrist's turn from the clips' pose is only the forearm's swing. */
+			float Mh[9], Rf[9], Rft[9], Res[9], A[9], N[9], ex[3] = { -1.0f, 0.0f, 0.0f }, Ae[3], gb[3], rollAxis[3], resAxis[3], fullAxis[3];
+			LoadRotation((const float *)(g_bonesOriginal + 0x10), A, g_skinTransposed);
+			LoadRotation((const float *)(g_comNode + 0x70), N, g_rootTransposed);
+			Apply3(A, ex, Ae);
+			Apply3(N, Ae, gb);
+			BoneRotationBefore(g_bodyNodes[5], g_bodyBonesOriginal + 5 * 0x50, copyNow + 5 * 0x50, Wr, Rw2, Mh);
+			BoneRotationBefore(g_bodyNodes[7], g_bodyBonesOriginal + 7 * 0x50, copyNow + 7 * 0x50, E, Rw2, Rf);
+			float roll = RotationAngle(Mh, rollAxis), twist = TwistOf(Rf, gb), full = RotationAngle(Rf, fullAxis);
+			float axisOff = acosf(fabsf(rollAxis[0] * gb[0] + rollAxis[1] * gb[1] + rollAxis[2] * gb[2]) > 1.0f ? 1.0f : fabsf(rollAxis[0] * gb[0] + rollAxis[1] * gb[1] + rollAxis[2] * gb[2])) * DEG;
+			for (int i = 0; i < 3; i++)
+				for (int j = 0; j < 3; j++)
+					Rft[i * 3 + j] = Rf[j * 3 + i];
+			MulM3(Rft, Mh, Res);
+			float residual = RotationAngle(Res, resAxis);
+			CHECK(roll > 1.0f && axisOff < 10.0f && fabsf(roll - fabsf(twist)) < 0.5f,
+			      "the hand rolled %.1f deg about the grip's axis (the roll's axis %.1f deg off it) by the forearm's twist about it (%.1f): the wrist follows the forearm round the grip (WristRoll 1.0)", roll, axisOff, twist);
+			CHECK(residual < full - 0.5f && residual < 20.0f, "the wrist turned %.1f deg from the clips' pose, the forearm's swing alone (its whole rotation %.1f: the hand turned with the bars alone would have kinked by that; test 37's 25)", residual, full);
+			CHECK(Dist3(mW2, mW3) < 0.1f, "the hand still meets the forearm at the wrist, on the grip (%.3f apart)", Dist3(mW2, mW3));
+			printf("tilt: the wrist roll off (WristRoll=0 for a ride):\n");
+			RewriteIni("WristRoll=1.0", "WristRoll=0");
+			SetTilt(0.0f);
+			RunFrames(300);
+			SetTilt(30.0f);
+			RunFrames(600);
+			copyNow = *(const uint8_t **)(*(uint8_t **)(g_bodySkin + 0x40) + 0x10);
+			ExpectedTilt(Rw2, Pw2);
+			MapBone(g_bodyNodes[6], g_bodyBonesOriginal + 6 * 0x50, copyNow + 6 * 0x50, S, mS);
+			BoneRotationBefore(g_bodyNodes[5], g_bodyBonesOriginal + 5 * 0x50, copyNow + 5 * 0x50, Wr, Rw2, Mh);
+			float noRoll = RotationAngle(Mh, rollAxis);
+			CHECK(TiltedOff(S, mS, Rw2, Pw2) > 1.0f && noRoll < 0.5f, "the upper body still leaned (the shoulder %.1f forward), the hand's map the bars' turn alone again (the identity at the straight bars, within the bars' creep: %.2f deg)", TiltedOff(S, mS, Rw2, Pw2), noRoll);
+			RewriteIni("WristRoll=0", "WristRoll=1.0");
+		}
 		RewriteIni("TorsoLean=-1", "TorsoLean=0");
 		SetTilt(0.0f);
 		RunFrames(300);
@@ -2953,6 +3194,48 @@ static void TiltTests(void)
 		ExpectedTilt(Rw2, Pw2);   /* this ride's tilt */
 		MapBone(g_bodyNodes[6], g_bodyBonesOriginal + 6 * 0x50, copyNow + 6 * 0x50, S, mS);
 		CHECK(TiltedOff(S, mS, Rw2, Pw2) < 0.05f, "TorsoLean=0 again on the next ride: the shoulder where the clips have it (%.3f off)", TiltedOff(S, mS, Rw2, Pw2));
+	}
+
+	if (g_haveParts) {
+		/* Test 37's Pip-Boy: opened a second after getting on, it moved the arm bones 40.7 in
+		 * a frame and put the grips at 82% of the reach, and the lean solved from that pose (0)
+		 * stuck for five minutes, through a fast travel. The solve waits while the clips' reach
+		 * is short of the riding pose's (under 95%), logs it once, comes once the hand is back,
+		 * and comes again after a load. */
+		printf("tilt: the upper body's lean not solved while the grips are short of the riding pose's reach (the left hand raised to 80%% of it; TorsoLean=-1 for a ride):\n");
+		RewriteIni("TorsoLean=0", "TorsoLean=-1");
+		g_handRaised = true;
+		int leanedBefore = LogLines("deg forward about the spine's joint"), waitBefore = LogLines("not solved yet");
+		SetTilt(0.0f);
+		RunFrames(300);
+		SetTilt(30.0f);
+		RunFrames(3000);
+		float Rw2[9], Pw2[3], S[3], mS[3];
+		const uint8_t *copyNow = *(const uint8_t **)(*(uint8_t **)(g_bodySkin + 0x40) + 0x10);
+		ExpectedTilt(Rw2, Pw2);
+		memcpy(S, g_bodyNodes[6] + 0xA0, 12);
+		MapBone(g_bodyNodes[6], g_bodyBonesOriginal + 6 * 0x50, copyNow + 6 * 0x50, S, mS);
+		CHECK(TiltedOff(S, mS, Rw2, Pw2) < 0.05f, "3 s in, no lean: the shoulder where the clips have it (%.3f off the tilt alone)", TiltedOff(S, mS, Rw2, Pw2));
+		CHECK(LogLines("deg forward about the spine's joint") == leanedBefore && LogLines("not solved yet") == waitBefore + 1,
+		      "the log: no \"leaned\" line this ride, one \"not solved yet\" line (%d and %d more)", LogLines("deg forward about the spine's joint") - leanedBefore, LogLines("not solved yet") - waitBefore);
+		g_handRaised = false;
+		RunFrames(1000);
+		copyNow = *(const uint8_t **)(*(uint8_t **)(g_bodySkin + 0x40) + 0x10);
+		MapBone(g_bodyNodes[6], g_bodyBonesOriginal + 6 * 0x50, copyNow + 6 * 0x50, S, mS);
+		CHECK(TiltedOff(S, mS, Rw2, Pw2) > 1.0f && LogLines("deg forward about the spine's joint") == leanedBefore + 1,
+		      "the hand back on the grip: the lean solved within the second (the shoulder %.1f forward, %d \"leaned\" line)", TiltedOff(S, mS, Rw2, Pw2), LogLines("deg forward about the spine's joint") - leanedBefore);
+		Send(3, 1);   /* PostLoadGame: the ride starts afresh, the lean solved again */
+		RunFrames(1500);
+		copyNow = *(const uint8_t **)(*(uint8_t **)(g_bodySkin + 0x40) + 0x10);
+		ExpectedTilt(Rw2, Pw2);
+		MapBone(g_bodyNodes[6], g_bodyBonesOriginal + 6 * 0x50, copyNow + 6 * 0x50, S, mS);
+		CHECK(TiltedOff(S, mS, Rw2, Pw2) > 1.0f && LogLines("deg forward about the spine's joint") == leanedBefore + 2,
+		      "after a load the lean is solved again (the shoulder %.1f forward, %d \"leaned\" lines)", TiltedOff(S, mS, Rw2, Pw2), LogLines("deg forward about the spine's joint") - leanedBefore);
+		RewriteIni("TorsoLean=-1", "TorsoLean=0");
+		SetTilt(0.0f);
+		RunFrames(300);
+		SetTilt(30.0f);
+		RunFrames(600);
 	}
 
 	if (g_haveParts) {
@@ -3311,21 +3594,43 @@ static void TiltTests(void)
 		CHECK(g_picks == 0 || fabsf(grown - WheelMove(0)) < 0.3f, "the front wheel's culling sphere grown by its axle's move (%.1f for %.1f)", grown, WheelMove(0));
 		g_groundZ = PlayerPos()[2];
 		RunFrames(1500);
+		printf("tilt: a step of 8 under the rear wheel only (a shelf of radius 30 over the rear axle; the front axle 136 ahead): the rear wheel rises SuspCompressRear (4) into the frame at most, its mudguard being on the frame (test 37):\n");
+		g_shelfOn = true;
+		g_shelfHeight = 8.0f;
+		g_shelfAhead = -36.7f;
+		g_shelfRadius = 30.0f;
+		float peakRear = 0.0f, frontAtRear = 0.0f;
+		for (int i = 0; i < 10; i++) {
+			RunFrames(50);
+			float r = WheelTravel(1);
+			if (r > peakRear)
+				peakRear = r;
+		}
+		frontAtRear = WheelTravel(0);
+		CHECK(g_picks == 0 || (peakRear > 3.5f && peakRear < 4.2f), "the rear wheel pushed up into the frame by %.1f at most in the half second (the 8 step, capped at 4; the frame takes the rest)", peakRear);
+		CHECK(g_picks == 0 || fabsf(frontAtRear) < 1.0f, "the front wheel with the frame at the half second (%+.1f)", frontAtRear);
+		g_shelfOn = false;
+		g_shelfRadius = 60.0f;
+		g_groundZ = PlayerPos()[2];
+		RunFrames(1500);
 		printf("tilt: a step of 8 under the front wheel only (a shelf over the front axle): the front wheel takes it within its travel, the frame the wheel line's share:\n");
 		g_shelfOn = true;
 		g_shelfHeight = 8.0f;
 		g_shelfAhead = 99.6f;
-		float peakFront = 0.0f;
+		float peakFront = 0.0f, forkAtPeak = 0.0f;
 		for (int i = 0; i < 10; i++) {
 			RunFrames(50);
 			float f = WheelTravel(0);
-			if (f > peakFront)
+			if (f > peakFront) {
 				peakFront = f;
+				forkAtPeak = PartTravel(3, g_axles[0]);
+			}
 		}
 		float rearB = WheelTravel(1);
 		SeatInBone(g_bones, seatNow);
 		float seatB = sqrtf((seatNow[0] - seatBefore[0]) * (seatNow[0] - seatBefore[0]) + (seatNow[1] - seatBefore[1]) * (seatNow[1] - seatBefore[1]) + (seatNow[2] - seatBefore[2]) * (seatNow[2] - seatBefore[2]));
 		CHECK(g_picks == 0 || (peakFront > 5.0f && peakFront < 8.3f), "the front wheel pushed up into the frame by %.1f at most in the half second (the 8 step, within the travel of 10; less as the pitch takes the frame onto it)", peakFront);
+		CHECK(g_picks == 0 || fabsf(forkAtPeak - peakFront) < 0.5f, "the lower fork rides with the front wheel's travel: %.1f up at the wheel's peak (test 38)", forkAtPeak);
 		CHECK(g_picks == 0 || fabsf(rearB) < 1.0f, "the rear wheel stays with the frame (%+.1f)", rearB);
 		CHECK(g_picks == 0 || (seatB > 1.0f && seatB < 5.0f), "the frame lifted %.1f at the half second (the wheel line at the contact: 8 x 36.7/136.3 = 2.2)", seatB);
 		g_shelfOn = false;
@@ -3534,6 +3839,19 @@ static void TiltTests(void)
 	RunFrames(800);
 	CHECK(*(uint8_t **)(g_bodySkin + 0x40) != g_bodyData && *(int32_t *)(g_bodySkin + 0x08) == 2 && *BoneDataRefs() == 3,
 	      "the next ride holds the rider again (test 27 stayed level, the block carried over)");
+	/* Test 37: the region cache's flush every 30 s had the next sync re-query every region
+	 * the rider's walk touches at once (88, 12-16 ms). Each entry lapses on its own now, 30 s
+	 * and a stagger after it was read (the cache was last emptied when the bike's skins went,
+	 * a second or two ago): 40 s of this ride, the rider held, see a third of them lapse and
+	 * read again, a few in a sync. The plugin's VirtualQuery calls are counted through its
+	 * import table, the most in any one frame. */
+	printf("tilt: 40 s on the bike with the rider held: the region cache's entries lapse one by one, not all in one sync (test 37):\n");
+	CHECK(g_vqHooked, "the plugin's VirtualQuery import counted");
+	g_vqFrameMax = 0;
+	int queries0 = g_vqCalls;
+	RunFrames(40000);
+	CHECK(g_vqFrameMax <= 25 && g_vqCalls - queries0 >= 1, "no frame's sync re-queried more than 25 regions (the most in one frame %d, %d over the 40 s; the old flush gave 88 at once)",
+	      g_vqFrameMax, g_vqCalls - queries0);
 	SetTilt(0.0f);
 	RunFrames(300);
 
@@ -3609,6 +3927,7 @@ int main(int argc, char **argv)
 
 	HMODULE dll = LoadLibraryA(dllPath);
 	if (!dll) { printf("can't load %s\n", dllPath); return 2; }
+	g_vqHooked = HookImport(dll, "VirtualQuery", (void *)CountingVirtualQuery);   /* its memory queries counted (test 37) */
 	const uint32_t *version = (const uint32_t *)GetProcAddress(dll, "F4SEPlugin_Version");
 	bool (*load)(const F4SEInterface *) = (bool (*)(const F4SEInterface *))GetProcAddress(dll, "F4SEPlugin_Load");
 	printf("version data and load function:\n");

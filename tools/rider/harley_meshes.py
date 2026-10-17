@@ -28,23 +28,37 @@ What it writes (the same four files build_bike_meshes.py does, see there for why
 The geometry: each material's meshes are merged, welded and split into connected pieces, each
 piece is cut down with quadric edge collapse (fast_simplification) to its share of --tris by
 surface area (so the tyres keep their shape and a bolt gets a few triangles), and the parts go
-into three shapes: the metal (environment-mapped: chrome, silver, the body colour), the matte
-(black metal, rubber, leather) and the glass (translucent). Three, not twelve, because the
-F4SE plugin holds at most four skins and the game shows at most 65535 vertices per shape.
-Colours, specular and gloss come from the material names (MATERIALS below); the body colour
-is --body.
+into shapes by shading: the metal (environment-mapped: chrome, silver, the body colour), the
+matte (black metal, rubber, leather) and the glass (translucent); a few, not twelve, because
+the F4SE plugin holds at most a dozen skins and the game shows at most 65535 vertices per
+shape. Colours, specular and gloss come from the material names (MATERIALS below); the body
+colour is --body.
+
+And by what moves (ROLES, role_of): the fixed bike; the bar assembly ("front": the bars,
+grips, levers, mirrors, the fork tubes, the triple clamps and the headlamp, which the plugin
+turns about the steering axis with the rider's steering); the fork's lower end ("fork": the
+sliders, the front mudguard, the brake caliper, the axle and its hardware, which turn with the
+bars and also ride up and down with the front wheel's suspension travel, so the mudguard
+stays over the tyre and the axle in the fork ends); and the two wheels, which spin. The shapes
+are named for it (<stem>_front_metal, <stem>_fork_matte, <stem>_wheelF, ...) and the plugin
+tells them apart by their names and their culling spheres (CMB_BikeParts.ini).
 
   python harley_meshes.py --pynifly <io_scene_nifly> --gltf <...>/scene.gltf \
       --vanilla <...>/meshes/setdressing/vehicles/motorcycle/motorcycle_clean.nif \
       --out <Data>/Meshes/CMB --textures <Data>/Textures/CMB \
       [--seat <Data>/Meshes/Actors/Character/Animations/MT/CMB_Rider] [--tris 60000] [--body 7a1118]
-      [--sit 0.27] [--grip 20,-15,98] [--peg 19,6,27]
+      [--sit 0.27] [--grip 29.4,-10.7,96] [--peg 19,6,27]
 
 The rider sits --sit of the way along the seat from its front edge (0.27: snug behind the
 tank, as on the real thing, which keeps the long reach to the bars within arm's length even
 with the bars turned 20 degrees; test 20's 0.35 left the outer hand short of its grip).
 --grip and --peg are the grip's centre and the peg's top on the bike's +X side in the model's
-own frame (measured on this model; the other side mirrors them). The model is scaled to the
+own frame (measured on this model; the other side mirrors them). The grip is the rubber
+sleeve on the bar's end: a cylinder of radius 2.3, 16 long, its centre at (29.4, -10.7, 96.0)
+by a principal-axis fit of its vertices (test 38); the brake lever runs 6 units ahead of it,
+parallel, thinner (radius 1, tapering to a ball end), and the earlier grip points (test 36's
+x 24.5 was the lever clamp; a fit of the vertices with |x| 27-39 gives the lever) put the
+hands on the lever perches and switch housings. The model is scaled to the
 vanilla bike's length, so the collision and the plugin's clearances still fit; that makes it
 about a quarter bigger than a real Iron 883 next to the character, like the vanilla bike.
 
@@ -96,8 +110,17 @@ MATERIALS = {
 # badge satin black.
 
 KINDS = ("metal", "matte", "glass", "glow")   # glow: lit (emissive), no reflection
-ROLES = ("", "front", "wheelF", "wheelR")   # static; turns with the bars; spins; spins
+ROLES = ("", "front", "fork", "wheelF", "wheelR")   # static; turns with the bars; turns and rides with the front wheel; spins; spins
 BAR_HEIGHT = 85.0   # above this (parked frame) and ahead of the seat it's the bar assembly
+# A piece of the bar assembly whose centre is below this (parked frame, z up, the ground at 0)
+# is the fork's lower end, which moves with the front wheel's suspension travel. On this model
+# the sliders' centres are at z 41 (they run 27..60), the front mudguard's at 50 (30..62), the
+# brake caliper's at 31, the axle's at 30, the rubber fork boots' at 63 (56..70); the chrome
+# fork tubes' at 69 (58..88) and the lower triple clamp's at 86: the line goes between the boots
+# and the tubes. The boots go with the sliders they're clamped to; compressed 10 their tops
+# reach z 80, a unit under the clamp. (Test 37: the fork legs and the mudguard didn't take the
+# wheel's offset, so at +10 the tyre went into the mudguard and the axle left the fork ends.)
+FORK_SPLIT_Z = 66.0
 
 # BSLightingShaderProperty flags (nif.xml's SkyrimShaderPropertyFlags, as Fallout 4 still uses them)
 SF1_SPECULAR, SF1_SKINNED, SF1_ENV_MAP, SF1_RECEIVE_SHADOWS, SF1_CAST_SHADOWS = 0x1, 0x2, 0x80, 0x100, 0x200
@@ -416,12 +439,15 @@ def seat_tyre(v, parts, role):
 def role_of(v, parts):
     """Which moving part a piece belongs to: a wheel (wheel_of), else the steering assembly
     if its centre is ahead of the steering head (forks, fender, headlight) or up at the bars
-    (bars, grips, levers, mirrors), else fixed."""
+    (bars, grips, levers, mirrors), and of that the fork's lower end if its centre is below
+    FORK_SPLIT_Z (sliders, mudguard, caliper, axle), else fixed."""
     wheel = wheel_of(v, parts)
     if wheel:
         return wheel
     cx, cy, cz = v.mean(axis=0)
     sp = parts["steer_point"]
+    if cy < sp[1] + 16 and cz < FORK_SPLIT_Z:
+        return "fork"
     # Up at bar height: within 45 of the steering head anything (the risers, the clamp, the
     # speedo, the mirrors that reach back over the tank), and out to 65 only what sits off the
     # centre line: the grips, levers, switch housings and the left mirror sit 45-57 behind the
@@ -671,7 +697,8 @@ def main() -> int:
                     help="the hips go this far along the seat from its front edge (0..1); 0.27 is snug behind the "
                          "tank, where the arms, nearly straight on this bike, still reach the grips with the bars turned")
     ap.add_argument("--seat-at", type=float, help="instead of --sit: the parked model's y that goes under the hips")
-    ap.add_argument("--grip", default="20,-15,98", help="the grip's centre on the +X side, parked model x,y,z")
+    ap.add_argument("--grip", default="29.4,-10.7,96",
+                    help="the grip's centre on the +X side, parked model x,y,z (the rubber sleeve's, see above)")
     ap.add_argument("--peg", default="19,6,27", help="the foot peg's top on the +X side, parked model x,y,z")
     ap.add_argument("--steer", help="the steering axis if it isn't found: x,y,z of a point on it (parked model) and the rake in degrees")
     ap.add_argument("--bar-angle", type=float, default=20.0, help="how far the bars turn, degrees (0: nothing moves)")
@@ -821,11 +848,12 @@ def main() -> int:
             tv = turned(v)
             tn = np.column_stack([-n[:, 0], -n[:, 1], n[:, 2]])
             allverts.append(tv)
-            # The bar assembly and the front wheel cast no shadow: the bike's front end must not
-            # shadow the headlamp's beam (test 34). The worn bike's only: the parked bike has no
-            # beam and keeps its sun shadow whole (test 35's cleared them by name in every output).
+            # The bar assembly, the fork's lower end and the front wheel cast no shadow: the
+            # bike's front end must not shadow the headlamp's beam (test 34). The worn bike's
+            # only: the parked bike has no beam and keeps its sun shadow whole (test 35's
+            # cleared them by name in every output).
             add_shape(out, f"{path.stem}_{label}", rows(tv), rows(f), rows(u), rows(tn), base, base.use_type, kind,
-                      True, bone, bind, TransformBuf, casts=role not in ("front", "wheelF"))
+                      True, bone, bind, TransformBuf, casts=role not in ("front", "fork", "wheelF"))
         out.save()
         allverts = np.vstack(allverts)
         fix_all_bone_bounds(path, list(spheres.values()), rigid_inverse(bind) if bind else None)
@@ -853,10 +881,12 @@ def main() -> int:
                   f"sphere ({c[0]:.0f}, {c[1]:.0f}, {c[2]:.0f}) r {r:.0f}")
 
     # The moving parts for the F4SE plugin, in the worn bike's mesh space: it tells a
-    # wheel by a culling sphere on an axle and the bar assembly by one ahead of FrontMinY.
+    # wheel by a culling sphere on an axle and the bar assembly by one ahead of FrontMinY
+    # (the fork's lower end counts with it: its sphere sits ahead too, and its name says
+    # which it is).
     fa, ra, sp = to_worn(parts["front_axle"]), to_worn(parts["rear_axle"]), to_worn(parts["steer_point"])
     static_y = [c[1] for label, (c, _) in spheres.items() if not shapes[label][5]]
-    front_y = [c[1] for label, (c, _) in spheres.items() if shapes[label][5] == "front"]
+    front_y = [c[1] for label, (c, _) in spheres.items() if shapes[label][5] in ("front", "fork")]
     front_min_y = (max(static_y) + min(front_y)) / 2 if front_y else fa[1]
     partsfile = args.out / "CMB_BikeParts.ini"
     partsfile.write_text(
