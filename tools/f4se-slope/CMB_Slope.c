@@ -646,8 +646,8 @@ typedef struct {
 	uintptr_t nodes;                    /* the instance's bone nodes (NiAVObject * each) */
 	int count;
 	char name[40];
-	char inherited[240];                /* the bones given their parents' part, for the hold's line (test 38's pose study) */
-	int inheritedN;
+	char inherited[600];                /* the bones given their parents' part, for the hold's line (test 38's pose study; a body's ten helpers fit) */
+	int inheritedN, inheritedListed;
 } RiderPart;
 static RiderPart *OwnerOfReplica(uintptr_t data);
 static bool IsReplica(uintptr_t data);
@@ -3625,7 +3625,7 @@ static void HoldRider(uintptr_t shape, uintptr_t skin, uintptr_t data, const cha
 		 * refused the whole shape, and the rider stayed level all session). */
 		int inheritedLen = 0;
 		p->inherited[0] = 0;
-		p->inheritedN = 0;
+		p->inheritedN = p->inheritedListed = 0;
 		for (uint32_t b = 0; b < count; b++) {
 			uintptr_t node = ((const uintptr_t *)nodes)[b];
 			float N[9], n[3], sc;
@@ -3654,8 +3654,10 @@ static void HoldRider(uintptr_t shape, uintptr_t skin, uintptr_t data, const cha
 					p->arm[b] = TorsoRole(ObjectName(node));
 				if (!p->arm[b]) {
 					p->arm[b] = AncestorRole(node);   /* the body's skin helpers, by their parents (test 38's pose study) */
-					if (p->arm[b] && inheritedLen < (int)sizeof(p->inherited) - 60)
+					if (p->arm[b] && inheritedLen < (int)sizeof(p->inherited) - 60) {
 						inheritedLen += snprintf(p->inherited + inheritedLen, sizeof(p->inherited) - inheritedLen, "%s%.24s with %s", inheritedLen ? ", " : "", OrNone(ObjectName(node)), RoleWord(p->arm[b]));
+						p->inheritedListed++;
+					}
 					if (p->arm[b])
 						p->inheritedN++;
 				}
@@ -3968,8 +3970,9 @@ static void SyncRider(uintptr_t player, const SkinList *list, bool wanted)
 			if (g_rider[i].skin && NameHas(g_rider[i].name, "hand"))
 				LogHandBones(g_rider[i].name, (const uintptr_t *)g_rider[i].nodes, (const uintptr_t *)g_rider[i].xforms, g_rider[i].skip, g_rider[i].arm, g_rider[i].count);
 			if (g_rider[i].inheritedN)
-				Log("rider: %s: %d bone%s with no part by name take their parents' (test 38's pose study: the body's skin helpers were left where the clips put them, a hump on the upper back): %s%s",
-				    g_rider[i].name, g_rider[i].inheritedN, g_rider[i].inheritedN == 1 ? "" : "s", g_rider[i].inherited, strlen(g_rider[i].inherited) >= sizeof(g_rider[i].inherited) - 60 ? ", ..." : "");
+				Log("rider: %s: %d bone%s with no part by name take%s %s parent's part (test 38's pose study: the body's skin helpers were left where the clips put them, a hump on the upper back): %s%s",
+				    g_rider[i].name, g_rider[i].inheritedN, g_rider[i].inheritedN == 1 ? "" : "s", g_rider[i].inheritedN == 1 ? "s" : "", g_rider[i].inheritedN == 1 ? "its" : "their",
+				    g_rider[i].inherited, g_rider[i].inheritedListed < g_rider[i].inheritedN ? ", ..." : "");
 		}
 	}
 	if (g_riderCount != before) {

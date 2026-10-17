@@ -3597,8 +3597,11 @@ static void TiltTests(void)
 			ExpectedTilt(Rw2, Pw2);
 			MapBone(g_bodyNodes[6], g_bodyBonesOriginal + 6 * 0x50, copyNow + 6 * 0x50, S, mS);
 			float chord = TiltedOff(S, mS, Rw2, Pw2), dj = Dist3(S, pivot), half = dj > 0.001f ? chord / (2.0f * dj) : 0.0f;
-			float lean = 2.0f * asinf(half > 1.0f ? 1.0f : half) * DEG;
-			CHECK(lean > 15.5f && lean < 30.5f, "the upper body leaned %.1f deg (the shoulder's chord %.1f about the joint %.1f away): past the old cap of 15, within 30", lean, chord, dj);
+			float lean = 2.0f * asinf(half > 1.0f ? 1.0f : half) * DEG, logged = LastLogNumber("the upper body leaned ");
+			/* The chord over the shoulder's distance from the joint reads a little under the lean
+			 * (the fake's shoulder sits 18 to the side, off the lean's axis: about 0.96 of it), so
+			 * the plugin's own figure is the one held to the window, the pose's to agree with it. */
+			CHECK(logged > 15.5f && logged < 30.5f && fabsf(lean - logged) < 1.5f, "the upper body leaned %.1f deg by the log (%.1f by the shoulder's chord %.1f about the joint %.1f away): past the old cap of 15, within 30", logged, lean, chord, dj);
 			RewriteIni("ArmReach=0.5", "ArmReach=0.80");
 		}
 		RewriteIni("TorsoLean=-1", "TorsoLean=0");
