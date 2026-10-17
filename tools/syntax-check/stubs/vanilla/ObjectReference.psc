@@ -11,6 +11,7 @@ Cell Function GetParentCell() native
 ObjectReference Function PlaceAtMe(Form akFormToPlace, int aiCount = 1, bool abForcePersist = false, bool abInitiallyDisabled = false, bool abDeleteWhenAble = true) native
 Function Delete() native
 bool Function IsInInterior() native
+WorldSpace Function GetWorldSpace() native
 Function MoveTo(ObjectReference akTarget, float afXOffset = 0.0, float afYOffset = 0.0, float afZOffset = 0.0, bool abMatchRotation = true) native
 float Function GetDistance(ObjectReference akOther) native
 float Function GetAngleZ() native

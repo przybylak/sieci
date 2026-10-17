@@ -268,6 +268,8 @@ float groundY = 0.0
 float groundZ = 1.0
 ; Saves from before a default changed get the new one once, if they still have the old.
 int settingsVersion = 0
+WorldSpace lastWorld          ; InClosedWorld's answer, kept until the worldspace changes
+bool lastWorldClosed = false
 Actor[] stowedFollowers
 Actor[] boostedFollowers
 float[] boostedDeltas
@@ -824,6 +826,10 @@ Function CallBike()
 		busy = false
 		Debug.Notification("You can only call your motorbike outdoors.")
 		return
+	elseif InClosedWorld()
+		busy = false
+		Debug.Notification("There's no room for your motorbike here.")
+		return
 	elseif swimming
 		busy = false
 		Debug.Notification(DeepWaterMessage)
@@ -851,10 +857,10 @@ Function EmergencyReset()
 	CancelTimer(TimerKeys)
 	UnregisterForPlayerTeleport()
 	busy = true
-	if !PlayerRef.IsInInterior()
+	if !PlayerRef.IsInInterior() && !InClosedWorld()
 		ParkBesidePlayer()
 	elseif riding
-		; Indoors: the bike is still shadowing the last outdoor spot.
+		; Indoors or in a walled town: the bike is still shadowing the last outdoor spot.
 		BikeRef.Enable()
 	endif
 	FinishRide()
@@ -944,8 +950,9 @@ Function RideTick()
 	endif
 
 	; Things the bike can't follow you into. The bike has been shadowing the
-	; player, so it's left at the last outdoor spot we saw.
-	if PlayerRef.IsInInterior()
+	; player, so it's left at the last outdoor spot we saw (a walled town's gate
+	; is a load door like any interior's).
+	if PlayerRef.IsInInterior() || InClosedWorld()
 		AutoDismount("You leave the motorbike parked outside.", false)
 		return
 	elseif PlayerRef.IsInPowerArmor()
@@ -1020,7 +1027,7 @@ EndFunction
 string Function GetMountBlocker()
 	if PlayerRef.IsInPowerArmor()
 		return "You can't ride a motorbike in power armor."
-	elseif PlayerRef.IsInInterior()
+	elseif PlayerRef.IsInInterior() || InClosedWorld()
 		return "There's no room to ride in here."
 	elseif PlayerRef.GetSitState() != 0
 		return "You need to stand up first."
@@ -1034,6 +1041,39 @@ string Function GetMountBlocker()
 		return "Your motorbike is out of fuel. It runs on Flamer Fuel (carried or in the side bag)."
 	endif
 	return ""
+EndFunction
+
+; Outdoor worldspaces that are enclosed places, where there's no room to ride either (test 39's
+; wish: "dungeons or close spaces like sewers" shouldn't take the bike; those are interiors and
+; are refused by IsInInterior, but the walled towns and arenas are worldspaces of their own):
+; Diamond City (its two worldspaces), Goodneighbor, the pre-war Sanctuary of the intro, Far
+; Harbor's memory simulation, and Nuka-World's market and amphitheater. The open worlds (the
+; Commonwealth, Far Harbor's island, Nuka-World's park) and other mods' worldspaces stay open.
+; Looked up by file (Mutagen's FormKeys for the three masters; a DLC that isn't installed is
+; skipped), and worked out again only when the worldspace changes.
+bool Function InClosedWorld()
+	WorldSpace here = PlayerRef.GetWorldSpace()
+	if here == lastWorld
+		return lastWorldClosed
+	endif
+	lastWorld = here
+	lastWorldClosed = false
+	if !here
+		return false
+	endif
+	if here == Game.GetFormFromFile(0x000F93, "Fallout4.esm") as WorldSpace || here == Game.GetFormFromFile(0x000F94, "Fallout4.esm") as WorldSpace
+		lastWorldClosed = true   ; DiamondCityFX, DiamondCity
+	elseif here == Game.GetFormFromFile(0x054BD5, "Fallout4.esm") as WorldSpace || here == Game.GetFormFromFile(0x0A7FF4, "Fallout4.esm") as WorldSpace
+		lastWorldClosed = true   ; Goodneighbor, SanctuaryHillsWorld
+	elseif Game.IsPluginInstalled("DLCCoast.esm") && here == Game.GetFormFromFile(0x004EA4, "DLCCoast.esm") as WorldSpace
+		lastWorldClosed = true   ; DLC03VRWorldspace
+	elseif Game.IsPluginInstalled("DLCNukaWorld.esm") && (here == Game.GetFormFromFile(0x052931, "DLCNukaWorld.esm") as WorldSpace || here == Game.GetFormFromFile(0x053C58, "DLCNukaWorld.esm") as WorldSpace)
+		lastWorldClosed = true   ; NukaWorldAmphitheater, NukaWorldMarket
+	endif
+	if lastWorldClosed
+		Log("In an enclosed worldspace (" + here + "): no riding, no calling the bike.")
+	endif
+	return lastWorldClosed
 EndFunction
 
 ; Undo everything riding changed on the player and companions.
@@ -1505,7 +1545,7 @@ Function BringBikeAfterSwim()
 	if !bikeWaitsForShore || riding || swimming
 		return
 	endif
-	if busy || PlayerRef.IsInInterior()
+	if busy || PlayerRef.IsInInterior() || InClosedWorld()
 		StartTimer(ShoreRetryInterval, TimerShore)
 		return
 	endif

@@ -36,13 +36,13 @@ and, if you have one, a bag or other gear that sits in an unusual slot.
 | 6 | Use the keys again (or favorite them and press the hotkey) | fade; the bike is parked to your right; after 300 m or more of riding, Flamer Fuel went down by about one per 300 m |
 | 7 | Activate the bike → "Open side bag" | a container opens; put stuff in |
 | 8 | Overfill the bag (default 60 lbs with F4SE, or 60 items without) | extra items bounce back with "The side bag is full" |
-| 9 | Ride up to a building door and go inside | auto-dismount; outside again, the bike is parked by the door |
+| 9 | Ride up to a building door and go inside; then ride to Diamond City's gate (or Goodneighbor's) and go in; inside, try the keys' "Call it here" and getting on | auto-dismount both times ("You leave the motorbike parked outside."); outside again, the bike is parked by the door or the gate; in Diamond City and Goodneighbor, calling gives "There's no room for your motorbike here." and getting on "There's no room to ride in here." (since test 39: they, the pre-war Sanctuary, Far Harbor's memory simulation and Nuka-World's market and amphitheater are worldspaces of their own, outdoors to the game; the Papyrus log says "In an enclosed worldspace"); dungeons and sewers are interiors, refused as before |
 | 10 | Ride, save, load that save | still riding, still fast, still can't jump |
 | 11 | Ride, fast travel | still riding at the destination |
 | 12 | *(opt-in, outside companion quests)* `set CMB_CompanionMode to 1`, ride, get off | companion disappears while riding and steps out behind you afterwards |
 | 13a | Put all your Flamer Fuel in the side bag, ride | fuel is taken from the bag first |
 | 13b | Ride until the fuel runs out | "Your motorbike ran out of fuel." and the bike is parked next to you; getting back on is refused until you have fuel |
-| 14 | Try riding in power armor; then draw a weapon and try to get on | both refused with a message ("Put your weapon away first.") |
+| 14 | Try riding in power armor; get on, then get into a power armor frame (if the game lets you activate it while seated); then draw a weapon and try to get on | refused with "You can't ride a motorbike in power armor."; in the frame within a second you're off with "You can't ride in power armor. The motorbike is parked nearby."; the weapon refused with "Put your weapon away first." (calling the bike in power armor is allowed: it's only the riding) |
 | 15 | Get on, sit still, then ride off and stop | engine start, idle while standing, louder/higher while moving, run-down when you get off (silent = see the engine-sound note in DESIGN.md) |
 | 16 | *(F4SE)* wear something in slot 57, ride, get off | it comes off while riding and goes back on afterwards |
 | 17 | *(MCM)* Mod Config → Commonwealth Motorbike | every setting there; change the speed, get on: the new speed applies |
