@@ -646,6 +646,8 @@ typedef struct {
 	uintptr_t nodes;                    /* the instance's bone nodes (NiAVObject * each) */
 	int count;
 	char name[40];
+	char inherited[240];                /* the bones given their parents' part, for the hold's line (test 38's pose study) */
+	int inheritedN;
 } RiderPart;
 static RiderPart *OwnerOfReplica(uintptr_t data);
 static bool IsReplica(uintptr_t data);
@@ -3621,8 +3623,9 @@ static void HoldRider(uintptr_t shape, uintptr_t skin, uintptr_t data, const cha
 		/* A bone whose node can't be read, or whose world transform isn't a rigid one (a hidden
 		 * bone scaled to 0, say), is left at its own transform (test 27: the backpack's bone 16
 		 * refused the whole shape, and the rider stayed level all session). */
-		char inherited[360] = "";   /* the bones given their parents' part, for one line (test 38's pose study) */
-		int inheritedLen = 0, inheritedN = 0;
+		int inheritedLen = 0;
+		p->inherited[0] = 0;
+		p->inheritedN = 0;
 		for (uint32_t b = 0; b < count; b++) {
 			uintptr_t node = ((const uintptr_t *)nodes)[b];
 			float N[9], n[3], sc;
@@ -3651,10 +3654,10 @@ static void HoldRider(uintptr_t shape, uintptr_t skin, uintptr_t data, const cha
 					p->arm[b] = TorsoRole(ObjectName(node));
 				if (!p->arm[b]) {
 					p->arm[b] = AncestorRole(node);   /* the body's skin helpers, by their parents (test 38's pose study) */
-					if (p->arm[b] && inheritedLen < (int)sizeof(inherited) - 60)
-						inheritedLen += snprintf(inherited + inheritedLen, sizeof(inherited) - inheritedLen, "%s%.24s with %s", inheritedLen ? ", " : "", OrNone(ObjectName(node)), RoleWord(p->arm[b]));
+					if (p->arm[b] && inheritedLen < (int)sizeof(p->inherited) - 60)
+						inheritedLen += snprintf(p->inherited + inheritedLen, sizeof(p->inherited) - inheritedLen, "%s%.24s with %s", inheritedLen ? ", " : "", OrNone(ObjectName(node)), RoleWord(p->arm[b]));
 					if (p->arm[b])
-						inheritedN++;
+						p->inheritedN++;
 				}
 				if (p->arm[b] == 4 && !g_headNode && HeadName(ObjectName(node)))
 					g_headNode = node;
@@ -3662,9 +3665,6 @@ static void HoldRider(uintptr_t shape, uintptr_t skin, uintptr_t data, const cha
 					g_torsoNode = node;
 			}
 		}
-		if (inheritedN)
-			Log("rider: %s: %d bone%s with no part by name take their parents' (test 38's pose study: the body's skin helpers were left where the clips put them, a hump on the upper back): %s%s",
-			    name, inheritedN, inheritedN == 1 ? "" : "s", inherited, inheritedLen >= (int)sizeof(inherited) - 60 ? ", ..." : "");
 		/* The hands' bones are logged from SyncRider, once the hold is known to stand (test 33:
 		 * the fingers stretched into spikes; a hold that waits for the skeleton logs nothing). */
 		if (r) {
@@ -3964,9 +3964,13 @@ static void SyncRider(uintptr_t player, const SkinList *list, bool wanted)
 			g_holdWaitExpired = true;
 		}
 		g_holdWaitSince = 0.0f;
-		for (int i = before; i < g_riderCount; i++)   /* the hands' bones, once per hold that stands */
+		for (int i = before; i < g_riderCount; i++) {   /* the hands' bones and the bones given their parents' part, once per hold that stands (review: a hold waiting for the skeleton logged the latter at every retry) */
 			if (g_rider[i].skin && NameHas(g_rider[i].name, "hand"))
 				LogHandBones(g_rider[i].name, (const uintptr_t *)g_rider[i].nodes, (const uintptr_t *)g_rider[i].xforms, g_rider[i].skip, g_rider[i].arm, g_rider[i].count);
+			if (g_rider[i].inheritedN)
+				Log("rider: %s: %d bone%s with no part by name take their parents' (test 38's pose study: the body's skin helpers were left where the clips put them, a hump on the upper back): %s%s",
+				    g_rider[i].name, g_rider[i].inheritedN, g_rider[i].inheritedN == 1 ? "" : "s", g_rider[i].inherited, strlen(g_rider[i].inherited) >= sizeof(g_rider[i].inherited) - 60 ? ", ..." : "");
+		}
 	}
 	if (g_riderCount != before) {
 		Log("rider: holding %d more shape(s) of the rider to tilt with the bike (%d skinned, %d plain), %d in all", g_riderCount - before,
@@ -4917,6 +4921,15 @@ static void FrameTilt(void)
 	g_lastHeading = h;
 	g_haveLastHeading = true;
 	if (g_frameDt > 0.0f) {
+		/* Across the back mode's edge the nose's swing changes sense (backing, a side key swings
+		 * it against the key; creeping, with it), and so does the flip below: the smoothed rate
+		 * is re-expressed at the edge so the bars' input is continuous (review: it carried the
+		 * old sign for 70 ms, and the bars twitched a few degrees against the key at every
+		 * release of the back key with a side key held). */
+		static int lastMode = INPUT_PASS;
+		if ((lastMode == INPUT_BACK) != (g_inputMode == INPUT_BACK))
+			g_headingRate = -g_headingRate;
+		lastMode = g_inputMode;
 		g_headingRate += (rate - g_headingRate) * (1.0f - expf(-g_frameDt / 0.1f));
 		float f = g_headingRate / g_barFullAt;
 		f = f > 1.0f ? 1.0f : f < -1.0f ? -1.0f : f;

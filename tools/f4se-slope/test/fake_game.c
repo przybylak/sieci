@@ -175,8 +175,8 @@ static uint8_t g_partBonesOriginal[4][0x50];
 static bool g_handRaised;         /* the left hand swung up about the elbow, 20% nearer the shoulder (a Pip-Boy raise: test 37's lean solved from it) */
 /* The rider: the body skinned to two bones, the COM the bike hangs off, a plain shape (the
  * Pip-Boy's) under a bone of its own. Their world transforms follow the player (SyncFakeWorld). */
-static uint8_t *g_bodyShape, *g_bodySkin, *g_bodyData, *g_bodyBones, *g_bodyNodes[10], *g_comNode, *g_pipboyBone, *g_pipboyShape, *g_npcRoot;
-static uint8_t g_bodyBonesOriginal[10 * 0x50], g_pipboyLocalOriginal[0x40];
+static uint8_t *g_bodyShape, *g_bodySkin, *g_bodyData, *g_bodyBones, *g_bodyNodes[12], *g_comNode, *g_pipboyBone, *g_pipboyShape, *g_npcRoot;
+static uint8_t g_bodyBonesOriginal[12 * 0x50], g_pipboyLocalOriginal[0x40];
 static uint8_t *g_decalShape, *g_decalSkin;   /* a blood decal: the game clones the body's skin instance for it (test 29) */
 static void **g_vtSkin;
 static uint8_t *g_parkGlobals[7], *g_trackSlope, *g_turnRadius, *g_turnStand, *g_turnSlow, *g_controls;
@@ -234,9 +234,11 @@ static void FakeGetPosition(uint8_t *self, float *out, bool centre)
 		out[i] = PlayerPosition()[i] * HAVOK;
 	out[3] = 0.0f;
 }
+static int g_setPositions;   /* the calls so far: the plugin's pushes (the reverse by steps after rays) */
 static void FakeSetPosition(uint8_t *self, const float *p, bool centre, bool warp)
 {
 	(void)self; (void)centre; (void)warp;
+	g_setPositions++;
 	if (g_honour & 4)
 		for (int i = 0; i < 3; i++)
 			PlayerPosition()[i] = p[i] / HAVOK;
@@ -701,9 +703,9 @@ static void BuildGame(void)
 	g_comNode = NewNode(vtNode, "COM", 0);
 	AddChild(npcRoot, g_comNode);
 	*(uint8_t **)(g_comNode + 0x28) = npcRoot;
-	g_bodyNodes[0] = NewNode(vtNode, "NPC Pelvis [Pelv]", 0);
+	g_bodyNodes[0] = NewNode(vtNode, "NPC Pelvis [Pelv]", 2);   /* a skin helper under it (test 38's pose study) */
 	g_bodyNodes[1] = NewNode(vtNode, "NPC Spine [Spn0]", 0);
-	g_bodyNodes[2] = NewNode(vtNode, "NPC Spine1 [Spn1]", 0);   /* in the skin with no vertices of its own (test 24) */
+	g_bodyNodes[2] = NewNode(vtNode, "NPC Spine1 [Spn1]", 2);   /* in the skin with no vertices of its own (test 24); a skin helper under it (test 38's pose study) */
 	g_bodyNodes[3] = NewNode(vtNode, "NPC Neck [Neck]", 0);      /* its node scaled to 0: hidden (test 27's backpack bone) */
 	g_bodyNodes[4] = NewNode(vtNode, "Cloth_BN_Purse_001", 0);   /* a cloth bone: its world matrix sheared, not orthonormal (test 28) */
 	g_bodyNodes[5] = NewNode(vtNode, "LArm_Hand [LHnd]", 0);     /* a hand: turns with the bars (test 29) */
@@ -717,6 +719,17 @@ static void BuildGame(void)
 	}
 	AddChild(g_bodyNodes[8], g_bodyNodes[9]);
 	*(uint8_t **)(g_bodyNodes[9] + 0x28) = g_bodyNodes[8];
+	/* The body's skin helpers (test 38's pose study: Belly_skin and its kind were left where
+	 * the clips put them while the torso leaned, a hump on the upper back): a bone whose name
+	 * gives no part takes the first found up its node parents. Belly_skin under SPINE1 takes
+	 * the upper body; LLeg_Thigh_skin under the pelvis has no part anywhere up its chain (the
+	 * pelvis, the NPC root, the skeleton's root) and is carried with the tilt alone. */
+	g_bodyNodes[10] = NewNode(vtNode, "Belly_skin", 0);
+	AddChild(g_bodyNodes[2], g_bodyNodes[10]);
+	*(uint8_t **)(g_bodyNodes[10] + 0x28) = g_bodyNodes[2];
+	g_bodyNodes[11] = NewNode(vtNode, "LLeg_Thigh_skin", 0);
+	AddChild(g_bodyNodes[0], g_bodyNodes[11]);
+	*(uint8_t **)(g_bodyNodes[11] + 0x28) = g_bodyNodes[0];
 	g_pipboyBone = NewNode(vtNode, "PipboyBone", 2);
 	AddChild(npcRoot, g_pipboyBone);
 	*(uint8_t **)(g_pipboyBone + 0x28) = npcRoot;
@@ -822,7 +835,7 @@ static void BuildGame(void)
 	*(uint32_t *)(instance + 0x30) = 1;
 	*(uint32_t *)(instance + 0x38) = 1;
 	/* The rider's body: its own skin instance, bone data (references: the skin and the model
-	 * cache, as the game shares it with every NPC in the mesh) and two bones. */
+	 * cache, as the game shares it with every NPC in the mesh) and its twelve bones. */
 	g_bodySkin = (uint8_t *)NewObject(vtSkin, 0x100);
 	*(int32_t *)(g_bodySkin + 0x08) = 1;
 	*(uint8_t **)(g_bodyShape + 0x140) = g_bodySkin;
@@ -831,14 +844,14 @@ static void BuildGame(void)
 	*(uint8_t **)(g_bodySkin + 0x40) = g_bodyData;
 	g_bodyBones = (uint8_t *)VirtualAlloc(NULL, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 	*(uint8_t **)(g_bodyData + 0x10) = g_bodyBones;
-	*(uint32_t *)(g_bodyData + 0x18) = 10;
-	*(uint32_t *)(g_bodyData + 0x20) = 10;
+	*(uint32_t *)(g_bodyData + 0x18) = 12;
+	*(uint32_t *)(g_bodyData + 0x20) = 12;
 	uint8_t **bodyList = (uint8_t **)VirtualAlloc(NULL, 0x100, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-	for (int i = 0; i < 10; i++)
+	for (int i = 0; i < 12; i++)
 		bodyList[i] = g_bodyNodes[i];
 	*(uint8_t ***)(g_bodySkin + 0x28) = bodyList;
-	*(uint32_t *)(g_bodySkin + 0x30) = 10;
-	*(uint32_t *)(g_bodySkin + 0x38) = 10;
+	*(uint32_t *)(g_bodySkin + 0x30) = 12;
+	*(uint32_t *)(g_bodySkin + 0x38) = 12;
 	/* A blood decal on the body: its own shape, a skin instance cloned from the body's (the same
 	 * bone list; it points wherever the body's points when it's made: test 29). Not in the 3D yet. */
 	g_decalShape = NewNode(vtTri, "BloodDecal:0", 0);
@@ -847,8 +860,8 @@ static void BuildGame(void)
 	*(int32_t *)(g_decalSkin + 0x08) = 1;
 	*(uint8_t **)(g_decalShape + 0x140) = g_decalSkin;
 	*(uint8_t ***)(g_decalSkin + 0x28) = bodyList;
-	*(uint32_t *)(g_decalSkin + 0x30) = 10;
-	*(uint32_t *)(g_decalSkin + 0x38) = 10;
+	*(uint32_t *)(g_decalSkin + 0x30) = 12;
+	*(uint32_t *)(g_decalSkin + 0x38) = 12;
 	/* The hands (test 34): a skin whose finger bones have no node, only a world transform of
 	 * their own in the actor's flattened bone tree. As the game lays it out: the nodes at +0x10
 	 * (null for those) and a pointer to every bone's world transform at +0x28 (into the node
@@ -1041,6 +1054,15 @@ static void SyncFakeWorld(void)
 	for (int i = 0; i < 3; i++)
 		pos[i] = pp[i] + off[i];
 	SetWorld(g_bodyNodes[9], heading, pos, 1.0f);
+	static const float bellyOff[3] = { 0, 12, 92 }, thighOff[3] = { 8, 5, 60 };   /* the skin helpers: the belly ahead of and below the spine's joint, the thigh under the pelvis (test 38's pose study) */
+	Apply3(heading, bellyOff, off);
+	for (int i = 0; i < 3; i++)
+		pos[i] = pp[i] + off[i];
+	SetWorld(g_bodyNodes[10], heading, pos, 1.0f);
+	Apply3(heading, thighOff, off);
+	for (int i = 0; i < 3; i++)
+		pos[i] = pp[i] + off[i];
+	SetWorld(g_bodyNodes[11], heading, pos, 1.0f);
 	MulM3(rz20, rx40, pipTurn);
 	MulM3(heading, pipTurn, rot);
 	Apply3(heading, pipOff, off);
@@ -1074,12 +1096,13 @@ static void SetLayouts(bool skinTransposed, bool rootTransposed)
 		pb[16] = -74.17f; pb[17] = 0.0f; pb[18] = 0.0f; pb[19] = 1.0f;
 		memcpy(g_partBonesOriginal[i], g_partBones[i], sizeof(g_partBonesOriginal[i]));
 	}
-	/* The rider's body: two bones with binds of their own; the Pip-Boy's shape's own transform. */
-	static const float bindRot[10][9] = { { 0, 0, 1, 0, 1, 0, -1, 0, 0 }, { 1, 0, 0, 0, 0, -1, 0, 1, 0 }, { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, { 0, 1, 0, -1, 0, 0, 0, 0, 1 }, { 1, 0, 0, 0, 1, 0, 0, 0, 1 },
-	                                      { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, { 1, 0, 0, 0, 1, 0, 0, 0, 1 } };
-	static const float bindPos[10][3] = { { 0, 0, -70 }, { 3, -95, 0 }, { 0, -100, 0 }, { 0, -120, 0 }, { 10, 20, -90 }, { 20, -75, -120 }, { 18, -42, -148 }, { 26, -56, -132 }, { 0, 2, -160 }, { 0, -3, -152 } };
-	static const float bodySpheres[10][4] = { { 0, 0, 20, 40 }, { 0, 0, 30, 50 }, { 0, 0, 0, 0 }, { 0, 0, 5, 10 }, { 0, 0, 0, 8 }, { 0, 0, 0, 12 }, { 0, 0, 0, 14 }, { 0, 0, 0, 12 }, { 0, 0, 0, 14 }, { 0, 0, 0, 6 } };   /* the third: no vertices */
-	for (int i = 0; i < 10; i++) {
+	/* The rider's body: its bones with binds of their own (the last two the skin helpers of test
+	 * 38's pose study); the Pip-Boy's shape's own transform. */
+	static const float bindRot[12][9] = { { 0, 0, 1, 0, 1, 0, -1, 0, 0 }, { 1, 0, 0, 0, 0, -1, 0, 1, 0 }, { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, { 0, 1, 0, -1, 0, 0, 0, 0, 1 }, { 1, 0, 0, 0, 1, 0, 0, 0, 1 },
+	                                      { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, { 1, 0, 0, 0, 1, 0, 0, 0, 1 } };
+	static const float bindPos[12][3] = { { 0, 0, -70 }, { 3, -95, 0 }, { 0, -100, 0 }, { 0, -120, 0 }, { 10, 20, -90 }, { 20, -75, -120 }, { 18, -42, -148 }, { 26, -56, -132 }, { 0, 2, -160 }, { 0, -3, -152 }, { 0, -12, -92 }, { -8, -5, -60 } };
+	static const float bodySpheres[12][4] = { { 0, 0, 20, 40 }, { 0, 0, 30, 50 }, { 0, 0, 0, 0 }, { 0, 0, 5, 10 }, { 0, 0, 0, 8 }, { 0, 0, 0, 12 }, { 0, 0, 0, 14 }, { 0, 0, 0, 12 }, { 0, 0, 0, 14 }, { 0, 0, 0, 6 }, { 0, 0, 0, 10 }, { 0, 0, 0, 10 } };   /* the third: no vertices */
+	for (int i = 0; i < 12; i++) {
 		float *bb = (float *)(g_bodyBones + i * 0x50);
 		memcpy(bb, bodySpheres[i], sizeof(bodySpheres[i]));
 		StoreRotation(bb + 4, bindRot[i], skinTransposed);
@@ -1329,10 +1352,9 @@ static void BoneRotationBefore(const uint8_t *node, const uint8_t *orig, const u
 /* How many lines of the plugin's log hold the text: the log is where the plugin writes it,
  * My Documents\My Games\Fallout4\F4SE\CMB_Slope.log, or next to the DLL (test 38: the lean's
  * "not solved yet" line, the solve coming again after a load). */
-static int LogLines(const char *text)
+static FILE *OpenLog(void)
 {
 	static char path[MAX_PATH];
-	static char line[4096];
 	FILE *f = path[0] ? fopen(path, "rb") : NULL;
 	if (!f) {
 		HMODULE shell = LoadLibraryA("shell32.dll");
@@ -1351,16 +1373,46 @@ static int LogLines(const char *text)
 			}
 		}
 	}
-	if (!f) {
+	if (!f)
 		printf("  (no CMB_Slope.log to read, in My Documents or next to the DLL)\n");
+	return f;
+}
+static int LogLines(const char *text)
+{
+	static char line[4096];
+	FILE *f = OpenLog();
+	if (!f)
 		return -1;
-	}
 	int n = 0;
 	while (fgets(line, sizeof(line), f))
 		if (strstr(line, text))
 			n++;
 	fclose(f);
 	return n;
+}
+
+/* A number the plugin logged, read back: the float right after the text, from the last line of
+ * the log that has the text with a float after it (NAN when none does; review of test 38's
+ * build: the arm's logged reach checked against the clips). */
+static float LastLogNumber(const char *after)
+{
+	static char line[4096];
+	FILE *f = OpenLog();
+	if (!f)
+		return NAN;
+	float value = NAN;
+	size_t len = strlen(after);
+	while (fgets(line, sizeof(line), f))
+		for (const char *at = strstr(line, after); at; at = strstr(at + 1, after)) {
+			char *end;
+			float v = strtof(at + len, &end);
+			if (end != at + len) {
+				value = v;
+				break;
+			}
+		}
+	fclose(f);
+	return value;
 }
 
 /* The same through a bare world transform (a bone with no node, test 34). */
@@ -1819,6 +1871,37 @@ static void RollBack(float dt)
 	PlayerPos()[1] -= cosf(h) * 80.0f * dt;
 }
 
+/* The game's bike rolling on backwards under its momentum once the back key is let go (the
+ * keys still read, a creep's forward drive and all): in test 38 the plugin's smoothed speed
+ * read backward for a third of a second into the creep, which this fake's instant stop never
+ * showed. Momentum, since the fake's movement has none: its velocity along the heading,
+ * g_momentumV (set to the backing speed as the key goes), follows the velocity the movement
+ * itself gives this frame (the creep's drive, wound up against the shortfall as it is) over
+ * g_momentumTau, and the player is moved by the difference. It takes over from the plugin's
+ * own push (the reverse by steps, SetPosition here), which goes on for the 0.1 s the back
+ * key's read is held: a roll on top of that push read 160 a second, over CreepBelow, and the
+ * mode went to the pass-through instead of the creep; and a roll added to the creep's drive
+ * was outrun by the drive's wind-up within a quarter second, too soon for the old flip to
+ * show more than a few degrees. */
+static float g_momentumV, g_momentumTau;
+static int g_momentumPushes;   /* g_setPositions as of the last frame */
+static void BackingMomentum(float dt)
+{
+	float p0[2] = { PlayerPos()[0], PlayerPos()[1] };
+	FakeGameFrame(dt);
+	if (g_setPositions != g_momentumPushes) {   /* the plugin pushed since the last frame: its push is the motion */
+		g_momentumPushes = g_setPositions;
+		return;
+	}
+	if (!(dt > 0.0f) || !(g_momentumTau > 0.0f))
+		return;
+	float h = *(float *)(g_player + 0xC8), sh = sinf(h), ch = cosf(h);
+	float demand = ((PlayerPos()[0] - p0[0]) * sh + (PlayerPos()[1] - p0[1]) * ch) / dt;
+	g_momentumV += (demand - g_momentumV) * (1.0f - expf(-dt / g_momentumTau));
+	PlayerPos()[0] += sh * (g_momentumV - demand) * dt;
+	PlayerPos()[1] += ch * (g_momentumV - demand) * dt;
+}
+
 /* The Harley build's moving parts ([Parts] in the INI for this run): the wheels spin with
  * the distance ridden and back when reversing, the bar assembly turns with the turning. */
 static void PartsTests(void)
@@ -2090,6 +2173,47 @@ static void InputTests(void)
 	CHECK(Moved(p0) < 0.5f && fabsf(Turned(from)) < 0.1f, "back let go of: the bike stands, no creep from a stale side key (moved %.1f, turned %.1f deg)",
 	      Moved(p0), Turned(from));
 
+	/* Review of test 38's build: with the back key let go and a side key still held, the creep
+	 * turns the heading the key's way while the smoothed speed still reads backward for a
+	 * third of a second (the game's bike rolls on under its momentum: BackingMomentum here,
+	 * once the plugin's own push has stopped), and the bars' flip on that speed (g_speedAlong
+	 * < -10) swung them full lock the other way for about 0.4 s before they came back. The flip
+	 * is on the back mode alone now: sampled every 50 ms, the bars stay the key's way (or pass
+	 * through zero toward it), never the opposite sign beyond 3 deg, and the mode goes to the
+	 * creep. */
+	printf("input hook: the back key let go of with the side key still held, the bike rolling on backwards for a moment (review of test 38's build: the bars flipped on the smoothed speed, full lock the other way for a third of a second): the bars stay the key's way, the mode goes to the creep:\n");
+	for (int side = 0; side < 2; side++) {
+		float key = side ? -1.0f : 1.0f;   /* right, then left */
+		Keys(key, -1.0f);
+		RunFrames(1000);
+		float barBacking = BarAngle(), worst = 0.0f, barAt[14];
+		int creepBefore = LogLines(" | creep");
+		from = *head;
+		Mark(p0);
+		Keys(key, 0.0f);
+		g_momentumV = -80.0f;   /* backing at 80, the momentum following the creep's drive over half a second: the smoothed speed reads backward for the game's third of a second */
+		g_momentumTau = 0.5f;
+		g_momentumPushes = g_setPositions;
+		g_onFrame = BackingMomentum;
+		for (int i = 0; i < 14; i++) {
+			RunFrames(50);
+			barAt[i] = BarAngle();
+			float against = key * barAt[i];   /* the right key's bars are negative (the left's positive): positive here is against the key */
+			if (i < 10 && against > worst)
+				worst = against;
+		}
+		g_onFrame = FakeGameFrame;
+		if (g_haveParts)
+			CHECK(key * barBacking < -5.0f && worst < 3.0f && key * barAt[13] < -5.0f,
+			      "%s let go of, %s held: the bars from %.1f deg backing, at most %.1f deg against the key in the first half second (under 3: the key's way, or through zero toward it), %.1f at 0.7 s, the key's way again",
+			      "back", side ? "left" : "right", barBacking, worst, barAt[13]);
+		CHECK(LogLines(" | creep") > creepBefore && key * Turned(from) > 5.0f && g_momentumV > 0.0f,
+		      "and the mode went to the creep (%d trace line%s say so): the nose %.0f deg the key's way, %.0f from where the key was let go of in the 0.7 s (the fake's momentum spent: %+.0f a second along the heading)",
+		      LogLines(" | creep") - creepBefore, LogLines(" | creep") - creepBefore == 1 ? "" : "s", key * Turned(from), Moved(p0), g_momentumV);
+		Keys(0.0f, 0.0f);
+		RunFrames(500);
+	}
+
 	printf("input hook: a game that adds the change on a press or release:\n");
 	g_handlerStyle = 1;
 	MoveInput()[0] = MoveInput()[1] = 0.0f;
@@ -2263,9 +2387,17 @@ static void InputTests(void)
 		rail->top = 35.0f;
 		rail->layer = 1;
 		rail->on = true;
+		int thrownBefore = LogLines("thrown away"), rearNamedBefore = LogLines("; the rear wheel's ray hit FakeGround (layer 13)");
 		Keys(0.0f, 1.0f);
 		RunFrames(2000);
 		CHECK(Moved(p0) < 100.0f, "the bike stands: %.0f in 2 s (no obstacle in force)", Moved(p0));
+		/* Review of test 38's build: both wheel rays are cast before either is judged, so the
+		 * line about the front's hit thrown away (the shelf, 140 over the feet, above the ray's
+		 * rise of 129) says what the rear's ray found in that very state: the ground. */
+		int thrown = LogLines("thrown away") - thrownBefore, rearNamed = LogLines("; the rear wheel's ray hit FakeGround (layer 13)") - rearNamedBefore;
+		CHECK(thrown >= 1 && rearNamed == thrown,
+		      "the log: %d \"rays: the front wheel's ray hit ... thrown away\" line%s in the 2 s (one a second), each naming the rear wheel's ray's hit on the ground in the same state (%d; review: both rays cast before either is judged)",
+		      thrown, thrown == 1 ? "" : "s", rearNamed);
 		printf("input hook: the same with an obstacle lower than 1.5 radii 200 ahead of the rider as well (70 ahead of the wheel's edge, past the down-ray's own forward ray: the face rays' verdict, in force): the throttle held to the obstacle's share:\n");
 		rail->on = false;
 		face->follow = 200.0f;
@@ -3104,8 +3236,8 @@ static void TiltTests(void)
 
 	printf("tilt: the rider pitches with the bike (Rider=1):\n");
 	uint8_t *bodyDataNow = *(uint8_t **)(g_bodySkin + 0x40);
-	CHECK(bodyDataNow && bodyDataNow != g_bodyData && *(void **)bodyDataNow == *(void **)g_bodyData && *(uint32_t *)(bodyDataNow + 0x20) == 10,
-	      "the body's skin instance points at the plugin's own copy of its bone data (the game's vtable, 10 bones)");
+	CHECK(bodyDataNow && bodyDataNow != g_bodyData && *(void **)bodyDataNow == *(void **)g_bodyData && *(uint32_t *)(bodyDataNow + 0x20) == 12,
+	      "the body's skin instance points at the plugin's own copy of its bone data (the game's vtable, 12 bones)");
 	CHECK(bodyDataNow && *(uint32_t *)(bodyDataNow + 0x08) == 0x100001u, "the copy's reference count: the base and the instance's one (%#x)", bodyDataNow ? *(uint32_t *)(bodyDataNow + 0x08) : 0);
 	CHECK(memcmp(g_bodyBones, g_bodyBonesOriginal, sizeof(g_bodyBonesOriginal)) == 0 && *(int32_t *)(g_bodyData + 0x08) == 2,
 	      "the game's own bone data, shared with every NPC in that mesh, untouched (references %d)", *(int32_t *)(g_bodyData + 0x08));
@@ -3296,6 +3428,7 @@ static void TiltTests(void)
 	if (g_haveParts) {
 		printf("tilt: the upper body leaned forward for the arms' reach (TorsoLean=-1 for a ride; ArmReach 0.80 since test 38, 0.88 before):\n");
 		RewriteIni("TorsoLean=0", "TorsoLean=-1");   /* read again on getting on */
+		int inheritedBefore = LogLines("Belly_skin with the upper body");
 		SetTilt(0.0f);
 		RunFrames(300);
 		SetTilt(30.0f);
@@ -3326,6 +3459,27 @@ static void TiltTests(void)
 			TP[i] = Rd[i] + Pw2[i];
 		CHECK(TiltedOff(S, mS, Rw2, Pw2) > 1.0f && fabsf(Dist3(mS, TP) - Dist3(S, pivot)) < 0.1f,
 		      "the shoulder swung forward about the spine's joint (%.1f; its distance from the joint %.1f, was %.1f)", TiltedOff(S, mS, Rw2, Pw2), Dist3(mS, TP), Dist3(S, pivot));
+		{
+			/* The body's skin helpers (test 38's pose study: Belly_skin and its kind, whose names
+			 * say nothing to the parts, were left where the clips put them while the torso
+			 * leaned, a hump on the upper back): a bone with no part by name takes the first
+			 * found up its node parents, 8 at most. Belly_skin, under SPINE1, leans with the
+			 * upper body about the joint like the shoulder; LLeg_Thigh_skin, under the pelvis
+			 * with no part anywhere up its chain, is carried with the tilt alone; the hold's
+			 * line names the one and not the other. */
+			float B[3], mB[3], T[3], mT[3];
+			memcpy(B, g_bodyNodes[10] + 0xA0, 12);
+			memcpy(T, g_bodyNodes[11] + 0xA0, 12);
+			MapBone(g_bodyNodes[10], g_bodyBonesOriginal + 10 * 0x50, copyNow + 10 * 0x50, B, mB);
+			MapBone(g_bodyNodes[11], g_bodyBonesOriginal + 11 * 0x50, copyNow + 11 * 0x50, T, mT);
+			CHECK(TiltedOff(B, mB, Rw2, Pw2) > 1.0f && fabsf(Dist3(mB, TP) - Dist3(B, pivot)) < 0.1f,
+			      "Belly_skin, no part by name, under SPINE1: swung forward about the spine's joint with the upper body, as its parent's part says (%.1f; its distance from the joint %.1f, was %.1f)",
+			      TiltedOff(B, mB, Rw2, Pw2), Dist3(mB, TP), Dist3(B, pivot));
+			CHECK(TiltedOff(T, mT, Rw2, Pw2) < 0.1f, "LLeg_Thigh_skin, no part by name or up its chain, under the pelvis: carried with the tilt alone (%.3f off)", TiltedOff(T, mT, Rw2, Pw2));
+			CHECK(LogLines("Belly_skin with the upper body") > inheritedBefore && LogLines("LLeg_Thigh_skin") == 0,
+			      "the hold's line says a bone with no part by name took its parent's: \"Belly_skin with the upper body\" (%d line%s this ride), and never names LLeg_Thigh_skin",
+			      LogLines("Belly_skin with the upper body") - inheritedBefore, LogLines("Belly_skin with the upper body") - inheritedBefore == 1 ? "" : "s");
+		}
 		CHECK(Dist3(mE1, mE2) < 0.1f && Dist3(mW2, mW3) < 0.1f, "the chain stays joined at the elbow and the wrist, the hand on the grip (%.3f, %.3f apart)", Dist3(mE1, mE2), Dist3(mW2, mW3));
 		CHECK(fabsf(Dist3(mE1, mS) - Dist3(E, S)) < 0.05f && fabsf(Dist3(mW2, mE2) - Dist3(Wr, E)) < 0.05f,
 		      "the bones keep their lengths (%.1f and %.1f)", Dist3(mE1, mS), Dist3(mW2, mE2));
@@ -3382,6 +3536,22 @@ static void TiltTests(void)
 				CHECK(TurnedOff(G, mG, Q, q, Rw2, Pw2) < 0.1f && TurnedOff(Wr, mW3, Q, q, Rw2, Pw2) > 0.3f && Dist3(mW2, mW3) < 0.1f,
 				      "the grip's centre stays on the grip (%.3f off the bars' turn of it) and the hand still meets the forearm at the wrist, swung %.2f round the grip by the roll (%.3f apart)",
 				      TurnedOff(G, mG, Q, q, Rw2, Pw2), TurnedOff(Wr, mW3, Q, q, Rw2, Pw2), Dist3(mW2, mW3));
+				/* Review of test 38's build: the arm's log line keeps the grip's distance from
+				 * the shoulder (the first pass's reach, the hand's clip position turned by the
+				 * bars); the roll's passes aim at the rolled wrist, a unit or two off it, and
+				 * the line carried that. Read back from the ride's line, with the bars it logged
+				 * (straight, within their creep); the shoulder's map holds the lean. */
+				float barsLogged = LastLogNumber("round the grip (the bars "), gripLogged = LastLogNumber("the grip "), Qc[9], qc[3], QW[3], target[3];
+				BarTurnMap(barsLogged, A, N, Qc, qc);
+				Apply3(Qc, Wr, QW);
+				for (int i = 0; i < 3; i++)
+					QW[i] += qc[i] - Pw2[i];
+				Apply3(Rw2, QW, target);
+				for (int i = 0; i < 3; i++)
+					target[i] += Pw2[i];
+				CHECK(fabsf(barsLogged) < 1.0f && fabsf(gripLogged - Dist3(mS, target)) < 0.3f,
+				      "the ride's \"arm solved\" line says the grip %.1f from the shoulder (the bars %.1f deg): the clips' hand turned by those bars is %.1f from the leaned shoulder, within 0.3 (the rolled wrist %.1f from it: the first pass's reach is the one logged, not the roll's)",
+				      gripLogged, barsLogged, Dist3(mS, target), Dist3(mS, mW3));
 			}
 			printf("tilt: the wrist roll off and the elbows in the clips' own planes (WristRoll=0, ArmPole=0,0,0 for a ride):\n");
 			RewriteIni("WristRoll=1.0", "WristRoll=0");
@@ -3488,8 +3658,39 @@ static void TiltTests(void)
 		 * PostLoadGame, and the lean of the ride's start stood for the whole ride after it; the
 		 * track code's jump of over 150 units (a door, a fast travel, a teleport) now has the
 		 * lean solved again, kept as it is meanwhile. */
-		printf("tilt: a jump of 1000 units in the ride (a door, a fast travel: the shapes stay held, no PostLoadGame): the lean solved again (test 38):\n");
+		/* Review of test 38's build: a hop at speed lands over 150 from its last track point
+		 * (the track's own jump threshold), and a cell load's stall can carry a frame that far;
+		 * both would have logged "a fast travel" and started the lean's wait over. The lean is
+		 * solved again after a jump over 300 from a ground frame only (the track still cleared
+		 * at 150): a hop of 200 in the air (0.3 s, under TRACK_MAX_AIR 0.4), one of 350 (over
+		 * 300: the air frame before it is what spares the lean), then 200 in one frame on the
+		 * ground. All of it to the rider's right, along the contour of the 20 deg slope the ride
+		 * is on: the ground stays at the feet, and the dip and step checks later on flatten the
+		 * ground at the slope's origin, where the rider's feet must still be. */
+		printf("tilt: a hop at speed (in the air 0.3 s, landing 200 units on, then one landing 350 on) and a stall on the ground (200 units in one frame): the lean kept, no \"solved again after a jump\" line (review of test 38's build: both would have logged a fast travel):\n");
 		int jumpBefore = LogLines("solved again after a jump");
+		const float *along = right;
+		for (int hop = 0; hop < 2; hop++) {
+			float d = hop ? 350.0f : 200.0f;
+			SetState(2);
+			for (int i = 0; i < 6; i++) {
+				for (int k = 0; k < 3; k++)
+					PlayerPos()[k] += along[k] * d / 6.0f;
+				RunFrames(50);
+			}
+			SetState(0);
+			RunFrames(1500);
+			CHECK(LogLines("solved again after a jump") == jumpBefore && LogLines("deg forward about the spine's joint") == leanedBefore + 2,
+			      "a hop of %.0f units in the air: no \"solved again after a jump\" line in the 1.5 s after landing, no new \"leaned\" line (%d, %d)",
+			      d, LogLines("solved again after a jump") - jumpBefore, LogLines("deg forward about the spine's joint") - leanedBefore);
+		}
+		for (int k = 0; k < 3; k++)
+			PlayerPos()[k] += along[k] * 200.0f;
+		RunFrames(1500);
+		CHECK(LogLines("solved again after a jump") == jumpBefore && LogLines("deg forward about the spine's joint") == leanedBefore + 2,
+		      "a stall of 200 units in one frame on the ground: no line either in 1.5 s (%d, %d)",
+		      LogLines("solved again after a jump") - jumpBefore, LogLines("deg forward about the spine's joint") - leanedBefore);
+		printf("tilt: a jump of 1000 units in the ride (a door, a fast travel: the shapes stay held, no PostLoadGame): the lean solved again (test 38):\n");
 		PlayerPos()[0] += 1000.0f;
 		RunFrames(1000);
 		copyNow = *(const uint8_t **)(*(uint8_t **)(g_bodySkin + 0x40) + 0x10);
@@ -3751,7 +3952,7 @@ static void TiltTests(void)
 		uint8_t *bodyCopy = *(uint8_t **)(g_bodySkin + 0x40), *decalCopy = *(uint8_t **)(g_decalSkin + 0x40);
 		CHECK(decalCopy && decalCopy != bodyCopy && decalCopy != g_bodyData && *(int32_t *)(g_decalSkin + 0x08) == 2,
 		      "the decal held with a copy of its own (references %d)", *(int32_t *)(g_decalSkin + 0x08));
-		CHECK(decalCopy && memcmp(*(uint8_t **)(decalCopy + 0x10), *(uint8_t **)(bodyCopy + 0x10), 10 * 0x50) == 0,
+		CHECK(decalCopy && memcmp(*(uint8_t **)(decalCopy + 0x10), *(uint8_t **)(bodyCopy + 0x10), 12 * 0x50) == 0,
 		      "its bones carry it exactly as the body's (from the body's own data, not the tilted copy: no double tilt)");
 	}
 	{
@@ -4077,7 +4278,7 @@ static void TiltTests(void)
 	      "the rider's skin pointed back at the game's bone data, the Pip-Boy's transform back, all let go of");
 	{
 		uint8_t *decalCopy = *(uint8_t **)(g_decalSkin + 0x40);
-		CHECK(decalCopy && decalCopy != g_bodyData && *(int32_t *)(g_decalSkin + 0x08) == 1 && memcmp(*(uint8_t **)(decalCopy + 0x10), g_bodyBonesOriginal, 10 * 0x50) == 0,
+		CHECK(decalCopy && decalCopy != g_bodyData && *(int32_t *)(g_decalSkin + 0x08) == 1 && memcmp(*(uint8_t **)(decalCopy + 0x10), g_bodyBonesOriginal, 12 * 0x50) == 0,
 		      "the decal pointed back where the game left it (the body's old copy), which reads level again");
 		CHECK(*(uint32_t *)(decalCopy + 0x08) == 0x100001u, "that copy's references: the base and the decal's own (%#x): reusable once the decal lets go", *(uint32_t *)(decalCopy + 0x08));
 	}
