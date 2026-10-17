@@ -24,6 +24,14 @@ What it writes (the same four files build_bike_meshes.py does, see there for why
                           grips, feet on the pegs), so they're rebuilt for this model, and then
                           this script is run again with --seat for the bike that hangs off the
                           seated rider (the seat height moved)
+  CMB_BikeParts.ini       the worn bike's moving parts for the F4SE plugin, in its mesh space: the
+                          axles and the wheel radius, the steering axis (SteerPoint, SteerAxis) and
+                          the line a shape's culling sphere must sit ahead of to count as the bar
+                          assembly (FrontMinY), how far the bars turn (BarAngle), the headlamp's
+                          lens and its axis (LampPoint, LampAxis), and Grip, the +X grip's centre,
+                          the very point the fit file's grip_r holds and the clips put the palm on:
+                          the plugin rolls the hand round the grip about it (test 38: it rolled about
+                          the wrist node, 6.5 units from the grip, so the palm left the bar)
 
 The geometry: each material's meshes are merged, welded and split into connected pieces, each
 piece is cut down with quadric edge collapse (fast_simplification) to its share of --tris by
@@ -883,8 +891,13 @@ def main() -> int:
     # The moving parts for the F4SE plugin, in the worn bike's mesh space: it tells a
     # wheel by a culling sphere on an axle and the bar assembly by one ahead of FrontMinY
     # (the fork's lower end counts with it: its sphere sits ahead too, and its name says
-    # which it is).
+    # which it is). Grip is the +X grip's centre, the same point the fit file's grip_r
+    # holds (so the clips' palm sits on it; the other grip mirrors it in x): the pivot
+    # of the plugin's wrist roll. Test 38: the plugin rolled the hand about the wrist
+    # node, which the clips put 6.5 units from the grip (6 along the fingers' axis, 2.5
+    # across), so the palm swung off the bar as the forearm twisted.
     fa, ra, sp = to_worn(parts["front_axle"]), to_worn(parts["rear_axle"]), to_worn(parts["steer_point"])
+    gr = fit["grip_r"]
     static_y = [c[1] for label, (c, _) in spheres.items() if not shapes[label][5]]
     front_y = [c[1] for label, (c, _) in spheres.items() if shapes[label][5] in ("front", "fork")]
     front_min_y = (max(static_y) + min(front_y)) / 2 if front_y else fa[1]
@@ -898,12 +911,14 @@ def main() -> int:
         f"WheelRadius={parts['wheel_radius']:.2f}\n"
         f"SteerPoint={sp[0]},{sp[1]},{sp[2]}\n"
         f"SteerAxis={steer_axis_worn[0]},{steer_axis_worn[1]},{steer_axis_worn[2]}\n"
+        f"Grip={gr[0]},{gr[1]},{gr[2]}\n"
         f"FrontMinY={front_min_y:.1f}\n"
         f"BarAngle={args.bar_angle:g}\n"
         f"LampPoint={LAMP_LENS[0]},{LAMP_LENS[1]},{LAMP_LENS[2]}\n"
         "LampAxis=0,1,0\n")
     print(f"wrote {partsfile}: front axle {fa}, rear axle {ra}, radius {parts['wheel_radius']:.1f}, "
-          f"steering axis through {sp} along {steer_axis_worn}, the bar assembly's spheres beyond y {front_min_y:.1f}")
+          f"steering axis through {sp} along {steer_axis_worn}, the +X grip at {gr} (the wrist roll's pivot), "
+          f"the bar assembly's spheres beyond y {front_min_y:.1f}")
 
     worn(args.out / "CMB_BikeWorn.nif", BIKE_BONE, None)
     if args.seat:

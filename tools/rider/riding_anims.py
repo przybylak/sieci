@@ -213,8 +213,18 @@ class Rider:
         # straight grips in every clip, and CMB_Slope.dll turns the hands and forearms with the
         # live bar angle, so the hands follow the bars whatever clip plays: test 29).
         grip_r, grip_l = grips(0.0 if STRAIGHT_HANDS else p.steer)
-        self._arm(pose, "R", grip_r, pole=[1.0, -0.6, -0.7])
-        self._arm(pose, "L", grip_l, pole=[-1.0, -0.6, -0.7])
+        # The elbows' pole, in the rig's frame (+X the rider's right, +Y forward, Z up): mostly
+        # down, a little out and back. Test 38: the old [1.0, -0.6, -0.7] pointed mostly sideways,
+        # and the plugin, which shortens the reach to ArmReach of the arms' length, bends each
+        # elbow in the plane the clips give it, so the elbows stood out at shoulder height; on a
+        # bike of this shape riders have them bent and tucked under the shoulders, the forearms
+        # near level. The grips sit at the arms' full reach here, so the clips' elbow is only 2.9
+        # off the shoulder-to-wrist line in the cruise pose (straight at the idle): its offset
+        # turns from (2.1 out, 1.4 back, 1.5 down) to (0.8 out, 1.0 back, 2.6 down), and at the
+        # plugin's 88% of the reach the same plane puts the elbow 8.7 off the line, about 2.5 out
+        # and 8 down instead of 6 out and 4.5 down. The legs' poles are as they were.
+        self._arm(pose, "R", grip_r, pole=[0.35, -0.3, -1.0])
+        self._arm(pose, "L", grip_l, pole=[-0.35, -0.3, -1.0])
 
         # Head level and looking ahead (slight downward look), optional yaw.
         g = pose.globals()
