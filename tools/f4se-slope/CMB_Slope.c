@@ -2974,6 +2974,31 @@ static uint8_t HeadRole(uintptr_t node)
 	return 0;
 }
 
+/* A bone with no part by name takes its nearest ancestor's (test 38's pose study: the body's
+ * skin helpers, Belly_skin and UpperBelly_skin under the spine, the breasts under the chest,
+ * the shoulder fat under the collarbones, the upper-arm fat under the upper arm's twist bone
+ * and the rib helpers, have names that say nothing and were left where the clips put them
+ * while the torso leaned and the arms swung: at 14 degrees of lean the shoulders' verts
+ * strayed 7 units, a hump on the upper back and the shoulders caved in; at 25, 12). Up
+ * through the parents, 8 at most, to the first with a part by name; the head's own walk
+ * (HeadRole) has gone first. */
+static uint8_t AncestorRole(uintptr_t node)
+{
+	uintptr_t up = ReadPtr(node + OFF_PARENT);
+	for (int depth = 0; depth < 8 && up; depth++) {
+		if (!IsA(up, RTTI_AVOBJECT))
+			return 0;
+		const char *name = ObjectName(up);
+		uint8_t role = ArmRole(name);
+		if (!role)
+			role = TorsoRole(name);
+		if (role)
+			return role;
+		up = ReadPtr(up + OFF_PARENT);
+	}
+	return 0;
+}
+
 static const char *RoleWord(uint8_t role)
 {
 	int kind = role & 0xF;
@@ -3596,6 +3621,8 @@ static void HoldRider(uintptr_t shape, uintptr_t skin, uintptr_t data, const cha
 		/* A bone whose node can't be read, or whose world transform isn't a rigid one (a hidden
 		 * bone scaled to 0, say), is left at its own transform (test 27: the backpack's bone 16
 		 * refused the whole shape, and the rider stayed level all session). */
+		char inherited[360] = "";   /* the bones given their parents' part, for one line (test 38's pose study) */
+		int inheritedLen = 0, inheritedN = 0;
 		for (uint32_t b = 0; b < count; b++) {
 			uintptr_t node = ((const uintptr_t *)nodes)[b];
 			float N[9], n[3], sc;
@@ -3622,12 +3649,22 @@ static void HoldRider(uintptr_t shape, uintptr_t skin, uintptr_t data, const cha
 					p->arm[b] = HeadRole(node);
 				if (!p->arm[b])
 					p->arm[b] = TorsoRole(ObjectName(node));
+				if (!p->arm[b]) {
+					p->arm[b] = AncestorRole(node);   /* the body's skin helpers, by their parents (test 38's pose study) */
+					if (p->arm[b] && inheritedLen < (int)sizeof(inherited) - 60)
+						inheritedLen += snprintf(inherited + inheritedLen, sizeof(inherited) - inheritedLen, "%s%.24s with %s", inheritedLen ? ", " : "", OrNone(ObjectName(node)), RoleWord(p->arm[b]));
+					if (p->arm[b])
+						inheritedN++;
+				}
 				if (p->arm[b] == 4 && !g_headNode && HeadName(ObjectName(node)))
 					g_headNode = node;
 				if (p->arm[b] == 5 && !g_torsoNode && TorsoPivotName(ObjectName(node)))
 					g_torsoNode = node;
 			}
 		}
+		if (inheritedN)
+			Log("rider: %s: %d bone%s with no part by name take their parents' (test 38's pose study: the body's skin helpers were left where the clips put them, a hump on the upper back): %s%s",
+			    name, inheritedN, inheritedN == 1 ? "" : "s", inherited, inheritedLen >= (int)sizeof(inherited) - 60 ? ", ..." : "");
 		/* The hands' bones are logged from SyncRider, once the hold is known to stand (test 33:
 		 * the fingers stretched into spikes; a hold that waits for the skeleton logs nothing). */
 		if (r) {

@@ -196,6 +196,12 @@ the roll at that moment (test 37's second line, at the first 8 degrees of bars, 
 the shoulder as the torso moved it (the chain carried rigidly first, the grip where the bars put it), its maps
 composed with the torso's; the head's joint goes with the torso and takes the twist but neither the lean nor the side lean (the rider
 keeps the head up and level), then the head-level counter-roll about the moved joint; plain shapes under those bones go along.
+A bone whose name gives it no part takes its nearest ancestor's (up to 8 parents, as the head's own walk): the body's
+skin helpers, Belly_skin and UpperBelly_skin under the spine, the breasts under the chest, the shoulder fat under the
+collarbones, the upper-arm fat under the upper arm's twist bone and the rib helpers, were left where the clips put
+them while the torso leaned and the arms swung (test 38's pose study, rendered on the real rig before test 39: at 14
+degrees of lean the shoulders' verts strayed 7 units, a hump on the upper back and the shoulders caved in; 12 at 25);
+the hold logs which bones took which part ("rider: ...: N bones with no part by name take their parents'").
 With the torso active the rider is written every frame, level or not. `RiderHands=0` turns it off with the rest. The
 lean is solved half a second into the ride and again every half second for its first 3 s, the last one final (test
 33's first ride solved 15 degrees at 100% in the frame the rider was held, before the pose had settled); not while
