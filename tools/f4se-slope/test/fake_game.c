@@ -3412,6 +3412,25 @@ static void TiltTests(void)
 			RewriteIni("WristRoll=0", "WristRoll=1.0");
 			RewriteIni("ArmPole=0,0,0", "ArmPole=0.35,-0.3,-1.0");
 		}
+		{
+			/* The bisection's cap, 30 deg since test 38 (15 before): ArmReach=0.5 for a ride needs
+			 * about 20 here (the fake's reach moves about 2.5% a degree), which the old cap would
+			 * have stopped at 15. The lean read off the shoulder's swing about the spine's joint:
+			 * the chord 2 d sin(lean / 2). */
+			printf("tilt: the lean's cap at 30 deg (ArmReach=0.5 for a ride: about 20 deg needed here, over the old cap of 15):\n");
+			RewriteIni("ArmReach=0.80", "ArmReach=0.5");
+			SetTilt(0.0f);
+			RunFrames(300);
+			SetTilt(30.0f);
+			RunFrames(1500);
+			copyNow = *(const uint8_t **)(*(uint8_t **)(g_bodySkin + 0x40) + 0x10);
+			ExpectedTilt(Rw2, Pw2);
+			MapBone(g_bodyNodes[6], g_bodyBonesOriginal + 6 * 0x50, copyNow + 6 * 0x50, S, mS);
+			float chord = TiltedOff(S, mS, Rw2, Pw2), dj = Dist3(S, pivot), half = dj > 0.001f ? chord / (2.0f * dj) : 0.0f;
+			float lean = 2.0f * asinf(half > 1.0f ? 1.0f : half) * DEG;
+			CHECK(lean > 15.5f && lean < 30.5f, "the upper body leaned %.1f deg (the shoulder's chord %.1f about the joint %.1f away): past the old cap of 15, within 30", lean, chord, dj);
+			RewriteIni("ArmReach=0.5", "ArmReach=0.80");
+		}
 		RewriteIni("TorsoLean=-1", "TorsoLean=0");
 		SetTilt(0.0f);
 		RunFrames(300);
@@ -3962,7 +3981,7 @@ static void TiltTests(void)
 		CHECK(g_picks == 0 || (fabsf(WheelTravel(0) + 4.0f) < 0.3f && fabsf(WheelTravel(1) + 4.0f) < 0.3f), "the wheels %+.1f and %+.1f against it (-4: the ground 6 further down is out of their reach)", WheelTravel(0), WheelTravel(1));
 		g_groundZ = PlayerPos()[2];
 		RunFrames(1500);
-		printf("tilt: the wheel rays' word lost with the bike lifted 30 and pitched 20 deg (a 20 deg slope 30 above the contact, then nothing within the rays' reach; test 38: backing off a station wagon the rays missed, the lift fell to 0 under the held pitch and the rear wheel went under the ground): the lift held with the pitch for 1.5 s, then eased off:\n");
+		printf("tilt: the wheel rays' word lost with the bike lifted 30 and pitched 20 deg (a 20 deg slope 30 above the contact, then nothing within the rays' reach; test 38: backing off a station wagon the rays missed, the lift fell to 0 under the held pitch and the rear wheel went under the ground): the lift held with the pitch for 3 s, then eased off:\n");
 		SetNormalTowards(back, 20.0f);
 		SetGroundTowards(back, 20.0f);
 		g_groundZ = PlayerPos()[2] + 30.0f;
@@ -3976,7 +3995,9 @@ static void TiltTests(void)
 		CHECK(g_picks == 0 || (liftOn > 27.0f && liftOn < 33.0f && pitchOn > 17.0f && pitchOn < 23.0f), "lifted %.1f and pitched %.1f deg on the rays' word (30, 20)", liftOn, pitchOn);
 		CHECK(g_picks == 0 || (fabsf(liftHeld - liftOn) < 3.0f && fabsf(pitchHeld - pitchOn) < 1.0f), "half a second without a word: the lift held at %.1f with the pitch at %.1f deg", liftHeld, pitchHeld);
 		RunFrames(2000);
-		CHECK(g_picks == 0 || SeatLift() < 5.0f, "2.5 s without a word: the lift eased off to %.1f (under 5: a ride whose rays never answer mustn't keep a stale lift)", SeatLift());
+		CHECK(g_picks == 0 || fabsf(SeatLift() - liftOn) < 3.0f, "2.5 s without a word: the lift still held at %.1f with the pitch (3 s, a slow back-off's worth; the first cut's 1.5 s was tight)", SeatLift());
+		RunFrames(2000);
+		CHECK(g_picks == 0 || SeatLift() < 5.0f, "4.5 s without a word: the lift eased off to %.1f (under 5: a tunnel's ceiling throws the rays' hits away for as long as it lasts, and a stale lift would float the bike through it)", SeatLift());
 		SetNormal(0.0f, 0.0f, 1.0f);
 		FlatGround();
 		RunFrames(1500);

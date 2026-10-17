@@ -221,8 +221,9 @@ class Rider:
         # near level. The grips sit at the arms' full reach here, so the clips' elbow is only 2.9
         # off the shoulder-to-wrist line in the cruise pose (straight at the idle): its offset
         # turns from (2.1 out, 1.4 back, 1.5 down) to (0.8 out, 1.0 back, 2.6 down), and at the
-        # plugin's 88% of the reach the same plane puts the elbow 8.7 off the line, about 2.5 out
-        # and 8 down instead of 6 out and 4.5 down. The legs' poles are as they were.
+        # plugin's old 88% of the reach the same plane put the elbow 8.7 off the line, about 2.5
+        # out and 8 down instead of 6 out and 4.5 down (0.80 since test 39: the bend and the
+        # offset larger still). The legs' poles are as they were.
         self._arm(pose, "R", grip_r, pole=[0.35, -0.3, -1.0])
         self._arm(pose, "L", grip_l, pole=[-0.35, -0.3, -1.0])
 

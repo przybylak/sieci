@@ -409,7 +409,7 @@ static float g_wristMaxBar[2], g_wristMaxReach[2], g_wristMaxRoll[2];
 static float g_suspCompressRear = 4.0f;     /* [Tilt] SuspCompressRear: the rear wheel rises into the frame at most this much (its mudguard is on the frame; test 37: the tyre within 10 of it) */
 static float g_suspDroop = 4.0f;            /* [Tilt] SuspDroop: a wheel drops below the frame at most this much, both wheels, and the frame sinks under the ground's contact by it at most (test 38: at -10 the sliders were off the stanchions) */
 static float g_suspExtend = 0.1f;           /* [Tilt] SuspExtend: a wheel extends away from the frame over this many seconds (compression takes 0.03; test 38: "like there was no weight behind it") */
-static float g_wheelWordAt = -100.0f;       /* when the wheel rays last had a word: without one the lift is held with the pitch for 1.5 s before it eases off (test 38: the station wagon) */
+static float g_wheelWordAt = -100.0f;       /* when the wheel rays last had a word: without one the lift is held with the pitch for 3 s before it eases off (test 38: the station wagon) */
 static int g_wheelLogs, g_wheelThrownLogs;  /* the wheel rays' "rays:" lines this ride (the hits under a steep pitch, and the hits thrown away), each one a second at most and 30 a ride (test 38: the roof and ledge cases) */
 static float g_wheelLoggedAt = -100.0f, g_wheelThrownAt = -100.0f;
 static float g_rideStartClock;
@@ -862,7 +862,7 @@ static void ReadLeanSettings(const char *ini, bool log)
 		Log("  steer: the keys' turning rate eases in over %g s and out over %g s (TurnEaseIn, TurnEaseOut); a wall is a face of %g deg or more (WallAngle), an obstacle one of %g deg or more, or the climb limit if that is higher (ObstacleAngle), "
 		    "a lower-only one (nothing at 1.5 wheel radii) one of %g deg or more (LowObstacleAngle), holding the throttle to %g (ObstacleThrottle), its verdict in force for %g s after the rays last saw one (ObstacleHold), in which a wall counts only after %d frames seen ahead of the wheel (WallFrames); "
 		    "the lift rises at most %g units a second (LiftRate), a wheel's bump lift at most %g in one go and settles over %g s (BumpMax, BumpSettle); "
-		    "the suspension %s (Suspension), the frame's lift on a spring of %g Hz with a damping ratio of %g, the wheels rising at most %g into the frame, the rear %g, dropping at most %g below it, the frame with them, over %g s (SuspFrequency, SuspDamping, SuspTravel, SuspCompressRear, SuspDroop, SuspExtend); "
+		    "the suspension %s (Suspension), the frame's lift on a spring of %g Hz with a damping ratio of %g, the wheels rising at most %g into the frame, the rear %g, dropping at most %g below it (the frame sinking by that at most), extending over %g s (SuspFrequency, SuspDamping, SuspTravel, SuspCompressRear, SuspDroop, SuspExtend); "
 		    "the light %g ahead of the lens, led by %g frames of the speed, the old one kept %d frames at a handover (Ahead, Lead, HandoverFrames)",
 		    g_turnEaseIn, g_turnEaseOut, g_wallAngle, g_obstacleAngle, g_lowObstacleAngle, g_obstacleThrottle, g_obstacleHold, g_wallFrames, g_liftRate, g_bumpMax, g_bumpSettle,
 		    g_suspension ? "on" : "off", g_suspFrequency, g_suspDamping, g_suspTravel, g_suspCompressRear, g_suspDroop, g_suspExtend, g_lampAhead, g_lampLead, g_lampHandoverFrames);
@@ -2251,6 +2251,7 @@ static void ResetTilt(void)
 	g_pitchSmooth = g_rollSmooth = g_pitchNow = g_rollNow = 0.0f;
 	g_pitchVel = g_rollVel = g_liftNow = g_liftSmooth = g_bumpLift = 0.0f;
 	g_liftVel = g_wheelOffset[0] = g_wheelOffset[1] = 0.0f;   /* the suspension at rest */
+	g_wheelWordAt = -100.0f;   /* no word yet: a ride whose rays never answer eases its lift off at once */
 	g_rideStartClock = (float)g_clock;
 	ResetTorsoSolve();
 	g_wristMax[0] = g_wristMax[1] = -1.0f;
@@ -2263,7 +2264,6 @@ static void ResetTilt(void)
 	g_faceKind = 0;
 	g_faceNoneSince = -1.0f;
 	g_faceLogs = g_wallLogs = g_wheelLogs = g_wheelThrownLogs = 0;   /* the rays' lines are capped per ride */
-	g_wheelWordAt = -100.0f;   /* no word yet: a ride whose rays never answer eases its lift off at once */
 	g_haveLastHeading = false;
 	g_wheelHistN = g_wheelHistAt = 0;
 }
@@ -4198,7 +4198,7 @@ static void FrameRider(bool tilt, const float R[9], const float P[3])
 				 * the turned grip. Without a Grip the pivot is the hand's node, as before. What's
 				 * left of the turn (the swing, from the last pass's forearm) is the wrist turn the
 				 * log carries. */
-				float ex[3] = { side ? 1.0f : -1.0f, 0.0f, 0.0f }, Ae[3], gb[3], Qbt[9], D[9], Rg[9], RgP[3], QW[3], pivot[3];
+				float ex[3] = { side ? 1.0f : -1.0f, 0.0f, 0.0f }, Ae[3], gb[3], Qbt[9], D[9], Rg[9], RgP[3], QW[3], gripPivot[3];
 				MulV(A, ex, Ae);
 				MulV(Nb, Ae, gb);
 				float lg = sqrtf(gb[0] * gb[0] + gb[1] * gb[1] + gb[2] * gb[2]);
@@ -4221,15 +4221,16 @@ static void FrameRider(bool tilt, const float R[9], const float P[3])
 							BG[i] = AG[i] + t[i];
 						MulV(Nb, BG, NBG);
 						for (int i = 0; i < 3; i++)
-							pivot[i] = sb * NBG[i] + nb[i];
+							gripPivot[i] = sb * NBG[i] + nb[i];
+						float reach0 = am->reach;   /* the grip's distance from the shoulder, for the log: the passes below aim at the rolled wrist, a unit or two off it (review) */
 						for (int pass = 0; pass < 4; pass++) {
 							ArmMap again;
 							AxisRotation(gb, theta, Rg);
 							for (int i = 0; i < 3; i++)
-								dW[i] = am->wrist[i] - pivot[i];
+								dW[i] = am->wrist[i] - gripPivot[i];
 							MulV(Rg, dW, RdW);
 							for (int i = 0; i < 3; i++)
-								RdW[i] = pivot[i] + RdW[i] - am->wrist[i];   /* W' - W */
+								RdW[i] = gripPivot[i] + RdW[i] - am->wrist[i];   /* W' - W */
 							MulV(Qb, RdW, toff);
 							SolveArm(&g_arm[side], Qb, qb, Tr, tt, torso, havePole ? poleW : NULL, toff, &again);
 							if (!again.ok)
@@ -4241,14 +4242,15 @@ static void FrameRider(bool tilt, const float R[9], const float P[3])
 								break;
 							theta = next;
 						}
+						am->reach = reach0;
 					} else {
-						memcpy(pivot, am->wrist, sizeof(pivot));
+						memcpy(gripPivot, am->wrist, sizeof(gripPivot));
 					}
 					AxisRotation(gb, theta, Rg);
 					Mul3(Qb, Rg, am->Rh);
-					MulV(Rg, pivot, RgP);
+					MulV(Rg, gripPivot, RgP);
 					for (int i = 0; i < 3; i++)
-						RgP[i] = pivot[i] - RgP[i];
+						RgP[i] = gripPivot[i] - RgP[i];
 					MulV(Qb, RgP, QW);
 					for (int i = 0; i < 3; i++)
 						am->th[i] = QW[i] + qb[i];
@@ -4886,8 +4888,11 @@ static void FrameTilt(void)
 		 * forward the right key gave the bars negative (307 samples) and the left positive
 		 * (274), reversing the left gave negative (39) and the right positive (14), "when going
 		 * back and turning left motorcycle handlebars should also turn left". Flipped while
-		 * backing, the bars go the key's way: where the front wheel points, the rear following. */
-		if (g_inputMode == INPUT_BACK || g_speedAlong < -10.0f)
+		 * backing, the bars go the key's way: where the front wheel points, the rear following. The back mode alone says backing:
+		 * with the back key let go and a side key held, the creep turns the heading the key's
+		 * way while the smoothed speed still reads backward for a third of a second, and a flip
+		 * on the speed flapped the bars full lock and back (review). */
+		if (g_inputMode == INPUT_BACK)
 			f = -f;
 		/* Less at speed (a bike's bars barely move there, and the game's lean clips, posed
 		 * with the bars at BarAtSpeed of the angle, play then): full to 150 units/s, down to
@@ -4986,10 +4991,14 @@ static void FrameTilt(void)
 		if (useWheels) {
 			g_wheelWordAt = (float)g_clock;
 			targetLift = g_wheelLift > 60.0f ? 60.0f : g_wheelLift < liftFloor ? liftFloor : g_wheelLift;
-		} else if ((float)g_clock - g_wheelWordAt < 1.5f) {
-			/* No word from the rays (the trace's source "held"): the lift is held with the pitch
-			 * for 1.5 s (the spring, or the filter below, rests on it), then eased off as before (a
-			 * ride whose rays never answer mustn't keep a stale lift). Test 38, backing off a
+		} else if ((float)g_clock - g_wheelWordAt < 3.0f) {
+			/* No word from the rays: the lift is held with the pitch (the spring, or the filter
+			 * below, rests on it) for 3 s, then eased off as before. Not for good: a tunnel's
+			 * ceiling throws the rays' hits away for as long as it lasts, and while a pitch held
+			 * stale is a few degrees a stale lift would float the bike through it; 3 s covers a
+			 * slow back-off (the first cut's 1.5 s was tight for one: review). Whether the pitch
+			 * is held or the track's slope stands in makes no odds here: backing off the car the
+			 * track just ridden was the bonnet's 41 deg. Test 38, backing off a
 			 * station wagon the front wheel had climbed: the rays missed (the car's roof sat above
 			 * the front ray's allowed rise), the pitch was kept at 41.5 while the lift fell from
 			 * 33.9 to 0 within a quarter second, so the frame dropped to the capsule's contact with
@@ -5340,41 +5349,62 @@ static void WheelRays(uintptr_t player, bool onGround)
 		return;
 	const float *pos = (const float *)(player + OFF_REFR_POS);
 	float h = *(const float *)(player + OFF_REFR_HEADING), sh = sinf(h), ch = cosf(h);
-	float fy = g_frontAxle[1], ry = g_rearAxle[1], z[2];
+	float fy = g_frontAxle[1], ry = g_rearAxle[1], z[2] = { 0.0f, 0.0f };
 	const float ys[2] = { fy, ry };
 	/* Each ray starts above the most the ground can rise to its wheel on a climbable slope
 	 * (tan 50 deg of the wheel's reach) and ends 160 below the feet; a hit above that rise is
 	 * a branch or a ceiling, not the ground (test 30: from 70 above the feet the front ray
 	 * started inside rock on a 33 deg climb and found the ground beneath, 15 deg short). */
-	const char *what[2] = { "nothing", "nothing" };   /* each ray's hit and its layer, copied before the next cast, for the lines below (test 38) */
+	/* Both rays are cast before either is judged (review of test 38's build: the line about a
+	 * hit thrown away can then say what the other ray found, which the collapsed-roof case
+	 * needed from the rear in the very state the front was thrown away in). Each ray's hit
+	 * and its layer are copied before the next cast. */
+	const char *what[2] = { "nothing within reach", "nothing within reach" };
 	uint32_t layer[2] = { 0, 0 };
+	float rise[2] = { 0.0f, 0.0f };
+	bool hit[2] = { false, false }, over[2] = { false, false };
 	for (int i = 0; i < 2; i++) {
-		float rise = fabsf(ys[i]) * 1.1918f + 10.0f;
-		float a[3] = { pos[0] + sh * ys[i], pos[1] + ch * ys[i], pos[2] + rise + 20.0f };
+		rise[i] = fabsf(ys[i]) * 1.1918f + 10.0f;
+		float a[3] = { pos[0] + sh * ys[i], pos[1] + ch * ys[i], pos[2] + rise[i] + 20.0f };
 		float b[3] = { a[0], a[1], pos[2] - 160.0f };
 		float f = CastRay(cell, a, b);
+		if (!(f > 0.0f && f < 1.0f))
+			continue;
+		hit[i] = true;
 		what[i] = g_rayWhat && *g_rayWhat ? g_rayWhat : "unnamed";
 		layer[i] = g_rayLayer;
-		if (!(f > 0.0f && f < 1.0f)) {
-			g_wheelRaysMissed++;
-			return;
-		}
 		z[i] = a[2] + (b[2] - a[2]) * f - pos[2];
-		if (z[i] > rise) {
-			g_wheelRaysMissed++;   /* something overhead, or a face ahead taller than a wheel climbs */
-			/* Logged, one a second (test 38: backing off a station wagon the rays missed, the
-			 * car's roof above the front ray's allowed rise, and the log couldn't say what they
-			 * had found). */
-			if (g_wheelThrownLogs < 30 && (float)g_clock - g_wheelThrownAt >= 1.0f) {
-				g_wheelThrownLogs++;
-				g_wheelThrownAt = (float)g_clock;
-				Log("rays: the %s wheel's ray hit %s (layer %u) %.0f above the feet, over its rise of %.0f: thrown away (something overhead, or a face taller than a wheel climbs)",
-				    i == 0 ? "front" : "rear", what[i], layer[i], z[i], rise);
-			}
-			if (i == 0)
-				WallAhead(cell, pos, sh, ch, z[i]);
-			return;
-		}
+		over[i] = z[i] > rise[i];   /* something overhead, or a face ahead taller than a wheel climbs */
+	}
+	for (int i = 0; i < 2; i++) {
+		/* Logged, one a second (test 38: backing off a station wagon the rays missed, the car's
+		 * roof above the front ray's allowed rise, and the log couldn't say what they had found). */
+		if (!(hit[i] && over[i]) || g_wheelThrownLogs >= 30 || (float)g_clock - g_wheelThrownAt < 1.0f)
+			continue;
+		int o = 1 - i;
+		char other[200];
+		if (hit[o])
+			snprintf(other, sizeof(other), "the %s wheel's ray hit %s (layer %u) %.0f above the feet%s", o == 0 ? "front" : "rear", what[o], layer[o], z[o], over[o] ? ", over its rise too" : "");
+		else
+			snprintf(other, sizeof(other), "the %s wheel's ray found nothing within reach", o == 0 ? "front" : "rear");
+		g_wheelThrownLogs++;
+		g_wheelThrownAt = (float)g_clock;
+		Log("rays: the %s wheel's ray hit %s (layer %u) %.0f above the feet, over its rise of %.0f: thrown away (something overhead, or a face taller than a wheel climbs); %s",
+		    i == 0 ? "front" : "rear", what[i], layer[i], z[i], rise[i], other);
+	}
+	/* As before: the front judged first, a miss or a hit over its rise ends the word. */
+	if (!hit[0]) {
+		g_wheelRaysMissed++;
+		return;
+	}
+	if (over[0]) {
+		g_wheelRaysMissed++;
+		WallAhead(cell, pos, sh, ch, z[0]);
+		return;
+	}
+	if (!hit[1] || over[1]) {
+		g_wheelRaysMissed++;
+		return;
 	}
 	float base = fy - ry;
 	if (!(base > 10.0f))
@@ -5582,6 +5612,8 @@ static void FaceRays(uintptr_t player, bool onGround)
 	g_faceKind = kind;
 }
 
+static bool g_trackOnGround;   /* last frame's ground state, for the jump's re-solve below */
+
 static void SampleGround(void)
 {
 	g_trackPitchOk = g_trackSteepOk = false;
@@ -5628,6 +5660,7 @@ static void SampleGround(void)
 		return;
 	if (!onGround) {
 		g_airTime += g_frameDt;
+		g_trackOnGround = false;
 		if (g_airTime > TRACK_MAX_AIR) {
 			TrackClear();
 			g_avgAge = 0.0f;   /* a drop: the ground before it says nothing about after */
@@ -5635,17 +5668,28 @@ static void SampleGround(void)
 		return;
 	}
 	g_airTime = 0.0f;
+	bool groundLast = g_trackOnGround;
+	g_trackOnGround = true;
 	const float *pos = (const float *)(player + OFF_REFR_POS);
 	if (!isfinite(pos[0]) || !isfinite(pos[1]) || !isfinite(pos[2]))
 		return;
 	if (g_trackCount) {
 		const TrackPoint *last = TrackAt(0);
 		float dx = pos[0] - last->p[0], dy = pos[1] - last->p[1];
-		if (Distance(pos, last->p) > 150.0f) {
-			char why[96];
-			snprintf(why, sizeof(why), "solved again after a jump of %.0f units (a door, a fast travel)", Distance(pos, last->p));
+		float jump = Distance(pos, last->p);
+		if (jump > 150.0f) {
 			TrackClear();   /* a door, fast travel, a teleport */
-			RearmTorsoSolve(why);   /* test 38: a fast travel on the bike leaves the rider's shapes held and sends no PostLoadGame, so the lean is solved again here */
+			/* The lean solved again after a real jump only: over 300 (the steering's own door and
+			 * fast-travel threshold) and from a ground frame (a hop at speed lands over 150 from
+			 * its last point, and a cell load's stall can carry a frame that far; review of test
+			 * 38's build: both would have logged a fast travel and started the lean's wait over).
+			 * Test 38: a fast travel on the bike leaves the rider's shapes held and sends no
+			 * PostLoadGame, so the lean is solved again here. */
+			if (jump > 300.0f && groundLast) {
+				char why[96];
+				snprintf(why, sizeof(why), "solved again after a jump of %.0f units (a door, a fast travel)", jump);
+				RearmTorsoSolve(why);
+			}
 		} else if (dx * dx + dy * dy < TRACK_SPACING * TRACK_SPACING) {
 			TrackPitch(player, pos);   /* standing still (or nearly): the same track, the same slope */
 			return;
