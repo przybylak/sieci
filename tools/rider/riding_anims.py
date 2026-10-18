@@ -107,6 +107,21 @@ def grips(steer):
 
 FAST_BARS = 0.6   # at jogging speed and above the bars go over this much of the full angle (the plugin does the same past 150 units/s)
 STRAIGHT_HANDS = True   # the hands at the straight grips in every clip: the plugin turns them with the bars (test 29)
+# The hand's pitch against the forearm, in degrees (+ = knuckles up, the wrist bent back; 0 = the
+# hand's long axis, HAND_AXIS, along the forearm seen along the grip): the plugin's [Tilt]
+# HandPitch, which lays the same axis against its forearm the same way, so at 0 and 0 the plugin
+# keeps the clips' wrists, rolling the hand only as far as its own forearm swings from theirs
+# (see Rider._arm). 0 is not the skeleton's own pose: in skeleton.hkx's reference pose, seen
+# along the hand's z, the long axis is 3.7 degrees toward the palm from the forearm's line
+# (ForeArm1 to Hand) and the bone's x 8.4.
+HAND_PITCH = 0.0
+# The hand's long axis in its own bone's frame: from the hand's joint to the middle finger's first
+# (RArm_Finger31, LArm_Finger31, 7.6 units off in skeleton.hkx's reference pose), the knuckles'
+# line; the plugin's g_handAxis (CMB_Slope.c), the same numbers. It is 5.8 degrees off the bone's
+# x, toward the back of the hand: seen along the grip, 4.8 above it. The left's z is the right's
+# negated, as the skeleton mirrors its bones (and frame_from_axes does: x and y mirrored, z
+# their cross product; Rider._arm).
+HAND_AXIS = {"R": np.array([0.99487, 0.08146, -0.05990]), "L": np.array([0.99489, 0.08131, 0.05994])}
 
 
 def steer_for(roll, fast=False):
@@ -168,6 +183,7 @@ class Rider:
         self.rig = rig
         self.ref_globals = rig.fk()
         self.hip_z = None
+        self.wrist_left = 0.0      # the largest turn _arm left between a hand and its forearm, degrees
 
     def seat(self, mesh_min_z_fn=None):
         """Find the COM height that puts the buttocks on the seat (uses the body mesh if given)."""
@@ -254,12 +270,56 @@ class Rider:
     def _arm(self, pose, side, grip, pole):
         rig = self.rig
         sign = 1.0 if side == "R" else -1.0
-        # Hand frame: fingers forward, down and a little outward; palm (-Y) facing down onto the bar.
+        hand, elbow = f"{side}Arm_Hand", f"{side}Arm_ForeArm1"
+        # Hand frame: fingers forward and a little outward; palm (-Y) facing down onto the bar.
+        # The wrist is placed from the grip and the hand: the grip 6 along the fingers and 2.5 on
+        # the palm's side of it.
+        # Test 39: "cat paw", the fists bent down at the wrist. The frame was fixed, the fingers
+        # (0.18, 0.75, -0.62), 40 degrees below level whatever the forearm did (the knuckles'
+        # line 35); the forearm runs 5 below level in the cruise pose (8 for the CBBE body) and 13
+        # at the idle, so the wrists were bent down 30 degrees (27) and 22 (21) along the
+        # knuckles' line, and the plugin, which turned the hand only by the forearm's swing from
+        # the clips' pose, kept that bend. Now the hand is turned about the grip's axis (the rig's
+        # x axis through the grip, so the palm stays on the bar) till its long axis (HAND_AXIS,
+        # the knuckles' line), seen along that axis, lies along the forearm (elbow to wrist),
+        # HAND_PITCH above it; the fingers keep their outward lean (0.18). That is the axis the
+        # plugin's [Tilt] WristRoll and HandPitch lay along its forearm; the bone's x, 4.8 below
+        # it seen along the grip, ends 4.8 below the forearm (laid along the forearm instead, as
+        # these clips first had it for test 39, it left the plugin to roll every hand 4.8
+        # knuckles-down from the clips at HandPitch 0). The turn moves the wrist (2.7 back and 2.6
+        # down for the cruise pose's 34 degrees), so the arm is solved again to that wrist and
+        # the turn read off the new forearm: each pass leaves a sixth to a ninth of the one
+        # before, at times the other way (29.7, 4.9, -0.5 degrees in the cruise pose, 22.2, -3.3,
+        # 0.6 at the idle), so three passes end within 0.07 and 0.09; leant further the elbow
+        # bends more and the forearm swings more with the wrist, 0.3 left at the sprint and 0.8 in
+        # the hard landing's crouch (56, -9.5, 2.8), and up to 1.6 for a frame in the stops and
+        # the starts (walk_to_stand_r45's frame 60, stand_to_walk's 9), where the wrist comes to
+        # the arm's full stretch and the elbow goes from bent to straight between passes (the
+        # largest a set leaves is printed). The knuckles' line ends 0.7 below level in the cruise
+        # pose (2.5 for CBBE) and 15 at the idle (16), where the arm is at full stretch: the wrist
+        # the hand asks for there is 0.9 beyond its reach (2.2 in test 39's clips), so the palm
+        # is 0.9 off the bar (1.1, 2.3 in test 39's, for CBBE). The plugin aligns the hand the same
+        # way in game, so the two agree with RiderHands=0 and before the plugin holds the rider.
         fingers = np.array([0.18 * sign, 0.75, -0.62])
         hand_r = frame_from_axes(fingers, [0.0, 0.55, 0.85])
-        wrist = grip - hand_r[:, 0] * 6.0 + hand_r[:, 1] * 2.5
-        two_bone_ik(pose, f"{side}Arm_UpperArm", f"{side}Arm_ForeArm1", f"{side}Arm_Hand", wrist, pole)
-        pose.set_global_rot(f"{side}Arm_Hand", hand_r)
+
+        def solve(hand_r):
+            """Arm to the wrist this hand puts there; the turn about x still to go, degrees."""
+            wrist = grip - hand_r[:, 0] * 6.0 + hand_r[:, 1] * 2.5
+            two_bone_ik(pose, f"{side}Arm_UpperArm", elbow, hand, wrist, pole)
+            g = pose.globals()
+            forearm = g[rig.index(hand)][:3, 3] - g[rig.index(elbow)][:3, 3]
+            long_axis = hand_r @ HAND_AXIS[side]   # the bone's frame to the rig's, as the plugin's MulV(Nh, g_handAxis)
+            turn = (math.degrees(math.atan2(forearm[2], forearm[1]) - math.atan2(long_axis[2], long_axis[1]))
+                    + HAND_PITCH)
+            return (turn + 180.0) % 360.0 - 180.0
+
+        turn = solve(hand_r)
+        for _ in range(3):
+            hand_r = rot_x(turn) @ hand_r      # about the grip: solve() puts the wrist round it
+            turn = solve(hand_r)
+        self.wrist_left = max(self.wrist_left, abs(turn))
+        pose.set_global_rot(hand, hand_r)
         # Curl fingers round the grip (local Z is the knuckle axis; negative curls toward the palm).
         for f in FINGERS:
             i = rig.index(f"{side}Arm_{f}")
@@ -757,6 +817,7 @@ def main() -> int:
                 wanted.add(game)
         records_path.write_text(json.dumps(records, indent=1, sort_keys=True) + "\n")
         print(f"{label}: wrote {written} clips ({provisional} provisional) and {CLIP_DATA_FILE} to {out_dir}")
+        print(f"{label}: hands along the forearms (HandPitch {HAND_PITCH:g}) to within {rider.wrist_left:.2f} degrees")
         if missing:
             print(f"{label}: skipped {len(missing)} clips that are only built from the vanilla ones "
                   f"(not extracted): {', '.join(missing)}")

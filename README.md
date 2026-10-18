@@ -38,7 +38,7 @@ There's no vehicle physics in Fallout 4's engine for the player, so the bike is 
 3. your speed is multiplied;
 4. jumping, sprinting and (by default) combat are blocked.
 
-Getting off reverses all of that and parks the bike next to you. Indoors (dungeons and sewers are interiors), in the walled towns the game builds as worldspaces of their own (Diamond City, Goodneighbor, Nuka-World's market and amphitheater), in power armor and in furniture you can't get on, and riding into any of them parks it outside; it can't be called there either; deep water leaves it on the bank.
+Getting off reverses all of that and parks the bike next to you. Indoors (dungeons and sewers are interiors), in the walled towns the game builds as worldspaces of their own (Diamond City, Goodneighbor, Nuka-World's market and amphitheater), in power armor and in furniture you can't get on, and riding into any of them parks it outside: through a door it waits there and is brought to you when you come out near it, and after a fast travel in it stays where you set off; it can't be called there either; deep water leaves it on the bank.
 
 > **What it looks like:** the game has no motorcycle riding animations (the `AnimsMotorcycle` keyword in
 > `Fallout4.esm` is unused, and the archives hold only two parked-bike models). So the mod brings its own: a

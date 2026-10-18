@@ -173,6 +173,10 @@ static uint8_t *g_handsShape, *g_handsSkin, *g_handsData, *g_handsBones, *g_hand
 static uint8_t *g_partData[4], *g_partBones[4];   /* the Harley build's moving parts: front wheel, rear wheel, bar assembly, the lower fork (test 38) */
 static uint8_t g_partBonesOriginal[4][0x50];
 static bool g_handRaised;         /* the left hand swung up about the elbow, 20% nearer the shoulder (a Pip-Boy raise: test 37's lean solved from it) */
+static float g_handReach;         /* 0: the hand where the clips pose it (98.5% of the arm's reach); else swung about the elbow, in the arm's plane, to this share of the reach (test 39: the lean's readings of 95% and 100%) */
+static bool g_handFar;            /* the arm raised up and back, straight (a menu or a load's pose: test 39's ride-end wrist line read 116% of the reach) */
+static bool g_armRight;           /* the arm's three nodes named and placed as the right arm's, mirrored across the bike's x = 0 (z -> 120 - z in the actor's frame here), the right hand's rotation: test 39's HandPitch on the other hand */
+static float g_handRot[2][9];     /* the hand's rotation in the actor's frame, the left's and the right's: the clips' (ClipsHand) */
 /* The rider: the body skinned to two bones, the COM the bike hangs off, a plain shape (the
  * Pip-Boy's) under a bone of its own. Their world transforms follow the player (SyncFakeWorld). */
 static uint8_t *g_bodyShape, *g_bodySkin, *g_bodyData, *g_bodyBones, *g_bodyNodes[12], *g_comNode, *g_pipboyBone, *g_pipboyShape, *g_npcRoot;
@@ -249,7 +253,8 @@ static void FakeGetVelocity(uint8_t *self, float *out) { (void)self; memcpy(out,
  * one, layer 13 terrain), up to three vertical planes (walls, layer 1 static, or a trigger
  * volume, layer 12) facing the bike, and a shelf (a horizontal disc of radius 60, layer 1,
  * g_shelfHeight above the ground, g_shelfAhead ahead of the player along their heading: the
- * front wheel's down-ray reading a face taller than the wheel climbs, test 35). The game's
+ * front wheel's down-ray reading a face taller than the wheel climbs, test 35; or an actor's
+ * top, layer 30, test 39). The game's
  * picking: bhkPickData (ours: start +0x20, end +0x30, hit +0x60, fraction +0x64, the hit's
  * layer +0xAC, world +0xC0), TESObjectCELL::Pick, found through an Address Library file the
  * test writes next to the plugin. */
@@ -264,15 +269,19 @@ static void FakeGetVelocity(uint8_t *self, float *out) { (void)self; memcpy(out,
 typedef struct { bool on; float point[2], normal[2]; uint32_t layer; float top, bottom, follow, slant; uint8_t *what; } FakePlane;
 static bool g_shelfOn;
 static float g_shelfHeight, g_shelfAhead, g_shelfRadius = 60.0f;   /* a disc this high over the ground (a hole this deep in it when negative: test 38), this far ahead of the player along their heading, of this radius */
+static uint32_t g_shelfLayer = 1;  /* the disc's layer, and its 3D (NULL: FakeShelf): test 39's radstag is layer 30, "SkeletonExport" */
+static uint8_t *g_shelfWhat;
 static float g_groundZ = 100.0f;
 static float g_slopeK, g_slopeO[2], g_slopeD[2];   /* the ground rises g_slopeK per unit along g_slopeD from g_slopeO */
 static bool g_dropOn, g_frozen;   /* g_frozen: the movement can't move the player (stuck against something) */
 static float g_creepDrag;         /* rough ground: only the input above this moves the player */
 static int g_pileCount;           /* a pile of clutter (layer 4): this many surfaces 5 apart above the ground, within 60 of g_pilePoint */
+static uint32_t g_pileLayer = 4;  /* ... of this layer, and this 3D (NULL: none): a pile of actors' surfaces (layer 30, test 40's review) */
+static uint8_t *g_pileWhat;
 static float g_pilePoint[2];
 static FakePlane g_planes[3];
 static float g_dropPoint[2], g_dropDir[2];
-static uint8_t *g_wallObj, *g_groundObj, *g_shelfObj, g_fakeWorld[64];
+static uint8_t *g_wallObj, *g_groundObj, *g_shelfObj, *g_actorObj, g_fakeWorld[64];
 static int g_picks;
 static void *FakePickCtor(uint8_t *pick)
 {
@@ -319,8 +328,8 @@ static uint8_t *FakeCellPick(uint8_t *cell, uint8_t *pick)
 		float x = a[0] + (b[0] - a[0]) * tp, y = a[1] + (b[1] - a[1]) * tp;
 		if (tp >= 0.0f && tp <= 1.0f && tp < t && hypotf(x - g_pilePoint[0], y - g_pilePoint[1]) < 60.0f) {
 			t = tp;
-			what = NULL;
-			layer = 4;
+			what = g_pileWhat;
+			layer = g_pileLayer;
 		}
 	}
 	if (g_shelfOn && b[2] != a[2]) {
@@ -329,8 +338,8 @@ static uint8_t *FakeCellPick(uint8_t *cell, uint8_t *pick)
 		float x = a[0] + (b[0] - a[0]) * tp, y = a[1] + (b[1] - a[1]) * tp;
 		if (tp >= 0.0f && tp <= 1.0f && tp < t && hypotf(x - cx, y - cy) < g_shelfRadius) {
 			t = tp;
-			what = g_shelfObj;
-			layer = 1;
+			what = g_shelfWhat ? g_shelfWhat : g_shelfObj;
+			layer = g_shelfLayer;
 		}
 	}
 	for (int i = 0; i < 3; i++) {
@@ -446,6 +455,13 @@ static void SetNormal(float x, float y, float z)
 	n[0] = x; n[1] = y; n[2] = z; n[3] = 0.03f;
 }
 static void SetState(int state) { *(int32_t *)(g_controller + 0x2C0) = state; }
+/* The controller's supported bit (0x400 of its flags at +0x300, CheckSupportImpl's word in the
+ * game; test 19): clear in this fake unless a test sets it. */
+static void SetSupported(bool on)
+{
+	uint32_t *flags = (uint32_t *)(g_controller + 0x300);
+	*flags = on ? (*flags | 0x400u) : (*flags & ~0x400u);
+}
 static int32_t *BoneDataRefs(void) { return (int32_t *)(g_boneData + 0x08); }
 
 static uintptr_t FakeLookupFormByID(uint32_t id)
@@ -683,6 +699,7 @@ static void BuildGame(void)
 	g_wallObj = NewNode(vtNode, "FakeWall", 0);
 	g_groundObj = NewNode(vtNode, "FakeGround", 0);
 	g_shelfObj = NewNode(vtNode, "FakeShelf", 0);
+	g_actorObj = NewNode(vtNode, "SkeletonExport", 0);   /* an actor's capsule, as test 39's radstag named it */
 	static const char *cell[] = { ".?AVTESObjectCELL@@", ".?AVTESForm@@" };
 	*(void **)(g_player + 0xB8) = NewObject(MakeClass(cell, 2), 0x200);
 	void **vtSkin = MakeClass(skin, 2), **vtBone = MakeClass(bone, 2);
@@ -961,6 +978,52 @@ static void Apply3(const float R[9], const float v[3], float out[3])
 		out[i] = R[i * 3] * v[0] + R[i * 3 + 1] * v[1] + R[i * 3 + 2] * v[2];
 }
 
+static float Dist3(const float a[3], const float b[3]);
+
+/* The plugin's long axis of the hand in the hand bone's own frame (its g_handAxis: the hand's
+ * joint to the middle finger's knuckle on the vanilla skeleton), [0] the left, [1] the right. */
+static const float g_handAxisLocal[2][3] = { { 0.99489f, 0.08131f, 0.05994f }, { 0.99487f, 0.08146f, -0.05990f } };
+
+/* The clips' hand as test 39 found it (riding_anims.py's Rider._arm: the fingers (+-0.18, 0.75,
+ * -0.62) in the bike's space, 39 deg below level, the palm down, frame_from_axes with the
+ * hint (0, 0.55, 0.85)), turned so the hand's long axis lies along those fingers, taken to the
+ * actor's frame through the bike's bind (the bike hangs off COM, which turns with the heading
+ * alone here): out g_handAxisLocal = the bind's map of the fingers. */
+static void ClipsHand(int side, float out[9])
+{
+	static const float A[9] = { 0, 0, 1, 0, 1, 0, -1, 0, 0 };   /* the bike's skin-to-bone rotation (SetLayouts) */
+	const float *a = g_handAxisLocal[side];
+	float sg = side ? 1.0f : -1.0f, x[3] = { 0.18f * sg, 0.75f, -0.62f }, hint[3] = { 0.0f, 0.55f, 0.85f }, y[3], z[3], H[9], C[9], HC[9];
+	float lx = sqrtf(x[0] * x[0] + x[1] * x[1] + x[2] * x[2]), hx = 0.0f, ly;
+	for (int i = 0; i < 3; i++) {
+		x[i] /= lx;
+		hx += hint[i] * x[i];
+	}
+	for (int i = 0; i < 3; i++)
+		y[i] = hint[i] - hx * x[i];
+	ly = sqrtf(y[0] * y[0] + y[1] * y[1] + y[2] * y[2]);
+	for (int i = 0; i < 3; i++)
+		y[i] /= ly;
+	z[0] = x[1] * y[2] - x[2] * y[1];
+	z[1] = x[2] * y[0] - x[0] * y[2];
+	z[2] = x[0] * y[1] - x[1] * y[0];
+	for (int i = 0; i < 3; i++) {
+		H[i * 3] = x[i];
+		H[i * 3 + 1] = y[i];
+		H[i * 3 + 2] = z[i];
+	}
+	/* C: the least rotation taking the long axis a to the bone's x (Rodrigues about a x e_x). */
+	float ax[3] = { 0.0f, a[2], -a[1] }, la = sqrtf(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]), sn = sqrtf(ax[1] * ax[1] + ax[2] * ax[2]) / la, c = a[0] / la, k = 1.0f - c;
+	float ls = sqrtf(ax[1] * ax[1] + ax[2] * ax[2]);
+	for (int i = 0; i < 3; i++)
+		ax[i] /= ls;
+	C[0] = c + ax[0] * ax[0] * k;         C[1] = ax[0] * ax[1] * k - ax[2] * sn; C[2] = ax[0] * ax[2] * k + ax[1] * sn;
+	C[3] = ax[1] * ax[0] * k + ax[2] * sn; C[4] = c + ax[1] * ax[1] * k;         C[5] = ax[1] * ax[2] * k - ax[0] * sn;
+	C[6] = ax[2] * ax[0] * k - ax[1] * sn; C[7] = ax[2] * ax[1] * k + ax[0] * sn; C[8] = c + ax[2] * ax[2] * k;
+	MulM3(H, C, HC);
+	MulM3(A, HC, out);
+}
+
 static void SetWorld(uint8_t *node, const float rot[9], const float pos[3], float scale)
 {
 	StoreRotation((float *)(node + 0x70), rot, g_rootTransposed);
@@ -1010,26 +1073,64 @@ static void SyncFakeWorld(void)
 	/* The left hand about where the left grip is, the shoulder and the elbow behind it with
 	 * the arm nearly straight, as the riding clips pose it (the grip at 98.5% of the arm's
 	 * reach; test 38: the lean isn't solved under 95%), or, raised, swung up about the elbow
-	 * (the forearm's length kept) to 80% of it: a Pip-Boy raise. */
+	 * (the forearm's length kept) to 80% of it: a Pip-Boy raise; or swung about the elbow to
+	 * another share of the reach (g_handReach), or far off (g_handFar). Its rotation the clips'
+	 * (test 39: the fingers 39 deg below the bike's forward, whatever the forearm does). With
+	 * g_armRight the arm is the right one, mirrored. */
 	static const float handOff[3] = { -20, 75, 120 }, handRaisedOff[3] = { -4.32f, 69.77f, 132.41f };
-	Apply3(heading, g_handRaised ? handRaisedOff : handOff, off);
+	static const float upperOff[3] = { -18, 42, 148 }, elbowOff[3] = { -22.5f, 57.5f, 133 };   /* the shoulder and the elbow */
+	float hand[3], upper[3] = { upperOff[0], upperOff[1], upperOff[2] }, elbow[3] = { elbowOff[0], elbowOff[1], elbowOff[2] };
+	memcpy(hand, g_handRaised ? handRaisedOff : handOff, sizeof(hand));
+	if (g_handFar) {
+		/* Up and back from the shoulder, straight: the leaned shoulder (it goes forward and
+		 * down) is then further from the hand than the arm reaches. */
+		static const float d[3] = { 0.0f, -0.65f, 0.76f };
+		float L1 = Dist3(upperOff, elbowOff), L2 = Dist3(elbowOff, handOff), ld = sqrtf(d[1] * d[1] + d[2] * d[2]);
+		for (int i = 0; i < 3; i++) {
+			elbow[i] = upperOff[i] + L1 * d[i] / ld;
+			hand[i] = upperOff[i] + (L1 + L2) * d[i] / ld;
+		}
+	} else if (g_handReach > 0.0f) {
+		/* The elbow opened or closed in the arm's plane, the forearm's length kept: the angle
+		 * at the elbow from the law of cosines. */
+		float u[3], w0[3], v[3], L1 = Dist3(upperOff, elbowOff), L2 = Dist3(elbowOff, handOff), r = g_handReach * (L1 + L2), wu = 0.0f, lv;
+		float c = (L1 * L1 + L2 * L2 - r * r) / (2.0f * L1 * L2), sn;
+		c = c > 1.0f ? 1.0f : c < -1.0f ? -1.0f : c;
+		sn = sqrtf(1.0f - c * c);
+		for (int i = 0; i < 3; i++) {
+			u[i] = (upperOff[i] - elbowOff[i]) / L1;
+			w0[i] = handOff[i] - elbowOff[i];
+			wu += w0[i] * u[i];
+		}
+		for (int i = 0; i < 3; i++)
+			v[i] = w0[i] - wu * u[i];
+		lv = sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+		for (int i = 0; i < 3; i++)
+			hand[i] = elbowOff[i] + L2 * (c * u[i] + sn * v[i] / lv);
+	}
+	if (g_armRight) {
+		hand[2] = 120.0f - hand[2];
+		upper[2] = 120.0f - upper[2];
+		elbow[2] = 120.0f - elbow[2];
+	}
+	float handRot[9];
+	MulM3(heading, g_handRot[g_armRight ? 1 : 0], handRot);
+	Apply3(heading, hand, off);
 	for (int i = 0; i < 3; i++)
 		pos[i] = pp[i] + off[i];
-	SetWorld(g_bodyNodes[5], heading, pos, 1.0f);
-	static const float upperOff[3] = { -18, 42, 148 }, elbowOff[3] = { -22.5f, 57.5f, 133 };   /* the shoulder and the elbow */
-	Apply3(heading, upperOff, off);
+	SetWorld(g_bodyNodes[5], handRot, pos, 1.0f);
+	Apply3(heading, upper, off);
 	for (int i = 0; i < 3; i++)
 		pos[i] = pp[i] + off[i];
 	SetWorld(g_bodyNodes[6], heading, pos, 1.0f);
-	Apply3(heading, elbowOff, off);
+	Apply3(heading, elbow, off);
 	for (int i = 0; i < 3; i++)
 		pos[i] = pp[i] + off[i];
 	SetWorld(g_bodyNodes[7], heading, pos, 1.0f);
 	{
 		/* The hands' bones without nodes: their own world transforms, with the hand (test 34),
 		 * along the forearm's line from the hand in use. */
-		const float *hand = g_handRaised ? handRaisedOff : handOff;
-		float u[3] = { hand[0] - elbowOff[0], hand[1] - elbowOff[1], hand[2] - elbowOff[2] }, lu = sqrtf(u[0] * u[0] + u[1] * u[1] + u[2] * u[2]);
+		float u[3] = { hand[0] - elbow[0], hand[1] - elbow[1], hand[2] - elbow[2] }, lu = sqrtf(u[0] * u[0] + u[1] * u[1] + u[2] * u[2]);
 		static const float along[5] = { 6.0f, 10.0f, -6.0f, 0.0f, 60.0f };
 		for (int k = 0; k < 3; k++)
 			u[k] /= lu;
@@ -1131,6 +1232,8 @@ static void SetLayouts(bool skinTransposed, bool rootTransposed)
 	StoreRotation(pl, tenDeg, rootTransposed);
 	pl[12] = 1.0f; pl[13] = 2.0f; pl[14] = 3.0f; pl[15] = 1.0f;
 	memcpy(g_pipboyLocalOriginal, pl, sizeof(g_pipboyLocalOriginal));
+	ClipsHand(0, g_handRot[0]);
+	ClipsHand(1, g_handRot[1]);
 	SyncFakeWorld();
 }
 
@@ -1294,15 +1397,6 @@ static float RotationAngle(const float M[9], float axis[3])
 	return acosf(c > 1.0f ? 1.0f : c < -1.0f ? -1.0f : c) * DEG;
 }
 
-/* The twist about the unit axis g in a rotation D (swing-twist, the twist first), degrees: as
- * the plugin takes it for the wrist roll (test 38), 2 atan2(v . g, w) of D's quaternion. */
-static float TwistOf(const float D[9], const float g[3])
-{
-	float tr = D[0] + D[4] + D[8], sq = sqrtf((tr > -0.99f ? tr : -0.99f) + 1.0f) * 2.0f;   /* the rotations here are small */
-	float w = 0.25f * sq, v[3] = { (D[7] - D[5]) / sq, (D[2] - D[6]) / sq, (D[3] - D[1]) / sq };
-	return 2.0f * atan2f(v[0] * g[0] + v[1] * g[1] + v[2] * g[2], w) * DEG;
-}
-
 /* How far a wheel's map moves its axle (its culling sphere's centre) in all. */
 static float WheelMove(int part)
 {
@@ -1413,6 +1507,38 @@ static float LastLogNumber(const char *after)
 		}
 	fclose(f);
 	return value;
+}
+
+/* The "leaned" lines after the log's last line holding marker: how far into the ride the first
+ * was solved ("...; N s into the ride"), how many there are and how many of them say final. */
+static float LeanedSince(const char *marker, int *count, int *finals)
+{
+	static char line[4096];
+	FILE *f = OpenLog();
+	*count = *finals = 0;
+	if (!f)
+		return NAN;
+	float first = NAN;
+	while (fgets(line, sizeof(line), f)) {
+		if (strstr(line, marker)) {
+			first = NAN;
+			*count = *finals = 0;
+			continue;
+		}
+		const char *at = strstr(line, " s into the ride");
+		if (!strstr(line, "the upper body leaned ") || !at)
+			continue;
+		const char *s = at;
+		while (s > line && s[-1] != ' ')
+			s--;
+		if (!*count)
+			first = strtof(s, NULL);
+		(*count)++;
+		if (strstr(at, "s into the ride, final"))
+			(*finals)++;
+	}
+	fclose(f);
+	return first;
 }
 
 /* The same through a bare world transform (a bone with no node, test 34). */
@@ -1526,6 +1652,52 @@ static float TurnedOff(const float X[3], const float mX[3], const float Q[9], co
 	for (int i = 0; i < 3; i++)
 		Re[i] += Pw[i];
 	return Dist3(mX, Re);
+}
+
+/* The angle about the unit axis g, degrees, from a's direction to b's, both seen along g
+ * (projected on the plane normal to it): the plugin's measure for the wrist roll (test 39). */
+static float AngleAboutDeg(const float a[3], const float b[3], const float g[3])
+{
+	float da = a[0] * g[0] + a[1] * g[1] + a[2] * g[2], db = b[0] * g[0] + b[1] * g[1] + b[2] * g[2], pa[3], pb[3], c[3];
+	for (int i = 0; i < 3; i++) {
+		pa[i] = a[i] - da * g[i];
+		pb[i] = b[i] - db * g[i];
+	}
+	c[0] = pa[1] * pb[2] - pa[2] * pb[1];
+	c[1] = pa[2] * pb[0] - pa[0] * pb[2];
+	c[2] = pa[0] * pb[1] - pa[1] * pb[0];
+	return atan2f(c[0] * g[0] + c[1] * g[1] + c[2] * g[2], pa[0] * pb[0] + pa[1] * pb[1] + pa[2] * pb[2]) * DEG;
+}
+
+/* The hand's long axis against the solved forearm, seen along the grip's axis (test 39): the
+ * angle about the bike's +x (through the bind and the bone, then the bars' turn Q) from the
+ * forearm's line to the hand's long axis, degrees, + = the hand above it, the knuckles up, on
+ * either hand. The hand's long axis: the plugin's (g_handAxisLocal) through the hand's node,
+ * then the hand's map before the tilt, Mh; the forearm: its bone's map of the elbow and the
+ * clips' wrist, mE and mW (after the tilt: Rw undone). *clips: the same for the clips' hand
+ * turned with the bars alone. */
+static float HandAboveForearm(int side, const float Mh[9], const float mE[3], const float mW[3], const float Rw[9], const float Q[9], float *clips)
+{
+	float A[9], N[9], Nh[9], ex[3] = { 1.0f, 0.0f, 0.0f }, Ae[3], xb[3], x[3], hw[3], hm[3], hq[3], d[3], f[3], lx;
+	LoadRotation((const float *)(g_bonesOriginal + 0x10), A, g_skinTransposed);
+	LoadRotation((const float *)(g_comNode + 0x70), N, g_rootTransposed);
+	LoadRotation((const float *)(g_bodyNodes[5] + 0x70), Nh, g_rootTransposed);
+	Apply3(A, ex, Ae);
+	Apply3(N, Ae, xb);
+	Apply3(Q, xb, x);
+	lx = sqrtf(x[0] * x[0] + x[1] * x[1] + x[2] * x[2]);
+	for (int i = 0; i < 3; i++)
+		x[i] /= lx;
+	Apply3(Nh, g_handAxisLocal[side], hw);
+	Apply3(Mh, hw, hm);
+	Apply3(Q, hw, hq);
+	for (int i = 0; i < 3; i++)
+		d[i] = mW[i] - mE[i];
+	for (int i = 0; i < 3; i++)
+		f[i] = Rw[i] * d[0] + Rw[3 + i] * d[1] + Rw[6 + i] * d[2];   /* Rw^T d */
+	if (clips)
+		*clips = AngleAboutDeg(f, hq, x);
+	return AngleAboutDeg(f, hm, x);
 }
 
 /* The clips' own bend plane: the elbow's offset from the shoulder-to-wrist line as the clips
@@ -1900,6 +2072,19 @@ static void BackingMomentum(float dt)
 	g_momentumV += (demand - g_momentumV) * (1.0f - expf(-dt / g_momentumTau));
 	PlayerPos()[0] += sh * (g_momentumV - demand) * dt;
 	PlayerPos()[1] += ch * (g_momentumV - demand) * dt;
+}
+
+/* The game's frame, with the most the player's z fell in one frame (from this call to the next:
+ * the plugin's task between them steps the reverse) since g_zDropMax was cleared and g_zLast
+ * set (the reverse's steps closing a gap under the feet: 3 a frame at most). */
+static float g_zDropMax, g_zLast;
+static void WatchDrops(float dt)
+{
+	float z = PlayerPos()[2];
+	if (g_zLast - z > g_zDropMax)
+		g_zDropMax = g_zLast - z;
+	g_zLast = z;
+	FakeGameFrame(dt);
 }
 
 /* The Harley build's moving parts ([Parts] in the INI for this run): the wheels spin with
@@ -2535,8 +2720,38 @@ static void InputTests(void)
 		CHECK(Moved(p0) < 40.0f && MoveInput()[1] == 0.0f, "stands: %.0f in 0.6 s, no forward input (%.3f)", Moved(p0), MoveInput()[1]);
 		Keys(0.0f, 0.0f);
 		face->on = false;
-		face->follow = 0.0f;
+		RunFrames(300);
+		/* Test 39's radstag: the ground's rays pass through actors now (the wheels' rays read
+		 * the ground under it, the tilt's tests check the pitch); the face rays don't, so one
+		 * ahead still stops the bike. */
+		printf("input hook: an actor in front (test 39's radstag: its capsule's face 60 ahead of the rider, layer 30, \"SkeletonExport\", its top 100 above the feet over the front wheel's ray spot), W held: the face rays still see it, the bike held:\n");
+		Mark(p0);
+		face->follow = 60.0f;
+		face->top = 100.0f;
+		face->what = g_actorObj;
+		face->on = true;
+		g_shelfOn = true;
+		g_shelfHeight = 100.0f;
+		g_shelfAhead = 99.6f;
+		g_shelfRadius = 40.0f;
+		g_shelfLayer = 30;
+		g_shelfWhat = g_actorObj;
+		int facedBefore = LogLines("(SkeletonExport, layer 30), the throttle eased to");
+		Keys(0.0f, 1.0f);
+		RunFrames(1200);   /* the verdict's line comes a second after the last "rays:" line at most (the one saying the last face had gone) */
+		CHECK(Moved(p0) < 40.0f && MoveInput()[1] == 0.0f && LogLines("(SkeletonExport, layer 30), the throttle eased to") > facedBefore,
+		      "stands: %.0f in 1.2 s, no forward input (%.3f); a \"rays: a wall ahead\" line names SkeletonExport (layer 30), the throttle eased (%d new)",
+		      Moved(p0), MoveInput()[1], LogLines("(SkeletonExport, layer 30), the throttle eased to") - facedBefore);
+		Keys(0.0f, 0.0f);
+		face->on = false;
+		face->follow = face->top = 0.0f;
+		face->what = NULL;
 		face->layer = 1;
+		g_shelfOn = false;
+		g_shelfHeight = g_shelfAhead = 0.0f;
+		g_shelfRadius = 60.0f;
+		g_shelfLayer = 1;
+		g_shelfWhat = NULL;
 		RunFrames(300);
 		printf("input hook: no COLL record to read (the form lookup finds none) and a load: the built-in table, a food bush (15) still ridden through, a tree (layer 9) a face the bike stops short of:\n");
 		g_collHidden = true;
@@ -2658,6 +2873,54 @@ static void InputTests(void)
 	g_slopeK = 0.0f;
 	g_groundZ = PlayerPos()[2];
 
+	/* Test 39, a level road (01:38:27-54, 01:39:27-42): every one of the 15 gaps the steps
+	 * closed (+0.4 to +2.4, the step's dz -0.4 to -2.44) came with the controller holding
+	 * itself supported (state 0, the supported bit), and each was followed by it in the air
+	 * within 0.75 s, the player dropping 20 to 37 through the road. A supported controller's
+	 * gap is its own now; an unsupported one's feet go down to 0.5 over the ground. */
+	printf("input hook: backing on level ground with a gap of 1.5 under the feet at the step (a hole of radius 20 round the feet: the ground 55 behind and the wheels' contacts outside it), the controller holding itself supported (state 0, the supported bit; test 39): the step's dz 0, the feet stay:\n");
+	FlatGround();
+	g_shelfOn = true;
+	g_shelfHeight = -1.5f;
+	g_shelfAhead = 0.0f;
+	g_shelfRadius = 20.0f;
+	SetState(0);
+	SetSupported(true);
+	float z0 = PlayerPos()[2];
+	Mark(p0);
+	int raysBefore = LogLines("  rays (filter");
+	Keys(0.0f, -1.0f);
+	RunFrames(1000);
+	float gapLogged = LastLogNumber("feet gap "), dzLogged = LastLogNumber("step dz ");
+	CHECK(Moved(p0) > 40.0f && fabsf(PlayerPos()[2] - z0) < 0.05f, "backs up %.0f in a second, the feet %+.2f from where they were (the gap the controller's own)", Moved(p0), PlayerPos()[2] - z0);
+	CHECK(LogLines("  rays (filter") > raysBefore && fabsf(gapLogged - 1.5f) < 0.15f && fabsf(dzLogged) < 0.005f,
+	      "the trace's rays line still gives the gap and the step: feet gap %+.1f, step dz %+.2f (not -1.5)", gapLogged, dzLogged);
+	Keys(0.0f, 0.0f);
+	RunFrames(300);
+	g_shelfOn = false;
+	g_shelfHeight = 0.0f;
+	g_shelfRadius = 60.0f;
+	printf("input hook: the same with the supported bit clear and the ground 2.5 below the feet (a level plane), then 7.5 more: the feet go down to 0.5 over it, 3 a frame at most:\n");
+	SetSupported(false);
+	g_groundZ = PlayerPos()[2] - 2.5f;
+	g_zDropMax = 0.0f;
+	g_zLast = PlayerPos()[2];
+	g_onFrame = WatchDrops;
+	Keys(0.0f, -1.0f);
+	RunFrames(1000);
+	float hover = PlayerPos()[2] - g_groundZ, dropped = g_zDropMax;
+	CHECK(fabsf(hover - 0.5f) < 0.05f && dropped > 1.9f && dropped < 3.001f, "the feet %.2f over the ground after a second (0.5), %.2f the most in a frame (the 2.0 at once)", hover, dropped);
+	g_groundZ = PlayerPos()[2] - 7.5f;
+	g_zDropMax = 0.0f;
+	g_zLast = PlayerPos()[2];
+	RunFrames(1000);
+	hover = PlayerPos()[2] - g_groundZ;
+	CHECK(fabsf(hover - 0.5f) < 0.05f && g_zDropMax > 2.9f && g_zDropMax < 3.001f, "the feet %.2f over the ground after a second (0.5), %.2f the most in a frame (3, the cap)", hover, g_zDropMax);
+	Keys(0.0f, 0.0f);
+	g_onFrame = FakeGameFrame;
+	RunFrames(300);
+	FlatGround();
+
 	printf("input hook: a car 35 to the right of the bike, back and right:\n");
 	from = *head;
 	Mark(p0);
@@ -2742,9 +3005,63 @@ static void InputTests(void)
 	CHECK(MoveInput()[1] == -1.0f, "back reaches the game (%.2f)", MoveInput()[1]);
 	Keys(0.0f, 0.0f);
 	RunFrames(200);
-	g_onFrame = NULL;
 	*head = from;
+
+	/* Test 39: the wheels' 30 "rays:" lines a ride were spent by 01:35:02, before the backing
+	 * tests. A hand of 10 now, one more every 6 s, one a second at most, and a hand of its own
+	 * while backing. A new ride on a 30 deg slope (the wheels' pitch 30, a line a second while
+	 * the hand lasts): lines at 0 to 10 s (the 10 and the one refilled meanwhile) and at 12
+	 * (the next refill: the hand spent); back held for 2 s from the sample that saw that 12th
+	 * line, a line a second from the backing hand (at 13 and 14; the lines till 0.8 s after
+	 * the key, the back mode outlasting it by a sample or two, count as backing); then the
+	 * riding hand's next at 18. The times are the wall clock's, as the plugin's own clock goes
+	 * (the log read between the samples counts in it too), at the end of the 0.2 s sample a
+	 * line came in. */
+	printf("input hook: the wheels' \"rays:\" lines from a hand of 10, one more every 6 s, one of its own while backing (test 39: the 30 a ride were spent before the backing tests): a new ride on a 30 deg slope, back held for 2 s once the riding hand is spent:\n");
+	g_slopeK = tanf(30.0f / DEG);
+	g_slopeO[0] = PlayerPos()[0];
+	g_slopeO[1] = PlayerPos()[1];
+	g_slopeD[0] = sinf(from);
+	g_slopeD[1] = cosf(from);
+	g_groundZ = PlayerPos()[2];
+	int linesBase = LogLines("rays: the wheels' rays"), lines = 0;
+	float lineAt[24], backFrom = -1.0f;
+	bool lineBacking[24];
+	LARGE_INTEGER qf, q0, q1;
+	QueryPerformanceFrequency(&qf);
+	QueryPerformanceCounter(&q0);
 	SetLive(60.0f);
+	for (float now = 0.0f; now < 18.8f; ) {   /* 18.8 s in samples of 0.2 s */
+		Keys(0.0f, backFrom >= 0.0f && now < backFrom + 2.0f ? -1.0f : 0.0f);
+		RunFrames(200);
+		QueryPerformanceCounter(&q1);
+		now = (float)(q1.QuadPart - q0.QuadPart) / (float)qf.QuadPart;
+		int c = LogLines("rays: the wheels' rays") - linesBase;
+		for (; lines < c && lines < 24; lines++) {
+			lineAt[lines] = now;
+			lineBacking[lines] = backFrom >= 0.0f && now < backFrom + 2.8f;
+		}
+		if (backFrom < 0.0f && lines >= 12)
+			backFrom = now;
+	}
+	Keys(0.0f, 0.0f);
+	int backLines = 0, firstAfter = -1;
+	for (int k = 12; k < lines; k++) {
+		if (lineBacking[k])
+			backLines++;
+		else if (firstAfter < 0)
+			firstAfter = k;
+	}
+	float t0 = lines > 0 ? lineAt[0] : 0.0f;
+	CHECK(lines >= 12 && lineAt[10] - t0 > 9.6f && lineAt[10] - t0 < 11.0f && lineAt[11] - lineAt[10] > 1.5f && lineAt[11] - lineAt[10] < 2.5f && backFrom - t0 < 12.8f,
+	      "riding: the first 11 lines a second apart (the 11th %.1f s after the first), the 12th %.1f s after the 11th (2: the hand spent, the next refill at 12)",
+	      lines > 10 ? lineAt[10] - t0 : -1.0f, lines > 11 ? lineAt[11] - lineAt[10] : -1.0f);
+	CHECK(backLines == 2, "backing with the riding hand spent: %d line%s in the 2 s from the backing hand (2: at 13 and 14 s)", backLines, backLines == 1 ? "" : "s");
+	CHECK(firstAfter > 0 && lineAt[firstAfter] - lineAt[11] > 5.5f && lineAt[firstAfter] - lineAt[11] < 6.7f,
+	      "after the back key the riding hand's next line %.1f s after its 12th (6: one more every 6 s; %d lines in all)", firstAfter > 0 ? lineAt[firstAfter] - lineAt[11] : -1.0f, lines);
+	g_onFrame = NULL;
+	FlatGround();
+	*head = from;
 	RunFrames(400);
 }
 
@@ -3207,6 +3524,45 @@ static float SeatLift(void)
 	return lift;
 }
 
+/* The left wrist's turn from the clips' pose as the plugin wrote it this frame (the hand's map
+ * against the forearm's, before the tilt), degrees, and in share the grip's distance from the
+ * leaned shoulder over the arm's reach, percent (the clips' wrist turned with the bars, then
+ * tilted): what the ride's-end line takes them as (test 39). */
+static float WristTurnNow(float *share)
+{
+	float Rw3[9], Pw3[3], S[3], Ef[3], Wf[3], mS[3], Mh[9], Rf[9], Rft[9], Res[9], ax[3], Ag[9], Ng[9], Qg[9], qg[3], QW[3], target[3];
+	const uint8_t *copyF = *(const uint8_t **)(*(uint8_t **)(g_bodySkin + 0x40) + 0x10);
+	ExpectedTilt(Rw3, Pw3);
+	memcpy(S, g_bodyNodes[6] + 0xA0, 12);
+	memcpy(Ef, g_bodyNodes[7] + 0xA0, 12);
+	memcpy(Wf, g_bodyNodes[5] + 0xA0, 12);
+	MapBone(g_bodyNodes[6], g_bodyBonesOriginal + 6 * 0x50, copyF + 6 * 0x50, S, mS);
+	BoneRotationBefore(g_bodyNodes[5], g_bodyBonesOriginal + 5 * 0x50, copyF + 5 * 0x50, Wf, Rw3, Mh);
+	BoneRotationBefore(g_bodyNodes[7], g_bodyBonesOriginal + 7 * 0x50, copyF + 7 * 0x50, Ef, Rw3, Rf);
+	for (int i = 0; i < 3; i++)
+		for (int j = 0; j < 3; j++)
+			Rft[i * 3 + j] = Rf[j * 3 + i];
+	MulM3(Rft, Mh, Res);
+	BarTurnMap(BarAngle(), Ag, Ng, Qg, qg);
+	Apply3(Qg, Wf, QW);
+	for (int i = 0; i < 3; i++)
+		QW[i] += qg[i] - Pw3[i];
+	Apply3(Rw3, QW, target);
+	for (int i = 0; i < 3; i++)
+		target[i] += Pw3[i];
+	*share = Dist3(mS, target) / (Dist3(S, Ef) + Dist3(Ef, Wf)) * 100.0f;
+	return RotationAngle(Res, ax);
+}
+
+/* The clips' left wrist (the hand's node) from the grip's centre, before the bars' turn. */
+static float WristOffGrip(void)
+{
+	float W[3], G[3];
+	memcpy(W, g_bodyNodes[5] + 0xA0, 12);
+	GripWorld(G);
+	return Dist3(W, G);
+}
+
 static void TiltTests(void)
 {
 	const float forward[3] = { sinf(HEADING), cosf(HEADING), 0.0f }, back[3] = { -forward[0], -forward[1], 0.0f };
@@ -3375,6 +3731,14 @@ static void TiltTests(void)
 			      "the arm's solve: the shoulder swung with the upper body's twist, %.1f deg about the spine's joint, and its side lean of %.1f (%.3f off that; %.2f from where the clips had it)", twist * DEG, sideLean * DEG, TiltedOff(Sx, mS, Rw, Pw), TiltedOff(S, mS, Rw, Pw));
 			CHECK(Dist3(mE1, mE2) < 0.1f, "the upper arm and the forearm meet at the elbow (%.3f apart)", Dist3(mE1, mE2));
 			CHECK(Dist3(mW2, mW3) < 0.1f && TurnedOff(Wr, mW2, Q, q, Rw, Pw) > 0.3f, "the forearm and the hand meet at the rolled wrist, %.2f off the bars' turn of the clips' (%.3f apart; the forearm solved again to it)", TurnedOff(Wr, mW2, Q, q, Rw, Pw), Dist3(mW2, mW3));
+			{
+				/* Test 39: the hand's long axis along the forearm seen along the turned grip's
+				 * axis, the bars over (the clips' hand, turned with them alone, well off it). */
+				float Mh2[9], clipsOff;
+				BoneRotationBefore(g_bodyNodes[5], g_bodyBonesOriginal + 5 * 0x50, copyNow + 5 * 0x50, Wr, Rw, Mh2);
+				float up = HandAboveForearm(0, Mh2, mE2, mW2, Rw, Q, &clipsOff);
+				CHECK(fabsf(up) < 1.5f && fabsf(clipsOff) > 10.0f, "the bars over %.1f deg: the hand's long axis, seen along the turned grip, %.2f deg off the solved forearm's (within 1.5; the clips' hand turned with the bars %.1f off it)", barNow, up, clipsOff);
+			}
 			CHECK(fabsf(Dist3(mE1, mS) - Dist3(E, S)) < 0.05f && fabsf(Dist3(mW2, mE2) - Dist3(Wr, E)) < 0.05f,
 			      "the bones keep their lengths (%.1f and %.1f)", Dist3(mE1, mS), Dist3(mW2, mE2));
 			CHECK(TiltedOff(E, mE2, Rw, Pw) > 0.3f, "the elbow moved (%.2f): the arm bent to reach", TiltedOff(E, mE2, Rw, Pw));
@@ -3460,8 +3824,23 @@ static void TiltTests(void)
 		MapBone(g_bodyNodes[5], g_bodyBonesOriginal + 5 * 0x50, copyNow + 5 * 0x50, Wr, mW3);
 		MapBone(g_bodyNodes[8], g_bodyBonesOriginal + 8 * 0x50, copyNow + 8 * 0x50, Hd, mH);
 		MapBone(g_bodyNodes[8], g_bodyBonesOriginal + 8 * 0x50, copyNow + 8 * 0x50, Up, mUp);
-		float reach = Dist3(S, E) + Dist3(E, Wr), ratio = Dist3(mS, mW3) / reach, was = Dist3(S, Wr) / reach;
-		CHECK(was > 0.9f && ratio > 0.78f && ratio < 0.82f, "the grip %.0f%% of the arms' reach from the shoulder (%.0f%% as the clips pose it; ArmReach 0.80)", ratio * 100.0f, was * 100.0f);
+		/* The grip: the clips' wrist turned with the bars, the hand's target before the wrist
+		 * roll, which swings the wrist itself round the grip's centre (test 38) and, by test
+		 * 39's roll into line with the forearm, by a good deal here (the fake's hand is 48 deg
+		 * off its forearm seen along the grip). */
+		float reach = Dist3(S, E) + Dist3(E, Wr), was = Dist3(S, Wr) / reach, ratio, rolledAt = Dist3(mS, mW3) / reach;
+		{
+			float Ag[9], Ng[9], Qg[9], qg[3], QW[3], target[3];
+			BarTurnMap(BarAngle(), Ag, Ng, Qg, qg);
+			Apply3(Qg, Wr, QW);
+			for (int i = 0; i < 3; i++)
+				QW[i] += qg[i] - Pw2[i];
+			Apply3(Rw2, QW, target);
+			for (int i = 0; i < 3; i++)
+				target[i] += Pw2[i];
+			ratio = Dist3(mS, target) / reach;
+		}
+		CHECK(was > 0.9f && ratio > 0.78f && ratio < 0.82f, "the grip %.0f%% of the arms' reach from the shoulder (%.0f%% as the clips pose it; ArmReach 0.80; the rolled wrist %.0f%%)", ratio * 100.0f, was * 100.0f, rolledAt * 100.0f);
 		for (int i = 0; i < 3; i++)
 			d0[i] = pivot[i] - Pw2[i];
 		Apply3(Rw2, d0, Rd);
@@ -3519,23 +3898,23 @@ static void TiltTests(void)
 			 * the hand's map, the bars straight, is no longer the identity but a roll about the
 			 * grip's axis (the bike's x through the bind and the bone) by the forearm's twist
 			 * about it, so the wrist's turn from the clips' pose is only the forearm's swing. */
-			float Mh[9], Rf[9], Rft[9], Res[9], A[9], N[9], ex[3] = { -1.0f, 0.0f, 0.0f }, Ae[3], gb[3], rollAxis[3], resAxis[3], fullAxis[3];
+			float Mh[9], A[9], N[9], ex[3] = { -1.0f, 0.0f, 0.0f }, Ae[3], gb[3], rollAxis[3], Qa[9], qa[3], Aa[9], Na[9];
 			LoadRotation((const float *)(g_bonesOriginal + 0x10), A, g_skinTransposed);
 			LoadRotation((const float *)(g_comNode + 0x70), N, g_rootTransposed);
 			Apply3(A, ex, Ae);
 			Apply3(N, Ae, gb);
 			BoneRotationBefore(g_bodyNodes[5], g_bodyBonesOriginal + 5 * 0x50, copyNow + 5 * 0x50, Wr, Rw2, Mh);
-			BoneRotationBefore(g_bodyNodes[7], g_bodyBonesOriginal + 7 * 0x50, copyNow + 7 * 0x50, E, Rw2, Rf);
-			float roll = RotationAngle(Mh, rollAxis), twist = TwistOf(Rf, gb), full = RotationAngle(Rf, fullAxis);
+			float roll = RotationAngle(Mh, rollAxis);
 			float axisOff = acosf(fabsf(rollAxis[0] * gb[0] + rollAxis[1] * gb[1] + rollAxis[2] * gb[2]) > 1.0f ? 1.0f : fabsf(rollAxis[0] * gb[0] + rollAxis[1] * gb[1] + rollAxis[2] * gb[2])) * DEG;
-			for (int i = 0; i < 3; i++)
-				for (int j = 0; j < 3; j++)
-					Rft[i * 3 + j] = Rf[j * 3 + i];
-			MulM3(Rft, Mh, Res);
-			float residual = RotationAngle(Res, resAxis);
-			CHECK(roll > 1.0f && axisOff < 10.0f && fabsf(roll - fabsf(twist)) < 0.5f,
-			      "the hand rolled %.1f deg about the grip's axis (the roll's axis %.1f deg off it) by the forearm's twist about it (%.1f): the wrist follows the forearm round the grip (WristRoll 1.0)", roll, axisOff, twist);
-			CHECK(residual < full - 0.5f && residual < 20.0f, "the wrist turned %.1f deg from the clips' pose, the forearm's swing alone (its whole rotation %.1f: the hand turned with the bars alone would have kinked by that; test 37's 25)", residual, full);
+			/* Test 39 ("cat paw"): the roll lays the hand's long axis along the forearm seen
+			 * along the grip (the solved elbow to the wrist), where the forearm's own twist
+			 * about the grip kept the clips' bend; the fake's hand has the clips' frame, the
+			 * long axis 39 deg below the bike's forward. */
+			BarTurnMap(BarAngle(), Aa, Na, Qa, qa);
+			float clipsOff, up = HandAboveForearm(0, Mh, mE2, mW2, Rw2, Qa, &clipsOff), logged = LastLogNumber("its axis ");
+			CHECK(roll > 1.0f && axisOff < 10.0f && fabsf(up) < 1.5f && fabsf(clipsOff) > 10.0f,
+			      "the hand rolled %.1f deg about the grip's axis (the roll's axis %.1f deg off it): its long axis, seen along the grip, %.2f deg off the solved forearm's (within 1.5; the clips' hand %.1f off it; WristRoll 1.0, HandPitch 0)", roll, axisOff, up, clipsOff);
+			CHECK(fabsf(logged - up) < 0.3f, "the ride's \"arm solved\" line says the hand's axis %.1f deg above the forearm's (the pose's %.2f)", logged, up);
 			{
 				/* The pivot (test 38): the grip's centre stays where the bars (straight, within
 				 * their creep) have it, the wrist swings round it. */
@@ -3551,7 +3930,7 @@ static void TiltTests(void)
 				 * bars); the roll's passes aim at the rolled wrist, a unit or two off it, and
 				 * the line carried that. Read back from the ride's line, with the bars it logged
 				 * (straight, within their creep); the shoulder's map holds the lean. */
-				float barsLogged = LastLogNumber("round the grip (the bars "), gripLogged = LastLogNumber("the grip "), Qc[9], qc[3], QW[3], target[3];
+				float barsLogged = LastLogNumber("arm solved (the bars "), gripLogged = LastLogNumber("the grip "), Qc[9], qc[3], QW[3], target[3];
 				BarTurnMap(barsLogged, A, N, Qc, qc);
 				Apply3(Qc, Wr, QW);
 				for (int i = 0; i < 3; i++)
@@ -3591,6 +3970,35 @@ static void TiltTests(void)
 			}
 			RewriteIni("WristRoll=0", "WristRoll=1.0");
 			RewriteIni("ArmPole=0,0,0", "ArmPole=0.35,-0.3,-1.0");
+		}
+		{
+			/* Test 39's HandPitch: the hand's long axis that many degrees above the forearm's line
+			 * seen along the grip, the knuckles up (about the bike's +x on either hand: the left's
+			 * own outward axis is -x, so its angle about that is negated); the grip's centre still
+			 * on the grip, the hand still meeting the forearm at the wrist. */
+			printf("tilt: the hand pitched 10 deg up from the forearm (HandPitch=10 for a ride):\n");
+			RewriteIni("HandPitch=0", "HandPitch=10");
+			SetTilt(0.0f);
+			RunFrames(300);
+			SetTilt(30.0f);
+			RunFrames(600);
+			float Mh[9], Ap[9], Np[9], Qp[9], qp[3], Ep[3], Wp[3], mEp[3], mWp[3], mW3p[3], G[3], mG[3];
+			copyNow = *(const uint8_t **)(*(uint8_t **)(g_bodySkin + 0x40) + 0x10);
+			ExpectedTilt(Rw2, Pw2);
+			memcpy(Ep, g_bodyNodes[7] + 0xA0, 12);
+			memcpy(Wp, g_bodyNodes[5] + 0xA0, 12);
+			MapBone(g_bodyNodes[7], g_bodyBonesOriginal + 7 * 0x50, copyNow + 7 * 0x50, Ep, mEp);
+			MapBone(g_bodyNodes[7], g_bodyBonesOriginal + 7 * 0x50, copyNow + 7 * 0x50, Wp, mWp);
+			MapBone(g_bodyNodes[5], g_bodyBonesOriginal + 5 * 0x50, copyNow + 5 * 0x50, Wp, mW3p);
+			BoneRotationBefore(g_bodyNodes[5], g_bodyBonesOriginal + 5 * 0x50, copyNow + 5 * 0x50, Wp, Rw2, Mh);
+			BarTurnMap(BarAngle(), Ap, Np, Qp, qp);
+			GripWorld(G);
+			MapBone(g_bodyNodes[5], g_bodyBonesOriginal + 5 * 0x50, copyNow + 5 * 0x50, G, mG);
+			float up = HandAboveForearm(0, Mh, mEp, mWp, Rw2, Qp, NULL), logged = LastLogNumber("its axis ");
+			CHECK(fabsf(up - 10.0f) < 1.5f && fabsf(logged - up) < 0.3f && LogLines("(HandPitch 10)") >= 1,
+			      "the left hand's long axis %.2f deg above the solved forearm's seen along the grip (10, within 1.5: the knuckles up; the arm's line says %.1f, HandPitch 10)", up, logged);
+			CHECK(TurnedOff(G, mG, Qp, qp, Rw2, Pw2) < 0.1f && Dist3(mWp, mW3p) < 0.1f, "the grip's centre still on the grip (%.3f off the bars' turn of it), the hand still meeting the forearm at the wrist (%.3f apart)", TurnedOff(G, mG, Qp, qp, Rw2, Pw2), Dist3(mWp, mW3p));
+			RewriteIni("HandPitch=10", "HandPitch=0");
 		}
 		{
 			/* The bisection's cap, 30 deg since test 38 (15 before): ArmReach=0.5 for a ride needs
@@ -3660,12 +4068,47 @@ static void TiltTests(void)
 		CHECK(TiltedOff(S, mS, Rw2, Pw2) < 0.05f && LogLines("taken as it comes") == comesBefore + 1 && LogLines("deg forward about the spine's joint") == leanedBefore + 1,
 		      "22 s in: the lean taken as it comes, 0 from the raised hand's 79%% (the shoulder %.3f off the tilt alone), one \"leaned\" line saying so (%d, %d)",
 		      TiltedOff(S, mS, Rw2, Pw2), LogLines("taken as it comes") - comesBefore, LogLines("deg forward about the spine's joint") - leanedBefore);
+		{
+			/* Test 40: a run after a jump starts from the solve before it, but not from one taken
+			 * as it comes (test 38's Pip-Boy start): the short start, then a jump of 1000 units
+			 * from a ground frame along the slope's contour with the hand still raised, then the
+			 * grips at 95%: the lean solved again from that reading. */
+			printf("tilt: taken as it comes, then a jump of 1000 units and the grips at 95%%: not kept, solved again from the 95%% reading (test 40):\n");
+			int jumpWas = LogLines("solved again after a jump of 1000 units (a door, a fast travel)"), leanedWas = LogLines("deg forward about the spine's joint");
+			for (int k = 0; k < 3; k++)
+				PlayerPos()[k] += right[k] * 1000.0f;
+			g_handRaised = false;
+			g_handReach = 0.952f;
+			RunFrames(1000);
+			copyNow = *(const uint8_t **)(*(uint8_t **)(g_bodySkin + 0x40) + 0x10);
+			ExpectedTilt(Rw2, Pw2);
+			memcpy(S, g_bodyNodes[6] + 0xA0, 12);   /* the shoulder went with the player */
+			MapBone(g_bodyNodes[6], g_bodyBonesOriginal + 6 * 0x50, copyNow + 6 * 0x50, S, mS);
+			CHECK(LogLines("solved again after a jump of 1000 units (a door, a fast travel)") == jumpWas + 1 && LogLines("deg forward about the spine's joint") == leanedWas + 1 &&
+			      fabsf(LastLogNumber("% of the arms' reach with the bars straight (") - 95.0f) < 0.6f && LastLogNumber("the upper body leaned ") > 1.0f && TiltedOff(S, mS, Rw2, Pw2) > 1.0f,
+			      "within the second: a \"leaned\" line saying \"solved again after a jump of 1000 units\" (%d), %.1f deg from the %.0f%% reading (the shoulder %.1f forward)",
+			      LogLines("solved again after a jump of 1000 units (a door, a fast travel)") - jumpWas, LastLogNumber("the upper body leaned "), LastLogNumber("% of the arms' reach with the bars straight ("), TiltedOff(S, mS, Rw2, Pw2));
+			g_handReach = 0.0f;
+		}
+		/* A new ride for the riding pose's coming: the hand raised from its start, 21.5 s. */
+		SetTilt(0.0f);
+		RunFrames(300);
+		g_handRaised = true;
+		leanedBefore = LogLines("deg forward about the spine's joint");
+		cameBefore = LogLines("the riding pose came: solved again");
+		comesBefore = LogLines("taken as it comes");
+		SetTilt(30.0f);
+		RunFrames(21500);
+		ExpectedTilt(Rw2, Pw2);
+		memcpy(S, g_bodyNodes[6] + 0xA0, 12);
+		CHECK(LogLines("taken as it comes") == comesBefore + 1 && LogLines("deg forward about the spine's joint") == leanedBefore + 1,
+		      "a new ride with the hand raised: taken as it comes again by 21.5 s (%d, %d)", LogLines("taken as it comes") - comesBefore, LogLines("deg forward about the spine's joint") - leanedBefore);
 		g_handRaised = false;
 		RunFrames(1000);
 		copyNow = *(const uint8_t **)(*(uint8_t **)(g_bodySkin + 0x40) + 0x10);
 		MapBone(g_bodyNodes[6], g_bodyBonesOriginal + 6 * 0x50, copyNow + 6 * 0x50, S, mS);
 		CHECK(TiltedOff(S, mS, Rw2, Pw2) > 1.0f && LogLines("the riding pose came: solved again") == cameBefore + 1 && LogLines("deg forward about the spine's joint") == leanedBefore + 2,
-		      "the hand back on the grip: the riding pose came and the lean was solved again within the second, final (the shoulder %.1f forward, %d \"leaned\" lines, %d saying the pose came)",
+		      "the hand back on the grip: the riding pose came and the lean was solved again within the second, its readings started again (final 3 s on, the best of them: test 39) (the shoulder %.1f forward, %d \"leaned\" lines, %d saying the pose came)",
 		      TiltedOff(S, mS, Rw2, Pw2), LogLines("deg forward about the spine's joint") - leanedBefore, LogLines("the riding pose came: solved again") - cameBefore);
 		/* Test 38: a fast travel on the bike (10:49:47 to 51) left all 60 shapes held and sent no
 		 * PostLoadGame, and the lean of the ride's start stood for the whole ride after it; the
@@ -3703,22 +4146,30 @@ static void TiltTests(void)
 		CHECK(LogLines("solved again after a jump") == jumpBefore && LogLines("deg forward about the spine's joint") == leanedBefore + 2,
 		      "a stall of 200 units in one frame on the ground: no line either in 1.5 s (%d, %d)",
 		      LogLines("solved again after a jump") - jumpBefore, LogLines("deg forward about the spine's joint") - leanedBefore);
-		printf("tilt: a jump of 1000 units in the ride (a door, a fast travel: the shapes stay held, no PostLoadGame): the lean solved again (test 38):\n");
+		/* The jump re-arms the solve (test 38); since test 40 its run starts from the solve
+		 * before it, this ride's from the riding pose's coming (98.5%, kept), and with the hand
+		 * raised after the jump (a short reading, as test 39's 92% after its second fast travel)
+		 * no reading beats it: 3 s on, final, the line saying it stands. */
+		printf("tilt: a jump of 1000 units in the ride (a door, a fast travel: the shapes stay held, no PostLoadGame), the hand raised after it: the solve from before the jump stands, final 3 s on (tests 38, 40):\n");
+		int standsBefore = LogLines("the solve from before a jump of 1000 units (a door, a fast travel) stands");
 		PlayerPos()[0] += 1000.0f;
-		RunFrames(1000);
+		g_handRaised = true;
+		RunFrames(3500);
 		copyNow = *(const uint8_t **)(*(uint8_t **)(g_bodySkin + 0x40) + 0x10);
 		ExpectedTilt(Rw2, Pw2);
 		memcpy(S, g_bodyNodes[6] + 0xA0, 12);   /* the shoulder went with the player */
 		MapBone(g_bodyNodes[6], g_bodyBonesOriginal + 6 * 0x50, copyNow + 6 * 0x50, S, mS);
-		CHECK(LogLines("solved again after a jump of 1000 units (a door, a fast travel)") == jumpBefore + 1 && LogLines("deg forward about the spine's joint") == leanedBefore + 3 && TiltedOff(S, mS, Rw2, Pw2) > 1.0f,
-		      "within the second: a \"leaned\" line saying \"solved again after a jump of 1000 units\" (%d; %d \"leaned\" lines in all), the rider still held and written, leaning (the shoulder %.1f forward)",
-		      LogLines("solved again after a jump of 1000 units (a door, a fast travel)") - jumpBefore, LogLines("deg forward about the spine's joint") - leanedBefore, TiltedOff(S, mS, Rw2, Pw2));
+		CHECK(LogLines("the solve from before a jump of 1000 units (a door, a fast travel) stands") == standsBefore + 1 && LogLines("solved again after a jump") == jumpBefore &&
+		      LogLines("deg forward about the spine's joint") == leanedBefore + 2 && TiltedOff(S, mS, Rw2, Pw2) > 1.0f && LastLogNumber("(the grips at ") < 85.0f,
+		      "3.5 s on: a line saying the solve from before the jump of 1000 units stands (%d), no \"leaned\" line (%d in all), the grips at %.0f%% then, the rider still held and written, leaning (the shoulder %.1f forward)",
+		      LogLines("the solve from before a jump of 1000 units (a door, a fast travel) stands") - standsBefore, LogLines("deg forward about the spine's joint") - leanedBefore, LastLogNumber("(the grips at "), TiltedOff(S, mS, Rw2, Pw2));
+		g_handRaised = false;
 		Send(3, 1);   /* PostLoadGame: the ride starts afresh, the lean solved again */
 		RunFrames(1500);
 		copyNow = *(const uint8_t **)(*(uint8_t **)(g_bodySkin + 0x40) + 0x10);
 		ExpectedTilt(Rw2, Pw2);
 		MapBone(g_bodyNodes[6], g_bodyBonesOriginal + 6 * 0x50, copyNow + 6 * 0x50, S, mS);
-		CHECK(TiltedOff(S, mS, Rw2, Pw2) > 1.0f && LogLines("deg forward about the spine's joint") == leanedBefore + 4,
+		CHECK(TiltedOff(S, mS, Rw2, Pw2) > 1.0f && LogLines("deg forward about the spine's joint") == leanedBefore + 3,
 		      "after a load the lean is solved again (the shoulder %.1f forward, %d \"leaned\" lines)", TiltedOff(S, mS, Rw2, Pw2), LogLines("deg forward about the spine's joint") - leanedBefore);
 		RewriteIni("TorsoLean=-1", "TorsoLean=0");
 		SetTilt(0.0f);
@@ -3753,6 +4204,203 @@ static void TiltTests(void)
 		*headNow = headingBefore;
 		RunFrames(1000);
 		RewriteIni("TorsoSideLean=0", "TorsoSideLean=0.25");
+		SetTilt(0.0f);
+		RunFrames(300);
+		SetTilt(30.0f);
+		RunFrames(600);
+	}
+
+	if (g_haveParts) {
+		/* Test 39's HandPitch on the other hand: the arm's three nodes named and placed as the
+		 * right arm's for a ride (mirrored across the bike's x = 0), the right hand's rotation
+		 * the clips'. TorsoTwist and TorsoSideLean off for it (the fake's spine sits well off the
+		 * bike's middle, so the mirrored shoulder is far below its joint and the twist would
+		 * carry it out of reach), the bars over to the right for the hands to be solved. The
+		 * knuckles up is about the bike's +x on both hands. */
+		printf("tilt: the right hand pitched 10 deg up from the forearm (the arm mirrored to the right for a ride, HandPitch=10, the bars over to the right):\n");
+		static const char *rightNames[3] = { "RArm_Hand [RHnd]", "RArm_UpperArm [RUar]", "RArm_ForeArm1 [RLar]" };
+		uint8_t *leftNames[3];
+		int rightBefore = LogLines("rider: the right arm solved");
+		RewriteIni("HandPitch=0", "HandPitch=10");
+		RewriteIni("TorsoTwist=0.75", "TorsoTwist=0");
+		RewriteIni("TorsoSideLean=0.25", "TorsoSideLean=0");
+		SetTilt(0.0f);
+		RunFrames(300);
+		for (int i = 0; i < 3; i++) {
+			leftNames[i] = *(uint8_t **)(g_bodyNodes[5 + i] + 0x10);
+			*(uint8_t **)(g_bodyNodes[5 + i] + 0x10) = NewString(rightNames[i]);
+		}
+		g_armRight = true;
+		SyncFakeWorld();
+		SetTilt(30.0f);
+		RunFrames(300);
+		g_turnOnSpot = 1.0472f;   /* turning right at 60 deg/s: the bars go over to the right */
+		g_onFrame = TurnOnTheSpot;
+		RunFrames(1500);
+		{
+			float Rw3[9], Pw3[3], Mh[9], Ar[9], Nr[9], Qr[9], qr[3], Er[3], Wrr[3], mEr[3], mWr[3], mW3r[3], G[3], mG[3];
+			static const float gripR[3] = { 56.45f, 79.79f, 54.85f };   /* run.sh's Grip, the +x grip's centre: the right's own */
+			const uint8_t *copyR = *(const uint8_t **)(*(uint8_t **)(g_bodySkin + 0x40) + 0x10);
+			float bar = BarAngle();
+			ExpectedTilt(Rw3, Pw3);
+			memcpy(Er, g_bodyNodes[7] + 0xA0, 12);
+			memcpy(Wrr, g_bodyNodes[5] + 0xA0, 12);
+			MapBone(g_bodyNodes[7], g_bodyBonesOriginal + 7 * 0x50, copyR + 7 * 0x50, Er, mEr);
+			MapBone(g_bodyNodes[7], g_bodyBonesOriginal + 7 * 0x50, copyR + 7 * 0x50, Wrr, mWr);
+			MapBone(g_bodyNodes[5], g_bodyBonesOriginal + 5 * 0x50, copyR + 5 * 0x50, Wrr, mW3r);
+			BoneRotationBefore(g_bodyNodes[5], g_bodyBonesOriginal + 5 * 0x50, copyR + 5 * 0x50, Wrr, Rw3, Mh);
+			BarTurnMap(bar, Ar, Nr, Qr, qr);
+			{
+				float AG[3], BG[3], NBG[3];
+				Apply3(Ar, gripR, AG);
+				for (int i = 0; i < 3; i++)
+					BG[i] = AG[i] + ((const float *)(g_bonesOriginal + 0x40))[i];
+				Apply3(Nr, BG, NBG);
+				for (int i = 0; i < 3; i++)
+					G[i] = NBG[i] + ((const float *)(g_comNode + 0xA0))[i];
+			}
+			MapBone(g_bodyNodes[5], g_bodyBonesOriginal + 5 * 0x50, copyR + 5 * 0x50, G, mG);
+			float clipsOff, up = HandAboveForearm(1, Mh, mEr, mWr, Rw3, Qr, &clipsOff), logged = LastLogNumber("its axis ");
+			CHECK(bar < -8.0f && LogLines("rider: the right arm solved") == rightBefore + 1 && LogLines("right shoulder found, elbow found, hand found") >= 1,
+			      "the bars over %.1f deg, the arm solved as the right one (%d \"right arm solved\" line)", bar, LogLines("rider: the right arm solved") - rightBefore);
+			CHECK(fabsf(up - 10.0f) < 1.5f && fabsf(logged - up) < 0.3f && fabsf(clipsOff - 10.0f) > 10.0f,
+			      "the right hand's long axis %.2f deg above the solved forearm's seen along the turned grip (10, within 1.5: the knuckles up as on the left; the arm's line says %.1f; the clips' hand %.1f)", up, logged, clipsOff);
+			CHECK(TurnedOff(G, mG, Qr, qr, Rw3, Pw3) < 0.1f && Dist3(mWr, mW3r) < 0.1f, "the right grip's centre on the turned grip (%.3f off), the hand meeting the forearm at the wrist (%.3f apart)", TurnedOff(G, mG, Qr, qr, Rw3, Pw3), Dist3(mWr, mW3r));
+		}
+		g_turnOnSpot = -1.0472f;
+		RunFrames(1500);
+		g_onFrame = NULL;
+		*headNow = headingBefore;
+		SetTilt(0.0f);
+		RunFrames(300);
+		for (int i = 0; i < 3; i++)
+			*(uint8_t **)(g_bodyNodes[5 + i] + 0x10) = leftNames[i];
+		g_armRight = false;
+		SyncFakeWorld();
+		RewriteIni("HandPitch=10", "HandPitch=0");
+		RewriteIni("TorsoTwist=0", "TorsoTwist=0.75");
+		RewriteIni("TorsoSideLean=0", "TorsoSideLean=0.25");
+		SetTilt(30.0f);
+		RunFrames(600);
+	}
+
+	if (g_haveParts) {
+		/* Test 39: after two fast travels the first reading of 95% was kept, final, 11.1 and 11.4
+		 * deg against the riding pose's 14.6 at 100%. Each run of readings keeps the solve from
+		 * the largest reach and is final on two agreeing readings of the riding pose (99% or
+		 * more) or 3 s in. A ride whose grips read 100% throughout (the hand swung about the
+		 * elbow to 99.9% of the reach), then one at 95% for its first second and 100% after. */
+		printf("tilt: the lean's best reading kept (test 39): a ride whose grips read 100%% throughout, then one at 95%% for its first second and 100%% after:\n");
+		RewriteIni("TorsoLean=0", "TorsoLean=-1");
+		g_handReach = 0.999f;
+		{
+			/* Test 40: at five of test 39's six ride starts the first reading, 0.8 or 0.9 s in,
+			 * caught the getting-on blending out (15.9 to 21.1 deg at 100%, 14.6 at 1.3 s), so the
+			 * lean is first solved TorsoSolveFrom (1.3 s) into the ride. The other rides here
+			 * keep test 39's half second, which their timings were made for. */
+			RewriteIni("TorsoSolveFrom=0.5", "TorsoSolveFrom=1.3");
+			SetTilt(0.0f);
+			RunFrames(300);
+			SetTilt(30.0f);
+			RunFrames(2500);
+			/* Read from the ride's own settings line on (the log's lines are counted from the
+			 * file, which the ride before may still be adding to). */
+			int lines = 0, finals = 0;
+			float firstAt = LeanedSince("solved from 1.3 s into the ride (TorsoSolveFrom)", &lines, &finals);
+			CHECK(lines >= 1 && firstAt >= 1.25f && firstAt < 1.6f && finals == 1,
+			      "TorsoSolveFrom=1.3: the ride's first lean solved %.1f s in (1.3, the getting-on's blend past), %d \"leaned\" line%s, final by 2.5 s (%d)",
+			      firstAt, lines, lines == 1 ? "" : "s", finals);
+			RewriteIni("TorsoSolveFrom=1.3", "TorsoSolveFrom=0.5");
+		}
+		int finalBefore = LogLines("s into the ride, final");
+		SetTilt(0.0f);
+		RunFrames(300);
+		SetTilt(30.0f);
+		RunFrames(1500);
+		float leanFull = LastLogNumber("the upper body leaned ");
+		CHECK(LogLines("s into the ride, final") == finalBefore + 1 && LastLogNumber("% of the arms' reach with the bars straight (") > 99.0f,
+		      "100%% throughout: the lean %.1f deg, final within 1.5 s (two readings of the riding pose that agree; %d \"final\" line)", leanFull, LogLines("s into the ride, final") - finalBefore);
+		{
+			/* Test 39's ride ended by a fast travel into Diamond City: its wrist line read 136.7
+			 * and 161.0 deg, the grip at 101% and 116% of the reach: menu or loading frames. The
+			 * ride's largest comes from the steady frames alone now. The arm raised up and back
+			 * for half a second (the leaned shoulder further from the hand than the arm reaches),
+			 * then back on the grip, then the ride's end. */
+			float farShare, raisedShare, onOff = WristOffGrip();
+			g_handFar = true;
+			RunFrames(500);
+			float farTurn = WristTurnNow(&farShare);
+			g_handFar = false;
+			RunFrames(500);
+			/* Test 40: the Pip-Boy's map open for test 39's fast travel held the arms still for
+			 * seconds at a time, and the left's 136.7 deg came at 101% of the reach, inside the
+			 * band. A frame counts only with the clips holding the hand at the bars now, their
+			 * wrist within 12 of the grip's centre (the riding clips put it 6.5 off; the fake's
+			 * 6). The hand raised about the elbow for half a second (the fake's Pip-Boy raise,
+			 * test 37's), still: the clips' wrist about 20 off the grip's centre, the grip well
+			 * inside the band, so only that check leaves those frames out. */
+			g_handReach = 0.0f;
+			g_handRaised = true;
+			RunFrames(500);
+			float raisedTurn = WristTurnNow(&raisedShare), raisedOff = WristOffGrip();
+			g_handRaised = false;
+			g_handReach = 0.999f;
+			RunFrames(500);
+			int maxBefore = LogLines("wrist turned at most");
+			SetTilt(0.0f);
+			RunFrames(300);
+			float maxTurn = LastLogNumber("wrist turned at most "), maxShare = LastLogNumber("the grip at ");
+			CHECK(farShare > 105.0f && farTurn > maxTurn + 5.0f && maxShare >= 50.0f && maxShare <= 103.0f && LogLines("wrist turned at most") == maxBefore + 1,
+			      "the arm up and back: the grip at %.0f%% of the reach from the leaned shoulder, the wrist turned %.1f deg; the ride's end line: at most %.1f deg, the grip at %.0f%% (the far frames left out)", farShare, farTurn, maxTurn, maxShare);
+			CHECK(onOff < 12.0f && raisedOff > 15.0f && raisedOff < 30.0f && raisedShare >= 50.0f && raisedShare <= 103.0f && raisedTurn > maxTurn + 5.0f,
+			      "the hand raised (test 40): the clips' wrist %.1f off the grip's centre (%.1f in the riding pose), the grip at %.0f%% of the reach, the wrist turned %.1f deg; the ride's end line's %.1f leaves those frames out", raisedOff, onOff, raisedShare, raisedTurn, maxTurn);
+		}
+		g_handReach = 0.952f;   /* 95%, a hair over its threshold */
+		SetTilt(30.0f);
+		RunFrames(1000);
+		float leanShort = LastLogNumber("the upper body leaned ");
+		int againBefore = LogLines("solved again: the riding pose read 100% (95%");
+		finalBefore = LogLines("s into the ride, final");
+		g_handReach = 0.999f;
+		RunFrames(1500);
+		float leanAfter = LastLogNumber("the upper body leaned ");
+		CHECK(fabsf(leanShort - leanFull) > 1.0f && fabsf(leanAfter - leanFull) < 0.5f && LogLines("solved again: the riding pose read 100% (95%") == againBefore + 1 && LogLines("s into the ride, final") == finalBefore + 1,
+		      "95%% for the first second: %.1f deg, kept till the riding pose read 100%% (\"solved again\"), then %.1f deg, final (the 100%% ride's %.1f, within 0.5)", leanShort, leanAfter, leanFull);
+		{
+			/* Test 40: in test 39 the grips read the riding pose's 100% only with the bike
+			 * stopped, and both fast travels arrived moving, the grips at 92 to 95%, so the run
+			 * after the jump, started empty, ended final on a moving reading (11 to 12 deg
+			 * against the ride's 14.6). The run after a jump starts from the solve before it now.
+			 * This ride's lean final at 100%, then a jump of 1000 units from a ground frame along
+			 * the slope's contour (the ground stays at the feet) and the grips at 95% for 4 s: the
+			 * solve from before the jump stands, final, the pose's lean within 0.1 deg of it. */
+			printf("tilt: the lean through a jump (test 40): final at 100%%, a jump of 1000 units, the grips at 95%% for 4 s: the solve from before the jump stands, final:\n");
+			float Rw4[9], Pw4[3], S4[3], mS4[3];
+			const uint8_t *copy4 = *(const uint8_t **)(*(uint8_t **)(g_bodySkin + 0x40) + 0x10);
+			ExpectedTilt(Rw4, Pw4);
+			memcpy(S4, g_bodyNodes[6] + 0xA0, 12);
+			MapBone(g_bodyNodes[6], g_bodyBonesOriginal + 6 * 0x50, copy4 + 6 * 0x50, S4, mS4);
+			float chordBefore = TiltedOff(S4, mS4, Rw4, Pw4);
+			int standsBefore = LogLines("the solve from before a jump of 1000 units (a door, a fast travel) stands, 100% of the reach"), leanedBefore4 = LogLines("deg forward about the spine's joint");
+			g_handReach = 0.952f;
+			for (int k = 0; k < 3; k++)
+				PlayerPos()[k] += right[k] * 1000.0f;
+			RunFrames(4000);
+			copy4 = *(const uint8_t **)(*(uint8_t **)(g_bodySkin + 0x40) + 0x10);
+			ExpectedTilt(Rw4, Pw4);
+			memcpy(S4, g_bodyNodes[6] + 0xA0, 12);   /* the shoulder went with the player */
+			MapBone(g_bodyNodes[6], g_bodyBonesOriginal + 6 * 0x50, copy4 + 6 * 0x50, S4, mS4);
+			float chordAfter = TiltedOff(S4, mS4, Rw4, Pw4), poseLean = chordBefore > 0.01f ? leanAfter * chordAfter / chordBefore : 0.0f, stood = LastLogNumber("the upper body's lean final at ");
+			CHECK(LogLines("the solve from before a jump of 1000 units (a door, a fast travel) stands, 100% of the reach") == standsBefore + 1 && LogLines("deg forward about the spine's joint") == leanedBefore4 &&
+			      fabsf(stood - leanAfter) < 0.1f && fabsf(poseLean - leanAfter) < 0.1f && LastLogNumber("(the grips at ") > 94.5f,
+			      "4 s on: \"the solve from before a jump of 1000 units ... stands, 100%%\" (%d line), final at %.1f deg (%.1f before the jump; the pose's %.2f by the shoulder's swing), no \"leaned\" line (%d), the grips at %.0f%% then",
+			      LogLines("the solve from before a jump of 1000 units (a door, a fast travel) stands, 100% of the reach") - standsBefore, stood, leanAfter, poseLean, LogLines("deg forward about the spine's joint") - leanedBefore4, LastLogNumber("(the grips at "));
+			g_handReach = 0.999f;
+			RunFrames(1000);
+			CHECK(LogLines("deg forward about the spine's joint") == leanedBefore4, "final: the riding pose back at 100%% solves nothing more (%d \"leaned\" lines)", LogLines("deg forward about the spine's joint") - leanedBefore4);
+		}
+		g_handReach = 0.0f;
+		RewriteIni("TorsoLean=-1", "TorsoLean=0");
 		SetTilt(0.0f);
 		RunFrames(300);
 		SetTilt(30.0f);
@@ -3984,7 +4632,12 @@ static void TiltTests(void)
 
 	printf("tilt: a dip between the wheels (the ground 10 above the capsule's contact): the bike lifted onto it:\n");
 	SetNormal(0.0f, 0.0f, 1.0f);
-	g_slopeK = 0.0f;
+	/* The rays' test ray tried again on level ground at the feet first: since the jump of 1000
+	 * units off the slope's contour and the load after it, the test ray beside the bike has
+	 * found nothing, and a failed one waits 3 s, so whether the dip's first tenth of a second
+	 * had rays hung on that wait's phase (the rides test 40 added moved it past the check). */
+	FlatGround();
+	RunFrames(3100);
 	if (g_haveParts) {   /* the bump lift and the lift rate on for this test (off in the run's INI: the other checks expect the filtered lift alone) */
 		RewriteIni("BumpMax=0", "BumpMax=30");
 		RewriteIni("LiftRate=0", "LiftRate=120");
@@ -4215,6 +4868,71 @@ static void TiltTests(void)
 		SetNormal(0.0f, 0.0f, 1.0f);
 		FlatGround();
 		RunFrames(1500);
+		/* Test 39, 01:34:11.5: a radstag in front of the bike, the front wheel's ray hit its
+		 * capsule 107 above the feet ("SkeletonExport, layer 30"), and the pitch's target read
+		 * 40 to 44 with a lift of 33 for about 0.6 s: the bike reared up at it. The ground's
+		 * rays pass through actors now (the face rays still stop at one: the input hook's
+		 * tests, where the throttle casts them). */
+		printf("tilt: an actor over the front wheel's ray spot (a disc of radius 40 over the front axle, layer 30, \"SkeletonExport\", its top 100 above the feet), the ground flat under it, riding at 100 a second (test 39's radstag): the wheels' rays pass through it, the bike level and not lifted:\n");
+		g_shelfOn = true;
+		g_shelfHeight = 100.0f;
+		g_shelfAhead = 99.6f;
+		g_shelfRadius = 40.0f;
+		g_shelfLayer = 30;
+		g_shelfWhat = g_actorObj;
+		int passedBefore = LogLines("rays: a ground ray passed through SkeletonExport (layer 30)");
+		int wheelsNamedBefore = LogLines("(SkeletonExport, layer 30), the rear");
+		g_rideSpeed = 100.0f;
+		g_rideSlope = 0.0f;
+		g_onFrame = RideAlong;
+		float worstPitch = 0.0f, worstLift = 0.0f;
+		for (int i = 0; i < 10; i++) {   /* a second, sampled every 0.1 s (the bike reared up within 0.15 s in test 39) */
+			RunFrames(100);
+			AppliedRotation(R);
+			float p = acosf(R[8] > 1.0f ? 1.0f : R[8]) * DEG, l = fabsf(SeatLift());
+			worstPitch = p > worstPitch ? p : worstPitch;
+			worstLift = l > worstLift ? l : worstLift;
+		}
+		g_onFrame = NULL;
+		g_rideSpeed = 0.0f;
+		CHECK(g_picks == 0 || (worstPitch < 2.0f && worstLift < 3.0f), "the bike's pitch %.1f deg at most, the lift %.1f at most (within 2 and 3 of level; through the actor's top the front ray would read 100 up: 36 deg, a lift of 27)", worstPitch, worstLift);
+		CHECK(g_picks == 0 || (LogLines("rays: a ground ray passed through SkeletonExport (layer 30)") > passedBefore && LogLines("(SkeletonExport, layer 30), the rear") == wheelsNamedBefore),
+		      "the log: a ground ray passed through SkeletonExport (layer 30), an actor, and no wheels' rays line names it");
+		g_shelfOn = false;
+		g_shelfHeight = g_shelfAhead = 0.0f;
+		g_shelfRadius = 60.0f;
+		g_shelfLayer = 1;
+		g_shelfWhat = NULL;
+		FlatGround();
+		RunFrames(1500);
+		/* Review of test 40's first build: each actor passed takes one of a ray's 8 tries since
+		 * test 39, and a ray that ran out of them counted the last point it passed as a hit, an
+		 * actor's. Twenty actor surfaces 5 apart (5 to 100 up) over the front wheel's spot, the
+		 * bike standing: the front ray runs out on them, and that is no hit now (no word from
+		 * the wheels that frame), where the 8th surface, 65 up, read as the ground: 25 deg of
+		 * pitch and a lift of 17. */
+		printf("tilt: twenty actor surfaces (layer 30, 5 apart, 5 to 100 up) over the front wheel's spot, standing: the front ray runs out of its tries on them: no hit, the bike level:\n");
+		{
+			float h = PlayerHeading();
+			g_pilePoint[0] = PlayerPos()[0] + sinf(h) * 99.6f;
+			g_pilePoint[1] = PlayerPos()[1] + cosf(h) * 99.6f;
+		}
+		g_pileCount = 20;
+		g_pileLayer = 30;
+		g_pileWhat = g_actorObj;
+		worstPitch = worstLift = 0.0f;
+		for (int i = 0; i < 10; i++) {
+			RunFrames(100);
+			AppliedRotation(R);
+			float p = acosf(R[8] > 1.0f ? 1.0f : R[8]) * DEG, l = fabsf(SeatLift());
+			worstPitch = p > worstPitch ? p : worstPitch;
+			worstLift = l > worstLift ? l : worstLift;
+		}
+		CHECK(g_picks == 0 || (worstPitch < 2.0f && worstLift < 3.0f), "the bike's pitch %.1f deg at most, the lift %.1f at most over a second (within 2 and 3 of level; the 8th surface taken for the ground would read 25 deg, a lift of 17)", worstPitch, worstLift);
+		g_pileCount = 0;
+		g_pileLayer = 4;
+		g_pileWhat = NULL;
+		RunFrames(500);
 		RewriteIni("Suspension=1", "Suspension=0");
 		RewriteIni("BumpMax=30", "BumpMax=0");
 		RewriteIni("LiftRate=120", "LiftRate=0");

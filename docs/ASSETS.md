@@ -14,7 +14,7 @@ from your own copy of the game and the downloaded model:
 | `Meshes\CMB\CMB_BikeFit.json` | `harley_meshes.py` | where the Harley's seat, grips, pegs and steering axis are, for the riding clips (`riding_anims.py --fit`); the grip centre at (29.4, -10.7, 96) since test 38 (`--grip 29.4,-10.7,96`, the rubber sleeve's centre by a fit of its vertices; test 34's 24.5,-15,98 put the hands on the lever perches, and 20 on the lever clamps) |
 | `Meshes\CMB\CMB_BikeParts.ini` | `harley_meshes.py` | the axles, wheel radius, steering axis, `FrontMinY` (the line between the fixed shapes' culling spheres and the bar assembly's and lower fork's, halfway between the nearest two, 31.3 since test 38; it comes out of each build's shapes, so the grips joining the assembly in test 35 needed nothing of the plugin), `Grip` (the +x grip's centre in the worn bike's space, the fit's grip_r, 29.4, 38.39, 96.0: the wrist roll's pivot since test 39) and the headlamp's lens for `CMB_Slope.dll`, which spins the wheels, turns the bars and places the lamp's light (install it with the meshes) |
 | `Textures\CMB\CMB_Harley_d.dds`, `_n.dds`, `_s.dds` | `harley_meshes.py` | the Harley's textures: one colour block per part (the download has none) |
-| `Meshes\Actors\Character\Animations\MT\CMB_Rider\*.hkx` and `...\CMB_Rider\Female\*.hkx` | `riding_anims.py` | seated riding versions of the holstered walk/run/turn/start/stop/idle clips (the arms' IK pole mostly down since test 39, (0.35, -0.3, -1.0) in the rig's root space, the left mirrored in x; before, (1, -0.6, -0.7), mostly sideways, which put the elbows out at shoulder height), and of the jump/fall/land clips when those were extracted |
+| `Meshes\Actors\Character\Animations\MT\CMB_Rider\*.hkx` and `...\CMB_Rider\Female\*.hkx` | `riding_anims.py` | seated riding versions of the holstered walk/run/turn/start/stop/idle clips (the arms' IK pole mostly down since test 39, (0.35, -0.3, -1.0) in the rig's root space, the left mirrored in x; before, (1, -0.6, -0.7), mostly sideways, which put the elbows out at shoulder height; the hand's frame from the forearm since test 40, its long axis along it seen along the grip, `HAND_PITCH` degrees above it, 0: before, a fixed frame, the wrists bent down 30 degrees in the cruise pose, test 39's "cat paw"), and of the jump/fall/land clips when those were extracted |
 | `...\CMB_Rider\CMB_RiderClips.json` (and `Female\`) | `riding_anims.py` | each clip's root motion and events, for the step below |
 | `...\CMB_Rider\CMB_RiderSeat.json` (and `Female\`) | `riding_anims.py` | where the seated rider's `COM` bone sits, for the bike that hangs off it |
 | `CMB_RiderPose.esp` + `Meshes\AnimTextData\...` | `make_rider_pose.bat` | small plugin that makes the game use those clips while you ride, and the animation data it needs. Built from your load order; no Creation Kit |
@@ -120,6 +120,25 @@ on the seat, hands on the grips (exact, via IK), feet on the pegs, leaning forwa
 (the contact points come from `CMB_BikeFit.json` with `--fit`, otherwise they're the vanilla motorcycle's). At a
 standstill the left foot goes down and the bike tips onto it. `verify_clips.py` checks all of that against the vanilla
 files. `preview.py` renders still images if you want to look before going in game.
+
+**The hands.** Since test 40 each is turned about the grip's axis (the rig's x through the grip, so the palm stays on the
+bar and the fingers keep their outward lean) till its long axis, seen along that axis, lies along the forearm (elbow
+to wrist), `HAND_PITCH` degrees above it (0; + = the knuckles up, the wrist bent back). The long axis is the knuckle
+line, from the hand's joint to the middle finger's first knuckle (`RArm_Finger31`, `LArm_Finger31`, 7.6 units off in
+the vanilla skeleton's reference pose; `HAND_AXIS` in `riding_anims.py`), 5.8 degrees off the bone's x and, seen along
+the grip, 4.8 above it: the same axis and the same measure as the F4SE plugin's `WristRoll` and `HandPitch`, so at 0
+and 0 the plugin keeps the clips' wrists and turns a hand only as far as its own forearm swings from theirs. Test 39:
+"cat paw", the fists bent down at the wrist: the hand had a fixed frame, the fingers 39 degrees below level whatever
+the forearm did, so along the knuckle line the wrists were bent down 30 degrees in the cruise pose (27 for the CBBE
+body) and 22 at the idle (21), and the plugin kept that bend (the first rebuild for test 40 laid the bone's x along the
+forearm instead, which left the plugin rolling every hand 4.8 degrees knuckles-down). The turn moves the wrist (2.7
+back and 2.6 down for the cruise pose's 34 degrees), so the arm is solved again to that wrist and the turn read off
+the new forearm, three passes; on frame 0 the knuckle line ends within 0.1 degrees of the forearm in the cruise and
+idle poses, and the build prints the most a set leaves ("hands along the forearms (HandPitch 0) to within N
+degrees": up to 1.6 for a frame in the stops and starts, where the wrist comes to the arm's full stretch and the elbow
+goes from bent to straight between passes). At the idle the arm is at full stretch, and the palm sits 0.9 off the bar
+(1.1 for CBBE; 2.2 and 2.3 in test 39's clips). With `WristRoll` on, the plugin's `HandPitch` sets the hands in game
+whatever the clips' `HAND_PITCH` is; kept equal, the hands look the same with `RiderHands=0` and before the plugin holds the rider.
 
 Two exceptions to "the same root motion". The 180° reversals while moving (`walk_to_walk_l180`/`r180`,
 `run_to_run_l180`/`r180`) follow a leaning arc instead of vanilla's stop-and-spin, with the same length, total turn

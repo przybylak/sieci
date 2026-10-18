@@ -224,6 +224,15 @@ float Property MaxSpeedPercent = 500.0 AutoReadOnly
 float Property ParkedModelYaw = 180.0 AutoReadOnly
 float Property MaxTickDistance = 5000.0 AutoReadOnly
 {More than this between two ticks is a teleport (door, fast travel), not riding, so it burns no fuel.}
+float Property FastTravelMinutes = 5.0 AutoReadOnly
+{On the tick that finds the player indoors or in a walled town, more game minutes than this
+since the last tick outdoors is a fast travel, fewer a door (test 39: a fast travel into Diamond
+City said the bike was parked outside, while it stayed where the fast travel set off, at Sanctuary). A
+tick is a second, 20 game seconds at the game's timescale of 20; a fast travel takes game hours.}
+float Property DoorBringDistance = 6000.0 AutoReadOnly
+{The bike left outside a door is brought to the player who comes out within this of it (about
+85 m, a cell and a half): the same door, or another of the same building or town. Farther off
+it stays there; calling it still works.}
 int Property LowFuelWarning = 3 AutoReadOnly
 string Property RiderPosePlugin = "CMB_RiderPose.esp" AutoReadOnly
 int Property RiderFlavorID = 0x800 AutoReadOnly
@@ -270,6 +279,11 @@ float groundZ = 1.0
 int settingsVersion = 0
 WorldSpace lastWorld          ; InClosedWorld's answer, kept until the worldspace changes
 bool lastWorldClosed = false
+float lastOutdoorTime = 0.0   ; game days, at the last ride tick that found the player outdoors
+; The ride ended through a door: the bike waits outside it, in this worldspace, and comes to
+; the player when they're out again near it (BringBikeFromDoor).
+bool bikeAtDoor = false
+WorldSpace doorWorld
 Actor[] stowedFollowers
 Actor[] boostedFollowers
 float[] boostedDeltas
@@ -330,6 +344,11 @@ Function OnGameReloaded()
 		endif
 		SetHeadlampLive(true)
 		RegisterForPlayerTeleport()
+		; Saves from before it was kept have 0 here, which the first door would read as a fast
+		; travel. Only those: a newer save keeps the last tick's time, and the load takes none.
+		if lastOutdoorTime <= 0.0
+			lastOutdoorTime = Utility.GetCurrentGameTime()
+		endif
 		hitGrace = false
 		healthMark = PlayerRef.GetValuePercentage(Health)
 		WatchForHits()
@@ -339,6 +358,9 @@ Function OnGameReloaded()
 		engineIdle = 0
 		engineCruise = 0
 		StartEngineLoops()
+	elseif bikeAtDoor
+		; The bike waits at a door: the way out is watched for (as riding's is, put back here).
+		RegisterForPlayerTeleport()
 	endif
 	RefreshHotkey()
 EndFunction
@@ -672,9 +694,7 @@ Function TryDeliverKeys()
 	keysDelivered = true
 	if PlayerRef.GetItemCount(Pipboy) > 0 && !PlayerRef.IsInInterior()
 		CancelTimer(TimerDelivery)
-		if !riding
-			UnregisterForPlayerTeleport()
-		endif
+		UpdateTeleportWatch()
 		GiveKeysIfMissing(false)
 		Debug.Notification("Use the Motorbike Keys (Aid) to call your motorbike.")
 		Log("Keys delivered.")
@@ -717,7 +737,11 @@ Function ToggleRide()
 	if riding
 		Dismount()
 	elseif IsBikeNearPlayer()
+		; First, even with a door mark left set (the player came out far from the bike and walked
+		; back to it): beside the bike the press gets on, it doesn't move the bike.
 		Mount()
+	elseif BringBikeFromDoor()
+		; It waited outside the door the player came out of: it's here now, the next press gets on.
 	else
 		CallBike()
 	endif
@@ -762,7 +786,9 @@ Function Mount()
 
 	riding = true
 	hasLastPos = false
+	lastOutdoorTime = Utility.GetCurrentGameTime()
 	combatHinted = false
+	ForgetDoor()
 	RegisterForPlayerTeleport()
 	healthMark = PlayerRef.GetValuePercentage(Health)
 	hitGrace = true
@@ -835,15 +861,84 @@ Function CallBike()
 		Debug.Notification(DeepWaterMessage)
 		return
 	endif
+	RollBikeUp()
+	PlaySound(CMB_EngineStopSound)
+	busy = false
+	Log("Bike called to the player.")
+	Debug.Notification("Your motorbike rolls up.")
+EndFunction
+
+; In front of the player, a little to their right, on the ground: calling the bike, and
+; bringing it from a door. The caller holds busy.
+Function RollBikeUp()
 	BikeRef.Disable()
 	PlaceBike(CallAheadDistance, 60.0)
 	BikeRef.Enable(true)
 	SettleBike()
 	bikeWaitsForShore = false
-	PlaySound(CMB_EngineStopSound)
+	ForgetDoor()
+EndFunction
+
+; The bike left outside a door (LeaveBikeOutside) comes to the player when they're next
+; outdoors in an open worldspace, in the one it waits in and within DoorBringDistance of it:
+; on the teleport out, or when the keys or the hotkey are used. Quietly, as calling it does
+; but with no sound or message: it was parked there. Test 39: ridden up Diamond City's narrow
+; stairwell to the gate, the bike was left where it was last put, 110 units to the rider's
+; right at their height and not settled, inside or behind the wall: coming out, the tester
+; found no bike in front of the gate or in the square. True if it came. Coming out of the
+; same door the player is often within MountRange of the spot it was left at, and that spot
+; is the one in the wall, so it's brought then too; a player who walked back to the bike gets
+; on instead (ToggleRide and HandleKeys try the bike beside them first, and getting on clears
+; the mark).
+bool Function BringBikeFromDoor()
+	if !bikeAtDoor || riding || busy
+		return false
+	endif
+	busy = true
+	if PlayerRef.IsInInterior() || InClosedWorld() || swimming || PlayerRef.GetWorldSpace() != doorWorld
+		busy = false
+		return false
+	endif
+	; The bike too: a tick that slipped past the ride's re-check can have put it beside the
+	; player after the mark was set, inside the town. A distance across worldspaces means
+	; nothing, so it's left to calling, which brings it from anywhere.
+	WorldSpace bikeWorld = BikeRef.GetWorldSpace()
+	if bikeWorld != doorWorld
+		busy = false
+		Log("The bike marked at a door in " + doorWorld + " is in " + bikeWorld + ": not brought, calling it brings it.")
+		return false
+	endif
+	float distance = PlayerRef.GetDistance(BikeRef)
+	if distance > DoorBringDistance
+		busy = false
+		Log("Out " + distance + " units from the door the bike waits at: it stays there.")
+		return false
+	endif
+	RollBikeUp()
 	busy = false
-	Log("Bike called to the player.")
-	Debug.Notification("Your motorbike rolls up.")
+	Log("Bike brought from the door it waited at, " + distance + " units away.")
+	return true
+EndFunction
+
+; The bike is with the player again (getting on, calling it, bringing it): it no longer waits
+; at a door.
+Function ForgetDoor()
+	if bikeAtDoor
+		bikeAtDoor = false
+		doorWorld = None
+		UpdateTeleportWatch()
+	endif
+EndFunction
+
+; OnPlayerTeleport is wanted while riding (a door or a fast travel ends the ride), while the
+; keys wait to be handed out (the first time the player is outdoors) and while the bike waits
+; at a door (it's brought when the player comes out); not otherwise.
+Function UpdateTeleportWatch()
+	if riding || !keysDelivered || bikeAtDoor
+		RegisterForPlayerTeleport()
+	else
+		UnregisterForPlayerTeleport()
+	endif
 EndFunction
 
 Function OpenSideBag()
@@ -859,9 +954,11 @@ Function EmergencyReset()
 	busy = true
 	if !PlayerRef.IsInInterior() && !InClosedWorld()
 		ParkBesidePlayer()
+		ForgetDoor()
 	elseif riding
-		; Indoors or in a walled town: the bike is still shadowing the last outdoor spot.
-		BikeRef.Enable()
+		; Indoors or in a walled town: the bike is still shadowing the last outdoor spot, outside
+		; the door that was taken.
+		LeaveBikeOutside(true)
 	endif
 	FinishRide()
 	bikeWaitsForShore = false
@@ -917,9 +1014,12 @@ Event OnPlayerTeleport()
 	if riding
 		hasLastPos = false
 		RideTick()
-	elseif !keysDelivered
+		return
+	endif
+	if !keysDelivered
 		TryDeliverKeys()
 	endif
+	BringBikeFromDoor()
 EndEvent
 
 Function HandleKeys()
@@ -932,7 +1032,10 @@ Function HandleKeys()
 	if riding
 		Dismount()
 	elseif IsBikeNearPlayer()
+		; First, as in ToggleRide: beside the bike the keys get on, whatever door mark is left.
 		Mount()
+	elseif BringBikeFromDoor()
+		; It waited outside the door the player came out of: it's here now, the next use gets on.
 	else
 		int choice = CMB_KeysMenu.Show()
 		if choice == 0
@@ -952,10 +1055,17 @@ Function RideTick()
 	; Things the bike can't follow you into. The bike has been shadowing the
 	; player, so it's left at the last outdoor spot we saw (a walled town's gate
 	; is a load door like any interior's).
+	float now = Utility.GetCurrentGameTime()
 	if PlayerRef.IsInInterior() || InClosedWorld()
-		AutoDismount("You leave the motorbike parked outside.", false)
+		; A door takes no more than a tick, a fast travel game hours (FastTravelMinutes).
+		float minutes = (now - lastOutdoorTime) * 1440.0
+		bool fastTravel = minutes > FastTravelMinutes
+		Log("Gone in " + minutes + " game minutes after the last tick outdoors: " + Ternary(fastTravel, "a fast travel.", "a door."))
+		DismountGoingIn(fastTravel)
 		return
-	elseif PlayerRef.IsInPowerArmor()
+	endif
+	lastOutdoorTime = now
+	if PlayerRef.IsInPowerArmor()
 		AutoDismount("You can't ride in power armor. The motorbike is parked nearby.", false)
 		return
 	elseif PlayerRef.GetSitState() != 0
@@ -989,6 +1099,11 @@ Function RideTick()
 
 	; The disabled bike follows the player, so it can be dropped here at any moment.
 	if !StillRiding()
+		return
+	endif
+	; Test 39: a tick that found the player outdoors above and gets here after a door would put
+	; the bike beside them inside. Look again: the teleport's own tick, or the next, ends the ride.
+	if PlayerRef.IsInInterior() || InClosedWorld()
 		return
 	endif
 	ShadowPlayer()
@@ -1109,6 +1224,8 @@ Function FinishRide()
 		PlaySound(CMB_EngineStopSound)
 	endif
 	riding = false
+	; Watched again if the bike waits at a door or the keys are still to come.
+	UpdateTeleportWatch()
 	StartTimer(CleanupDelay, TimerCleanup)
 EndFunction
 
@@ -1139,6 +1256,51 @@ Function AutoDismount(string asMessage, bool abParkBesidePlayer)
 	busy = false
 	Debug.Notification(asMessage)
 	Log("Auto-dismounted: " + asMessage)
+EndFunction
+
+; The player went in where the bike can't follow (an interior, a walled town). Through a door
+; the bike waits outside it and comes to them when they're out again near it
+; (BringBikeFromDoor); after a fast travel it stays where the fast travel set off, and calling it
+; works (test 39's 01:41:37).
+Function DismountGoingIn(bool abFastTravel)
+	; Another thread may have ended the ride since the caller checked.
+	if busy || !riding
+		return
+	endif
+	busy = true
+	LeaveBikeOutside(!abFastTravel)
+	FinishRide()
+	busy = false
+	string notice = "You leave the motorbike parked outside."
+	if abFastTravel
+		notice = "Your motorbike stays where you set off."
+	endif
+	Debug.Notification(notice)
+	Log("Auto-dismounted: " + notice)
+EndFunction
+
+; The bike has been shadowing the player outdoors, disabled: it's shown where it was last put,
+; and through a door (abAtDoor) marked as waiting there, with its worldspace. If a tick put it
+; beside the player after the teleport (a door taken between that tick's look and the bike's
+; move), it's in there with them: it stays hidden, and calling it outdoors brings it.
+Function LeaveBikeOutside(bool abAtDoor)
+	WorldSpace world = BikeRef.GetWorldSpace()
+	bool cameIn = false
+	if world
+		cameIn = world == PlayerRef.GetWorldSpace()
+	else
+		cameIn = BikeRef.GetParentCell() == PlayerRef.GetParentCell()
+	endif
+	if cameIn
+		Log("The bike was put beside the player after they went in: left hidden, calling it outdoors brings it.")
+		return
+	endif
+	BikeRef.Enable()
+	if abAtDoor && world
+		bikeAtDoor = true
+		doorWorld = world
+		Log("The bike waits outside the door, in " + world + ".")
+	endif
 EndFunction
 
 Function ParkBesidePlayer()
@@ -1570,6 +1732,7 @@ Function BringBikeAfterSwim()
 	endif
 	BikeRef.Enable(true)
 	SettleBike()
+	ForgetDoor()
 	busy = false
 	Log("Bike brought back after a swim (" + away + " units from the deep water, in water: " + inWater + ").")
 	Debug.Notification("Your motorbike rolls up.")

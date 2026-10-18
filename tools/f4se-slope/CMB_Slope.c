@@ -357,6 +357,13 @@ static float g_leanDead = 0.08f;            /* [Tilt] LeanDead: v w / g (the tan
 static float g_leanGain = 0.5f;             /* [Tilt] LeanGain: the lean as this fraction of the physical atan(v w / g) */
 static float g_leanNow, g_yawForLean;       /* the lean applied (rate-limited), and the turning rate smoothed for it */
 static int g_headLevel = 1;                 /* [Tilt] HeadLevel: the head kept level as the bike rolls */
+/* TorsoSolveFrom: how far into a ride (or a load's hold) the lean is first solved, seconds.
+ * Test 39: at five of its six ride starts the first reading, 0.8 or 0.9 s in, caught the
+ * getting-on still blending out, the grips at 100% with 15.9 to 21.1 deg, and the next, at 1.3
+ * or 1.4 s, read the riding pose's 14.6 every time; a rider who rides off at once gives no
+ * second reading of the riding pose (riding, the grips read 96 to 98%), so the blend's lean was
+ * final 3 s in (review of test 40's second build). Half a second before test 40. */
+static float g_torsoSolveFrom;
 static float g_torsoLeanSetting = -1.0f;    /* [Tilt] TorsoLean: degrees the upper body leans forward (-1: enough to bring the grips to ArmReach of the arms' reach) */
 static float g_armReach = 0.80f;            /* [Tilt] ArmReach: where the grips sit, as a fraction of the arms' reach, with the bars straight (test 38: 0.88 gave 6 to 9 deg of lean, about 1.4% of the reach a degree, and "character should lean forward a bit more"; 0.80 gives about 14) */
 static float g_torsoTwist = 0.75f;          /* [Tilt] TorsoTwist: the upper body turns this fraction of the bars' angle toward the far grip (test 36: at 0.4 the inner arm folded tight at full lock, the elbow out and back; the inner grip comes back by the grip's radius and the inner shoulder should go back with it) */
@@ -397,20 +404,34 @@ static float g_torsoWaitSince = -1.0f;      /* when the solve first found the gr
 static bool g_torsoWaitLogged;              /* the "not solved yet" line, once a ride */
 static bool g_torsoAsItComes;               /* 20 s of that: the solve taken as it comes, and not final: measured again every half second till the riding pose is there (test 38) */
 static float g_torsoLastR0 = -1.0f;         /* the grips' reach as the clips posed it at the last solve (-1: none this ride): taken as it comes, solved again when it moves by over 3% */
-static char g_torsoRearmWhy[96];            /* why the lean is to be solved again without being let go of meanwhile (a jump of the player; test 38), for the next solve's line; empty: not */
+static float g_torsoSeqAt;                  /* when this run of readings began (the ride's start, a jump, the riding pose come after "as it comes"): the best of them is kept, final 3 s on (test 39); moved on when the run's first reading came late */
+static float g_torsoSeqFrom;                /* ... and when it really began, never moved: the seconds the final lines give (review of test 40's first build: a late first reading made "3.0 s since the jump" of 5.5) */
+static float g_torsoBestR0 = -1.0f;         /* the grips' reach as the clips posed it for the solve kept in this run (-1: none yet) */
+static bool g_torsoKept;                    /* this run began from the solve kept before a jump of the player, and no reading has beaten it yet (test 40) */
+static const char *g_torsoSeqWhat = "the ride's start";   /* what began the run, for the final line */
+static char g_torsoRearmWhy[96];            /* what has the lean solved again without being let go of meanwhile ("a jump of N units (a door, a fast travel)"; test 38), for the next lean line; empty: nothing */
 static float g_armMoveNow;                  /* the arm chains' joints' biggest move since last frame, relative to the bike's bone (test 37: a Pip-Boy raise moved the arm bones 40.7 in a frame and the lean was solved from that pose) */
 static bool g_armMoveOk;                    /* measured this frame (the joints had positions last frame too) */
 static float g_armMoveLast[2][3][3];        /* each chain's shoulder, elbow and wrist last frame, relative to the bike's bone */
 static uint8_t g_armMoveLastOk[2][3];
-static float g_wristRoll = 1.0f;            /* [Tilt] WristRoll: the hand rolled round the grip's axis by this share of the forearm's twist about it (0: the hand keeps the clips' orientation, turned with the bars; test 37: 25 deg of wrist turn at the straight bars) */
+static float g_wristRoll = 1.0f;            /* [Tilt] WristRoll: the hand rolled round the grip's axis this share of the way to its long axis lying in line with the forearm, seen along the grip's axis (0: the hand keeps the clips' orientation, turned with the bars; test 37: 25 deg of wrist turn at the straight bars; test 39: "cat paw", the clips' hand bent down at the wrist kept) */
+static float g_handPitch;                   /* [Tilt] HandPitch: the hand's long axis this many degrees above the forearm's line, seen along the grip (+ = the knuckles up, either hand; test 39) */
 static float g_armPole[3] = { 0.35f, -0.3f, -1.0f };   /* [Tilt] ArmPole: the way the elbows bend, in the bike's space, the right arm's (the left mirrored in x); 0,0,0: each arm's own plane as the clips pose it (test 38: the elbows stood out at shoulder height) */
 static float g_wristMax[2] = { -1.0f, -1.0f };   /* each side's largest wrist turn from the clips' pose this ride (-1: no arm solved yet), with the bars, the reach and the roll at that moment, logged at the ride's end */
 static float g_wristMaxBar[2], g_wristMaxReach[2], g_wristMaxRoll[2];
+static float g_jumpAt = -100.0f;            /* when the last jump of the player re-armed the lean's solve (RearmTorsoSolve): the wrist's max leaves out the second after it (test 39) */
 static float g_suspCompressRear = 4.0f;     /* [Tilt] SuspCompressRear: the rear wheel rises into the frame at most this much (its mudguard is on the frame; test 37: the tyre within 10 of it) */
 static float g_suspDroop = 4.0f;            /* [Tilt] SuspDroop: a wheel drops below the frame at most this much, both wheels, and the frame sinks under the ground's contact by it at most (test 38: at -10 the sliders were off the stanchions) */
 static float g_suspExtend = 0.1f;           /* [Tilt] SuspExtend: a wheel extends away from the frame over this many seconds (compression takes 0.03; test 38: "like there was no weight behind it") */
 static float g_wheelWordAt = -100.0f;       /* when the wheel rays last had a word: without one the lift is held with the pitch for 3 s before it eases off (test 38: the station wagon) */
-static int g_wheelLogs, g_wheelThrownLogs;  /* the wheel rays' "rays:" lines this ride (the hits under a steep pitch, and the hits thrown away), each one a second at most and 30 a ride (test 38: the roof and ledge cases) */
+/* A hand of log lines: up to LOG_HAND_SIZE in hand, one more every LOG_HAND_EVERY seconds (10 a
+ * minute at most, sustained), filled again on each ride (LogHandTake, LogHandFill). Test 39:
+ * the wheel rays' 30 lines a ride were spent by 01:35:02, before the backing tests began. */
+#define LOG_HAND_SIZE  10.0f
+#define LOG_HAND_EVERY 6.0f
+typedef struct { float lines, at; } LogHand;
+static LogHand g_wheelHand[2] = { { LOG_HAND_SIZE, 0.0f }, { LOG_HAND_SIZE, 0.0f } };   /* the wheel rays' "rays:" lines (the hits under a steep pitch): [0] riding, [1] backing (INPUT_BACK), so the backing tests always get theirs; each line one a second at most besides (test 38: the roof and ledge cases) */
+static LogHand g_wheelThrownHand[2] = { { LOG_HAND_SIZE, 0.0f }, { LOG_HAND_SIZE, 0.0f } };   /* the same for the hits thrown away */
 static float g_wheelLoggedAt = -100.0f, g_wheelThrownAt = -100.0f;
 static float g_rideStartClock;
 static float g_jumpMax;                     /* the arm bones' biggest move between frames since the last trace line (test 33: stretched fingers) */
@@ -460,7 +481,8 @@ enum { PUSH_DELTA, PUSH_RAYSTEP, PUSH_MOD, PUSH_VELOCITY, PUSH_POSITION, PUSH_BR
 static int g_backPushFirst = PUSH_RAYSTEP;   /* BackPush: the method to start with */
 static bool g_backPushAuto = true;        /* BackPush=auto: steps after rays, else brake */
 static float g_backClearance = 150.0f;    /* this far behind the rider must be clear (test 16: the rear is about 130 back) */
-static float g_backSink;                  /* BackSink: units the feet go into the ground when closing a gap (0: onto it) */
+static float g_backSink;                  /* BackSink: units the feet go below the hover when closing a gap (0: to the hover, BACK_HOVER over the ground) */
+#define BACK_HOVER 0.5f                   /* closing a gap under the feet, they go this far over the ground (test 39: backing with no step the controller's own hover read 0.0 to 0.2, and every gap closed onto the ground with the controller supported was followed by it in the air and the player through the road) */
 static int g_backSupportCheck;            /* BackSupportCheck: call the controller's CheckSupportImpl after a step */
 static char g_shapePrefix[64] = "CMB_BikeWorn";
 enum { LAYOUT_UNKNOWN = -1, LAYOUT_FILE = 0, LAYOUT_TRANSPOSED = 1, LAYOUT_DISAGREE = 2 };
@@ -672,6 +694,7 @@ static bool TransformWorld(uintptr_t xf, float N[9], float n[3], float *s, float
 static void NodelessRoles(void);
 static bool Invert3(const float *a, float *out);
 static float CastRay(uintptr_t cell, const float a[3], const float b[3]);   /* defined with the reverse's rays */
+static float CastRayGround(uintptr_t cell, const float a[3], const float b[3]);   /* the same, passing through actors */
 static bool RaysReady(uintptr_t player);
 static uint8_t ArmRole(const char *name);
 static bool NodeWorldChecked(uintptr_t node, float N[9], float n[3], float *s, float Ni[9]);
@@ -796,7 +819,7 @@ static void IniVec(const char *ini, const char *section, const char *key, const 
 static void ReadLeanSettings(const char *ini, bool log)
 {
 	static const float poleDefault[3] = { 0.35f, -0.3f, -1.0f };
-	float was[15] = { g_maxLean, g_leanRate, g_leanSmooth, g_leanDead, g_leanGain, g_torsoLeanSetting, g_armReach, g_torsoTwist, g_faceLook, (float)g_headLevel, g_torsoSideLean, g_wristRoll, g_armPole[0], g_armPole[1], g_armPole[2] };
+	float was[16] = { g_maxLean, g_leanRate, g_leanSmooth, g_leanDead, g_leanGain, g_torsoLeanSetting, g_armReach, g_torsoTwist, g_faceLook, (float)g_headLevel, g_torsoSideLean, g_wristRoll, g_armPole[0], g_armPole[1], g_armPole[2], g_handPitch };
 	g_maxLean = IniFloat(ini, "Tilt", "MaxLean", 14.0f, 0.0f, 45.0f);
 	g_leanRate = IniFloat(ini, "Tilt", "LeanRate", 50.0f, 0.0f, 1000.0f);
 	g_leanSmooth = IniFloat(ini, "Tilt", "LeanSmooth", 0.45f, 0.0f, 5.0f);
@@ -804,10 +827,12 @@ static void ReadLeanSettings(const char *ini, bool log)
 	g_leanGain = IniFloat(ini, "Tilt", "LeanGain", 0.5f, 0.0f, 2.0f);
 	g_headLevel = (int)GetPrivateProfileIntA("Tilt", "HeadLevel", 1, ini) != 0;
 	g_torsoLeanSetting = IniFloat(ini, "Tilt", "TorsoLean", -1.0f, -1.0f, 30.0f);
+	g_torsoSolveFrom = IniFloat(ini, "Tilt", "TorsoSolveFrom", 1.3f, 0.0f, 5.0f);
 	g_armReach = IniFloat(ini, "Tilt", "ArmReach", 0.80f, 0.5f, 1.0f);
 	g_torsoTwist = IniFloat(ini, "Tilt", "TorsoTwist", 0.75f, 0.0f, 1.0f);
 	g_torsoSideLean = IniFloat(ini, "Tilt", "TorsoSideLean", 0.25f, 0.0f, 1.0f);
 	g_wristRoll = IniFloat(ini, "Tilt", "WristRoll", 1.0f, 0.0f, 1.0f);
+	g_handPitch = IniFloat(ini, "Tilt", "HandPitch", 0.0f, -45.0f, 45.0f);
 	IniVec(ini, "Tilt", "ArmPole", poleDefault, g_armPole);
 	g_faceLook = IniFloat(ini, "Steer", "FaceLook", 0.3f, 0.0f, 3.0f);
 	float wasMore[18] = { g_turnEaseIn, g_turnEaseOut, g_liftRate, g_bumpMax, g_bumpSettle, g_wallAngle, g_obstacleThrottle, g_obstacleHold, (float)g_wallFrames,
@@ -840,16 +865,16 @@ static void ReadLeanSettings(const char *ini, bool log)
 		g_lampHandoverFrames = 5;
 	float nowMore[18] = { g_turnEaseIn, g_turnEaseOut, g_liftRate, g_bumpMax, g_bumpSettle, g_wallAngle, g_obstacleThrottle, g_obstacleHold, (float)g_wallFrames,
 	                      (float)g_suspension, g_suspFrequency, g_suspDamping, g_suspTravel, g_obstacleAngle, g_suspCompressRear, g_suspDroop, g_suspExtend, g_lowObstacleAngle };
-	float now[15] = { g_maxLean, g_leanRate, g_leanSmooth, g_leanDead, g_leanGain, g_torsoLeanSetting, g_armReach, g_torsoTwist, g_faceLook, (float)g_headLevel, g_torsoSideLean, g_wristRoll, g_armPole[0], g_armPole[1], g_armPole[2] };
+	float now[16] = { g_maxLean, g_leanRate, g_leanSmooth, g_leanDead, g_leanGain, g_torsoLeanSetting, g_armReach, g_torsoTwist, g_faceLook, (float)g_headLevel, g_torsoSideLean, g_wristRoll, g_armPole[0], g_armPole[1], g_armPole[2], g_handPitch };
 	bool changed = false;
 	for (int i = 0; i < 18; i++)
 		changed = changed || wasMore[i] != nowMore[i];
-	for (int i = 0; i < 15; i++)
+	for (int i = 0; i < 16; i++)
 		changed = changed || was[i] != now[i];
 	if (log || changed) {
-		char torso[48], pole[96];
+		char torso[96], pole[96];
 		if (g_torsoLeanSetting < 0.0f)
-			snprintf(torso, sizeof(torso), "leaned forward as needed");
+			snprintf(torso, sizeof(torso), "leaned forward as needed, solved from %g s into the ride (TorsoSolveFrom)", g_torsoSolveFrom);
 		else
 			snprintf(torso, sizeof(torso), "leaned %g deg forward", g_torsoLeanSetting);
 		if (fabsf(g_armPole[0]) + fabsf(g_armPole[1]) + fabsf(g_armPole[2]) > 0.001f)
@@ -858,8 +883,8 @@ static void ReadLeanSettings(const char *ini, bool log)
 			snprintf(pole, sizeof(pole), "in their own planes as the clips pose them");
 		Log("  lean: into turns up to %g deg (MaxLean), at most %g deg/s (LeanRate), the turning rate over %g s (LeanSmooth), none under %g (LeanDead), %g of the physical lean (LeanGain); "
 		    "the head %s (HeadLevel); the upper body %s (TorsoLean), the grips at %g of the arms' reach (ArmReach), turned %g of the bars (TorsoTwist), leaned %g deg into the turn per degree of the bars (TorsoSideLean); "
-		    "the hands rolled round the grips by %g of the forearms' twist (WristRoll), the elbows bent %s (ArmPole); a face ahead looked for %g s of the speed (FaceLook)%s",
-		    g_maxLean, g_leanRate, g_leanSmooth, g_leanDead, g_leanGain, g_headLevel ? "kept level" : "tilting with the bike", torso, g_armReach, g_torsoTwist, g_torsoSideLean, g_wristRoll, pole, g_faceLook,
+		    "the hands rolled round the grips %g of the way to their long axes lying in line with the forearms seen along the grips (WristRoll), %g deg above them, the knuckles up (HandPitch), the elbows bent %s (ArmPole); a face ahead looked for %g s of the speed (FaceLook)%s",
+		    g_maxLean, g_leanRate, g_leanSmooth, g_leanDead, g_leanGain, g_headLevel ? "kept level" : "tilting with the bike", torso, g_armReach, g_torsoTwist, g_torsoSideLean, g_wristRoll, g_handPitch, pole, g_faceLook,
 		    log ? "" : " (read again on getting on)");
 		Log("  steer: the keys' turning rate eases in over %g s and out over %g s (TurnEaseIn, TurnEaseOut); a wall is a face of %g deg or more (WallAngle), an obstacle one of %g deg or more, or the climb limit if that is higher (ObstacleAngle), "
 		    "a lower-only one (nothing at 1.5 wheel radii) one of %g deg or more (LowObstacleAngle), holding the throttle to %g (ObstacleThrottle), its verdict in force for %g s after the rays last saw one (ObstacleHold), in which a wall counts only after %d frames seen ahead of the wheel (WallFrames); "
@@ -2220,9 +2245,14 @@ static void ResetTorsoSolve(void)
 	g_torsoWaitSince = -1.0f;
 	g_torsoWaitLogged = g_torsoAsItComes = false;
 	g_torsoLastR0 = -1.0f;
+	g_torsoSeqAt = g_torsoSeqFrom = (float)g_clock;
+	g_torsoBestR0 = -1.0f;
+	g_torsoKept = false;
+	g_torsoSeqWhat = "the ride's start";
 	g_torsoRearmWhy[0] = 0;
 	g_armMoveOk = false;
 	memset(g_armMoveLastOk, 0, sizeof(g_armMoveLastOk));
+	g_jumpAt = -100.0f;
 }
 
 /* The lean solved again without being let go of meanwhile: after a jump of the player (a
@@ -2230,21 +2260,64 @@ static void ResetTorsoSolve(void)
  * line). Test 38: a fast travel on the bike (10:49:47 to 51) left all 60 shapes held and sent
  * no PostLoadGame, so the lean of the ride's start, solved through a Pip-Boy held open over
  * 20 s (the grips at 82%, the lean 0, final), stood for the whole ride after it. The lean
- * stays as it is till the new solve; the wait and the "as it comes" start over; the arm-move
- * memory starts over too (the joints jumped with the player). */
+ * stays as it is till the new solve; the wait and the "as it comes" start over, and so does
+ * the run of readings whose best is kept (test 39: the first reading at 95% after a fast travel
+ * was taken as final, 11.1 and 11.4 deg against the riding pose's 14.6); the arm-move memory
+ * starts over too (the joints jumped with the player).
+ * Test 39 again: the grips read the riding pose's 100% only with the bike stopped (96 to 98%
+ * riding), and both fast travels arrived moving (194 to 212 after 01:36:52, 860 to 900 after
+ * 01:37:53), the grips at 92 to 95%, so a run started empty still ended final on a moving
+ * reading, about 95% (11 to 12 deg against the ride start's 14.6). The jump doesn't change the
+ * rider; the solve again is for a lean solved from a short pose (test 38's Pip-Boy start at
+ * 82%). So a solve this run kept from a good reading (95% or more, not taken as it comes)
+ * stays the run's best: a reading has to beat it by the usual half percent, or be one of the
+ * riding pose (99% or more, which replaces it as ever, final on two that agree), and 3 s on,
+ * counted as ever, it is final as it stands. One that was short (taken as it comes) is not
+ * kept: the run starts empty. */
 static void RearmTorsoSolve(const char *why)
 {
+	g_jumpAt = (float)g_clock;   /* the wrist's max leaves the second after it out, TorsoLean or not (test 39) */
 	if (g_torsoLeanSetting >= 0.0f)
 		return;   /* TorsoLean given: nothing is solved */
+	bool keep = g_torsoLeanSet && !g_torsoAsItComes && g_torsoBestR0 >= 0.95f;   /* the solve before the jump, from a good reading (test 40) */
 	g_torsoFinal = false;
 	g_torsoTries = 0;
 	g_torsoRetryAt = (float)g_clock + 0.5f;
 	g_torsoWaitSince = -1.0f;
 	g_torsoWaitLogged = g_torsoAsItComes = false;
 	g_torsoLastR0 = -1.0f;
+	g_torsoSeqAt = g_torsoSeqFrom = (float)g_clock;   /* a fresh run of readings, the best of it kept (test 39) */
+	if (!keep)
+		g_torsoBestR0 = -1.0f;   /* ... from nothing; else from the solve before the jump, its reading the one to beat */
+	g_torsoKept = keep;
+	g_torsoSeqWhat = "the jump";
 	g_armMoveOk = false;
 	memset(g_armMoveLastOk, 0, sizeof(g_armMoveLastOk));
 	snprintf(g_torsoRearmWhy, sizeof(g_torsoRearmWhy), "%s", g_torsoLeanSet ? why : "");   /* a first solve isn't "again" */
+}
+
+/* A hand of log lines (LogHand): full, as at a ride's start. */
+static void LogHandFill(LogHand *h)
+{
+	h->lines = LOG_HAND_SIZE;
+	h->at = (float)g_clock;
+}
+
+/* One line from the hand, if there is one: the hand refills by one every LOG_HAND_EVERY
+ * seconds since it was last looked at, up to LOG_HAND_SIZE. Asked only when the line would
+ * be logged otherwise (its own one-a-second gap passed), so a line not logged costs nothing. */
+static bool LogHandTake(LogHand *h)
+{
+	float now = (float)g_clock;
+	if (now > h->at)
+		h->lines += (now - h->at) / LOG_HAND_EVERY;
+	h->at = now;
+	if (h->lines > LOG_HAND_SIZE)
+		h->lines = LOG_HAND_SIZE;
+	if (h->lines < 1.0f)
+		return false;
+	h->lines -= 1.0f;
+	return true;
 }
 
 static void ResetTilt(void)
@@ -2265,7 +2338,11 @@ static void ResetTilt(void)
 	g_wallSeen = 0;
 	g_faceKind = 0;
 	g_faceNoneSince = -1.0f;
-	g_faceLogs = g_wallLogs = g_wheelLogs = g_wheelThrownLogs = 0;   /* the rays' lines are capped per ride */
+	g_faceLogs = g_wallLogs = 0;   /* the rays' lines are capped per ride */
+	for (int i = 0; i < 2; i++) {
+		LogHandFill(&g_wheelHand[i]);
+		LogHandFill(&g_wheelThrownHand[i]);
+	}
 	g_haveLastHeading = false;
 	g_wheelHistN = g_wheelHistAt = 0;
 }
@@ -2915,8 +2992,20 @@ typedef struct { uintptr_t upper, elbow, hand; } ArmChain;
 typedef struct {
 	bool ok; float R1[9], t1[3], R2[9], t2[3]; float L1, L2, reach, elbowMove;   /* world maps, before the tilt: the upper arm's and the forearm's (or, for the head, R1/t1 alone) */
 	float wrist[3];                     /* the hand's node as the clips have it (the roll's pivot without a Grip in the parts file) */
+	float fore[3];                      /* the solved forearm, the elbow to the wrist's target, world (before the tilt) */
 	bool rolled; float Rh[9], th[3], roll;   /* the hand's map with the wrist roll (WristRoll), and the roll, degrees */
+	float handUp;                       /* the hand's long axis above the forearm's line seen along the grip, degrees, the knuckles-up sense (HandPitch's), once rolled */
 } ArmMap;
+/* The hand's long axis in its own bone's frame, [0] the left, [1] the right: from the hand's
+ * joint to the middle finger's first (LArm_Finger31, RArm_Finger31: the finger's own place in
+ * the hand's frame, 7.6 units off), measured on the vanilla skeleton (skeleton.hkx's reference
+ * pose; test 39). 5.8 deg off the bone's x: seen along the grip the knuckles' line runs 4.8 deg
+ * above that x, toward the back of the hand. The clips (Rider._arm in riding_anims.py,
+ * HAND_AXIS) lay this same axis along their forearm, HAND_PITCH above it, so at HandPitch 0 the
+ * roll only follows the plugin's forearm where it differs from the clips' (the first clips of
+ * test 40 laid the bone's x along it, and every hand was rolled 4.8 deg knuckles-down). The
+ * node's world rotation takes it to world (x' = N x, the layout read as for every node). */
+static const float g_handAxis[2][3] = { { 0.99489f, 0.08131f, 0.05994f }, { 0.99487f, 0.08146f, -0.05990f } };
 static ArmChain g_arm[2];
 static uintptr_t g_headNode;                /* the head's bone (HEAD), the joint the head is kept level about */
 static uintptr_t g_torsoNode;               /* the lowest spine bone (SPINE1): the joint the upper body leans and twists about */
@@ -2930,9 +3019,24 @@ static void LogWristMax(void)
 	for (int side = 0; side < 2; side++) {
 		if (g_wristMax[side] < 0.0f)
 			continue;
-		Log("rider: the %s wrist turned at most %.1f deg from the clips' pose this ride (the bars %.1f deg over, the grip at %.0f%% of the reach, the hand rolled %.1f round the grip)",
-		    side ? "right" : "left", g_wristMax[side], g_wristMaxBar[side], g_wristMaxReach[side], g_wristMaxRoll[side]);
+		Log("rider: the %s wrist turned at most %.1f deg from the clips' pose this ride, on the steady frames (the bars %.1f deg over, the grip at %.0f%% of the reach, the hand rolled %.1f round the grip%s)",
+		    side ? "right" : "left", g_wristMax[side], g_wristMaxBar[side], g_wristMaxReach[side], g_wristMaxRoll[side], g_wristRoll > 0.0f ? ", aligned with the forearm" : "; WristRoll 0");
 		g_wristMax[side] = -1.0f;
+	}
+}
+
+/* The arm line's words for the wrist roll (test 39). */
+static void RollWords(const ArmMap *am, char *out, size_t size)
+{
+	if (am->rolled) {
+		char way[48] = "";
+		if (g_wristRoll < 1.0f)
+			snprintf(way, sizeof(way), ", WristRoll %g of the way", g_wristRoll);
+		snprintf(out, size, "the hand rolled %.1f round the grip, aligned with the forearm: its axis %.1f deg above the forearm's seen along the grip (HandPitch %g%s)", am->roll, am->handUp, g_handPitch, way);
+	} else if (g_wristRoll > 0.0f) {
+		snprintf(out, size, "the hand not rolled (its long axis or the forearm along the grip's axis, or no hand to read)");
+	} else {
+		snprintf(out, size, "the hand not rolled (WristRoll 0: the clips' orientation, turned with the bars)");
 	}
 }
 
@@ -3151,6 +3255,7 @@ static bool SolveArm(const ArmChain *chain, const float Q[9], const float q[3], 
 	}
 	out->L1 = L1;
 	out->L2 = L2;
+	memcpy(out->fore, v2n, sizeof(out->fore));
 	out->reach = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
 	out->elbowMove = sqrtf((E2[0] - E[0]) * (E2[0] - E[0]) + (E2[1] - E[1]) * (E2[1] - E[1]) + (E2[2] - E[2]) * (E2[2] - E[2]));
 	RotationBetween(v1, v1n, out->R1);
@@ -3209,42 +3314,23 @@ static float WristTurn(const float R2[9], const float Mh[9])
 	return acosf(c > 1.0f ? 1.0f : c < -1.0f ? -1.0f : c) * 57.29578f;
 }
 
-/* The twist about the unit axis g in the rotation D (swing-twist, the twist first: D = swing
- * x twist), radians: with D's quaternion (w, v), 2 atan2(v . g, w). */
-static float TwistAbout(const float D[9], const float g[3])
+/* The angle about the unit axis g, radians, that takes a's direction to b's, both seen along g
+ * (projected on the plane normal to it; the wrist roll's measure since test 39). False when
+ * either lies within 6 deg of g: seen along it, it has no direction to speak of. */
+static bool AngleAbout(const float a[3], const float b[3], const float g[3], float *angle)
 {
-	float w, v[3], tr = D[0] + D[4] + D[8];
-	if (tr > 0.0f) {
-		float sq = sqrtf(tr + 1.0f) * 2.0f;
-		w = 0.25f * sq;
-		v[0] = (D[7] - D[5]) / sq;
-		v[1] = (D[2] - D[6]) / sq;
-		v[2] = (D[3] - D[1]) / sq;
-	} else if (D[0] > D[4] && D[0] > D[8]) {
-		float sq = sqrtf(1.0f + D[0] - D[4] - D[8]) * 2.0f;
-		w = (D[7] - D[5]) / sq;
-		v[0] = 0.25f * sq;
-		v[1] = (D[1] + D[3]) / sq;
-		v[2] = (D[2] + D[6]) / sq;
-	} else if (D[4] > D[8]) {
-		float sq = sqrtf(1.0f + D[4] - D[0] - D[8]) * 2.0f;
-		w = (D[2] - D[6]) / sq;
-		v[0] = (D[1] + D[3]) / sq;
-		v[1] = 0.25f * sq;
-		v[2] = (D[5] + D[7]) / sq;
-	} else {
-		float sq = sqrtf(1.0f + D[8] - D[0] - D[4]) * 2.0f;
-		w = (D[3] - D[1]) / sq;
-		v[0] = (D[2] + D[6]) / sq;
-		v[1] = (D[5] + D[7]) / sq;
-		v[2] = 0.25f * sq;
+	float da = a[0] * g[0] + a[1] * g[1] + a[2] * g[2], db = b[0] * g[0] + b[1] * g[1] + b[2] * g[2], pa[3], pb[3];
+	for (int i = 0; i < 3; i++) {
+		pa[i] = a[i] - da * g[i];
+		pb[i] = b[i] - db * g[i];
 	}
-	if (w < 0.0f) {   /* the same rotation, the short way round */
-		w = -w;
-		for (int i = 0; i < 3; i++)
-			v[i] = -v[i];
-	}
-	return 2.0f * atan2f(v[0] * g[0] + v[1] * g[1] + v[2] * g[2], w);
+	float la = sqrtf(pa[0] * pa[0] + pa[1] * pa[1] + pa[2] * pa[2]), lb = sqrtf(pb[0] * pb[0] + pb[1] * pb[1] + pb[2] * pb[2]);
+	float na = sqrtf(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]), nb = sqrtf(b[0] * b[0] + b[1] * b[1] + b[2] * b[2]);
+	if (!(la > 0.1f * na) || !(lb > 0.1f * nb) || na < 1e-6f || nb < 1e-6f)
+		return false;
+	float c[3] = { pa[1] * pb[2] - pa[2] * pb[1], pa[2] * pb[0] - pa[0] * pb[2], pa[0] * pb[1] - pa[1] * pb[0] };
+	*angle = atan2f(c[0] * g[0] + c[1] * g[1] + c[2] * g[2], pa[0] * pb[0] + pa[1] * pb[1] + pa[2] * pb[2]);
+	return true;
 }
 
 /* The arm chains' joints' (the shoulder, the elbow, the wrist) biggest move since last frame,
@@ -3281,6 +3367,26 @@ static bool ArmChainMove(const float nb[3], float *move)
 	return measured || !readable;
 }
 
+/* The run's kept solve final, 3 s into the run with no reading better (test 39). After a jump
+ * whose run began from the solve before it (test 40), the line says that solve stands, with
+ * its reading, in place of the "solved again" line the jump would have had. The seconds are
+ * the run's own since it really began (the ride's start, the jump, the rider held again, the
+ * riding pose come), not its count moved on for a late first reading (review of test 40's
+ * first build). r0: the reading now. */
+static void TorsoFinalAsKept(float r0)
+{
+	float since = (float)g_clock - g_torsoSeqFrom;
+	g_torsoFinal = true;
+	if (g_torsoKept && g_torsoRearmWhy[0])
+		Log("rider: the upper body's lean final at %.1f deg: the solve from before %s stands, %.0f%% of the reach as the clips pose it, no reading of the %.1f s since beating it (the grips at %.0f%% now)",
+		    g_torsoLean, g_torsoRearmWhy, g_torsoBestR0 * 100.0f, since, r0 * 100.0f);
+	else
+		Log("rider: the upper body's lean final at %.1f deg, solved at %.0f%% of the reach as the clips pose it, the best reading of the %.1f s since %s (the grips at %.0f%% now)",
+		    g_torsoLean, g_torsoBestR0 * 100.0f, since, g_torsoSeqWhat, r0 * 100.0f);
+	g_torsoKept = false;
+	g_torsoRearmWhy[0] = 0;   /* said */
+}
+
 /* The upper body's forward lean for this ride: TorsoLean degrees, or, by default, the least
  * that brings the straight grips to ArmReach of the arms' reach (test 32: the arms were
  * locked straight as the clips pose them, the grips at 100% of the reach, so a turn put the
@@ -3298,10 +3404,23 @@ static bool ArmChainMove(const float nb[3], float *move)
  * Pip-Boy held open over 20 s right after getting on (the map browsed for a fast travel)
  * did just that, the grips at 82%, the lean 0, and the solve was final, so the full-lock
  * over-reach was back for the whole ride. Taken as it comes, the solve isn't final: the
- * reach is measured again every half second, and once the riding pose is there (95%) the
- * lean is solved from it and that is final; before that it's solved again only when the
- * reach has moved by more than 3% since the last solve. The normal path is final 3 s into
- * the ride as before. A jump of the player (RearmTorsoSolve) starts the solve over. */
+ * reach is measured again every half second, the lean solved again when the reach has moved
+ * by more than 3% since the last solve, and once the riding pose is there (95%) a fresh run
+ * of readings starts from it, as after a jump of the player (RearmTorsoSolve) or at the
+ * ride's start.
+ * Test 39: the first reading of 95% or more was the one kept, final if the ride was 3 s old:
+ * after two fast travels the grips read 95% and the lean was 11.1 and 11.4 deg for the rest
+ * of the ride, against the riding pose's 14.6 at 100%, and one ride's start ended final at 97%
+ * (12.2, 01:41:42) with 14.4 at 100% a second before. Now each run of readings keeps the
+ * solve from the largest reach seen (a reading of the riding pose, 99% or more, replaces
+ * one before it in any case: the later is the more settled) and is final once two readings of
+ * the riding pose in a row agree within a degree, or 3 s into the run with the best seen (a
+ * run whose first good reading came late counted from half a second before it). Not
+ * on the first 99% reading: at five of test 39's six ride starts the first reading, 0.8 or
+ * 0.9 s in, read 100% with 15.9 to 21.1 deg, the getting-on still blending out (14.6 half a
+ * second later, all five times). A reading short of the kept one changes nothing. A run begun
+ * by a jump of the player starts from the solve before it when that came from a good reading
+ * (test 40: RearmTorsoSolve), and ends final on it if no reading beats it. */
 static void SolveTorsoLean(void)
 {
 	float Nt[9], pivot[3], st;
@@ -3343,10 +3462,18 @@ static void SolveTorsoLean(void)
 	AxisRotation(rightW, 1.0f / 57.29578f, Rl);
 	MulV(Rl, upW, probe);
 	float sign = probe[0] * fwdW[0] + probe[1] * fwdW[1] >= 0.0f ? 1.0f : -1.0f;
-	float r0 = GripReachAt(0.0f, pivot, rightW, sign, S, W, reach, sides), lean = 0.0f;
-	char note[160];
+	float r0 = GripReachAt(0.0f, pivot, rightW, sign, S, W, reach, sides), lean = 0.0f, inRun = (float)g_clock - g_torsoSeqAt;
+	char note[200];
 	note[0] = 0;
 	if (r0 < 0.95f && !g_torsoAsItComes) {
+		if (g_torsoBestR0 >= 0.95f) {
+			/* A solve of this run kept already (test 39), or the one from before a jump (test
+			 * 40): a short reading changes nothing, and 3 s into the run the kept one is final. */
+			if (inRun >= 3.0f)
+				TorsoFinalAsKept(r0);
+			g_torsoRetryAt = (float)g_clock + 0.5f;
+			return;
+		}
 		if (g_torsoWaitSince < 0.0f)
 			g_torsoWaitSince = (float)g_clock;
 		if ((float)g_clock - g_torsoWaitSince < 20.0f) {
@@ -3360,10 +3487,15 @@ static void SolveTorsoLean(void)
 		g_torsoAsItComes = true;
 		snprintf(note, sizeof(note), "; taken as it comes after 20 s with the grips short of the riding pose's reach, measured again every half second");
 	} else if (g_torsoAsItComes) {
-		/* Taken as it comes earlier (test 38): the riding pose come, solved from it for good;
-		 * the grips still short, solved again when the reach has moved by over 3%. */
+		/* Taken as it comes earlier (test 38): the riding pose come, a fresh run of readings
+		 * from it (test 39: its first reading isn't final); the grips still short, solved again
+		 * when the reach has moved by over 3%. */
 		if (r0 >= 0.95f) {
-			g_torsoFinal = true;
+			g_torsoAsItComes = false;
+			g_torsoSeqAt = g_torsoSeqFrom = (float)g_clock;
+			g_torsoBestR0 = -1.0f;
+			g_torsoSeqWhat = "the riding pose came";
+			inRun = 0.0f;
 			snprintf(note, sizeof(note), "; the riding pose came: solved again");
 		} else if (fabsf(r0 - g_torsoLastR0) > 0.03f) {
 			snprintf(note, sizeof(note), "; taken as it comes still, the grips' reach moved from %.0f%% to %.0f%% as the clips pose it: solved again", g_torsoLastR0 * 100.0f, r0 * 100.0f);
@@ -3372,8 +3504,14 @@ static void SolveTorsoLean(void)
 			return;
 		}
 	}
-	if (!g_torsoAsItComes && (float)g_clock - g_rideStartClock >= 3.0f)
-		g_torsoFinal = true;
+	bool riding = r0 >= 0.99f, run = !g_torsoAsItComes;   /* a reading of the riding pose; a reading of a run (not taken as it comes) */
+	if (run && g_torsoBestR0 >= 0.0f && !riding && r0 < g_torsoBestR0 + 0.005f) {
+		/* No better than the solve kept (by half a percent: the same pose reads a hair either
+		 * way frame to frame): it stands; 3 s into the run it's final. */
+		if (inRun >= 3.0f)
+			TorsoFinalAsKept(r0);
+		return;
+	}
 	g_torsoLastR0 = r0;
 	if (r0 > g_armReach) {
 		float lo = 0.0f, hi = 30.0f;
@@ -3390,18 +3528,44 @@ static void SolveTorsoLean(void)
 			lean = hi;
 		}
 	}
+	bool replaced = false;
+	if (run) {
+		/* The best of the run (test 39): final on two readings of the riding pose in a row that
+		 * agree within a degree, or 3 s into the run. */
+		replaced = g_torsoBestR0 >= 0.0f;
+		if (!replaced && inRun > 0.5f) {
+			/* The run's first reading late (the arms on the move, the grips short a while: test
+			 * 39's second fast travel read 92% for 2.5 s, then 95%): its 3 s counted as if from
+			 * half a second before it, so the pose still gets its readings. */
+			g_torsoSeqAt = (float)g_clock - 0.5f;
+			inRun = 0.5f;
+		}
+		if ((riding && g_torsoBestR0 >= 0.99f && fabsf(lean - g_torsoLean) <= 1.0f) || inRun >= 3.0f)
+			g_torsoFinal = true;
+		if (replaced) {
+			size_t used = strlen(note);
+			if (riding)
+				snprintf(note + used, sizeof(note) - used, "; solved again: the riding pose read %.0f%% (%.0f%% for the solve before, %.1f deg)", r0 * 100.0f, g_torsoBestR0 * 100.0f, g_torsoLean);
+			else
+				snprintf(note + used, sizeof(note) - used, "; solved again: the grips read %.0f%%, more than the %.0f%% of the solve before (%.1f deg)", r0 * 100.0f, g_torsoBestR0 * 100.0f, g_torsoLean);
+		}
+		g_torsoBestR0 = r0;
+		g_torsoKept = false;   /* beaten: the solve before the jump is gone */
+	}
 	bool changed = !g_torsoLeanSet || fabsf(lean - g_torsoLean) > 0.3f, rearmed = g_torsoRearmWhy[0] != 0;
 	g_torsoLean = lean;
 	g_torsoLeanSet = true;
-	if (changed || rearmed)   /* after a jump the line comes even with the lean unchanged: it says the solve was made */
+	if (changed || rearmed || g_torsoFinal)   /* after a jump the line comes even with the lean unchanged: it says the solve was made; and the final one always (test 39) */
 		Log("rider: the upper body leaned %.1f deg forward about the spine's joint: the grips at %.0f%% of the arms' reach with the bars straight (%.0f%% as the clips pose it; ArmReach %g, %d arm%s; %.1f s into the ride%s%s%s%s), turned %g of the bars' angle and leaned %g deg per degree of it into a turn (TorsoTwist, TorsoSideLean)",
 		    lean, GripReachAt(lean, pivot, rightW, sign, S, W, reach, sides) * 100.0f, r0 * 100.0f, g_armReach, sides, sides == 1 ? "" : "s",
-		    (float)g_clock - g_rideStartClock, g_torsoFinal ? ", final" : "", note, rearmed ? "; " : "", g_torsoRearmWhy, g_torsoTwist, g_torsoSideLean);
+		    (float)g_clock - g_rideStartClock, g_torsoFinal ? ", final" : "", note, rearmed ? "; solved again after " : "", g_torsoRearmWhy, g_torsoTwist, g_torsoSideLean);
+	else if (replaced)
+		Log("rider: the upper body's lean solved again: the grips read %.0f%% as the clips pose them, %.1f deg as before (%.1f s into the ride)", r0 * 100.0f, lean, (float)g_clock - g_rideStartClock);
 	g_torsoRearmWhy[0] = 0;
 }
 
 /* The world map (before the tilt) an arm bone gets for the bars' turn: the hand and fingers
- * the turn itself (rolled round the grip with the forearm's twist, WristRoll, when that side's
+ * the turn itself (rolled round the grip into line with the forearm, WristRoll, when that side's
  * arm is solved), the upper arm and the forearm their side's solve, or, with no chain to
  * solve, the forearm part of the turn (the old way). False: no map. */
 static bool ArmMapFor(uint8_t role, bool hands, const ArmMap arm[4], const float Qb[9], const float qb[3], const float axisW[3], const float qW[3], float R[9], float t[3])
@@ -3769,8 +3933,10 @@ static void LetGoAllRiderWhy(const char *why, bool quiet)
 		Log("rider: %d shape(s) back as they were and let go (%s)", had, why);
 		LogWristMax();
 	}
-	if (had)
+	if (had) {
 		ResetTorsoSolve();   /* held afresh, solved afresh: a knock-off, a skeleton wait (test 37); not a fast travel on the bike, which leaves the shapes held and sends no PostLoadGame (test 38: the lean is solved again after the jump instead, RearmTorsoSolve) */
+		g_torsoSeqWhat = "the rider held again";   /* for the final line (review of test 40's first build: it said "the ride's start" for a hold 300 s in); a getting-off's ResetTilt makes it the ride's start again */
+	}
 }
 
 static void LetGoAllRider(const char *why)
@@ -4098,9 +4264,9 @@ static void FrameRider(bool tilt, const float R[9], const float P[3])
 	 * neither leaning nor shifting sideways); the arms are solved from the moved shoulders
 	 * and the hands stay on the grips. With it the rider is written every frame, level or
 	 * not. */
-	if (g_riderHands && g_partsOk && g_torsoNode && (float)g_clock - g_rideStartClock >= 0.5f && (float)g_clock >= g_torsoRetryAt &&
+	if (g_riderHands && g_partsOk && g_torsoNode && (float)g_clock - g_rideStartClock >= g_torsoSolveFrom && (float)g_clock >= g_torsoRetryAt &&
 	    (!g_torsoLeanSet || (!g_torsoFinal && (float)g_clock - g_torsoSolvedAt >= 0.5f)))
-		SolveTorsoLean();   /* half a second in, and again every half second for 3 s: the pose settles (test 33's first ride solved 15 deg at 100%); not while the arms move or the grips are short of the riding pose's reach (test 37); taken as it comes, every half second till the riding pose is there (test 38) */
+		SolveTorsoLean();   /* TorsoSolveFrom in (1.3 s), and again every half second till final, the best reading kept: the pose settles (test 33's first ride solved 15 deg at 100%; test 39: the first reading at 95% after a jump kept for good); not while the arms move or the grips are short of the riding pose's reach (test 37); taken as it comes, every half second till the riding pose is there (test 38) */
 	bool torso = g_riderHands && g_partsOk && g_torsoNode && g_torsoLeanSet && (g_torsoLean > 0.05f || ((g_torsoTwist > 0.0f || g_torsoSideLean > 0.0f) && fabsf(g_barNow) > 0.3f));
 	bool hands = g_riderHands && g_partsOk && (fabsf(g_barNow) > 0.3f || torso);
 	bool level = g_riderLevel && !hands && fabsf(g_liftNow) < 0.5f;
@@ -4209,6 +4375,7 @@ static void FrameRider(bool tilt, const float R[9], const float P[3])
 		MulV(Qb, qW, Qq);
 		for (int i = 0; i < 3; i++)
 			qb[i] = qW[i] - Qq[i];
+		bool steady = g_armMoveOk && g_armMoveNow < 5.0f && (float)g_clock - g_rideStartClock >= 1.0f && (float)g_clock - g_jumpAt >= 1.0f;   /* a frame the wrist's max may come from (test 39) */
 		for (int side = 0; side < 2; side++) {
 			ArmMap *am = &arm[side];
 			/* The elbow's way (ArmPole, the left mirrored in x), taken to world through the
@@ -4224,50 +4391,73 @@ static void FrameRider(bool tilt, const float R[9], const float P[3])
 			SolveArm(&g_arm[side], Qb, qb, Tr, tt, torso, havePole ? poleW : NULL, NULL, am);
 			if (!am->ok)
 				continue;
+			/* The grip's centre G (Grip in the parts file, the left mirrored in x), in world before
+			 * the bars' turn like the clips' wrist (am->wrist): the wrist roll's pivot, and what the
+			 * clips' wrist is measured from for the wrist's max below. */
+			float gripW[3] = { 0.0f, 0.0f, 0.0f };
+			if (g_gripOk) {
+				float Gm[3] = { side ? g_grip[0] : -g_grip[0], g_grip[1], g_grip[2] }, AG[3], BG[3], NBG[3];
+				MulV(A, Gm, AG);
+				for (int i = 0; i < 3; i++)
+					BG[i] = AG[i] + t[i];
+				MulV(Nb, BG, NBG);
+				for (int i = 0; i < 3; i++)
+					gripW[i] = sb * NBG[i] + nb[i];
+			}
 			if (g_wristRoll > 0.0f) {
 				/* The wrist roll (test 37: 25 deg of wrist turn at the straight bars once the lean
-				 * and the re-solved elbow had swung the forearm, 42 to 46 on the inner wrist with the
-				 * bars 8 over, the hand keeping the clips' orientation turned with the bars): the
-				 * hand follows the forearm where it can without leaving the grip, rolled round the
-				 * grip's axis (the bike's lateral axis, outward on each side, through the bike's
-				 * bone; the bars' turn Qb goes in front) by WristRoll of the twist about that axis
-				 * in the forearm's map seen from the turned grip, Qb^T R2, so the fingers stay
-				 * wrapped. The pivot is the grip's centre G (Grip in the parts file, taken to world
-				 * like the steering point; test 38: it was the hand's node, which the clips put 6.5
-				 * units from the grip's centre, 6 along the fingers and 2.5 across, so the palm's
-				 * grip point swung 2 x 6.5 x sin(theta/2) off the bar, 1.5 units at the ride's 13
-				 * deg): the wrist goes to W' = G + Rg (W - G) and the arm is solved once more to
-				 * it, the hand's target moved by Qb (W' - W), that pass's elbow and forearm the
-				 * ones written; the hand's map is Qb Rg x + Qb (G - Rg G) + qb, which keeps G on
-				 * the turned grip. Without a Grip the pivot is the hand's node, as before. What's
-				 * left of the turn (the swing, from the last pass's forearm) is the wrist turn the
-				 * log carries. */
-				float ex[3] = { side ? 1.0f : -1.0f, 0.0f, 0.0f }, Ae[3], gb[3], Qbt[9], D[9], Rg[9], RgP[3], QW[3], gripPivot[3];
+				 * and the re-solved elbow had swung the forearm, the hand keeping the clips'
+				 * orientation turned with the bars): the hand rolled round the grip's axis (the
+				 * bike's lateral axis, outward on each side, through the bike's bone; the bars'
+				 * turn Qb goes in front), so the palm stays on the round grip and the fingers stay
+				 * wrapped. Test 39: "cat paw", the fists bent down at the wrist. The roll was the
+				 * forearm's own twist about that axis (Qb^T R2), which kept whatever bend the clips
+				 * gave the hand against the forearm, and the clips gave the hand a fixed frame,
+				 * the fingers 39 deg below level whatever the forearm did: with ArmReach 0.80 and
+				 * ArmPole the forearms run about level, and the bend showed (logged at rest: the
+				 * wrist turned 15 to 17 deg, rolled 10 to 17). Now the roll is the one that lays
+				 * the hand's long axis (the hand's joint to the middle finger's knuckle,
+				 * g_handAxis, through the hand's node) along the forearm as seen along the grip's
+				 * axis (both projected on the plane normal to it; the forearm the solved elbow to
+				 * the wrist the roll puts there), HandPitch degrees above it (the knuckles up: about
+				 * the bike's +x on either side, so the left's angle about its outward axis, -x, is
+				 * negated), WristRoll of the way (the tester's suggestion). The pivot is the grip's
+				 * centre G (Grip in the parts file, taken to world like the steering point; test
+				 * 38: it was the hand's node, 6.5 units from the grip's centre, so the palm's grip
+				 * point swung off the bar): the wrist goes to W' = G + Rg (W - G), the arm is
+				 * solved again to it (the hand's target moved by Qb (W' - W)), the angle read off
+				 * that forearm, and so on, a secant step on the angle still to go each pass (the
+				 * wrist's swing turns the forearm back a little: in the clips each plain pass
+				 * leaves about a seventh, in the harness about a quarter), till it is within 0.2
+				 * deg, six passes at most, the pass nearest kept: its forearm the one written and
+				 * its roll the hand's, so they meet at the wrist. The hand's map is Qb Rg x + Qb (G
+				 * - Rg G) + qb, which keeps G on the turned grip. Without a Grip the pivot is the
+				 * hand's node and the wrist stays where it is: one reading does. The wrist's turn
+				 * from the clips' pose (the hand's map against the forearm's) is what the log
+				 * carries. */
+				float ex[3] = { side ? 1.0f : -1.0f, 0.0f, 0.0f }, Ae[3], gb[3], Qbt[9], Rg[9], RgP[3], QW[3], gripPivot[3], Nh[9], hn[3], hs, hw[3], fq[3], alpha;
 				MulV(A, ex, Ae);
 				MulV(Nb, Ae, gb);
 				float lg = sqrtf(gb[0] * gb[0] + gb[1] * gb[1] + gb[2] * gb[2]);
-				if (lg > 0.0001f) {
+				bool aligned = false;
+				if (lg > 0.0001f && NodeWorld(g_arm[side].hand, Nh, hn, &hs, NULL)) {
 					for (int i = 0; i < 3; i++)
 						gb[i] /= lg;
+					MulV(Nh, g_handAxis[side], hw);   /* the clips' hand's long axis, world */
 					Transpose3(Qb, Qbt);
-					Mul3(Qbt, am->R2, D);
-					float theta = g_wristRoll * TwistAbout(D, gb);
+					MulV(Qbt, am->fore, fq);          /* the forearm seen from the turned grip */
+					aligned = AngleAbout(hw, fq, gb, &alpha);
+				}
+				if (aligned) {
+					float pitch = (side ? g_handPitch : -g_handPitch) / 57.29578f;   /* about gb */
+					float theta = g_wristRoll * (alpha + pitch);
 					if (g_gripOk) {
-						/* The roll moves the wrist round the grip, the arm solved again to it swings
-						 * the forearm a little, and that forearm's twist is a little different (3 deg
-						 * of 20 in the harness): so the two are brought together, the arm solved to
-						 * the wrist this roll puts there and the roll read off that forearm, till they
-						 * agree within 0.2 deg (two or three passes; four at most, the last one's
-						 * forearm the one written and its roll the hand's, so they meet at the wrist). */
-						float Gm[3] = { side ? g_grip[0] : -g_grip[0], g_grip[1], g_grip[2] }, AG[3], BG[3], NBG[3], dW[3], RdW[3], toff[3];
-						MulV(A, Gm, AG);
-						for (int i = 0; i < 3; i++)
-							BG[i] = AG[i] + t[i];
-						MulV(Nb, BG, NBG);
-						for (int i = 0; i < 3; i++)
-							gripPivot[i] = sb * NBG[i] + nb[i];
+						float dW[3], RdW[3], toff[3];
+						memcpy(gripPivot, gripW, sizeof(gripPivot));
 						float reach0 = am->reach;   /* the grip's distance from the shoulder, for the log: the passes below aim at the rolled wrist, a unit or two off it (review) */
-						for (int pass = 0; pass < 4; pass++) {
+						ArmMap best = *am;          /* the pass nearest its own reading: none rolled yet, the angle still to go the whole of theta */
+						float bestTheta = 0.0f, bestLeft = fabsf(theta), thPrev = 0.0f, leftPrev = theta;
+						for (int pass = 0; pass < 6 && bestLeft >= 0.0035f; pass++) {
 							ArmMap again;
 							AxisRotation(gb, theta, Rg);
 							for (int i = 0; i < 3; i++)
@@ -4276,16 +4466,29 @@ static void FrameRider(bool tilt, const float R[9], const float P[3])
 							for (int i = 0; i < 3; i++)
 								RdW[i] = gripPivot[i] + RdW[i] - am->wrist[i];   /* W' - W */
 							MulV(Qb, RdW, toff);
-							SolveArm(&g_arm[side], Qb, qb, Tr, tt, torso, havePole ? poleW : NULL, toff, &again);
-							if (!again.ok)
+							if (!SolveArm(&g_arm[side], Qb, qb, Tr, tt, torso, havePole ? poleW : NULL, toff, &again))
 								break;
-							*am = again;
-							Mul3(Qbt, am->R2, D);
-							float next = g_wristRoll * TwistAbout(D, gb);
-							if (fabsf(next - theta) < 0.0035f || pass == 3)
+							MulV(Qbt, again.fore, fq);
+							if (!AngleAbout(hw, fq, gb, &alpha))
 								break;
-							theta = next;
+							float left = g_wristRoll * (alpha + pitch) - theta;   /* the roll still to go by this pass's forearm */
+							if (fabsf(left) < bestLeft) {
+								best = again;
+								bestTheta = theta;
+								bestLeft = fabsf(left);
+							}
+							float slope = (left - leftPrev) / (theta - thPrev), step = left;
+							if (slope < -0.05f) {   /* the secant: where the angle still to go comes to 0 */
+								step = -left / slope;
+								if (fabsf(step) > 3.0f * fabsf(left))
+									step = step > 0.0f ? 3.0f * fabsf(left) : -3.0f * fabsf(left);
+							}
+							thPrev = theta;
+							leftPrev = left;
+							theta += step;
 						}
+						*am = best;
+						theta = bestTheta;
 						am->reach = reach0;
 					} else {
 						memcpy(gripPivot, am->wrist, sizeof(gripPivot));
@@ -4300,19 +4503,41 @@ static void FrameRider(bool tilt, const float R[9], const float P[3])
 						am->th[i] = QW[i] + qb[i];
 					am->roll = theta * 57.29578f;
 					am->rolled = true;
+					/* The hand's axis against the forearm's line as written, the knuckles-up sense. */
+					MulV(Qbt, am->fore, fq);
+					float after = AngleAbout(hw, fq, gb, &alpha) ? (theta - alpha) * 57.29578f : 0.0f;
+					am->handUp = side ? after : -after;
 				}
 			}
 			float wrist = WristTurn(am->R2, am->rolled ? am->Rh : Qb), reachShare = am->reach / (am->L1 + am->L2) * 100.0f, roll = am->rolled ? am->roll : 0.0f;
-			if (wrist > g_wristMax[side]) {   /* the ride's largest, logged at its end */
+			/* The ride's largest, logged at its end, from the steady frames alone (test 39: the
+			 * ride that ended in a fast travel into Diamond City logged 136.7 deg at 101% of the
+			 * reach and 161.0 at 116%, rolled 94.4 and -131.4: menu or loading frames): the arm
+			 * chains measured and not on the move (under 5 a frame), the grip at 50 to 103% of
+			 * the reach, and a second or more from the ride's start and from a jump of the player.
+			 * Test 40: and the clips holding the hand at the bars, their wrist (the hand's node as
+			 * they pose it) within 12 units of the grip's centre, both turned with the bars by the
+			 * same map, so it is their distance before it. The riding clips put the wrist 6.5 from
+			 * it (6 along the fingers, 2.5 to the back of the hand); the Pip-Boy's raise moves it
+			 * tens of units off (test 37: the arm bones 40.7 in a frame), and a loading frame's
+			 * pose likewise: in test 39 the Pip-Boy's map was open for the fast travel, 01:41:00
+			 * to 01:41:14, the arms still for seconds at a time, and the left's 136.7 deg came at
+			 * 101% of the reach, inside the band (the rides' own maxima read 66 to 102%, the last
+			 * ride's 39.3 at 102% a real one). Without a Grip line there is no centre to measure
+			 * from: the other gates alone. */
+			bool atBars = !g_gripOk || Dist3f(am->wrist, gripW) <= 12.0f;
+			if (steady && atBars && reachShare >= 50.0f && reachShare <= 103.0f && wrist > g_wristMax[side]) {
 				g_wristMax[side] = wrist;
 				g_wristMaxBar[side] = g_barNow;
 				g_wristMaxReach[side] = reachShare;
 				g_wristMaxRoll[side] = roll;
 			}
 			if (!g_armLogged[side]) {
+				char rolled[200];   /* RollWords' longest, WristRoll under 1 and every figure at its widest, is 176 (review of test 40's first build: 160 cut it, at 161 to 169) */
 				g_armLogged[side] = true;
-				Log("rider: the %s arm solved: upper arm %.1f, forearm %.1f, the grip %.1f from the shoulder (%.0f%% of the reach), the elbow moved %.1f, the wrist turned %.1f deg from the clips' pose, the hand rolled %.1f round the grip (the bars %.1f deg, the upper body %.1f deg forward)",
-				    side ? "right" : "left", am->L1, am->L2, am->reach, reachShare, am->elbowMove, wrist, roll, g_barNow, torso ? g_torsoLean : 0.0f);
+				RollWords(am, rolled, sizeof(rolled));
+				Log("rider: the %s arm solved (the bars %.1f deg, the upper body %.1f deg forward): upper arm %.1f, forearm %.1f, the grip %.1f from the shoulder (%.0f%% of the reach), the elbow moved %.1f, the wrist turned %.1f deg from the clips' pose, %s",
+				    side ? "right" : "left", g_barNow, torso ? g_torsoLean : 0.0f, am->L1, am->L2, am->reach, reachShare, am->elbowMove, wrist, rolled);
 			}
 		}
 	}
@@ -5412,6 +5637,11 @@ static void WheelRays(uintptr_t player, bool onGround)
 	 * hit thrown away can then say what the other ray found, which the collapsed-roof case
 	 * needed from the rear in the very state the front was thrown away in). Each ray's hit
 	 * and its layer are copied before the next cast. */
+	/* The rays pass through actors (CastRayGround: their capsules, layer 30, and bodies, 8):
+	 * test 39, 01:34:11.5, a radstag in front of the bike, the front ray hit its capsule 107
+	 * above the feet ("SkeletonExport, layer 30"), and the pitch's target read 40 to 44 with a
+	 * lift of 33 for about 0.6 s: the bike reared up at it. The face rays and WallAhead still
+	 * stop at an actor's capsule, so one ahead still holds the throttle. */
 	const char *what[2] = { "nothing within reach", "nothing within reach" };
 	uint32_t layer[2] = { 0, 0 };
 	float rise[2] = { 0.0f, 0.0f };
@@ -5420,7 +5650,7 @@ static void WheelRays(uintptr_t player, bool onGround)
 		rise[i] = fabsf(ys[i]) * 1.1918f + 10.0f;
 		float a[3] = { pos[0] + sh * ys[i], pos[1] + ch * ys[i], pos[2] + rise[i] + 20.0f };
 		float b[3] = { a[0], a[1], pos[2] - 160.0f };
-		float f = CastRay(cell, a, b);
+		float f = CastRayGround(cell, a, b);
 		if (!(f > 0.0f && f < 1.0f))
 			continue;
 		hit[i] = true;
@@ -5429,10 +5659,12 @@ static void WheelRays(uintptr_t player, bool onGround)
 		z[i] = a[2] + (b[2] - a[2]) * f - pos[2];
 		over[i] = z[i] > rise[i];   /* something overhead, or a face ahead taller than a wheel climbs */
 	}
+	int hand = g_inputMode == INPUT_BACK ? 1 : 0;   /* backing: a hand of its own, so the backing tests always get their lines */
 	for (int i = 0; i < 2; i++) {
 		/* Logged, one a second (test 38: backing off a station wagon the rays missed, the car's
-		 * roof above the front ray's allowed rise, and the log couldn't say what they had found). */
-		if (!(hit[i] && over[i]) || g_wheelThrownLogs >= 30 || (float)g_clock - g_wheelThrownAt < 1.0f)
+		 * roof above the front ray's allowed rise, and the log couldn't say what they had found),
+		 * from a hand of 10 refilled by one every 6 s (LogHand). */
+		if (!(hit[i] && over[i]) || (float)g_clock - g_wheelThrownAt < 1.0f || !LogHandTake(&g_wheelThrownHand[hand]))
 			continue;
 		int o = 1 - i;
 		char other[200];
@@ -5440,7 +5672,6 @@ static void WheelRays(uintptr_t player, bool onGround)
 			snprintf(other, sizeof(other), "the %s wheel's ray hit %s (layer %u) %.0f above the feet%s", o == 0 ? "front" : "rear", what[o], layer[o], z[o], over[o] ? ", over its rise too" : "");
 		else
 			snprintf(other, sizeof(other), "the %s wheel's ray found nothing within reach", o == 0 ? "front" : "rear");
-		g_wheelThrownLogs++;
 		g_wheelThrownAt = (float)g_clock;
 		Log("rays: the %s wheel's ray hit %s (layer %u) %.0f above the feet, over its rise of %.0f: thrown away (something overhead, or a face taller than a wheel climbs); %s",
 		    i == 0 ? "front" : "rear", what[i], layer[i], z[i], rise[i], other);
@@ -5482,10 +5713,11 @@ static void WheelRays(uintptr_t player, bool onGround)
 	 * with the lift 0.3 to 1.2, the rear ray finding something about 30 below the capsule's
 	 * contact while the front found 60 above, so the rear wheel sat under the roof the capsule
 	 * stood on; whether the rear ray went through the roof or past its edge the log couldn't
-	 * say). The offsets are last frame's. */
+	 * say). The offsets are last frame's. From a hand of 10 lines refilled by one every 6 s,
+	 * one of its own while backing (LogHand; test 39: the 30 a ride were spent by 01:35:02,
+	 * before the backing tests). */
 	bool atDroop = g_suspension && g_suspDroop > 0.0f && fabsf(g_wheelPitch) > 10.0f && (g_wheelOffset[0] <= 0.2f - g_suspDroop || g_wheelOffset[1] <= 0.2f - g_suspDroop);
-	if ((fabsf(g_wheelPitch) >= 25.0f || atDroop) && g_wheelLogs < 30 && (float)g_clock - g_wheelLoggedAt >= 1.0f) {
-		g_wheelLogs++;
+	if ((fabsf(g_wheelPitch) >= 25.0f || atDroop) && (float)g_clock - g_wheelLoggedAt >= 1.0f && LogHandTake(&g_wheelHand[hand])) {
 		g_wheelLoggedAt = (float)g_clock;
 		Log("rays: the wheels' rays: the front hit %.0f above the feet (%s, layer %u), the rear %.0f (%s, layer %u): pitch %.1f deg, the line at the contact %.1f",
 		    z[0], what[0], layer[0], z[1], what[1], layer[1], g_wheelPitch, g_wheelLift);
@@ -5740,7 +5972,7 @@ static void SampleGround(void)
 			 * PostLoadGame, so the lean is solved again here. */
 			if (jump > 300.0f && groundLast) {
 				char why[96];
-				snprintf(why, sizeof(why), "solved again after a jump of %.0f units (a door, a fast travel)", jump);
+				snprintf(why, sizeof(why), "a jump of %.0f units (a door, a fast travel)", jump);
 				RearmTorsoSolve(why);
 			}
 		} else if (dx * dx + dy * dy < TRACK_SPACING * TRACK_SPACING) {
@@ -6727,6 +6959,13 @@ static bool RidersOwn(uintptr_t obj)
 	return false;
 }
 
+/* Set around a cast that looks for the ground (CastRayGround): actors are passed through, the
+ * layers of their capsules (30, kCharController) and bodies (8, kBiped; already passed unless
+ * the controller's collides-with list has it); dead bodies are 32, passed by every ray. */
+static bool g_rayGround;
+static float g_actorPassedLogged = -100.0f;
+#define LAYER_BIPED 8
+
 /* One ray from a to b (game units): the fraction along it where it first hits something solid
  * (1 if nothing), passing on through anything that isn't; what it hit in g_rayWhat, its layer
  * in g_rayLayer and where in g_rayHit. */
@@ -6734,6 +6973,7 @@ static float CastRay(uintptr_t cell, const float a[3], const float b[3])
 {
 	float from[3] = { a[0], a[1], a[2] }, done = 0.0f, t = 1.0f;
 	float len = sqrtf((b[0] - a[0]) * (b[0] - a[0]) + (b[1] - a[1]) * (b[1] - a[1]) + (b[2] - a[2]) * (b[2] - a[2]));
+	bool lastActor = false;   /* the last thing passed was an actor (a ground ray's) */
 	for (int tries = 0; tries < 8; tries++) {
 		g_rayWhat = NULL;
 		g_pickReset(g_pick);
@@ -6753,9 +6993,18 @@ static float CastRay(uintptr_t cell, const float a[3], const float b[3])
 			g_rayWhat = ObjectName(obj);
 			own = RidersOwn(obj);
 		}
-		if (!own && SolidLayer(g_rayLayer))
+		bool solid = !own && SolidLayer(g_rayLayer);
+		bool body = !own && g_rayGround && (g_rayLayer == LAYER_CHAR_CONTROLLER || g_rayLayer == LAYER_BIPED);   /* an actor's capsule or body under a ground ray, solid to the filter or not (a body, 8, is passed as clutter otherwise) */
+		bool actor = solid && body;
+		if (solid && !actor)
 			return t;
-		if (g_trace && g_clock - g_passedLogged >= 1.0f) {
+		lastActor = body;
+		if (actor) {
+			if (g_trace && g_clock - g_actorPassedLogged >= 1.0f) {   /* a clock of its own: an actor by the wheels every frame mustn't hide the other passes */
+				g_actorPassedLogged = g_clock;
+				Log("rays: a ground ray passed through %s (layer %u): an actor, not the ground", g_rayWhat && *g_rayWhat ? g_rayWhat : "unnamed", g_rayLayer);
+			}
+		} else if (g_trace && g_clock - g_passedLogged >= 1.0f) {
 			g_passedLogged = g_clock;
 			if (own)
 				Log("reverse: a ray passed through the rider's own 3D (%s, layer %u)", g_rayWhat && *g_rayWhat ? g_rayWhat : "unnamed", g_rayLayer);
@@ -6769,8 +7018,32 @@ static float CastRay(uintptr_t cell, const float a[3], const float b[3])
 			from[i] = a[i] + (b[i] - a[i]) * done;
 	}
 	/* Out of tries in a pile of things passed through: counted as a hit (test 18: a ray down
-	 * through a broken fence's bits read as no ground, a drop). */
+	 * through a broken fence's bits read as no ground, a drop). Not when the last thing passed
+	 * was an actor (a ground ray's, CastRayGround): each actor passed takes a try since test 39,
+	 * and the point counted would be the actor's, a radstag's back read as the ground again
+	 * (review of test 40's first build): no hit, as if the ray had found nothing (the wheels'
+	 * rays then have no word that frame: the track's pitch, or the pitch held, and the lift
+	 * held for 3 s). A pile of clutter under an actor still ends on the clutter. */
+	if (lastActor) {
+		g_rayWhat = NULL;   /* nothing hit: the actor's name and layer aren't the ray's (RaysReady's line) */
+		g_rayLayer = 0;
+		return 1.0f;
+	}
 	return t;
+}
+
+/* A ray that looks for the ground: as CastRay, but through actors (g_rayGround). The wheels'
+ * rays, the reverse's ground just behind and under the rear and its ray under the feet, and
+ * the rays' test ray beside the bike; not the face rays, WallAhead or the reverse's knee and
+ * chest rays, so an actor ahead or behind (Dogmeat) still stops or slows the bike. Test 39,
+ * 01:34:11.5: a radstag in front, the front wheel's ray hit its capsule 107 above the feet
+ * (SkeletonExport, layer 30), and the bike reared up at it for 0.6 s. */
+static float CastRayGround(uintptr_t cell, const float a[3], const float b[3])
+{
+	g_rayGround = true;
+	float f = CastRay(cell, a, b);
+	g_rayGround = false;
+	return f;
 }
 
 /* Once: the functions from the Address Library and the pick data made (one, reused, so no
@@ -6843,10 +7116,10 @@ static bool RaysReady(uintptr_t player)
 	float a[3] = { pos[0] - sinf(h) * 60.0f, pos[1] - cosf(h) * 60.0f, pos[2] + 100.0f };
 	float b[3] = { a[0], a[1], pos[2] - 100.0f };
 	g_rayFilter = LAYER_CHAR_CONTROLLER;
-	float down = CastRay(cell, a, b);
+	float down = CastRayGround(cell, a, b);   /* through actors: a dog beside the bike isn't the ground */
 	if (!(down > 0.2f && down < 0.8f)) {
 		g_rayFilter = 0;   /* the character's filter finds no ground: everything, then */
-		down = CastRay(cell, a, b);
+		down = CastRayGround(cell, a, b);
 	}
 	bool ok = down > 0.2f && down < 0.8f;
 	Log("reverse: a test ray down beside the bike (filter %u) hit %s (layer %u) at %.2f of the way (the ground about where the "
@@ -6857,14 +7130,25 @@ static bool RaysReady(uintptr_t player)
 	return ok;
 }
 
+/* Does the controller hold itself supported: the supported bit (0x400 of its flags, set by
+ * CheckSupportImpl from the manifold: test 19) and the character state on the ground (0; a
+ * state not read, -1 or -2, leaves the bit to say)? Read as the backing trace line reads them. */
+static bool ControllerSupported(uintptr_t ctrl)
+{
+	if (!ctrl || !Accessible(ctrl + OFF_CTRL_FLAGS, 4, false))
+		return false;
+	return (*(const uint32_t *)(ctrl + OFF_CTRL_FLAGS) & 0x400u) != 0 && g_lastState <= 0;
+}
+
 /* Is the way back clear for a step of `step` units along `heading`? The ground is found 55
  * units behind the rider (clear of their own body) and under the rear (BackClearance): there
  * must be some, and the rays at knee height on either side of the bike (20 units out) and at
  * chest height in the middle follow it between (so a slope behind isn't taken for a wall). The
  * feet go to the ground under the step, near the slope's (dz). Not while the bike is in the air
  * (test 16: steps down a steep slope left it unsupported for seconds): it lands first. Else why
- * not (logged once a second, with what the ray hit, its layer and where). */
-static bool WayBackClear(uintptr_t player, float heading, float step, float *dz)
+ * not (logged once a second, with what the ray hit, its layer and where). The ground rays pass
+ * through actors (CastRayGround), the knee and chest rays don't: Dogmeat behind stops it. */
+static bool WayBackClear(uintptr_t player, uintptr_t ctrl, float heading, float step, float *dz)
 {
 	uintptr_t cell = ReadPtr(player + OFF_REFR_CELL);
 	if (!cell || !IsA(cell, RTTI_CELL))
@@ -6880,7 +7164,7 @@ static bool WayBackClear(uintptr_t player, float heading, float step, float *dz)
 	{
 		float a[3] = { pos[0] + dir[0] * behindNear, pos[1] + dir[1] * behindNear, pos[2] + 60.0f };
 		float b[3] = { a[0], a[1], pos[2] - 60.0f };
-		float f = CastRay(cell, a, b);
+		float f = CastRayGround(cell, a, b);
 		if (f >= 1.0f) {
 			why = "no ground just behind";
 			at = behindNear;
@@ -6895,7 +7179,7 @@ static bool WayBackClear(uintptr_t player, float heading, float step, float *dz)
 	if (!why) {
 		float a[3] = { pos[0] + dir[0] * behindFar, pos[1] + dir[1] * behindFar, pos[2] + behindFar * 0.7f };
 		float b[3] = { a[0], a[1], pos[2] - behindFar * 1.2f };
-		float f = CastRay(cell, a, b);
+		float f = CastRayGround(cell, a, b);
 		if (f >= 1.0f) {
 			why = "no ground under the rear (a drop)";
 			at = behindFar;
@@ -6926,14 +7210,25 @@ static bool WayBackClear(uintptr_t player, float heading, float step, float *dz)
 		 * capsule's bottom is a hemisphere, so at the step point its skin is about at the feet;
 		 * if the ray starts inside it anyway and the player's filter reports that, the hit is
 		 * at the start and goes unused, as does the ground at the feet). A gap under the feet
-		 * is closed: they go onto the ground (plus BackSink), at most 3 units down a frame
-		 * (test 16: the least time in the air; test 18: 1.5 units into it, the most, the
-		 * controller losing its support). More than 20 down is a drop: no step. Not uphill:
-		 * there the ray would start inside a curb or the slope (a box ignored from inside, the
-		 * ray finds the ground beneath), and the feet never float. */
+		 * is closed while the controller doesn't hold itself supported: they go down to a
+		 * hover of BACK_HOVER over the ground (BackSink further), at most 3 units a frame (test
+		 * 16: the least time in the air; test 18: 1.5 units into it, the most, the controller
+		 * losing its support). More than 20 down is a drop: no step. Not uphill: there the ray
+		 * would start inside a curb or the slope (a box ignored from inside, the ray finds the
+		 * ground beneath), and the feet never float. */
+		/* Test 39, on a level road (01:38:27-54, 01:39:27-42): all 15 gaps closed there (+0.4
+		 * to +2.4, the step's dz -0.4 to -2.44) came with the controller holding itself supported
+		 * (state 0, the supported bit set), and each was followed by the controller in the air
+		 * within 0.01 to 0.75 s, the player's z dropping 20 to 37 through the road's collision
+		 * (the wheels' rays then found the ground 17 to 21 above the contact) and climbing back
+		 * over about 0.8 s; backing with no step the gaps read 0.0 to 0.2, the controller's own
+		 * hover. So a supported controller's gap is its own (the slope's dz stands), and an
+		 * unsupported one's feet go to the hover, not onto the ground: the feet ray's ground
+		 * plus BACK_HOVER, less BackSink, never up (the trace's rays line shows the gap and the
+		 * step's dz either way). */
 		float a[3] = { pos[0] + dir[0] * step, pos[1] + dir[1] * step, pos[2] + 2.0f };
 		float b[3] = { a[0], a[1], pos[2] - 38.0f };
-		float f = CastRay(cell, a, b);
+		float f = CastRayGround(cell, a, b);
 		if (f < 1.0f) {
 			float below = f * 40.0f - 2.0f;
 			g_rayFeetGap = below;
@@ -6942,8 +7237,8 @@ static bool WayBackClear(uintptr_t player, float heading, float step, float *dz)
 				at = step;
 			} else {
 				g_rayGrounded = below > -1.5f && below < 4.0f;   /* -2: the capsule itself, no telling */
-				if (below > 0.3f) {
-					float down = below + g_backSink;
+				if (!ControllerSupported(ctrl)) {
+					float down = below - BACK_HOVER + g_backSink;
 					*dz = -(down < 0.0f ? 0.0f : down < 3.0f ? down : 3.0f);
 				}
 			}
@@ -7073,7 +7368,7 @@ static bool PushStep(uintptr_t player, uintptr_t ctrl, float heading, float dt)
 		if (!get || !set || (g_pushMethod == PUSH_RAYSTEP && !FindPickFunctions()))
 			return false;
 		float stepGame = g_backSpeed * (dt < 0.05f ? dt : 0.05f), dz = 0.0f;   /* a few units a frame at most */
-		if (g_pushMethod == PUSH_RAYSTEP && (!RaysReady(player) || !WayBackClear(player, heading, stepGame, &dz))) {
+		if (g_pushMethod == PUSH_RAYSTEP && (!RaysReady(player) || !WayBackClear(player, ctrl, heading, stepGame, &dz))) {
 			g_pushBlocked = true;
 			return true;   /* stopped, not failed */
 		}
