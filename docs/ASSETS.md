@@ -82,13 +82,28 @@ that hang off the seated rider, which need the seat height the clips settled on 
 the clips takes a while (around 25 minutes for both sets).
 
 `harley_meshes.py` takes `--body <hex>` for the tank and fenders' colour (default a deep red, `7a1118`), `--tris`
-for the triangle budget (default 90000; the result runs about a fifth over it), `--sit` for how far back on
-the seat the rider sits (0.27 of the seat's length from its front: snug behind the tank, where the arms still reach the
-turned bars) and `--bar-angle` for how far the bars turn
+for the triangle budget the pieces' shares are cut from (default 90000; each piece's share by its area is the
+simplifier's target, and a piece that can't reach it without losing its shape keeps more, so the bike comes out at
+about 225,000 triangles), `--sit` for how far back on the seat the rider sits (0.27 of the seat's length from its
+front: snug behind the tank, where the arms still reach the turned bars) and `--bar-angle` for how far the bars turn
 (20 degrees; 0 builds one static set of shapes). The model comes out as twelve shapes: three fixed, four that turn
 with the bars (metal, matte, glass and the headlamp's lit parts: the model's own lamp is dropped and a 5.75" LED unit lathed in its place), three of the fork's lower end (`_fork`: the sliders, front mudguard, caliper, axle and boots, which turn with the bars and ride with the front wheel's suspension travel; `FORK_SPLIT_Z`, 66 on the parked model, divides them from the tubes and clamps) and the two wheels, which the F4SE plugin moves (DESIGN.md); the plugin turns the rider's hands with the bars. The model is scaled to the vanilla bike's
 length so the collision and the F4SE plugin's clearances still fit, which makes it about a quarter bigger than a
 real Iron 883 next to the character, as the vanilla bike is.
+
+The geometry since test 40: each connected piece of the model is cut down in one call of the simplifier with its
+error capped (before, every piece was forced down to its share, which crushed the grips, speedo, switch housings,
+cables and fork boots and left the rims 12-14-sided). Small pieces, the lenses, the painted panels and badges (cut
+down, the rear fender's rolled lip turned to sawtooth teeth) and the small chrome (the fuel cap's dome reflected as
+folds) are kept whole; the bar assembly and the big covers are cut finer (at the black parts' cap the mirror housings
+poked through their glass, the master cylinder's lid swallowed its chrome ring and a flat bevel crossed the air
+cleaner cover). The bolts and nuts under a centimetre across stay (they were dropped), a brake disc's bolts spinning
+with it. Every corner shades by the glTF's own normal (at the nearest point of its piece where the piece was cut
+down), with a vertex split where its corners' normals part, so hard edges stay hard and curves round (the averaged
+normals smeared both, and cancelled to nothing where opposite faces were welded). The wheels' brake discs (dented in
+the model) keep the averaged normals. The parked nif's positions are full precision; the worn nifs keep the vanilla
+shape's half floats until one is tried in game. Each run takes about 40 s (the normals about 15 s of it), and the
+largest shape, the fixed matte one, has about 48,600 of the 65,535 vertices a shape may have.
 
 **The vanilla motorcycle instead:** `build_bike_meshes.py` makes the same four nifs from it, and the clips are built
 without `--fit`:

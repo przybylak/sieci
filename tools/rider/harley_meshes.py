@@ -33,14 +33,21 @@ What it writes (the same four files build_bike_meshes.py does, see there for why
                           the plugin rolls the hand round the grip about it (test 38: it rolled about
                           the wrist node, 6.5 units from the grip, so the palm left the bar)
 
-The geometry: each material's meshes are merged, welded and split into connected pieces, each
-piece is cut down with quadric edge collapse (fast_simplification) to its share of --tris by
-surface area (so the tyres keep their shape and a bolt gets a few triangles), and the parts go
-into shapes by shading: the metal (environment-mapped: chrome, silver, the body colour), the
-matte (black metal, rubber, leather) and the glass (translucent); a few, not twelve, because
-the F4SE plugin holds at most a dozen skins and the game shows at most 65535 vertices per
-shape. Colours, specular and gloss come from the material names (MATERIALS below); the body
-colour is --body.
+The geometry: each material's meshes are merged, welded and split into connected pieces, and
+each piece is cut down with quadric edge collapse (fast_simplification) towards its share of
+--tris by surface area (so the tyres keep their shape and a bolt gets a few triangles), the
+simplifier's error capped so that no piece is crushed to reach its share: one that can't get
+there within the cap keeps more, so the default 90000 comes out at about 225k triangles (tests
+40 and 41, AGG_CAP, FINE_AGG; small pieces, the lenses, the painted panels and the small chrome
+are kept whole, and only the specks under SPECK_AREA are dropped). Each corner's shading normal
+is the glTF's own (at the closest point of its piece's surface where the piece was cut down),
+a vertex split in two or more where its corners' normals part, so the model's hard edges stay
+hard and its curves round (gltf_normals; the wheels' brake discs keep the averaged normals).
+The parts go into shapes by shading: the metal (environment-mapped: chrome, silver, the body
+colour), the matte (black metal, rubber, leather) and the glass (translucent); a few, not
+twelve, because the F4SE plugin holds at most a dozen skins and the game shows at most 65535
+vertices per shape. Colours, specular and gloss come from the material names (MATERIALS
+below); the body colour is --body.
 
 And by what moves (ROLES, role_of): the fixed bike; the bar assembly ("front": the bars,
 grips, levers, mirrors, the fork tubes, the triple clamps and the headlamp, which the plugin
@@ -54,7 +61,7 @@ tells them apart by their names and their culling spheres (CMB_BikeParts.ini).
   python harley_meshes.py --pynifly <io_scene_nifly> --gltf <...>/scene.gltf \
       --vanilla <...>/meshes/setdressing/vehicles/motorcycle/motorcycle_clean.nif \
       --out <Data>/Meshes/CMB --textures <Data>/Textures/CMB \
-      [--seat <Data>/Meshes/Actors/Character/Animations/MT/CMB_Rider] [--tris 60000] [--body 7a1118]
+      [--seat <Data>/Meshes/Actors/Character/Animations/MT/CMB_Rider] [--tris 90000] [--body 7a1118]
       [--sit 0.27] [--grip 29.4,-10.7,96] [--peg 19,6,27]
 
 The rider sits --sit of the way along the seat from its front edge (0.27: snug behind the
@@ -80,12 +87,14 @@ import math
 import os
 import struct
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from build_bike_meshes import _block_offsets, apply, mat_mul, read_seat, rigid_inverse  # noqa: E402
+from nearest import TriangleGrid, nearest_vertex  # noqa: E402
 
 VANILLA_LENGTH = 196.0   # the vanilla motorcycle along Y (its bounds are y[-98, 98])
 HIPS_Y_WORN = -5.0       # the middle of the buttocks zone riding_anims.py seats (worn y -14..4)
@@ -130,6 +139,77 @@ BAR_HEIGHT = 85.0   # above this (parked frame) and ahead of the seat it's the b
 # wheel's offset, so at +10 the tyre went into the mudguard and the axle left the fork ends.)
 FORK_SPLIT_Z = 66.0
 
+# The decimation (decimate()). Test 40: the simplifier (Sp4cerat's quadric edge collapse in
+# fast_simplification) collapses an edge while its error is under 1e-9 * (iteration + 3) ** agg,
+# and at the agg 7 used until then that ends near 1.2e5, no bound at all: every piece went down
+# to its area share however much shape that cost, and the repeat passes (up to four calls, each
+# from the already-cut mesh's quadrics) crushed it further. The right grip was a blade, the
+# speedo a crystal, the switch housing a box, the rims 12-14-sided with shards across the spokes
+# (their outline 20.7 to 24.6 from the axle where the source's is 23.7-23.8), a cable lost its
+# upper two thirds (32.8 units off at worst), the fork boots had slits. A bigger budget doesn't
+# help those (1.53 times it left them as crushed). Now one call per piece with its share as the
+# target and the error capped (AGG_CAP: agg 4.5 stops at a summed squared plane distance of
+# about 1.14 game units squared, 4.0 at about 0.11, the tighter one on the env-mapped and glass
+# parts, where the cubemap shows each facet: at 4.5 the fuel cap and the indicator lenses kept
+# 9-12-sided outlines). A piece that can't reach its share within the cap stops short of it, so
+# --tris 90000 comes out at about 225k triangles; the source surface's 95th percentile distance
+# from the build went from 1.65 units to 0.06, its worst from 12.2 to 1.2.
+AGG_CAP = {"matte": 4.5, "metal": 4.0, "glass": 4.0}
+KEEP_TRIS = 300   # up to this many triangles a piece is kept whole (its share would only nick it)
+KEEP_FRAC = 0.6   # and so is one whose share is this much of what it has or more
+# Cut at FINE_AGG whatever they're made of: the bar assembly's pieces, in the rider's view all
+# the time (at matte's 4.5 the black mirror housings, 2,048 source triangles cut to 156 and 174,
+# poked through the chrome mirror glass on them as a dark wedge, at agg 7 too on the other
+# mirror; and the right master cylinder, 4,944 cut to 562, swallowed the chrome ring flush on
+# its lid down to a broken crescent; 3,500 more triangles on its 30 black pieces than at 4.5,
+# where the housings kept whole would cost 38,700 and look no different), and any piece of
+# FINE_AREA (units squared) or more off the wheels, the big covers (at 4.5 a flat bevel cut
+# across the air cleaner cover's lower half; 5,500 more triangles, on 34 of them). The metal
+# and the glass are at 4.0 already, so it's the matte this tightens.
+FINE_AGG = 4.0
+FINE_AREA = 300.0
+# Kept whole (test 41): the painted panels and badges (PAINTED: the tank, both fenders, the
+# tank badges): at 4.0 the rear fender's rolled lip, the bike's nearest part to the riding
+# camera, was cut to a row of sawtooth teeth, and still tore at 2.5 (77% of it kept); whole
+# they cost 10,800 more triangles. And the chrome and silver pieces (BRIGHT) of up to
+# BRIGHT_TRIS triangles and BRIGHT_AREA or more off the wheels, where the cubemap shows every
+# facet: at 4.0 the fuel cap's dome (1,092 cut to 161) reflected as hex-like folds. That takes in
+# 15 pieces (the fuel cap, the indicator bezels, the stem nut, caliper and axle caps, other nuts
+# and trims) for 7,500 more triangles; by the 1,100 triangles alone it would take in 104 for
+# 67,000, the wheels' 54 spoke trims among them, and the bolts under BRIGHT_AREA look like the
+# source cut down.
+PAINTED = ("body", "logo_decals")
+BRIGHT = ("chrome", "silver")
+BRIGHT_TRIS = 1100
+BRIGHT_AREA = 20.0
+SPECK_AREA = 0.25   # pieces under this (units squared) are dropped: 12 of them, 1 unit squared in all
+# The pieces under SMALL_AREA (about a centimetre across) were all dropped before test 40: 279 of
+# them, the crankcase, primary cover, hub, fender and cover screws and nuts among them. They stay
+# now, but a bolt's own centre says little about what it's fixed to, so it spins with a wheel
+# only when the ordinary piece nearest it (by its source vertices) is a wheel's (a disc bolt)
+# and otherwise takes role_of like any piece (by the nearest piece alone a bar housing screw
+# went into the fixed metal shape, still while the bars turned, and lifted that shape's sphere
+# 5 units).
+SMALL_AREA = 4.0
+
+# The shading normals (gltf_normals()). Test 40: averaged over every face at a welded vertex they
+# smeared the hard edges and the creases decimation makes on curved parts (15.7 degrees off the
+# glTF's own on average, 69 at the 95th percentile, chrome reflections folded with black
+# wedges), and cancelled to nothing where opposite faces were welded together (210 vertices,
+# specks of random light). Now each corner takes the glTF's own normal at the closest point of
+# its piece's source surface to a point NORMAL_NUDGE of the way from the corner to its
+# triangle's centre (so a corner on a hard edge reads its own side of it); a sample more than
+# NORMAL_GUARD_DEG off its own triangle has read another feature (a coarse triangle bridging a
+# bevel) and takes the averaged normal instead (without it the derby cover and the fuel cap
+# folded); a piece kept whole takes the glTF's normals at its corners as they are (test 41); and
+# a vertex's corners that agree within SPLIT_DEG share one vertex while the rest get their own,
+# so the source's hard edges stay hard. 5.2 degrees off on average, 21 at the 95th percentile,
+# 1.9% of the surface over 45 (10.5% before); the split costs about 30% more vertices (the
+# fixed matte shape has 48,609 of the 65,535 a shape may have).
+NORMAL_NUDGE = 0.25
+NORMAL_GUARD_DEG = 45.0
+SPLIT_DEG = 30.0
+
 # BSLightingShaderProperty flags (nif.xml's SkyrimShaderPropertyFlags, as Fallout 4 still uses them)
 SF1_SPECULAR, SF1_SKINNED, SF1_ENV_MAP, SF1_RECEIVE_SHADOWS, SF1_CAST_SHADOWS = 0x1, 0x2, 0x80, 0x100, 0x200
 SF1_ZBUFFER_TEST = 0x80000000
@@ -151,8 +231,11 @@ ALPHA_BLEND_FLAGS = 4845   # blend src alpha / inv src alpha, test greater
 
 # --- glTF --------------------------------------------------------------------------------
 
-def load_gltf(path: Path):
-    """Each material's vertices and triangles, merged: {name: (V (n,3) float64, F (m,3) int64)}."""
+def load_gltf(path: Path, normals=None):
+    """Each material's vertices and triangles, merged: {name: (V (n,3) float64, F (m,3) int64)}.
+    With normals (a dict), each material's glTF normals at the corners of those triangles go
+    into it too, (m, 3, 3): the weld makes one vertex of a hard edge's two, and the corners keep
+    the export's own normals for gltf_normals() (the faces' own where a primitive has none)."""
     d = json.loads(path.read_text())
     bufs = [(path.parent / b["uri"]).read_bytes() for b in d["buffers"]]
     types = {5120: np.int8, 5121: np.uint8, 5122: np.int16, 5123: np.uint16, 5125: np.uint32, 5126: np.float32}
@@ -178,15 +261,23 @@ def load_gltf(path: Path):
             name = d["materials"][p["material"]]["name"]
             v = accessor(p["attributes"]["POSITION"]).astype(np.float64)
             f = accessor(p["indices"]).reshape(-1, 3).astype(np.int64)
-            groups.setdefault(name, []).append((v, f))
+            if "NORMAL" in p["attributes"]:
+                n = np.nan_to_num(accessor(p["attributes"]["NORMAL"]).astype(np.float64))[f]
+            else:
+                n = np.repeat(unit(face_normals(v, f))[:, None, :], 3, axis=1)
+            groups.setdefault(name, []).append((v, f, n))
     merged = {}
     for name, parts in groups.items():
-        vs, fs, off = [], [], 0
-        for v, f in parts:
+        vs, fs, ns, off = [], [], [], 0
+        for v, f, n in parts:
             vs.append(v)
             fs.append(f + off)
+            ns.append(n)
             off += len(v)
-        merged[name] = weld(np.vstack(vs), np.vstack(fs))   # the parts of a material together: a tyre's halves share their seam
+        v, f, keep = weld(np.vstack(vs), np.vstack(fs))   # the parts of a material together: a tyre's halves share their seam
+        merged[name] = (v, f)
+        if normals is not None:
+            normals[name] = np.vstack(ns)[keep]
     return merged
 
 
@@ -195,12 +286,13 @@ def weld(v, f, tol=1e-3):
     hard edges, which leaves the simplifier a patchwork of islands whose borders it won't
     collapse (pieces came back ten times over budget). Across a material's parts too: the
     simplifier doesn't keep a border where it is, so two parts decimated apart crack along
-    their seam (a tyre's halves meet on the tread's centre line)."""
+    their seam (a tyre's halves meet on the tread's centre line). Returns the vertices, the
+    triangles and which of the triangles given are kept (not collapsed to a line by it)."""
     key = np.round(v / tol).astype(np.int64)
     _, first, inv = np.unique(key, axis=0, return_index=True, return_inverse=True)
     f = inv.reshape(-1)[f] if inv.ndim > 1 else inv[f]
     keep = (f[:, 0] != f[:, 1]) & (f[:, 1] != f[:, 2]) & (f[:, 0] != f[:, 2])
-    return v[first], f[keep]
+    return v[first], f[keep], keep
 
 
 def components(n, f):
@@ -224,14 +316,24 @@ def components(n, f):
     return len(uniq), inv
 
 
-def decimate(groups, total_target, speck_area=4.0, min_tris=8, weight=None):
-    """Cut the model down to about total_target triangles, each connected piece getting its
-    share by surface area: so a tyre keeps its shape while a bolt gets a few triangles, instead
-    of the thousands of small pieces of one material (tread blocks, bolts, cables) starving the
-    big ones. Pieces of under speck_area (game units squared, so about a centimetre across) are
-    dropped. Coordinates must be scaled to game units already."""
+def decimate(groups, normals, total_target, speck_area=SPECK_AREA, small_area=SMALL_AREA, min_tris=8, weight=None, role=None):
+    """Cut the model down, each connected piece towards its share of total_target triangles by
+    surface area: so a tyre keeps its shape while a bolt gets a few triangles, instead of the
+    thousands of small pieces of one material (tread blocks, bolts, cables) starving the big
+    ones. The share is the simplifier's target and AGG_CAP its error bound, so a piece stops
+    short of its share where reaching it would crush it, and the result runs well over
+    total_target (about 225k for 90000 on this model). Kept whole: a piece of up to KEEP_TRIS
+    triangles or with a share of KEEP_FRAC of them or more, the glass (the indicator and
+    tail light lenses: the cubemap shows each facet), the PAINTED panels and the small BRIGHT
+    pieces off the wheels; the bar assembly and the pieces of FINE_AREA or more off the wheels
+    are cut at FINE_AGG whatever they're made of (role(verts) says which part a piece moves
+    with, by role_of's names). Pieces of under speck_area (game units squared) are dropped.
+    Coordinates must be scaled to game units already; normals is what load_gltf filled.
+    Returns (material, verts, tris, small, source) per piece: small if it's under small_area,
+    source the piece as it was with its glTF corner normals (verts, tris, normals), for
+    gltf_normals()."""
     import fast_simplification as fs
-    pieces = []   # (material, verts, tris, area)
+    pieces = []   # (material, verts, tris, area, corner normals)
     dropped = dropped_area = 0
     for name, (v, f) in groups.items():
         k, lab = components(len(v), f)
@@ -242,16 +344,16 @@ def decimate(groups, total_target, speck_area=4.0, min_tris=8, weight=None):
         order = np.argsort(tri_lab, kind="stable")
         bounds = np.searchsorted(tri_lab[order], np.arange(k + 1))
         for c in range(k):
-            fc = f[order[bounds[c]:bounds[c + 1]]]
+            sel = order[bounds[c]:bounds[c + 1]]
             if piece_area[c] < speck_area:
                 dropped += 1
                 dropped_area += piece_area[c]
                 continue
-            used, inv = np.unique(fc, return_inverse=True)
-            pieces.append((name, v[used], inv.reshape(-1, 3), float(piece_area[c])))
+            used, inv = np.unique(f[sel], return_inverse=True)
+            pieces.append((name, v[used], inv.reshape(-1, 3), float(piece_area[c]), normals[name][sel]))
     total_area = sum(p[3] for p in pieces)
     counts = np.array([len(p[2]) for p in pieces])
-    areas = np.array([area * (weight(v) if weight else 1.0) for _, v, _, area in pieces])
+    areas = np.array([p[3] * (weight(p[1]) if weight else 1.0) for p in pieces])
     # Budget by area; a piece already under its budget keeps all its triangles and the rest
     # share what it leaves (a few rounds of that).
     budget = np.zeros(len(pieces))
@@ -266,27 +368,38 @@ def decimate(groups, total_target, speck_area=4.0, min_tris=8, weight=None):
         free &= ~done
     budget = np.maximum(np.minimum(budget, counts), np.minimum(min_tris, counts)).astype(int)
     result = []
-    for (name, v, f, _), b in zip(pieces, budget):
+    kept = held = over = painted = bright = fine = 0
+    for (name, v, f, area, n0), b in zip(pieces, budget):
         v0, f0 = v, f
-        # A closed tube (the cables) often stops well short of the target in one call and
-        # gives a little more each call after; a few passes, while they still pay.
-        for _ in range(4):
-            if b >= len(f):
-                break
-            vo, fo = fs.simplify(v, f, target_reduction=1.0 - b / len(f), agg=7)
-            vo, fo = np.asarray(vo, dtype=np.float64), np.asarray(fo, dtype=np.int64)
-            gain = len(fo) < 0.95 * len(f)
-            v, f = vo, fo
-            if not gain:
-                break
-        if f is not f0:
+        kind = MATERIALS[name][5]
+        part = role(v) if role else ""
+        wheel = part.startswith("wheel")
+        small_bright = name in BRIGHT and len(f) <= BRIGHT_TRIS and area >= BRIGHT_AREA and not wheel
+        if len(f) <= KEEP_TRIS or b >= KEEP_FRAC * len(f) or kind == "glass":
+            kept += 1
+        elif name in PAINTED or small_bright:
+            kept += 1
+            painted += name in PAINTED
+            bright += small_bright
+        else:
+            agg = AGG_CAP[kind]
+            if part == "front" or (area >= FINE_AREA and not wheel):
+                agg = FINE_AGG
+                fine += agg < AGG_CAP[kind]
+            vo, fo = fs.simplify(v, f, target_count=int(b), agg=agg)
+            v, f = np.asarray(vo, dtype=np.float64), np.asarray(fo, dtype=np.int64)
             v = snap_border(v, f, v0, f0)
-        result.append((name, v, f))
-    got = sum(len(f) for _, _, f in result)
-    print(f"  {len(pieces)} pieces kept, {dropped} specks dropped ({dropped_area:.0f} units² of {total_area:.0f}); "
-          f"budget {int(budget.sum())} triangles, got {got}")
+            if len(f) > b * 1.05:
+                held += 1
+                over += len(f) - b
+        result.append((name, v, f, area < small_area, (v0, f0, n0)))
+    got = sum(len(r[2]) for r in result)
+    print(f"  {len(pieces)} pieces kept ({sum(p[3] < small_area for p in pieces)} of them under {small_area:g} units²), "
+          f"{dropped} specks dropped ({dropped_area:.0f} units² of {total_area:.0f}); budget {int(budget.sum())} triangles, "
+          f"got {got}: {kept} pieces whole ({painted} painted, {bright} small chrome or silver), {held} held over their "
+          f"share by the error cap ({over} triangles), {fine} cut finer than their material's cap (FINE_AGG)")
     per = {}
-    for name, _, f in result:
+    for name, _, f, _, _ in result:
         per[name] = per.get(name, 0) + len(f)
     for name, (v, f) in groups.items():
         if name in per:
@@ -537,14 +650,128 @@ def rows(a):
     return [tuple(r) for r in a.tolist()]
 
 
-def vertex_normals(v, f):
-    n = np.zeros_like(v)
+def unit(a):
+    length = np.linalg.norm(a, axis=-1, keepdims=True)
+    return a / np.maximum(length, 1e-12)
+
+
+def face_normals(v, f):
+    """Each triangle's normal by its winding, twice its area long."""
     tri = v[f]
-    fn = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])   # area-weighted
+    return np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+
+
+def vertex_normals(v, f, per_corner=False):
+    """The area-weighted mean of the faces' normals at each vertex. Where they cancel (opposite
+    faces welded together: the shock and kickstand springs, the lever fittings; 210 vertices of
+    the build before test 40 had no normal, specks of random light) the vertex takes its
+    largest face's normal. per_corner gives them by triangle corner instead, (3m, 3), and there
+    each corner its own face's (gltf_normals' guard: the split keeps the two sides apart)."""
+    n = np.zeros_like(v)
+    fn = face_normals(v, f)
+    size = np.linalg.norm(fn, axis=1)
+    total = np.zeros(len(v))
     for k in range(3):
         np.add.at(n, f[:, k], fn)
-    length = np.linalg.norm(n, axis=1, keepdims=True)
-    return n / np.where(length > 1e-12, length, 1.0)
+        np.add.at(total, f[:, k], size)
+    length = np.linalg.norm(n, axis=1)
+    bad = (length <= 1e-3 * total) & (total > 0)   # under a thousandth of the faces' summed size
+    n = n / np.where(length > 1e-12, length, 1.0)[:, None]
+    corner_v = f.reshape(-1)
+    if bad.any():
+        at = np.flatnonzero(bad[corner_v])
+        at = at[np.lexsort((np.repeat(size, 3)[at], corner_v[at]))]   # by vertex, the largest face last
+        last = np.r_[corner_v[at][1:] != corner_v[at][:-1], True]
+        n[corner_v[at][last]] = unit(fn[at[last] // 3])
+    if not per_corner:
+        return n
+    out = n[corner_v]
+    own = bad[corner_v] & (np.repeat(size, 3) > 0)
+    out[own] = np.repeat(unit(fn), 3, axis=0)[own]
+    return out
+
+
+def gltf_normals(v, f, source):
+    """A decimated piece's shading normals from the glTF's own (see NORMAL_NUDGE): each corner's
+    from the closest point of the piece's source surface to a point NORMAL_NUDGE of the way to
+    its triangle's centre, the averaged normal where that's over NORMAL_GUARD_DEG off its
+    triangle, the corners split by split_corners. A piece kept whole takes the glTF's normals at
+    its corners as they are, but for a zero one (a NaN in the file) or one facing away from its
+    triangle (155 corners of the bike's: the double-sided shader would light them from behind),
+    which take the averaged: the sampling smooths them towards each triangle's own, and on the
+    whole tank (test 41) that left a step across its highlight that neither the source nor the
+    cut-down tank had, and the 45-degree guard, which is for a sample that has read another
+    feature, flattened the rounded edges where the source's normals run further off the faces
+    (narrow bevels, thin rods, the rear fender's rolled lip). Returns (verts, tris, normals,
+    guarded corners); the positions don't change, a vertex only gains copies."""
+    v0, f0, n0 = source
+    fn = np.repeat(unit(face_normals(v, f)), 3, axis=0)
+    if v.shape == v0.shape and f.shape == f0.shape and np.array_equal(f, f0) and np.array_equal(v, v0):
+        cn = unit(n0.reshape(-1, 3))
+        off = ~((cn * fn).sum(axis=1) > 0.0)   # zero (a NaN in the file), or facing away from its triangle
+    else:
+        tri = v[f]
+        at = ((1.0 - NORMAL_NUDGE) * tri + NORMAL_NUDGE * tri.mean(axis=1, keepdims=True)).reshape(-1, 3)
+        t0 = v0[f0]
+        # The cells one and a half of the piece's typical triangle (its bounding box's longest
+        # side) and the first reach a tenth of it: the corners lie on or near the source surface,
+        # so most are settled by the triangles of a cell or two (about 15 s for the bike; one grid
+        # of every piece's triangles took 3.5 minutes for the same answers, but for a few hundred
+        # corners exactly as near two triangles).
+        size = np.median(np.ptp(t0, axis=1).max(axis=1))
+        grid = TriangleGrid(t0, max(1.5 * size, 0.02))
+        near, bary, _ = grid.closest(at, reach=max(0.1 * size, 0.005))
+        cn = unit((n0[near] * bary[:, :, None]).sum(axis=1))
+        off = ~((cn * fn).sum(axis=1) >= math.cos(math.radians(NORMAL_GUARD_DEG)))   # NaN counts as off
+    if off.any():
+        cn[off] = vertex_normals(v, f, per_corner=True)[off]
+    return (*split_corners(v, f, cn, SPLIT_DEG), int(off.sum()))
+
+
+def split_corners(v, f, cn, deg):
+    """One vertex per group of a vertex's corners whose normals (cn, (3m, 3) by triangle and
+    corner) agree: each corner in turn joins the first group whose mean so far is within deg of
+    it, or starts its own. Returns (verts, tris, normals): a vertex's copies in a row, in the
+    order of the vertices, and each normal its group's mean. Where every corner is within half
+    of deg of a vertex's first corner (most vertices) they all join that one group, which needs
+    no loop: the mean of normals within an angle of one stays within it."""
+    flat = f.reshape(-1)
+    order = np.argsort(flat, kind="stable")   # the corners by vertex, in their order
+    vert = flat[order]
+    start = np.r_[0, np.flatnonzero(vert[1:] != vert[:-1]) + 1]
+    count = np.diff(np.r_[start, len(vert)])
+    lead = np.repeat(start, count)
+    cos_half = math.cos(math.radians(deg / 2.0 - 0.5))   # half a degree in hand for the rounding
+    together = (cn[order] * cn[order[lead]]).sum(axis=1) >= cos_half
+    one = np.logical_and.reduceat(together, start)
+    group = np.zeros(len(flat), np.int64)   # by sorted corner
+    groups = np.ones(len(start), np.int64)
+    cos_t = math.cos(math.radians(deg))
+    for s in np.flatnonzero(~one):
+        a, b = start[s], start[s] + count[s]
+        means = []
+        for i in range(a, b):
+            x, y, z = cn[order[i]]
+            for g, m in enumerate(means):
+                length = max(math.sqrt(m[0] * m[0] + m[1] * m[1] + m[2] * m[2]), 1e-12)
+                if (m[0] * x + m[1] * y + m[2] * z) / length >= cos_t:
+                    m[0] += x
+                    m[1] += y
+                    m[2] += z
+                    group[i] = g
+                    break
+            else:
+                group[i] = len(means)
+                means.append([x, y, z])
+        groups[s] = len(means)
+    first_new = np.cumsum(groups) - groups   # each vertex's first copy
+    new = np.repeat(first_new, count) + group
+    nn = np.zeros((int(groups.sum()), 3))
+    np.add.at(nn, new, cn[order])   # in the corners' order, as the groups were summed
+    newidx = np.empty(len(flat), np.int64)
+    newidx[order] = new
+    copies = np.repeat(vert[start], groups)
+    return v[copies], newidx.reshape(-1, 3), unit(nn)
 
 
 # --- textures ----------------------------------------------------------------------------
@@ -639,6 +866,12 @@ def add_shape(nif, name, verts, tris, uvs, normals, base_props, use_type, kind, 
     props = base_props.copy()
     props.nameID = props.controllerID = props.collisionID = -1
     props.skinInstanceID = props.shaderPropertyID = props.alphaPropertyID = -1
+    if not skinned:
+        # Test 40: the parked bike's positions in full precision. In half floats (the vanilla
+        # shape's format) they sit on a 1/16-unit grid above 64 units, which flattened 1,083
+        # small triangles to nothing (1,325 of test 40's mesh would be). The worn nifs keep
+        # half floats until one is tried in game (PyNifly writes them, vertex format 0x45b).
+        props.hasFullPrecision = 1
     new = nif.createShapeFromData(name, verts, tris, uvs, normals, props=props, use_type=use_type)
     if skinned:
         def buf(m):
@@ -698,8 +931,9 @@ def main() -> int:
     ap.add_argument("--textures", type=Path, required=True, help="normally <Data>/Textures/CMB")
     ap.add_argument("--seat", type=Path, help="the riding clips folder (MT\\CMB_Rider, with CMB_RiderSeat.json)")
     ap.add_argument("--tris", type=int, default=90000,
-                    help="the triangle budget (the result runs about a third over it: the thin closed "
-                         "tubes of the cables won't go down to their share)")
+                    help="the triangle budget the pieces' shares are cut from (each piece's by its area is the "
+                         "simplifier's target); the error cap stops the pieces that can't reach theirs without losing "
+                         "their shape, so 90000 comes out at about 225k triangles")
     ap.add_argument("--body", default="7a1118", help="the tank and fenders' colour, hex rgb")
     ap.add_argument("--sit", type=float, default=0.27,
                     help="the hips go this far along the seat from its front edge (0..1); 0.27 is snug behind the "
@@ -719,7 +953,8 @@ def main() -> int:
 
     body = tuple(int(args.body[i:i + 2], 16) for i in (0, 2, 4))
     print(f"loading {args.gltf}")
-    groups = load_gltf(args.gltf)
+    corner_normals = {}
+    groups = load_gltf(args.gltf, corner_normals)
     unknown = sorted(set(groups) - set(MATERIALS))
     if unknown:
         print(f"materials with no entry in MATERIALS: {unknown}", file=sys.stderr)
@@ -738,8 +973,9 @@ def main() -> int:
           f"{parts['rear_axle'][2]:.1f}), radius {parts['wheel_radius']:.1f}, the rim's lip at {parts['rim_radius']:.1f}; steering axis through "
           f"({parts['steer_point'][1]:.1f}, {parts['steer_point'][2]:.1f}) raked {rake:.0f} deg"
           + (f" (from {parts['tubes']} fork tubes)" if "tubes" in parts else " (--steer)"))
-    print(f"decimating to about {args.tris} triangles (the wheels' pieces at 2.5 times their area's share):")
-    pieces = decimate(groups, args.tris, weight=lambda v: 2.5 if wheel_of(v, parts) else 1.0)
+    print(f"decimating: shares of {args.tris} triangles by area (the wheels' pieces at 2.5 times theirs), the error capped:")
+    pieces = decimate(groups, corner_normals, args.tris, weight=lambda v: 2.5 if wheel_of(v, parts) else 1.0,
+                      role=lambda v: role_of(v, parts))
     seat_front, seat_back = float(seat_v[:, 1].min()), float(seat_v[:, 1].max())
     hips_y = args.seat_at if args.seat_at is not None else seat_front + args.sit * (seat_back - seat_front)
     # The worn bike is turned round and shifted so the hips' spot lands at HIPS_Y_WORN.
@@ -785,20 +1021,49 @@ def main() -> int:
 
     # The shapes: by what moves (ROLES) and how it's shaded (KINDS); a wheel is one matte
     # shape whatever its pieces are made of (black rims, as on the real thing).
+    roles = [role_of(v, parts) if args.bar_angle > 0 else "" for _, v, _, _, _ in pieces]
+    # What a bolt is on: the ordinary piece with the source vertex nearest its centre. The
+    # source's, not the cut-down piece's (test 41: a brake disc cut from 8,336 triangles to
+    # 1,434 has few vertices left near its bolts, and the silver ring beside them won, so 9 of
+    # the 10 disc bolts went into the fork's or the fixed shapes and stood still on the
+    # spinning discs).
+    ordinary = [i for i, p in enumerate(pieces) if not p[3]] or list(range(len(pieces)))
+    ordinary_v = np.vstack([pieces[i][4][0] for i in ordinary])
+    ordinary_of = np.concatenate([np.full(len(pieces[i][4][0]), i) for i in ordinary])
+    specks = [i for i, p in enumerate(pieces) if p[3]] if args.bar_angle > 0 else []
+    if specks:
+        nearest = nearest_vertex(ordinary_v, np.array([pieces[i][1].mean(axis=0) for i in specks]))
+        for i, at in zip(specks, nearest):   # a bolt spins with a wheel if what it's on does (SMALL_AREA)
+            if roles[ordinary_of[at]].startswith("wheel"):
+                roles[i] = roles[ordinary_of[at]]
+    started = time.time()
     buckets = {}
-    dropped = 0
-    for name, v, f in pieces:
+    dropped = guarded = averaged = corners = 0
+    for (name, v, f, small, source), role in zip(pieces, roles):
         if old_headlamp(v, seat_at):
             dropped += 1
             continue
-        role = role_of(v, parts) if args.bar_angle > 0 else ""
         kind = "matte" if role.startswith("wheel") else MATERIALS[name][5]
+        if role.startswith("wheel") and name == "silver" and not small:
+            # Test 40: the wheels' silver (the brake discs) shades by the averaged normals:
+            # the discs are dented in the source, and its normals read as mottled grey under
+            # the wheels' matte shader. The bolts on them (small) keep the glTF's: averaged,
+            # their cross heads smeared (test 41).
+            n = vertex_normals(v, f)
+            averaged += 1
+        else:
+            v, f, n, off = gltf_normals(v, f, source)
+            guarded += off
+            corners += 3 * len(f)
         if role.startswith("wheel") and name == "material":
             v = seat_tyre(v, parts, role)
-        buckets.setdefault((role, kind), []).append((name, v, f))
+        buckets.setdefault((role, kind), []).append((name, v, f, n))
+    print(f"the glTF's normals on {len(pieces) - dropped - averaged} pieces, the averaged on the wheels' {averaged} silver ones; "
+          f"{guarded} of {corners} corners took the averaged normal (sampled over {NORMAL_GUARD_DEG:g} degrees off their own "
+          f"triangle, or none in the file) ({time.time() - started:.0f} s)")
     lamp = headlamp_pieces(seat_at, flip)
     for name, v, f in lamp:
-        buckets.setdefault(("front" if args.bar_angle > 0 else "", MATERIALS[name][5]), []).append((name, v, f))
+        buckets.setdefault(("front" if args.bar_angle > 0 else "", MATERIALS[name][5]), []).append((name, v, f, None))
     print(f"the headlamp: {len(lamp)} pieces of our own on the fork bracket, turning with the bars; "
           f"{dropped} piece(s) of the model's own lamp dropped")
     shapes = {}   # name -> (verts, tris, uvs, normals, kind, role), in the order they're made
@@ -806,21 +1071,25 @@ def main() -> int:
         for kind in KINDS:
             if (role, kind) not in buckets:
                 continue
-            vs, fs, us, off = [], [], [], 0
-            for name, v, f in buckets[(role, kind)]:
+            vs, fs, us, ns, off = [], [], [], [], 0
+            for name, v, f, n in buckets[(role, kind)]:
                 if flip:
                     f = f[:, [0, 2, 1]]
                 vs.append(v)
                 fs.append(f + off)
                 us.append(np.tile(np.array(uv_of[name]), (len(v), 1)))
+                ns.append(n if n is not None else vertex_normals(v, f))   # our headlamp: its own
                 off += len(v)
             v = np.vstack(vs)
             f = np.vstack(fs)
             label = role if role.startswith("wheel") else f"{role}_{kind}" if role else kind
             if len(v) > 65535:
-                print(f"the {label} shape has {len(v)} vertices, over the 65535 a shape may have: lower --tris", file=sys.stderr)
+                print(f"the {label} shape has {len(v)} vertices, over the 65535 a shape may have. Lower --tris if it was "
+                      f"raised; but --tris only sets the pieces' shares, and the error caps (AGG_CAP, FINE_AGG) and the pieces "
+                      f"kept whole (KEEP_TRIS, PAINTED, BRIGHT) set a floor it can't go below: past that, loosen the caps or "
+                      f"keep fewer pieces whole", file=sys.stderr)
                 return 1
-            shapes[label] = (v, f, np.vstack(us), vertex_normals(v, f), kind, role)
+            shapes[label] = (v, f, np.vstack(us), np.vstack(ns), kind, role)
             print(f"  {label}: {len(v)} vertices, {len(f)} triangles ({len(buckets[(role, kind)])} pieces)")
 
     base = Base(vshape)
