@@ -819,7 +819,7 @@ static void IniVec(const char *ini, const char *section, const char *key, const 
 static void ReadLeanSettings(const char *ini, bool log)
 {
 	static const float poleDefault[3] = { 0.35f, -0.3f, -1.0f };
-	float was[16] = { g_maxLean, g_leanRate, g_leanSmooth, g_leanDead, g_leanGain, g_torsoLeanSetting, g_armReach, g_torsoTwist, g_faceLook, (float)g_headLevel, g_torsoSideLean, g_wristRoll, g_armPole[0], g_armPole[1], g_armPole[2], g_handPitch };
+	float was[17] = { g_maxLean, g_leanRate, g_leanSmooth, g_leanDead, g_leanGain, g_torsoLeanSetting, g_armReach, g_torsoTwist, g_faceLook, (float)g_headLevel, g_torsoSideLean, g_wristRoll, g_armPole[0], g_armPole[1], g_armPole[2], g_handPitch, g_torsoSolveFrom };
 	g_maxLean = IniFloat(ini, "Tilt", "MaxLean", 14.0f, 0.0f, 45.0f);
 	g_leanRate = IniFloat(ini, "Tilt", "LeanRate", 50.0f, 0.0f, 1000.0f);
 	g_leanSmooth = IniFloat(ini, "Tilt", "LeanSmooth", 0.45f, 0.0f, 5.0f);
@@ -865,11 +865,11 @@ static void ReadLeanSettings(const char *ini, bool log)
 		g_lampHandoverFrames = 5;
 	float nowMore[18] = { g_turnEaseIn, g_turnEaseOut, g_liftRate, g_bumpMax, g_bumpSettle, g_wallAngle, g_obstacleThrottle, g_obstacleHold, (float)g_wallFrames,
 	                      (float)g_suspension, g_suspFrequency, g_suspDamping, g_suspTravel, g_obstacleAngle, g_suspCompressRear, g_suspDroop, g_suspExtend, g_lowObstacleAngle };
-	float now[16] = { g_maxLean, g_leanRate, g_leanSmooth, g_leanDead, g_leanGain, g_torsoLeanSetting, g_armReach, g_torsoTwist, g_faceLook, (float)g_headLevel, g_torsoSideLean, g_wristRoll, g_armPole[0], g_armPole[1], g_armPole[2], g_handPitch };
+	float now[17] = { g_maxLean, g_leanRate, g_leanSmooth, g_leanDead, g_leanGain, g_torsoLeanSetting, g_armReach, g_torsoTwist, g_faceLook, (float)g_headLevel, g_torsoSideLean, g_wristRoll, g_armPole[0], g_armPole[1], g_armPole[2], g_handPitch, g_torsoSolveFrom };
 	bool changed = false;
 	for (int i = 0; i < 18; i++)
 		changed = changed || wasMore[i] != nowMore[i];
-	for (int i = 0; i < 16; i++)
+	for (int i = 0; i < 17; i++)
 		changed = changed || was[i] != now[i];
 	if (log || changed) {
 		char torso[96], pole[96];
@@ -3408,8 +3408,9 @@ static void TorsoFinalAsKept(float r0)
  * by more than 3% since the last solve, and once the riding pose is there (95%) a fresh run
  * of readings starts from it, as after a jump of the player (RearmTorsoSolve) or at the
  * ride's start.
- * Test 39: the first reading of 95% or more was the one kept, final if the ride was 3 s old:
- * after two fast travels the grips read 95% and the lean was 11.1 and 11.4 deg for the rest
+ * Test 39: after a jump the first reading of 95% or more was kept, final at once, and at a
+ * ride's start the last of its first 3 s: after two fast travels the grips read 95% and the
+ * lean was 11.1 and 11.4 deg for the rest
  * of the ride, against the riding pose's 14.6 at 100%, and one ride's start ended final at 97%
  * (12.2, 01:41:42) with 14.4 at 100% a second before. Now each run of readings keeps the
  * solve from the largest reach seen (a reading of the riding pose, 99% or more, replaces
