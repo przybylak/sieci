@@ -29,7 +29,7 @@ EndFunction
 
 Event OnKeyDown(int keyCode)
 	if keyCode == registeredKey
-		Controller.HotkeyPressed()
+		Controller.HotkeyPressed("the F4SE hotkey")
 	endif
 EndEvent
 
@@ -37,7 +37,7 @@ EndEvent
 ; script rather than CMB_ControllerScript (test 30: "Failed to call member function
 ; HeadlampPressed on CMB_HotkeyF4SE"): relayed.
 Function HotkeyPressed()
-	Controller.HotkeyPressed()
+	Controller.HotkeyPressed("the MCM hotkey")
 EndFunction
 
 Function HeadlampPressed()
@@ -54,4 +54,14 @@ EndFunction
 
 Function EmergencyReset()
 	Controller.EmergencyReset()
+EndFunction
+
+; Test 41's console switches (cqf CMB_ControllerQuest ...), which can land on this script as
+; EmergencyReset can: relayed.
+Function DecideTeleportsAtOnce(int aiAtOnce)
+	Controller.DecideTeleportsAtOnce(aiAtOnce)
+EndFunction
+
+Function WatchBusy(int aiOn)
+	Controller.WatchBusy(aiOn)
 EndFunction

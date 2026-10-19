@@ -143,6 +143,39 @@
       }
     },
     {
+      "type": "switcher",
+      "text": "Knock enemies over",
+      "help": "Hostile people, creatures and smaller robots the bike hits at speed are knocked over and take a little damage, and the bike loses some speed at each (needs F4SE and the CMB_Slope.dll plugin). Never companions, essential characters, anyone in power armor or the big ones (super mutants, behemoths, deathclaws, sentry bots, ...). Off: the bike brakes for them as for anyone.",
+      "valueOptions": {
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|84B"
+      }
+    },
+    {
+      "type": "slider",
+      "text": "Knock over from (speed)",
+      "help": "How fast the bike must be going, in game units a second (riding speed is about 900 at Speed 250%). Slower, it brakes for them.",
+      "valueOptions": {
+        "min": 100,
+        "max": 1500,
+        "step": 50,
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|84C"
+      }
+    },
+    {
+      "type": "slider",
+      "text": "Knock-over damage (% of their health)",
+      "help": "At riding speed; half that at the slowest, up to one and a half times faster. It never kills. 0 = none.",
+      "valueOptions": {
+        "min": 0,
+        "max": 50,
+        "step": 5,
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|84D"
+      }
+    },
+    {
       "type": "slider",
       "text": "Less fall damage (%)",
       "help": "How much less fall damage you take while riding. 100 = none. Takes effect the next time you get on.",

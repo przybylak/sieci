@@ -35,18 +35,32 @@ public static class Vanilla
     public static readonly FormKey AmmoFlamerFuel = Fo4(0x0CAC78);
     public static readonly FormKey AudioCategorySFX = Fo4(0x0172A1);
     public static readonly FormKey SOMMono02000 = Fo4(0x07E5DC);
+    public static readonly FormKey CurrentCompanionFaction = Fo4(0x023C01);
+    // Races never knocked over by the bike (CMB_RamTooBig; Mutagen's Fallout4 FormKeys): super
+    // mutants (SuperMutantRace 01A009) and behemoths (SupermutantBehemothRace 0BB7D9), deathclaws,
+    // mirelurk queens, Liberty Prime, sentry bots (SentryBotRace 0AE0B7), yao guai, vertibirds, the
+    // three turret races, radscorpions, brahmin, synth gorillas, power armor. Test 40: super mutants
+    // and the sentry bot don't count; the smaller robots (protectrons, eyebots, Mr. Handy and Gutsy,
+    // assaultrons) and the mutant hounds (FEVHoundRace 090C33, dogs) do, so they are not listed.
+    // DLC races can't be listed without their masters: the plugin's size limit covers them.
+    public static readonly FormKey[] TooBigToKnockOver =
+    {
+        Fo4(0x01A009), Fo4(0x0BB7D9), Fo4(0x01DB4A), Fo4(0x0E12A6), Fo4(0x108019), Fo4(0x0AE0B7), Fo4(0x0A0F2F),
+        Fo4(0x0D77E3), Fo4(0x0B28D3), Fo4(0x0B1F08), Fo4(0x1A6D64), Fo4(0x0636AB), Fo4(0x02047E), Fo4(0x0D9804), Fo4(0x01D31E),
+    };
 
     // Record types of the vanilla forms above, for the property type check.
     public static string Describe(FormKey key) =>
         key == PlayerRef ? "PlacedNpc"
         : key == XMarker ? "Static"
-        : key == HumanRace ? "Race"
+        : key == HumanRace || TooBigToKnockOver.Contains(key) ? "Race"
         : key == SpeedMult || key == CarryWeight || key == FallingDamageMod || key == Health ? "ActorValueInformation"
         : key == Pipboy ? "Armor"
         : key == AnimArchetypePlayer ? "Keyword"
         : key == AmmoFlamerFuel ? "Ammunition"
         : key == AudioCategorySFX ? "SoundCategory"
         : key == SOMMono02000 ? "SoundOutputModel"
+        : key == CurrentCompanionFaction ? "Faction"
         : "unknown";
 }
 
@@ -195,6 +209,11 @@ public static class Program
                 Switcher("Thrown off when hit", "A big hit from an enemy knocks you off the bike, so you can fight back. Off: you keep riding; a hint says how to get off when a fight starts.", "CMB_DismountOnHit"),
                 Slider("Big hit (% of max health)", "How much of your max health a hit (or several within about a second) must take to knock you off. Power attacks and explosions always do. 0 = any hit. Not in the first 3 seconds after getting on.",
                     "CMB_KnockOffDamage", 0, 50, 5),
+                Switcher("Knock enemies over", "Hostile people, creatures and smaller robots the bike hits at speed are knocked over and take a little damage, and the bike loses some speed at each (needs F4SE and the CMB_Slope.dll plugin). Never companions, essential characters, anyone in power armor or the big ones (super mutants, behemoths, deathclaws, sentry bots, ...). Off: the bike brakes for them as for anyone.", "CMB_RamEnemies"),
+                Slider("Knock over from (speed)", "How fast the bike must be going, in game units a second (riding speed is about 900 at Speed 250%). Slower, it brakes for them.",
+                    "CMB_RamMinSpeed", 100, 1500, 50),
+                Slider("Knock-over damage (% of their health)", "At riding speed; half that at the slowest, up to one and a half times faster. It never kills. 0 = none.",
+                    "CMB_RamDamage", 0, 50, 5),
                 Slider("Less fall damage (%)", "How much less fall damage you take while riding. 100 = none. Takes effect the next time you get on.",
                     "CMB_FallDamageCut", 0, 100, 5),
                 Slider("Free small falls (% of max health)", "Falls while riding that would cost less than this much of your max health cost nothing. Bigger falls still hurt (less, by the setting above). 0 = off. Every fall while riding is logged.",
@@ -456,6 +475,25 @@ public static class Program
         if (gHeadlampShadows.FormKey.ID != 0x842 || gHeadlampRefHi.FormKey.ID != 0x843 || gHeadlampRefLo.FormKey.ID != 0x844)
             throw new InvalidOperationException($"CMB_HeadlampShadows, CMB_HeadlampRefHi and CMB_HeadlampRefLo must be 0x842-0x844 (CMB_Slope.dll looks for them), got {gHeadlampShadows.FormKey.ID:X}, {gHeadlampRefHi.FormKey.ID:X}, {gHeadlampRefLo.FormKey.ID:X}");
 
+        // --- Knocking enemies over (test 40's wish): CMB_Slope.dll's rays see an actor ahead and ask
+        // CMB_RamScript about it (SeenHi/Lo: its form id's halves; Seen: the ask's number), the script
+        // answers in Ok (the number: yes; minus it: no), and the plugin tells the hit (HitSpeed, then
+        // Hit: the number of the ask said yes to). Enemies and MinSpeed are the MCM's, read by both;
+        // Damage the script's. Fixed IDs 0x845-0x84D, the list of races never knocked over 0x84E.
+        // Test 40: on by default, 10% of their health is fine, from 450 a second (half riding speed).
+        var gRam = new[] { "SeenHi", "SeenLo", "Seen", "Ok", "HitSpeed", "Hit" }.Select(n => Global(mod, "CMB_Ram" + n, 0)).ToArray();
+        var gRamEnemies = Global(mod, "CMB_RamEnemies", 1);
+        var gRamMinSpeed = Global(mod, "CMB_RamMinSpeed", 450);   // units a second; riding speed is about 900
+        var gRamDamage = Global(mod, "CMB_RamDamage", 10);        // percent of the actor's max health at riding speed
+        var ramTooBig = mod.FormLists.AddNew("CMB_RamTooBig");
+        foreach (var race in Vanilla.TooBigToKnockOver)
+            ramTooBig.Items.Add(new FormLink<IFallout4MajorRecordGetter>(race));
+        // Each one checked: the plugin finds 0x845-0x84C by ID, and a form created before them here moves them all.
+        var ramForms = gRam.Append(gRamEnemies).Append(gRamMinSpeed).Append(gRamDamage).Cast<IMajorRecordGetter>().Append(ramTooBig).ToArray();
+        for (int i = 0; i < ramForms.Length; i++)
+            if (ramForms[i].FormKey.ID != 0x845 + i)
+                throw new InvalidOperationException($"{ramForms[i].EditorID} must be 0x{0x845 + i:X} (CMB_RamSeenHi..CMB_RamMinSpeed 0x845-0x84C, CMB_Slope.dll looks for them; CMB_RamDamage 0x84D, CMB_RamTooBig 0x84E), got {ramForms[i].FormKey.ID:X}");
+
         // --- Controller quest ---
         quest.Name = "Commonwealth Motorbike";
         quest.Data = new QuestData
@@ -535,6 +573,21 @@ public static class Program
             Obj("CMB_TurnRadius", gTurnRadius),
             Obj("CMB_StandTurnRate", gStandTurn),
             Obj("GroundProbeRef", probeRef));
+        // Knocking enemies over: does anything only with CMB_Slope.dll (F4SE), which writes the asks.
+        var ram = Script("CMB_RamScript",
+            Obj("PlayerRef", Vanilla.PlayerRef),
+            Obj("Health", Vanilla.Health),
+            Obj("CurrentCompanionFaction", Vanilla.CurrentCompanionFaction),
+            Obj("CMB_RamTooBig", ramTooBig),
+            Obj("CMB_RamEnemies", gRamEnemies),
+            Obj("CMB_RamMinSpeed", gRamMinSpeed),
+            Obj("CMB_RamDamage", gRamDamage),
+            Obj("CMB_RamSeenHi", gRam[0]),
+            Obj("CMB_RamSeenLo", gRam[1]),
+            Obj("CMB_RamSeen", gRam[2]),
+            Obj("CMB_RamOk", gRam[3]),
+            Obj("CMB_RamHitSpeed", gRam[4]),
+            Obj("CMB_RamHit", gRam[5]));
         // Optional: only does anything with F4SE and the compiled CMB_HotkeyF4SE.pex.
         var hotkey = Script("CMB_HotkeyF4SE",
             Obj("Controller", quest),
@@ -550,7 +603,7 @@ public static class Program
         {
             Version = 6,
             ObjectFormat = 2,
-            Scripts = new ExtendedList<ScriptEntry> { controller, hotkey, gear },
+            Scripts = new ExtendedList<ScriptEntry> { controller, hotkey, gear, ram },
             Aliases = new ExtendedList<QuestFragmentAlias>
             {
                 new QuestFragmentAlias
@@ -835,6 +888,10 @@ public static class Program
                                       $"targets [{string.Join(", ", sg.TargetKeywords.Select(k => k.FormKey))}] " +
                                       $"{sg.BehaviorGraph} paths [{string.Join(", ", sg.AnimationPaths)}]");
             }
+            // The lists' entries (CMB_RamTooBig's races, CMB_FuelItems), one a line.
+            if (rec is IFormListGetter list)
+                foreach (var item in list.Items)
+                    Console.WriteLine($"      item {item.FormKey} {types.GetValueOrDefault(item.FormKey, Vanilla.Describe(item.FormKey))}");
             if (rec is IQuestGetter quest && quest.VirtualMachineAdapter != null)
                 foreach (var alias in quest.VirtualMachineAdapter.Aliases)
                 {

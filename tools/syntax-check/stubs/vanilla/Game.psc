@@ -6,3 +6,4 @@ Function FadeOutGame(bool abFadingOut, bool abBlackFade, float afSecsBeforeFade,
 bool Function IsPluginInstalled(string asName) native global
 Form Function GetFormFromFile(int aiFormID, string asFilename) native global
 Function ForceFirstPerson() native global
+Form Function GetForm(int aiFormID) native global

@@ -66,7 +66,7 @@ if not exist "!FLAGS!" (
 rem --- Core scripts (vanilla API only) --------------------------------------
 set FAILED=0
 echo.
-for %%S in (CMB_ControllerScript CMB_BikeActivatorScript CMB_KeysEffectScript CMB_SwimWatchEffectScript CMB_SideBagScript CMB_PlayerAliasScript) do (
+for %%S in (CMB_ControllerScript CMB_BikeActivatorScript CMB_KeysEffectScript CMB_SwimWatchEffectScript CMB_SideBagScript CMB_PlayerAliasScript CMB_MCMRelay CMB_RamScript) do (
   echo Compiling %%S...
   "!COMPILER!" "!SRC!\%%S.psc" -f="!FLAGS!" -i="!SRC!;!BASE!" -o="!OUT!"
   if !errorlevel! neq 0 (

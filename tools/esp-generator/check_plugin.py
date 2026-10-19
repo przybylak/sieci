@@ -26,6 +26,7 @@ COMPATIBLE = {
     "sound": {"SoundDescriptor"},
     "quest": {"Quest"},
     "formlist": {"FormList"},
+    "faction": {"Faction"},
     "spell": {"Spell"},
     "int": {"Int"},
     "bool": {"Bool"},

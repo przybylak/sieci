@@ -52,7 +52,7 @@ The scripts need to be compiled to `Data\Scripts\*.pex`. Two ways:
   F4SE 0.7.9's own `Actor.psc`). Prebuilt `.pex` files made this way may come with the meshes and clips.
 - **With the Creation Kit:** double-click **`compile_scripts.bat`**. It finds Fallout 4 through the registry
   (or `set FO4=D:\path\to\Fallout 4` first), unzips the vanilla script sources the first time, and compiles the
-  five core scripts. If F4SE's script sources are installed (in `Data\Scripts\Source`, `Source\F4SE` or
+  eight core scripts. If F4SE's script sources are installed (in `Data\Scripts\Source`, `Source\F4SE` or
   `Source\User`; with MO2 run it from MO2 so it sees them), it also compiles the two optional F4SE scripts
   (hotkey, gear restore); otherwise it skips them, and the mod works without them.
 

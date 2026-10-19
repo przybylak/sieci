@@ -10,13 +10,16 @@ A rideable motorbike for Fallout 4:
 - **seated riding animations** with lean in turns and ridden U-turns; the bike turns with you on the spot and in conversations; an **engine sound** that follows your speed
 - **a Harley-Davidson Iron 883** as the bike (Nieve5677's Sketchfab model, CC-BY), on the vanilla motorcycle's collision; with F4SE its wheels spin with the distance ridden and the bars turn with you (the hands go with them); the vanilla bike can be built instead
 - **a headlamp** (the Harley build, F4SE): a round LED lamp on the fork bracket with its running light lit, and a real spot beam (like the power armor's, a light the mod places at the lamp) that turns with the bars and tilts with the bike; MCM: off, on, or on at night, and a hotkey
-- **rides like a vehicle, not a person**: 75% less fall damage while riding (adjustable), deep water ends the ride and leaves the bike on the bank, and an enemy's hit knocks you off (optional)
-- **follows the ground**: the parked bike stands on the ground, tilted to match the slope (with F4SE, on the ground you just rode over); with F4SE, the bike also pitches with the ground while you ride, leans into turns at speed (the rider with it, head level), stops short of boulder faces, keeps its tyres on top of small bumps, turns in a circle rather than on the spot, climbs slopes too steep to walk up, and the camera sits farther back
+- **rides like a vehicle, not a person**: 75% less fall damage while riding (adjustable), deep water ends the ride and leaves the bike on the bank, and an enemy's hit knocks you off (optional); with F4SE, hostile people, creatures and smaller robots the bike hits at speed are knocked over and take a little damage, the bike losing some speed at each (MCM "Knock enemies over"; never companions, essential characters, anyone in power armor or the big ones: super mutants, behemoths, deathclaws, sentry bots and the like)
+- **follows the ground**: the parked bike stands on the ground, tilted to match the slope (with F4SE, on the ground you just rode over); with F4SE, the bike also pitches with the ground while you ride, leans into turns at speed (the rider with it, head level), stops short of boulder faces, climbs over fallen trunks and stumps, keeps its tyres on top of small bumps, turns in a circle rather than on the spot, climbs slopes too steep to walk up, and the camera sits farther back
 - **MCM menu** for every setting (with MCM installed); with F4SE, gear in the bike's slot goes back on after a ride
 
-> **Status: never run in game.** The plugin is generated and verified offline: its structure, every script property
-> and the vanilla form IDs are checked, and the scripts compile cleanly against stand-in versions of the
-> Fallout 4 scripting API. Nobody has loaded it in the game yet, so expect a round or two of fixes.
+> **Status: in testing.** It has been tested in game round by round since the first build (test 40 the
+> latest), each round answered from the logs and videos sent back. Every round's changes are checked offline
+> before they ship: the plugin's structure, every script property and the vanilla form IDs, the scripts compiled
+> against stand-in versions of the Fallout 4 scripting API, and `CMB_Slope.dll` run against a fake game
+> (`tools/f4se-slope/test`). What changed since the last round hasn't run in the game until the next, so expect
+> fixes after each.
 > [TESTING.md](docs/TESTING.md) says what to send back.
 
 ## Already exists?
@@ -56,8 +59,8 @@ Getting off reverses all of that and parks the bike next to you. Indoors (dungeo
 | **Python 3** | `make_rider_pose.bat` builds `CMB_RiderPose.esp` and its animation data from your load order and game files |
 | Python + [PyNifly](https://github.com/BadDogSkyrim/PyNifly), Bethesda Archive Extractor | only to build the bike meshes and riding clips yourself (the meshes put the Sketchfab model on the vanilla bike's collision and the clips are derived from the game's files, so none of it is in the repository) |
 | Creation Kit (optional) | not needed: the scripts can be compiled with Caprica (`tools/syntax-check`); `compile_scripts.bat` uses the Creation Kit's compiler if you have it |
-| F4SE (optional) | dedicated hotkey, weight-based side bag, slot-57 gear put back on after a ride, steeper slopes, a camera farther back and the bike tilting with the ground while riding, and the parked bike laid on the ground under you (the `CMB_Slope.dll` plugin, Fallout 4 1.11.240 only), MCM menu; without it you favorite the keys for a hotkey and the bag counts items |
-| Testing in game + Papyrus log | I can't run the game; the log and screenshots are how fixes happen |
+| F4SE (optional) | dedicated hotkey, weight-based side bag, slot-57 gear put back on after a ride, steeper slopes, a camera farther back, the bike tilting with the ground and knocking enemies over while riding, and the parked bike laid on the ground under you (the `CMB_Slope.dll` plugin, Fallout 4 1.11.240 only), MCM menu; without it you favorite the keys for a hotkey and the bag counts items |
+| Testing in game + Papyrus log | I can't run the game; the logs and screenshots are how fixes happen (with F4SE the plugin's `CMB_Slope.log` too; since test 41 the session before's is kept beside it as `CMB_Slope_prev.log`, so a crash and a restart don't lose it) |
 
 ## Getting started
 
@@ -99,8 +102,13 @@ Details for every step: [docs/BUILD_GUIDE.md](docs/BUILD_GUIDE.md).
 | `set CMB_TurnRadius to <units>` (tightest turn at riding speed, F4SE plugin; 0 = turn like on foot) | 180 |
 | `set CMB_TurnRadiusSlow to <units>` (tightest turn at walking pace, F4SE plugin) | 50 |
 | `set CMB_StandTurnRate to <deg/s>` (turning when stopped, F4SE plugin) | 60 |
+| `set CMB_RamEnemies to <0/1>` (hostile actors the bike hits at speed are knocked over, F4SE plugin; 0 = it brakes for them as for anyone) | 1 |
+| `set CMB_RamMinSpeed to <units a second>` (knocked over only this fast or faster; riding speed is about 900 at 250%; slower, the bike brakes for them) | 450 |
+| `set CMB_RamDamage to <0–50>` (their damage at riding speed, percent of their max health: half that at the slowest, up to one and a half times faster; it never kills) | 10 |
 | `cqf CMB_ControllerQuest EmergencyReset` | undo everything if stuck |
 | `cqf CMB_ControllerQuest ForceGiveKeys` | keys, if an alternative-start mod skipped the Pip-Boy |
+| `cqf CMB_ControllerQuest DecideTeleportsAtOnce 1` (a door or a fast travel decided the moment the game sends it, as up to test 40; 0 = once it's over; kept in the save) | 0 |
+| `cqf CMB_ControllerQuest WatchBusy 0` (no busy watch: a keys, hotkey or bike action that hangs isn't let go after 10 s; 1 = on again; kept in the save) | 1 |
 
 With MCM installed, all of these are in *Mod Config → Commonwealth Motorbike* instead.
 
@@ -118,8 +126,10 @@ Data/                         mirrors the game's Data folder
     CMB_SwimWatchEffectScript tells the controller when you start and stop swimming
     CMB_SideBagScript         capacity-limited side bag
     CMB_PlayerAliasScript     save/load hook
+    CMB_MCMRelay              global functions MCM's keybinds and buttons call; each finds the controller and calls it
     CMB_HotkeyF4SE            optional F4SE hotkey
     CMB_GearRestoreF4SE       optional (F4SE): puts slot-57 gear back on after a ride
+    CMB_RamScript             knocks enemies over (does anything only with F4SE and CMB_Slope.dll, whose rays see them)
   Meshes/CMB/, Textures/CMB/  the bike meshes and their textures go here (built by tools/rider)
   Sound/FX/CMB/               engine sounds (synthesised by tools/sound)
   MCM/Config/                 MCM menu and hotkey (written by the generator)
@@ -137,10 +147,10 @@ tools/sound/                  engine sound synthesiser (Python + numpy)
 
 ## Roadmap
 
-1. **Done, untested in game:** ride / park / call / side bag / companions / fuel, worn and parked bike meshes,
-   seated riding animations with lean.
-2. **Next:** in-game testing; the remaining vanilla-timed stop and idle clips. MCM menu, engine sound and
-   gear restore are in, untested. Wheel spin and the bars' turn come with the Harley build and F4SE (see DESIGN.md).
+1. **Done, in testing in game:** ride / park / call / side bag / companions / fuel, worn and parked bike meshes,
+   seated riding animations with lean, MCM menu, engine sound and gear restore.
+2. **Next:** the next rounds of in-game testing; the remaining vanilla-timed stop and idle clips. Wheel spin and
+   the bars' turn come with the Harley build and F4SE (see DESIGN.md).
 3. **Later:** a visible pillion passenger, mount/dismount animations. Possibly a v2 built on the engine's mount
    system instead ([DESIGN.md](docs/DESIGN.md)).
 

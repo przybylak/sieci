@@ -52,7 +52,7 @@ EndFunction
 
 ; MCM's keybinds and buttons may call this script instead of the controller (test 31): relayed.
 Function HotkeyPressed()
-	Controller.HotkeyPressed()
+	Controller.HotkeyPressed("the MCM hotkey")
 EndFunction
 
 Function HeadlampPressed()
@@ -69,4 +69,14 @@ EndFunction
 
 Function EmergencyReset()
 	Controller.EmergencyReset()
+EndFunction
+
+; Test 41's console switches (cqf CMB_ControllerQuest ...), which can land on this script as
+; EmergencyReset can: relayed.
+Function DecideTeleportsAtOnce(int aiAtOnce)
+	Controller.DecideTeleportsAtOnce(aiAtOnce)
+EndFunction
+
+Function WatchBusy(int aiOn)
+	Controller.WatchBusy(aiOn)
 EndFunction

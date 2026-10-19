@@ -233,6 +233,32 @@ float Property DoorBringDistance = 6000.0 AutoReadOnly
 {The bike left outside a door is brought to the player who comes out within this of it (about
 85 m, a cell and a half): the same door, or another of the same building or town. Farther off
 it stays there; calling it still works.}
+int Property TimerTeleport = 10 AutoReadOnly
+float Property TeleportCheckInterval = 0.5 AutoReadOnly
+{Test 40: OnPlayerTeleport comes while the player is still where the teleport started, and they're
+moved seconds later, during the loading screen (Diamond City: the bike was brought to the gate on
+the way in and never on the way out). So the event only notes the teleport, and what it means is
+decided once it's over: when the loading screen closes, or, with none seen, when this timer, which
+looks every half second (a tick's worth of riding), finds the player moved.}
+int Property TeleportSettleChecks = 3 AutoReadOnly
+{No loading screen seen and the player not moved after this many looks (1.5 s): it's decided
+anyway. A script's MoveTo is over within a frame or two.}
+int Property TeleportMaxChecks = 120 AutoReadOnly
+{It's decided after this many looks whatever else (60 s of play): a loading screen whose close
+never came.}
+float Property TeleportMoved = 1500.0 AutoReadOnly
+{Moved: farther than this from where the event saw the player (riding covers at most about 900 units
+between two looks), or into another worldspace, or in or out of doors. Doors and fast travel are
+much farther.}
+string Property LoadingMenuName = "LoadingMenu" AutoReadOnly
+int Property TimerBusyWatch = 11 AutoReadOnly
+float Property BusyWatchTime = 10.0 AutoReadOnly
+{Test 40: the keys used outside Diamond City left no line, and a busy left set would have turned
+them away in silence. Busy held longer than this is logged, with who holds it, and let go. Getting
+on takes about a second; the longest hold seen, bringing the bike with its navmesh probes while a
+loading screen was up (test 40, 15:33:04-08), took 4 s. A menu seen open meanwhile starts the
+count again: Utility.Wait doesn't run in menus, so the holder can be waiting in one. Off with
+WatchBusy 0.}
 int Property LowFuelWarning = 3 AutoReadOnly
 string Property RiderPosePlugin = "CMB_RiderPose.esp" AutoReadOnly
 int Property RiderFlavorID = 0x800 AutoReadOnly
@@ -284,6 +310,40 @@ float lastOutdoorTime = 0.0   ; game days, at the last ride tick that found the 
 ; the player when they're out again near it (BringBikeFromDoor).
 bool bikeAtDoor = false
 WorldSpace doorWorld
+; Test 40's fast travel into Diamond City put the bike beside the player in the town. Now it's
+; marked as waiting at a door all the same, in the open worldspace of the last tick outdoors, and
+; brought from wherever it is the next time the player is outdoors there (LeaveBikeOutside).
+bool bikeInside = false
+WorldSpace lastOpenWorld      ; the worldspace of the last ride tick that found the player outdoors
+; A teleport OnPlayerTeleport noted and HandleTeleport hasn't handled yet: where the event saw the
+; player (not known after a load: the first look decides), when, and how many looks since.
+bool teleportPending = false
+bool teleportFromKnown = false
+WorldSpace teleportFromWorld
+bool teleportFromInside = false
+float teleportFromX = 0.0
+float teleportFromY = 0.0
+float teleportAt = 0.0        ; real seconds
+int teleportChecks = 0
+bool teleportSkipLogged = false
+bool noCellLogged = false
+; The loading screen (OnMenuOpenCloseEvent): up now, and seen up while the teleport was pending.
+bool loadingOpen = false
+bool loadingSeen = false
+; Test 41's switch: true decides a teleport in OnPlayerTeleport itself, as up to test 40
+; (DecideTeleportsAtOnce, from the console). False, the default, waits for it to be over.
+bool teleportsAtOnce = false
+; Who holds busy, and since when (real seconds), for the lines of the presses it turns away.
+string busyBy = ""
+float busySince = 0.0
+; The busy watch (BusyWatchTime): counted from here (the claim, or a menu seen open since), and
+; its switch (WatchBusy, from the console; false, the default, watches).
+float busyWatchFrom = 0.0
+bool busyWatchOff = false
+; What SetTiltLive last wrote to CMB_TiltLive, for RideTick's look at it (CheckTiltLive); not known
+; until it has written, as in a save from before it was kept.
+float tiltLiveWritten = 0.0
+bool tiltLiveKnown = false
 Actor[] stowedFollowers
 Actor[] boostedFollowers
 float[] boostedDeltas
@@ -297,6 +357,8 @@ Event OnInit()
 	EnsureArrays()
 	WatchSwimming()
 	WatchFalls()
+	; Kept for good: one event per loading screen, and a teleport waits for its close.
+	RegisterForMenuOpenCloseEvent(LoadingMenuName)
 	TryDeliverKeys()
 EndEvent
 
@@ -304,8 +366,30 @@ EndEvent
 Function OnGameReloaded()
 	UpgradeSettings()
 	EnsureArrays()
+	; Test 41's two console switches, so every log says which rules it ran with.
+	Log("Switches: teleports decided " + Ternary(teleportsAtOnce, "at once, in the event (DecideTeleportsAtOnce 1)", "once they're over") + ", busy watch " + Ternary(busyWatchOff, "off (WatchBusy 0).", "on (" + BusyWatchTime + " s)."))
+	if busy
+		; A save made while something held it (a loading screen allows saving): let go.
+		Log("Loaded with busy held (" + busyBy + "): let go.")
+	endif
 	busy = false
 	hasLastPos = false
+	; In case the save was made during a loading screen: its close won't come.
+	loadingOpen = false
+	loadingSeen = false
+	RegisterForMenuOpenCloseEvent(LoadingMenuName)
+	if !teleportsAtOnce && (teleportPending || (bikeAtDoor && !riding))
+		; Test 40: the exit autosave, loaded, brought the bike within a second (the save holds the
+		; player outside already). A teleport pending in the save is looked at in the same way.
+		bool atDoor = bikeAtDoor && !riding
+		teleportPending = true
+		teleportFromKnown = false
+		teleportChecks = 0
+		teleportSkipLogged = false
+		teleportAt = Utility.GetCurrentRealTime()
+		Log("Loaded with " + Ternary(atDoor, "the bike waiting at a door", "a teleport pending") + ": looked at once the load is over.")
+		StartTimer(TeleportCheckInterval, TimerTeleport)
+	endif
 	WatchSwimming()
 	WatchFalls()
 	if bikeWaitsForShore && !swimming
@@ -339,6 +423,7 @@ Function OnGameReloaded()
 		SetCameraLive(true)
 		SetSlopeLive(true)
 		SetTiltLive(true)
+		CallRam("StartRide")
 		if !headlampRef
 			PlaceHeadlamp()
 		endif
@@ -457,7 +542,28 @@ Function SetTiltLive(bool abRiding)
 			degrees = CMB_MaxTilt.GetValue()
 		endif
 		CMB_TiltLive.SetValue(degrees)
+		tiltLiveWritten = degrees
+		tiltLiveKnown = true
 	endif
+EndFunction
+
+; Test 40's load (15:23:42): the bars turned and the wheels spun, but the bike stood upright
+; through the turns and the rider sat straight up, no tilt and no torso lean. That is the
+; plugin's path for CMB_TiltLive at 0, and no script path was found that leaves it so while
+; riding; the plugin now logs that state ("tilt: riding with CMB_TiltLive at ..."). So each ride
+; tick looks too: anything but what SetTiltLive wrote is logged and put back. Compared with what
+; was written, not with CMB_MaxTilt, so the MCM's tilt still takes effect the next time you get
+; on (the putting back reads it, as getting on does).
+Function CheckTiltLive()
+	if !tiltLiveKnown || !CMB_TiltLive
+		return
+	endif
+	float reads = CMB_TiltLive.GetValue()
+	if reads == tiltLiveWritten || busy || !riding   ; looked at again after the call: a dismount that ran meanwhile wrote 0 on purpose
+		return
+	endif
+	SetTiltLive(true)
+	Log("CMB_TiltLive read " + reads + " while riding, put back to " + tiltLiveWritten + ".")
 EndFunction
 
 ; The headlamp (optional, F4SE plugin CMB_Slope.dll): it lights the lamp while
@@ -665,6 +771,20 @@ Function SetCameraLive(bool abRiding)
 	endif
 EndFunction
 
+; Knocking enemies over (test 40's wish; CMB_RamScript on this quest, with CMB_Slope.dll): its
+; 0.1 s poll runs only while riding. StartRide in Mount and after a load while riding (what the
+; ram globals hold then is old news), EndRide in FinishRide, which every way off goes through
+; (EmergencyReset too). The switches are the MCM's "Knock enemies over" (CMB_RamEnemies) and
+; [Ram] Enabled in CMB_Slope.ini; without the script nothing is called, and that is logged.
+Function CallRam(string asFunction)
+	ScriptObject ram = CastAs("CMB_RamScript")
+	if ram
+		ram.CallFunction(asFunction, new Var[0])
+	else
+		Log("Ram: CMB_RamScript is not on the quest: " + asFunction + " not called, nobody is knocked over.")
+	endif
+EndFunction
+
 Function CallGearRestore(string asFunction)
 	ScriptObject gear = CastAs("CMB_GearRestoreF4SE")
 	if gear
@@ -715,49 +835,155 @@ EndFunction
 
 ; Called by the keys' magic effect. Work is deferred to a timer so the effect
 ; can finish right away, and so a menu opened from the Pip-Boy shows after it closes.
+; Test 40: tries with the keys outside Diamond City left no line, so it's not known whether any
+; use reached the script. Every use is logged now, and HandleKeys logs what it did.
 Function RequestKeysAction()
+	Log("Keys used (t " + Utility.GetCurrentRealTime() + ").")
 	GiveKeysIfMissing(true)
 	StartTimer(0.1, TimerKeys)
 EndFunction
 
 ; F4SE and MCM hotkeys. Menus (including the console) pause the game; dialogue
-; doesn't, so check scenes too.
-Function HotkeyPressed()
-	if !Utility.IsInMenuMode() && !PlayerRef.IsInScene()
-		ToggleRide()
+; doesn't, so check scenes too. asFrom says which (test 40: every press is logged, an ignored one
+; too).
+Function HotkeyPressed(string asFrom = "the hotkey")
+	if Utility.IsInMenuMode()
+		Log("Hotkey (" + asFrom + ") ignored: in a menu.")
+	elseif PlayerRef.IsInScene()
+		Log("Hotkey (" + asFrom + ") ignored: in a scene.")
+	else
+		ToggleRide(asFrom)
 	endif
 EndFunction
 
 ; Hotkey behaviour: get off, get on, or call the bike over if it's not nearby.
-Function ToggleRide()
+Function ToggleRide(string asFrom)
 	; Nothing to ride before the keys turn up (pre-war intro, Vault 111).
-	if busy || !keysDelivered
+	if !keysDelivered
+		Log("Hotkey (" + asFrom + ") ignored: the keys aren't handed out yet.")
+		return
+	endif
+	bool near = IsBikeNearPlayer()
+	Log("Hotkey (" + asFrom + "): " + PressState(near) + ".")
+	if busy
+		Log("Hotkey ignored: busy (" + BusyText() + ").")
 		return
 	endif
 	if riding
+		Log("Hotkey: getting off.")
 		Dismount()
-	elseif IsBikeNearPlayer()
+	elseif near
 		; First, even with a door mark left set (the player came out far from the bike and walked
 		; back to it): beside the bike the press gets on, it doesn't move the bike.
+		Log("Hotkey: the bike beside the player: getting on.")
 		Mount()
-	elseif BringBikeFromDoor()
-		; It waited outside the door the player came out of: it's here now, the next press gets on.
 	else
+		if bikeAtDoor
+			Log("Hotkey: the bike waits at a door: bringing it.")
+			if BringBikeFromDoor(asFrom)
+				; It waited outside the door the player came out of: it's here now, the next press
+				; gets on.
+				return
+			endif
+		endif
+		Log("Hotkey: calling the bike.")
 		CallBike()
 	endif
 EndFunction
 
+; The state a keys use or a hotkey press found, for its log line.
+string Function PressState(bool abNear)
+	string text = "riding " + riding + ", busy " + busy
+	if busy
+		text += " (" + BusyText() + ")"
+	endif
+	text += ", the bike near " + abNear + " / at a door " + bikeAtDoor
+	if bikeAtDoor
+		text += " (in " + doorWorld + Ternary(bikeInside, ", kept hidden where the player went in", "") + ")"
+	endif
+	return text + ", the player in " + PlaceText(PlayerRef.GetParentCell(), PlayerRef.GetWorldSpace())
+EndFunction
+
+; Where the player is, for the log: the worldspace outdoors, the cell indoors.
+string Function PlaceText(Cell akCell, WorldSpace akWorld)
+	if !akCell
+		return "no cell (in transit)"
+	elseif akCell.IsInterior()
+		return "" + akCell + ", indoors"
+	endif
+	return "" + akWorld
+EndFunction
+
+; Right after each claim of busy: who holds it, and since when; and the busy watch started (one
+; timer, restarted by every claim, so it looks at the latest).
+Function NoteBusy(string asWho)
+	busyBy = asWho
+	; Being noted (the time read below lets other threads run): the watch leaves this claim be.
+	busyWatchFrom = -1.0
+	busySince = Utility.GetCurrentRealTime()
+	busyWatchFrom = busySince
+	if !busyWatchOff
+		StartTimer(BusyWatchTime, TimerBusyWatch)
+	endif
+EndFunction
+
+; Test 40 (the busy watch): busy held BusyWatchTime by the latest claim is logged and let go. A
+; menu open now counts it again from now; a claim made since the timer started, or a menu seen,
+; leaves what's left of it to wait; a claim being noted starts the watch again itself. Busy is
+; looked at again after the last call: from there to the let-go nothing else can run.
+Function BusyWatchFired()
+	if !busy || busyWatchOff
+		return
+	endif
+	bool menu = Utility.IsInMenuMode()
+	float now = Utility.GetCurrentRealTime()
+	if !busy || busyWatchFrom < 0.0
+		return
+	endif
+	if menu
+		busyWatchFrom = now
+	endif
+	float left = BusyWatchTime - (now - busyWatchFrom)
+	if left > 0.0
+		StartTimer(left, TimerBusyWatch)
+		return
+	endif
+	busy = false
+	Log("Busy held " + (now - busySince) + " s (" + busyBy + "): let go.")
+EndFunction
+
+; Console, test 41's switch: cqf CMB_ControllerQuest WatchBusy 0 turns the busy watch off (busy is
+; then held for as long as its holder runs, as up to test 40); 1 (the default) turns it on. Kept in
+; the save.
+Function WatchBusy(int aiOn)
+	busyWatchOff = aiOn == 0
+	if busyWatchOff
+		CancelTimer(TimerBusyWatch)
+	elseif busy
+		busyWatchFrom = Utility.GetCurrentRealTime()
+		StartTimer(BusyWatchTime, TimerBusyWatch)
+	endif
+	Log("Busy watch " + Ternary(busyWatchOff, "off (as up to test 40).", "on: busy held over " + BusyWatchTime + " s is let go."))
+EndFunction
+
+string Function BusyText()
+	return busyBy + ", " + (Utility.GetCurrentRealTime() - busySince) + " s"
+EndFunction
+
 Function Mount()
 	if riding || busy
+		Log("Getting on ignored: " + Ternary(riding, "riding already.", "busy (" + BusyText() + ")."))
 		return
 	endif
 	; Claim the lock before calling anything on other objects: those calls let
 	; other threads (hotkey, timer, activation) run in between.
 	busy = true
+	NoteBusy("getting on")
 	string blocker = GetMountBlocker()
 	if blocker != ""
 		busy = false
 		Debug.Notification(blocker)
+		Log("Getting on refused: " + blocker)
 		return
 	endif
 	EnsureArrays()
@@ -799,6 +1025,7 @@ Function Mount()
 	WatchFootsteps()
 	SetSlopeLive(true)
 	SetTiltLive(true)
+	CallRam("StartRide")
 	PlaceHeadlamp()
 	SetHeadlampLive(true)
 	; Whatever is there is old (or from a game with the plugin): it writes them again at once.
@@ -822,6 +1049,7 @@ EndFunction
 
 Function Dismount()
 	if !riding || busy
+		Log("Getting off ignored: " + Ternary(!riding, "not riding.", "busy (" + BusyText() + ")."))
 		return
 	endif
 	if CMB_TrackSlope && CMB_TrackSlope.GetValue() > MaxDismountSlope
@@ -830,6 +1058,7 @@ Function Dismount()
 		return
 	endif
 	busy = true
+	NoteBusy("getting off")
 
 	Game.FadeOutGame(true, true, 0.0, 0.25, true)
 	Utility.Wait(0.3)
@@ -842,23 +1071,31 @@ Function Dismount()
 	busy = false
 EndFunction
 
-; Bring the parked bike to the player (outdoors only).
+; Bring the parked bike to the player (outdoors only). Each refusal is logged with its reason and
+; the message shown (test 40).
 Function CallBike()
 	if riding || busy
+		Log("Calling the bike ignored: " + Ternary(riding, "riding.", "busy (" + BusyText() + ")."))
 		return
 	endif
 	busy = true
+	NoteBusy("calling the bike")
+	string refusal = ""
+	string notice = ""
 	if PlayerRef.IsInInterior()
-		busy = false
-		Debug.Notification("You can only call your motorbike outdoors.")
-		return
+		refusal = "indoors"
+		notice = "You can only call your motorbike outdoors."
 	elseif InClosedWorld()
-		busy = false
-		Debug.Notification("There's no room for your motorbike here.")
-		return
+		refusal = "in an enclosed worldspace (" + lastWorld + ")"
+		notice = "There's no room for your motorbike here."
 	elseif swimming
+		refusal = "swimming"
+		notice = DeepWaterMessage
+	endif
+	if refusal != ""
 		busy = false
-		Debug.Notification(DeepWaterMessage)
+		Debug.Notification(notice)
+		Log("Calling the bike refused: " + refusal + ": " + notice)
 		return
 	endif
 	RollBikeUp()
@@ -881,23 +1118,48 @@ EndFunction
 
 ; The bike left outside a door (LeaveBikeOutside) comes to the player when they're next
 ; outdoors in an open worldspace, in the one it waits in and within DoorBringDistance of it:
-; on the teleport out, or when the keys or the hotkey are used. Quietly, as calling it does
-; but with no sound or message: it was parked there. Test 39: ridden up Diamond City's narrow
+; once the teleport out is over (HandleTeleport; test 40: decided in the event, it still saw
+; Diamond City and brought nothing), after a load, or when the keys or the hotkey are used
+; (asWho says which). Quietly, as calling it does but with no sound or message: it was parked
+; there. Test 39: ridden up Diamond City's narrow
 ; stairwell to the gate, the bike was left where it was last put, 110 units to the rider's
 ; right at their height and not settled, inside or behind the wall: coming out, the tester
 ; found no bike in front of the gate or in the square. True if it came. Coming out of the
 ; same door the player is often within MountRange of the spot it was left at, and that spot
 ; is the one in the wall, so it's brought then too; a player who walked back to the bike gets
 ; on instead (ToggleRide and HandleKeys try the bike beside them first, and getting on clears
-; the mark).
-bool Function BringBikeFromDoor()
-	if !bikeAtDoor || riding || busy
+; the mark). Every refusal is logged with its reason (test 40: they were silent).
+bool Function BringBikeFromDoor(string asWho)
+	if !bikeAtDoor
+		return false
+	elseif riding || busy
+		Log("Bike not brought from the door (" + asWho + "): " + Ternary(riding, "riding.", "busy (" + BusyText() + ")."))
 		return false
 	endif
 	busy = true
-	if PlayerRef.IsInInterior() || InClosedWorld() || swimming || PlayerRef.GetWorldSpace() != doorWorld
+	NoteBusy("bringing the bike from a door")
+	string refusal = ""
+	if PlayerRef.IsInInterior()
+		refusal = "indoors"
+	elseif InClosedWorld()
+		refusal = "in an enclosed worldspace (" + lastWorld + ")"
+	elseif swimming
+		refusal = "swimming"
+	elseif lastWorld != doorWorld
+		; InClosedWorld has just read the player's worldspace into lastWorld.
+		refusal = "in " + lastWorld + ", the bike waits in " + doorWorld
+	endif
+	if refusal != ""
 		busy = false
+		Log("Bike not brought from the door (" + asWho + "): " + refusal + ".")
 		return false
+	endif
+	if bikeInside
+		; It came in with the player (LeaveBikeOutside): brought from there, whatever the distance.
+		RollBikeUp()
+		busy = false
+		Log("Bike brought (" + asWho + ") from where the player went in, kept hidden there: outdoors in " + doorWorld + " again.")
+		return true
 	endif
 	; The bike too: a tick that slipped past the ride's re-check can have put it beside the
 	; player after the mark was set, inside the town. A distance across worldspaces means
@@ -925,6 +1187,7 @@ EndFunction
 Function ForgetDoor()
 	if bikeAtDoor
 		bikeAtDoor = false
+		bikeInside = false
 		doorWorld = None
 		UpdateTeleportWatch()
 	endif
@@ -948,10 +1211,13 @@ EndFunction
 
 ; Console escape hatch: undoes everything riding changed, whatever state we're in.
 Function EmergencyReset()
+	teleportPending = false
+	CancelTimer(TimerTeleport)
 	CancelTimer(TimerTick)
 	CancelTimer(TimerKeys)
 	UnregisterForPlayerTeleport()
 	busy = true
+	NoteBusy("the emergency reset")
 	if !PlayerRef.IsInInterior() && !InClosedWorld()
 		ParkBesidePlayer()
 		ForgetDoor()
@@ -1007,10 +1273,48 @@ Event OnTimer(int aiTimerID)
 		if riding
 			StartTimer(TickInterval, TimerTick)
 		endif
+	elseif aiTimerID == TimerTeleport
+		CheckTeleport()
+	elseif aiTimerID == TimerBusyWatch
+		BusyWatchFired()
 	endif
 EndEvent
 
+; Test 40: the event comes while the player is still where the teleport started; they're moved
+; seconds later, during the loading screen. Decided here, the way out of Diamond City still saw the
+; town and brought no bike, the way in still saw the gate and brought it there, and a fast
+; travel's ride tick put the bike beside the player after the move ("left hidden"). So it's only
+; noted here, with where the player is now; what it means is decided once it's over
+; (HandleTeleport): when the loading screen closes, or when a look finds the player moved
+; (CheckTeleport). Ride ticks wait for it.
 Event OnPlayerTeleport()
+	if teleportsAtOnce
+		DecideTeleportNow()
+		return
+	endif
+	if teleportPending
+		Log("Teleport seen again (t " + Utility.GetCurrentRealTime() + ") before the last one was handled: the first reading kept.")
+		return
+	endif
+	; Claimed before calling anything: every call below lets another thread run.
+	teleportPending = true
+	teleportFromKnown = true
+	teleportChecks = 0
+	teleportSkipLogged = false
+	; The loading screen may be up already.
+	loadingSeen = loadingOpen
+	teleportAt = Utility.GetCurrentRealTime()
+	Cell here = PlayerRef.GetParentCell()
+	teleportFromWorld = PlayerRef.GetWorldSpace()
+	teleportFromInside = here && here.IsInterior()
+	teleportFromX = PlayerRef.GetPositionX()
+	teleportFromY = PlayerRef.GetPositionY()
+	Log("Teleport seen (t " + teleportAt + "): the player in " + PlaceText(here, teleportFromWorld) + " at (" + teleportFromX + ", " + teleportFromY + "); riding " + riding + ", bike at a door " + bikeAtDoor + ".")
+	StartTimer(TeleportCheckInterval, TimerTeleport)
+EndEvent
+
+; As up to test 40 (the switch, DecideTeleportsAtOnce): decided in the event itself.
+Function DecideTeleportNow()
 	if riding
 		hasLastPos = false
 		RideTick()
@@ -1019,25 +1323,157 @@ Event OnPlayerTeleport()
 	if !keysDelivered
 		TryDeliverKeys()
 	endif
-	BringBikeFromDoor()
+	BringBikeFromDoor("the teleport")
+EndFunction
+
+; The loading screen, watched for good (OnInit, OnGameReloaded): a pending teleport is handled
+; when it closes, with the player where the teleport took them.
+Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
+	if asMenuName != LoadingMenuName
+		return
+	endif
+	loadingOpen = abOpening
+	if abOpening
+		if teleportPending
+			loadingSeen = true
+		endif
+		Log("Loading screen up" + Ternary(teleportPending, ", a teleport pending.", "."))
+	elseif !teleportPending
+		Log("Loading screen over.")
+	elseif PlayerRef.GetParentCell()
+		Log("Loading screen over.")
+		HandleTeleport("the loading screen closed")
+	else
+		; Not somewhere yet: the looks go on, by the player's place alone.
+		loadingSeen = false
+		Log("Loading screen over, the player in no cell yet: the next look decides.")
+		StartTimer(TeleportCheckInterval, TimerTeleport)
+	endif
 EndEvent
+
+; Every TeleportCheckInterval while a teleport is pending: has the player arrived? It waits while
+; the loading screen or any menu is up, while the player is in no cell, and once a loading screen
+; was seen until it closes (OnMenuOpenCloseEvent decides then). Otherwise it decides when the
+; player is seen moved, or after TeleportSettleChecks looks without (a teleport with no loading
+; screen, or an event sent after the move), and after TeleportMaxChecks whatever else.
+Function CheckTeleport()
+	if !teleportPending
+		return
+	endif
+	teleportChecks += 1
+	Cell here = PlayerRef.GetParentCell()
+	bool menu = Utility.IsInMenuMode()
+	WorldSpace world = PlayerRef.GetWorldSpace()
+	string how = ""
+	if teleportChecks >= TeleportMaxChecks
+		how = "the " + (TeleportMaxChecks * TeleportCheckInterval) as int + " s cap, look " + teleportChecks
+	elseif here && !loadingOpen && !menu && !loadingSeen
+		bool inside = here.IsInterior()
+		float dx = PlayerRef.GetPositionX() - teleportFromX
+		float dy = PlayerRef.GetPositionY() - teleportFromY
+		float distance = Math.Sqrt(dx * dx + dy * dy)
+		if !teleportFromKnown
+			how = "look " + teleportChecks + ", after loading a save"
+		elseif world != teleportFromWorld
+			how = "look " + teleportChecks + ": moved into another worldspace"
+		elseif inside != teleportFromInside
+			how = "look " + teleportChecks + ": moved " + Ternary(inside, "indoors", "outdoors")
+		elseif distance > TeleportMoved
+			how = "look " + teleportChecks + ": moved " + distance + " units"
+		elseif teleportChecks >= TeleportSettleChecks
+			how = "look " + teleportChecks + ": not moved in " + (TeleportSettleChecks * TeleportCheckInterval * 1000.0) as int + " ms, no loading screen seen"
+		endif
+	endif
+	if how == ""
+		StartTimer(TeleportCheckInterval, TimerTeleport)
+	else
+		HandleTeleport(how)
+	endif
+EndFunction
+
+; The teleport is over: decided now, with the player where it took them. Riding, the ride tick
+; looks (a door or a fast travel into a place the bike can't go ends the ride); otherwise the keys
+; are handed out if they're still to come, and the bike waiting at a door is brought.
+Function HandleTeleport(string asHow)
+	if !teleportPending
+		return
+	endif
+	bool fromLoad = !teleportFromKnown
+	; No call between the test and the clear: two threads can't both get past.
+	teleportPending = false
+	CancelTimer(TimerTeleport)
+	; Riding: the tick below now, the timer's next a tick after it. The timer's own, due any
+	; moment, would run beside this one (test 40's 15:31:35 had two ticks at once, one putting the
+	; bike back on while the other ended the ride), so it's stopped first, before the log line's
+	; calls.
+	bool tickNow = riding
+	if tickNow
+		CancelTimer(TimerTick)
+	endif
+	if teleportPending
+		; A new teleport came in between, and its look was just cancelled: looked at again, and
+		; the ticks go on (they wait for it).
+		StartTimer(TeleportCheckInterval, TimerTeleport)
+		if tickNow && riding
+			StartTimer(TickInterval, TimerTick)
+		endif
+		return
+	endif
+	Log("Teleport handled (" + asHow + ", " + (Utility.GetCurrentRealTime() - teleportAt) + " s after it): the player in " + PlaceText(PlayerRef.GetParentCell(), PlayerRef.GetWorldSpace()) + "; riding " + riding + ", bike at a door " + bikeAtDoor + ".")
+	if riding
+		hasLastPos = false
+		RideTick()
+		if riding
+			StartTimer(TickInterval, TimerTick)
+		endif
+	else
+		if !keysDelivered
+			TryDeliverKeys()
+		endif
+		if bikeAtDoor
+			BringBikeFromDoor(Ternary(fromLoad, "the load", "the teleport"))
+		endif
+	endif
+EndFunction
+
+; Console, test 41's switch: cqf CMB_ControllerQuest DecideTeleportsAtOnce 1 decides a teleport
+; in OnPlayerTeleport itself, before the player is moved, as up to test 40; 0 (the default) waits
+; for it to be over. Kept in the save.
+Function DecideTeleportsAtOnce(int aiAtOnce)
+	teleportsAtOnce = aiAtOnce != 0
+	teleportPending = false
+	CancelTimer(TimerTeleport)
+	Log("Teleports decided " + Ternary(teleportsAtOnce, "at once, in the event (as up to test 40).", "once they're over (test 41)."))
+EndFunction
 
 Function HandleKeys()
 	; Wait doesn't count time spent in menus, so this also waits for the
 	; Pip-Boy to close when the keys were used from there.
 	Utility.Wait(0.1)
+	bool near = IsBikeNearPlayer()
+	Log("Keys: " + PressState(near) + ".")
 	if busy
+		Log("Keys ignored: busy (" + BusyText() + ").")
 		return
 	endif
 	if riding
+		Log("Keys: getting off.")
 		Dismount()
-	elseif IsBikeNearPlayer()
+	elseif near
 		; First, as in ToggleRide: beside the bike the keys get on, whatever door mark is left.
+		Log("Keys: the bike beside the player: getting on.")
 		Mount()
-	elseif BringBikeFromDoor()
-		; It waited outside the door the player came out of: it's here now, the next use gets on.
 	else
+		if bikeAtDoor
+			Log("Keys: the bike waits at a door: bringing it.")
+			if BringBikeFromDoor("the keys")
+				; It waited outside the door the player came out of: it's here now, the next use gets on.
+				return
+			endif
+		endif
+		Log("Keys: the menu.")
 		int choice = CMB_KeysMenu.Show()
+		Log("Keys menu: " + KeysMenuChoice(choice) + ".")
 		if choice == 0
 			CallBike()
 		elseif choice == 1
@@ -1046,9 +1482,31 @@ Function HandleKeys()
 	endif
 EndFunction
 
-; Runs every second while riding, and right after any teleport.
+string Function KeysMenuChoice(int aiChoice)
+	if aiChoice == 0
+		return "Call it here"
+	elseif aiChoice == 1
+		return "Open side bag"
+	elseif aiChoice == 2
+		return "Cancel"
+	endif
+	return "no answer (" + aiChoice + ")"
+EndFunction
+
+; Runs every second while riding, and once a teleport is over (HandleTeleport).
 Function RideTick()
 	if busy || !riding
+		return
+	endif
+	CheckTiltLive()
+	; Test 40: a tick between a teleport's event and the player's move still sees the place being
+	; left, and its shadow move can land after the move (the bike beside the player in Diamond
+	; City, 15:31:35). Until the teleport is handled, the bike stays where the last tick put it.
+	if teleportPending
+		if !teleportSkipLogged
+			teleportSkipLogged = true
+			Log("Ride tick skipped: a teleport is pending (the bike stays where the last tick put it).")
+		endif
 		return
 	endif
 
@@ -1056,7 +1514,18 @@ Function RideTick()
 	; player, so it's left at the last outdoor spot we saw (a walled town's gate
 	; is a load door like any interior's).
 	float now = Utility.GetCurrentGameTime()
-	if PlayerRef.IsInInterior() || InClosedWorld()
+	; One read of the cell. A player in transit has none, and IsInInterior and InClosedWorld both
+	; read that as outdoors: nothing is done until they're somewhere.
+	Cell here = PlayerRef.GetParentCell()
+	if !here && !teleportsAtOnce
+		if !noCellLogged
+			noCellLogged = true
+			Log("Ride tick: the player is in no cell (in transit): nothing done.")
+		endif
+		return
+	endif
+	noCellLogged = false
+	if (here && here.IsInterior()) || InClosedWorld()
 		; A door takes no more than a tick, a fast travel game hours (FastTravelMinutes).
 		float minutes = (now - lastOutdoorTime) * 1440.0
 		bool fastTravel = minutes > FastTravelMinutes
@@ -1065,6 +1534,7 @@ Function RideTick()
 		return
 	endif
 	lastOutdoorTime = now
+	lastOpenWorld = lastWorld   ; InClosedWorld has just read it
 	if PlayerRef.IsInPowerArmor()
 		AutoDismount("You can't ride in power armor. The motorbike is parked nearby.", false)
 		return
@@ -1103,7 +1573,8 @@ Function RideTick()
 	endif
 	; Test 39: a tick that found the player outdoors above and gets here after a door would put
 	; the bike beside them inside. Look again: the teleport's own tick, or the next, ends the ride.
-	if PlayerRef.IsInInterior() || InClosedWorld()
+	; Test 40: and not while a teleport is pending (the player can still be outside).
+	if teleportPending || PlayerRef.IsInInterior() || InClosedWorld()
 		return
 	endif
 	ShadowPlayer()
@@ -1208,6 +1679,7 @@ Function FinishRide()
 	SetCameraLive(false)
 	SetSlopeLive(false)
 	SetTiltLive(false)
+	CallRam("EndRide")
 	SetHeadlampLive(false)
 	RemoveHeadlamp()
 	if CMB_ParkUpZ
@@ -1247,6 +1719,7 @@ Function AutoDismount(string asMessage, bool abParkBesidePlayer)
 		return
 	endif
 	busy = true
+	NoteBusy("getting off by itself")
 	if abParkBesidePlayer
 		ParkBesidePlayer()
 	else
@@ -1261,18 +1734,20 @@ EndFunction
 ; The player went in where the bike can't follow (an interior, a walled town). Through a door
 ; the bike waits outside it and comes to them when they're out again near it
 ; (BringBikeFromDoor); after a fast travel it stays where the fast travel set off, and calling it
-; works (test 39's 01:41:37).
+; works (test 39's 01:41:37). A bike that came in with the player is brought the next time
+; they're outdoors (LeaveBikeOutside), so that's what they're told, a fast travel or not.
 Function DismountGoingIn(bool abFastTravel)
 	; Another thread may have ended the ride since the caller checked.
 	if busy || !riding
 		return
 	endif
 	busy = true
-	LeaveBikeOutside(!abFastTravel)
+	NoteBusy("getting off going in")
+	bool keptInside = LeaveBikeOutside(!abFastTravel)
 	FinishRide()
 	busy = false
 	string notice = "You leave the motorbike parked outside."
-	if abFastTravel
+	if abFastTravel && !keptInside
 		notice = "Your motorbike stays where you set off."
 	endif
 	Debug.Notification(notice)
@@ -1282,8 +1757,13 @@ EndFunction
 ; The bike has been shadowing the player outdoors, disabled: it's shown where it was last put,
 ; and through a door (abAtDoor) marked as waiting there, with its worldspace. If a tick put it
 ; beside the player after the teleport (a door taken between that tick's look and the bike's
-; move), it's in there with them: it stays hidden, and calling it outdoors brings it.
-Function LeaveBikeOutside(bool abAtDoor)
+; move), it's in there with them: it stays hidden. Test 40 had that after a fast travel into
+; Diamond City, the teleport's tick racing the move; that tick waits for the teleport now
+; (RideTick), and if it happens all the same, the bike is marked as waiting at a door in the
+; open worldspace of the last tick outdoors and is brought, from in there, the next time the
+; player is outdoors in it (BringBikeFromDoor): true then. Saves from before that worldspace was
+; kept, and the switch (DecideTeleportsAtOnce), leave it to calling, as before.
+bool Function LeaveBikeOutside(bool abAtDoor)
 	WorldSpace world = BikeRef.GetWorldSpace()
 	bool cameIn = false
 	if world
@@ -1292,8 +1772,15 @@ Function LeaveBikeOutside(bool abAtDoor)
 		cameIn = BikeRef.GetParentCell() == PlayerRef.GetParentCell()
 	endif
 	if cameIn
+		if lastOpenWorld && !teleportsAtOnce
+			bikeAtDoor = true
+			doorWorld = lastOpenWorld
+			bikeInside = true
+			Log("The bike was put beside the player after they went in: kept hidden, brought to them the next time they're outdoors in " + lastOpenWorld + ", wherever that is.")
+			return true
+		endif
 		Log("The bike was put beside the player after they went in: left hidden, calling it outdoors brings it.")
-		return
+		return false
 	endif
 	BikeRef.Enable()
 	if abAtDoor && world
@@ -1301,6 +1788,7 @@ Function LeaveBikeOutside(bool abAtDoor)
 		doorWorld = world
 		Log("The bike waits outside the door, in " + world + ".")
 	endif
+	return false
 EndFunction
 
 Function ParkBesidePlayer()
@@ -1522,8 +2010,22 @@ Function TiltParkedBike(float afAngle, string asFrom)
 	Log("Parked bike tilted to " + asFrom + ": pitch " + pitch + ", roll " + roll + ".")
 EndFunction
 
+; The disabled bike follows the player while riding, beside them. Test 40: a teleport whose event
+; came after the tick's last look would have the bike put beside the player at the far end
+; (PlaceBike reads where they are, after the move): looked at once more, right before the move.
 Function ShadowPlayer()
-	PlaceBike(0.0, ParkSideOffset)
+	if teleportsAtOnce
+		PlaceBike(0.0, ParkSideOffset)
+		return
+	endif
+	float angle = PlayerRef.GetAngleZ()
+	float x = OffsetX(angle, 0.0, ParkSideOffset)
+	float y = OffsetY(angle, 0.0, ParkSideOffset)
+	if teleportPending || !StillRiding()
+		return
+	endif
+	BikeRef.MoveTo(PlayerRef, x, y, 0.0, false)
+	BikeRef.SetAngle(0.0, 0.0, angle + ParkedModelYaw)
 EndFunction
 
 ; Puts the parked bike forward/right of the player, facing the way they face.
@@ -1694,6 +2196,7 @@ Function DismountIntoWater()
 		return
 	endif
 	busy = true
+	NoteBusy("getting off into deep water")
 	FinishRide()
 	bikeWaitsForShore = true
 	busy = false
@@ -1719,6 +2222,7 @@ Function BringBikeAfterSwim()
 		return
 	endif
 	busy = true
+	NoteBusy("bringing the bike after a swim")
 	bikeWaitsForShore = false
 	; Past the player, away from where they came out of deep water: that side is land.
 	float dx = PlayerRef.GetPositionX() - swimExitX

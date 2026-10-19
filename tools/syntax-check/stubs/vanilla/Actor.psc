@@ -20,3 +20,7 @@ bool Function AddSpell(Spell akSpell, bool abVerbose = true) native
 bool Function RemoveSpell(Spell akSpell) native
 Event OnPlayerFallLongDistance(float afDamage)
 EndEvent
+bool Function IsEssential() native
+bool Function IsInFaction(Faction akFaction) native
+Race Function GetRace() native
+bool Function IsChild() native

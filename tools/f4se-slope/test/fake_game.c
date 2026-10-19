@@ -41,6 +41,9 @@
 #define HEADLAMP_REF_HI_FORMID (0xFE000000u | (LIGHT_INDEX << 12) | 0x843u)
 #define HEADLAMP_REF_LO_FORMID (0xFE000000u | (LIGHT_INDEX << 12) | 0x844u)
 #define LAMP_REF_FORMID       0xFF001234u   /* the light reference "the script placed" */
+#define RAM_FORMID            (0xFE000000u | (LIGHT_INDEX << 12) | 0x845u)   /* CMB_RamSeenHi, SeenLo, Seen, Ok, HitSpeed, Hit, Enemies, MinSpeed */
+#define RAM_ACTOR_FORMID      0xFF004D69u   /* the actor ahead: a created reference (test 40's super mutant's id), all 32 bits */
+#define RAM_ACTOR2_FORMID     0xFF004D6Au   /* a second one, behind it (mode 11: the hits' spacing) */
 #define LAMP_REF2_FORMID      0xFF001235u   /* the fresh one of a handover (test 33) */
 #define COLL_CHAR_FORMID      0x0008877Fu   /* Fallout4.esm's collision layer record for L_CHARCONTROLLER (test 36) */
 #define RVA_PLAYER_CONTROLS   0x031F0B80u
@@ -239,13 +242,41 @@ static void FakeGetPosition(uint8_t *self, float *out, bool centre)
 	out[3] = 0.0f;
 }
 static int g_setPositions;   /* the calls so far: the plugin's pushes (the reverse by steps after rays) */
+/* Mode 12: each of the plugin's steps, recorded while g_rec is set: its dz and length, when
+ * (QPC seconds), the feet's z after it and their height over the ground there (FakeGroundAt),
+ * and the z the fake's own fall had done by then (g_physGame, the game's share). */
+#define REC_MAX 4096
+static bool g_rec;
+static int g_recN;
+static float g_recDz[REC_MAX], g_recStep[REC_MAX], g_recZ[REC_MAX], g_recGap[REC_MAX], g_recGame[REC_MAX], g_recU[REC_MAX];
+static double g_recT[REC_MAX];
+static float g_physGame;
+static float FakeGroundAt(float x, float y);
+static float ProfileU(float x, float y);
 static void FakeSetPosition(uint8_t *self, const float *p, bool centre, bool warp)
 {
 	(void)self; (void)centre; (void)warp;
 	g_setPositions++;
+	bool rec = g_rec && g_recN < REC_MAX && (g_honour & 4);
+	if (rec) {
+		LARGE_INTEGER now, frequency;
+		QueryPerformanceCounter(&now);
+		QueryPerformanceFrequency(&frequency);
+		g_recDz[g_recN] = p[2] / HAVOK - PlayerPosition()[2];
+		g_recStep[g_recN] = hypotf(p[0] / HAVOK - PlayerPosition()[0], p[1] / HAVOK - PlayerPosition()[1]);
+		g_recT[g_recN] = (double)now.QuadPart / (double)frequency.QuadPart;
+	}
 	if (g_honour & 4)
 		for (int i = 0; i < 3; i++)
 			PlayerPosition()[i] = p[i] / HAVOK;
+	if (rec) {
+		const float *q = PlayerPosition();
+		g_recZ[g_recN] = q[2];
+		g_recGap[g_recN] = q[2] - FakeGroundAt(q[0], q[1]);
+		g_recGame[g_recN] = g_physGame;
+		g_recU[g_recN] = ProfileU(q[0], q[1]);
+		g_recN++;
+	}
 }
 static void FakeGetVelocity(uint8_t *self, float *out) { (void)self; memcpy(out, g_fakeVel, 16); }
 
@@ -273,6 +304,67 @@ static uint32_t g_shelfLayer = 1;  /* the disc's layer, and its 3D (NULL: FakeSh
 static uint8_t *g_shelfWhat;
 static float g_groundZ = 100.0f;
 static float g_slopeK, g_slopeO[2], g_slopeD[2];   /* the ground rises g_slopeK per unit along g_slopeD from g_slopeO */
+static bool g_kinkOn;             /* mode 10 (test 40's finding 8): past g_kinkAt along g_slopeD from g_slopeO the ground is flat at the slope's height there (down a slope onto the flat) */
+static float g_kinkAt;
+/* Mode 12 (test 40's finding 6): the ground along g_slopeD from g_slopeO a profile through up to
+ * 12 points (u along it, z over g_groundZ), level before the first and past the last, in place
+ * of the plane's slope; and a ripple of g_rippleAmp over g_rippleWave units along it that only
+ * vertical rays see (the feet's, the window's and the wheels'). Off in the other modes. */
+static bool g_profileOn;
+static int g_profileN;
+static float g_profileU[12], g_profileZ[12], g_rippleAmp, g_rippleWave = 4.0f;
+static float ProfileU(float x, float y) { return (x - g_slopeO[0]) * g_slopeD[0] + (y - g_slopeO[1]) * g_slopeD[1]; }
+static float ProfileZ(float u)
+{
+	if (g_profileN <= 0 || u <= g_profileU[0])
+		return g_profileN > 0 ? g_profileZ[0] : 0.0f;
+	for (int i = 1; i < g_profileN; i++)
+		if (u <= g_profileU[i]) {
+			float du = g_profileU[i] - g_profileU[i - 1];
+			return du > 0.0f ? g_profileZ[i - 1] + (g_profileZ[i] - g_profileZ[i - 1]) * (u - g_profileU[i - 1]) / du : g_profileZ[i];
+		}
+	return g_profileZ[g_profileN - 1];
+}
+static float ProfileGround(float x, float y, bool ripple)
+{
+	float u = ProfileU(x, y), z = g_groundZ + ProfileZ(u);
+	if (ripple && g_rippleAmp != 0.0f && g_rippleWave > 0.0f)
+		z += g_rippleAmp * sinf(6.2831853f * u / g_rippleWave);
+	return z;
+}
+/* Where the ray a..b first crosses the profile's ground, as a fraction of the way (2: nowhere):
+ * a vertical ray at once (with the ripple), any other piecewise, the profile being straight
+ * between the fractions where the ray passes its points. */
+static float ProfileHit(const float *a, const float *b)
+{
+	if (a[0] == b[0] && a[1] == b[1]) {
+		if (b[2] == a[2])
+			return 2.0f;
+		float t = (ProfileGround(a[0], a[1], true) - a[2]) / (b[2] - a[2]);
+		return t >= 0.0f && t <= 1.0f ? t : 2.0f;
+	}
+	float ua = ProfileU(a[0], a[1]), ub = ProfileU(b[0], b[1]), ts[14];
+	int n = 0;
+	ts[n++] = 0.0f;
+	for (int i = 0; i < g_profileN; i++)
+		if ((g_profileU[i] - ua) * (g_profileU[i] - ub) < 0.0f)
+			ts[n++] = (g_profileU[i] - ua) / (ub - ua);
+	ts[n++] = 1.0f;
+	for (int i = 1; i < n; i++)
+		for (int j = i; j > 0 && ts[j] < ts[j - 1]; j--) {
+			float q = ts[j];
+			ts[j] = ts[j - 1];
+			ts[j - 1] = q;
+		}
+	for (int i = 0; i + 1 < n; i++) {
+		float t0 = ts[i], t1 = ts[i + 1];
+		float f0 = a[2] + (b[2] - a[2]) * t0 - g_groundZ - ProfileZ(ua + (ub - ua) * t0);
+		float f1 = a[2] + (b[2] - a[2]) * t1 - g_groundZ - ProfileZ(ua + (ub - ua) * t1);
+		if ((f0 >= 0.0f) != (f1 >= 0.0f))
+			return f0 == f1 ? t0 : t0 + (t1 - t0) * f0 / (f0 - f1);
+	}
+	return 2.0f;
+}
 static bool g_dropOn, g_frozen;   /* g_frozen: the movement can't move the player (stuck against something) */
 static float g_creepDrag;         /* rough ground: only the input above this moves the player */
 static int g_pileCount;           /* a pile of clutter (layer 4): this many surfaces 5 apart above the ground, within 60 of g_pilePoint */
@@ -280,8 +372,13 @@ static uint32_t g_pileLayer = 4;  /* ... of this layer, and this 3D (NULL: none)
 static uint8_t *g_pileWhat;
 static float g_pilePoint[2];
 static FakePlane g_planes[3];
+/* Mode 10's stage-2 checks only (R4): plane i's top as a flat surface at its top over the
+ * ground, from its face to this far past it (0: none, as everywhere else), seen by rays coming
+ * down onto it (stage 2's rays down find a step's top there). */
+static float g_planeTopDepth[3];
 static float g_dropPoint[2], g_dropDir[2];
 static uint8_t *g_wallObj, *g_groundObj, *g_shelfObj, *g_actorObj, g_fakeWorld[64];
+static uint8_t *g_ramGlobalsFake[8], *g_ramActor, *g_ramActor2, *g_actorObj2, *g_raceHuman, *g_raceMedium, *g_raceBig, *g_raceNoKnock;
 static int g_picks;
 static void *FakePickCtor(uint8_t *pick)
 {
@@ -305,8 +402,8 @@ static uint8_t *FakeCellPick(uint8_t *cell, uint8_t *pick)
 	uint8_t *what = NULL;
 	uint32_t layer = 0;
 	float den = (b[2] - a[2]) - g_slopeK * ((b[0] - a[0]) * g_slopeD[0] + (b[1] - a[1]) * g_slopeD[1]);
-	if (den != 0.0f) {
-		float tg = (g_groundZ + g_slopeK * ((a[0] - g_slopeO[0]) * g_slopeD[0] + (a[1] - g_slopeO[1]) * g_slopeD[1]) - a[2]) / den;
+	if (den != 0.0f || g_profileOn) {
+		float tg = g_profileOn ? ProfileHit(a, b) : (g_groundZ + g_slopeK * ((a[0] - g_slopeO[0]) * g_slopeD[0] + (a[1] - g_slopeO[1]) * g_slopeD[1]) - a[2]) / den;
 		float x = a[0] + (b[0] - a[0]) * tg, y = a[1] + (b[1] - a[1]) * tg;
 		bool ground = !g_dropOn || (x - g_dropPoint[0]) * g_dropDir[0] + (y - g_dropPoint[1]) * g_dropDir[1] < 0.0f;
 		if (g_shelfOn && g_shelfHeight < 0.0f) {   /* a hole (test 38): within the shelf's disc the ground is the shelf's plane, that far down */
@@ -314,8 +411,19 @@ static uint8_t *FakeCellPick(uint8_t *cell, uint8_t *pick)
 			if (hypotf(x - cx, y - cy) < g_shelfRadius)
 				ground = false;
 		}
+		if (g_kinkOn && (x - g_slopeO[0]) * g_slopeD[0] + (y - g_slopeO[1]) * g_slopeD[1] > g_kinkAt)
+			ground = false;   /* past the kink: the flat's, below */
 		if (tg >= 0.0f && tg <= 1.0f && ground) {
 			t = tg;
+			what = g_groundObj;
+			layer = 13;
+		}
+	}
+	if (g_kinkOn && b[2] != a[2]) {
+		float zk = g_groundZ + g_slopeK * g_kinkAt, tf = (zk - a[2]) / (b[2] - a[2]);
+		float x = a[0] + (b[0] - a[0]) * tf, y = a[1] + (b[1] - a[1]) * tf;
+		if (tf >= 0.0f && tf <= 1.0f && tf < t && (x - g_slopeO[0]) * g_slopeD[0] + (y - g_slopeO[1]) * g_slopeD[1] >= g_kinkAt) {
+			t = tf;
 			what = g_groundObj;
 			layer = 13;
 		}
@@ -367,6 +475,21 @@ static uint8_t *FakeCellPick(uint8_t *cell, uint8_t *pick)
 		if (tp < t) {
 			t = tp;
 			what = w->what ? w->what : w->layer == 12 ? NULL : g_wallObj;
+			layer = w->layer;
+		}
+	}
+	for (int i = 0; i < 3; i++) {   /* the planes' flat tops (mode 10's stage 2): a ray coming down onto one */
+		const FakePlane *w = &g_planes[i];
+		if (!w->on || g_planeTopDepth[i] <= 0.0f || w->top <= 0.0f || w->follow != 0.0f)
+			continue;
+		float zt = g_groundZ + w->top;
+		if (!(a[2] > zt && b[2] <= zt))
+			continue;
+		float tp = (zt - a[2]) / (b[2] - a[2]), x = a[0] + (b[0] - a[0]) * tp, y = a[1] + (b[1] - a[1]) * tp;
+		float sd = (x - w->point[0]) * w->normal[0] + (y - w->point[1]) * w->normal[1];   /* + in front of the face */
+		if (sd <= 0.0f && sd >= -g_planeTopDepth[i] && tp < t) {
+			t = tp;
+			what = w->what ? w->what : g_wallObj;
 			layer = w->layer;
 		}
 	}
@@ -490,6 +613,8 @@ static uintptr_t FakeLookupFormByID(uint32_t id)
 		return (uintptr_t)g_lampRef2;
 	if (id == COLL_CHAR_FORMID)
 		return g_collHidden ? 0 : (uintptr_t)g_collChar;
+	if (id >= RAM_FORMID && id < RAM_FORMID + 8)
+		return (uintptr_t)g_ramGlobalsFake[id - RAM_FORMID];
 	return id == SLOPE_GLOBAL_FORMID ? (uintptr_t)g_global : id == CAMERA_GLOBAL_FORMID ? (uintptr_t)g_cameraGlobal
 	     : id == TILT_GLOBAL_FORMID ? (uintptr_t)g_tiltGlobal : 0;
 }
@@ -585,7 +710,10 @@ static void BuildGame(void)
 	*(uint8_t **)(data + 0x3E0) = g_controller;
 	*(float *)(g_controller + 0x154) = 0.7257f;
 	*(float *)(g_controller + CTRL_SLOPE_OFFSET) = COS47;
-	*(float *)(g_controller + 0x424) = 0.4429f;
+	*(float *)(g_controller + 0x370) = 0.257175f;   /* the capsule's radius (18.0 units), height (128.0), step height (31.0) and cast depth (33.5), as the round-1 dump read them (test 40's finding 8) */
+	*(float *)(g_controller + 0x374) = 1.8288f;
+	*(float *)(g_controller + 0x424) = 0.442912f;
+	*(float *)(g_controller + 0x430) = 0.479206f;
 	static const char *states[] = { ".?AVhknpCharacterStateManager@@", ".?AVhkReferencedObject@@" };
 	uint8_t *stateManager = (uint8_t *)NewObject(MakeClass(states, 2), 0x200);
 	*(float *)(stateManager + 0x40) = 3.0f;
@@ -626,6 +754,12 @@ static void BuildGame(void)
 	g_headlampLive = NewGlobal(HEADLAMP_FORMID, "CMB_HeadlampLive");
 	g_headlampRefHi = NewGlobal(HEADLAMP_REF_HI_FORMID, "CMB_HeadlampRefHi");
 	g_headlampRefLo = NewGlobal(HEADLAMP_REF_LO_FORMID, "CMB_HeadlampRefLo");
+	static const char *ram[8] = { "CMB_RamSeenHi", "CMB_RamSeenLo", "CMB_RamSeen", "CMB_RamOk", "CMB_RamHitSpeed", "CMB_RamHit", "CMB_RamEnemies", "CMB_RamMinSpeed" };
+	for (int i = 0; i < 8; i++)
+		g_ramGlobalsFake[i] = NewGlobal(RAM_FORMID + (uint32_t)i, ram[i]);
+	*(float *)(g_ramGlobalsFake[6] + 0x30) = 1.0f;     /* the MCM's defaults */
+	*(float *)(g_ramGlobalsFake[7] + 0x30) = 450.0f;
+	*(float *)(g_ramGlobalsFake[2] + 0x30) = 57.0f;    /* a save's: the plugin's asks go on from it */
 	/* The collision layer records (test 36): the character controller's, with what it collides
 	 * with (Fallout4.esm's list: not clutter (4), bipeds (8), non-collidable (15), dead bipeds (32)
 	 * or navcut (49); test 37: the phantoms it does hold, spells (7), cloud traps (16), the
@@ -700,6 +834,47 @@ static void BuildGame(void)
 	g_groundObj = NewNode(vtNode, "FakeGround", 0);
 	g_shelfObj = NewNode(vtNode, "FakeShelf", 0);
 	g_actorObj = NewNode(vtNode, "SkeletonExport", 0);   /* an actor's capsule, as test 39's radstag named it */
+	{
+		/* The actor behind it (finding 7): its 3D's user data (+0x110) is the Actor, whose loaded
+		 * 3D root is that node; a race (TESRace: data at +0x180, flags +0x1A0, size +0x1AC, editor
+		 * ID +0x3A0) of each kind the rams look at; the rider's race HumanRace. */
+		static const char *actorNames[] = { ".?AVActor@@", ".?AVTESObjectREFR@@", ".?AVTESForm@@" };
+		static const char *raceNames[] = { ".?AVTESRace@@", ".?AVTESForm@@" };
+		void **vtActor = MakeClass(actorNames, 3), **vtRace = MakeClass(raceNames, 2);
+		uint8_t **races[4] = { &g_raceHuman, &g_raceMedium, &g_raceBig, &g_raceNoKnock };
+		static const char *raceIds[4] = { "HumanRace", "RaiderTestRace", "SupermutantBehemothRace", "ProtectronTestRace" };
+		static const uint32_t raceSizes[4] = { 1, 1, 3, 1 }, raceFlags[4] = { 0x3, 0x100, 0x100, 0x400100 };
+		for (int i = 0; i < 4; i++) {
+			uint8_t *r = (uint8_t *)NewObject(vtRace, 0x800);
+			*(uint32_t *)(r + 0x14) = 0x00013746u + (uint32_t)i;
+			r[0x1A] = 0x11;
+			*(uint32_t *)(r + 0x1A0) = raceFlags[i];
+			*(uint32_t *)(r + 0x1AC) = raceSizes[i];
+			*(uint8_t **)(r + 0x3A0) = NewString(raceIds[i]);
+			*races[i] = r;
+		}
+		g_ramActor = (uint8_t *)NewObject(vtActor, 0x1000);
+		*(uint32_t *)(g_ramActor + 0x14) = RAM_ACTOR_FORMID;
+		g_ramActor[0x1A] = 0x41;
+		uint8_t *actorLoaded = (uint8_t *)VirtualAlloc(NULL, 0x100, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+		*(uint8_t **)(actorLoaded + 0x08) = g_actorObj;
+		*(uint8_t **)(g_ramActor + 0xF0) = actorLoaded;
+		*(uint8_t **)(g_ramActor + 0x418) = g_raceMedium;
+		*(uint8_t **)(g_actorObj + 0x110) = g_ramActor;
+		*(uint8_t **)(g_player + 0x418) = g_raceHuman;
+		/* A second one (mode 11, test 41's check of the hits' spacing: two raiders one behind the
+		 * other), its 3D named as test 40's settler's was, "skeleton.nif", which the rider's own
+		 * root is called too: only the pointer tells them apart. */
+		g_actorObj2 = NewNode(vtNode, "skeleton.nif", 0);
+		g_ramActor2 = (uint8_t *)NewObject(vtActor, 0x1000);
+		*(uint32_t *)(g_ramActor2 + 0x14) = RAM_ACTOR2_FORMID;
+		g_ramActor2[0x1A] = 0x41;
+		uint8_t *actorLoaded2 = (uint8_t *)VirtualAlloc(NULL, 0x100, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+		*(uint8_t **)(actorLoaded2 + 0x08) = g_actorObj2;
+		*(uint8_t **)(g_ramActor2 + 0xF0) = actorLoaded2;
+		*(uint8_t **)(g_ramActor2 + 0x418) = g_raceMedium;
+		*(uint8_t **)(g_actorObj2 + 0x110) = g_ramActor2;
+	}
 	static const char *cell[] = { ".?AVTESObjectCELL@@", ".?AVTESForm@@" };
 	*(void **)(g_player + 0xB8) = NewObject(MakeClass(cell, 2), 0x200);
 	void **vtSkin = MakeClass(skin, 2), **vtBone = MakeClass(bone, 2);
@@ -1286,6 +1461,8 @@ static void Send(uint32_t type, uintptr_t data)
 static void (*g_onFrame)(float dt);   /* moves the player, when a test rides somewhere */
 
 static double g_cappedSeconds;   /* the frames' times summed as the plugin caps them (0.05 s each): what a rate a second may have risen by */
+static float g_slopeMin = 1.0f;  /* the steepest climb limit (the smallest cosine) the controller held after any frame since this was last set (test 40's finding 8) */
+static int g_staleFrames;        /* mode 9: frames the 3D's world transforms stay behind the player's place after a load to another place (test 35: 0.26 s) */
 static void RunFrames(int ms)
 {
 	DWORD end = GetTickCount() + (DWORD)ms;
@@ -1300,8 +1477,13 @@ static void RunFrames(int ms)
 		if (g_onFrame)
 			g_onFrame(dt);
 		last = now;
-		SyncFakeWorld();
+		if (g_staleFrames > 0)
+			g_staleFrames--;   /* the world a frame behind (only mode 9 sets it) */
+		else
+			SyncFakeWorld();
 		((void (*)(Task *))g_task->vtbl[1])(g_task);
+		if (g_controller && *(float *)(g_controller + CTRL_SLOPE_OFFSET) < g_slopeMin)
+			g_slopeMin = *(float *)(g_controller + CTRL_SLOPE_OFFSET);
 		if (g_vqCalls - queries > g_vqFrameMax)
 			g_vqFrameMax = g_vqCalls - queries;   /* the plugin's memory queries this frame, hooks and task together (test 37) */
 		Sleep(5);
@@ -1714,6 +1896,122 @@ static void ClipsElbowOffset(const float S[3], const float E[3], const float W[3
 		k += v1[i] * w0[i] / lw2;
 	for (int i = 0; i < 3; i++)
 		n0[i] = v1[i] - k * w0[i];
+}
+
+/* Test 41: the pole the plugin should bend an arm toward, in the bike's space as it uses it
+ * (the left's x mirrored): ArmPole, and for the inside arm (the left with the bars over to the
+ * left, +; the right with them to the right) faded toward ArmPoleTurn by k = |bars| / turnBars,
+ * 1 at most, both normalised first. Returns k. */
+static float ExpectedPole(int side, float bars, const float pole[3], const float turn[3], float turnBars, float out[3])
+{
+	float la = sqrtf(pole[0] * pole[0] + pole[1] * pole[1] + pole[2] * pole[2]), lt = sqrtf(turn[0] * turn[0] + turn[1] * turn[1] + turn[2] * turn[2]), k = 0.0f;
+	bool inside = side ? bars < 0.0f : bars > 0.0f;
+	if (inside && la > 0.001f && lt > 0.001f && turnBars > 0.0f) {
+		k = fabsf(bars) / turnBars;
+		k = k > 1.0f ? 1.0f : k;
+	}
+	for (int i = 0; i < 3; i++)
+		out[i] = k > 0.0f ? (1.0f - k) * pole[i] / la + k * turn[i] / lt : pole[i];
+	if (!side)
+		out[0] = -out[0];
+	return k;
+}
+
+/* The fake's arm (the left, or the mirrored right with g_armRight) as the plugin wrote it: the
+ * joints' maps (after the tilt), and the figures the plugin's arm lines give (test 41) read off
+ * them in the bike's space (the tilt undone, then the COM bone and the bind): the elbow from the
+ * shoulder (out on the arm's own side, forward, below), the upper arm below level, the forearm's
+ * pitch to the wrist seen from the side (+ rising). */
+typedef struct { float mS[3], mE1[3], mE2[3], mW2[3], mW3[3], fig[5]; } ArmNow;
+static void ExpectedTilt(float Rw[9], float Pw[3]);
+static void ReadArmNow(ArmNow *a)
+{
+	const uint8_t *copyNow = *(const uint8_t **)(*(uint8_t **)(g_bodySkin + 0x40) + 0x10);
+	float S[3], E[3], Wr[3], Rw[9], Pw[3], A[9], N[9], d[2][3], b[3], n[3], v[2][3];
+	memcpy(S, g_bodyNodes[6] + 0xA0, 12);
+	memcpy(E, g_bodyNodes[7] + 0xA0, 12);
+	memcpy(Wr, g_bodyNodes[5] + 0xA0, 12);
+	MapBone(g_bodyNodes[6], g_bodyBonesOriginal + 6 * 0x50, copyNow + 6 * 0x50, S, a->mS);
+	MapBone(g_bodyNodes[6], g_bodyBonesOriginal + 6 * 0x50, copyNow + 6 * 0x50, E, a->mE1);
+	MapBone(g_bodyNodes[7], g_bodyBonesOriginal + 7 * 0x50, copyNow + 7 * 0x50, E, a->mE2);
+	MapBone(g_bodyNodes[7], g_bodyBonesOriginal + 7 * 0x50, copyNow + 7 * 0x50, Wr, a->mW2);
+	MapBone(g_bodyNodes[5], g_bodyBonesOriginal + 5 * 0x50, copyNow + 5 * 0x50, Wr, a->mW3);
+	ExpectedTilt(Rw, Pw);
+	LoadRotation((const float *)(g_bonesOriginal + 0x10), A, g_skinTransposed);
+	LoadRotation((const float *)(g_comNode + 0x70), N, g_rootTransposed);
+	for (int i = 0; i < 3; i++) {
+		d[0][i] = a->mE1[i] - a->mS[i];
+		d[1][i] = a->mW2[i] - a->mE2[i];
+	}
+	for (int k = 0; k < 2; k++) {
+		for (int i = 0; i < 3; i++)
+			b[i] = Rw[i] * d[k][0] + Rw[3 + i] * d[k][1] + Rw[6 + i] * d[k][2];   /* Rw^T: the tilt undone */
+		for (int i = 0; i < 3; i++)
+			n[i] = N[i] * b[0] + N[3 + i] * b[1] + N[6 + i] * b[2];
+		for (int i = 0; i < 3; i++)
+			v[k][i] = A[i] * n[0] + A[3 + i] * n[1] + A[6 + i] * n[2];
+	}
+	float lu = sqrtf(v[0][0] * v[0][0] + v[0][1] * v[0][1] + v[0][2] * v[0][2]);
+	a->fig[0] = g_armRight ? v[0][0] : -v[0][0];
+	a->fig[1] = v[0][1];
+	a->fig[2] = -v[0][2];
+	a->fig[3] = asinf(-v[0][2] / lu) * DEG;
+	a->fig[4] = atan2f(v[1][2], v[1][1]) * DEG;
+}
+
+/* The written elbow's angle off a pole given in the bike's space as the plugin uses it (taken
+ * to world through the bind and the COM bone, then tilted like the rest); *off the elbow's
+ * offset from the shoulder-to-wrist line. */
+static float ArmPlaneOff(const ArmNow *a, const float poleBike[3], float *off)
+{
+	float A[9], N[9], Rw[9], Pw[3], Ap[3], Np[3], poleT[3];
+	LoadRotation((const float *)(g_bonesOriginal + 0x10), A, g_skinTransposed);
+	LoadRotation((const float *)(g_comNode + 0x70), N, g_rootTransposed);
+	ExpectedTilt(Rw, Pw);
+	Apply3(A, poleBike, Ap);
+	Apply3(N, Ap, Np);
+	Apply3(Rw, Np, poleT);
+	return ElbowPlaneOff(a->mS, a->mE2, a->mW3, poleT, off);
+}
+
+/* The last log line holding text, in a static buffer (NULL when none). */
+static const char *LastLogLine(const char *text)
+{
+	static char line[4096], found[4096];
+	FILE *f = OpenLog();
+	bool any = false;
+	if (!f)
+		return NULL;
+	while (fgets(line, sizeof(line), f))
+		if (strstr(line, text)) {
+			memcpy(found, line, sizeof(found));
+			any = true;
+		}
+	fclose(f);
+	return any ? found : NULL;
+}
+
+/* An arm line's figures (test 41), read after "from" in the last log line holding marker: the
+ * elbow's out, forward and below, the upper arm below level, the forearm's pitch, and the pole;
+ * *fade how far it says the pole was faded (0 when it doesn't say). */
+static bool LoggedArmFigures(const char *marker, const char *from, float fig[5], float pole[3], float *fade)
+{
+	const char *line = LastLogLine(marker), *at = line ? strstr(line, from) : NULL;
+	*fade = 0.0f;
+	for (at = at ? strstr(at, "the elbow ") : NULL; at; at = strstr(at + 1, "the elbow "))   /* past "the elbow moved" */
+		if (sscanf(at, "the elbow %f out, %f forward, %f below the shoulder (the upper arm %f deg below level), the forearm %f deg", &fig[0], &fig[1], &fig[2], &fig[3], &fig[4]) == 5)
+			break;
+	if (!at)
+		return false;
+	const char *p = strstr(at, "the pole (");
+	if (!p || sscanf(p, "the pole (%f, %f, %f)", &pole[0], &pole[1], &pole[2]) != 3)
+		return false;
+	const char *close = strchr(p, ')');
+	float k;
+	int used = 0;
+	if (close && sscanf(close, "), %f of the way to ArmPoleTurn%n", &k, &used) == 1 && used > 0)
+		*fade = k;
+	return true;
 }
 
 static void RemoveChild(uint8_t *node, const uint8_t *child)
@@ -2900,7 +3198,10 @@ static void InputTests(void)
 	g_shelfOn = false;
 	g_shelfHeight = 0.0f;
 	g_shelfRadius = 60.0f;
-	printf("input hook: the same with the supported bit clear and the ground 2.5 below the feet (a level plane), then 7.5 more: the feet go down to 0.5 over it, 3 a frame at most:\n");
+	/* Test 41 (finding 6): the gap is closed over BackClose (0.1 s), 120 a second and 3 a step at
+	 * most, down to the controller's own clearance (here the hover, 0.5: the push starts with it
+	 * unsupported), no longer at once (test 40's rule: the 2.0 in one frame, then 3 a frame). */
+	printf("input hook: the same with the supported bit clear and the ground 2.5 below the feet (a level plane), then 7.5 more: the feet go down to 0.5 over it, the gap closed over 0.1 s, 3 a frame at most:\n");
 	SetSupported(false);
 	g_groundZ = PlayerPos()[2] - 2.5f;
 	g_zDropMax = 0.0f;
@@ -2909,13 +3210,15 @@ static void InputTests(void)
 	Keys(0.0f, -1.0f);
 	RunFrames(1000);
 	float hover = PlayerPos()[2] - g_groundZ, dropped = g_zDropMax;
-	CHECK(fabsf(hover - 0.5f) < 0.05f && dropped > 1.9f && dropped < 3.001f, "the feet %.2f over the ground after a second (0.5), %.2f the most in a frame (the 2.0 at once)", hover, dropped);
+	CHECK(fabsf(hover - 0.5f) < 0.05f && dropped > 0.05f && dropped < 0.5f, "the feet %.2f over the ground after a second (0.5), %.2f the most in a frame (0.10 at 5 ms frames, 0.30 at 16; test 40's rule: the 2.0 at once)",
+	      hover, dropped);
 	g_groundZ = PlayerPos()[2] - 7.5f;
 	g_zDropMax = 0.0f;
 	g_zLast = PlayerPos()[2];
 	RunFrames(1000);
 	hover = PlayerPos()[2] - g_groundZ;
-	CHECK(fabsf(hover - 0.5f) < 0.05f && g_zDropMax > 2.9f && g_zDropMax < 3.001f, "the feet %.2f over the ground after a second (0.5), %.2f the most in a frame (3, the cap)", hover, g_zDropMax);
+	CHECK(fabsf(hover - 0.5f) < 0.05f && g_zDropMax > 0.3f && g_zDropMax < 1.5f, "the feet %.2f over the ground after a second (0.5), %.2f the most in a frame (0.37 at 5 ms frames, 1.1 at 16, never over 3; test 40's rule: 3, the cap)",
+	      hover, g_zDropMax);
 	Keys(0.0f, 0.0f);
 	g_onFrame = FakeGameFrame;
 	RunFrames(300);
@@ -3743,13 +4046,18 @@ static void TiltTests(void)
 			      "the bones keep their lengths (%.1f and %.1f)", Dist3(mE1, mS), Dist3(mW2, mE2));
 			CHECK(TiltedOff(E, mE2, Rw, Pw) > 0.3f, "the elbow moved (%.2f): the arm bent to reach", TiltedOff(E, mE2, Rw, Pw));
 			{
-				/* Test 38's ArmPole (0.35,-0.3,-1.0, the left arm's x mirrored): the elbow's
-				 * offset from the shoulder-to-wrist line goes the pole's way, the pole taken to
-				 * world through the bike's bind and the bone like the grip's axis (here the fake's
-				 * bind turns the bike's x down, so the pole points mostly out to the left, not
-				 * down) and tilted like the rest; no longer the clips' own plane, carried by the
-				 * upper body's twist and side lean, which lies well away from it. */
-				float poleM[3] = { -0.35f, -0.3f, -1.0f }, Ap[3], Np[3], poleT[3], n0[3], Tr[9], Tn[3], n0T[3], offLen;
+				/* Test 38's ArmPole (the left arm's x mirrored): the elbow's offset from the
+				 * shoulder-to-wrist line goes the pole's way, the pole taken to world through the
+				 * bike's bind and the bone like the grip's axis (here the fake's bind turns the
+				 * bike's x down, so the pole points mostly out to the left, not down) and tilted
+				 * like the rest; no longer the clips' own plane, carried by the upper body's twist
+				 * and side lean, which lies well away from it. Test 41: ArmPole 1.1,-0.3,-0.9, and
+				 * this left arm is the inside one in this left turn, so its pole is faded toward
+				 * ArmPoleTurn 0.35,-0.3,-1.0 by the bars' angle over ArmPoleTurnBars 10 (mode 13
+				 * has the fade's own checks, the outside arm among them). */
+				static const float armPole[3] = { 1.1f, -0.3f, -0.9f }, armPoleTurn[3] = { 0.35f, -0.3f, -1.0f };
+				float poleM[3], Ap[3], Np[3], poleT[3], n0[3], Tr[9], Tn[3], n0T[3], offLen;
+				float fadeK = ExpectedPole(0, barNow, armPole, armPoleTurn, 10.0f, poleM);
 				Apply3(A, poleM, Ap);
 				Apply3(N, Ap, Np);
 				Apply3(Rw, Np, poleT);
@@ -3758,8 +4066,9 @@ static void TiltTests(void)
 				Apply3(Tr, n0, Tn);
 				Apply3(Rw, Tn, n0T);
 				float poleOff = ElbowPlaneOff(mS, mE2, mW3, poleT, &offLen), clipsOff = ElbowPlaneOff(mS, mE2, mW3, n0T, NULL);
-				CHECK(poleOff < 1.0f && offLen > 2.0f && clipsOff > 5.0f,
-				      "the elbow bent the pole's way: its offset from the shoulder-to-wrist line (%.1f) %.1f deg off ArmPole 0.35,-0.3,-1.0 taken through the bind and the bone (the clips' own plane %.1f deg from it)", offLen, poleOff, clipsOff);
+				CHECK(poleOff < 1.0f && offLen > 2.0f && clipsOff > 5.0f && fadeK > 0.5f,
+				      "the elbow bent the pole's way: its offset from the shoulder-to-wrist line (%.1f) %.1f deg off ArmPole 1.1,-0.3,-0.9 faded %.2f of the way to ArmPoleTurn 0.35,-0.3,-1.0 (the inside arm, the bars %.1f over), taken through the bind and the bone (the clips' own plane %.1f deg from it)",
+				      offLen, poleOff, fadeK, barNow, clipsOff);
 			}
 			/* Test 36's side lean, read off the spine joint's own map: a roll toward the turn of
 			 * TorsoSideLean (0.25) of the bars' angle. */
@@ -3876,7 +4185,7 @@ static void TiltTests(void)
 		{
 			/* The elbow, re-solved for the shorter reach, goes the pole's way here too (test 38:
 			 * the straight bars and the lean are the tester's video). */
-			float A[9], N[9], poleM[3] = { -0.35f, -0.3f, -1.0f }, Ap[3], offLen;
+			float A[9], N[9], poleM[3] = { -1.1f, -0.3f, -0.9f }, Ap[3], offLen;   /* test 41's ArmPole, the bars straight: no fade */
 			LoadRotation((const float *)(g_bonesOriginal + 0x10), A, g_skinTransposed);
 			LoadRotation((const float *)(g_comNode + 0x70), N, g_rootTransposed);
 			Apply3(A, poleM, Ap);
@@ -3944,7 +4253,7 @@ static void TiltTests(void)
 			}
 			printf("tilt: the wrist roll off and the elbows in the clips' own planes (WristRoll=0, ArmPole=0,0,0 for a ride):\n");
 			RewriteIni("WristRoll=1.0", "WristRoll=0");
-			RewriteIni("ArmPole=0.35,-0.3,-1.0", "ArmPole=0,0,0");
+			RewriteIni("ArmPole=1.1,-0.3,-0.9", "ArmPole=0,0,0");
 			SetTilt(0.0f);
 			RunFrames(300);
 			SetTilt(30.0f);
@@ -3969,7 +4278,7 @@ static void TiltTests(void)
 				CHECK(clipsOff < 1.0f && offLen > 2.0f && poleOff > 5.0f, "ArmPole=0,0,0: the elbow in the clips' own plane again, carried by the lean (its offset %.1f, %.1f deg off that plane; the pole's %.1f deg away)", offLen, clipsOff, poleOff);
 			}
 			RewriteIni("WristRoll=0", "WristRoll=1.0");
-			RewriteIni("ArmPole=0,0,0", "ArmPole=0.35,-0.3,-1.0");
+			RewriteIni("ArmPole=0,0,0", "ArmPole=1.1,-0.3,-0.9");
 		}
 		{
 			/* Test 39's HandPitch: the hand's long axis that many degrees above the forearm's line
@@ -5212,11 +5521,1831 @@ static void RiderSwitchTests(int mode)
 	      "getting off: everything back and let go of");
 }
 
+/* ---- Mode 9: loads into a ride (finding 2 of test 40) -------------------------------------
+ * After an in-game load on the bike the lean was lost: the bike upright through the turns, the
+ * rider sitting up, the bars and the wheels still going; getting off and on fixed it, and the
+ * log was gone with a restart. These ride a circle at 400 units/s on a 300 turn radius and load
+ * (PostLoadGame) in it, each time with the 3D the load hands over changed in one way. */
+
+/* The log of the session before: a marker where the plugin will open its log (its rule: in My
+ * Documents\My Games\Fallout4\F4SE if it can be written there, else next to the DLL), written
+ * before the DLL is loaded; it must find it in CMB_Slope_prev.log. */
+static char g_markerPath[MAX_PATH];
+static void WriteLogMarker(const char *dllPath)
+{
+	char path[MAX_PATH];
+	FILE *f = NULL;
+	HMODULE shell = LoadLibraryA("shell32.dll");
+	HRESULT (WINAPI *folder)(HWND, int, HANDLE, DWORD, LPSTR) = shell ? (HRESULT (WINAPI *)(HWND, int, HANDLE, DWORD, LPSTR))(void *)GetProcAddress(shell, "SHGetFolderPathA") : NULL;
+	if (folder && folder(NULL, 0x8005, NULL, 0, path) >= 0) {   /* CSIDL_PERSONAL | CSIDL_FLAG_CREATE, as the plugin asks */
+		strncat(path, "\\My Games\\Fallout4\\F4SE", sizeof(path) - strlen(path) - 1);
+		CreateDirectoryA(path, NULL);
+		strncat(path, "\\CMB_Slope.log", sizeof(path) - strlen(path) - 1);
+		f = fopen(path, "w");
+	}
+	if (!f && GetFullPathNameA(dllPath, sizeof(path), path, NULL)) {
+		char *dot = strrchr(path, '.');
+		if (dot)
+			strcpy(dot, ".log");
+		f = fopen(path, "w");
+	}
+	if (!f)
+		return;
+	fputs("12:00:00.000 the session before's last line (fake_game mode 9's marker)\n", f);
+	fclose(f);
+	snprintf(g_markerPath, sizeof(g_markerPath), "%s", path);
+}
+static void LogRotationTests(void)
+{
+	char prev[MAX_PATH + 16], line[512] = "";
+	printf("the log of the session before:\n");
+	size_t n = strlen(g_markerPath);
+	snprintf(prev, sizeof(prev), "%.*s_prev.log", n > 4 ? (int)(n - 4) : 0, g_markerPath);
+	FILE *f = n ? fopen(prev, "rb") : NULL;
+	bool marker = f && fgets(line, sizeof(line), f) && strstr(line, "fake_game mode 9's marker");
+	if (f)
+		fclose(f);
+	CHECK(marker, "the marker written before the load is in CMB_Slope_prev.log");
+	f = OpenLog();
+	line[0] = 0;
+	if (f) {
+		if (!fgets(line, sizeof(line), f))
+			line[0] = 0;
+		fclose(f);
+	}
+	CHECK(strstr(line, "the session before's log kept as CMB_Slope_prev.log") && strstr(line, ", started 20"),
+	      "the new log's first line gives the day and says so: %.160s", line);
+}
+
+static void CircleRide(float dt)
+{
+	float *head = (float *)(g_player + 0xC8);
+	PlayerPos()[0] += sinf(*head) * 400.0f * dt;
+	PlayerPos()[1] += cosf(*head) * 400.0f * dt;
+	*head += 0.3f;   /* the game asks for more turn than the radius allows: the plugin clamps it */
+}
+/* The game's re-attached armor after a load: a new shape and skin instance for the body, on the
+ * original (shared) bone data and the same skeleton nodes; the old one detached. */
+static void ReplaceBody(void)
+{
+	uint8_t *old = g_bodyShape, *oldSkin = g_bodySkin;
+	RemoveChild(g_npcRoot, old);
+	uint8_t *shape = NewNode(*(void ***)old, "BaseMaleBody:0", 0);
+	uint8_t *skin = (uint8_t *)NewObject(*(void ***)oldSkin, 0x100);
+	*(int32_t *)(skin + 0x08) = 1;
+	*(uint8_t **)(skin + 0x40) = g_bodyData;
+	*(uint8_t **)(skin + 0x28) = *(uint8_t **)(oldSkin + 0x28);
+	*(uint32_t *)(skin + 0x30) = 12;
+	*(uint32_t *)(skin + 0x38) = 12;
+	*(uint8_t **)(shape + 0x140) = skin;
+	*(uint8_t **)(shape + 0x28) = g_npcRoot;
+	AddChild(g_npcRoot, shape);
+	g_bodyShape = shape;
+	g_bodySkin = skin;
+}
+static void ReplaceHands(void)
+{
+	uint8_t *old = g_handsShape, *oldSkin = g_handsSkin;
+	RemoveChild(g_npcRoot, old);
+	uint8_t *shape = NewNode(*(void ***)old, "NakedHands:0", 0);
+	uint8_t *skin = (uint8_t *)NewObject(*(void ***)oldSkin, 0x100);
+	memcpy(skin + 0x08, oldSkin + 0x08, 0xF8);
+	*(int32_t *)(skin + 0x08) = 1;
+	*(uint8_t **)(skin + 0x40) = g_handsData;
+	*(uint8_t **)(shape + 0x140) = skin;
+	*(uint8_t **)(shape + 0x28) = g_npcRoot;
+	AddChild(g_npcRoot, shape);
+	g_handsShape = shape;
+	g_handsSkin = skin;
+}
+/* Case 6: the bike's skin given new bone data at the load whose transforms aren't there yet (the
+ * entries pointer 0), as a skin caught half built; filled in by FillBikeData 0.15 s later. */
+static uint8_t *ReplaceBikeData(void)
+{
+	uint8_t *inst = *(uint8_t **)(g_bikeShape + 0x140), *was = *(uint8_t **)(inst + 0x40);
+	uint8_t *data = (uint8_t *)NewObject(*(void ***)was, 0x100);
+	memcpy(data + 0x08, was + 0x08, 0xF8);
+	*(int32_t *)(data + 0x08) = 2;      /* the skin and the model cache */
+	*(uint8_t **)(data + 0x10) = NULL;  /* the transforms not filled in yet */
+	*(uint8_t **)(inst + 0x40) = data;
+	return data;
+}
+/* Case 7: the skeleton's arm and spine nodes replaced by new ones (the same names and places),
+ * the old ones detached, the body's and the kept hands' bone lists pointed at the new ones: a
+ * load that rebuilds those nodes while a shape held before it is kept. */
+static void ReplaceArmAndSpineNodes(void)
+{
+	static const int which[5] = { 1, 2, 5, 6, 7 };   /* the spine's two, the hand, the upper arm, the forearm */
+	uint8_t **bodyList = *(uint8_t ***)(g_bodySkin + 0x28);
+	uint8_t **handsNodes = *(uint8_t ***)(g_handsSkin + 0x10), **handsXfs = *(uint8_t ***)(g_handsSkin + 0x28);
+	for (int k = 0; k < 5; k++) {
+		int i = which[k];
+		uint8_t *old = g_bodyNodes[i];
+		uint16_t kids = *(uint16_t *)(old + 0x132);
+		uint8_t *node = NewNode(*(void ***)old, "", kids ? 4 : 0);
+		*(uint8_t **)(node + 0x10) = *(uint8_t **)(old + 0x10);   /* the same name */
+		memcpy(node + 0x18, old + 0x18, 0x10);
+		memcpy(node + 0x30, old + 0x30, 0xF0);   /* the transforms, local and world */
+		for (unsigned c = 0; c < kids; c++) {    /* the children (a skin helper) go with it */
+			uint8_t *child = (*(uint8_t ***)(old + 0x128))[c];
+			AddChild(node, child);
+			*(uint8_t **)(child + 0x28) = node;
+		}
+		*(uint16_t *)(old + 0x132) = 0;
+		RemoveChild(g_npcRoot, old);
+		*(uint8_t **)(old + 0x28) = NULL;   /* detached: its world stays where the load left it */
+		AddChild(g_npcRoot, node);
+		*(uint8_t **)(node + 0x28) = g_npcRoot;
+		g_bodyNodes[i] = node;
+		bodyList[i] = node;
+		if (i == 5) {
+			handsNodes[3] = node;
+			handsXfs[3] = g_handsXf[3] = node + 0x70;
+		}
+	}
+}
+/* How the ride looks after a load: the bike's lean, the body's skin, the torso's lean. */
+typedef struct {
+	int leaned, finals, level, loads, resumed, looks;
+} RideCounts;
+static void CountRide(RideCounts *c)
+{
+	c->leaned = LogLines("the upper body leaned ");
+	c->finals = LogLines("s into the ride, final") + LogLines("upper body's lean final");
+	c->level = LogLines("held, level");
+	c->loads = LogLines("load: a save loaded (PostLoadGame)");
+	c->resumed = LogLines("load: the ride resumed ");
+	c->looks = LogLines("load: 2.5 s into the ride after the load");
+}
+static float BikeLean(void)
+{
+	float R[9];
+	AppliedRotation(R);
+	return asinf(R[2] > 1.0f ? 1.0f : R[2] < -1.0f ? -1.0f : R[2]) * DEG;
+}
+static float ShoulderOff(bool *replica)
+{
+	float Rw[9], Pw[3], S[3], mS[3];
+	uint8_t *dataNow = *(uint8_t **)(g_bodySkin + 0x40);
+	*replica = dataNow && dataNow != g_bodyData;
+	if (!*replica)
+		return -1.0f;
+	const uint8_t *copyNow = *(const uint8_t **)(dataNow + 0x10);
+	ExpectedTilt(Rw, Pw);
+	memcpy(S, g_bodyNodes[6] + 0xA0, 12);
+	MapBone(g_bodyNodes[6], g_bodyBonesOriginal + 6 * 0x50, copyNow + 6 * 0x50, S, mS);
+	return TiltedOff(S, mS, Rw, Pw);
+}
+static void RideReport(const char *what, const RideCounts *before, bool aLoad)
+{
+	RideCounts now;
+	CountRide(&now);
+	bool replica;
+	float bikeLean = BikeLean(), shoulderOff = ShoulderOff(&replica);
+	int leaned = now.leaned - before->leaned, finals = now.finals - before->finals, level = now.level - before->level;
+	printf("  %s: the bike leaning %.1f deg into the turn; the body's skin on %s; the shoulder %.1f off the tilt alone (the torso's lean); %d \"leaned\" lines, %d final; %d \"held, level\" traces; last lean %.1f\n",
+	       what, bikeLean, replica ? "the plugin's copy (held)" : "the game's own data (not held)", shoulderOff, leaned, finals, level, LastLogNumber("the upper body leaned "));
+	CHECK(fabsf(bikeLean) > 2.0f, "%s: the bike leans into the turn (%.1f deg)", what, bikeLean);
+	CHECK(replica && shoulderOff > 1.0f && shoulderOff < 20.0f, "%s: the rider held and leaned forward (the shoulder %.1f off the tilt alone; 9.9 getting on)", what, shoulderOff);
+	CHECK(finals >= 1, "%s: a final lean (%d)", what, finals);
+	if (aLoad)
+		CHECK(now.loads - before->loads == 1 && now.resumed - before->resumed == 1 && now.looks - before->looks == 1,
+		      "%s: one line each of the load, the ride resumed and the look 2.5 s in (%d, %d, %d)", what, now.loads - before->loads,
+		      now.resumed - before->resumed, now.looks - before->looks);
+}
+static void LoadIntoRideTests(void)
+{
+	*(float *)(g_turnRadius + 0x30) = 300.0f;
+	*(float *)(g_turnStand + 0x30) = 20.0f;
+	SetNormal(0.0f, 0.0f, 1.0f);
+	SetState(0);
+	FlatGround();
+	printf("loads into a ride (finding 2 of test 40): getting on, riding round in a circle:\n");
+	RideCounts c;
+	CountRide(&c);
+	SetLive(60.0f);
+	SetCamera(300.0f);
+	SetTilt(30.0f);
+	g_onFrame = CircleRide;
+	RunFrames(4500);
+	RideReport("getting on", &c, false);
+
+	const char *names[7] = {
+		"1 a load in place (the body's 3D replaced, the hands' kept)",
+		"2 a load 150000 units off (the 3D's world 25 frames behind; the body replaced, the hands kept)",
+		"3 a load in place with nothing kept (the body and the hands replaced)",
+		"4 a load 150000 units off, nothing kept, 3 frames behind",
+		"5 a load in place, the body's new bone data half built for 0.15 s (a zero rotation in bone 0)",
+		"6 a load in place, the bike's skin given new bone data with no transforms to read for 0.15 s",
+		"7 a load in place, the hands kept and the arm and spine nodes rebuilt (the old ones detached)" };
+	for (int k = 0; k < 7; k++) {
+		printf("loads into a ride: %s:\n", names[k]);
+		CountRide(&c);
+		int unbuilt = LogLines("has no bone transforms to read yet");
+		g_onFrame = NULL;
+		Send(3, 1);   /* PostLoadGame */
+		if (k == 1 || k == 3) {
+			PlayerPos()[0] += 150000.0f;
+			g_staleFrames = k == 3 ? 3 : 25;   /* 25: past the first 100 ms tick for sure */
+		}
+		ReplaceBody();
+		if (k == 2 || k == 3)
+			ReplaceHands();
+		if (k == 6)
+			ReplaceArmAndSpineNodes();
+		g_onFrame = CircleRide;
+		if (k == 4) {
+			uint8_t keep[0x50];
+			memcpy(keep, g_bodyBones, 0x50);
+			memset(g_bodyBones + 0x10, 0, 0x30);   /* bone 0's rotation not filled in yet */
+			RunFrames(150);
+			memcpy(g_bodyBones, keep, 0x50);
+			RunFrames(6350);
+		} else if (k == 5) {
+			uint8_t *data = ReplaceBikeData();
+			RunFrames(150);
+			*(uint8_t **)(data + 0x10) = g_bones;   /* filled in */
+			RunFrames(2850);
+			int refs = *(int32_t *)(data + 0x08);
+			CHECK(refs == 3 && LogLines("has no bone transforms to read yet") - unbuilt == 1,
+			      "%s: the refusal said once (%d) and the skin held again by 3 s (references %d)", names[k], LogLines("has no bone transforms to read yet") - unbuilt, refs);
+			RunFrames(3500);
+		} else {
+			RunFrames(6500);
+		}
+		RideReport(names[k], &c, true);
+	}
+
+	/* 8: the tester's picture of test 40 (the bars turning, the wheels spinning, the bike upright
+	 * through the turns and the rider sitting up) is what the plugin does with CMB_TiltLive at 0
+	 * and the slope or the camera on: the tilt left at 0 by the load (the script didn't set it),
+	 * then set 4 s later. Said in the log, both ways; nothing of the plugin's own to bring back. */
+	printf("loads into a ride: 8 a load with CMB_TiltLive left at 0 (the slope and the camera on), set 4 s later:\n");
+	CountRide(&c);
+	int zero = LogLines("riding with CMB_TiltLive at 0 for "), back = LogLines("tilt: CMB_TiltLive reads 30 now"), off = LogLines("; not resumed: the tilt off (CMB_TiltLive 0");
+	g_onFrame = NULL;
+	Send(3, 1);
+	ReplaceBody();
+	SetTilt(0.0f);
+	g_onFrame = CircleRide;
+	float wheelBefore[9], wheelAfter[9];
+	AppliedRotationOf(g_partBonesOriginal[0], g_partBones[0], wheelBefore);
+	RunFrames(4000);
+	AppliedRotationOf(g_partBonesOriginal[0], g_partBones[0], wheelAfter);
+	bool replica;
+	float lean0 = BikeLean(), bars0 = BarAngle(), shoulder0 = ShoulderOff(&replica);
+	(void)shoulder0;
+	printf("  the tilt at 0: the bike leaning %.1f deg, the bars %.1f deg, the wheel's map %s, the body's skin on %s\n", lean0, bars0,
+	       memcmp(wheelBefore, wheelAfter, sizeof(wheelBefore)) ? "turning" : "standing", replica ? "the plugin's copy" : "the game's own data");
+	CHECK(fabsf(lean0) < 0.5f && fabsf(bars0) > 0.5f && memcmp(wheelBefore, wheelAfter, sizeof(wheelBefore)) && !replica,
+	      "the tilt at 0 after the load: the bike level (%.1f deg), the bars over (%.1f deg) and the wheels turning, the rider not held: the tester's picture", lean0, bars0);
+	CHECK(LogLines("riding with CMB_TiltLive at 0 for ") - zero == 1 && LogLines("; not resumed: the tilt off (CMB_TiltLive 0") - off == 1,
+	      "and the log says so: the tilt global's line (%d) and the look 2.5 s in naming it (%d)", LogLines("riding with CMB_TiltLive at 0 for ") - zero,
+	      LogLines("; not resumed: the tilt off (CMB_TiltLive 0") - off);
+	SetTilt(30.0f);   /* the script's late set */
+	RunFrames(4000);
+	float lean1 = BikeLean(), shoulder1 = ShoulderOff(&replica);
+	CHECK(fabsf(lean1) > 2.0f && replica && shoulder1 > 1.0f && LogLines("tilt: CMB_TiltLive reads 30 now") - back == 1,
+	      "set 4 s later: the bike leans (%.1f deg), the rider held and leaned (the shoulder %.1f off), and the line that it came back", lean1, shoulder1);
+
+	/* 9: the other way the bike could stand upright through the turns, the tilt's filter held in
+	 * the air after the load (the controller saying so, the rays finding no ground): the bike
+	 * level, but the rider still held and leaned forward, so not the tester's picture. */
+	printf("loads into a ride: 9 a load into the air (the controller in the air, no ground for the rays) for 4 s:\n");
+	g_onFrame = NULL;
+	Send(3, 1);
+	ReplaceBody();
+	SetState(2);
+	g_groundZ = PlayerPos()[2] - 2000.0f;
+	g_onFrame = CircleRide;
+	RunFrames(4000);
+	float lean2 = BikeLean(), shoulder2 = ShoulderOff(&replica);
+	CHECK(fabsf(lean2) < 2.0f && replica && shoulder2 > 1.0f && shoulder2 < 20.0f,
+	      "in the air: the bike level (%.1f deg) but the rider held and leaned forward (the shoulder %.1f off the tilt alone): not the tester's picture", lean2, shoulder2);
+	SetState(0);
+	FlatGround();
+	RunFrames(2500);
+	float lean3 = BikeLean();
+	CHECK(fabsf(lean3) > 2.0f, "on the ground again: the bike leans into the turn (%.1f deg)", lean3);
+
+	g_onFrame = NULL;
+	SetTilt(0.0f);
+	SetLive(0.0f);
+	SetCamera(0.0f);
+	RunFrames(500);
+}
+
+/* --- Climbing low things (test 40's finding 8; mode 10) ------------------------------------
+ * The player's capsule (radius 18) stopped by what it meets, as f8's capsule model has it: a
+ * contact steeper than the limit the controller holds now (acos of *Slope()) is a wall, so the
+ * axis is held 18 short of the face; within the limit, the push into the contact slides the
+ * capsule up it (the push times sin a cos a, the contact's angle held), and once the feet are at
+ * the top less 0.5 it is let through, on top, till the axis is past the far side. The contact's
+ * angle: acos((18 - T/2)/(18 + T/2)) for a round log T across, acos(1 - T/18) for a sharp step
+ * of T (90 from 18 up: the capsule's upright side). Only the planes given a kind here, and only
+ * in mode 10 (R4); the feet follow the rays' ground there (a slope, the kink) with the lift. */
+enum { CAP_NONE, CAP_LOG, CAP_STEP };
+#define CAPSULE_R 18.0f
+static bool g_capsuleOn;
+static int g_capKind[3];
+static float g_capDepth[3];     /* how far the thing reaches past its face, for when the axis is past it */
+static float g_feetLift;        /* the feet over the ground: onto what the capsule climbed */
+static int g_capHeld;           /* frames the capsule was held at a face it couldn't climb */
+static float GroundZAt(float x, float y)
+{
+	float u = (x - g_slopeO[0]) * g_slopeD[0] + (y - g_slopeO[1]) * g_slopeD[1];
+	if (g_kinkOn && u > g_kinkAt)
+		u = g_kinkAt;
+	return g_groundZ + g_slopeK * u;
+}
+static float ContactAngle(int kind, float T)
+{
+	if (kind == CAP_LOG)
+		return acosf((CAPSULE_R - 0.5f * T) / (CAPSULE_R + 0.5f * T)) * DEG;
+	return T >= CAPSULE_R ? 90.0f : acosf(1.0f - T / CAPSULE_R) * DEG;
+}
+static void CapsuleStop(const float before[2])
+{
+	float *p = PlayerPos(), lift = 0.0f;
+	float raised = p[2] - GroundZAt(p[0], p[1]);   /* the feet over the ground now: the plugin's SetPosition (stage 2's step up) may have put them up since the last frame */
+	for (int i = 0; i < 3; i++) {
+		const FakePlane *w = &g_planes[i];
+		if (!w->on || !g_capKind[i] || w->follow != 0.0f)
+			continue;
+		float T = w->top > 0.0f ? w->top : 10000.0f;
+		float s = (p[0] - w->point[0]) * w->normal[0] + (p[1] - w->point[1]) * w->normal[1];
+		if (s > CAPSULE_R + 0.05f || s < -g_capDepth[i])
+			continue;   /* not touching it, or the axis past its far side */
+		float have = g_planeTopDepth[i] > 0.0f && raised > g_feetLift ? raised : g_feetLift;   /* a step up counts only at a thing with a top (stage 2's checks; R4) */
+		if (have >= T - 0.5f) {
+			lift = fmaxf(lift, T);   /* on top of it: let through */
+			continue;
+		}
+		float sb = (before[0] - w->point[0]) * w->normal[0] + (before[1] - w->point[1]) * w->normal[1];
+		float a = ContactAngle(g_capKind[i], T) / DEG, push = sb - s > 0.0f ? sb - s : 0.0f, up = have;
+		if (s < CAPSULE_R) {   /* held at the contact */
+			p[0] += w->normal[0] * (CAPSULE_R - s);
+			p[1] += w->normal[1] * (CAPSULE_R - s);
+		}
+		if (a <= acosf(*Slope()) + 1e-4f)
+			up += push * sinf(a) * cosf(a);   /* within the limit: slid up it */
+		else
+			g_capHeld++;
+		lift = fmaxf(lift, up);
+	}
+	g_feetLift = lift;
+	p[2] = GroundZAt(p[0], p[1]) + g_feetLift;
+}
+static void ClimbFrame(float dt)
+{
+	float before[2] = { PlayerPos()[0], PlayerPos()[1] };
+	FakeGameFrame(dt);
+	if (g_capsuleOn)
+		CapsuleStop(before);
+}
+/* One frame of the game and the plugin, no wait (a cut within a frame). */
+static void OneFrame(void)
+{
+	if (g_onFrame)
+		g_onFrame(0.005f);
+	SyncFakeWorld();
+	((void (*)(Task *))g_task->vtbl[1])(g_task);
+	if (*Slope() < g_slopeMin)
+		g_slopeMin = *Slope();
+}
+/* Plane i a thing `ahead` units ahead of the player's axis, facing them, `top` tall above the
+ * ground (0: no top), of a capsule kind, reaching `depth` past its face. */
+static FakePlane *Obstacle(int i, float ahead, float top, int kind, float depth, uint32_t layer, uint8_t *what)
+{
+	FakePlane *w = &g_planes[i];
+	float h = PlayerHeading(), fx = sinf(h), fy = cosf(h);
+	memset(w, 0, sizeof(*w));
+	w->point[0] = PlayerPos()[0] + fx * ahead;
+	w->point[1] = PlayerPos()[1] + fy * ahead;
+	w->normal[0] = -fx;
+	w->normal[1] = -fy;
+	w->layer = layer;
+	w->top = top;
+	w->what = what;
+	w->on = true;
+	g_capKind[i] = kind;
+	g_capDepth[i] = depth;
+	g_planeTopDepth[i] = 0.0f;   /* no top the rays down see, unless a stage-2 check gives it one */
+	g_capHeld = 0;
+	return w;
+}
+static float FaceGap(const FakePlane *w)   /* the axis to the face, + in front of it */
+{
+	return (PlayerPos()[0] - w->point[0]) * w->normal[0] + (PlayerPos()[1] - w->point[1]) * w->normal[1];
+}
+static void ClearObstacles(void)
+{
+	for (int i = 0; i < 3; i++) {
+		g_planes[i].on = false;
+		g_capKind[i] = CAP_NONE;
+		g_planeTopDepth[i] = 0.0f;
+	}
+	g_feetLift = 0.0f;
+	PlayerPos()[2] = GroundZAt(PlayerPos()[0], PlayerPos()[1]);
+}
+/* W held up to ms: the seconds until the axis is past the thing's far side (-1: it isn't). */
+static float RideAt(const FakePlane *w, float depth, int ms)
+{
+	Keys(0.0f, 1.0f);
+	for (int t = 0; t < ms; t += 50) {
+		RunFrames(50);
+		if (FaceGap(w) < -depth)
+			return (float)(t + 50) / 1000.0f;
+	}
+	return -1.0f;
+}
+/* W held up to ms until the climb's boost is in the slot: the seconds it took (-1: never). */
+static float UntilBoost(float boostCos, int ms)
+{
+	Keys(0.0f, 1.0f);
+	for (int t = 0; t < ms; t += 25) {
+		RunFrames(25);
+		if (Near(*Slope(), boostCos))
+			return (float)(t + 25) / 1000.0f;
+	}
+	return -1.0f;
+}
+static void RollOff(void)   /* W let go of, the obstacles gone, rolled off to a stop */
+{
+	Keys(0.0f, 0.0f);
+	ClearObstacles();
+	RunFrames(2500);
+}
+static void GetOffAndOn(float degrees)
+{
+	Keys(0.0f, 0.0f);
+	SetLive(0.0f);
+	SetCamera(0.0f);
+	SetTilt(0.0f);
+	RunFrames(400);
+	SetLive(degrees);
+	SetCamera(300.0f);
+	SetTilt(30.0f);
+	RunFrames(1000);
+}
+static int FaceLines(void) { return LogLines("past the front wheel at axle height") + LogLines("rays: nothing ahead now"); }
+
+/* Stage 2 (test 41, ClimbStep; plan check 9): a sharp step 26 high and 60 deep, a stump. Its
+ * contact is on the capsule's upright side (acos(1 - 26/18): 90), so no limit climbs it; its top
+ * is a flat surface the plugin's rays down find (g_planeTopDepth, these checks only), and the
+ * capsule model takes the feet put up by SetPosition as on top of it. Each part on a ride of its
+ * own, so the climb's hand of 10 lines is full at its start. */
+static void ClimbStepTests(void)
+{
+	float *head = (float *)(g_player + 0xC8), cos85 = cosf(85.0f / DEG);
+	FakePlane *w;
+	float passed;
+
+	printf("climb, stage 2 (ClimbStep=1): a sharp step 26 high and 60 deep 400 ahead (its contact on the capsule's upright side), its top where rays down find it, SetPosition honoured, W held: stepped up 27.5 and 4 on, at most twice, over it:\n");
+	GetOffAndOn(45.0f);
+	g_camYaw = *head;
+	CHECK(LogLines("a sharp step the limit can't take stepped up onto (ClimbStep=1)") >= 1 && LogLines("low things up to 31.9 above the feet climbed with the limit at 85 deg while forward is held, sharp steps up to it stepped up onto") >= 1,
+	      "the settings line and the ride's capsule line say ClimbStep=1");
+	{
+		int step0 = LogLines("climb: stepped up 27.5 (the top 26.0 at "), over0 = LogLines("climb: over it after"), after0 = LogLines(", after 1 step up): the climb limit back to 47");
+		int noStep0 = LogLines("climb: no step:"), didnt0 = LogLines("climb: the step up didn't take"), sets0 = g_setPositions;
+		g_slopeMin = 1.0f;
+		w = Obstacle(0, 400.0f, 26.0f, CAP_STEP, 60.0f, 1, NULL);
+		g_planeTopDepth[0] = 60.0f;
+		g_rec = true;
+		g_recN = 0;
+		passed = RideAt(w, 60.0f, 4000);
+		g_rec = false;
+		float steepest = g_slopeMin;
+		RunFrames(500);
+		int steps = g_recN;
+		bool sized = steps > 0;
+		for (int i = 0; i < steps; i++)
+			sized = sized && fabsf(g_recDz[i] - 27.5f) <= 0.5f && fabsf(g_recStep[i] - 4.0f) <= 0.05f;
+		CHECK(passed > 0.0f, "over it within 4 s (%.2f s; the capsule held at it %d frames)", passed, g_capHeld);
+		CHECK(steps >= 1 && steps <= 2 && sized && g_setPositions - sets0 == steps, "stepped up %d time(s) (SetPosition called %d), each by the top + 1.5 (%.2f) and 4 on (%.2f)",
+		      steps, g_setPositions - sets0, steps ? g_recDz[0] : 0.0f, steps ? g_recStep[0] : 0.0f);
+		CHECK(LogLines("climb: stepped up 27.5 (the top 26.0 at ") - step0 == steps && LogLines("climb: over it after") - over0 == 1 && LogLines(", after 1 step up): the climb limit back to 47") - after0 == (steps == 1) &&
+		      LogLines("climb: no step:") == noStep0 && LogLines("climb: the step up didn't take") == didnt0,
+		      "a \"stepped up 27.5 (the top 26.0 at ...\" line a step (%d), one \"over it ... after 1 step up\" (%d), no \"no step\" or \"didn't take\" line",
+		      LogLines("climb: stepped up 27.5 (the top 26.0 at ") - step0, LogLines("climb: over it after") - over0);
+		CHECK(Near(steepest, cos85) && Near(*Slope(), COS47), "the boost at it (the steepest limit %.2f deg), 47 again after (%.2f deg)", acosf(steepest) * DEG, acosf(*Slope()) * DEG);
+		RollOff();
+	}
+
+	printf("climb, stage 2: the same step with SetPosition not honoured, W held: two steps asked, both said not to have taken, given up after 1.5 s stalled, 47; forward pressed again: the boost again, no more steps at this obstacle:\n");
+	GetOffAndOn(45.0f);
+	g_camYaw = *head;
+	{
+		int sets0 = g_setPositions, didnt0 = LogLines("climb: the step up didn't take"), given0 = LogLines("climb: given up after"), made0 = LogLines(", 2 steps up made): not again");
+		int low0 = LogLines("climb: a low face at the capsule");
+		g_honour = 0;
+		w = Obstacle(0, 400.0f, 26.0f, CAP_STEP, 60.0f, 1, NULL);
+		g_planeTopDepth[0] = 60.0f;
+		passed = RideAt(w, 60.0f, 3500);
+		CHECK(passed < 0.0f && FaceGap(w) > 17.0f && g_setPositions - sets0 == 2 && LogLines("climb: the step up didn't take") - didnt0 == 2,
+		      "held at it (the axis %.1f from its face): 2 steps asked (%d), both said not to have taken (%d)", FaceGap(w), g_setPositions - sets0, LogLines("climb: the step up didn't take") - didnt0);
+		CHECK(LogLines("climb: given up after") - given0 == 1 && LogLines(", 2 steps up made): not again") - made0 == 1 && Near(*Slope(), COS47),
+		      "given up (%d line, \"2 steps up made\"), back to 47 (%.2f deg)", LogLines("climb: given up after") - given0, acosf(*Slope()) * DEG);
+		RunFrames(1000);
+		CHECK(LogLines("climb: a low face at the capsule") - low0 == 1 && Near(*Slope(), COS47), "W still held 1 s: not again (%d boost line), 47 (%.2f deg)", LogLines("climb: a low face at the capsule") - low0, acosf(*Slope()) * DEG);
+		Keys(0.0f, 0.0f);
+		RunFrames(300);
+		int sets1 = g_setPositions;
+		float took = UntilBoost(cos85, 1000);
+		RunFrames(1500);
+		CHECK(took > 0.0f && g_setPositions == sets1, "forward pressed again: the boost on again (%.2f s), but no step (SetPosition called %d more): two an obstacle", took, g_setPositions - sets1);
+		Keys(0.0f, 0.0f);
+		g_honour = 4;
+		RollOff();
+	}
+
+	printf("climb, stage 2: the same step with something 90 over its top (no room for the capsule's 128), W held: no step, \"no room above it\", given up:\n");
+	GetOffAndOn(45.0f);
+	g_camYaw = *head;
+	{
+		int sets0 = g_setPositions, room0 = LogLines("climb: no step: no room above it (FakeShelf, layer 1, 90 over the top 26.0"), given0 = LogLines("climb: given up after");
+		w = Obstacle(0, 400.0f, 26.0f, CAP_STEP, 60.0f, 1, NULL);
+		g_planeTopDepth[0] = 60.0f;
+		g_shelfOn = true;   /* a disc 116 over the ground, 10 to 60 ahead of the player wherever they are: over the step's top, not over the axis or a wheel */
+		g_shelfHeight = 116.0f;
+		g_shelfAhead = 35.0f;
+		g_shelfRadius = 25.0f;
+		passed = RideAt(w, 60.0f, 3500);
+		CHECK(passed < 0.0f && FaceGap(w) > 17.0f && g_setPositions == sets0, "held at it (the axis %.1f from its face), no SetPosition (%d)", FaceGap(w), g_setPositions - sets0);
+		CHECK(LogLines("climb: no step: no room above it (FakeShelf, layer 1, 90 over the top 26.0") - room0 == 1 && LogLines("climb: given up after") - given0 == 1,
+		      "one \"no step: no room above it (FakeShelf, layer 1, 90 over the top 26.0 ...\" line (%d), given up (%d)",
+		      LogLines("climb: no step: no room above it (FakeShelf, layer 1, 90 over the top 26.0") - room0, LogLines("climb: given up after") - given0);
+		Keys(0.0f, 0.0f);
+		g_shelfOn = false;
+		g_shelfHeight = g_shelfAhead = 0.0f;
+		g_shelfRadius = 60.0f;
+		RollOff();
+	}
+
+	printf("climb, stage 2: ClimbStep=0 written (read again on getting on), the same step, SetPosition honoured, W held: no step, held, given up (the boost alone, as stage 1 shipped):\n");
+	RewriteIni("Climb=1\n", "Climb=1\nClimbStep=0\n");
+	GetOffAndOn(45.0f);
+	g_camYaw = *head;
+	{
+		int sets0 = g_setPositions, given0 = LogLines("climb: given up after"), step0 = LogLines("climb: stepped up"), noStep0 = LogLines("climb: no step:");
+		CHECK(LogLines("; sharp steps not stepped up onto (ClimbStep=0) (read again on getting on)") >= 1, "the settings line says ClimbStep=0");
+		w = Obstacle(0, 400.0f, 26.0f, CAP_STEP, 60.0f, 1, NULL);
+		g_planeTopDepth[0] = 60.0f;
+		passed = RideAt(w, 60.0f, 3500);
+		CHECK(passed < 0.0f && FaceGap(w) > 17.0f && g_setPositions == sets0 && LogLines("climb: stepped up") == step0 && LogLines("climb: no step:") == noStep0 && LogLines("climb: given up after") - given0 == 1,
+		      "held at it (the axis %.1f from its face), no SetPosition (%d), no step line, given up (%d)", FaceGap(w), g_setPositions - sets0, LogLines("climb: given up after") - given0);
+		Keys(0.0f, 0.0f);
+		RollOff();
+	}
+	RewriteIni("ClimbStep=0", "ClimbStep=1");
+	GetOffAndOn(45.0f);
+	g_camYaw = *head;
+}
+
+static void ClimbTests(void)
+{
+	float *head = (float *)(g_player + 0xC8), cos85 = cosf(85.0f / DEG), passed;
+	*(float *)(g_turnRadius + 0x30) = 180.0f;   /* steering on: the input hook (and the throttle) with it */
+	*(float *)(g_turnSlow + 0x30) = 50.0f;
+	*(float *)(g_turnStand + 0x30) = 60.0f;
+	SetNormal(0.0f, 0.0f, 1.0f);
+	SetState(0);
+	FlatGround();
+	g_camYaw = *head;
+	g_handlerStyle = 2;
+	g_honour = 4;
+	g_capsuleOn = true;
+	Keys(0.0f, 0.0f);
+	g_onFrame = ClimbFrame;
+	printf("climbing low things (test 40's finding 8): getting on with the MCM's 45 (the game's own 47 kept), on flat ground:\n");
+	SetLive(45.0f);
+	SetCamera(300.0f);
+	SetTilt(30.0f);
+	RunFrames(1500);
+	CHECK(Near(*Slope(), COS47), "riding: the limit the game's own 47 (%.2f deg)", acosf(*Slope()) * DEG);
+	CHECK(LogLines("climb: the capsule radius 18.0, height 128.0 (controller+0x370/+0x374); its step height 31.0, mod 0.00 for 0.00 s (+0x424/+0x428/+0x42C), cast depth 33.5 (+0x430); low things up to 31.9 above the feet") == 1,
+	      "the ride's capsule line: radius 18.0, height 128.0, step height 31.0, cast depth 33.5, low things up to 31.9 (the wheel radius + 2)");
+	CHECK(LogLines("  climb: low things at the capsule climbed (Climb=1): the slope limit raised to 85 deg") == 1, "the settings line says Climb=1 and 85 deg");
+	int low0 = LogLines("climb: a low face at the capsule"), over0 = LogLines("climb: over it");
+	g_slopeMin = 1.0f;
+	Keys(0.0f, 1.0f);
+	RunFrames(2000);
+	CHECK(LogLines("climb: a low face at the capsule") == low0 && Near(g_slopeMin, COS47), "flat ground, W held 2 s: no boost (the steepest limit %.2f deg)", acosf(g_slopeMin) * DEG);
+	RollOff();
+
+	printf("climb: a round log 22 across 600 ahead (it meets the capsule at acos(7/29) = 76 deg, over the 47: test 40's stops), W held: the limit at 85 at the capsule, over it, back to 47:\n");
+	g_slopeMin = 1.0f;
+	FakePlane *w = Obstacle(0, 600.0f, 22.0f, CAP_LOG, 22.0f, 1, NULL);
+	passed = RideAt(w, 22.0f, 3000);
+	float steepest = g_slopeMin;
+	RunFrames(500);
+	CHECK(passed > 0.0f, "passed within 3 s (%.2f s; the capsule held at it %d frame(s))", passed, g_capHeld);
+	CHECK(Near(steepest, cos85), "the steepest limit written cos 85 (%.2f deg)", acosf(steepest) * DEG);
+	CHECK(Near(*Slope(), COS47), "back to 47 within 0.5 s of passing (%.2f deg)", acosf(*Slope()) * DEG);
+	CHECK(LogLines("climb: a low face at the capsule") - low0 == 1 && LogLines("climb: over it") - over0 == 1, "one \"low face\" line and one \"over it\" line (%d, %d)",
+	      LogLines("climb: a low face at the capsule") - low0, LogLines("climb: over it") - over0);
+	RollOff();
+	printf("climb: a round log 30 across (acos(3/33) = 84.8 deg, just within 85), W held: over it:\n");
+	g_slopeMin = 1.0f;
+	w = Obstacle(0, 600.0f, 30.0f, CAP_LOG, 30.0f, 1, NULL);
+	passed = RideAt(w, 30.0f, 3000);
+	steepest = g_slopeMin;
+	RunFrames(500);
+	CHECK(passed > 0.0f && Near(steepest, cos85) && Near(*Slope(), COS47), "passed within 3 s (%.2f s), at 85 deg (%.2f), back to 47 (%.2f)", passed, acosf(steepest) * DEG, acosf(*Slope()) * DEG);
+	RollOff();
+
+	printf("climb: the same two logs with Climb=0 written (read again on getting on): the bike stays stuck at both, the limit 47:\n");
+	RewriteIni("Climb=1", "Climb=0");
+	GetOffAndOn(45.0f);
+	for (int k = 0; k < 2; k++) {
+		float T = k ? 30.0f : 22.0f;
+		low0 = LogLines("climb: a low face at the capsule");
+		g_slopeMin = 1.0f;
+		w = Obstacle(0, 600.0f, T, CAP_LOG, T, 1, NULL);
+		passed = RideAt(w, T, 3000);
+		CHECK(passed < 0.0f && FaceGap(w) > 17.0f && Near(g_slopeMin, COS47) && LogLines("climb: a low face at the capsule") == low0,
+		      "the log %.0f across: held at it after 3 s (the axis %.1f from its face, held %d frames), the steepest limit %.2f deg", T, FaceGap(w), g_capHeld, acosf(g_slopeMin) * DEG);
+		RollOff();
+	}
+	RewriteIni("Climb=0", "Climb=1");
+	GetOffAndOn(45.0f);
+
+	printf("climb: a sharp step 40 high (taller than ClimbTop 31.9, lower than the face rays' 1.5 wheel radii, 44.9), W held: held, 47 throughout, one \"something at 31.9\" line:\n");
+	int tall0 = LogLines("not climbed: something at 31.9 above the feet");
+	low0 = LogLines("climb: a low face at the capsule");
+	g_slopeMin = 1.0f;
+	w = Obstacle(0, 600.0f, 40.0f, CAP_STEP, 400.0f, 1, NULL);
+	passed = RideAt(w, 400.0f, 5000);
+	CHECK(passed < 0.0f && FaceGap(w) > 17.0f && g_capHeld > 100, "held at it (the axis %.1f from its face, %d frames held)", FaceGap(w), g_capHeld);
+	CHECK(Near(g_slopeMin, COS47) && LogLines("climb: a low face at the capsule") == low0, "the limit 47 every frame (the steepest %.2f deg), no boost", acosf(g_slopeMin) * DEG);
+	CHECK(LogLines("not climbed: something at 31.9 above the feet") - tall0 == 1, "one \"not climbed: something at 31.9 above the feet\" line (%d)", LogLines("not climbed: something at 31.9 above the feet") - tall0);
+	RollOff();
+
+	printf("climb: a wall 700 ahead, W held: stops short of it as before (the face rays), the limit 47:\n");
+	g_slopeMin = 1.0f;
+	float p0[2];
+	Mark(p0);
+	w = Obstacle(0, 700.0f, 0.0f, CAP_STEP, 400.0f, 1, NULL);
+	Keys(0.0f, 1.0f);
+	RunFrames(5000);
+	CHECK(Moved(p0) > 300.0f && FaceGap(w) > 100.0f && FaceGap(w) < 220.0f && Near(g_slopeMin, COS47), "rides %.0f and stops %.0f from the wall (the front wheel's edge 130 ahead), the steepest limit %.2f deg",
+	      Moved(p0), FaceGap(w), acosf(g_slopeMin) * DEG);
+	RollOff();
+
+	printf("climb: an actor's body 600 ahead (layer 30, SkeletonExport, 22 high), W held: held, no boost, \"not climbed: an actor\":\n");
+	int actor0 = LogLines("not climbed: an actor (SkeletonExport, layer 30)");
+	low0 = LogLines("climb: a low face at the capsule");
+	g_slopeMin = 1.0f;
+	w = Obstacle(0, 600.0f, 22.0f, CAP_STEP, 30.0f, 30, g_actorObj);
+	passed = RideAt(w, 30.0f, 4000);
+	CHECK(passed < 0.0f && Near(g_slopeMin, COS47) && LogLines("climb: a low face at the capsule") == low0 && LogLines("not climbed: an actor (SkeletonExport, layer 30)") - actor0 == 1,
+	      "held at it (%.1f from it), the limit 47 (the steepest %.2f deg), one \"not climbed: an actor\" line (%d)", FaceGap(w), acosf(g_slopeMin) * DEG,
+	      LogLines("not climbed: an actor (SkeletonExport, layer 30)") - actor0);
+	RollOff();
+
+	printf("climb: the 22 log 450 ahead on a 35 deg rise (the wheels' line pitched 35, over ClimbMaxPitch 22: test 40's rock pile read 31-37), W held: no boost, \"pitched 35\":\n");
+	{
+		float h = *head, fx = sinf(h), fy = cosf(h), feet = PlayerPos()[2], k = tanf(35.0f / DEG);
+		int pitched0 = LogLines("not climbed: the wheels' line pitched 35");
+		low0 = LogLines("climb: a low face at the capsule");
+		w = Obstacle(0, 450.0f, 22.0f, CAP_LOG, 22.0f, 1, NULL);
+		g_slopeK = k;   /* rising along the heading, the log's foot on its line */
+		g_slopeD[0] = fx;
+		g_slopeD[1] = fy;
+		g_slopeO[0] = w->point[0];
+		g_slopeO[1] = w->point[1];
+		g_groundZ = feet + 450.0f * k;
+		float back[3] = { -fx, -fy, 0.0f };
+		SetNormalTowards(back, 35.0f);
+		g_slopeMin = 1.0f;
+		passed = RideAt(w, 22.0f, 4000);
+		CHECK(passed < 0.0f && Near(g_slopeMin, COS47) && LogLines("climb: a low face at the capsule") == low0 && LogLines("not climbed: the wheels' line pitched 35") - pitched0 == 1,
+		      "held at it (%.1f from it), the limit 47 (the steepest %.2f deg), one \"not climbed: the wheels' line pitched 35\" line (%d)", FaceGap(w), acosf(g_slopeMin) * DEG,
+		      LogLines("not climbed: the wheels' line pitched 35") - pitched0);
+		Keys(0.0f, 0.0f);
+		ClearObstacles();
+		SetNormal(0.0f, 0.0f, 1.0f);
+		FlatGround();
+		RunFrames(2500);
+	}
+
+	printf("climb: down a 20 deg slope onto flat ground, W held 3 s: no boost (the rays pitched down with the bike meet the flat at about the bike's pitch):\n");
+	{
+		float h = *head, fx = sinf(h), fy = cosf(h), feet = PlayerPos()[2], k = tanf(20.0f / DEG);
+		low0 = LogLines("climb: a low face at the capsule");
+		g_slopeK = -k;   /* falling along the heading, flat from 300 ahead */
+		g_slopeD[0] = fx;
+		g_slopeD[1] = fy;
+		g_slopeO[0] = PlayerPos()[0] + fx * 300.0f;
+		g_slopeO[1] = PlayerPos()[1] + fy * 300.0f;
+		g_groundZ = feet - 300.0f * k;
+		g_kinkOn = true;
+		g_kinkAt = 0.0f;
+		float ahead[3] = { fx, fy, 0.0f };
+		SetNormalTowards(ahead, 20.0f);
+		g_slopeMin = 1.0f;
+		Mark(p0);
+		Keys(0.0f, 1.0f);
+		RunFrames(3000);
+		CHECK(Moved(p0) > 400.0f && Near(g_slopeMin, COS47) && LogLines("climb: a low face at the capsule") == low0, "rode %.0f onto the flat (the feet %.0f below the start), the limit 47 (the steepest %.2f deg)",
+		      Moved(p0), feet - PlayerPos()[2], acosf(g_slopeMin) * DEG);
+		Keys(0.0f, 0.0f);
+		RunFrames(2500);
+		g_kinkOn = false;
+		SetNormal(0.0f, 0.0f, 1.0f);
+		FlatGround();
+	}
+
+	printf("climb: a sharp step 25 high 400 ahead (its contact on the capsule's upright side: no limit climbs it, stage 2's), W held: the boost on, then cut by getting off:\n");
+	w = Obstacle(0, 400.0f, 25.0f, CAP_STEP, 400.0f, 1, NULL);
+	float took = UntilBoost(cos85, 3000);
+	RunFrames(300);
+	CHECK(took > 0.0f && Near(*Slope(), cos85), "the boost on at the step (%.2f s), 85 still written 0.3 s on (%.2f deg)", took, acosf(*Slope()) * DEG);
+	int cut0 = LogLines("climb: cut after");
+	SetLive(0.0f);
+	SetCamera(0.0f);
+	SetTilt(0.0f);
+	RunFrames(300);
+	CHECK(Near(*Slope(), COS47) && LogLines(": the ride's end") > 0 && LogLines("climb: cut after") > cut0, "got off during it: 47 on foot (%.2f deg), \"cut ... the ride's end\"", acosf(*Slope()) * DEG);
+	Keys(0.0f, 0.0f);
+	SetLive(45.0f);
+	SetCamera(300.0f);
+	SetTilt(30.0f);
+	RunFrames(1000);
+	printf("climb: the boost on at the step, a load (the controller kept, 85 in it), W let go, then off:\n");
+	took = UntilBoost(cos85, 2000);
+	int taken0 = LogLines("holds our climb boost's value");
+	Send(3, 1);   /* PostLoadGame */
+	Keys(0.0f, 0.0f);
+	RunFrames(500);
+	CHECK(took > 0.0f && Near(*Slope(), COS47) && LogLines("holds our climb boost's value") - taken0 == 1, "after the load the slot's 85 taken back as ours, the riding 47 written (%.2f deg)", acosf(*Slope()) * DEG);
+	SetLive(0.0f);
+	SetCamera(0.0f);
+	SetTilt(0.0f);
+	RunFrames(400);
+	CHECK(Near(*Slope(), COS47), "then off: 47 on foot (%.2f deg; test 24's 60 kept on foot after a load)", acosf(*Slope()) * DEG);
+	g_camYaw = *head;
+	printf("climb: the boost on at the step, a load into a save on foot (the controller kept, 85 in it):\n");
+	SetLive(45.0f);
+	SetCamera(300.0f);
+	SetTilt(30.0f);
+	RunFrames(1000);
+	took = UntilBoost(cos85, 2000);
+	int still0 = LogLines("was still there after a load");
+	Send(3, 1);   /* PostLoadGame, and not riding after it */
+	SetLive(0.0f);
+	SetCamera(0.0f);
+	SetTilt(0.0f);
+	Keys(0.0f, 0.0f);
+	RunFrames(400);
+	CHECK(took > 0.0f && Near(*Slope(), COS47) && LogLines("was still there after a load") - still0 == 1, "47 on foot after the load (%.2f deg), \"the climb's boost ... was still there after a load\"", acosf(*Slope()) * DEG);
+	g_camYaw = *head;
+	printf("climb: on with the MCM at 60, the boost at the step: 85, the throttle let up to 0.4, given up after 1.5 s stalled, back to 60, not again till forward is pressed again:\n");
+	SetLive(60.0f);
+	SetCamera(300.0f);
+	SetTilt(30.0f);
+	RunFrames(1000);
+	CHECK(Near(*Slope(), 0.5f), "on: cos 60 (%.2f deg)", acosf(*Slope()) * DEG);
+	int given0 = LogLines("climb: given up after"), trace0 = LogLines(" | climb 85 for ");
+	low0 = LogLines("climb: a low face at the capsule");
+	took = UntilBoost(cos85, 1000);
+	RunFrames(1250);   /* from rest the throttle comes up from 0.1 over Accel 3 s: 0.4 by 0.9 s, the trace's line a quarter second apart */
+	float throttle = LastLogNumber("throttle: speed ");
+	CHECK(took > 0.0f && Near(*Slope(), cos85) && throttle >= 0.39f, "the boost on (%.2f s), 85 written; the throttle %.2f of the top, held to the speed (0) but let up to ClimbThrottle", took, throttle);
+	CHECK(LogLines(" | climb 85 for ") > trace0, "the trace says \" | climb 85 for ...\" (%d lines)", LogLines(" | climb 85 for ") - trace0);
+	RunFrames(1250);
+	CHECK(LogLines("climb: given up after") - given0 == 1 && Near(*Slope(), 0.5f), "given up (%d line), back to 60 (%.2f deg)", LogLines("climb: given up after") - given0, acosf(*Slope()) * DEG);
+	RunFrames(1500);
+	CHECK(LogLines("climb: a low face at the capsule") - low0 == 1 && Near(*Slope(), 0.5f), "W still held 1.5 s: not again (%d boost line), 60 (%.2f deg)", LogLines("climb: a low face at the capsule") - low0, acosf(*Slope()) * DEG);
+	Keys(0.0f, 0.0f);
+	RunFrames(300);
+	took = UntilBoost(cos85, 1000);
+	CHECK(took > 0.0f && LogLines("climb: a low face at the capsule") - low0 == 2, "forward pressed again: on again (%.2f s)", took);
+	int back0 = LogLines(": the back key");
+	Keys(0.0f, -1.0f);
+	OneFrame();
+	float afterBack = *Slope();
+	RunFrames(300);
+	CHECK(Near(afterBack, 0.5f) && LogLines(": the back key") - back0 == 1, "back pressed: off within the frame (%.2f deg), \"cut ... the back key\"", acosf(afterBack) * DEG);
+	Keys(0.0f, 0.0f);
+	RunFrames(1500);
+	ClearObstacles();
+	GetOffAndOn(45.0f);
+	g_camYaw = *head;
+
+	/* Test 40: the face rays' 60 lines a ride were spent by 15:41:29.711 (2 + 58), and the
+	 * stops after it had none: a hand of 20, one more every 3 s. 80 verdict changes in a ride:
+	 * an obstacle lower than 1.5 radii 150 ahead (20 past the front wheel's edge, within the
+	 * rays' reach at any speed over 50), there 0.3 s and gone 0.6 s, 40 times: each change a
+	 * line under the old cap (the "nothing ahead now" line comes 0.25 s after it's gone, and the
+	 * next verdict's needs 0.25 s after that), so its 60 are spent by the 60th change. */
+	printf("climb: 80 face-ray verdict changes in one ride (an obstacle 150 ahead there 0.3 s and gone 0.6 s, 40 times), W held: lines still written after the 60th change:\n");
+	{
+		FakePlane *o = &g_planes[1];
+		memset(o, 0, sizeof(*o));
+		o->follow = 150.0f;
+		o->top = 40.0f;
+		o->layer = 1;
+		int lines0 = FaceLines(), at60 = 0, named0 = LogLines("rays: nothing ahead now (was an obstacle, 90 deg, FakeWall, layer 1, for 0.");
+		Keys(0.0f, 1.0f);
+		for (int c = 0; c < 40; c++) {
+			if (c == 30)
+				at60 = FaceLines();
+			o->on = true;
+			RunFrames(300);
+			o->on = false;
+			RunFrames(600);
+		}
+		int all = FaceLines() - lines0, late = FaceLines() - at60;
+		CHECK(late >= 1 && all >= 20 && all <= 20 + 36 / 3 + 2, "%d face-ray lines in the 36 s (a hand of 20, one more every 3 s), %d of them after the 60th change (the old 60 a ride: none)", all, late);
+		CHECK(LogLines("rays: nothing ahead now (was an obstacle, 90 deg, FakeWall, layer 1, for 0.") > named0, "\"nothing ahead now\" names the verdict that stood: its angle, what, layer and how long (%d)",
+		      LogLines("rays: nothing ahead now (was an obstacle, 90 deg, FakeWall, layer 1, for 0.") - named0);
+		Keys(0.0f, 0.0f);
+		memset(o, 0, sizeof(*o));
+		RunFrames(2500);
+	}
+	ClimbStepTests();
+	SetLive(0.0f);
+	SetCamera(0.0f);
+	SetTilt(0.0f);
+	RunFrames(400);
+	CHECK(Near(*Slope(), COS47), "got off at the end: 47 (%.2f deg)", acosf(*Slope()) * DEG);
+	g_onFrame = NULL;
+	g_capsuleOn = false;
+}
+
+/* Test 41's arms (finding 5): ArmPole 1.1,-0.3,-0.9 (the forearms near level, the tester's
+ * sketch), and the inside arm's pole faded toward ArmPoleTurn 0.35,-0.3,-1.0 (test 40's) as the
+ * bars turn its way, all of it at ArmPoleTurnBars 10; the arm lines' new figures read back
+ * against the bones written. run.sh gives this run BarAngle=20 (the game's), so the bars reach
+ * 5 and 12 deg on the spot (BarFullAt 45: 11.25 and 27 deg/s), and TorsoLean=8, so the arms are
+ * solved with the bars straight. */
+static const float g_armPoleIni[3] = { 1.1f, -0.3f, -0.9f }, g_armPoleTurnIni[3] = { 0.35f, -0.3f, -1.0f };
+
+/* Turned on the spot at rate deg/s (+ right, - left) for ms, the bars over then; the arm's
+ * elbow against the pole the fade gives for the bars measured (k), and against the plain
+ * ArmPole and ArmPoleTurn. */
+static float ArmTurn(float rate, int ms, float turnBars, const float turn[3], float *k, float *offExpected, float *offPole, float *offTurn, float *offLen)
+{
+	g_turnOnSpot = rate / DEG;
+	g_onFrame = TurnOnTheSpot;
+	RunFrames(ms);
+	float bar = BarAngle(), expected[3], plain[3], turned[3];
+	ArmNow a;
+	ReadArmNow(&a);
+	int side = g_armRight ? 1 : 0;
+	*k = ExpectedPole(side, bar, g_armPoleIni, turn, turnBars, expected);
+	memcpy(plain, g_armPoleIni, sizeof(plain));
+	memcpy(turned, g_armPoleTurnIni, sizeof(turned));
+	if (!side)
+		plain[0] = -plain[0], turned[0] = -turned[0];
+	*offExpected = ArmPlaneOff(&a, expected, offLen);
+	*offPole = ArmPlaneOff(&a, plain, NULL);
+	*offTurn = ArmPlaneOff(&a, turned, NULL);
+	return bar;
+}
+
+/* Back the other way for as long, then the heading put back exactly and the bars let come
+ * straight. */
+static void ArmTurnBack(float rate, int ms, float heading)
+{
+	g_turnOnSpot = -rate / DEG;
+	RunFrames(ms);
+	g_onFrame = NULL;
+	*(float *)(g_player + 0xC8) = heading;
+	RunFrames(1000);
+}
+
+/* Getting on and off for this run: the slope, the camera and the tilt together (the settings
+ * are read again when the ride starts, and the ride's end logs the wrist lines). */
+static void ArmsGetOn(int ms)
+{
+	SetLive(60.0f);
+	SetCamera(300.0f);
+	SetTilt(30.0f);
+	RunFrames(ms);
+}
+
+static void ArmsGetOff(int ms)
+{
+	SetLive(0.0f);
+	SetCamera(0.0f);
+	SetTilt(0.0f);
+	RunFrames(ms);
+}
+
+static void ArmTests(void)
+{
+	static const float none[3] = { 0.0f, 0.0f, 0.0f };
+	float *head = (float *)(g_player + 0xC8), heading0 = *head, k, offE, offP, offT, offLen, bar;
+	SetNormal(0.0f, 0.0f, 1.0f);
+	SetState(0);
+	FlatGround();
+	printf("arms (test 41): getting on, standing, the bars straight (TorsoLean 8):\n");
+	ArmsGetOn(2000);   /* the fixed lean set at TorsoSolveFrom (1.3 s): the arms solved with the bars straight from then */
+	CHECK(LogLines("the elbows bent toward (1.1, -0.3, -0.9) in the bike's space, the left mirrored (ArmPole), the inside arm's (the side the bars turn to) faded toward (0.35, -0.3, -1) as they turn, all of it at 10 deg of the bars (ArmPoleTurn, ArmPoleTurnBars)") >= 1,
+	      "the lean settings line names ArmPole 1.1,-0.3,-0.9, ArmPoleTurn 0.35,-0.3,-1 and ArmPoleTurnBars 10");
+	{
+		ArmNow a;
+		float fig[5], pole[3], fade, worst = 0.0f;
+		ReadArmNow(&a);
+		bool got = LoggedArmFigures("rider: the left arm solved", "rider: the left arm solved", fig, pole, &fade);
+		for (int i = 0; got && i < 5; i++)
+			worst = fabsf(fig[i] - a.fig[i]) > worst ? fabsf(fig[i] - a.fig[i]) : worst;
+		printf("  the arm line: the elbow %.1f out, %.1f forward, %.1f below, the upper arm %.1f deg below level, the forearm %+.1f deg; the bones: %.2f, %.2f, %.2f, %.2f, %+.2f\n",
+		       got ? fig[0] : NAN, got ? fig[1] : NAN, got ? fig[2] : NAN, got ? fig[3] : NAN, got ? fig[4] : NAN, a.fig[0], a.fig[1], a.fig[2], a.fig[3], a.fig[4]);
+		CHECK(got && worst < 0.2f, "the arm line's elbow (out, forward, below), upper arm and forearm figures match the bones written within 0.2 (worst %.3f)", worst);
+		CHECK(got && fabsf(pole[0] + 1.1f) < 0.006f && fabsf(pole[1] + 0.3f) < 0.006f && fabsf(pole[2] + 0.9f) < 0.006f && fade == 0.0f,
+		      "and its pole is ArmPole, the left's x mirrored, not faded: (%.2f, %.2f, %.2f)", got ? pole[0] : NAN, got ? pole[1] : NAN, got ? pole[2] : NAN);
+		float plain[3] = { -g_armPoleIni[0], g_armPoleIni[1], g_armPoleIni[2] }, turned[3] = { -g_armPoleTurnIni[0], g_armPoleTurnIni[1], g_armPoleTurnIni[2] };
+		float off = ArmPlaneOff(&a, plain, &offLen), offOld = ArmPlaneOff(&a, turned, NULL);
+		CHECK(off < 1.0f && offLen > 2.0f && offOld > 3.0f, "the elbow bent ArmPole's way (%.2f deg off it, offset %.1f; test 40's pole %.1f deg away)", off, offLen, offOld);
+	}
+
+	printf("arms: the bars turned 5 deg to the left (the left arm inside), then 5 to the right (outside):\n");
+	bar = ArmTurn(-11.25f, 1500, 10.0f, g_armPoleTurnIni, &k, &offE, &offP, &offT, &offLen);
+	printf("  the bars %.2f deg: k %.3f, the elbow %.2f deg off the faded pole, %.2f off ArmPole, %.2f off ArmPoleTurn (offset %.1f)\n", bar, k, offE, offP, offT, offLen);
+	CHECK(bar > 4.5f && bar < 5.5f && k > 0.45f && k < 0.55f && offE < 1.0f && offLen > 2.0f && offP > 2.0f && offT > 2.0f,
+	      "at %.1f deg of the bars the inside elbow is %.2f deg off ArmPole faded %.2f of the way (k = |bars| / 10), %.1f off ArmPole and %.1f off ArmPoleTurn", bar, offE, k, offP, offT);
+	bar = ArmTurn(11.25f, 3000, 10.0f, g_armPoleTurnIni, &k, &offE, &offP, &offT, &offLen);
+	printf("  the bars %.2f deg: k %.3f, the elbow %.2f deg off ArmPole (offset %.1f)\n", bar, k, offP, offLen);
+	CHECK(bar < -4.5f && bar > -5.5f && k == 0.0f && offP < 1.0f && offLen > 2.0f, "at %.1f deg the outside elbow keeps ArmPole (%.2f deg off it)", bar, offP);
+	ArmTurnBack(11.25f, 1500, heading0);
+
+	printf("arms: the bars turned 12 deg to the left, then 12 to the right:\n");
+	bar = ArmTurn(-27.0f, 1500, 10.0f, g_armPoleTurnIni, &k, &offE, &offP, &offT, &offLen);
+	printf("  the bars %.2f deg: k %.3f, the elbow %.2f deg off ArmPoleTurn, %.2f off ArmPole (offset %.1f)\n", bar, k, offT, offP, offLen);
+	CHECK(bar > 11.5f && bar < 12.5f && k == 1.0f && offT < 1.0f && offLen > 2.0f && offP > 2.0f, "at %.1f deg of the bars the inside elbow has all of ArmPoleTurn (%.2f deg off it, %.1f off ArmPole)", bar, offT, offP);
+	bar = ArmTurn(27.0f, 3000, 10.0f, g_armPoleTurnIni, &k, &offE, &offP, &offT, &offLen);
+	printf("  the bars %.2f deg: the elbow %.2f deg off ArmPole (offset %.1f)\n", bar, offP, offLen);
+	CHECK(bar < -11.5f && bar > -12.5f && offP < 1.0f && offLen > 0.3f && offT > 2.0f, "at %.1f deg the outside elbow keeps ArmPole (%.2f deg off it, %.1f off ArmPoleTurn; the arm near straight, its grip gone forward: the offset %.1f)", bar, offP, offT, offLen);
+	ArmTurnBack(27.0f, 1500, heading0);
+
+	printf("arms: riding straight at 200 a second, then at 450 (the arms' riding line, once a hold, over 300 for a second):\n");
+	int ridingBefore = LogLines("rider: the arms riding");
+	float radius0 = *(float *)(g_turnRadius + 0x30), stand0 = *(float *)(g_turnStand + 0x30);
+	*(float *)(g_turnRadius + 0x30) = 300.0f;   /* steering on for the ride: the plugin measures the speed there */
+	*(float *)(g_turnStand + 0x30) = 20.0f;
+	g_rideSpeed = 200.0f;
+	g_rideSlope = 0.0f;
+	g_noise = 0.0f;
+	g_onFrame = RideAlong;
+	RunFrames(2000);
+	int slow = LogLines("rider: the arms riding") - ridingBefore;
+	g_rideSpeed = 450.0f;
+	RunFrames(2500);
+	int fast = LogLines("rider: the arms riding") - ridingBefore;
+	{
+		ArmNow a;
+		float fig[5], pole[3], fade, worst = 0.0f;
+		ReadArmNow(&a);
+		bool got = LoggedArmFigures("rider: the arms riding", "the left arm: ", fig, pole, &fade);
+		for (int i = 0; got && i < 5; i++)
+			worst = fabsf(fig[i] - a.fig[i]) > worst ? fabsf(fig[i] - a.fig[i]) : worst;
+		const char *line = LastLogLine("rider: the arms riding");
+		CHECK(slow == 0 && fast == 1 && got && worst < 0.2f && line && strstr(line, "the right arm not solved"),
+		      "none at 200, one at 450 (%d, %d): the left arm's figures within 0.2 of the bones (worst %.3f), the forearm %+.1f deg; the fake's right arm not solved", slow, fast, worst, got ? fig[4] : NAN);
+	}
+	RunFrames(1500);
+	CHECK(LogLines("rider: the arms riding") - ridingBefore == 1, "and no second one this hold (%d)", LogLines("rider: the arms riding") - ridingBefore);
+	g_onFrame = NULL;
+	RunFrames(500);
+	*(float *)(g_turnRadius + 0x30) = radius0;   /* steering off again: the turns on the spot are the game's */
+	*(float *)(g_turnStand + 0x30) = stand0;
+	*head = heading0;
+	RunFrames(500);
+
+	printf("arms: getting off: the ride's wrist line says how far the pole was faded:\n");
+	int wristBefore = LogLines("rider: the left wrist turned at most");
+	ArmsGetOff(400);
+	{
+		const char *line = LastLogLine("rider: the left wrist turned at most");
+		float bars = NAN, logged = NAN, expected[3];
+		const char *b = line ? strstr(line, "(the bars ") : NULL;
+		const char *p = line ? strstr(line, "the elbow's pole ") : NULL;
+		if (b)
+			bars = strtof(b + strlen("(the bars "), NULL);
+		if (p)
+			logged = strtof(p + strlen("the elbow's pole "), NULL);
+		float want = ExpectedPole(0, bars, g_armPoleIni, g_armPoleTurnIni, 10.0f, expected);
+		CHECK(LogLines("rider: the left wrist turned at most") == wristBefore + 1 && p && strstr(p, "of the way to ArmPoleTurn") && fabsf(logged - want) < 0.02f,
+		      "the left wrist's line: the pole %.2f of the way to ArmPoleTurn at its max (the bars %.1f: %.2f)", logged, bars, want);
+	}
+
+	printf("arms: ArmPoleTurn=0,0,0 for a ride (no fade), the bars 12 deg to the left:\n");
+	RewriteIni("ArmPoleTurn=0.35,-0.3,-1.0", "ArmPoleTurn=0,0,0");
+	ArmsGetOn(900);
+	CHECK(LogLines("the inside arm's not faded as the bars turn (ArmPoleTurn 0,0,0)") >= 1, "the lean settings line says the inside arm isn't faded (ArmPoleTurn 0,0,0)");
+	bar = ArmTurn(-27.0f, 1500, 10.0f, none, &k, &offE, &offP, &offT, &offLen);
+	printf("  the bars %.2f deg: the elbow %.2f deg off ArmPole, %.2f off test 40's pole (offset %.1f)\n", bar, offP, offT, offLen);
+	CHECK(bar > 11.5f && k == 0.0f && offP < 1.0f && offT > 2.0f && offLen > 2.0f, "at %.1f deg of the bars the inside elbow keeps ArmPole (%.2f deg off it): no fade", bar, offP);
+	ArmTurnBack(27.0f, 1500, heading0);
+	ArmsGetOff(300);
+	RewriteIni("ArmPoleTurn=0,0,0", "ArmPoleTurn=0.35,-0.3,-1.0");
+
+	/* The right arm (the fake's arm mirrored, as mode 0's HandPitch ride does it; TorsoLean,
+	 * TorsoTwist and TorsoSideLean off: the mirrored shoulder sits far below the spine's joint):
+	 * the inside one with the bars over to the right. */
+	printf("arms: the arm mirrored to the right for a ride, the bars 12 deg to the right (the right arm inside), then to the left:\n");
+	static const char *rightNames[3] = { "RArm_Hand [RHnd]", "RArm_UpperArm [RUar]", "RArm_ForeArm1 [RLar]" };
+	uint8_t *leftNames[3];
+	RewriteIni("TorsoLean=8", "TorsoLean=0");
+	RewriteIni("TorsoTwist=0.75", "TorsoTwist=0");
+	RewriteIni("TorsoSideLean=0.25", "TorsoSideLean=0");
+	for (int i = 0; i < 3; i++) {
+		leftNames[i] = *(uint8_t **)(g_bodyNodes[5 + i] + 0x10);
+		*(uint8_t **)(g_bodyNodes[5 + i] + 0x10) = NewString(rightNames[i]);
+	}
+	g_armRight = true;
+	SyncFakeWorld();
+	ArmsGetOn(600);
+	bar = ArmTurn(27.0f, 1500, 10.0f, g_armPoleTurnIni, &k, &offE, &offP, &offT, &offLen);
+	printf("  the bars %.2f deg: k %.3f, the elbow %.2f deg off ArmPoleTurn (mirrored), %.2f off ArmPole (offset %.1f)\n", bar, k, offT, offP, offLen);
+	CHECK(bar < -11.5f && k == 1.0f && offT < 1.0f && offP > 2.0f && offLen > 2.0f, "at %.1f deg of the bars the right arm is the inside one: all of ArmPoleTurn, x not mirrored (%.2f deg off it)", bar, offT);
+	bar = ArmTurn(-27.0f, 3000, 10.0f, g_armPoleTurnIni, &k, &offE, &offP, &offT, &offLen);
+	printf("  the bars %.2f deg: the elbow %.2f deg off ArmPole (offset %.1f)\n", bar, offP, offLen);
+	CHECK(bar > 11.5f && k == 0.0f && offP < 1.0f && offLen > 0.3f && offT > 2.0f, "at %.1f deg the right arm is outside: ArmPole (%.2f deg off it, %.1f off ArmPoleTurn; near straight, the offset %.1f)", bar, offP, offT, offLen);
+	ArmTurnBack(-27.0f, 1500, heading0);
+	ArmsGetOff(300);
+	for (int i = 0; i < 3; i++)
+		*(uint8_t **)(g_bodyNodes[5 + i] + 0x10) = leftNames[i];
+	g_armRight = false;
+	SyncFakeWorld();
+	RewriteIni("TorsoLean=0", "TorsoLean=8");
+	RewriteIni("TorsoTwist=0", "TorsoTwist=0.75");
+	RewriteIni("TorsoSideLean=0", "TorsoSideLean=0.25");
+}
+
+/* Mode 11 (test 40's finding 7, the ram; test 41's answers): CMB_RamScript, played by the
+ * harness. 1 says yes 150 ms after an ask, 2 never answers, 3 says no 150 ms after (an ask
+ * made before then is answered instead, as the script reads only the last one); on a hit it
+ * "pushes" that actor (its plane taken away) 80 ms later, or, with g_ramStays, the actor stays
+ * at the front wheel (a plane 100 ahead of the rider). Two actors: FF004D69 on g_ramPlanes[0]
+ * and FF004D6A on [1]. */
+#define RAM_HITS_KEPT 4
+#define RAM_SAMPLES 400
+typedef struct { int ask, who; float speed, ahead, clock, pushIn; } RamHitSeen;
+static int g_ramScript, g_ramAsks, g_ramBadAsks, g_ramHits, g_ramLastSeen, g_ramLastHit, g_ramAnswerFor, g_ramFirstAsk, g_ramAsksOf[2];
+static int g_ramAskNumber[16], g_ramAskWho[16];   /* the asks seen, and whom each was about */
+static float g_ramClock, g_ramAskedAt = -1.0f, g_ramAskTimes[16], g_ramMinInput, g_ramMinAfter;
+static RamHitSeen g_ramSeenHits[RAM_HITS_KEPT];
+static float g_ramSampleT[RAM_SAMPLES], g_ramSampleIn[RAM_SAMPLES];   /* the input after the first hit, against the seconds since it */
+static int g_ramSamples;
+static bool g_ramStays;
+static FakePlane *g_ramPlanes[2];
+static float RamGlobal(int i) { return *(float *)(g_ramGlobalsFake[i] + 0x30); }
+static float RamPlaneAhead(int i)   /* past the front wheel's edge (FrontAxle 99.6 + the radius 29.9) */
+{
+	const FakePlane *p = g_ramPlanes[i];
+	return (PlayerPos()[0] - p->point[0]) * p->normal[0] + (PlayerPos()[1] - p->point[1]) * p->normal[1] - (99.6f + 29.9f);
+}
+static void FakeRamScript(float dt)
+{
+	g_ramClock += dt;
+	int seen = (int)RamGlobal(2);
+	if (seen != g_ramLastSeen) {
+		g_ramLastSeen = seen;
+		uint32_t id = ((uint32_t)RamGlobal(0) << 16) | (uint32_t)RamGlobal(1);
+		int who = id == RAM_ACTOR_FORMID ? 0 : id == RAM_ACTOR2_FORMID ? 1 : -1;
+		if (who < 0)
+			g_ramBadAsks++;
+		else
+			g_ramAsksOf[who]++;
+		if (!g_ramAsks)
+			g_ramFirstAsk = seen;
+		if (g_ramAsks < 16) {
+			g_ramAskTimes[g_ramAsks] = g_ramClock;
+			g_ramAskNumber[g_ramAsks] = seen;
+			g_ramAskWho[g_ramAsks] = who;
+		}
+		g_ramAsks++;
+		g_ramAskedAt = g_ramClock;
+		g_ramAnswerFor = seen;
+	}
+	if (g_ramAskedAt >= 0.0f && g_ramClock - g_ramAskedAt >= 0.15f) {
+		if (g_ramScript == 1 || g_ramScript == 3)
+			*(float *)(g_ramGlobalsFake[3] + 0x30) = g_ramScript == 1 ? (float)g_ramAnswerFor : -(float)g_ramAnswerFor;
+		g_ramAskedAt = -1.0f;
+	}
+	float in = MoveInput()[1];
+	if (g_ramPlanes[0] && g_ramPlanes[0]->on && !g_ramHits && g_ramPlanes[0]->follow == 0.0f) {
+		float ahead = RamPlaneAhead(0);
+		if (ahead < 600.0f && ahead > 0.0f && in < g_ramMinInput)
+			g_ramMinInput = in;   /* the last 600 before the first hit */
+	}
+	if (g_ramHits) {
+		float since = g_ramClock - g_ramSeenHits[0].clock;
+		if (since < 0.5f && in < g_ramMinAfter)
+			g_ramMinAfter = in;   /* the half second after it */
+		if (g_ramSamples < RAM_SAMPLES && since < 3.0f) {
+			g_ramSampleT[g_ramSamples] = since;
+			g_ramSampleIn[g_ramSamples++] = in;
+		}
+	}
+	int hit = (int)RamGlobal(5);
+	if (hit != g_ramLastHit) {
+		g_ramLastHit = hit;
+		if (g_ramHits < RAM_HITS_KEPT) {
+			RamHitSeen *h = &g_ramSeenHits[g_ramHits];
+			h->ask = hit;
+			h->who = -1;
+			for (int i = 0; i < g_ramAsks && i < 16; i++)
+				if (g_ramAskNumber[i] == hit)
+					h->who = g_ramAskWho[i];
+			h->speed = RamGlobal(4);
+			h->ahead = h->who >= 0 && g_ramPlanes[h->who] ? RamPlaneAhead(h->who) : 0.0f;
+			h->clock = g_ramClock;
+			h->pushIn = 0.08f;
+		}
+		g_ramHits++;
+	}
+	for (int k = 0; k < g_ramHits && k < RAM_HITS_KEPT; k++) {
+		RamHitSeen *h = &g_ramSeenHits[k];
+		if (h->pushIn < 0.0f)
+			continue;
+		h->pushIn -= dt;
+		FakePlane *p = h->who >= 0 ? g_ramPlanes[h->who] : NULL;
+		if (h->pushIn < 0.0f && p) {
+			if (g_ramStays)
+				p->follow = 100.0f;   /* stays at the front wheel: 100 ahead of the rider, wherever they go */
+			else
+				p->on = false;   /* pushed away */
+		}
+	}
+}
+static void RamGameFrame(float dt)
+{
+	if (g_ramScript)
+		FakeRamScript(dt);
+	FakeGameFrame(dt);
+}
+
+/* The plugin's input for a speed (its InputForSpeed, from test 22's measurements): what the
+ * throttle held to a share of the top writes. */
+static float PluginInputFor(float speed)
+{
+	static const float in[] = { 0.00f, 0.10f, 0.16f, 0.33f, 0.51f, 0.66f, 0.85f, 0.95f, 1.00f };
+	static const float out[] = { 0.00f, 0.097f, 0.116f, 0.170f, 0.302f, 0.499f, 0.774f, 0.912f, 1.00f };
+	if (!(speed > 0.0f))
+		return 0.0f;
+	for (int i = 1; i < 9; i++)
+		if (speed <= out[i])
+			return in[i - 1] + (speed - out[i - 1]) / (out[i] - out[i - 1]) * (in[i] - in[i - 1]);
+	return 1.0f;
+}
+
+/* Actor `who` `dist` ahead along the heading, a capsule face 120 high (layer 30, its 3D the
+ * actor's), on plane `who`. */
+static void RamPlace(int who, float dist)
+{
+	float hh = PlayerHeading(), fw[2] = { sinf(hh), cosf(hh) };
+	FakePlane *p = &g_planes[who];
+	memset(p, 0, sizeof(*p));
+	p->point[0] = PlayerPos()[0] + fw[0] * dist;
+	p->point[1] = PlayerPos()[1] + fw[1] * dist;
+	p->normal[0] = -fw[0];
+	p->normal[1] = -fw[1];
+	p->layer = 30;
+	p->top = 120.0f;
+	p->what = who ? g_actorObj2 : g_actorObj;
+	p->on = true;
+	g_ramPlanes[who] = p;
+}
+
+/* The bookkeeping cleared, the script as asked; ridden with W at keysY for ms. */
+static void RamGo(float keysY, int script, int ms)
+{
+	g_ramAsks = g_ramBadAsks = g_ramHits = g_ramSamples = 0;
+	g_ramAsksOf[0] = g_ramAsksOf[1] = 0;
+	g_ramAskedAt = -1.0f;
+	g_ramLastSeen = (int)RamGlobal(2);
+	g_ramLastHit = (int)RamGlobal(5);
+	g_ramMinInput = g_ramMinAfter = 2.0f;
+	g_ramScript = script;
+	Keys(0.0f, keysY);
+	RunFrames(ms);
+}
+
+static void RamRide(float dist, float keysY, int script, int ms)
+{
+	g_ramPlanes[1] = NULL;
+	RamPlace(0, dist);
+	RamGo(keysY, script, ms);
+}
+
+static void RamRideEnd(void)
+{
+	Keys(0.0f, 0.0f);
+	for (int i = 0; i < 3; i++) {
+		g_planes[i].on = false;
+		g_planes[i].follow = 0.0f;
+	}
+	g_ramScript = 0;
+	g_ramStays = false;
+	RunFrames(3000);   /* rolled off, at rest */
+}
+
+static void RamUpToSpeed(float keysY)
+{
+	Keys(0.0f, keysY);
+	RunFrames(3500);
+}
+
+/* Off and on again (the [Ram] keys are read again on getting on). */
+static void RamGetOffAndOn(void)
+{
+	Keys(0.0f, 0.0f);
+	SetLive(0.0f);
+	SetCamera(0.0f);
+	SetTilt(0.0f);
+	RunFrames(400);
+	SetLive(45.0f);
+	SetCamera(300.0f);
+	SetTilt(30.0f);
+	RunFrames(1000);
+}
+
+/* Finding 7 (test 40's wish): a hostile actor the bike hits at speed is knocked over. */
+static void RamTests(void)
+{
+	float *head = (float *)(g_player + 0xC8), p0[2], left;
+	*(float *)(g_turnRadius + 0x30) = 180.0f;   /* steering on: the input hook (and the throttle) with it */
+	*(float *)(g_turnSlow + 0x30) = 50.0f;
+	*(float *)(g_turnStand + 0x30) = 60.0f;
+	SetNormal(0.0f, 0.0f, 1.0f);
+	SetState(0);
+	FlatGround();
+	g_camYaw = *head;
+	g_handlerStyle = 2;
+	g_honour = 4;
+	Keys(0.0f, 0.0f);
+	g_onFrame = RamGameFrame;
+	printf("rams: getting on, on flat ground: the settings line, the globals found:\n");
+	SetLive(45.0f);
+	SetCamera(300.0f);
+	SetTilt(30.0f);
+	RunFrames(1500);
+	CHECK(LogLines("  ram: Enabled=1 ActorLook=0.8 Lead=0.06 Pass=1 MaxSize=1 NoKnockdowns=1 AskAgain=0.4 AskAgainNo=1 HitKeep=0.6 HitHold=0.4: on, the bike losing speed at a hit") == 1 &&
+	      LogLines("rams: not all of CMB_RamSeenHi") == 0, "the ram settings line at load (on, HitKeep 0.6 for 0.4 s), the globals all found");
+
+	printf("rams: the actor 1500 ahead (layer 30, its 3D's user data an Actor FF004D69 of a medium race), at full speed, the script says yes: asked once, the throttle open, the hit told %g s of the speed before the wheel, pushed:\n", 0.06);
+	RamUpToSpeed(1.0f);
+	float fullIn = MoveInput()[1];
+	int asksBefore = LogLines("rams: FF004D69 (race RaiderTestRace: medium) seen"), seenBefore = (int)RamGlobal(2);
+	Mark(p0);
+	RamRide(1500.0f, 1.0f, 1, 1900);
+	float rodeOn = Moved(p0);
+	char okLine[96], hitLine[96];
+	snprintf(okLine, sizeof(okLine), "may be knocked over, the script says (ask %d)", seenBefore + 1);
+	snprintf(hitLine, sizeof(hitLine), "told the script (ask %d)", seenBefore + 1);
+	const RamHitSeen *h0 = &g_ramSeenHits[0];
+	CHECK(g_ramAsks == 1 && g_ramBadAsks == 0 && g_ramFirstAsk == seenBefore + 1, "asked once (%d), about FF004D69 (%d other), ask %d", g_ramAsks, g_ramBadAsks, g_ramFirstAsk);
+	CHECK(LogLines("asked the script (ask 58)") == 1, "the ride's first ask was 58: on from the save's 57");
+	CHECK(g_ramHits == 1 && h0->ask == g_ramFirstAsk && h0->speed > 850.0f && h0->speed < 950.0f, "one hit (%d), of ask %d, at %.0f a second", g_ramHits, h0->ask, h0->speed);
+	CHECK(h0->ahead > 0.06f * 900.0f - 25.0f && h0->ahead < 0.06f * 900.0f + 10.0f, "told %.0f before the front wheel's edge reached it (Lead: %.0f)", h0->ahead, 0.06f * 900.0f);
+	CHECK(g_ramMinInput >= 0.97f * fullIn, "the throttle open all the way in (the least input %.3f of %.3f within 600 of it)", g_ramMinInput, fullIn);
+	CHECK(rodeOn > 1500.0f, "rode on through: %.0f in 1.9 s", rodeOn);
+	CHECK(LogLines("rams: FF004D69 (race RaiderTestRace: medium) seen") == asksBefore + 1 && LogLines(hitLine) == 1 &&
+	      LogLines("rams: FF004D69 gone from the rays") >= 1 && LogLines(okLine) == 1,
+	      "the log: seen, may be knocked over, hit, gone");
+	/* Test 41's answer: the bike loses speed at the hit, the throttle held to 60% of the speed
+	 * at the hit for 0.4 s: the input the plugin writes for that (its curve), then up again. */
+	float held = PluginInputFor(0.6f * h0->speed / 900.0f), heldMax = -1.0f, heldMin = 2.0f, freeAt = -1.0f;
+	for (int i = 0; i < g_ramSamples; i++) {
+		float t = g_ramSampleT[i], in = g_ramSampleIn[i];
+		if (t >= 0.05f && t <= 0.35f) {
+			heldMax = in > heldMax ? in : heldMax;
+			heldMin = in < heldMin ? in : heldMin;
+		}
+		if (t > 0.05f && freeAt < 0.0f && in > held + 0.005f)
+			freeAt = t;
+	}
+	CHECK(fabsf(heldMax - held) < 0.01f && fabsf(heldMin - held) < 0.01f, "the speed lost at the hit: 0.05 to 0.35 s after it the input %.3f to %.3f, the plugin's for 60%% of %.0f (%.3f; %.3f at full)", heldMin, heldMax, h0->speed,
+	      held, fullIn);
+	CHECK(freeAt > 0.37f && freeAt < 0.55f, "held for 0.4 s: the input above it again %.2f s after the hit", freeAt);
+	CHECK(LogLines("told the script (ask 58); the throttle held to 60% of it (") == 1, "the hit's line says so (\"...told the script (ask 58); the throttle held to 60%% of it (N a second) for 0.40 s\")");
+	RunFrames(2500);
+	CHECK(MoveInput()[1] >= 0.97f * fullIn, "then built up again: 2.5 s later the input %.3f (%.3f at full)", MoveInput()[1], fullIn);
+	RamRideEnd();
+
+	printf("rams: the same, the script never answers: braked for as before, asked again every 0.4 s:\n");
+	RamUpToSpeed(1.0f);
+	RamRide(1500.0f, 1.0f, 2, 3500);
+	left = RamPlaneAhead(0);
+	CHECK(g_ramHits == 0 && left > -15.0f && left < 80.0f && MoveInput()[1] < 0.05f, "no hit (%d), stops %.1f short of it at the front wheel, next to no input (%g)", g_ramHits, left, MoveInput()[1]);
+	CHECK(g_ramAsks >= 4 && g_ramAsks <= 12, "asked %d times in 3.5 s", g_ramAsks);
+	RamRideEnd();
+
+	printf("rams: the script says no: braked for, asked again a second later at the soonest (AskAgainNo):\n");
+	RamUpToSpeed(1.0f);
+	RamRide(1500.0f, 1.0f, 3, 3500);
+	left = RamPlaneAhead(0);
+	CHECK(g_ramHits == 0 && left > -15.0f && left < 80.0f && MoveInput()[1] < 0.05f, "no hit (%d), stops %.1f short, next to no input (%g)", g_ramHits, left, MoveInput()[1]);
+	CHECK(g_ramAsks >= 2 && g_ramAskTimes[1] - g_ramAskTimes[0] > 0.95f, "asked %d times, the second %.2f s after the first", g_ramAsks, g_ramAsks >= 2 ? g_ramAskTimes[1] - g_ramAskTimes[0] : 0.0f);
+	RamRideEnd();
+
+	uint8_t *races[2] = { g_raceBig, g_raceNoKnock };
+	const char *lines[2] = { "is too big (MaxSize)", "can't be knocked down (No Knockdowns)" };
+	for (int i = 0; i < 2; i++) {
+		printf("rams: an actor of a race %s: never asked about, braked for:\n", i ? "flagged No Knockdowns" : "of size 3 (extra large; MaxSize 1)");
+		*(uint8_t **)(g_ramActor + 0x418) = races[i];
+		int before = LogLines(lines[i]);
+		RamUpToSpeed(1.0f);
+		RamRide(1500.0f, 1.0f, 1, 3000);
+		left = RamPlaneAhead(0);
+		CHECK(g_ramAsks == 0 && g_ramHits == 0 && left > -15.0f && left < 80.0f, "no ask (%d), no hit, stops %.0f short", g_ramAsks, left);
+		CHECK(LogLines(lines[i]) == before + 1, "one line: \"%s\"", lines[i]);
+		RamRideEnd();
+	}
+	*(uint8_t **)(g_ramActor + 0x418) = g_raceMedium;
+
+	printf("rams: CMB_RamEnemies 0 (the MCM's switch off): never asked about, braked for:\n");
+	*(float *)(g_ramGlobalsFake[6] + 0x30) = 0.0f;
+	RamUpToSpeed(1.0f);
+	RamRide(1500.0f, 1.0f, 1, 3000);
+	left = RamPlaneAhead(0);
+	CHECK(g_ramAsks == 0 && g_ramHits == 0 && left > -15.0f && left < 80.0f, "no ask (%d), no hit, stops %.0f short", g_ramAsks, left);
+	RamRideEnd();
+	*(float *)(g_ramGlobalsFake[6] + 0x30) = 1.0f;
+
+	printf("rams: at about 315 a second (W at 0.35; CMB_RamMinSpeed 450), the script says yes: too slow, braked for, no hit:\n");
+	int slowBefore = LogLines("under CMB_RamMinSpeed's 450");
+	RamUpToSpeed(0.35f);
+	RamRide(900.0f, 0.35f, 1, 4000);
+	left = RamPlaneAhead(0);
+	CHECK(g_ramAsks >= 1 && g_ramHits == 0 && left > -15.0f && left < 80.0f, "asked (%d), no hit (%d), stops %.0f short", g_ramAsks, g_ramHits, left);
+	CHECK(LogLines("under CMB_RamMinSpeed's 450") == slowBefore + 1, "one \"under CMB_RamMinSpeed\" line");
+	RamRideEnd();
+
+	printf("rams: hit, but the actor stays at the front wheel (not pushed away): let by for Pass (1 s), then braked for:\n");
+	g_ramStays = true;
+	RamUpToSpeed(1.0f);
+	int stillBefore = LogLines("after the hit: let by");
+	RamRide(1500.0f, 1.0f, 1, 1800);
+	float since = g_ramClock - g_ramSeenHits[0].clock, inWithin = MoveInput()[1], heldStays = PluginInputFor(0.6f * g_ramSeenHits[0].speed / 900.0f);
+	CHECK(g_ramHits == 1 && since > 0.2f && since < 0.95f && inWithin >= heldStays - 0.01f, "%.2f s after the hit the input is %.3f (open: the hit's 60%% hold, %.3f, or on its way up from it)", since, inWithin, heldStays);
+	RunFrames(1200);
+	since = g_ramClock - g_ramSeenHits[0].clock;
+	CHECK(since > 1.1f && MoveInput()[1] == 0.0f, "%.2f s after it, none (%.3f): braked for", since, MoveInput()[1]);
+	CHECK(LogLines("after the hit: let by") >= stillBefore + 2, "\"still ... after the hit: let by\" lines (%d)", LogLines("after the hit: let by") - stillBefore);
+	RamRideEnd();
+
+	printf("rams: a yes, with a wall (layer 1) 20 behind the actor: the face rays see the wall through it, the bike eased off for the wall before it reached the actor (hit, if at all, well under 900) and stopped short of the wall:\n");
+	RamUpToSpeed(1.0f);
+	FakePlane *wall = &g_planes[2];
+	{
+		float hh = PlayerHeading(), fw[2] = { sinf(hh), cosf(hh) };
+		memset(wall, 0, sizeof(*wall));
+		wall->point[0] = PlayerPos()[0] + fw[0] * 1520.0f;
+		wall->point[1] = PlayerPos()[1] + fw[1] * 1520.0f;
+		wall->normal[0] = -fw[0];
+		wall->normal[1] = -fw[1];
+		wall->layer = 1;
+		wall->on = true;
+	}
+	int wallBefore = LogLines("(FakeWall, layer 1), the throttle eased to"), passBefore = LogLines("an actor to be knocked over");
+	RamRide(1500.0f, 1.0f, 1, 4000);
+	left = (PlayerPos()[0] - wall->point[0]) * wall->normal[0] + (PlayerPos()[1] - wall->point[1]) * wall->normal[1] - (99.6f + 29.9f);
+	CHECK(g_ramAsks == 1 && (g_ramHits == 0 || g_ramSeenHits[0].speed < 600.0f) && left > -15.0f && left < 80.0f && MoveInput()[1] < 0.05f,
+	      "asked (%d); %d hit(s)%s%.0f; stops %.0f short of the wall, next to no input (%g)", g_ramAsks, g_ramHits, g_ramHits ? ", at " : "", g_ramHits ? g_ramSeenHits[0].speed : 0.0f, left, MoveInput()[1]);
+	CHECK(LogLines("(FakeWall, layer 1), the throttle eased to") > wallBefore && LogLines("an actor to be knocked over") > passBefore,
+	      "\"rays: a wall ahead\" lines name FakeWall (%d new), and a ray passed through the actor (%d)", LogLines("(FakeWall, layer 1), the throttle eased to") - wallBefore,
+	      LogLines("an actor to be knocked over") - passBefore);
+	RamRideEnd();
+
+	printf("rams: two actors 50 apart (FF004D69 at 1500, FF004D6A at 1550; HitHold=0 written, read again on getting on): both asked (the actor ray through the first), both hit, told 0.12 s apart at least, the throttle open throughout:\n");
+	RewriteIni("HitHold=0.4", "HitHold=0");
+	RamGetOffAndOn();
+	CHECK(LogLines("HitKeep=0.6 HitHold=0: on, the speed kept at a hit (HitHold=0 or HitKeep=1) (read again on getting on)") == 1, "the settings line again: HitHold=0, the speed kept");
+	RamUpToSpeed(1.0f);
+	fullIn = MoveInput()[1];
+	int queuedBefore = LogLines("so its 0.1 s poll reads both");
+	g_ramPlanes[1] = NULL;
+	RamPlace(0, 1500.0f);
+	RamPlace(1, 1550.0f);
+	RamGo(1.0f, 1, 2200);
+	const RamHitSeen *h1 = &g_ramSeenHits[1];
+	h0 = &g_ramSeenHits[0];
+	float gap = h1->clock - h0->clock;
+	CHECK(g_ramAsksOf[0] == 1 && g_ramAsksOf[1] == 1 && g_ramBadAsks == 0, "asked once about each (%d, %d; %d other)", g_ramAsksOf[0], g_ramAsksOf[1], g_ramBadAsks);
+	CHECK(g_ramHits == 2 && h0->who == 0 && h1->who == 1, "two hits (%d): FF004D69's first, then FF004D6A's (%d, %d)", g_ramHits, h0->who, h1->who);
+	CHECK(gap >= 0.115f && gap < 0.2f, "told %.3f s apart (at least 0.12: the script's 0.1 s poll reads both)", gap);
+	CHECK(LogLines("so its 0.1 s poll reads both") == queuedBefore + 1 && LogLines("rams: FF004D6A's hit told the script (ask") == 1, "the second hit waited: a \"so its 0.1 s poll reads both\" line, then \"FF004D6A's hit told the script\"");
+	CHECK(g_ramMinInput >= 0.97f * fullIn && g_ramMinAfter >= 0.97f * fullIn, "HitHold=0: the throttle open all the way in (%.3f) and through both hits (%.3f; %.3f at full)", g_ramMinInput, g_ramMinAfter, fullIn);
+	RamRideEnd();
+	RewriteIni("HitHold=0", "HitHold=0.4");
+
+	printf("rams: [Ram] Enabled=0 written (read again on getting on): never asked about, braked for as before test 41:\n");
+	RewriteIni("Enabled=1", "Enabled=0");
+	RamGetOffAndOn();
+	CHECK(LogLines("  ram: Enabled=0 ") == 1 && LogLines("off, no actor asked about, every one braked for as before test 41 (read again on getting on)") == 1, "the settings line: off");
+	RamUpToSpeed(1.0f);
+	RamRide(1500.0f, 1.0f, 1, 3000);
+	left = RamPlaneAhead(0);
+	CHECK(g_ramAsks == 0 && g_ramHits == 0 && left > -15.0f && left < 80.0f && MoveInput()[1] < 0.05f, "no ask (%d), no hit, stops %.0f short, next to no input (%g)", g_ramAsks, left, MoveInput()[1]);
+	RamRideEnd();
+	RewriteIni("Enabled=0", "Enabled=1");
+	RamGetOffAndOn();
+
+	printf("rams: the 3D's user data a placed object, not an actor: never asked about, one line:\n");
+	static const char *refrNames[] = { ".?AVTESObjectREFR@@", ".?AVTESForm@@" };
+	uint8_t *refr = (uint8_t *)NewObject(MakeClass(refrNames, 2), 0x200);
+	refr[0x1A] = 0x40;
+	*(uint8_t **)(g_actorObj + 0x110) = refr;
+	int lostBefore = LogLines("gives no actor: the user data of 'SkeletonExport' (+0x110) is a .?AVTESObjectREFR@@ (form type 0x40)");
+	Send(3, 1);   /* a load: a new ride, the "first time" lines again */
+	RunFrames(400);
+	RamUpToSpeed(1.0f);
+	RamRide(1500.0f, 1.0f, 1, 3000);
+	left = RamPlaneAhead(0);
+	CHECK(g_ramAsks == 0 && left > -15.0f && left < 80.0f, "no ask (%d), stops %.0f short", g_ramAsks, left);
+	CHECK(LogLines("gives no actor: the user data of 'SkeletonExport' (+0x110) is a .?AVTESObjectREFR@@ (form type 0x40)") == lostBefore + 1, "one \"gives no actor\" line");
+	RamRideEnd();
+	*(uint8_t **)(g_actorObj + 0x110) = g_ramActor;
+	g_ramPlanes[0] = g_ramPlanes[1] = NULL;
+	g_onFrame = NULL;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Mode 12: backing level or down follows the ground (test 40's finding 6)   */
+/* ------------------------------------------------------------------------- */
+
+/* The ground under a point, as the vertical rays see it: the profile (with its ripple) when one
+ * is on, else the plane. */
+static float FakeGroundAt(float x, float y)
+{
+	if (g_profileOn)
+		return ProfileGround(x, y, true);
+	return g_groundZ + g_slopeK * ((x - g_slopeO[0]) * g_slopeD[0] + (y - g_slopeO[1]) * g_slopeD[1]);
+}
+
+/* A physics-lite controller (test 40's in-air phase, opt-in): while it isn't supported it falls
+ * at 686 units/s^2 and stops on the ground; pushed under the ground it's put back on it (the
+ * depth kept); its supported bit and state (+0x300's 0x400, +0x2C0) by the feet within 0.3 of
+ * the ground (g_physBit -1) or held set (1, state 0) or clear (0, state 2); its velocity's z
+ * what GetLinearVelocityImpl gives. Without g_physOn only the bit and the state are set: the
+ * plugin's steps alone move the feet up and down. */
+static bool g_physOn, g_physSup;
+static int g_physBit = 1;
+static float g_physV, g_physUnder;
+static void BackingFrame(float dt)
+{
+	FakeGameFrame(dt);
+	float *p = PlayerPos(), g = FakeGroundAt(p[0], p[1]);
+	if (g_physOn) {
+		float z0 = p[2];
+		if (p[2] < g) {
+			if (g - p[2] > g_physUnder)
+				g_physUnder = g - p[2];
+			p[2] = g;
+			g_physV = 0.0f;
+		} else if (!g_physSup) {
+			g_physV -= 686.0f * dt;
+			p[2] += g_physV * dt;
+			if (p[2] < g) {
+				p[2] = g;
+				g_physV = 0.0f;
+			}
+		}
+		g_physGame += p[2] - z0;
+	}
+	g_physSup = g_physBit >= 0 ? g_physBit == 1 : p[2] - g <= 0.3f;
+	if (g_physSup)
+		g_physV = 0.0f;
+	SetSupported(g_physSup);
+	SetState(g_physSup ? 0 : 2);
+	g_fakeVel[2] = g_physV * HAVOK;
+}
+
+/* The ground from the player along the way back, a profile of segments, each {len, deg}: `len`
+ * units at `deg` down (0: level), level before the player and past the last. */
+static void BackProfile(const float (*seg)[2], int n)
+{
+	float h = PlayerHeading(), u = 0.0f, z = 0.0f;
+	g_slopeO[0] = PlayerPos()[0];
+	g_slopeO[1] = PlayerPos()[1];
+	g_slopeD[0] = -sinf(h);
+	g_slopeD[1] = -cosf(h);
+	g_slopeK = 0.0f;
+	g_groundZ = PlayerPos()[2];
+	g_profileN = 0;
+	g_profileU[g_profileN] = 0.0f;
+	g_profileZ[g_profileN++] = 0.0f;
+	for (int i = 0; i < n && g_profileN < 12; i++) {
+		u += seg[i][0];
+		z -= seg[i][0] * tanf(seg[i][1] / DEG);
+		g_profileU[g_profileN] = u;
+		g_profileZ[g_profileN++] = z;
+	}
+	g_rippleAmp = 0.0f;
+	g_profileOn = true;
+}
+static void BackLevel(void)   /* flat ground where the player is, no profile */
+{
+	g_profileOn = false;
+	g_profileN = 0;
+	g_rippleAmp = 0.0f;
+	g_shelfOn = false;
+	g_shelfHeight = g_shelfAhead = 0.0f;
+	g_shelfRadius = 60.0f;
+	FlatGround();
+}
+
+/* Back held for ms, every step recorded; then let go (the keys are kept 0.2 s) and at rest. */
+static void BackRecord(int ms)
+{
+	g_recN = 0;
+	g_physGame = 0.0f;
+	g_physUnder = 0.0f;
+	g_rec = true;
+	Keys(0.0f, -1.0f);
+	RunFrames(ms);
+	g_rec = false;
+}
+static void BackLetGo(void)
+{
+	Keys(0.0f, 0.0f);
+	RunFrames(500);
+}
+
+/* Over the recorded steps k0..k1-1: the most the feet were off the ground (signed, the worst),
+ * the share of steps whose dz was 0 (under 0.005), the game's share of the height lost, the 99th
+ * percentile and the largest change of the vertical speed from one step to the next (the z after
+ * a step over the time since the one before), and the largest |dz| over the step's length. */
+typedef struct { float worstGap, zeroShare, gameShare, dv99, dvMax, slopeMax, dzMax, descent; int n; } BackStats;
+static int CmpFloat(const void *a, const void *b) { float x = *(const float *)a, y = *(const float *)b; return x < y ? -1 : x > y; }
+static BackStats BackStatsOf(int k0, int k1)
+{
+	static float dv[REC_MAX];
+	BackStats st;
+	memset(&st, 0, sizeof(st));
+	if (k0 < 1)
+		k0 = 1;
+	if (k1 > g_recN)
+		k1 = g_recN;
+	int zeros = 0, ndv = 0;
+	float vzPrev = 0.0f;
+	bool havePrev = false;
+	for (int k = k0; k < k1; k++) {
+		st.n++;
+		if (fabsf(g_recGap[k]) > fabsf(st.worstGap))
+			st.worstGap = g_recGap[k];
+		zeros += fabsf(g_recDz[k]) < 0.005f;
+		if (fabsf(g_recDz[k]) > st.dzMax)
+			st.dzMax = fabsf(g_recDz[k]);
+		if (g_recStep[k] > 0.05f && fabsf(g_recDz[k]) / g_recStep[k] > st.slopeMax)
+			st.slopeMax = fabsf(g_recDz[k]) / g_recStep[k];
+		double t = g_recT[k] - g_recT[k - 1];
+		if (t > 0.0005) {
+			float vz = (g_recZ[k] - g_recZ[k - 1]) / (float)t;
+			if (havePrev)
+				dv[ndv++] = fabsf(vz - vzPrev);
+			vzPrev = vz;
+			havePrev = true;
+		}
+	}
+	if (k1 > k0) {
+		st.descent = g_recZ[k1 - 1] - g_recZ[k0 - 1];
+		st.gameShare = st.descent != 0.0f ? (g_recGame[k1 - 1] - g_recGame[k0 - 1]) / st.descent : 0.0f;
+	}
+	st.zeroShare = st.n ? (float)zeros / (float)st.n : 0.0f;
+	if (ndv) {
+		qsort(dv, ndv, sizeof(float), CmpFloat);
+		st.dv99 = dv[(int)(0.99f * (float)(ndv - 1))];
+		st.dvMax = dv[ndv - 1];
+	}
+	return st;
+}
+static int BackFirstPast(float u)   /* the first recorded step with the feet past u along the profile */
+{
+	for (int k = 0; k < g_recN; k++)
+		if (g_recU[k] > u)
+			return k;
+	return g_recN;
+}
+
+static const float g_browDip[5][2] = { { 40.0f, 0.0f }, { 80.0f, 10.0f }, { 100.0f, 30.0f }, { 180.0f, 10.0f }, { 60.0f, 0.0f } };   /* test 40's slopes, about 6 to 32 deg (the analysis's model) */
+static const float g_slope20[2][2] = { { 20.0f, 0.0f }, { 400.0f, 20.0f } };
+
+/* N1: down a brow and a dip with the controller supported all the way, no physics (the plugin's
+ * steps alone move the feet). */
+static BackStats BackBrowDip(void)
+{
+	BackLevel();
+	BackProfile(g_browDip, 5);
+	g_physOn = false;
+	g_physBit = 1;
+	RunFrames(300);
+	BackRecord(5300);
+	BackLetGo();
+	return BackStatsOf(1, BackFirstPast(440.0f));
+}
+/* N2: down 20 deg with the controller in the air all the way (its bit clear, state 2), the
+ * physics-lite fall on: test 40's in-air phase. Measured on the slope, 30 to 400 along. */
+static BackStats BackInTheAir(void)
+{
+	BackLevel();
+	BackProfile(g_slope20, 2);
+	g_physOn = true;
+	g_physBit = 0;
+	RunFrames(300);
+	BackRecord(5000);
+	BackLetGo();
+	g_physOn = false;
+	g_physBit = 1;
+	return BackStatsOf(BackFirstPast(30.0f), BackFirstPast(390.0f));
+}
+/* N3: level, a hole of 2.0 round the feet (radius 20: the window's, the feet's rays in it, the
+ * ground 55 behind and the wheels' contacts outside), supported for 1 s, then the bit clear and
+ * state 2 for 0.5 s (a flip into the air): how far the feet moved after the flip. */
+static float BackFlip(void)
+{
+	BackLevel();
+	g_shelfOn = true;
+	g_shelfHeight = -2.0f;
+	g_shelfAhead = 0.0f;
+	g_shelfRadius = 20.0f;
+	g_physOn = false;
+	g_physBit = 1;
+	RunFrames(300);
+	BackRecord(1000);
+	int k0 = g_recN;
+	float z0 = PlayerPos()[2], worst = 0.0f;
+	g_physBit = 0;
+	g_rec = true;
+	RunFrames(500);
+	g_rec = false;
+	for (int k = k0; k < g_recN; k++)
+		if (fabsf(g_recZ[k] - z0) > fabsf(worst))
+			worst = g_recZ[k] - z0;
+	BackLetGo();
+	g_physBit = 1;
+	BackLevel();
+	return worst;
+}
+
+/* N6: a ledge 15 down 20 behind, the fake's controller supported by its feet (within 0.3) and
+ * falling when not: the worst gap after a step on the upper ground, the gap over the lower one
+ * at the end (99: never got past) and the largest step down. */
+static float BackLedge(float *lowerGap, float *dzMax)
+{
+	static const float ledge[3][2] = { { 20.0f, 0.0f }, { 0.002f, 89.9924f }, { 200.0f, 0.0f } };   /* 15 down over 0.002 */
+	BackLevel();
+	BackProfile(ledge, 3);
+	g_physOn = true;
+	g_physBit = -1;
+	RunFrames(300);
+	BackRecord(1500);
+	float upper = 0.0f;
+	int kPast = BackFirstPast(29.0f);
+	for (int k = 0; k < kPast; k++)
+		if (g_recU[k] < 20.0f && fabsf(g_recGap[k]) > fabsf(upper))
+			upper = g_recGap[k];
+	*lowerGap = kPast < g_recN ? PlayerPos()[2] - FakeGroundAt(PlayerPos()[0], PlayerPos()[1]) : 99.0f;
+	*dzMax = BackStatsOf(1, g_recN).dzMax;
+	BackLetGo();
+	g_physOn = false;
+	g_physBit = 1;
+	BackLevel();
+	return upper;
+}
+
+static void BackingTests(void)
+{
+	float *head = (float *)(g_player + 0xC8);
+	*(float *)(g_turnRadius + 0x30) = 180.0f;   /* steering on: the input hook with it */
+	*(float *)(g_turnSlow + 0x30) = 50.0f;
+	*(float *)(g_turnStand + 0x30) = 60.0f;
+	SetNormal(0.0f, 0.0f, 1.0f);
+	BackLevel();
+	g_physOn = false;
+	g_physBit = 1;
+	g_camYaw = *head;
+	g_handlerStyle = 2;
+	g_honour = 4;
+	Keys(0.0f, 0.0f);
+	g_onFrame = BackingFrame;
+	printf("backing: getting on: the reverse's settings line:\n");
+	SetLive(60.0f);
+	SetCamera(300.0f);
+	SetTilt(30.0f);
+	RunFrames(1500);
+	CHECK(LogLines("  reverse: BackFollow=10 BackClose=0.1: going back level or down, each step follows the ground's slope over 10 units centred on its middle") == 1,
+	      "BackFollow=10 BackClose=0.1 at load, said in plain words");
+
+	printf("backing (N1): down a brow and a dip (flat 40, 10 deg for 80, 30 for 100, 10 for 180, flat 60), the controller supported all the way, no physics: the feet kept on the ground:\n");
+	int startsBefore = LogLines("reverse: a push back starts, the controller supported; its capsule radius 18.0, height 128.0, step height 31.0, cast depth 33.5 (+0x370/+0x374/+0x424/+0x430), gravity ");
+	int windowBefore = LogLines("by the window (the ground ");
+	BackStats n1 = BackBrowDip();
+	CHECK(n1.n > 200 && g_recU[g_recN - 1] > 400.0f && fabsf(n1.worstGap) < 0.7f, "the feet %+.2f from the ground at the worst over %d steps, back %.0f (the window's corner cut at 10 to 30 deg is 0.5)",
+	      n1.worstGap, n1.n, g_recU[g_recN - 1]);
+	CHECK(LogLines("reverse: a push back starts, the controller supported; its capsule radius 18.0, height 128.0, step height 31.0, cast depth 33.5 (+0x370/+0x374/+0x424/+0x430), gravity ") == startsBefore + 1,
+	      "one push-start line: the controller supported, its capsule's radius, height, step height and cast depth, its gravity");
+	CHECK(LogLines("by the window (the ground ") > windowBefore + 10, "the trace's rays lines say the step followed the window (%d lines)", LogLines("by the window (the ground ") - windowBefore);
+
+	printf("backing (N2): down 20 deg with the controller in the air all the way (its bit clear, state 2), the fake's controller falling at 686 a second squared when over the ground: the plugin carries it down, not the game's gravity:\n");
+	int heightBefore = LogLines("  height: z ");
+	BackStats n2 = BackInTheAir();
+	CHECK(n2.n > 200 && n2.zeroShare <= 0.10f, "the step's dz 0 in %.0f%% of %d steps (test 40's rule: most; 47 of 69 in-air lines read -0.00)", 100.0f * n2.zeroShare, n2.n);
+	CHECK(n2.descent < -100.0f && n2.gameShare <= 0.10f, "the game's fall did %.0f%% of the %.0f down", 100.0f * n2.gameShare, -n2.descent);
+	CHECK(n2.dv99 <= 10.0f, "the vertical speed changed %.1f a second from one step to the next at the 99th percentile (%.1f at most)", n2.dv99, n2.dvMax);
+	float oursLogged = LastLogNumber("(ours "), gameLogged = LastLogNumber("the game's ");
+	CHECK(LogLines("  height: z ") > heightBefore + 10 && oursLogged < -3.0f && fabsf(gameLogged) < 0.15f * fabsf(oursLogged),
+	      "the trace's height lines (%d) split it: the last ours %+.1f, the game's %+.1f", LogLines("  height: z ") - heightBefore, oursLogged, gameLogged);
+
+	printf("backing (N3): level, a gap of 2.0 under the feet (a hole round them) kept with the controller supported for 1 s, then it says it's in the air: nothing closed (its own clearance is 2.0):\n");
+	int flipsBefore = LogLines("reverse: the controller in the air after ");
+	float n3 = BackFlip();
+	CHECK(fabsf(n3) < 0.1f, "the feet %+.2f from where they were in the 0.5 s after the flip (test 40's rule: down 1.5 at once)", n3);
+	CHECK(LogLines("reverse: the controller in the air after ") == flipsBefore + 1 && LogLines("s supported (gap +2.0, own +2.0): closing 0.00 (flip 1 of this push)") >= 1,
+	      "the flip's line: in the air after about 1 s supported (gap +2.0, own +2.0): closing 0.00 (flip 1 of this push)");
+
+	printf("backing (N5): level with a ripple of 0.5 over 4 units under the vertical rays, supported: the window averages it out:\n");
+	BackLevel();
+	BackProfile(NULL, 0);
+	g_rippleAmp = 0.5f;
+	g_rippleWave = 4.0f;
+	RunFrames(300);
+	float z5 = PlayerPos()[2];
+	BackRecord(3000);
+	BackStats n5 = BackStatsOf(1, g_recN);
+	float drift5 = PlayerPos()[2] - z5, off5 = 0.0f, longSteps = 0.0f;
+	int nLong = 0;
+	for (int k = 0; k < g_recN; k++) {
+		if (fabsf(g_recZ[k] - z5) > fabsf(off5))
+			off5 = g_recZ[k] - z5;
+		if (g_recStep[k] > 1.0f) {   /* a frame of over 12 ms (Wine's are 5 mostly): such a step may be off by 0.1 of it, the window's slope here 0.1 at most */
+			longSteps += g_recStep[k];
+			nLong++;
+		}
+	}
+	BackLetGo();
+	CHECK(n5.n > 100 && fabsf(drift5) < 0.3f + 0.1f * longSteps && fabsf(off5) < 0.3f + 0.1f * longSteps, "after 3 s the feet %+.2f from the start (%+.2f at the most) over %d steps (within 0.3, and 0.1 of each of the %d steps over 1 long: %.2f more)",
+	      drift5, off5, n5.n, nLong, 0.1f * longSteps);
+	CHECK(n5.slopeMax <= 0.12f, "no step's dz over %.2f of its length (the window's slope on this ripple is 0.10 at most, the ripple's own 0.79; %.3f the largest dz)", n5.slopeMax, n5.dzMax);
+	BackLevel();
+
+	printf("backing (N6): an edge, a ledge 15 down 20 behind, the fake's controller supported by its feet and falling when not: no follow over it (the feet never pushed into the ground above it), gravity and the capped closing take it down:\n");
+	int edgeBefore = LogLines(": an edge (the ground ");
+	float lowerGap, dzMax, upper = BackLedge(&lowerGap, &dzMax);
+	CHECK(fabsf(upper) < 0.05f, "on the upper ground the feet %+.2f from it after a step at the worst (the window across the ledge reads 1.5 down a unit: an edge, no follow)", upper);
+	CHECK(lowerGap < 0.5f && lowerGap > -0.5f && g_physUnder < 0.5f, "past it, down on the lower ground: %+.2f over it at the end, %.2f under it at the most", lowerGap, g_physUnder);
+	CHECK(dzMax <= 3.001f, "no step down more than 3 (%.2f the most)", dzMax);
+	printf("  (%d \"an edge\" lines in the trace; the edge lasts about 0.2 s, the trace every 0.25 s)\n", LogLines(": an edge (the ground ") - edgeBefore);
+	BackLevel();
+
+	printf("backing (N7): level, a pit 3 across 6 behind the player (no ground within 52 under the window's ray behind the step): the slope 55 back after 0.1 s, the feet level:\n");
+	g_shelfOn = true;
+	g_shelfHeight = -100.0f;
+	g_shelfAhead = -6.0f;
+	g_shelfRadius = 3.0f;
+	RunFrames(300);
+	float z7 = PlayerPos()[2];
+	int fallbackBefore = LogLines("by the slope 55 back (a window ray found no ground for over 0.1 s)");
+	BackRecord(1500);
+	float off7 = 0.0f;
+	for (int k = 0; k < g_recN; k++)
+		if (fabsf(g_recZ[k] - z7) > fabsf(off7))
+			off7 = g_recZ[k] - z7;
+	BackLetGo();
+	CHECK(g_recN > 50 && fabsf(off7) < 0.05f && LogLines("by the slope 55 back (a window ray found no ground for over 0.1 s)") > fallbackBefore,
+	      "backs %d steps, the feet %+.2f from level at the most, the trace says the slope 55 back", g_recN, off7);
+	BackLevel();
+
+	printf("backing: BackFollow=0 rewritten, off and on again: test 40's rule back (the checks above catch it):\n");
+	RewriteIni("BackFollow=10", "BackFollow=0");
+	GetOffAndOn(60.0f);
+	CHECK(LogLines("  reverse: BackFollow=0 BackClose=0.1: going back level or down, each step follows the slope 55 back, and unsupported the gap is closed to 0.5 over the ground, 3 a step at most (test 40's rule) (read again on getting on)") == 1,
+	      "the settings line again, BackFollow=0: test 40's rule");
+	BackStats o1 = BackBrowDip();
+	CHECK(fabsf(o1.worstGap) > 3.0f, "N1 with test 40's rule: the feet %+.2f from the ground at the worst (the slope 55 back ahead of the ground on the brow)", o1.worstGap);
+	BackStats o2 = BackInTheAir();
+	CHECK(o2.zeroShare > 0.3f && o2.gameShare > 0.5f && o2.dv99 > 10.0f, "N2 with test 40's rule: dz 0 in %.0f%% of the steps, the game's fall %.0f%% of the way down, the vertical speed's change %.1f at the 99th percentile",
+	      100.0f * o2.zeroShare, 100.0f * o2.gameShare, o2.dv99);
+	float o3 = BackFlip();
+	CHECK(o3 < -1.0f, "N3 with test 40's rule: the feet %+.2f after the flip (closed to the hover)", o3);
+	float oGap, oDz, o6 = BackLedge(&oGap, &oDz);
+	CHECK(o6 < -0.05f, "N6 with test 40's rule: the feet %+.2f under the upper ground after a step at the worst (the slope 55 back going down from 55 before the ledge)", o6);
+	CHECK(LogLines("; the slope 55 back (BackFollow=0), own ") > 5, "its rays lines say so");
+
+	printf("backing: BackFollow=10 again:\n");
+	RewriteIni("BackFollow=0", "BackFollow=10");
+	GetOffAndOn(60.0f);
+	CHECK(LogLines("  reverse: BackFollow=10 BackClose=0.1: going back level or down, each step follows the ground's slope over 10 units centred on its middle") == 2 &&
+	      LogLines("at most 120 a second and 3 a step (read again on getting on)") == 1, "read again on getting on");
+	SetLive(0.0f);
+	SetCamera(0.0f);
+	SetTilt(0.0f);
+	RunFrames(400);
+	g_onFrame = NULL;
+}
+
 int main(int argc, char **argv)
 {
 	const char *dllPath = argc > 1 ? argv[1] : "CMB_Slope.dll";
 	int mode = argc > 2 ? atoi(argv[2]) : 0;   /* 0 = full test, 1 = probe only, 2 = wrong game version */
-	g_haveParts = mode == 0 || mode == 7 || mode == 8;   /* run.sh gives those a [Parts] section */
+	g_haveParts = mode == 0 || mode == 7 || mode == 8 || mode == 9 || mode == 10 || mode == 11 || mode == 13;   /* run.sh gives those a [Parts] section */
 	g_base = (uintptr_t)GetModuleHandleA(NULL);
 	if ((uintptr_t)g_space > g_base + 0x00300000u || (uintptr_t)g_space + sizeof(g_space) < g_base + RVA_INI_SETTINGS + 8) {
 		printf("image layout doesn't cover the game addresses (g_space at +0x%llx)\n", (unsigned long long)((uintptr_t)g_space - g_base));
@@ -5227,6 +7356,8 @@ int main(int argc, char **argv)
 	SetLayouts(mode == 4, mode == 4 || mode == 5);   /* 4: transposed matrices, 5: skin and 3D disagree */
 	g_expectRoll = mode == 0 ? 10.0f : 0.0f;          /* run.sh gives the full test MaxRoll=10 */
 
+	if (mode == 9)
+		WriteLogMarker(dllPath);   /* the session before's log, for the plugin to keep */
 	HMODULE dll = LoadLibraryA(dllPath);
 	if (!dll) { printf("can't load %s\n", dllPath); return 2; }
 	g_vqHooked = HookImport(dll, "VirtualQuery", (void *)CountingVirtualQuery);   /* its memory queries counted (test 37) */
@@ -5238,7 +7369,7 @@ int main(int argc, char **argv)
 	const uint32_t *compatible = version + 2 + 128 + 2;
 	CHECK(compatible[0] == 0x010B0F00u && compatible[1] == 0, "compatible with 1.11.240 only");
 
-	if (mode == 0)
+	if (mode == 0 || mode == 9 || mode == 10 || mode == 11 || mode == 12 || mode == 13)
 		WriteAddressLibrary();
 	F4SEInterface f4se = { 0x00070090u, mode == 2 ? 0x010B0DD0u : 0x010B0F00u, 0, 0, QueryInterface, GetPluginHandle, 0, 0, 0 };
 	bool loaded = load(&f4se);
@@ -5251,6 +7382,42 @@ int main(int argc, char **argv)
 		Send(10, 1);   /* GameDataReady */
 		RunFrames(300);
 		BackPushModTests();
+		printf("%s\n", g_failures ? "FAILED" : "all ok");
+		return g_failures ? 1 : 0;
+	}
+	if (mode == 10) {
+		Send(10, 1);   /* GameDataReady */
+		RunFrames(300);
+		ClimbTests();
+		printf("%s\n", g_failures ? "FAILED" : "all ok");
+		return g_failures ? 1 : 0;
+	}
+	if (mode == 11) {
+		Send(10, 1);   /* GameDataReady */
+		RunFrames(300);
+		RamTests();
+		printf("%s\n", g_failures ? "FAILED" : "all ok");
+		return g_failures ? 1 : 0;
+	}
+	if (mode == 12) {
+		Send(10, 1);   /* GameDataReady */
+		RunFrames(300);
+		BackingTests();
+		printf("%s\n", g_failures ? "FAILED" : "all ok");
+		return g_failures ? 1 : 0;
+	}
+	if (mode == 13) {
+		Send(10, 1);   /* GameDataReady */
+		RunFrames(300);
+		ArmTests();
+		printf("%s\n", g_failures ? "FAILED" : "all ok");
+		return g_failures ? 1 : 0;
+	}
+	if (mode == 9) {
+		Send(10, 1);   /* GameDataReady */
+		RunFrames(300);
+		LogRotationTests();
+		LoadIntoRideTests();
 		printf("%s\n", g_failures ? "FAILED" : "all ok");
 		return g_failures ? 1 : 0;
 	}
@@ -5395,6 +7562,12 @@ int main(int argc, char **argv)
 	SkinRouteTests();
 	TrackTests();
 	ZoomTests();
+	/* Test 40's finding 8: the climb's boost is on by default, and nothing in this run is a low
+	 * face at the capsule (the 40-high obstacle and the 52 deg face 60 tall rise past ClimbTop,
+	 * the walls have no top): no limit steeper than the run's own (65, the new controller's) was
+	 * ever written. Mode 10 has the climb's own checks. */
+	CHECK(g_slopeMin >= cosf(65.0f / DEG) - 1e-5f && LogLines("climb: a low face at the capsule") == 0, "the climb's boost never on in the full run: the steepest limit %.2f deg (the run's own 65), %d \"low face\" lines",
+	      acosf(g_slopeMin) * DEG, LogLines("climb: a low face at the capsule"));
 
 	printf("%s\n", g_failures ? "FAILED" : "all ok");
 	return g_failures ? 1 : 0;

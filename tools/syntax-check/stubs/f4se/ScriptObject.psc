@@ -9,6 +9,8 @@ Function StartTimer(float afInterval, int aiTimerID = 0) native
 Function CancelTimer(int aiTimerID = 0) native
 Function RegisterForPlayerTeleport() native
 Function UnregisterForPlayerTeleport() native
+Function RegisterForMenuOpenCloseEvent(string asMenuName) native
+Function UnregisterForMenuOpenCloseEvent(string asMenuName) native
 Function AddInventoryEventFilter(Form akFilter) native
 Function RemoveAllInventoryEventFilters() native
 
@@ -21,6 +23,8 @@ EndEvent
 Event OnTimer(int aiTimerID)
 EndEvent
 Event OnPlayerTeleport()
+EndEvent
+Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
 EndEvent
 
 ; F4SE

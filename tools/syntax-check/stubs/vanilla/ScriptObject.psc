@@ -9,6 +9,8 @@ Function StartTimer(float afInterval, int aiTimerID = 0) native
 Function CancelTimer(int aiTimerID = 0) native
 Function RegisterForPlayerTeleport() native
 Function UnregisterForPlayerTeleport() native
+Function RegisterForMenuOpenCloseEvent(string asMenuName) native
+Function UnregisterForMenuOpenCloseEvent(string asMenuName) native
 Function AddInventoryEventFilter(Form akFilter) native
 Function RemoveAllInventoryEventFilters() native
 
@@ -17,6 +19,8 @@ EndEvent
 Event OnTimer(int aiTimerID)
 EndEvent
 Event OnPlayerTeleport()
+EndEvent
+Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
 EndEvent
 Function RegisterForHitEvent(ScriptObject akTarget, ScriptObject akAggressorFilter = None, Form akSourceFilter = None, Form akProjectileFilter = None, int aiPowerFilter = -1, int aiSneakFilter = -1, int aiBashFilter = -1, int aiBlockFilter = -1, bool abMatch = true) native
 Function UnregisterForHitEvent(ScriptObject akTarget, ScriptObject akAggressorFilter = None, Form akSourceFilter = None, Form akProjectileFilter = None, int aiPowerFilter = -1, int aiSneakFilter = -1, int aiBashFilter = -1, int aiBlockFilter = -1, bool abMatch = true) native

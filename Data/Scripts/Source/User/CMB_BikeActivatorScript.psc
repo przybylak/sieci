@@ -12,6 +12,8 @@ Event OnActivate(ObjectReference akActionRef)
 		return
 	endif
 	int choice = CMB_ParkedMenu.Show()
+	; Test 40: every use of the bike is logged, with what it did (0 ride, 1 side bag, 2 cancel).
+	Controller.Log("Parked bike activated: choice " + choice + ".")
 	if choice == 0
 		Controller.Mount()
 	elseif choice == 1

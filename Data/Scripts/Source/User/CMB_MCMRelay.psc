@@ -10,7 +10,7 @@ EndFunction
 Function HotkeyPressed() global
 	CMB_ControllerScript c = Controller()
 	if c
-		c.HotkeyPressed()
+		c.HotkeyPressed("the MCM hotkey")
 	endif
 EndFunction
 
