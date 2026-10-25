@@ -42,6 +42,7 @@
 #define HEADLAMP_REF_LO_FORMID (0xFE000000u | (LIGHT_INDEX << 12) | 0x844u)
 #define LAMP_REF_FORMID       0xFF001234u   /* the light reference "the script placed" */
 #define RAM_FORMID            (0xFE000000u | (LIGHT_INDEX << 12) | 0x845u)   /* CMB_RamSeenHi, SeenLo, Seen, Ok, HitSpeed, Hit, Enemies, MinSpeed */
+#define ROOM_FORMID           (0xFE000000u | (LIGHT_INDEX << 12) | 0x84Fu)   /* CMB_RoomAskX, AskY, AskZ, Ask, Answer, Clear (the brought bike's spot, test 41) */
 #define RAM_ACTOR_FORMID      0xFF004D69u   /* the actor ahead: a created reference (test 40's super mutant's id), all 32 bits */
 #define RAM_ACTOR2_FORMID     0xFF004D6Au   /* a second one, behind it (mode 11: the hits' spacing) */
 #define LAMP_REF2_FORMID      0xFF001235u   /* the fresh one of a handover (test 33) */
@@ -173,6 +174,7 @@ static uint8_t *g_lampRef2, *g_lampRef2Loaded, *g_lampRef2Root;
 static uint8_t *g_collChar;    /* BGSCollisionLayer COLL 0008877F: what the character controller collides with */
 static bool g_collHidden;      /* one test: the form lookup finds no such record */
 static uint8_t *g_handsShape, *g_handsSkin, *g_handsData, *g_handsBones, *g_handsXf[5], g_handsBonesOriginal[5 * 0x50];
+static uint8_t *g_hatShape, *g_hatSkin, *g_hatData, *g_hatBones, *g_hatXf[3], g_hatBonesOriginal[3 * 0x50];   /* test 41's headwear: HEAD, a node-less Head_skin at HEAD's place, a node-less bone 10 above on no node */
 static uint8_t *g_partData[4], *g_partBones[4];   /* the Harley build's moving parts: front wheel, rear wheel, bar assembly, the lower fork (test 38) */
 static uint8_t g_partBonesOriginal[4][0x50];
 static bool g_handRaised;         /* the left hand swung up about the elbow, 20% nearer the shoulder (a Pip-Boy raise: test 37's lean solved from it) */
@@ -379,6 +381,8 @@ static float g_planeTopDepth[3];
 static float g_dropPoint[2], g_dropDir[2];
 static uint8_t *g_wallObj, *g_groundObj, *g_shelfObj, *g_actorObj, g_fakeWorld[64];
 static uint8_t *g_ramGlobalsFake[8], *g_ramActor, *g_ramActor2, *g_actorObj2, *g_raceHuman, *g_raceMedium, *g_raceBig, *g_raceNoKnock;
+static uint8_t *g_roomGlobalsFake[6];   /* CMB_RoomAskX to CMB_RoomClear (test 41) */
+static bool g_roomHidden;               /* mode 11: an older ESP without them (the form lookup finds none) */
 static int g_picks;
 static void *FakePickCtor(uint8_t *pick)
 {
@@ -615,6 +619,8 @@ static uintptr_t FakeLookupFormByID(uint32_t id)
 		return g_collHidden ? 0 : (uintptr_t)g_collChar;
 	if (id >= RAM_FORMID && id < RAM_FORMID + 8)
 		return (uintptr_t)g_ramGlobalsFake[id - RAM_FORMID];
+	if (id >= ROOM_FORMID && id < ROOM_FORMID + 6)
+		return g_roomHidden ? 0 : (uintptr_t)g_roomGlobalsFake[id - ROOM_FORMID];
 	return id == SLOPE_GLOBAL_FORMID ? (uintptr_t)g_global : id == CAMERA_GLOBAL_FORMID ? (uintptr_t)g_cameraGlobal
 	     : id == TILT_GLOBAL_FORMID ? (uintptr_t)g_tiltGlobal : 0;
 }
@@ -760,6 +766,9 @@ static void BuildGame(void)
 	*(float *)(g_ramGlobalsFake[6] + 0x30) = 1.0f;     /* the MCM's defaults */
 	*(float *)(g_ramGlobalsFake[7] + 0x30) = 450.0f;
 	*(float *)(g_ramGlobalsFake[2] + 0x30) = 57.0f;    /* a save's: the plugin's asks go on from it */
+	static const char *room[6] = { "CMB_RoomAskX", "CMB_RoomAskY", "CMB_RoomAskZ", "CMB_RoomAsk", "CMB_RoomAnswer", "CMB_RoomClear" };
+	for (int i = 0; i < 6; i++)
+		g_roomGlobalsFake[i] = NewGlobal(ROOM_FORMID + (uint32_t)i, room[i]);
 	/* The collision layer records (test 36): the character controller's, with what it collides
 	 * with (Fallout4.esm's list: not clutter (4), bipeds (8), non-collidable (15), dead bipeds (32)
 	 * or navcut (49); test 37: the phantoms it does hold, spells (7), cloud traps (16), the
@@ -1086,6 +1095,38 @@ static void BuildGame(void)
 	*(uint32_t *)(g_handsSkin + 0x30) = 5;
 	*(uint32_t *)(g_handsSkin + 0x38) = 5;
 
+	/* The headwear (test 41: the vanilla Hard Hat, one shape skinned to HEAD and to Head_skin,
+	 * HEAD's child at (0, 0, 0) with no node in the rider's skeleton and 71.5% of the weight;
+	 * the glasses the same): three bones laid out as the hands' are, HEAD's node, a node-less
+	 * bone with a world transform of its own at HEAD's place, and a node-less one 10 above the
+	 * head, on no node at all, for the hands' rules and the tilt alone. */
+	g_hatShape = NewNode(vtTri, "FHardHat:0", 0);
+	AddChild(npcRoot, g_hatShape);
+	*(uint8_t **)(g_hatShape + 0x28) = npcRoot;
+	g_hatSkin = (uint8_t *)NewObject(vtSkin, 0x100);
+	*(int32_t *)(g_hatSkin + 0x08) = 1;
+	*(uint8_t **)(g_hatShape + 0x140) = g_hatSkin;
+	g_hatData = (uint8_t *)NewObject(vtBone, 0x100);
+	*(int32_t *)(g_hatData + 0x08) = 2;
+	*(uint8_t **)(g_hatSkin + 0x40) = g_hatData;
+	g_hatBones = (uint8_t *)VirtualAlloc(NULL, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+	*(uint8_t **)(g_hatData + 0x10) = g_hatBones;
+	*(uint32_t *)(g_hatData + 0x18) = 3;
+	*(uint32_t *)(g_hatData + 0x20) = 3;
+	uint8_t **hatNodes = (uint8_t **)VirtualAlloc(NULL, 0x100, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+	uint8_t **hatXfs = (uint8_t **)VirtualAlloc(NULL, 0x100, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+	for (int i = 0; i < 3; i++) {
+		hatNodes[i] = i == 0 ? g_bodyNodes[8] : NULL;
+		g_hatXf[i] = i == 0 ? g_bodyNodes[8] + 0x70 : (uint8_t *)VirtualAlloc(NULL, 0x40, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+		hatXfs[i] = g_hatXf[i];
+	}
+	*(uint8_t ***)(g_hatSkin + 0x10) = hatNodes;
+	*(uint32_t *)(g_hatSkin + 0x18) = 3;
+	*(uint32_t *)(g_hatSkin + 0x20) = 3;
+	*(uint8_t ***)(g_hatSkin + 0x28) = hatXfs;
+	*(uint32_t *)(g_hatSkin + 0x30) = 3;
+	*(uint32_t *)(g_hatSkin + 0x38) = 3;
+
 	/* The moving parts of the Harley build: four more shapes under the bike's node, each
 	 * with its own skin and bone data (the same bind; their culling spheres on the axles
 	 * and ahead of the steering head, which is how the plugin tells them apart; the lower
@@ -1326,6 +1367,15 @@ static void SyncFakeWorld(void)
 	for (int i = 0; i < 3; i++)
 		pos[i] = pp[i] + off[i];
 	SetWorld(g_bodyNodes[8], heading, pos, 1.0f);
+	if (g_hatXf[1]) {
+		/* The hat's node-less bones (test 41): Head_skin at HEAD's place, HEAD's world as its
+		 * child at (0, 0, 0) would have; the other 10 above the head. */
+		float above[3] = { pos[0], pos[1], pos[2] + 10.0f };
+		memcpy(g_hatXf[1], g_bodyNodes[8] + 0x70, 0x40);
+		StoreRotation((float *)g_hatXf[2], heading, g_rootTransposed);
+		memcpy(g_hatXf[2] + 0x30, above, 12);
+		*(float *)(g_hatXf[2] + 0x3C) = 1.0f;
+	}
 	Apply3(heading, jawOff, off);
 	for (int i = 0; i < 3; i++)
 		pos[i] = pp[i] + off[i];
@@ -1401,6 +1451,19 @@ static void SetLayouts(bool skinTransposed, bool rootTransposed)
 			hb[19] = 1.0f;
 		}
 		memcpy(g_handsBonesOriginal, g_handsBones, sizeof(g_handsBonesOriginal));
+	}
+	{
+		/* The hat's bones (test 41): HEAD's bind as the body gives it, the same again for
+		 * Head_skin at HEAD's place, and the bone 10 above the head. */
+		static const float eye[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
+		for (int i = 0; i < 3; i++) {
+			float *hb = (float *)(g_hatBones + i * 0x50);
+			hb[0] = hb[1] = hb[2] = 0.0f;
+			hb[3] = 8.0f;
+			StoreRotation(hb + 4, eye, skinTransposed);
+			hb[16] = 0.0f; hb[17] = 2.0f; hb[18] = i == 2 ? -170.0f : -160.0f; hb[19] = 1.0f;
+		}
+		memcpy(g_hatBonesOriginal, g_hatBones, sizeof(g_hatBonesOriginal));
 	}
 	float *pl = (float *)(g_pipboyShape + 0x30);
 	static const float tenDeg[9] = { 0.98481f, -0.17365f, 0, 0.17365f, 0.98481f, 0, 0, 0, 1 };
@@ -1744,6 +1807,48 @@ static void MapBoneAt(const uint8_t *xf, const uint8_t *orig, const uint8_t *cop
 	for (int i = 0; i < 3; i++)
 		out[i] = Nq[i] + n[i];
 }
+
+/* How far two bones' written maps differ (test 41: the hat's Head_skin against HEAD's own):
+ * the point X mapped by each (the joints' distance), and arms of 10 up and 10 forward from
+ * it, the larger of the two angles between the mapped arms in degrees. */
+static float VecAngle(const float a[3], const float b[3])
+{
+	float la = sqrtf(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]), lb = sqrtf(b[0] * b[0] + b[1] * b[1] + b[2] * b[2]);
+	if (la < 1e-6f || lb < 1e-6f)
+		return 180.0f;
+	float c = (a[0] * b[0] + a[1] * b[1] + a[2] * b[2]) / (la * lb);
+	return acosf(c > 1.0f ? 1.0f : c < -1.0f ? -1.0f : c) * DEG;
+}
+static void BoneMapsApart(const uint8_t *xfA, const uint8_t *origA, const uint8_t *copyA, const uint8_t *xfB, const uint8_t *origB, const uint8_t *copyB, const float X[3], float *pos, float *deg)
+{
+	float U[3] = { X[0], X[1], X[2] + 10.0f }, F[3] = { X[0], X[1] + 10.0f, X[2] }, mA[3], mB[3], uA[3], uB[3], fA[3], fB[3], dA[3], dB[3];
+	MapBoneAt(xfA, origA, copyA, X, mA);
+	MapBoneAt(xfB, origB, copyB, X, mB);
+	MapBoneAt(xfA, origA, copyA, U, uA);
+	MapBoneAt(xfB, origB, copyB, U, uB);
+	MapBoneAt(xfA, origA, copyA, F, fA);
+	MapBoneAt(xfB, origB, copyB, F, fB);
+	for (int i = 0; i < 3; i++) {
+		dA[i] = uA[i] - mA[i];
+		dB[i] = uB[i] - mB[i];
+	}
+	*deg = VecAngle(dA, dB);
+	for (int i = 0; i < 3; i++) {
+		dA[i] = fA[i] - mA[i];
+		dB[i] = fB[i] - mB[i];
+	}
+	float f = VecAngle(dA, dB);
+	if (f > *deg)
+		*deg = f;
+	float dx = mA[0] - mB[0], dy = mA[1] - mB[1], dz = mA[2] - mB[2];
+	*pos = sqrtf(dx * dx + dy * dy + dz * dz);
+}
+/* The hold's "bones without a node" lines for the hat and the hands as test 41's build writes
+ * them: the old fields first, then the bones placed by the node they sit on (NodelessNear 2),
+ * or none with NodelessNear=0. */
+static const char *const g_hatLineNear = "FHardHat:0: 2 bones without a node, held through their own transforms: 0 with the left hand, 0 with the right, 0 with a forearm, 1 carried with the tilt alone, 1 with the head, 0 with the upper body, 0 with an upper arm; 1 placed by the node they sit on, within 2 of it (NodelessNear): the head 1, the upper body 0, the hands 0, the forearms 0, the upper arms 0";
+static const char *const g_hatLineOff = "FHardHat:0: 2 bones without a node, held through their own transforms: 0 with the left hand, 0 with the right, 0 with a forearm, 2 carried with the tilt alone, 0 with the head, 0 with the upper body, 0 with an upper arm; none placed by the node they sit on (NodelessNear=0)";
+static const char *const g_handsLineNear = "NakedHands:0: 4 bones without a node, held through their own transforms: 2 with the left hand, 0 with the right, 1 with a forearm, 1 carried with the tilt alone, 0 with the head, 0 with the upper body, 0 with an upper arm; 0 placed by the node they sit on, within 2 of it (NodelessNear)";
 
 static float Dist3(const float a[3], const float b[3])
 {
@@ -4097,6 +4202,10 @@ static void TiltTests(void)
 					}
 				}
 			}
+			/* Test 41: the hold's line keeps its old fields (the fingers 6 and 10 from the hand,
+			 * the wrist end 6 back, none within NodelessNear 2 of a node with a part: the hands'
+			 * rules as before) and says none of these were placed by a node they sit on. */
+			CHECK(LogLines(g_handsLineNear) >= 1, "the hands' \"bones without a node\" line: 2 with the left hand, 1 with a forearm, 1 carried with the tilt alone as before, 0 placed by the node they sit on (NodelessNear 2: none sits on one)");
 		}
 		WorldOfBone(g_bodyNodes[0], g_bodyBonesOriginal, probes[1], before);
 		WorldOfBone(g_bodyNodes[0], copyNow, probes[1], after);
@@ -4111,7 +4220,7 @@ static void TiltTests(void)
 	if (g_haveParts) {
 		printf("tilt: the upper body leaned forward for the arms' reach (TorsoLean=-1 for a ride; ArmReach 0.80 since test 38, 0.88 before):\n");
 		RewriteIni("TorsoLean=0", "TorsoLean=-1");   /* read again on getting on */
-		int inheritedBefore = LogLines("Belly_skin with the upper body");
+		int inheritedBefore = LogLines("Belly_skin with the upper body"), hatBefore = LogLines(g_hatLineNear);
 		SetTilt(0.0f);
 		RunFrames(300);
 		SetTilt(30.0f);
@@ -4200,6 +4309,29 @@ static void TiltTests(void)
 			Apply3(Rw2, ten, upT);
 			CHECK(TiltedOff(Hd, mH, Rw2, Pw2) > 1.0f && fabsf(mUp[0] - mH[0] - upT[0]) < 0.05f && fabsf(mUp[1] - mH[1] - upT[1]) < 0.05f && fabsf(mUp[2] - mH[2] - upT[2]) < 0.05f,
 			      "the head's joint goes forward with the upper body (%.1f) and the head keeps its own pitch, not leaned with it", TiltedOff(Hd, mH, Rw2, Pw2));
+		}
+		{
+			/* Test 41's headwear: the Hard Hat is skinned to HEAD and to Head_skin, HEAD's child
+			 * at (0, 0, 0) with no node of its own, 71.5% of the weight. Held through its own
+			 * transform it was carried with the tilt alone while HEAD took the lean and the level
+			 * head, so the dome stayed where an upright head would be and the front followed the
+			 * head: "stretched forward with character tilt". Within NodelessNear (2) of a node
+			 * with a part a node-less bone takes that part: Head_skin the head's, written as
+			 * HEAD's own through its own transform (the lean about the spine's joint, then the
+			 * head's own pitch), so the hat moves in one piece; the hat's third bone, 10 above
+			 * the head on no node, is carried with the tilt alone as before; the hold's line
+			 * counts the one placed by the node it sits on. */
+			const uint8_t *hatCopy = *(const uint8_t **)(*(uint8_t **)(g_hatSkin + 0x40) + 0x10);
+			float posOff = NAN, degOff = NAN, Ab[3] = { 0, 0, 0 }, mAb[3] = { 0, 0, 0 };
+			CHECK(hatCopy && memcmp(hatCopy, g_hatBonesOriginal, sizeof(g_hatBonesOriginal)) != 0, "the hat's skin (HEAD, a node-less Head_skin at its place, a node-less bone 10 above) held and written");
+			if (hatCopy) {
+				BoneMapsApart(g_hatXf[1], g_hatBonesOriginal + 0x50, hatCopy + 0x50, g_bodyNodes[8] + 0x70, g_bodyBonesOriginal + 8 * 0x50, copyNow + 8 * 0x50, Hd, &posOff, &degOff);
+				memcpy(Ab, g_hatXf[2] + 0x30, 12);
+				MapBoneAt(g_hatXf[2], g_hatBonesOriginal + 2 * 0x50, hatCopy + 2 * 0x50, Ab, mAb);
+			}
+			CHECK(hatCopy && posOff < 0.05f && degOff < 0.1f, "Head_skin, no node, at HEAD's place: written as HEAD's own, the lean about the spine's joint and the head's own pitch (the joint %.3f apart, the frame %.3f deg off; HEAD's joint moved %.1f)", posOff, degOff, TiltedOff(Hd, mH, Rw2, Pw2));
+			CHECK(hatCopy && TiltedOff(Ab, mAb, Rw2, Pw2) < 0.05f, "the hat's bone 10 above the head, on no node with a part: carried with the tilt alone (%.3f off)", TiltedOff(Ab, mAb, Rw2, Pw2));
+			CHECK(LogLines(g_hatLineNear) > hatBefore, "the hold's line for the hat: 1 carried with the tilt alone, 1 with the head; 1 placed by the node it sits on, the head (%d line%s this ride)", LogLines(g_hatLineNear) - hatBefore, LogLines(g_hatLineNear) - hatBefore == 1 ? "" : "s");
 		}
 		{
 			/* The wrist roll (test 37: 25 deg of wrist turn at the straight bars, the forearm
@@ -4330,6 +4462,34 @@ static void TiltTests(void)
 			 * the plugin's own figure is the one held to the window, the pose's to agree with it. */
 			CHECK(logged > 15.5f && logged < 30.5f && fabsf(lean - logged) < 1.5f, "the upper body leaned %.1f deg by the log (%.1f by the shoulder's chord %.1f about the joint %.1f away): past the old cap of 15, within 30", logged, lean, chord, dj);
 			RewriteIni("ArmReach=0.5", "ArmReach=0.80");
+		}
+		{
+			/* NodelessNear=0 for a ride (the upper body still leaned): as before test 41's
+			 * answer, Head_skin is carried with the tilt alone while HEAD leans with the upper
+			 * body, the stretched hat, and the hold's line says none placed by the node they sit
+			 * on. */
+			printf("tilt: NodelessNear=0 for a ride: the hat's Head_skin carried with the tilt alone, off the leaned head, as before test 41's answer:\n");
+			RewriteIni("NodelessNear=2", "NodelessNear=0");
+			int offBefore = LogLines(g_hatLineOff);
+			SetTilt(0.0f);
+			RunFrames(300);
+			SetTilt(30.0f);
+			RunFrames(600);
+			float Hs[3], mHs[3], posOff = NAN, degOff = NAN;
+			copyNow = *(const uint8_t **)(*(uint8_t **)(g_bodySkin + 0x40) + 0x10);
+			const uint8_t *hatCopy = *(const uint8_t **)(*(uint8_t **)(g_hatSkin + 0x40) + 0x10);
+			ExpectedTilt(Rw2, Pw2);
+			memcpy(Hd, g_bodyNodes[8] + 0xA0, 12);
+			memcpy(Hs, g_hatXf[1] + 0x30, 12);
+			MapBone(g_bodyNodes[8], g_bodyBonesOriginal + 8 * 0x50, copyNow + 8 * 0x50, Hd, mH);
+			if (hatCopy) {
+				MapBoneAt(g_hatXf[1], g_hatBonesOriginal + 0x50, hatCopy + 0x50, Hs, mHs);
+				BoneMapsApart(g_hatXf[1], g_hatBonesOriginal + 0x50, hatCopy + 0x50, g_bodyNodes[8] + 0x70, g_bodyBonesOriginal + 8 * 0x50, copyNow + 8 * 0x50, Hd, &posOff, &degOff);
+			}
+			CHECK(hatCopy && TiltedOff(Hs, mHs, Rw2, Pw2) < 0.05f && TiltedOff(Hd, mH, Rw2, Pw2) > 1.0f && posOff > 1.0f,
+			      "NodelessNear=0: Head_skin carried with the tilt alone (%.3f off it) while HEAD's joint went forward with the upper body (%.1f): the two %.1f apart, the hat stretched as before", hatCopy ? TiltedOff(Hs, mHs, Rw2, Pw2) : NAN, TiltedOff(Hd, mH, Rw2, Pw2), posOff);
+			CHECK(LogLines(g_hatLineOff) > offBefore && LogLines("NodelessNear=0 (read again on getting on)") >= 1, "the hold's line for the hat: 2 carried with the tilt alone, none placed by the node they sit on (NodelessNear=0), and the rider line says NodelessNear=0 was read again");
+			RewriteIni("NodelessNear=0", "NodelessNear=2");
 		}
 		RewriteIni("TorsoLean=-1", "TorsoLean=0");
 		SetTilt(0.0f);
@@ -5288,6 +5448,16 @@ static void TiltTests(void)
 		CHECK(fabsf(mUp[0] - mH[0]) < 0.05f && fabsf(mUp[1] - mH[1]) < 0.05f && fabsf(mUp[2] - mH[2] - 10.0f) < 0.05f,
 		      "and the head stays upright: a point 10 above the joint is still straight above it (%.3f, %.3f, %.3f)", mUp[0] - mH[0], mUp[1] - mH[1], mUp[2] - mH[2]);
 		CHECK(Dist3(mJh, mJj) < 0.05f, "the face goes with the head (%.3f apart)", Dist3(mJh, mJj));
+		{
+			/* Test 41's headwear with the level head: Head_skin, HEAD's child with no node, takes
+			 * the head's part (NodelessNear 2) and is written as HEAD's own, turned back level
+			 * with it. */
+			const uint8_t *hatCopy = *(const uint8_t **)(*(uint8_t **)(g_hatSkin + 0x40) + 0x10);
+			float posOff = NAN, degOff = NAN;
+			if (hatCopy)
+				BoneMapsApart(g_hatXf[1], g_hatBonesOriginal + 0x50, hatCopy + 0x50, g_bodyNodes[8] + 0x70, g_bodyBonesOriginal + 8 * 0x50, copyNow + 8 * 0x50, H, &posOff, &degOff);
+			CHECK(hatCopy && posOff < 0.05f && degOff < 0.1f, "the hat's Head_skin, no node, at HEAD's place: written as HEAD's own, turned back level with it (the joint %.3f apart, the frame %.3f deg off)", posOff, degOff);
+		}
 	}
 
 	RunFrames(2500);
@@ -6578,33 +6748,44 @@ static void ArmTests(void)
 }
 
 /* Mode 11 (test 40's finding 7, the ram; test 41's answers): CMB_RamScript, played by the
- * harness. 1 says yes 150 ms after an ask, 2 never answers, 3 says no 150 ms after (an ask
- * made before then is answered instead, as the script reads only the last one); on a hit it
- * "pushes" that actor (its plane taken away) 80 ms later, or, with g_ramStays, the actor stays
- * at the front wheel (a plane 100 ahead of the rider). Two actors: FF004D69 on g_ramPlanes[0]
- * and FF004D6A on [1]. */
+ * harness. CMB_RamSeen is read every frame for the harness's own eye (every ask as written,
+ * when, about whom) and, as the script reads it, by a 0.1 s poll: a new number there is
+ * decided on, 1 saying yes 150 ms after the poll (Decide's engine calls), 2 never, 3 no, each
+ * in turn; of two asks written inside one poll only the second is seen, the first counted as
+ * unread, as the script's "N of the plugin's asks went unread" line counts them (test 41's
+ * packs). On a hit it "pushes" that actor (its plane taken away) 80 ms later, or, with
+ * g_ramStays, the actor stays at the front wheel (a plane 100 ahead of the rider). Two actors:
+ * FF004D69 on g_ramPlanes[0] and FF004D6A on [1]; with g_ramStepIn the second steps in that
+ * far ahead 50 ms after the first ask (test 41: a wolf seen 46 ms after a coyote). */
 #define RAM_HITS_KEPT 4
 #define RAM_SAMPLES 400
 typedef struct { int ask, who; float speed, ahead, clock, pushIn; } RamHitSeen;
-static int g_ramScript, g_ramAsks, g_ramBadAsks, g_ramHits, g_ramLastSeen, g_ramLastHit, g_ramAnswerFor, g_ramFirstAsk, g_ramAsksOf[2];
+static int g_ramScript, g_ramAsks, g_ramBadAsks, g_ramHits, g_ramLastSeen, g_ramLastHit, g_ramFirstAsk, g_ramAsksOf[2];
 static int g_ramAskNumber[16], g_ramAskWho[16];   /* the asks seen, and whom each was about */
-static float g_ramClock, g_ramAskedAt = -1.0f, g_ramAskTimes[16], g_ramMinInput, g_ramMinAfter;
+static float g_ramClock, g_ramAskTimes[16], g_ramMinInput, g_ramMinAfter;
 static RamHitSeen g_ramSeenHits[RAM_HITS_KEPT];
 static float g_ramSampleT[RAM_SAMPLES], g_ramSampleIn[RAM_SAMPLES];   /* the input after the first hit, against the seconds since it */
 static int g_ramSamples;
 static bool g_ramStays;
 static FakePlane *g_ramPlanes[2];
+static int g_ramPending[4], g_ramPendingN;   /* the asks the poll read, their answers owed in turn */
+static float g_ramPendingAt[4];
+static float g_ramPollAt, g_ramPollAlign = -1.0f;   /* the poll's next time; g_ramPollAlign >= 0: the first poll after a ride's first ask comes that long after it (the pack rides: the poll's phase against the asks made deterministic) */
+static int g_ramPollSeen, g_ramPollUnread;          /* what the poll read last, and the asks it never saw */
+static float g_ramStepIn;                            /* > 0: the second actor placed this far ahead 50 ms after the first ask */
+static bool g_ramSteppedIn;
 static float RamGlobal(int i) { return *(float *)(g_ramGlobalsFake[i] + 0x30); }
 static float RamPlaneAhead(int i)   /* past the front wheel's edge (FrontAxle 99.6 + the radius 29.9) */
 {
 	const FakePlane *p = g_ramPlanes[i];
 	return (PlayerPos()[0] - p->point[0]) * p->normal[0] + (PlayerPos()[1] - p->point[1]) * p->normal[1] - (99.6f + 29.9f);
 }
+static void RamPlace(int who, float dist);
 static void FakeRamScript(float dt)
 {
 	g_ramClock += dt;
 	int seen = (int)RamGlobal(2);
-	if (seen != g_ramLastSeen) {
+	if (seen != g_ramLastSeen) {   /* the harness's eye: every ask as written */
 		g_ramLastSeen = seen;
 		uint32_t id = ((uint32_t)RamGlobal(0) << 16) | (uint32_t)RamGlobal(1);
 		int who = id == RAM_ACTOR_FORMID ? 0 : id == RAM_ACTOR2_FORMID ? 1 : -1;
@@ -6612,21 +6793,44 @@ static void FakeRamScript(float dt)
 			g_ramBadAsks++;
 		else
 			g_ramAsksOf[who]++;
-		if (!g_ramAsks)
+		if (!g_ramAsks) {
 			g_ramFirstAsk = seen;
+			if (g_ramPollAlign >= 0.0f)
+				g_ramPollAt = g_ramClock + g_ramPollAlign;
+		}
 		if (g_ramAsks < 16) {
 			g_ramAskTimes[g_ramAsks] = g_ramClock;
 			g_ramAskNumber[g_ramAsks] = seen;
 			g_ramAskWho[g_ramAsks] = who;
 		}
 		g_ramAsks++;
-		g_ramAskedAt = g_ramClock;
-		g_ramAnswerFor = seen;
 	}
-	if (g_ramAskedAt >= 0.0f && g_ramClock - g_ramAskedAt >= 0.15f) {
+	if (g_ramStepIn > 0.0f && !g_ramSteppedIn && g_ramAsks >= 1 && g_ramClock - g_ramAskTimes[0] >= 0.05f) {
+		g_ramSteppedIn = true;
+		RamPlace(1, g_ramStepIn);   /* the second animal, nearer than the first */
+	}
+	/* The script's 0.1 s poll (CMB_RamScript's OnTimer): a new number decided on, the answer
+	 * owed 150 ms on; the numbers skipped since the last poll went unread. */
+	if (g_ramClock >= g_ramPollAt) {
+		g_ramPollAt = g_ramClock + 0.1f;
+		if (seen != g_ramPollSeen) {
+			if (g_ramPollSeen > 0 && seen - g_ramPollSeen > 1)
+				g_ramPollUnread += seen - g_ramPollSeen - 1;
+			g_ramPollSeen = seen;
+			if (g_ramPendingN < 4) {
+				g_ramPending[g_ramPendingN] = seen;
+				g_ramPendingAt[g_ramPendingN++] = g_ramClock;
+			}
+		}
+	}
+	if (g_ramPendingN > 0 && g_ramClock - g_ramPendingAt[0] >= 0.15f) {
 		if (g_ramScript == 1 || g_ramScript == 3)
-			*(float *)(g_ramGlobalsFake[3] + 0x30) = g_ramScript == 1 ? (float)g_ramAnswerFor : -(float)g_ramAnswerFor;
-		g_ramAskedAt = -1.0f;
+			*(float *)(g_ramGlobalsFake[3] + 0x30) = g_ramScript == 1 ? (float)g_ramPending[0] : -(float)g_ramPending[0];
+		for (int i = 1; i < g_ramPendingN; i++) {
+			g_ramPending[i - 1] = g_ramPending[i];
+			g_ramPendingAt[i - 1] = g_ramPendingAt[i];
+		}
+		g_ramPendingN--;
 	}
 	float in = MoveInput()[1];
 	if (g_ramPlanes[0] && g_ramPlanes[0]->on && !g_ramHits && g_ramPlanes[0]->follow == 0.0f) {
@@ -6718,7 +6922,10 @@ static void RamGo(float keysY, int script, int ms)
 {
 	g_ramAsks = g_ramBadAsks = g_ramHits = g_ramSamples = 0;
 	g_ramAsksOf[0] = g_ramAsksOf[1] = 0;
-	g_ramAskedAt = -1.0f;
+	g_ramPendingN = g_ramPollUnread = 0;
+	g_ramPollSeen = (int)RamGlobal(2);
+	g_ramPollAt = g_ramClock;
+	g_ramSteppedIn = false;
 	g_ramLastSeen = (int)RamGlobal(2);
 	g_ramLastHit = (int)RamGlobal(5);
 	g_ramMinInput = g_ramMinAfter = 2.0f;
@@ -6743,6 +6950,8 @@ static void RamRideEnd(void)
 	}
 	g_ramScript = 0;
 	g_ramStays = false;
+	g_ramStepIn = 0.0f;
+	g_ramPollAlign = -1.0f;
 	RunFrames(3000);   /* rolled off, at rest */
 }
 
@@ -6786,8 +6995,10 @@ static void RamTests(void)
 	SetCamera(300.0f);
 	SetTilt(30.0f);
 	RunFrames(1500);
-	CHECK(LogLines("  ram: Enabled=1 ActorLook=0.8 Lead=0.06 Pass=1 MaxSize=1 NoKnockdowns=1 AskAgain=0.4 AskAgainNo=1 HitKeep=0.6 HitHold=0.4: on, the bike losing speed at a hit") == 1 &&
-	      LogLines("rams: not all of CMB_RamSeenHi") == 0, "the ram settings line at load (on, HitKeep 0.6 for 0.4 s), the globals all found");
+	CHECK(LogLines("  ram: Enabled=1 ActorLook=0.8 Lead=0.06 Pass=1 MaxSize=1 NoKnockdowns=1 AskAgain=0.4 AskAgainNo=1 AskGap=0.12 HitKeep=0.6 HitHold=0.4: on, the bike losing speed at a hit") == 1 &&
+	      LogLines("rams: not all of CMB_RamSeenHi") == 0, "the ram settings line at load (on, HitKeep 0.6 for 0.4 s, AskGap 0.12), the globals all found");
+	CHECK(LogLines("room: no CMB_Room globals (an older ESP): the bike's spot isn't checked") == 1 && LogLines("found CMB_RoomAskX") == 0,
+	      "this ESP has no CMB_Room globals (test 41's room asks; mode 14 has them): one \"room: no CMB_Room globals\" line, nothing else of them");
 
 	printf("rams: the actor 1500 ahead (layer 30, its 3D's user data an Actor FF004D69 of a medium race), at full speed, the script says yes: asked once, the throttle open, the hit told %g s of the speed before the wheel, pushed:\n", 0.06);
 	RamUpToSpeed(1.0f);
@@ -6934,6 +7145,46 @@ static void RamTests(void)
 	CHECK(LogLines("so its 0.1 s poll reads both") == queuedBefore + 1 && LogLines("rams: FF004D6A's hit told the script (ask") == 1, "the second hit waited: a \"so its 0.1 s poll reads both\" line, then \"FF004D6A's hit told the script\"");
 	CHECK(g_ramMinInput >= 0.97f * fullIn && g_ramMinAfter >= 0.97f * fullIn, "HitHold=0: the throttle open all the way in (%.3f) and through both hits (%.3f; %.3f at full)", g_ramMinInput, g_ramMinAfter, fullIn);
 	RamRideEnd();
+
+	/* Test 41's packs: five asks went unread, a second animal seen 46-120 ms after the first
+	 * replacing its ask before the script's poll read it. The second steps in nearer, 50 ms
+	 * after the first ask; the poll comes 90 ms after the first ask, so without the gap both
+	 * asks fall inside one poll. */
+	printf("rams: test 41's pack: FF004D69 seen at speed, FF004D6A stepping in nearer (600 ahead) 50 ms later, the script's poll 90 ms after the first ask. AskGap=0.12: the second ask waits, the two told 0.12 s apart at least, the poll reads both, both said yes, both hit:\n");
+	RamUpToSpeed(1.0f);
+	int waitsBefore = LogLines("its ask waits"), toldBefore = LogLines("rams: FF004D6A's ask told the script (ask");
+	g_ramPlanes[1] = NULL;
+	RamPlace(0, 1500.0f);
+	g_ramStepIn = 600.0f;
+	g_ramPollAlign = 0.09f;
+	RamGo(1.0f, 1, 2200);
+	h0 = &g_ramSeenHits[0];
+	h1 = &g_ramSeenHits[1];
+	float askGap = g_ramAsks >= 2 ? g_ramAskTimes[1] - g_ramAskTimes[0] : 0.0f;
+	CHECK(g_ramAsksOf[0] == 1 && g_ramAsksOf[1] == 1 && g_ramBadAsks == 0, "asked once about each (%d, %d; %d other)", g_ramAsksOf[0], g_ramAsksOf[1], g_ramBadAsks);
+	CHECK(g_ramAsks >= 2 && askGap >= 0.115f && askGap < 0.25f, "the asks told %.3f s apart (AskGap 0.12; the second seen 50 ms after the first)", askGap);
+	CHECK(g_ramPollUnread == 0, "the script's 0.1 s poll read both: %d unread", g_ramPollUnread);
+	CHECK(g_ramHits == 2 && h0->who == 1 && h1->who == 0, "two hits (%d): FF004D6A's first (the nearer), then FF004D69's (%d, %d)", g_ramHits, h0->who, h1->who);
+	CHECK(LogLines("its ask waits") == waitsBefore + 1 && LogLines("rams: FF004D6A's ask told the script (ask") == toldBefore + 1,
+	      "the log: \"FF004D6A ... seen ...: its ask waits N ms for the one before it, so the script's 0.1 s poll reads both\", then \"FF004D6A's ask told the script (ask N) N ms after it was seen\"");
+	RamRideEnd();
+
+	printf("rams: the same with AskGap=0 written (read again on getting on; test 41's build): the second ask replaces the first before the poll, one unread, FF004D69 asked again when next seen:\n");
+	RewriteIni("AskGap=0.12", "AskGap=0");
+	RamGetOffAndOn();
+	CHECK(LogLines("AskAgainNo=1 AskGap=0 HitKeep=0.6 HitHold=0: on") == 1, "the settings line again: AskGap=0");
+	RamUpToSpeed(1.0f);
+	g_ramPlanes[1] = NULL;
+	RamPlace(0, 1500.0f);
+	g_ramStepIn = 600.0f;
+	g_ramPollAlign = 0.09f;
+	RamGo(1.0f, 1, 2500);
+	askGap = g_ramAsks >= 2 ? g_ramAskTimes[1] - g_ramAskTimes[0] : 0.0f;
+	CHECK(g_ramAsks >= 2 && askGap > 0.03f && askGap < 0.09f, "the second ask %.3f s after the first (told as seen)", askGap);
+	CHECK(g_ramPollUnread == 1 && g_ramAsksOf[0] == 2 && g_ramAsksOf[1] == 1, "the poll read the second only: %d unread; FF004D69 asked %d times (again, when next seen), FF004D6A %d", g_ramPollUnread, g_ramAsksOf[0], g_ramAsksOf[1]);
+	CHECK(g_ramHits >= 1 && LogLines("its ask waits") == waitsBefore + 1, "%d hit(s); no \"its ask waits\" line", g_ramHits);
+	RamRideEnd();
+	RewriteIni("AskGap=0", "AskGap=0.12");
 	RewriteIni("HitHold=0", "HitHold=0.4");
 
 	printf("rams: [Ram] Enabled=0 written (read again on getting on): never asked about, braked for as before test 41:\n");
@@ -7341,6 +7592,126 @@ static void BackingTests(void)
 	g_onFrame = NULL;
 }
 
+/* Mode 14 (test 41: the brought bike stood in Diamond City's gate's chain-link fence):
+ * CMB_ControllerScript's room asks, played by the harness. The spot's X, Y, Z written, then
+ * CMB_RoomAsk (the number, last); the plugin's CMB_RoomClear and CMB_RoomAnswer (+n room, -n
+ * none) read back. */
+static float RoomGlobal(int i) { return *(float *)(g_roomGlobalsFake[i] + 0x30); }
+static void RoomAsk(int n, float x, float y, float z)
+{
+	*(float *)(g_roomGlobalsFake[0] + 0x30) = x;
+	*(float *)(g_roomGlobalsFake[1] + 0x30) = y;
+	*(float *)(g_roomGlobalsFake[2] + 0x30) = z;
+	*(float *)(g_roomGlobalsFake[3] + 0x30) = (float)n;   /* last, as the script writes it */
+}
+static void RoomTests(void)
+{
+	SetNormal(0.0f, 0.0f, 1.0f);
+	SetState(0);
+	FlatGround();
+	float gz = g_groundZ, sx = PlayerPos()[0] + 200.0f, sy = PlayerPos()[1] + 100.0f;   /* 224 from the player; round numbers, so the lines' %.0f can't round apart */
+	char line[200];
+	printf("room: not riding, on flat ground; the globals found:\n");
+	CHECK(LogLines("found CMB_RoomAskX") == 1 && LogLines("found CMB_RoomClear") == 1 && LogLines("room: no CMB_Room globals") == 0, "CMB_RoomAskX to CMB_RoomClear found, no \"no CMB_Room globals\" line");
+	CHECK(RoomGlobal(4) == 0.0f && LogLines("room: ask") == 0, "no ask yet: nothing answered");
+
+	printf("room: ask 1 at a spot 224 from the player, 30 over the ground, nothing about: room, the ground 30 below, within two frames:\n");
+	RoomAsk(1, sx, sy, gz + 30.0f);
+	OneFrame();
+	OneFrame();
+	snprintf(line, sizeof(line), "room: ask 1 at (%.0f, %.0f, %.0f): room (the ground 30 below the spot)", sx, sy, gz + 30.0f);
+	CHECK(RoomGlobal(4) == 1.0f && fabsf(RoomGlobal(5) - 30.0f) < 0.5f, "CMB_RoomAnswer %g (1: room), CMB_RoomClear %g (the ground 30 below)", RoomGlobal(4), RoomGlobal(5));
+	CHECK(LogLines(line) == 1, "the line: \"%s\"", line);
+	RunFrames(300);
+	CHECK(LogLines("room: ask 1 at (") == 1 && RoomGlobal(4) == 1.0f, "the same number 0.3 s on: not answered again");
+
+	printf("room: ask 2, a wall (layer 1) 60 along +x of the spot (the bike's reach 110): none, something 60 along +x:\n");
+	FakePlane *wall = &g_planes[0];
+	memset(wall, 0, sizeof(*wall));
+	wall->point[0] = sx + 60.0f;
+	wall->point[1] = sy;
+	wall->normal[0] = -1.0f;
+	wall->layer = 1;
+	wall->on = true;
+	RoomAsk(2, sx, sy, gz + 30.0f);
+	RunFrames(100);
+	snprintf(line, sizeof(line), "room: ask 2 at (%.0f, %.0f, %.0f): none, something 60 along +x (FakeWall, layer 1)", sx, sy, gz + 30.0f);
+	CHECK(RoomGlobal(4) == -2.0f && fabsf(RoomGlobal(5) - 60.0f) < 1.0f, "CMB_RoomAnswer %g (-2: none), CMB_RoomClear %g (the wall 60 along the ray)", RoomGlobal(4), RoomGlobal(5));
+	CHECK(LogLines(line) == 1, "the line: \"%s\"", line);
+	wall->on = false;
+
+	printf("room: ask 3, an actor's capsule (layer 30, SkeletonExport) 30 along +x: passed, room:\n");
+	memset(wall, 0, sizeof(*wall));
+	wall->point[0] = sx + 30.0f;
+	wall->point[1] = sy;
+	wall->normal[0] = -1.0f;
+	wall->layer = 30;
+	wall->top = 120.0f;
+	wall->what = g_actorObj;
+	wall->on = true;
+	RoomAsk(3, sx, sy, gz + 30.0f);
+	RunFrames(100);
+	snprintf(line, sizeof(line), "room: ask 3 at (%.0f, %.0f, %.0f): room (the ground 30 below the spot); an actor there (SkeletonExport), passed", sx, sy, gz + 30.0f);
+	CHECK(RoomGlobal(4) == 3.0f && fabsf(RoomGlobal(5) - 30.0f) < 0.5f, "CMB_RoomAnswer %g (3: room), CMB_RoomClear %g", RoomGlobal(4), RoomGlobal(5));
+	CHECK(LogLines(line) == 1, "the line: \"%s\"", line);
+	wall->on = false;
+
+	printf("room: ask 4 over a hole (no ground within 100 of the spot): none, CMB_RoomClear -1:\n");
+	g_dropPoint[0] = sx - 50.0f;
+	g_dropPoint[1] = sy;
+	g_dropDir[0] = 1.0f;
+	g_dropDir[1] = 0.0f;
+	g_dropOn = true;   /* ground only where x < the spot's - 50: the player (200 back) has it */
+	RoomAsk(4, sx, sy, gz + 30.0f);
+	RunFrames(100);
+	snprintf(line, sizeof(line), "room: ask 4 at (%.0f, %.0f, %.0f): none, no ground within 100 above or below the spot", sx, sy, gz + 30.0f);
+	CHECK(RoomGlobal(4) == -4.0f && RoomGlobal(5) == -1.0f, "CMB_RoomAnswer %g (-4: none), CMB_RoomClear %g (-1: no ground)", RoomGlobal(4), RoomGlobal(5));
+	CHECK(LogLines(line) == 1, "the line: \"%s\"", line);
+	g_dropOn = false;
+
+	printf("room: ask 5 at 80 over the ground (a ledge: over 60): none, the ground 80 below:\n");
+	RoomAsk(5, sx, sy, gz + 80.0f);
+	RunFrames(100);
+	snprintf(line, sizeof(line), "room: ask 5 at (%.0f, %.0f, %.0f): none, the ground 80 below the spot (FakeGround, layer 13), over 60", sx, sy, gz + 80.0f);
+	CHECK(RoomGlobal(4) == -5.0f && fabsf(RoomGlobal(5) - 80.0f) < 0.5f, "CMB_RoomAnswer %g (-5: none), CMB_RoomClear %g (the ground's 80)", RoomGlobal(4), RoomGlobal(5));
+	CHECK(LogLines(line) == 1, "the line: \"%s\"", line);
+
+	printf("room: ask 6 under a roof 115 over the ground (the ray up from 50 to 170): none, something 65 along up:\n");
+	float hh = PlayerHeading(), fw[2] = { sinf(hh), cosf(hh) };
+	g_shelfHeight = 115.0f;
+	g_shelfAhead = (sx - PlayerPos()[0]) * fw[0] + (sy - PlayerPos()[1]) * fw[1];   /* the disc's centre on the heading line, level with the spot: 24 off it, within the radius */
+	g_shelfOn = true;
+	RoomAsk(6, sx, sy, gz + 10.0f);
+	RunFrames(100);
+	snprintf(line, sizeof(line), "room: ask 6 at (%.0f, %.0f, %.0f): none, something 65 along up (FakeShelf, layer 1)", sx, sy, gz + 10.0f);
+	CHECK(RoomGlobal(4) == -6.0f && fabsf(RoomGlobal(5) - 65.0f) < 1.0f, "CMB_RoomAnswer %g (-6: none), CMB_RoomClear %g (the roof 65 up)", RoomGlobal(4), RoomGlobal(5));
+	CHECK(LogLines(line) == 1, "the line: \"%s\"", line);
+	g_shelfOn = false;
+	g_shelfHeight = 0.0f;
+
+	printf("room: ask 0 (no ask) and 6 again: nothing answered again:\n");
+	RoomAsk(0, sx, sy, gz + 10.0f);
+	RunFrames(100);
+	RoomAsk(6, sx, sy, gz + 10.0f);
+	RunFrames(100);
+	CHECK(LogLines("room: ask") == 6 && RoomGlobal(4) == -6.0f, "six lines, the answer still -6");
+
+	printf("room: after a load, the player where the rays' test ray finds no ground: ask 7 answered none, CMB_RoomClear -2 (the rays aren't working here):\n");
+	g_dropPoint[0] = PlayerPos()[0] - 1000.0f;
+	g_dropPoint[1] = PlayerPos()[1];
+	g_dropDir[0] = 1.0f;
+	g_dropDir[1] = 0.0f;
+	g_dropOn = true;   /* no ground anywhere near */
+	Send(3, 1);        /* a load: the test ray again */
+	RunFrames(400);
+	RoomAsk(7, sx, sy, gz + 30.0f);
+	RunFrames(100);
+	snprintf(line, sizeof(line), "room: ask 7 at (%.0f, %.0f, %.0f): none, the rays aren't working here (the test ray beside the player): not looked at", sx, sy, gz + 30.0f);
+	CHECK(RoomGlobal(4) == -7.0f && RoomGlobal(5) == -2.0f, "CMB_RoomAnswer %g (-7: none), CMB_RoomClear %g (-2)", RoomGlobal(4), RoomGlobal(5));
+	CHECK(LogLines(line) == 1 && LogLines("not trusted (tried again in 3 s)") >= 1, "the line: \"%s\", after the test ray's \"not trusted\"", line);
+	g_dropOn = false;
+}
+
 int main(int argc, char **argv)
 {
 	const char *dllPath = argc > 1 ? argv[1] : "CMB_Slope.dll";
@@ -7358,6 +7729,7 @@ int main(int argc, char **argv)
 
 	if (mode == 9)
 		WriteLogMarker(dllPath);   /* the session before's log, for the plugin to keep */
+	g_roomHidden = mode == 11;         /* an older ESP without the CMB_Room globals (test 41): mode 11 checks the one line about it, mode 14 the asks */
 	HMODULE dll = LoadLibraryA(dllPath);
 	if (!dll) { printf("can't load %s\n", dllPath); return 2; }
 	g_vqHooked = HookImport(dll, "VirtualQuery", (void *)CountingVirtualQuery);   /* its memory queries counted (test 37) */
@@ -7369,7 +7741,7 @@ int main(int argc, char **argv)
 	const uint32_t *compatible = version + 2 + 128 + 2;
 	CHECK(compatible[0] == 0x010B0F00u && compatible[1] == 0, "compatible with 1.11.240 only");
 
-	if (mode == 0 || mode == 9 || mode == 10 || mode == 11 || mode == 12 || mode == 13)
+	if (mode == 0 || mode == 9 || mode == 10 || mode == 11 || mode == 12 || mode == 13 || mode == 14)
 		WriteAddressLibrary();
 	F4SEInterface f4se = { 0x00070090u, mode == 2 ? 0x010B0DD0u : 0x010B0F00u, 0, 0, QueryInterface, GetPluginHandle, 0, 0, 0 };
 	bool loaded = load(&f4se);
@@ -7410,6 +7782,13 @@ int main(int argc, char **argv)
 		Send(10, 1);   /* GameDataReady */
 		RunFrames(300);
 		ArmTests();
+		printf("%s\n", g_failures ? "FAILED" : "all ok");
+		return g_failures ? 1 : 0;
+	}
+	if (mode == 14) {
+		Send(10, 1);   /* GameDataReady */
+		RunFrames(300);
+		RoomTests();
 		printf("%s\n", g_failures ? "FAILED" : "all ok");
 		return g_failures ? 1 : 0;
 	}

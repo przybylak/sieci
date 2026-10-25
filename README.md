@@ -41,7 +41,7 @@ There's no vehicle physics in Fallout 4's engine for the player, so the bike is 
 3. your speed is multiplied;
 4. jumping, sprinting and (by default) combat are blocked.
 
-Getting off reverses all of that and parks the bike next to you. Indoors (dungeons and sewers are interiors), in the walled towns the game builds as worldspaces of their own (Diamond City, Goodneighbor, Nuka-World's market and amphitheater), in power armor and in furniture you can't get on, and riding into any of them parks it outside: through a door it waits there and is brought to you when you come out near it, and after a fast travel in it stays where you set off; it can't be called there either; deep water leaves it on the bank.
+Getting off reverses all of that and parks the bike next to you. Indoors (dungeons and sewers are interiors), in the walled towns the game builds as worldspaces of their own (Diamond City, Goodneighbor, Nuka-World's market and amphitheater), in power armor and in furniture you can't get on, and riding into any of them parks it outside: through a door it waits there and is brought to you when you come out near it (with F4SE, since test 41, on the first of seven spots with room, or left where it waited when none has: outside Diamond City's gate the fixed spot was in the fence), and after a fast travel in it stays where you set off; it can't be called there either; deep water leaves it on the bank.
 
 > **What it looks like:** the game has no motorcycle riding animations (the `AnimsMotorcycle` keyword in
 > `Fallout4.esm` is unused, and the archives hold only two parked-bike models). So the mod brings its own: a
@@ -59,7 +59,7 @@ Getting off reverses all of that and parks the bike next to you. Indoors (dungeo
 | **Python 3** | `make_rider_pose.bat` builds `CMB_RiderPose.esp` and its animation data from your load order and game files |
 | Python + [PyNifly](https://github.com/BadDogSkyrim/PyNifly), Bethesda Archive Extractor | only to build the bike meshes and riding clips yourself (the meshes put the Sketchfab model on the vanilla bike's collision and the clips are derived from the game's files, so none of it is in the repository) |
 | Creation Kit (optional) | not needed: the scripts can be compiled with Caprica (`tools/syntax-check`); `compile_scripts.bat` uses the Creation Kit's compiler if you have it |
-| F4SE (optional) | dedicated hotkey, weight-based side bag, slot-57 gear put back on after a ride, steeper slopes, a camera farther back, the bike tilting with the ground and knocking enemies over while riding, and the parked bike laid on the ground under you (the `CMB_Slope.dll` plugin, Fallout 4 1.11.240 only), MCM menu; without it you favorite the keys for a hotkey and the bag counts items |
+| F4SE (optional) | dedicated hotkey, weight-based side bag, slot-57 gear put back on after a ride, steeper slopes, a camera farther back, the bike tilting with the ground and knocking enemies over while riding, the bike brought from a door put on a spot with room, and the parked bike laid on the ground under you (the `CMB_Slope.dll` plugin, Fallout 4 1.11.240 only), MCM menu; without it you favorite the keys for a hotkey and the bag counts items |
 | Testing in game + Papyrus log | I can't run the game; the logs and screenshots are how fixes happen (with F4SE the plugin's `CMB_Slope.log` too; since test 41 the session before's is kept beside it as `CMB_Slope_prev.log`, so a crash and a restart don't lose it) |
 
 ## Getting started
@@ -82,6 +82,8 @@ Details for every step: [docs/BUILD_GUIDE.md](docs/BUILD_GUIDE.md).
 | Get off | use the keys again (favorite them for a hotkey) |
 | Side bag | activate the parked bike → "Open side bag", or keys → "Open side bag" when the bike isn't nearby |
 | F4SE hotkey | **B** by default: off / on / call |
+
+Don't favorite the keys to the F4SE hotkey's own key: one press then fires both, and the second is turned away as busy (harmless, but the log shows it twice).
 
 ## Console settings
 

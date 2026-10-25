@@ -494,6 +494,19 @@ public static class Program
             if (ramForms[i].FormKey.ID != 0x845 + i)
                 throw new InvalidOperationException($"{ramForms[i].EditorID} must be 0x{0x845 + i:X} (CMB_RamSeenHi..CMB_RamMinSpeed 0x845-0x84C, CMB_Slope.dll looks for them; CMB_RamDamage 0x84D, CMB_RamTooBig 0x84E), got {ramForms[i].FormKey.ID:X}");
 
+        // --- The brought bike's spot (test 41): brought from Diamond City's door, the bike stood in the
+        // gate's chain-link fence each time, at a fixed spot with no look at what was there. Before moving
+        // it, CMB_ControllerScript asks CMB_Slope.dll whether a spot has room (RoomAskX/Y/Z: the spot, at
+        // the player's height; RoomAsk: the ask's number), the plugin answers in RoomAnswer (the number:
+        // room; minus it: none) and RoomClear (with room, how far below the asked Z the ground is; with
+        // none, how far along its ray the nearest hit was, or the ground's offset, -1 with no ground within
+        // 100, -2 when the plugin's rays aren't working there). Fixed IDs 0x84F-0x854, floats 0. The controller's
+        // properties for them aren't Mandatory: an older ESP leaves them None and no spot is checked.
+        var gRoom = new[] { "AskX", "AskY", "AskZ", "Ask", "Answer", "Clear" }.Select(n => Global(mod, "CMB_Room" + n, 0)).ToArray();
+        for (int i = 0; i < gRoom.Length; i++)
+            if (gRoom[i].FormKey.ID != 0x84F + i)
+                throw new InvalidOperationException($"{gRoom[i].EditorID} must be 0x{0x84F + i:X} (CMB_RoomAskX..CMB_RoomClear 0x84F-0x854, CMB_Slope.dll looks for them), got {gRoom[i].FormKey.ID:X}");
+
         // --- Controller quest ---
         quest.Name = "Commonwealth Motorbike";
         quest.Data = new QuestData
@@ -572,6 +585,12 @@ public static class Program
             Obj("CMB_TrackSlope", gTrackSlope),
             Obj("CMB_TurnRadius", gTurnRadius),
             Obj("CMB_StandTurnRate", gStandTurn),
+            Obj("CMB_RoomAskX", gRoom[0]),
+            Obj("CMB_RoomAskY", gRoom[1]),
+            Obj("CMB_RoomAskZ", gRoom[2]),
+            Obj("CMB_RoomAsk", gRoom[3]),
+            Obj("CMB_RoomAnswer", gRoom[4]),
+            Obj("CMB_RoomClear", gRoom[5]),
             Obj("GroundProbeRef", probeRef));
         // Knocking enemies over: does anything only with CMB_Slope.dll (F4SE), which writes the asks.
         var ram = Script("CMB_RamScript",

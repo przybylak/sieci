@@ -210,6 +210,8 @@
 #define RACE_PLAYABLE         0x1u
 #define RACE_NO_KNOCKDOWNS    0x00400000u   /* RACE DATA flags (xEdit): 'No Knockdowns' */
 #define RAM_MAX_ASK           8388607       /* the asks count 1 to 2^23 - 1, exact in a float, then from 1 again */
+#define ROOM_GLOBAL_ID        0x84Fu        /* CMB_RoomAskX, AskY, AskZ, Ask (the script writes), Answer, Clear (we write): 84F-854 (the brought bike's spot, CMB_ControllerScript; test 41) */
+#define ROOM_GLOBALS          6
 #define OFF_AV_FLAGS          0x108         /* NiAVObject::flags (bit 0: hidden, app culled); +0x100 is the collision object (test 30); [Lamp] FlagsOffset= overrides */
 #define OFF_MOVE_INPUT        0x44          /* PlayerControls: moveInputVec x (strafe), y (forward +1, back -1) */
 #define OFF_PREV_MOVE         0x5C          /* PlayerControls: prevMoveVec (what the movement used last) */
@@ -533,6 +535,7 @@ static float g_wallLoggedAt = -100.0f;
 static const char *g_rayWhat;               /* what the last ray hit (its 3D's name), for the log (CastRay) */
 static uintptr_t g_rayObj;                  /* ... and that 3D (NiAVObject *; 0: none), for the actor behind it (rams) */
 static uint32_t g_rayLayer;                 /* the last hit's collision layer */
+static const char *g_rayActorPassed;        /* the last actor a ray passed through (its 3D's name), for the room's line (test 41); cleared by the caller */
 static uintptr_t g_rayLetBy[3];             /* the 3D roots of actors the bike is to knock over (rams): the face rays and WallAhead pass through them, to see what is behind */
 static int g_rayLetByCount;
 static uintptr_t g_riderRoot;               /* the player's 3D root this frame: a hit on it or under it is the rider's own body, capsule or bike, passed through (test 36) */
@@ -550,6 +553,7 @@ static int g_ramMaxSize = 1;              /* MaxSize: the largest race size knoc
 static int g_ramNoKnockdowns = 1;         /* NoKnockdowns: races flagged No Knockdowns are left to the brakes */
 static float g_ramAskAgain = 0.4f;        /* AskAgain: no answer this long, asked again */
 static float g_ramAskAgainNo = 1.0f;      /* AskAgainNo: after a no, asked again this long after the ask at the soonest */
+static float g_ramAskGap = 0.12f;         /* AskGap: two asks are told this many seconds apart at least, a later one waiting (test 41: five asks went unread, a second animal seen 46-120 ms after the first); 0 = told as seen, as in test 41's build */
 static float g_ramHitKeep = 0.6f;         /* HitKeep: at a hit the throttle is held to this share of the speed ... */
 static float g_ramHitHold = 0.4f;         /* HitHold: ... for this many seconds (test 41's answer: the bike should lose speed on a hit; 0 = not) */
 static int g_creep = 1;                   /* 1 = a side key from a stop creeps forward round a CreepRadius circle */
@@ -595,6 +599,7 @@ static uintptr_t g_tiltGlobal, g_groundGlobals[3], g_parkGlobals[7], g_trackSlop
 static uintptr_t g_turnRadiusGlobal, g_turnStandGlobal, g_turnSlowGlobal;
 static uintptr_t g_headlampGlobal, g_headlampRefGlobals[2];
 static uintptr_t g_ramGlobals[8];   /* CMB_RamSeenHi, SeenLo, Seen (we write), Ok (the script), HitSpeed, Hit (we write), Enemies, MinSpeed (MCM) */
+static uintptr_t g_roomGlobals[ROOM_GLOBALS];   /* CMB_RoomAskX, AskY, AskZ, Ask (the script writes), Answer, Clear (we write): the brought bike's spot (test 41); all six or none */
 static uintptr_t g_lampRef;                 /* the light reference the script placed (CMB_HeadlampRefHi/Lo), looked up once per id */
 static uint32_t g_lampRefId;
 static uintptr_t g_lampRefOld;              /* the one before, kept lit at the lens until the new one's 3D is in (test 33: the beam flickered at every move) */
@@ -783,6 +788,7 @@ static int g_replicaCount;
 static int g_riderTilt = 1;
 static int g_riderSkinned = 1, g_riderPlain = 1, g_riderSwap = 1, g_riderWrite = 1;   /* A/B switches (test 25: 30 fps lost) */
 static int g_riderHands = 1;                /* the hands (and part of the forearms) turn with the bars (test 29: the clips keep them at the straight grips) */
+static float g_nodelessNear = 2.0f;         /* [Tilt] NodelessNear: a bone without a node within this of a node that has a part takes that node's part (test 41: the Hard Hat's Head_skin sits on HEAD); 0 = the hands' and forearms' rules by distance alone, as before */
 static float g_liftNow;                     /* the bike (and rider) lifted this much along the bike's up: the wheels onto the ground between the rays, and over a bump */
 static bool g_wheelPitchOk;                 /* this frame: both wheel rays hit, g_wheelPitch is their pitch, g_wheelLift the lift */
 static float g_wheelPitch, g_wheelLift;
@@ -797,6 +803,7 @@ static void NodelessRoles(void);
 static bool Invert3(const float *a, float *out);
 static float CastRay(uintptr_t cell, const float a[3], const float b[3]);   /* defined with the reverse's rays */
 static float CastRayGround(uintptr_t cell, const float a[3], const float b[3]);   /* the same, passing through actors */
+static void RoomReadAnswered(void);   /* the brought bike's spot (test 41): the ask answered already, from CMB_RoomAnswer */
 static bool RaysReady(uintptr_t player);
 static uint8_t ArmRole(const char *name);
 static bool NodeWorldChecked(uintptr_t node, float N[9], float n[3], float *s, float Ni[9]);
@@ -1131,7 +1138,7 @@ static void ReadLeanSettings(const char *ini, bool log)
  * A/B needs no restart). */
 static void ReadRamSettings(const char *ini, bool log)
 {
-	float was[10] = { (float)g_ramOn, g_ramLook, g_ramLead, g_ramPass, (float)g_ramMaxSize, (float)g_ramNoKnockdowns, g_ramAskAgain, g_ramAskAgainNo, g_ramHitKeep, g_ramHitHold };
+	float was[11] = { (float)g_ramOn, g_ramLook, g_ramLead, g_ramPass, (float)g_ramMaxSize, (float)g_ramNoKnockdowns, g_ramAskAgain, g_ramAskAgainNo, g_ramAskGap, g_ramHitKeep, g_ramHitHold };
 	g_ramOn = (int)GetPrivateProfileIntA("Ram", "Enabled", 1, ini) != 0;
 	g_ramLook = IniFloat(ini, "Ram", "ActorLook", 0.8f, 0.0f, 3.0f);
 	g_ramLead = IniFloat(ini, "Ram", "Lead", 0.06f, 0.0f, 1.0f);
@@ -1142,15 +1149,16 @@ static void ReadRamSettings(const char *ini, bool log)
 	g_ramNoKnockdowns = (int)GetPrivateProfileIntA("Ram", "NoKnockdowns", 1, ini) != 0;
 	g_ramAskAgain = IniFloat(ini, "Ram", "AskAgain", 0.4f, 0.1f, 5.0f);
 	g_ramAskAgainNo = IniFloat(ini, "Ram", "AskAgainNo", 1.0f, 0.1f, 10.0f);
+	g_ramAskGap = IniFloat(ini, "Ram", "AskGap", 0.12f, 0.0f, 1.0f);
 	g_ramHitKeep = IniFloat(ini, "Ram", "HitKeep", 0.6f, 0.0f, 1.0f);
 	g_ramHitHold = IniFloat(ini, "Ram", "HitHold", 0.4f, 0.0f, 3.0f);
-	float now[10] = { (float)g_ramOn, g_ramLook, g_ramLead, g_ramPass, (float)g_ramMaxSize, (float)g_ramNoKnockdowns, g_ramAskAgain, g_ramAskAgainNo, g_ramHitKeep, g_ramHitHold };
+	float now[11] = { (float)g_ramOn, g_ramLook, g_ramLead, g_ramPass, (float)g_ramMaxSize, (float)g_ramNoKnockdowns, g_ramAskAgain, g_ramAskAgainNo, g_ramAskGap, g_ramHitKeep, g_ramHitHold };
 	bool changed = false;
-	for (int i = 0; i < 10; i++)
+	for (int i = 0; i < 11; i++)
 		changed = changed || was[i] != now[i];
 	if (log || changed)
-		Log("  ram: Enabled=%d ActorLook=%g Lead=%g Pass=%g MaxSize=%d NoKnockdowns=%d AskAgain=%g AskAgainNo=%g HitKeep=%g HitHold=%g: %s%s", g_ramOn, g_ramLook, g_ramLead,
-		    g_ramPass, g_ramMaxSize, g_ramNoKnockdowns, g_ramAskAgain, g_ramAskAgainNo, g_ramHitKeep, g_ramHitHold,
+		Log("  ram: Enabled=%d ActorLook=%g Lead=%g Pass=%g MaxSize=%d NoKnockdowns=%d AskAgain=%g AskAgainNo=%g AskGap=%g HitKeep=%g HitHold=%g: %s%s", g_ramOn, g_ramLook, g_ramLead,
+		    g_ramPass, g_ramMaxSize, g_ramNoKnockdowns, g_ramAskAgain, g_ramAskAgainNo, g_ramAskGap, g_ramHitKeep, g_ramHitHold,
 		    !g_ramOn ? "off, no actor asked about, every one braked for as before test 41"
 		    : g_ramHitHold > 0.0f && g_ramHitKeep < 1.0f ? "on, the bike losing speed at a hit" : "on, the speed kept at a hit (HitHold=0 or HitKeep=1)",
 		    log ? "" : " (read again on getting on)");
@@ -1187,10 +1195,12 @@ static void ReadRiderSwitches(bool log)
 	g_riderSwap = (int)GetPrivateProfileIntA("Tilt", "RiderSwap", 1, ini);
 	g_riderWrite = (int)GetPrivateProfileIntA("Tilt", "RiderWrite", 1, ini);
 	int hadHands = g_riderHands;
+	float hadNear = g_nodelessNear;
 	g_riderHands = (int)GetPrivateProfileIntA("Tilt", "RiderHands", 1, ini);
-	if (log || was[0] != g_riderTilt || was[1] != g_riderSkinned || was[2] != g_riderPlain || was[3] != g_riderSwap || was[4] != g_riderWrite || hadHands != g_riderHands)
-		Log("  rider: Rider=%d RiderSkinned=%d RiderPlain=%d RiderSwap=%d RiderWrite=%d RiderHands=%d%s", g_riderTilt, g_riderSkinned, g_riderPlain,
-		    g_riderSwap, g_riderWrite, g_riderHands, log ? "" : " (read again on getting on)");
+	g_nodelessNear = IniFloat(ini, "Tilt", "NodelessNear", 2.0f, 0.0f, 50.0f);   /* test 41: the hat's Head_skin; 0 = off */
+	if (log || was[0] != g_riderTilt || was[1] != g_riderSkinned || was[2] != g_riderPlain || was[3] != g_riderSwap || was[4] != g_riderWrite || hadHands != g_riderHands || hadNear != g_nodelessNear)
+		Log("  rider: Rider=%d RiderSkinned=%d RiderPlain=%d RiderSwap=%d RiderWrite=%d RiderHands=%d NodelessNear=%g%s", g_riderTilt, g_riderSkinned, g_riderPlain,
+		    g_riderSwap, g_riderWrite, g_riderHands, g_nodelessNear, log ? "" : " (read again on getting on)");
 	ReadLeanSettings(ini, false);
 }
 
@@ -1712,6 +1722,18 @@ static void FindGlobals(void)
 	if (!allRam) {
 		memset(g_ramGlobals, 0, sizeof(g_ramGlobals));
 		Log("rams: not all of CMB_RamSeenHi to CMB_RamMinSpeed are there (an older %s?): enemies aren't knocked over", ESP_NAME);
+	}
+	/* The brought bike's spot (test 41): all six or none, and nothing else changes without
+	 * them (an older ESP: the script finds its properties None and checks no spot). */
+	static const char *room[ROOM_GLOBALS] = { "CMB_RoomAskX", "CMB_RoomAskY", "CMB_RoomAskZ", "CMB_RoomAsk", "CMB_RoomAnswer", "CMB_RoomClear" };
+	bool allRoom = true;
+	for (int i = 0; i < ROOM_GLOBALS; i++)
+		allRoom &= (g_roomGlobals[i] = FindGlobal(prefix, shift, ROOM_GLOBAL_ID + (uint32_t)i, room[i])) != 0;
+	if (!allRoom) {
+		memset(g_roomGlobals, 0, sizeof(g_roomGlobals));
+		Log("room: no CMB_Room globals (an older ESP): the bike's spot isn't checked");
+	} else {
+		RoomReadAnswered();   /* a save's last answer: not given again */
 	}
 	g_globalsMissingLogged = true;   /* found or not, don't look again */
 }
@@ -4575,17 +4597,80 @@ static void SyncRider(uintptr_t player, const SkinList *list, bool wanted)
 	}
 }
 
+/* The nodes with a part, for the bones without a node (test 41): every held skinned shape's
+ * bones with a node and a part, as the hold resolved them (the arms' chains, the head, the
+ * upper body, the body's helpers given their parents' part), once each, with their world
+ * positions at the hold; the chains' nodes, the head's and the spine's joint named again in
+ * case their shapes were held in an earlier batch. 512: a skeleton with every helper has
+ * under 400 bones. */
+typedef struct { uintptr_t node; uint8_t role; float pos[3]; } PartedNode;
+#define PARTED_NODES 512
+static PartedNode g_parted[PARTED_NODES];
+static int g_partedCount;
+
+static void NotePartedNode(uintptr_t node, uint8_t role)
+{
+	if (!node || !role)
+		return;
+	for (int i = 0; i < g_partedCount; i++)
+		if (g_parted[i].node == node)
+			return;
+	if (g_partedCount >= PARTED_NODES)
+		return;
+	float N[9], s;
+	PartedNode *pn = &g_parted[g_partedCount];
+	if (!NodeWorld(node, N, pn->pos, &s, NULL))
+		return;
+	pn->node = node;
+	pn->role = role;
+	g_partedCount++;
+}
+
+static void GatherPartedNodes(void)
+{
+	g_partedCount = 0;
+	for (int i = 0; i < g_riderCount; i++) {
+		RiderPart *p = &g_rider[i];
+		if (!p->skin)
+			continue;
+		for (int b = 0; b < p->count; b++) {
+			uintptr_t node = ((const uintptr_t *)p->nodes)[b];
+			if (node && !p->skip[b] && p->arm[b])
+				NotePartedNode(node, p->arm[b]);
+		}
+	}
+	for (int side = 0; side < 2; side++) {
+		NotePartedNode(g_arm[side].upper, (uint8_t)(1 | (side ? 0x10 : 0)));
+		NotePartedNode(g_arm[side].elbow, (uint8_t)(2 | (side ? 0x10 : 0)));
+		NotePartedNode(g_arm[side].hand, (uint8_t)(3 | (side ? 0x10 : 0)));
+	}
+	NotePartedNode(g_headNode, 4);
+	NotePartedNode(g_torsoNode, 5);
+}
+
 /* Bones without a node (test 34: the hands' fingers and the wrist end of the forearm) get
- * their part in the arms by where they sit against the hands' nodes: within 30 of a hand and
- * beyond it (away from the elbow), a finger: the hand's part; behind it along the forearm,
- * within the forearm's length, the forearm's; anything else is carried with the tilt alone. */
+ * their part by where they sit, judged at the hold from their own transforms. Test 41: the
+ * Hard Hat (and the glasses, and most vanilla headwear) is skinned to HEAD and to Head_skin,
+ * HEAD's child at (0, 0, 0) with no node in the rider's skeleton and 71.5% of the hat's
+ * weight; carried with the tilt alone while HEAD took the upper body's lean and the level
+ * head, the dome stayed where an upright head would be and the front followed the head
+ * forward, "stretched forward with character tilt". So, first, a bone within NodelessNear
+ * (2 units; 0 = off) of a node that has a part takes that node's part, the nearest such node
+ * if several: Head_skin the head's (written as HEAD's own, through its own transform, by the
+ * same map: the lean about the spine's joint, then the level head), Neck_skin on the neck
+ * the upper body's, a helper on a hand node the hand's. Then, on no such node, the hands'
+ * rules as before: within 30 of a hand and beyond it (away from the elbow), a finger: the
+ * hand's part; behind it along the forearm, within the forearm's length, the forearm's;
+ * anything else is carried with the tilt alone. */
 static void NodelessRoles(void)
 {
+	if (g_nodelessNear > 0.0f)
+		GatherPartedNodes();
 	for (int i = 0; i < g_riderCount; i++) {
 		RiderPart *p = &g_rider[i];
 		if (!p->skin || !p->xforms)
 			continue;
-		int hand[2] = { 0, 0 }, fore = 0, alone = 0, total = 0;
+		int hand[2] = { 0, 0 }, fore = 0, upper = 0, head = 0, torso = 0, alone = 0, total = 0, onNode = 0, onKind[6] = { 0, 0, 0, 0, 0, 0 };
 		for (int b = 0; b < p->count; b++) {
 			if (p->skip[b] || ((const uintptr_t *)p->nodes)[b])
 				continue;
@@ -4598,7 +4683,21 @@ static void NodelessRoles(void)
 			total++;
 			uint8_t role = 0;
 			float best = 1e9f;
-			for (int side = 0; side < 2; side++) {
+			if (g_nodelessNear > 0.0f) {
+				for (int k = 0; k < g_partedCount; k++) {
+					float d = Dist3f(n, g_parted[k].pos);
+					if (d <= g_nodelessNear && (!role || d < best)) {   /* the nearest node with a part within NodelessNear; at a tie the first the hold resolved */
+						best = d;
+						role = g_parted[k].role;
+					}
+				}
+			}
+			bool sitsOnNode = role != 0;
+			if (sitsOnNode) {
+				onNode++;
+				onKind[role & 0xF]++;
+			}
+			for (int side = 0; side < 2 && !sitsOnNode; side++) {   /* on no node with a part: the hands' rules by distance (test 34) */
 				float Nh[9], H[3], E[3], sh;
 				if (!g_arm[side].hand || !NodeWorld(g_arm[side].hand, Nh, H, &sh, NULL))
 					continue;
@@ -4627,12 +4726,25 @@ static void NodelessRoles(void)
 				hand[(role & 0x10) ? 1 : 0]++;
 			else if ((role & 0xF) == 2)
 				fore++;
+			else if ((role & 0xF) == 1)
+				upper++;
+			else if (role == 4)
+				head++;
+			else if (role == 5)
+				torso++;
 			else
 				alone++;
 		}
-		if (total)
-			Log("rider: %s: %d bones without a node, held through their own transforms: %d with the left hand, %d with the right, %d with a forearm, %d carried with the tilt alone",
-			    p->name, total, hand[0], hand[1], fore, alone);
+		if (total) {
+			char placed[200];
+			if (g_nodelessNear > 0.0f)
+				snprintf(placed, sizeof(placed), "%d placed by the node they sit on, within %g of it (NodelessNear): the head %d, the upper body %d, the hands %d, the forearms %d, the upper arms %d",
+				         onNode, g_nodelessNear, onKind[4], onKind[5], onKind[3], onKind[2], onKind[1]);
+			else
+				snprintf(placed, sizeof(placed), "none placed by the node they sit on (NodelessNear=0)");
+			Log("rider: %s: %d bones without a node, held through their own transforms: %d with the left hand, %d with the right, %d with a forearm, %d carried with the tilt alone, %d with the head, %d with the upper body, %d with an upper arm; %s",
+			    p->name, total, hand[0], hand[1], fore, alone, head, torso, upper, placed);
+		}
 	}
 }
 
@@ -6053,7 +6165,13 @@ static void TrackPitch(uintptr_t player, const float pos[3])
  * reads the last hit only: of two told within one poll the first would never be pushed); and
  * the face rays, the actor ray and WallAhead pass through an actor to be knocked over, so
  * what is behind it (a second raider, a wall, an actor said no to) is seen and asked about or
- * braked for in time, not only once the first is out of the way. */
+ * braked for in time, not only once the first is out of the way.
+ * Test 41 again: the asks the same way. Five asks went unread in packs (a coyote asked about,
+ * a wolf 46 ms later: the second ask replaced CMB_RamSeen before the script's 0.1 s poll read
+ * it, and the plugin dropped the first and asked again when it next saw the coyote): two asks
+ * are told AskGap apart at least, an actor seen inside the gap waiting in its entry (toAsk),
+ * told by RamFrame once the gap has passed, the oldest first; an entry waiting to ask is never
+ * evicted. The script reads the newest ask each poll and needs no change. */
 #define RAM_HIT_GAP 0.12f   /* seconds between two writes of CMB_RamHit: over the script's 0.1 s poll */
 enum { RAM_ASKING, RAM_YES, RAM_NO, RAM_HIT, RAM_TOO_BIG };
 typedef struct {
@@ -6065,6 +6183,9 @@ typedef struct {
 	float askLoggedAt, answeredAt, seenAt, hitAt, hitSpeed, stillLoggedAt;
 	bool slowLogged, freeLogged, goneLogged;
 	bool toTell;               /* hit, not yet told: the hit before it was told under RAM_HIT_GAP ago */
+	bool toAsk;                /* seen, not yet asked about: the ask before it was told under AskGap ago (test 41) */
+	float askWantedAt;         /* when it was seen and the ask queued */
+	bool askWantLogged;        /* its "ask waits" line was logged: the "ask told" line goes with it */
 } RamEntry;
 static RamEntry g_rams[8];
 static int g_ramAskNo;            /* the last ask's number (from CMB_RamSeen at each ride start) */
@@ -6072,6 +6193,7 @@ static int g_ramOkRead;           /* the CMB_RamOk last acted on */
 static int g_ramRaceOk;           /* 0 not checked this ride, 1 the races read right (the rider's), -1 not */
 static bool g_ramFoundLogged, g_ramLostLogged;
 static float g_ramToldAt = -100.0f;      /* the last hit told (CMB_RamHit written) */
+static float g_ramAskToldAt = -100.0f;   /* the last ask told (CMB_RamSeen written; test 41's AskGap) */
 static float g_ramSlowUntil = -100.0f;   /* a hit's loss of speed: the throttle held to g_ramSlowTo (of the top) until then (AfterInput) */
 static float g_ramSlowTo = 1.0f;
 
@@ -6098,7 +6220,7 @@ static void RamReset(void)
 	g_ramOkRead = g_ramGlobals[3] ? (int)GlobalValue(g_ramGlobals[3]) : 0;
 	g_ramRaceOk = 0;
 	g_ramFoundLogged = g_ramLostLogged = false;
-	g_ramToldAt = g_ramSlowUntil = -100.0f;
+	g_ramToldAt = g_ramAskToldAt = g_ramSlowUntil = -100.0f;
 	g_ramSlowTo = 1.0f;
 	g_rayLetByCount = 0;
 }
@@ -6208,8 +6330,8 @@ static RamEntry *RamEntryFor(uintptr_t ref, uint32_t id, bool add)
 			return e;
 		if (!e->ref && !unused)
 			unused = e;
-		if (!e->toTell && (!oldest || e->seenAt < oldest->seenAt))
-			oldest = e;   /* never one whose hit is still to tell */
+		if (!e->toTell && !e->toAsk && (!oldest || e->seenAt < oldest->seenAt))
+			oldest = e;   /* never one whose hit is still to tell, or whose ask is still to tell (test 41) */
 	}
 	if (!add || (!unused && !oldest))
 		return NULL;
@@ -6221,24 +6343,52 @@ static RamEntry *RamEntryFor(uintptr_t ref, uint32_t id, bool add)
 	return e;
 }
 
-static void RamAsk(RamEntry *e, float ahead, float v, const char *which, const char *race)
+/* The ask told: the halves of the id, then the number (the script reads the halves after it). */
+static void RamAskTell(RamEntry *e)
 {
 	if (++g_ramAskNo > RAM_MAX_ASK)
 		g_ramAskNo = 1;
-	bool first = e->ask == 0;
 	e->askPrev = e->ask;
 	e->askPrevAt = e->askedAt;
 	e->ask = g_ramAskNo;
 	e->askedAt = (float)g_clock;
 	e->state = RAM_ASKING;
+	e->toAsk = false;
+	g_ramAskToldAt = (float)g_clock;
 	SetGlobal(g_ramGlobals[0], (float)(e->id >> 16));
 	SetGlobal(g_ramGlobals[1], (float)(e->id & 0xFFFFu));
 	SetGlobal(g_ramGlobals[2], (float)e->ask);   /* last: the script reads the halves after it */
-	if (first || (float)g_clock - e->askLoggedAt >= 5.0f) {
-		e->askLoggedAt = (float)g_clock;
+}
+
+/* An ask: told now, or, inside AskGap of the ask before it or behind one still waiting, queued
+ * in the entry for RamFrame (test 41: a second animal seen 46-120 ms after the first replaced
+ * its ask before the script's poll read it). */
+static void RamAsk(RamEntry *e, float ahead, float v, const char *which, const char *race)
+{
+	float now = (float)g_clock;
+	bool first = e->ask == 0;
+	bool say = first || now - e->askLoggedAt >= 5.0f;
+	if (say)
+		e->askLoggedAt = now;
+	int waiting = 0;
+	for (int i = 0; i < 8; i++)
+		waiting += g_rams[i].ref && g_rams[i].toAsk;
+	if (g_ramAskGap > 0.0f && (waiting || now - g_ramAskToldAt < g_ramAskGap)) {
+		float wait = g_ramAskToldAt + g_ramAskGap - now;
+		wait = (wait > 0.0f ? wait : 0.0f) + (float)waiting * g_ramAskGap;
+		e->toAsk = true;
+		e->askWantedAt = now;
+		e->askWantLogged = say;
+		e->state = RAM_ASKING;
+		if (say)
+			Log("rams: %08X%s seen %.0f past the front wheel at %.0f a second (%s): its ask waits %.0f ms for the one before it, so the script's 0.1 s poll reads both%s",
+			    e->id, race, ahead, v, which, wait * 1000.0f, first ? "" : " (asked again: no answer, or a no a while ago)");
+		return;
+	}
+	RamAskTell(e);
+	if (say)
 		Log("rams: %08X%s seen %.0f past the front wheel at %.0f a second (%s): asked the script (ask %d)%s", e->id, race, ahead, v, which, e->ask,
 		    first ? "" : ", again: no answer, or a no a while ago");
-	}
 }
 
 /* An actor seen ahead, by the actor ray or the face rays: asked about, unless too big. */
@@ -6251,6 +6401,8 @@ static void RamSeen(uintptr_t actor, float ahead, float v, const char *which)
 	e->seenAt = (float)g_clock;
 	if (e->state == RAM_TOO_BIG || e->state == RAM_HIT || e->state == RAM_YES)
 		return;
+	if (e->toAsk)
+		return;   /* its ask waits for the gap (RamFrame tells it) */
 	char race[96] = "";
 	if (e->ask == 0) {
 		if (g_ramRaceOk == 0)
@@ -6303,6 +6455,29 @@ static void RamFrame(void)
 			e->answeredAt = now;
 			Log("rams: %08X %s (ask %d), %.0f ms after the ask", e->id, ok > 0 ? "may be knocked over, the script says" : "is not to be knocked over, the script says: braked for",
 			    n, (now - (n == e->ask ? e->askedAt : e->askPrevAt)) * 1000.0f);
+		}
+	}
+	/* An ask that waited (two within AskGap; test 41): the earliest first, one a gap. One
+	 * answered meanwhile (a late answer to its ask before) has nothing to ask. */
+	if (now - g_ramAskToldAt >= g_ramAskGap) {
+		RamEntry *next = NULL;
+		for (int i = 0; i < 8; i++) {
+			RamEntry *e = &g_rams[i];
+			if (!e->ref || !e->toAsk)
+				continue;
+			if (e->state != RAM_ASKING) {
+				e->toAsk = false;
+				continue;
+			}
+			if (!next || e->askWantedAt < next->askWantedAt)
+				next = e;
+		}
+		if (next) {
+			float before = now - g_ramAskToldAt;
+			RamAskTell(next);
+			if (next->askWantLogged)
+				Log("rams: %08X's ask told the script (ask %d) %.0f ms after it was seen, %.0f ms after the ask before it", next->id, next->ask,
+				    (now - next->askWantedAt) * 1000.0f, before * 1000.0f);
 		}
 	}
 	/* A hit that waited (two within RAM_HIT_GAP): the earliest first, one a gap. */
@@ -6446,6 +6621,115 @@ static bool RamLetsBy(uintptr_t actor, float v)
 		return false;
 	float now = (float)g_clock;
 	return (e->state == RAM_YES && v >= RamMinSpeed()) || (e->state == RAM_HIT && now - e->hitAt < g_ramPass);
+}
+
+/* ------------------------------------------------------------------------- */
+/* The brought bike's spot (test 41)                                         */
+/* ------------------------------------------------------------------------- */
+
+/* Test 41: brought from Diamond City's door, the bike stood in the gate's chain-link fence
+ * each time (191-452 units from the door): RollBikeUp put it 220 ahead and 60 to the right
+ * of the player with no look at what was there. CMB_ControllerScript now tries spots and asks
+ * here whether one has room: CMB_RoomAskX/Y/Z (the spot, at the player's height), then
+ * CMB_RoomAsk (the ask's number, written last); the answer is CMB_RoomClear, then
+ * CMB_RoomAnswer (the number: room; minus it: none; written last, the script reads it
+ * first). Each frame while the player is loaded the number is read; a new one gets its rays,
+ * once: one down through the spot for the ground (ROOM_GROUND_REACH above the asked height
+ * to as far below), then from ROOM_EYE above that ground eight level rays (the axes and the
+ * diagonals; the spot comes without a heading) out to ROOM_REACH and one up to
+ * ROOM_HEADROOM, with the wheel rays' filter and, like them, through actors (a settler
+ * standing there isn't a wall). Room: all nine find nothing and the ground is within
+ * ROOM_GROUND_NEAR of the asked height (a drop or a rise past that is a ledge, a stair or a
+ * roof, not the spot). CMB_RoomClear, for the logs: with room, how far below the asked
+ * height the ground is; with none, the nearest hit's distance along its ray, the ground's
+ * offset when that is what refused it, -1 with no ground within reach, -2 when the rays
+ * aren't working here (RaysReady's test ray). No [Room] section: the reaches are the parked
+ * bike's measures, nothing to tune; an older ESP has no CMB_Room globals and nothing here
+ * runs (FindGlobals). */
+#define ROOM_REACH        110.0f   /* the level rays: the parked bike's length 196 (the parts file's axles at 99.6 and -36.7 with the wheels' 29.9) halved, plus 12 */
+#define ROOM_EYE          50.0f    /* their height over the ground: over a curb or a rail of clutter, under a counter or a sign */
+#define ROOM_HEADROOM     120.0f   /* the ray up: the bike's and the rider's height over the ground */
+#define ROOM_GROUND_REACH 100.0f   /* the ground looked for this far above and below the asked height */
+#define ROOM_GROUND_NEAR  60.0f    /* ... and must be within this of it (a curb is 20, a stair's flight more) */
+static int g_roomAskRead;   /* the CMB_RoomAsk answered already (CMB_RoomAnswer's, at the start and after a load: a save made between an ask and its answer gets the answer) */
+
+static void RoomReadAnswered(void)
+{
+	int answered = g_roomGlobals[4] ? (int)GlobalValue(g_roomGlobals[4]) : 0;
+	g_roomAskRead = answered < 0 ? -answered : answered;
+}
+
+static void RoomFrame(void)
+{
+	if (!g_roomGlobals[0])
+		return;
+	int n = (int)GlobalValue(g_roomGlobals[3]);
+	if (n == g_roomAskRead || n <= 0)
+		return;
+	uintptr_t player = Player();
+	if (!player || !Accessible(player + OFF_REFR_POS, 12, false) || !Accessible(player + OFF_REFR_HEADING, 4, false))
+		return;   /* no player yet (a load): answered once there is one */
+	uintptr_t cell = ReadPtr(player + OFF_REFR_CELL);
+	if (!cell || !IsA(cell, RTTI_CELL))
+		return;
+	g_roomAskRead = n;
+	float x = GlobalValue(g_roomGlobals[0]), y = GlobalValue(g_roomGlobals[1]), z = GlobalValue(g_roomGlobals[2]);
+	float clear = -2.0f;
+	bool room = false;
+	char why[240] = "the rays aren't working here (the test ray beside the player): not looked at";
+	g_rayActorPassed = NULL;
+	if (RaysReady(player)) {
+		float a[3] = { x, y, z + ROOM_GROUND_REACH }, b[3] = { x, y, z - ROOM_GROUND_REACH };
+		float f = CastRayGround(cell, a, b);
+		if (!(f > 0.0f && f < 1.0f)) {
+			clear = -1.0f;
+			snprintf(why, sizeof(why), "no ground within %.0f above or below the spot", ROOM_GROUND_REACH);
+		} else {
+			float groundZ = a[2] + (b[2] - a[2]) * f, below = z - groundZ;
+			if (fabsf(below) > ROOM_GROUND_NEAR) {
+				clear = below;
+				snprintf(why, sizeof(why), "the ground %.0f %s the spot (%s, layer %u), over %.0f", fabsf(below), below > 0.0f ? "below" : "above",
+				         g_rayWhat && *g_rayWhat ? g_rayWhat : "unnamed", g_rayLayer, ROOM_GROUND_NEAR);
+			} else {
+				static const float dirs[8][2] = { { 1.0f, 0.0f }, { 0.0f, 1.0f }, { -1.0f, 0.0f }, { 0.0f, -1.0f },
+				                                  { 0.70710678f, 0.70710678f }, { -0.70710678f, 0.70710678f }, { -0.70710678f, -0.70710678f }, { 0.70710678f, -0.70710678f } };
+				static const char *const names[9] = { "+x", "+y", "-x", "-y", "+x+y", "-x+y", "-x-y", "+x-y", "up" };
+				float eye[3] = { x, y, groundZ + ROOM_EYE }, nearest = -1.0f;
+				uint32_t nearLayer = 0;
+				const char *nearWhat = "unnamed", *nearDir = "";
+				for (int i = 0; i < 9; i++) {
+					float reach = i < 8 ? ROOM_REACH : ROOM_HEADROOM;
+					float c[3] = { eye[0] + (i < 8 ? dirs[i][0] * reach : 0.0f), eye[1] + (i < 8 ? dirs[i][1] * reach : 0.0f), eye[2] + (i < 8 ? 0.0f : reach) };
+					float g = CastRayGround(cell, eye, c);
+					if (!(g > 0.0f && g < 1.0f))
+						continue;
+					float d = g * reach;
+					if (nearest < 0.0f || d < nearest) {
+						nearest = d;
+						nearWhat = g_rayWhat && *g_rayWhat ? g_rayWhat : "unnamed";
+						nearLayer = g_rayLayer;
+						nearDir = names[i];
+					}
+				}
+				if (nearest < 0.0f) {
+					room = true;
+					clear = below;
+				} else {
+					clear = nearest;
+					snprintf(why, sizeof(why), "something %.0f along %s (%s, layer %u)", nearest, nearDir, nearWhat, nearLayer);
+				}
+			}
+		}
+	}
+	SetGlobal(g_roomGlobals[5], clear);
+	SetGlobal(g_roomGlobals[4], room ? (float)n : -(float)n);   /* last: the script reads it first */
+	char actor[120] = "";
+	if (g_rayActorPassed)
+		snprintf(actor, sizeof(actor), "; an actor there (%.60s), passed", g_rayActorPassed);
+	if (room)
+		Log("room: ask %d at (%.0f, %.0f, %.0f): room (the ground %.0f %s the spot)%s", n, x, y, z, fabsf(clear), clear >= 0.0f ? "below" : "above", actor);
+	else
+		Log("room: ask %d at (%.0f, %.0f, %.0f): none, %s%s", n, x, y, z, why, actor);
 }
 
 /* Every frame: read the ground once (tilt, average, track all use it). */
@@ -8463,6 +8747,8 @@ static float CastRay(uintptr_t cell, const float a[3], const float b[3])
 		if (solid && !actor)
 			return t;
 		lastActor = body;
+		if (body)
+			g_rayActorPassed = g_rayWhat && *g_rayWhat ? g_rayWhat : "unnamed";
 		if (actor) {
 			if (g_trace && g_clock - g_actorPassedLogged >= 1.0f) {   /* a clock of its own: an actor by the wheels every frame mustn't hide the other passes */
 				g_actorPassedLogged = g_clock;
@@ -9795,6 +10081,7 @@ static void Frame(void)
 	FrameTime();
 	FrameSteer();
 	SampleGround();
+	RoomFrame();   /* the brought bike's spot (test 41): the script's ask answered, riding or not */
 	TraceControls();
 	float degrees = GlobalValue(g_slopeGlobal);
 	if (g_applied && degrees > 0.0f && degrees < 89.0f) {
@@ -9889,6 +10176,7 @@ static void OnF4SEMessage(F4SEMessage *msg)
 		g_pickState = 0;                        /* the rays' test ray again (a new world) */
 		g_pickRetryAt = 0.0f;
 		g_solidMaskRead = false;                /* and the collision layer record read again with it */
+		RoomReadAnswered();                     /* the loaded save's last room answer is the one given (test 41) */
 		g_pushProven = false;
 		g_pushRetryAt = 0.0f;
 		memset(g_refused, 0, sizeof(g_refused));

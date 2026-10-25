@@ -155,6 +155,20 @@ Group Optional
 	ObjectReference Property GroundProbeRef Auto Const
 	{An XMarker in CMB_HoldingCell. Without the plugin, it feels for the navmesh around the
 	parked bike to tilt it.}
+	GlobalVariable Property CMB_RoomAskX Auto Const
+	GlobalVariable Property CMB_RoomAskY Auto Const
+	GlobalVariable Property CMB_RoomAskZ Auto Const
+	GlobalVariable Property CMB_RoomAsk Auto Const
+	GlobalVariable Property CMB_RoomAnswer Auto Const
+	GlobalVariable Property CMB_RoomClear Auto Const
+	{Test 41: whether a spot has room for the parked bike, asked of CMB_Slope.dll (optional, F4SE)
+	before the bike is brought there (RollBikeUp, RoomAt). This script writes the spot (AskX/Y/Z,
+	at the player's height) and then the ask's number (Ask); the plugin answers in Answer (the
+	number: room; minus it: none) and Clear (with room, how far below the asked Z the ground is,
+	minus for above; with none, how far along its ray the nearest hit was, or the ground's offset
+	when that refused it, -1 with no ground within 100 of the asked Z, -2 when the plugin's rays
+	aren't working there, which counts as not checked). Not Mandatory: an ESP from before test 41
+	leaves them None, and no spot is checked.}
 EndGroup
 
 ; ---------------------------------------------------------------------------
@@ -218,6 +232,27 @@ float Property DeliveryRetryInterval = 20.0 AutoReadOnly
 float Property MountRange = 350.0 AutoReadOnly
 float Property ParkSideOffset = 110.0 AutoReadOnly
 float Property CallAheadDistance = 220.0 AutoReadOnly
+bool Property CheckBikeSpot = true AutoReadOnly
+{Test 41: the bike brought from Diamond City's door stood in the gate's chain-link fence each
+time (191-452 units from the door): RollBikeUp put it 220 ahead and 60 to the right of the
+player with no look at what was there. True: the BikeSpots are tried in order and the first
+with room is taken, CMB_Slope.dll saying which have it (the CMB_Room globals; without the
+plugin, or an older ESP, no answer comes and the first spot is taken as before). False: the
+first spot, as before test 41. A script constant, not a GlobalVariable: it's a developer's
+switch for comparing builds, nothing a player sets, and a global would need the generator and
+the MCM to know it.}
+int Property BikeSpots = 7 AutoReadOnly
+{The spots tried for the brought bike, in order (SpotForward, SpotRight): 220 ahead and 60
+right (the old spot, so nothing changes where it has room), the same 60 left, 150 ahead and 60
+right or left (nearer: a gate's fence runs across the way), 300 ahead and 60 right or left
+(past a narrow spot), and 100 straight ahead (as close as the bike stands without being under
+the player's nose); then, for a bring from a door, where the bike waited: the rider parked it
+there, so it's always acceptable.}
+float Property RoomAnswerWait = 0.5 AutoReadOnly
+{One spot's answer is waited for this long, polled every RoomPollInterval. The plugin answers
+within a frame or two; none in this long means no plugin, and the first spot is taken untested,
+as before test 41.}
+float Property RoomPollInterval = 0.05 AutoReadOnly
 float Property FollowerScanRange = 4000.0 AutoReadOnly
 float Property MinSpeedPercent = 100.0 AutoReadOnly
 float Property MaxSpeedPercent = 500.0 AutoReadOnly
@@ -344,6 +379,14 @@ bool busyWatchOff = false
 ; until it has written, as in a save from before it was kept.
 float tiltLiveWritten = 0.0
 bool tiltLiveKnown = false
+; Test 41: the bike's slot is read a tick after the equip (EquipBike, RideTick).
+bool wornSlotToLog = false
+; The last room ask's number (RoomAt), so each is new.
+int roomAskNo
+float spotX   ; the spot PickBikeSpot found room at: its world x, y and the player's heading then (test 41: placed there, not where the player is by the time the asks are answered)
+float spotY
+float spotAngle
+bool spotKnown = false
 Actor[] stowedFollowers
 Actor[] boostedFollowers
 float[] boostedDeltas
@@ -882,7 +925,8 @@ Function ToggleRide(string asFrom)
 			Log("Hotkey: the bike waits at a door: bringing it.")
 			if BringBikeFromDoor(asFrom)
 				; It waited outside the door the player came out of: it's here now, the next press
-				; gets on.
+				; gets on. Left where it waited (no spot with room), the mark is cleared and the
+				; press goes on to a call, which takes the first spot as a call does.
 				return
 			endif
 		endif
@@ -1106,14 +1150,184 @@ Function CallBike()
 EndFunction
 
 ; In front of the player, a little to their right, on the ground: calling the bike, and
-; bringing it from a door. The caller holds busy.
-Function RollBikeUp()
+; bringing it from a door. The caller holds busy. Test 41: the first of the BikeSpots with room
+; (PickBikeSpot). abFromDoor: the bike waits outside a door the rider parked it at, so with
+; room at none of them it's left there (false then); a call takes the first spot as before.
+bool Function RollBikeUp(bool abFromDoor = false)
+	; Disabled before the asks: standing where it waited, the bike would be in its own way at a
+	; spot over it (a disabled reference has no collision).
 	BikeRef.Disable()
-	PlaceBike(CallAheadDistance, 60.0)
-	BikeRef.Enable(true)
-	SettleBike()
+	int spot = PickBikeSpot(abFromDoor)
+	if spot < 0
+		; Where it waited: the shadow move put it there at the rider's height, and LeaveBikeOutside
+		; only showed it. Shown again, and settled on the ground there like any park.
+		BikeRef.Enable(false)
+		SettleBike()
+	else
+		; At the place the spot was checked at (spotX/Y/Angle), not where the player is by now: a
+		; player running out of a gate has moved a good way in the asks' half seconds, and the spot
+		; with room was the one asked about.
+		if spotKnown
+			BikeRef.MoveTo(PlayerRef, spotX - PlayerRef.GetPositionX(), spotY - PlayerRef.GetPositionY(), 0.0, false)
+			BikeRef.SetAngle(0.0, 0.0, spotAngle + ParkedModelYaw)
+		else
+			PlaceBike(SpotForward(spot), SpotRight(spot))
+		endif
+		BikeRef.Enable(true)
+		SettleBike()
+	endif
 	bikeWaitsForShore = false
 	ForgetDoor()
+	return spot >= 0
+EndFunction
+
+; Test 41: the first of the BikeSpots with room, by the plugin's word on each (RoomAt), or -1
+; for a bring whose spots all lack room: the bike stays where it waited. Each spot is the
+; player's position offset as PlaceBike puts the bike, at the player's height. A spot the plugin
+; doesn't answer about (no plugin, or an older ESP without the globals) ends the asking: the
+; first spot is taken untested as before test 41, unless this is a bring and a spot was already
+; refused, when where it waited is the surer place. Every try is logged, and the choice.
+int Function PickBikeSpot(bool abFromDoor)
+	spotKnown = false
+	if !CheckBikeSpot
+		return 0
+	endif
+	float angle = PlayerRef.GetAngleZ()
+	float px = PlayerRef.GetPositionX()
+	float py = PlayerRef.GetPositionY()
+	float pz = PlayerRef.GetPositionZ()
+	int spot = 0
+	while spot < BikeSpots
+		float forward = SpotForward(spot)
+		float right = SpotRight(spot)
+		float x = px + OffsetX(angle, forward, right)
+		float y = py + OffsetY(angle, forward, right)
+		int room = RoomAt(x, y, pz, spot)
+		if room > 0
+			Log("The bike's spot: " + (spot + 1) + " (" + SpotText(spot) + ").")
+			spotX = x
+			spotY = y
+			spotAngle = angle
+			spotKnown = true
+			return spot
+		elseif room == 0
+			if abFromDoor && spot > 0
+				Log("The bike's spot: where it waited (spot " + (spot + 1) + " not checked, the earlier ones without room).")
+				return -1
+			endif
+			Log("The bike's spot: 1 (" + SpotText(0) + "), not checked, as before test 41.")
+			return 0
+		endif
+		spot += 1
+	endwhile
+	if abFromDoor
+		Log("The bike's spot: where it waited (none of the " + BikeSpots + " has room).")
+		return -1
+	endif
+	Log("The bike's spot: 1 (" + SpotText(0) + "), none of the " + BikeSpots + " has room (a call takes the first, as before test 41).")
+	return 0
+EndFunction
+
+; Asks CMB_Slope.dll whether the parked bike has room at (afX, afY, afZ): 1 room, -1 none, 0 no
+; answer in RoomAnswerWait (no plugin, or an older ESP without the globals). The ask's number is
+; new each time, above what the global holds (a save keeps the globals), so an old answer can't
+; be read as this one. Busy is the caller's: the waits are inside its hold.
+int Function RoomAt(float afX, float afY, float afZ, int aiSpot)
+	string try = "Bike's spot " + (aiSpot + 1) + " (" + SpotText(aiSpot) + "): "
+	if !CMB_RoomAskX || !CMB_RoomAskY || !CMB_RoomAskZ || !CMB_RoomAsk || !CMB_RoomAnswer || !CMB_RoomClear
+		Log(try + "not checked (the ESP has no CMB_Room globals).")
+		return 0
+	endif
+	int n = CMB_RoomAsk.GetValue() as int
+	if n < roomAskNo
+		n = roomAskNo
+	endif
+	n += 1
+	if n > 1000000
+		; Well within a float's whole numbers; a wrap is never seen (a few asks a door).
+		n = 1
+	endif
+	roomAskNo = n
+	CMB_RoomAskX.SetValue(afX)
+	CMB_RoomAskY.SetValue(afY)
+	CMB_RoomAskZ.SetValue(afZ)
+	CMB_RoomAsk.SetValue(n as float)
+	; Counted polls, not summed waits: ten 0.05s don't add up to 0.5 exactly in a float.
+	int polls = (RoomAnswerWait / RoomPollInterval + 0.5) as int
+	int poll = 0
+	while poll < polls
+		Utility.Wait(RoomPollInterval)
+		poll += 1
+		int answer = CMB_RoomAnswer.GetValue() as int
+		if answer == n
+			float clear = CMB_RoomClear.GetValue()
+			if clear < 0.0
+				Log(try + "room (the ground " + Whole(-clear) + " above).")
+			else
+				Log(try + "room (the ground " + Whole(clear) + " below).")
+			endif
+			return 1
+		elseif answer == -n
+			; Clear says why (the plugin's word): -2 the plugin's rays aren't working there (right
+			; after a load, before its test ray passes): that is no verdict, so not checked; -1 no
+			; ground within 100 of the asked height (a hole, or over a roof's edge); else how far
+			; along a ray the nearest hit was, or the ground's offset when that refused it.
+			float clear = CMB_RoomClear.GetValue()
+			if clear <= -1.5
+				Log(try + "not checked (the plugin's rays aren't working here).")
+				return 0
+			elseif clear <= -0.5
+				Log(try + "none (no ground within 100 of the spot).")
+			else
+				Log(try + "none (the nearest hit " + Whole(clear) + " along a ray, or the ground " + Whole(clear) + " off).")
+			endif
+			return -1
+		endif
+	endwhile
+	; The literal, not the float: Papyrus prints 0.500000 (RoomAnswerWait).
+	Log(try + "not checked (no answer in 0.5 s).")
+	return 0
+EndFunction
+
+; The BikeSpots: the player's forward and right offsets as PlaceBike takes them.
+float Function SpotForward(int aiSpot)
+	if aiSpot < 2
+		return CallAheadDistance
+	elseif aiSpot < 4
+		return 150.0
+	elseif aiSpot < 6
+		return 300.0
+	endif
+	return 100.0
+EndFunction
+
+float Function SpotRight(int aiSpot)
+	if aiSpot >= 6
+		return 0.0
+	elseif aiSpot % 2 == 0
+		return 60.0
+	endif
+	return -60.0
+EndFunction
+
+; "220 ahead, 60 right", "220 ahead, 60 left", "100 ahead".
+string Function SpotText(int aiSpot)
+	float right = SpotRight(aiSpot)
+	string text = Whole(SpotForward(aiSpot)) + " ahead"
+	if right > 0.0
+		return text + ", " + Whole(right) + " right"
+	elseif right < 0.0
+		return text + ", " + Whole(-right) + " left"
+	endif
+	return text
+EndFunction
+
+; A value to the nearest whole unit ("12", "-3"): Papyrus prints floats with six decimals.
+string Function Whole(float afValue)
+	if afValue >= 0.0
+		return "" + ((afValue + 0.5) as int)
+	endif
+	return "" + ((afValue - 0.5) as int)
 EndFunction
 
 ; The bike left outside a door (LeaveBikeOutside) comes to the player when they're next
@@ -1128,7 +1342,9 @@ EndFunction
 ; same door the player is often within MountRange of the spot it was left at, and that spot
 ; is the one in the wall, so it's brought then too; a player who walked back to the bike gets
 ; on instead (ToggleRide and HandleKeys try the bike beside them first, and getting on clears
-; the mark). Every refusal is logged with its reason (test 40: they were silent).
+; the mark). Every refusal is logged with its reason (test 40: they were silent). Test 41: it
+; goes to the first of the bike's spots with room, or stays where it waited when none has
+; (RollBikeUp); true then too, it's as the rider left it.
 bool Function BringBikeFromDoor(string asWho)
 	if !bikeAtDoor
 		return false
@@ -1156,7 +1372,8 @@ bool Function BringBikeFromDoor(string asWho)
 	endif
 	if bikeInside
 		; It came in with the player (LeaveBikeOutside): brought from there, whatever the distance.
-		RollBikeUp()
+		; Where it waits is inside: with room at no spot, the first spot, as a call takes.
+		RollBikeUp(false)
 		busy = false
 		Log("Bike brought (" + asWho + ") from where the player went in, kept hidden there: outdoors in " + doorWorld + " again.")
 		return true
@@ -1176,10 +1393,14 @@ bool Function BringBikeFromDoor(string asWho)
 		Log("Out " + distance + " units from the door the bike waits at: it stays there.")
 		return false
 	endif
-	RollBikeUp()
+	bool moved = RollBikeUp(true)
 	busy = false
-	Log("Bike brought from the door it waited at, " + distance + " units away.")
-	return true
+	if moved
+		Log("Bike brought from the door it waited at, " + distance + " units away.")
+	else
+		Log("The bike is left where it waited, " + distance + " units away: none of its spots has room.")
+	endif
+	return moved
 EndFunction
 
 ; The bike is with the player again (getting on, calling it, bringing it): it no longer waits
@@ -1467,7 +1688,9 @@ Function HandleKeys()
 		if bikeAtDoor
 			Log("Keys: the bike waits at a door: bringing it.")
 			if BringBikeFromDoor("the keys")
-				; It waited outside the door the player came out of: it's here now, the next use gets on.
+				; It waited outside the door the player came out of: it's here now, the next use gets
+				; on. Left where it waited (no spot with room), the mark is cleared and the use goes
+				; on to the menu, whose call takes the first spot as a call does.
 				return
 			endif
 		endif
@@ -1499,6 +1722,11 @@ Function RideTick()
 		return
 	endif
 	CheckTiltLive()
+	if wornSlotToLog
+		; Test 41: the bike's slot, read a tick after the equip (EquipBike).
+		wornSlotToLog = false
+		CallGearRestore("LogWornSlots")
+	endif
 	; Test 40: a tick between a teleport's event and the player's move still sees the place being
 	; left, and its shadow move can land after the move (the bike beside the player in Diamond
 	; City, 15:31:35). Until the teleport is handled, the bike stays where the last tick put it.
@@ -1528,9 +1756,7 @@ Function RideTick()
 	if (here && here.IsInterior()) || InClosedWorld()
 		; A door takes no more than a tick, a fast travel game hours (FastTravelMinutes).
 		float minutes = (now - lastOutdoorTime) * 1440.0
-		bool fastTravel = minutes > FastTravelMinutes
-		Log("Gone in " + minutes + " game minutes after the last tick outdoors: " + Ternary(fastTravel, "a fast travel.", "a door."))
-		DismountGoingIn(fastTravel)
+		DismountGoingIn(minutes > FastTravelMinutes, minutes)
 		return
 	endif
 	lastOutdoorTime = now
@@ -1736,13 +1962,17 @@ EndFunction
 ; (BringBikeFromDoor); after a fast travel it stays where the fast travel set off, and calling it
 ; works (test 39's 01:41:37). A bike that came in with the player is brought the next time
 ; they're outdoors (LeaveBikeOutside), so that's what they're told, a fast travel or not.
-Function DismountGoingIn(bool abFastTravel)
+Function DismountGoingIn(bool abFastTravel, float afMinutes)
 	; Another thread may have ended the ride since the caller checked.
 	if busy || !riding
 		return
 	endif
 	busy = true
 	NoteBusy("getting off going in")
+	; Test 41: logged here, past the claim, not in RideTick: at 15:57:50 and 15:59:19 the 1 s tick
+	; and HandleTeleport's own tick both found the player inside and both logged it, while only the
+	; first got past the check above.
+	Log("Gone in " + afMinutes + " game minutes after the last tick outdoors: " + Ternary(abFastTravel, "a fast travel.", "a door."))
 	bool keptInside = LeaveBikeOutside(!abFastTravel)
 	FinishRide()
 	busy = false
@@ -2133,7 +2363,9 @@ Function EquipBike()
 			PlayerRef.AddItem(wanted, 1, true)
 		endif
 		PlayerRef.EquipItem(wanted, true, true)
-		CallGearRestore("LogWornSlots")
+		; Test 41: read right after the equip, the slot said nothing twice (16:00:13, 16:01:37) while
+		; the bike showed: the biped hadn't taken the armor yet. Read a tick later (RideTick).
+		wornSlotToLog = true
 	endif
 	RemoveArmor(other)
 EndFunction
