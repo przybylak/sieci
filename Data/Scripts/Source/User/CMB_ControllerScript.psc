@@ -163,12 +163,21 @@ Group Optional
 	GlobalVariable Property CMB_RoomClear Auto Const
 	{Test 41: whether a spot has room for the parked bike, asked of CMB_Slope.dll (optional, F4SE)
 	before the bike is brought there (RollBikeUp, RoomAt). This script writes the spot (AskX/Y/Z,
-	at the player's height) and then the ask's number (Ask); the plugin answers in Answer (the
-	number: room; minus it: none) and Clear (with room, how far below the asked Z the ground is,
-	minus for above; with none, how far along its ray the nearest hit was, or the ground's offset
-	when that refused it, -1 with no ground within 100 of the asked Z, -2 when the plugin's rays
-	aren't working there, which counts as not checked). Not Mandatory: an ESP from before test 41
-	leaves them None, and no spot is checked.}
+	at the player's height, and since test 43 the heading, CMB_RoomAskAngle) and then the ask's
+	number (Ask); the plugin answers in Answer (the number: room; minus it: none) and Clear (with
+	room, how far below the asked Z the ground is, minus for above; with none, how far along its
+	ray the nearest hit was, on the bike's 110 (test 43: a hit on a side ray of the bike-shaped box
+	scaled to its length), or the ground's offset when that refused it (minus for above), exactly
+	-1 with no ground within 100 of the asked Z, exactly -2 when the plugin's rays aren't working
+	there, which counts as not checked). Not Mandatory: an ESP from before test 41 leaves them
+	None, and no spot is checked.}
+	GlobalVariable Property CMB_RoomAskAngle Auto Const
+	{Test 43: the spot's heading, the player's GetAngleZ in degrees, written with the spot before
+	the ask's number, so CMB_Slope.dll checks a bike-shaped box along it ([Room] Box: 110 fore and
+	aft, 40 to the sides) instead of eight level rays 110 out (test 42: a passage under about 220
+	wide never had room, even where the bike fits lengthwise). The ESP's value, -1000, is none
+	written (an older script): the eight rays. Not Mandatory: an ESP from before test 43 leaves it
+	None, and the spot is asked about without a heading, as before.}
 EndGroup
 
 ; ---------------------------------------------------------------------------
@@ -253,6 +262,24 @@ float Property RoomAnswerWait = 0.5 AutoReadOnly
 within a frame or two; none in this long means no plugin, and the first spot is taken untested,
 as before test 41.}
 float Property RoomPollInterval = 0.05 AutoReadOnly
+bool Property RetryUncheckedSpot = true AutoReadOnly
+{Test 43 (the user's thought on test 42's build): the first spot answered "not checked"
+(CMB_RoomClear -2: the plugin's test ray hasn't passed yet, right after a load) is asked about
+again once, RoomRaysWait later, from where the player is by then; the plugin tries its test ray
+again for that ask ([Room] RaysRetry). Not checked again: a bring leaves the bike where it
+waited (the rider parked it there), a call takes the first spot untested. False: the first spot
+untested at once, as before test 43. Not seen in a test yet (test 42: the rays answered at once
+after each of four loads).}
+float Property RoomRaysWait = 1.5 AutoReadOnly
+{The wait before that second ask: about three times the 0.49 s the plugin's test ray came after
+its first frame with the player in test 42. Without the plugin no -2 comes, so that case still
+costs RoomAnswerWait.}
+bool Property CallTakesBestSpot = true AutoReadOnly
+{Test 43 (the user's thought on test 42's build): a call with room at none of the BikeSpots takes
+the one with the most room, the largest CMB_RoomClear among the spots refused for a hit along a
+ray (or the ground under 100 below, which SettleBike puts the bike on), rather than the first:
+outside Diamond City's gate the first is the fence. A bring still leaves the bike where it
+waited. False: the first spot, as before test 43.}
 float Property FollowerScanRange = 4000.0 AutoReadOnly
 float Property MinSpeedPercent = 100.0 AutoReadOnly
 float Property MaxSpeedPercent = 500.0 AutoReadOnly
@@ -387,6 +414,8 @@ float spotX   ; the spot PickBikeSpot found room at: its world x, y and the play
 float spotY
 float spotAngle
 bool spotKnown = false
+; The last answer's CMB_RoomClear (RoomAt; 0 when there was none), for CallTakesBestSpot.
+float lastRoomClear = 0.0
 Actor[] stowedFollowers
 Actor[] boostedFollowers
 float[] boostedDeltas
@@ -926,7 +955,8 @@ Function ToggleRide(string asFrom)
 			if BringBikeFromDoor(asFrom)
 				; It waited outside the door the player came out of: it's here now, the next press
 				; gets on. Left where it waited (no spot with room), the mark is cleared and the
-				; press goes on to a call, which takes the first spot as a call does.
+				; press goes on to a call, which takes the spot a call takes (test 43: the one with
+				; the most room, CallTakesBestSpot; else the first).
 				return
 			endif
 		endif
@@ -1152,7 +1182,8 @@ EndFunction
 ; In front of the player, a little to their right, on the ground: calling the bike, and
 ; bringing it from a door. The caller holds busy. Test 41: the first of the BikeSpots with room
 ; (PickBikeSpot). abFromDoor: the bike waits outside a door the rider parked it at, so with
-; room at none of them it's left there (false then); a call takes the first spot as before.
+; room at none of them it's left there (false then); a call takes the one with the most room
+; (test 43, CallTakesBestSpot), or the first spot as before.
 bool Function RollBikeUp(bool abFromDoor = false)
 	; Disabled before the asks: standing where it waited, the bike would be in its own way at a
 	; spot over it (a disabled reference has no collision).
@@ -1183,10 +1214,14 @@ EndFunction
 
 ; Test 41: the first of the BikeSpots with room, by the plugin's word on each (RoomAt), or -1
 ; for a bring whose spots all lack room: the bike stays where it waited. Each spot is the
-; player's position offset as PlaceBike puts the bike, at the player's height. A spot the plugin
-; doesn't answer about (no plugin, or an older ESP without the globals) ends the asking: the
-; first spot is taken untested as before test 41, unless this is a bring and a spot was already
-; refused, when where it waited is the surer place. Every try is logged, and the choice.
+; player's position offset as PlaceBike puts the bike, at the player's height, asked about with
+; the player's heading (test 43). A spot the plugin doesn't answer about (no plugin, or an older
+; ESP without the globals) ends the asking: the first spot is taken untested as before test 41,
+; unless this is a bring and a spot was already refused, when where it waited is the surer
+; place. Test 43: the first spot answered "not checked" (the plugin's rays not working yet, right
+; after a load) is asked about once more RoomRaysWait later (RetryUncheckedSpot), and a call with
+; room at none takes the one with the most room (CallTakesBestSpot). Every try is logged, and the
+; choice.
 int Function PickBikeSpot(bool abFromDoor)
 	spotKnown = false
 	if !CheckBikeSpot
@@ -1196,20 +1231,64 @@ int Function PickBikeSpot(bool abFromDoor)
 	float px = PlayerRef.GetPositionX()
 	float py = PlayerRef.GetPositionY()
 	float pz = PlayerRef.GetPositionZ()
+	; Test 43: the spot with the most room so far, for a call (CallTakesBestSpot).
+	int bestSpot = -1
+	float bestX = 0.0
+	float bestY = 0.0
+	float bestClear = 0.0
 	int spot = 0
 	while spot < BikeSpots
 		float forward = SpotForward(spot)
 		float right = SpotRight(spot)
 		float x = px + OffsetX(angle, forward, right)
 		float y = py + OffsetY(angle, forward, right)
-		int room = RoomAt(x, y, pz, spot)
+		int room = 0
+		if spot == 0 && RetryUncheckedSpot
+			room = RoomAt(x, y, pz, spot, angle, ": asked again in " + Tenths(RoomRaysWait) + " s.")
+			if room == -2
+				; Test 43: no verdict yet (the plugin's test ray hasn't passed, right after a load;
+				; its RaysRetry tries it again for the next ask). Asked about once more, from where
+				; the player is by then (the later spots too): the first answer said nothing about
+				; the old place.
+				Utility.Wait(RoomRaysWait)
+				angle = PlayerRef.GetAngleZ()
+				px = PlayerRef.GetPositionX()
+				py = PlayerRef.GetPositionY()
+				pz = PlayerRef.GetPositionZ()
+				x = px + OffsetX(angle, forward, right)
+				y = py + OffsetY(angle, forward, right)
+				room = RoomAt(x, y, pz, spot, angle)
+				if room == -2 || room == 0
+					if abFromDoor
+						Log("The bike's spot: where it waited (spot 1 not checked twice: the plugin's rays aren't working here).")
+						return -1
+					endif
+					; A call: the first spot untested, as with the switch off (below).
+					room = 0
+				endif
+			endif
+		else
+			room = RoomAt(x, y, pz, spot, angle)
+		endif
+		if room == -2
+			; Not checked (the plugin's rays): as no answer, as before test 43.
+			room = 0
+		endif
 		if room > 0
-			Log("The bike's spot: " + (spot + 1) + " (" + SpotText(spot) + ").")
+			Log("The bike's spot: " + (spot + 1) + " (" + SpotText(spot) + "), heading " + Whole(angle) + ".")
 			spotX = x
 			spotY = y
 			spotAngle = angle
 			spotKnown = true
 			return spot
+		elseif room < 0 && CallTakesBestSpot && !abFromDoor && lastRoomClear > 0.0 && lastRoomClear <= 200.0 && lastRoomClear > bestClear
+			; Refused for a hit along a ray (a share of the plugin's Fore, which the INI allows up to
+			; 200) or the ground under 100 below: the most room so far. The ground above (minus),
+			; none within 100 (-1) and not checked (-2) don't count.
+			bestSpot = spot
+			bestX = x
+			bestY = y
+			bestClear = lastRoomClear
 		elseif room == 0
 			if abFromDoor && spot > 0
 				Log("The bike's spot: where it waited (spot " + (spot + 1) + " not checked, the earlier ones without room).")
@@ -1224,16 +1303,29 @@ int Function PickBikeSpot(bool abFromDoor)
 		Log("The bike's spot: where it waited (none of the " + BikeSpots + " has room).")
 		return -1
 	endif
+	if bestSpot >= 0
+		Log("The bike's spot: " + (bestSpot + 1) + " (" + SpotText(bestSpot) + "), heading " + Whole(angle) + ", the most room of the " + BikeSpots + " (the nearest hit " + Whole(bestClear) + " along a ray, on the bike's 110, or the ground " + Whole(bestClear) + " below; none has room, a call takes the most room).")
+		spotX = bestX
+		spotY = bestY
+		spotAngle = angle
+		spotKnown = true
+		return bestSpot
+	endif
 	Log("The bike's spot: 1 (" + SpotText(0) + "), none of the " + BikeSpots + " has room (a call takes the first, as before test 41).")
 	return 0
 EndFunction
 
-; Asks CMB_Slope.dll whether the parked bike has room at (afX, afY, afZ): 1 room, -1 none, 0 no
-; answer in RoomAnswerWait (no plugin, or an older ESP without the globals). The ask's number is
-; new each time, above what the global holds (a save keeps the globals), so an old answer can't
-; be read as this one. Busy is the caller's: the waits are inside its hold.
-int Function RoomAt(float afX, float afY, float afZ, int aiSpot)
+; Asks CMB_Slope.dll whether the parked bike has room at (afX, afY, afZ), facing afAngle (the
+; player's heading, test 43: the plugin checks a bike-shaped box along it): 1 room, -1 none, -2
+; not checked (the plugin's rays aren't working there; test 43, before it 0), 0 no answer in
+; RoomAnswerWait (no plugin, or an older ESP without the globals). The ask's number is new each
+; time, above what the global holds (a save keeps the globals), so an old answer can't be read
+; as this one. lastRoomClear is the answer's CMB_RoomClear (0 with none). asUnchecked ends the
+; "not checked" line (PickBikeSpot's retry says so there). Busy is the caller's: the waits are
+; inside its hold.
+int Function RoomAt(float afX, float afY, float afZ, int aiSpot, float afAngle, string asUnchecked = ".")
 	string try = "Bike's spot " + (aiSpot + 1) + " (" + SpotText(aiSpot) + "): "
+	lastRoomClear = 0.0
 	if !CMB_RoomAskX || !CMB_RoomAskY || !CMB_RoomAskZ || !CMB_RoomAsk || !CMB_RoomAnswer || !CMB_RoomClear
 		Log(try + "not checked (the ESP has no CMB_Room globals).")
 		return 0
@@ -1251,6 +1343,10 @@ int Function RoomAt(float afX, float afY, float afZ, int aiSpot)
 	CMB_RoomAskX.SetValue(afX)
 	CMB_RoomAskY.SetValue(afY)
 	CMB_RoomAskZ.SetValue(afZ)
+	if CMB_RoomAskAngle
+		; Before the number, like the spot: the plugin reads them all once the number is new.
+		CMB_RoomAskAngle.SetValue(afAngle)
+	endif
 	CMB_RoomAsk.SetValue(n as float)
 	; Counted polls, not summed waits: ten 0.05s don't add up to 0.5 exactly in a float.
 	int polls = (RoomAnswerWait / RoomPollInterval + 0.5) as int
@@ -1261,6 +1357,7 @@ int Function RoomAt(float afX, float afY, float afZ, int aiSpot)
 		int answer = CMB_RoomAnswer.GetValue() as int
 		if answer == n
 			float clear = CMB_RoomClear.GetValue()
+			lastRoomClear = clear
 			if clear < 0.0
 				Log(try + "room (the ground " + Whole(-clear) + " above).")
 			else
@@ -1268,18 +1365,26 @@ int Function RoomAt(float afX, float afY, float afZ, int aiSpot)
 			endif
 			return 1
 		elseif answer == -n
-			; Clear says why (the plugin's word): -2 the plugin's rays aren't working there (right
-			; after a load, before its test ray passes): that is no verdict, so not checked; -1 no
-			; ground within 100 of the asked height (a hole, or over a roof's edge); else how far
-			; along a ray the nearest hit was, or the ground's offset when that refused it.
+			; Clear says why (the plugin's word): exactly -2 the plugin's rays aren't working there
+			; (right after a load, before its test ray passes): that is no verdict, so not checked;
+			; exactly -1 no ground within 100 of the asked height (a hole, or over a roof's edge);
+			; other values under 0 the ground that far above the spot (over 60: a stair or a
+			; bank); else how far along a ray the nearest hit was (on the bike's 110), or the
+			; ground's offset below when that refused it. Test 43: the plugin writes -2 and -1 as
+			; exact floats; before, everything under -1.5 read as not checked, so a spot under a
+			; rise ended the asking (the first spot taken untested, or where it waited) instead of
+			; going on to the next.
 			float clear = CMB_RoomClear.GetValue()
-			if clear <= -1.5
-				Log(try + "not checked (the plugin's rays aren't working here).")
-				return 0
-			elseif clear <= -0.5
+			lastRoomClear = clear
+			if clear == -2.0
+				Log(try + "not checked (the plugin's rays aren't working here)" + asUnchecked)
+				return -2
+			elseif clear == -1.0
 				Log(try + "none (no ground within 100 of the spot).")
+			elseif clear < 0.0
+				Log(try + "none (the ground " + Whole(-clear) + " above the spot).")
 			else
-				Log(try + "none (the nearest hit " + Whole(clear) + " along a ray, or the ground " + Whole(clear) + " off).")
+				Log(try + "none (the nearest hit " + Whole(clear) + " along a ray, on the bike's 110, or the ground " + Whole(clear) + " off).")
 			endif
 			return -1
 		endif
@@ -1330,6 +1435,15 @@ string Function Whole(float afValue)
 	return "" + ((afValue - 0.5) as int)
 EndFunction
 
+; A value of 0 or more to one decimal ("1.5"), as CMB_RamScript prints them.
+string Function Tenths(float afValue)
+	int tenths = (afValue * 10.0 + 0.5) as int
+	if tenths < 0
+		tenths = 0
+	endif
+	return (tenths / 10) + "." + (tenths % 10)
+EndFunction
+
 ; The bike left outside a door (LeaveBikeOutside) comes to the player when they're next
 ; outdoors in an open worldspace, in the one it waits in and within DoorBringDistance of it:
 ; once the teleport out is over (HandleTeleport; test 40: decided in the event, it still saw
@@ -1372,7 +1486,8 @@ bool Function BringBikeFromDoor(string asWho)
 	endif
 	if bikeInside
 		; It came in with the player (LeaveBikeOutside): brought from there, whatever the distance.
-		; Where it waits is inside: with room at no spot, the first spot, as a call takes.
+		; Where it waits is inside: with room at no spot, the spot a call takes (test 43: the one
+		; with the most room, CallTakesBestSpot; else the first).
 		RollBikeUp(false)
 		busy = false
 		Log("Bike brought (" + asWho + ") from where the player went in, kept hidden there: outdoors in " + doorWorld + " again.")
@@ -1398,7 +1513,7 @@ bool Function BringBikeFromDoor(string asWho)
 	if moved
 		Log("Bike brought from the door it waited at, " + distance + " units away.")
 	else
-		Log("The bike is left where it waited, " + distance + " units away: none of its spots has room.")
+		Log("The bike is left where it waited, " + distance + " units away: no spot with room found (the spot lines above say why).")
 	endif
 	return moved
 EndFunction
@@ -1690,7 +1805,8 @@ Function HandleKeys()
 			if BringBikeFromDoor("the keys")
 				; It waited outside the door the player came out of: it's here now, the next use gets
 				; on. Left where it waited (no spot with room), the mark is cleared and the use goes
-				; on to the menu, whose call takes the first spot as a call does.
+				; on to the menu, whose call takes the spot a call takes (test 43: the one with the
+				; most room, CallTakesBestSpot; else the first).
 				return
 			endif
 		endif

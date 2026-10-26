@@ -38,6 +38,16 @@ int Property TimerPoll = 1 AutoReadOnly
 float Property PollInterval = 0.1 AutoReadOnly
 {The plugin tells two hits at least 0.12 s apart, longer than this poll, and a hit told while
 this script pushes or answers is read right after (OnTimer).}
+float Property PollAfterDecide = 0.03 AutoReadOnly
+{Test 43: the poll after an answer comes this soon instead of PollInterval: the plugin now tells
+the next ask once the last is answered ([Ram] AskAnswered), a frame after it reads the answer,
+so in a pack each ask would wait up to a whole poll for nothing (test 42: answers took 234 ms
+median, the poll's share of it up to 100). 0.1 = PollInterval, as before test 43.}
+float Property PushMeasureAfter = 0.5 AutoReadOnly
+{Test 43: how far a pushed actor has moved this long after the push is logged ("Ram: X 0.5 s
+after the push: moved N units"), measured at the first poll that late: test 42's protectrons
+read No Knockdowns and were braked for, and whether PushActorAway moves such a race (or a
+hovering eyebot) at all isn't known. 0 = not measured, as before test 43.}
 float Property FullSpeed = 900.0 AutoReadOnly
 {The plugin's FullSpeed: riding speed at the default CMB_SpeedPercent.}
 float Property ForceAtMinSpeed = 3.0 AutoReadOnly
@@ -53,11 +63,14 @@ float Property RefusalLogEvery = 10.0 AutoReadOnly
 bool polling = false
 int lastSeen = 0
 int lastHit = 0
-; The last 16 yeses: the ask's number and its actor (the plugin's hit names the number). The
+; The last 32 yeses: the ask's number and its actor (the plugin's hit names the number). The
 ; plugin keeps 8 actors and takes a yes to either of an actor's last two asks, and an answer
 ; slower than the ask again (0.4 s) takes two slots for one actor: with 4, an actor the plugin
 ; then said was hit could already be pushed out, and wasn't knocked over (review of the build
-; for test 41). 8 actors times 2.
+; for test 41). 8 actors times 2 was 16. Test 43: the plugin keeps a yes for 10 s even while the
+; actor is out of sight ([Ram] YesKeep: a pack's dogs come back), and test 42's pack gave 7 yeses
+; in 10 s (20:47:46-55): 16 could push out a yes the plugin still acts on, and its hit would then
+; be on nobody this script said yes to (the bike let through with no push). Twice that.
 int[] okEvents
 Actor[] okActors
 string[] okNames
@@ -71,12 +84,22 @@ int knockedNext = 0
 string[] refusedKeys
 float[] refusedAt
 int refusedNext = 0
+; Test 43: the last few pushed, for the measurement (PushMeasureAfter): who, from where, when
+; (None once logged).
+Actor[] pushed
+string[] pushedNames
+float[] pushedX
+float[] pushedY
+float[] pushedZ
+float[] pushedAt
+int pushedNext = 0
 
 Function Remember()
-	if !okEvents || okEvents.Length != 16
-		okEvents = new int[16]
-		okActors = new Actor[16]
-		okNames = new string[16]
+	; Test 43: 32 (was 16), and the test with it, or every poll would make them anew.
+	if !okEvents || okEvents.Length != 32
+		okEvents = new int[32]
+		okActors = new Actor[32]
+		okNames = new string[32]
 		okNext = 0
 	endif
 	if !knocked || knocked.Length != 4
@@ -86,6 +109,15 @@ Function Remember()
 	if !refusedKeys || refusedKeys.Length != 4
 		refusedKeys = new string[4]
 		refusedAt = new float[4]
+	endif
+	if !pushed || pushed.Length != 4
+		pushed = new Actor[4]
+		pushedNames = new string[4]
+		pushedX = new float[4]
+		pushedY = new float[4]
+		pushedZ = new float[4]
+		pushedAt = new float[4]
+		pushedNext = 0
 	endif
 EndFunction
 
@@ -98,6 +130,13 @@ Function StartRide()
 	while i < okEvents.Length
 		okEvents[i] = 0
 		okActors[i] = None
+		i += 1
+	endwhile
+	; Test 43: a push from before a load measures nothing (and the real-time clock starts again
+	; with the game).
+	i = 0
+	while i < pushed.Length
+		pushed[i] = None
 		i += 1
 	endwhile
 	lastSeen = CMB_RamSeen.GetValue() as int
@@ -116,6 +155,10 @@ Function EndRide()
 	polling = false
 	CancelTimer(TimerPoll)
 	CMB_RamOk.SetValue(0.0)
+	; Test 43: a push not yet measured is measured now, however soon (getting off, a load).
+	if PushMeasureAfter > 0.0 && pushed
+		MeasurePushes(true)
+	endif
 EndFunction
 
 Event OnTimer(int aiTimerID)
@@ -123,6 +166,7 @@ Event OnTimer(int aiTimerID)
 		return
 	endif
 	Remember()
+	bool decided = false
 	if CMB_RamEnemies.GetValue() > 0.0
 		; The hit first: it can't wait.
 		bool slow = CheckHit()
@@ -130,6 +174,7 @@ Event OnTimer(int aiTimerID)
 		if seen != lastSeen
 			Decide(seen)
 			slow = true
+			decided = true
 		endif
 		; A push or an answer takes several engine calls: a hit told meanwhile is read now,
 		; not a poll later.
@@ -142,8 +187,16 @@ Event OnTimer(int aiTimerID)
 		lastSeen = CMB_RamSeen.GetValue() as int
 		lastHit = CMB_RamHit.GetValue() as int
 	endif
+	if PushMeasureAfter > 0.0
+		MeasurePushes(false)
+	endif
 	if polling
-		StartTimer(PollInterval, TimerPoll)
+		if decided
+			; Test 43: the plugin's next ask comes a frame after this answer is read (AskAnswered).
+			StartTimer(PollAfterDecide, TimerPoll)
+		else
+			StartTimer(PollInterval, TimerPoll)
+		endif
 	endif
 EndEvent
 
@@ -292,6 +345,16 @@ Function KnockOver(int aiAsk)
 	if force > MaxForce
 		force = MaxForce
 	endif
+	if PushMeasureAfter > 0.0
+		; Test 43: where it stood, for the measurement (MeasurePushes).
+		pushed[pushedNext] = target
+		pushedNames[pushedNext] = name
+		pushedX[pushedNext] = target.GetPositionX()
+		pushedY[pushedNext] = target.GetPositionY()
+		pushedZ[pushedNext] = target.GetPositionZ()
+		pushedAt[pushedNext] = Utility.GetCurrentRealTime()
+		pushedNext = (pushedNext + 1) % pushed.Length
+	endif
 	PlayerRef.PushActorAway(target, force)
 	; The damage: CMB_RamDamage percent of its max health at 900, times speed / 900 held to
 	; 0.5-1.5, so 5% at the slowest and 15% at 1350 or faster with the default 10.
@@ -319,6 +382,28 @@ Function KnockOver(int aiAsk)
 	knockedAt[knockedNext] = Utility.GetCurrentRealTime()
 	knockedNext = (knockedNext + 1) % knocked.Length
 	Log("Ram: " + name + " knocked over at " + ((speed + 0.5) as int) + " a second (ask " + aiAsk + "): force " + Tenths(force) + ", " + Tenths(damage) + " damage, health " + Tenths(hp) + " -> " + Tenths(hp - damage) + ".")
+EndFunction
+
+; Test 43: each push PushMeasureAfter old or more (abNow: every one still waiting, at the ride's
+; end) logged with how far the actor has moved from where it stood at the push, in a straight
+; line: test 42's protectrons read No Knockdowns, and whether PushActorAway moves such a race (or a
+; hovering eyebot) isn't known. One that doesn't move says the robots need another way (a stagger,
+; or the plugin's brake as before CMB_RamRobots).
+Function MeasurePushes(bool abNow)
+	float now = Utility.GetCurrentRealTime()
+	int i = 0
+	while i < pushed.Length
+		Actor target = pushed[i]
+		if target && (abNow || now - pushedAt[i] >= PushMeasureAfter)
+			pushed[i] = None
+			float dx = target.GetPositionX() - pushedX[i]
+			float dy = target.GetPositionY() - pushedY[i]
+			float dz = target.GetPositionZ() - pushedZ[i]
+			float moved = Math.Sqrt(dx * dx + dy * dy + dz * dz)
+			Log("Ram: " + pushedNames[i] + " " + Tenths(now - pushedAt[i]) + " s after the push: moved " + ((moved + 0.5) as int) + " units.")
+		endif
+		i += 1
+	endwhile
 EndFunction
 
 ; A value of 0 or more to one decimal ("12.5"): Papyrus prints floats with six decimals.

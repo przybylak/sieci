@@ -42,7 +42,7 @@
 #define HEADLAMP_REF_LO_FORMID (0xFE000000u | (LIGHT_INDEX << 12) | 0x844u)
 #define LAMP_REF_FORMID       0xFF001234u   /* the light reference "the script placed" */
 #define RAM_FORMID            (0xFE000000u | (LIGHT_INDEX << 12) | 0x845u)   /* CMB_RamSeenHi, SeenLo, Seen, Ok, HitSpeed, Hit, Enemies, MinSpeed */
-#define ROOM_FORMID           (0xFE000000u | (LIGHT_INDEX << 12) | 0x84Fu)   /* CMB_RoomAskX, AskY, AskZ, Ask, Answer, Clear (the brought bike's spot, test 41) */
+#define ROOM_FORMID           (0xFE000000u | (LIGHT_INDEX << 12) | 0x84Fu)   /* CMB_RoomAskX, AskY, AskZ, Ask, Answer, Clear (the brought bike's spot, test 41), then CMB_RoomAskAngle (0x855, test 43: the spot's heading) */
 #define RAM_ACTOR_FORMID      0xFF004D69u   /* the actor ahead: a created reference (test 40's super mutant's id), all 32 bits */
 #define RAM_ACTOR2_FORMID     0xFF004D6Au   /* a second one, behind it (mode 11: the hits' spacing) */
 #define LAMP_REF2_FORMID      0xFF001235u   /* the fresh one of a handover (test 33) */
@@ -299,7 +299,9 @@ static void FakeGetVelocity(uint8_t *self, float *out) { (void)self; memcpy(out,
 /* slant: 0 = a vertical face; else the face rises away from the player at this many degrees
  * from the horizontal, its foot on the plane's line at ground level (test 37: a hillside of
  * 47 degrees, which the rays read between the axle and 1.5 radii as 47). */
-typedef struct { bool on; float point[2], normal[2]; uint32_t layer; float top, bottom, follow, slant; uint8_t *what; } FakePlane;
+/* halfWidth: 0 = the plane goes on for ever; else a hit more than this along its line from point is
+ * no hit (a post, a trunk: test 42's railing checks, mode 10). */
+typedef struct { bool on; float point[2], normal[2]; uint32_t layer; float top, bottom, follow, slant; uint8_t *what; float halfWidth; } FakePlane;
 static bool g_shelfOn;
 static float g_shelfHeight, g_shelfAhead, g_shelfRadius = 60.0f;   /* a disc this high over the ground (a hole this deep in it when negative: test 38), this far ahead of the player along their heading, of this radius */
 static uint32_t g_shelfLayer = 1;  /* the disc's layer, and its 3D (NULL: FakeShelf): test 39's radstag is layer 30, "SkeletonExport" */
@@ -369,20 +371,45 @@ static float ProfileHit(const float *a, const float *b)
 }
 static bool g_dropOn, g_frozen;   /* g_frozen: the movement can't move the player (stuck against something) */
 static float g_creepDrag;         /* rough ground: only the input above this moves the player */
+/* Mode 10's slides along a face (test 42): the speed for an input by the game's own curve (test
+ * 22's log, the plugin's kCurveIn/kCurveOut: 0.33 gives 0.17 of the top, 0.66 0.50), not the top
+ * times the input, so the Lead cap binds on a speed loss as it does in the game (with the
+ * straight line a throttle of 0.5 runs at 0.66 of the top, and the cap hardly ever binds). */
+static bool g_gameCurve;
+static float GameCurve(float in)
+{
+	static const float cin[] = { 0.00f, 0.10f, 0.16f, 0.33f, 0.51f, 0.66f, 0.85f, 0.95f, 1.00f };
+	static const float cout[] = { 0.00f, 0.097f, 0.116f, 0.170f, 0.302f, 0.499f, 0.774f, 0.912f, 1.00f };
+	if (!(in > 0.0f))
+		return 0.0f;
+	for (int i = 1; i < 9; i++)
+		if (in <= cin[i])
+			return cout[i - 1] + (in - cin[i - 1]) / (cin[i] - cin[i - 1]) * (cout[i] - cout[i - 1]);
+	return 1.0f;
+}
 static int g_pileCount;           /* a pile of clutter (layer 4): this many surfaces 5 apart above the ground, within 60 of g_pilePoint */
 static uint32_t g_pileLayer = 4;  /* ... of this layer, and this 3D (NULL: none): a pile of actors' surfaces (layer 30, test 40's review) */
 static uint8_t *g_pileWhat;
 static float g_pilePoint[2];
 static FakePlane g_planes[3];
+static bool g_fakeNormalBad;   /* mode 10 (test 42): the pick's hit normal written as zeros on every hit (a game that doesn't fill it) */
 /* Mode 10's stage-2 checks only (R4): plane i's top as a flat surface at its top over the
  * ground, from its face to this far past it (0: none, as everywhere else), seen by rays coming
  * down onto it (stage 2's rays down find a step's top there). */
 static float g_planeTopDepth[3];
 static float g_dropPoint[2], g_dropDir[2];
+static float g_dropDepth;   /* past the drop's edge the ground is this far below (layer 13; 0 = none, bottomless, as before test 43; test 42's landing) */
+static float g_landCutLeft;  /* the game's own landing cut (test 42: 881 -> 544 -> 398 in 0.4 s): the speed times 0.35 while this lasts */
 static uint8_t *g_wallObj, *g_groundObj, *g_shelfObj, *g_actorObj, g_fakeWorld[64];
-static uint8_t *g_ramGlobalsFake[8], *g_ramActor, *g_ramActor2, *g_actorObj2, *g_raceHuman, *g_raceMedium, *g_raceBig, *g_raceNoKnock;
-static uint8_t *g_roomGlobalsFake[6];   /* CMB_RoomAskX to CMB_RoomClear (test 41) */
+static uint8_t *g_ramGlobalsFake[8], *g_ramActor, *g_ramActor2, *g_actorObj2, *g_raceHuman, *g_raceMedium, *g_raceBig, *g_raceNoKnock, *g_raceEyebot;
+/* CMB_RamRobots (test 42's robots, 0x856): a BGSListForm (form type 0x5E, its BSTArray of forms at
+ * +0x20) holding ProtectronTestRace and EyebotTestRace; mode 11 only (the others are an ESP
+ * without it: the plugin says once that it isn't there). */
+static uint8_t *g_ramRobotsList, *g_ramRobotsEntries[2];
+static bool g_robotsHidden;
+static uint8_t *g_roomGlobalsFake[7];   /* CMB_RoomAskX to CMB_RoomClear (test 41), CMB_RoomAskAngle (test 43) */
 static bool g_roomHidden;               /* mode 11: an older ESP without them (the form lookup finds none) */
+static bool g_roomAngleHidden;          /* mode 15: test 42's ESP, the six without CMB_RoomAskAngle */
 static int g_picks;
 static void *FakePickCtor(uint8_t *pick)
 {
@@ -405,6 +432,7 @@ static uint8_t *FakeCellPick(uint8_t *cell, uint8_t *pick)
 	float t = 2.0f;
 	uint8_t *what = NULL;
 	uint32_t layer = 0;
+	float nrm[3] = { 0.0f, 0.0f, 0.0f };   /* the hit's surface normal, written at +0x70 as the game's pick has it (test 42) */
 	float den = (b[2] - a[2]) - g_slopeK * ((b[0] - a[0]) * g_slopeD[0] + (b[1] - a[1]) * g_slopeD[1]);
 	if (den != 0.0f || g_profileOn) {
 		float tg = g_profileOn ? ProfileHit(a, b) : (g_groundZ + g_slopeK * ((a[0] - g_slopeO[0]) * g_slopeD[0] + (a[1] - g_slopeO[1]) * g_slopeD[1]) - a[2]) / den;
@@ -421,6 +449,36 @@ static uint8_t *FakeCellPick(uint8_t *cell, uint8_t *pick)
 			t = tg;
 			what = g_groundObj;
 			layer = 13;
+			float k = g_slopeK;   /* the ground's rise per unit along g_slopeD there: the profile's own where it's on */
+			if (g_profileOn) {
+				float u = ProfileU(x, y);
+				k = ProfileZ(u + 0.5f) - ProfileZ(u - 0.5f);
+			}
+			float len = sqrtf(k * k + 1.0f);
+			nrm[0] = -k * g_slopeD[0] / len;
+			nrm[1] = -k * g_slopeD[1] / len;
+			nrm[2] = 1.0f / len;
+		}
+	}
+	if (g_dropOn && g_dropDepth > 0.0f && (den != 0.0f || g_profileOn)) {   /* the lower ground past the edge (test 42's landing) */
+		float z0 = g_groundZ;
+		g_groundZ = z0 - g_dropDepth;
+		float tl = g_profileOn ? ProfileHit(a, b) : (g_groundZ + g_slopeK * ((a[0] - g_slopeO[0]) * g_slopeD[0] + (a[1] - g_slopeO[1]) * g_slopeD[1]) - a[2]) / den;
+		g_groundZ = z0;
+		float x = a[0] + (b[0] - a[0]) * tl, y = a[1] + (b[1] - a[1]) * tl;
+		if (tl >= 0.0f && tl <= 1.0f && tl < t && (x - g_dropPoint[0]) * g_dropDir[0] + (y - g_dropPoint[1]) * g_dropDir[1] >= 0.0f) {
+			t = tl;
+			what = g_groundObj;
+			layer = 13;
+			float k = g_slopeK;
+			if (g_profileOn) {
+				float u = ProfileU(x, y);
+				k = ProfileZ(u + 0.5f) - ProfileZ(u - 0.5f);
+			}
+			float len = sqrtf(k * k + 1.0f);
+			nrm[0] = -k * g_slopeD[0] / len;
+			nrm[1] = -k * g_slopeD[1] / len;
+			nrm[2] = 1.0f / len;
 		}
 	}
 	if (g_kinkOn && b[2] != a[2]) {
@@ -430,6 +488,8 @@ static uint8_t *FakeCellPick(uint8_t *cell, uint8_t *pick)
 			t = tf;
 			what = g_groundObj;
 			layer = 13;
+			nrm[0] = nrm[1] = 0.0f;   /* the flat past the kink */
+			nrm[2] = 1.0f;
 		}
 	}
 	for (int i = 0; i < g_pileCount; i++) {
@@ -442,6 +502,8 @@ static uint8_t *FakeCellPick(uint8_t *cell, uint8_t *pick)
 			t = tp;
 			what = g_pileWhat;
 			layer = g_pileLayer;
+			nrm[0] = nrm[1] = 0.0f;
+			nrm[2] = 1.0f;
 		}
 	}
 	if (g_shelfOn && b[2] != a[2]) {
@@ -452,6 +514,8 @@ static uint8_t *FakeCellPick(uint8_t *cell, uint8_t *pick)
 			t = tp;
 			what = g_shelfWhat ? g_shelfWhat : g_shelfObj;
 			layer = g_shelfLayer;
+			nrm[0] = nrm[1] = 0.0f;   /* a disc's top (or a hole's floor) */
+			nrm[2] = 1.0f;
 		}
 	}
 	for (int i = 0; i < 3; i++) {
@@ -476,10 +540,22 @@ static uint8_t *FakeCellPick(uint8_t *cell, uint8_t *pick)
 			continue;   /* over the top of it */
 		if (w->bottom > 0.0f && z < g_groundZ + w->bottom)
 			continue;   /* under it */
+		if (w->halfWidth > 0.0f) {   /* a post: only so far along its line from point */
+			float x = a[0] + (b[0] - a[0]) * tp, y = a[1] + (b[1] - a[1]) * tp;
+			if (fabsf((x - point[0]) * -normal[1] + (y - point[1]) * normal[0]) > w->halfWidth)
+				continue;
+		}
 		if (tp < t) {
 			t = tp;
 			what = w->what ? w->what : w->layer == 12 ? NULL : g_wallObj;
 			layer = w->layer;
+			/* Its normal facing the player: level for a vertical face, tilted back by the slant
+			 * (slant s rises away at s from the horizontal: the surface's normal is the foot's
+			 * normal times sin s, up cos s; the planner's §1.1.3). */
+			float sn = w->slant > 0.0f ? sinf(w->slant / DEG) : 1.0f, cn = w->slant > 0.0f ? cosf(w->slant / DEG) : 0.0f;
+			nrm[0] = normal[0] * sn;
+			nrm[1] = normal[1] * sn;
+			nrm[2] = cn;
 		}
 	}
 	for (int i = 0; i < 3; i++) {   /* the planes' flat tops (mode 10's stage 2): a ray coming down onto one */
@@ -495,11 +571,16 @@ static uint8_t *FakeCellPick(uint8_t *cell, uint8_t *pick)
 			t = tp;
 			what = w->what ? w->what : g_wallObj;
 			layer = w->layer;
+			nrm[0] = nrm[1] = 0.0f;   /* a top */
+			nrm[2] = 1.0f;
 		}
 	}
 	*(int *)(pick + 0x60) = t <= 1.0f;
 	*(float *)(pick + 0x64) = t <= 1.0f ? t : 1.0f;
 	*(uint32_t *)(pick + 0xAC) = 0x12345600u | layer;   /* the layer in the low 7 bits */
+	if (t > 1.0f || g_fakeNormalBad)
+		nrm[0] = nrm[1] = nrm[2] = 0.0f;   /* no hit: zeros; mode 10's bad normal: zeros on hits too */
+	memcpy(pick + 0x70, nrm, sizeof(nrm));   /* result.normal (bhkPickData +0x60 +0x10), read raw by the plugin since test 42 */
 	*(void **)(pick + 0xC0) = g_fakeWorld;
 	g_picks++;
 	return what;
@@ -619,8 +700,10 @@ static uintptr_t FakeLookupFormByID(uint32_t id)
 		return g_collHidden ? 0 : (uintptr_t)g_collChar;
 	if (id >= RAM_FORMID && id < RAM_FORMID + 8)
 		return (uintptr_t)g_ramGlobalsFake[id - RAM_FORMID];
-	if (id >= ROOM_FORMID && id < ROOM_FORMID + 6)
-		return g_roomHidden ? 0 : (uintptr_t)g_roomGlobalsFake[id - ROOM_FORMID];
+	if (id == RAM_FORMID + 0x11)   /* CMB_RamRobots, 0x856 (the planner's correction: 0x855 is CMB_RoomAskAngle) */
+		return g_robotsHidden ? 0 : (uintptr_t)g_ramRobotsList;
+	if (id >= ROOM_FORMID && id < ROOM_FORMID + 7)
+		return g_roomHidden || (id == ROOM_FORMID + 6 && g_roomAngleHidden) ? 0 : (uintptr_t)g_roomGlobalsFake[id - ROOM_FORMID];
 	return id == SLOPE_GLOBAL_FORMID ? (uintptr_t)g_global : id == CAMERA_GLOBAL_FORMID ? (uintptr_t)g_cameraGlobal
 	     : id == TILT_GLOBAL_FORMID ? (uintptr_t)g_tiltGlobal : 0;
 }
@@ -766,9 +849,10 @@ static void BuildGame(void)
 	*(float *)(g_ramGlobalsFake[6] + 0x30) = 1.0f;     /* the MCM's defaults */
 	*(float *)(g_ramGlobalsFake[7] + 0x30) = 450.0f;
 	*(float *)(g_ramGlobalsFake[2] + 0x30) = 57.0f;    /* a save's: the plugin's asks go on from it */
-	static const char *room[6] = { "CMB_RoomAskX", "CMB_RoomAskY", "CMB_RoomAskZ", "CMB_RoomAsk", "CMB_RoomAnswer", "CMB_RoomClear" };
-	for (int i = 0; i < 6; i++)
+	static const char *room[7] = { "CMB_RoomAskX", "CMB_RoomAskY", "CMB_RoomAskZ", "CMB_RoomAsk", "CMB_RoomAnswer", "CMB_RoomClear", "CMB_RoomAskAngle" };
+	for (int i = 0; i < 7; i++)
 		g_roomGlobalsFake[i] = NewGlobal(ROOM_FORMID + (uint32_t)i, room[i]);
+	*(float *)(g_roomGlobalsFake[6] + 0x30) = -1000.0f;   /* the ESP's: no heading written (an older script) */
 	/* The collision layer records (test 36): the character controller's, with what it collides
 	 * with (Fallout4.esm's list: not clutter (4), bipeds (8), non-collidable (15), dead bipeds (32)
 	 * or navcut (49); test 37: the phantoms it does hold, spells (7), cloud traps (16), the
@@ -850,10 +934,10 @@ static void BuildGame(void)
 		static const char *actorNames[] = { ".?AVActor@@", ".?AVTESObjectREFR@@", ".?AVTESForm@@" };
 		static const char *raceNames[] = { ".?AVTESRace@@", ".?AVTESForm@@" };
 		void **vtActor = MakeClass(actorNames, 3), **vtRace = MakeClass(raceNames, 2);
-		uint8_t **races[4] = { &g_raceHuman, &g_raceMedium, &g_raceBig, &g_raceNoKnock };
-		static const char *raceIds[4] = { "HumanRace", "RaiderTestRace", "SupermutantBehemothRace", "ProtectronTestRace" };
-		static const uint32_t raceSizes[4] = { 1, 1, 3, 1 }, raceFlags[4] = { 0x3, 0x100, 0x100, 0x400100 };
-		for (int i = 0; i < 4; i++) {
+		uint8_t **races[5] = { &g_raceHuman, &g_raceMedium, &g_raceBig, &g_raceNoKnock, &g_raceEyebot };
+		static const char *raceIds[5] = { "HumanRace", "RaiderTestRace", "SupermutantBehemothRace", "ProtectronTestRace", "EyebotTestRace" };
+		static const uint32_t raceSizes[5] = { 1, 1, 3, 1, 0 }, raceFlags[5] = { 0x3, 0x100, 0x100, 0x400100, 0x400100 };
+		for (int i = 0; i < 5; i++) {
 			uint8_t *r = (uint8_t *)NewObject(vtRace, 0x800);
 			*(uint32_t *)(r + 0x14) = 0x00013746u + (uint32_t)i;
 			r[0x1A] = 0x11;
@@ -883,6 +967,18 @@ static void BuildGame(void)
 		*(uint8_t **)(g_ramActor2 + 0xF0) = actorLoaded2;
 		*(uint8_t **)(g_ramActor2 + 0x418) = g_raceMedium;
 		*(uint8_t **)(g_actorObj2 + 0x110) = g_ramActor2;
+		static const char *listNames[] = { ".?AVBGSListForm@@", ".?AVTESForm@@" };
+		g_ramRobotsList = (uint8_t *)NewObject(MakeClass(listNames, 2), 0x60);
+		*(uint32_t *)(g_ramRobotsList + 0x14) = RAM_FORMID + 0x11;
+		g_ramRobotsList[0x1A] = 0x5E;
+		uint8_t **entries = (uint8_t **)VirtualAlloc(NULL, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+		entries[0] = g_raceNoKnock;
+		entries[1] = g_raceEyebot;
+		g_ramRobotsEntries[0] = g_raceNoKnock;
+		g_ramRobotsEntries[1] = g_raceEyebot;
+		*(uint8_t ***)(g_ramRobotsList + 0x20) = entries;   /* BSTArray: entries, capacity, count */
+		*(uint32_t *)(g_ramRobotsList + 0x28) = 2;
+		*(uint32_t *)(g_ramRobotsList + 0x30) = 2;
 	}
 	static const char *cell[] = { ".?AVTESObjectCELL@@", ".?AVTESForm@@" };
 	*(void **)(g_player + 0xB8) = NewObject(MakeClass(cell, 2), 0x200);
@@ -2359,6 +2455,12 @@ static void FakeGameFrame(float dt)
 		speed = 0.0f;
 	if (speed > 0.0f)
 		speed = speed > 2.0f * g_creepDrag ? speed - 2.0f * g_creepDrag : 0.0f;   /* the output is 2 x the input */
+	if (g_gameCurve && speed > 0.0f)
+		speed = 2.0f * GameCurve(0.5f * speed);   /* mode 10's slides (test 42) */
+	if (g_landCutLeft > 0.0f) {   /* the game's own landing cut (test 42's landing, mode 0) */
+		speed *= 0.35f;
+		g_landCutLeft -= dt;
+	}
 	PlayerPos()[0] += sinf(dir) * speed * 450.0f * dt;
 	PlayerPos()[1] += cosf(dir) * speed * 450.0f * dt;
 	float *mod = (float *)(g_controller + 0x180), *t = (float *)(g_controller + 0x308);
@@ -2832,7 +2934,11 @@ static void InputTests(void)
 	Keys(0.0f, 0.0f);
 	RunFrames(300);
 
-	printf("input hook: a wall 400 behind:\n");
+	/* Test 42 (backing too early): the rear's clearance is the rear tyre's back edge by the parts
+	 * file plus BackMargin (BackClearance=0, the default since test 43): 36.7 + 29.9 + 25 = 91.6
+	 * here, the knee and chest rays ending a step past it; test 16's 150 without a parts file. */
+	const float clear = 36.7f + 29.9f + 25.0f;
+	printf("input hook: a wall 400 behind (the rear's clearance %.1f from the parts file: the tyre's back edge 66.6 + 25, the rays a step past it):\n", clear);
 	float back[2] = { -sinf(from), -cosf(from) }, right[2] = { cosf(from), -sinf(from) };
 	Mark(p0);
 	FakePlane *wall = &g_planes[0];
@@ -2845,7 +2951,7 @@ static void InputTests(void)
 	Keys(0.0f, -1.0f);
 	RunFrames(6000);
 	float gap = (PlayerPos()[0] - wall->point[0]) * wall->normal[0] + (PlayerPos()[1] - wall->point[1]) * wall->normal[1];
-	CHECK(Moved(p0) > 150.0f && gap > 145.0f && gap < 195.0f, "backs up %.0f and stops %.0f short of the wall (BackClearance 150)", Moved(p0), gap);
+	CHECK(Moved(p0) > 290.0f && gap > 87.0f && gap < 100.0f, "backs up %.0f and stops %.0f short of the wall (the clearance 92 from the parts file: the tyre's back edge 66.6 + 25, the rays a step past it; test 42's build: 145 to 195, BackClearance 150)", Moved(p0), gap);
 	Keys(0.0f, 0.0f);
 	RunFrames(300);
 	wall->on = false;
@@ -3225,10 +3331,10 @@ static void InputTests(void)
 	RunFrames(300);
 	can->on = false;
 
-	printf("input hook: a pile of six bits of clutter 150 behind (the ray under the rear goes down through them):\n");
+	printf("input hook: a pile of six bits of clutter at the rear's clearance, 92 behind (the ray under the rear goes down through them):\n");
 	Mark(p0);
-	g_pilePoint[0] = p0[0] + back[0] * 150.0f;
-	g_pilePoint[1] = p0[1] + back[1] * 150.0f;
+	g_pilePoint[0] = p0[0] + back[0] * clear;
+	g_pilePoint[1] = p0[1] + back[1] * clear;
 	g_pileCount = 6;
 	Keys(0.0f, -1.0f);
 	RunFrames(2500);
@@ -3249,7 +3355,7 @@ static void InputTests(void)
 	Keys(0.0f, -1.0f);
 	RunFrames(4000);
 	gap = (PlayerPos()[0] - fence->point[0]) * fence->normal[0] + (PlayerPos()[1] - fence->point[1]) * fence->normal[1];
-	CHECK(gap > 145.0f && gap < 195.0f, "stops %.0f short of it", gap);
+	CHECK(gap > 87.0f && gap < 100.0f, "stops %.0f short of it (the clearance 92 from the parts file: the tyre's back edge 66.6 + 25, the rays a step past it)", gap);
 	Keys(0.0f, 0.0f);
 	RunFrames(300);
 	fence->on = false;
@@ -3342,7 +3448,7 @@ static void InputTests(void)
 	Keys(1.0f, -1.0f);
 	RunFrames(2000);
 	float turnedBy = Turned(from), h1 = *head;
-	float corner[2] = { PlayerPos()[0] - sinf(h1) * 150.0f + cosf(h1) * 20.0f, PlayerPos()[1] - cosf(h1) * 150.0f - sinf(h1) * 20.0f };
+	float corner[2] = { PlayerPos()[0] - sinf(h1) * clear + cosf(h1) * 20.0f, PlayerPos()[1] - cosf(h1) * clear - sinf(h1) * 20.0f };   /* the right knee ray's end, the rear's clearance back (test 42: 92, not 150) */
 	float inside = (corner[0] - car->point[0]) * car->normal[0] + (corner[1] - car->point[1]) * car->normal[1];
 	CHECK(turnedBy > -12.0f && turnedBy < -1.0f && inside > -0.5f,   /* the corner lands on the car's face itself: a rounding's worth either side (one run in three read -0.0) */
 	      "the rear swings right until its corner reaches the car (%.1f deg, %.1f units clear), not into it", turnedBy, inside);
@@ -3374,7 +3480,7 @@ static void InputTests(void)
 	Keys(0.0f, -1.0f);
 	RunFrames(5000);
 	float edge = (g_dropPoint[0] - PlayerPos()[0]) * back[0] + (g_dropPoint[1] - PlayerPos()[1]) * back[1];
-	CHECK(Moved(p0) > 50.0f && edge > 135.0f && edge < 195.0f, "backs up %.0f and stops %.0f short of the edge (the rear wheel at it)", Moved(p0), edge);
+	CHECK(Moved(p0) > 50.0f && edge > 88.0f && edge < 100.0f, "backs up %.0f and stops %.0f short of the edge (the rear wheel 25 short of it: the clearance 92 from the parts file, the tyre's back edge 66.6 + 25, the rays a step past it)", Moved(p0), edge);
 	Keys(0.0f, 0.0f);
 	RunFrames(300);
 	g_dropOn = false;
@@ -3969,6 +4075,152 @@ static float WristOffGrip(void)
 	memcpy(W, g_bodyNodes[5] + 0xA0, 12);
 	GripWorld(G);
 	return Dist3(W, G);
+}
+
+/* Test 42's landing (new 3: off a high ledge with W held the bike nearly stopped for 1.4 s, and
+ * the suspension stayed extended): the game's frame, then past the drop's edge (g_dropOn with
+ * g_dropDepth) the player falls at 686 units/s^2, state 2, until the lower ground, where it's
+ * state 0 again and the game's own landing cut (the speed times 0.35 for 0.45 s) begins; frozen
+ * from the landing for g_landFreeze seconds when that's set (a landing against something). In
+ * the frames after the landing it notes the input, the wheels' travels and the seat. */
+static bool g_landFalling, g_landed;
+static float g_landClock, g_landedAt, g_landV, g_landFallSpeed, g_landFreeze;
+static float g_landMinIn05, g_landMinIn04, g_landIn06, g_landPeakF, g_landPeakR, g_landSeatLow, g_landF06, g_landR06, g_landSeat06;
+static float g_landPos05[2], g_landPos075[2], g_landFreedPos[2], g_landFreed025[2], g_landT05, g_landT075, g_landTravelMax;
+static bool g_landHave05, g_landHave075, g_landHave06, g_landFreed, g_landHaveFreed025;
+static int g_landHeld0, g_landHeld075;   /* the "held to the measured speed" words in the log at the landing and 0.75 s after it */
+static float g_hopMinIn, g_hopTravelOff, g_hopRef[2];   /* the short hop's frames: the least input, the travels' most off where they were */
+static bool g_hopOn;
+static void LandingReset(void)
+{
+	g_landFalling = g_landed = false;
+	g_landV = g_landFallSpeed = 0.0f;
+	g_landMinIn05 = g_landMinIn04 = g_landIn06 = 2.0f;
+	g_landPeakF = g_landPeakR = -100.0f;
+	g_landSeatLow = 100.0f;
+	g_landF06 = g_landR06 = g_landSeat06 = g_landTravelMax = 0.0f;
+	g_landHeld0 = g_landHeld075 = -1;
+	g_landHave05 = g_landHave075 = g_landHave06 = g_landFreed = g_landHaveFreed025 = false;
+}
+static void LandingFrame(float dt)
+{
+	FakeGameFrame(dt);
+	g_landClock += dt;
+	float *p = PlayerPos();
+	if (g_hopOn) {
+		if (MoveInput()[1] < g_hopMinIn)
+			g_hopMinIn = MoveInput()[1];
+		float off = fmaxf(fabsf(WheelTravel(0) - g_hopRef[0]), fabsf(WheelTravel(1) - g_hopRef[1]));
+		if (off > g_hopTravelOff)
+			g_hopTravelOff = off;
+	}
+	bool past = g_dropOn && (p[0] - g_dropPoint[0]) * g_dropDir[0] + (p[1] - g_dropPoint[1]) * g_dropDir[1] >= 0.0f;
+	if (past && !g_landed && g_dropDepth > 0.0f) {
+		float floor = g_groundZ - g_dropDepth;
+		if (!g_landFalling) {
+			g_landFalling = true;
+			g_landV = 0.0f;
+			SetState(2);
+		}
+		g_landV += 686.0f * dt;
+		p[2] -= g_landV * dt;
+		if (p[2] <= floor) {
+			p[2] = floor;
+			g_landFalling = false;
+			g_landed = true;
+			g_landedAt = g_landClock;
+			g_landFallSpeed = g_landV;
+			SetState(0);
+			g_landCutLeft = 0.45f;
+			if (g_landFreeze > 0.0f)
+				g_frozen = true;
+			g_landHeld0 = LogLines(", held to the measured speed");
+		}
+		return;
+	}
+	if (!g_landed)
+		return;
+	float since = g_landClock - g_landedAt, in = MoveInput()[1];
+	g_landTravelMax = fmaxf(g_landTravelMax, fmaxf(fabsf(WheelTravel(0)), fabsf(WheelTravel(1))));
+	if (since < 0.5f && in < g_landMinIn05)
+		g_landMinIn05 = in;
+	if (since < 0.4f && in < g_landMinIn04)
+		g_landMinIn04 = in;
+	if (since >= 0.6f && !g_landHave06) {
+		g_landHave06 = true;
+		g_landIn06 = in;
+		g_landF06 = WheelTravel(0);
+		g_landR06 = WheelTravel(1);
+		g_landSeat06 = SeatLift();
+	}
+	if (since < 0.15f) {
+		g_landPeakF = fmaxf(g_landPeakF, WheelTravel(0));
+		g_landPeakR = fmaxf(g_landPeakR, WheelTravel(1));
+	}
+	if (since < 0.6f && SeatLift() < g_landSeatLow)
+		g_landSeatLow = SeatLift();
+	if (since >= 0.5f && !g_landHave05) {
+		g_landHave05 = true;
+		g_landT05 = since;
+		g_landPos05[0] = p[0];
+		g_landPos05[1] = p[1];
+	}
+	if (since >= 0.75f && !g_landHave075) {
+		g_landHave075 = true;
+		g_landT075 = since;
+		g_landPos075[0] = p[0];
+		g_landPos075[1] = p[1];
+		g_landHeld075 = LogLines(", held to the measured speed");
+	}
+	if (g_landFreeze > 0.0f && !g_landFreed && since >= g_landFreeze) {
+		g_landFreed = true;
+		g_frozen = false;
+		g_landFreedPos[0] = p[0];
+		g_landFreedPos[1] = p[1];
+	}
+	if (g_landFreed && !g_landHaveFreed025 && since >= g_landFreeze + 0.25f) {
+		g_landHaveFreed025 = true;
+		g_landFreed025[0] = p[0];
+		g_landFreed025[1] = p[1];
+	}
+}
+
+/* A drop of 180 (0.72 s from rest at 686 units/s^2, 497 a second at the landing) 150 ahead of
+ * the player along the heading, ridden off at the top speed with W held (from rest: Accel's 3 s
+ * to the top): 0.17 s to the edge, the fall, 1.3 s after the landing. In one RunFrames: each
+ * call's first frame starts its clock afresh, so 50 ms calls lose a frame's time in ten and the
+ * fake's fall runs 10% slow by the wall clock the plugin keeps. */
+static void LandingDrop(void)
+{
+	float h = PlayerHeading();
+	g_dropPoint[0] = PlayerPos()[0] + sinf(h) * 150.0f;
+	g_dropPoint[1] = PlayerPos()[1] + cosf(h) * 150.0f;
+	g_dropDir[0] = sinf(h);
+	g_dropDir[1] = cosf(h);
+	g_dropDepth = 180.0f;
+	g_dropOn = true;
+	LandingReset();
+	RunFrames(2300);
+}
+static void LandingDone(void)
+{
+	Keys(0.0f, 0.0f);
+	RunFrames(100);
+	g_dropOn = false;
+	g_dropDepth = 0.0f;
+	g_frozen = false;
+	g_landFreeze = 0.0f;
+	g_landCutLeft = 0.0f;
+	FlatGround();   /* the lower ground the ground now */
+	RunFrames(200);
+}
+static void LandingGetOffAndOn(void)
+{
+	Keys(0.0f, 0.0f);
+	SetTilt(0.0f);
+	RunFrames(300);
+	SetTilt(30.0f);
+	RunFrames(600);
 }
 
 static void TiltTests(void)
@@ -5402,6 +5654,101 @@ static void TiltTests(void)
 		g_pileLayer = 4;
 		g_pileWhat = NULL;
 		RunFrames(500);
+		/* Test 42, new 3: "jumping off a high ledge, the bike stops for a second where it should
+		 * sink on the suspension and carry on" (881 -> 544 -> 398 within 0.4 s of a 1.0 s fall,
+		 * the Lead cap following the game's own landing cut down; the suspension extended). A
+		 * drop of 180 at the top speed with W held: 0.72 s in the air, 497 a second at the
+		 * landing, so a sink of 10 x 497/700 = 7.1 at the front and 4 (SuspCompressRear) at the
+		 * rear, 4.8 at the seat (the axles 99.6 and -36.7); the game's cut, the speed times 0.35
+		 * for 0.45 s, played by the fake. */
+		printf("landing (test 42, new 3): a short hop (0.2 s in the air, no fall) at the top speed with W held: no landing:\n");
+		float turnRadius0 = *(float *)(g_turnRadius + 0x30), turnSlow0 = *(float *)(g_turnSlow + 0x30), turnStand0 = *(float *)(g_turnStand + 0x30);
+		*(float *)(g_turnRadius + 0x30) = 180.0f;   /* steering on: the input hook (and the throttle) with it */
+		*(float *)(g_turnSlow + 0x30) = 50.0f;
+		*(float *)(g_turnStand + 0x30) = 60.0f;
+		g_camYaw = PlayerHeading();
+		g_handlerStyle = 2;
+		g_honour = 4;
+		SetNormal(0.0f, 0.0f, 1.0f);
+		FlatGround();
+		SetState(0);
+		g_landClock = 0.0f;
+		g_landFreeze = 0.0f;
+		g_onFrame = LandingFrame;
+		Keys(0.0f, 1.0f);
+		RunFrames(3000);   /* up to the top (Accel 3 s) */
+		float fullIn = MoveInput()[1], seat0 = SeatLift();
+		int landLines = LogLines("s in the air, the fall ");
+		g_hopRef[0] = WheelTravel(0);
+		g_hopRef[1] = WheelTravel(1);
+		g_hopMinIn = 2.0f;
+		g_hopTravelOff = 0.0f;
+		g_hopOn = true;
+		SetState(2);
+		RunFrames(200);
+		SetState(0);
+		RunFrames(300);
+		g_hopOn = false;
+		CHECK(LogLines("s in the air, the fall ") == landLines, "no \"landing:\" line after 0.2 s in the air (LandAir 0.3)");
+		CHECK(g_hopTravelOff < 0.5f && g_hopMinIn >= 0.97f * fullIn, "the travels within %.2f of where they were, the input %.3f at least (%.3f full)", g_hopTravelOff, g_hopMinIn, fullIn);
+		printf("landing: off the 180 drop at the top speed, W held (LandHold 0.5, LandSink 1, LandSpeed 700): the throttle kept, the frame sunk on the suspension:\n");
+		int overLines = LogLines("landing: the hold over after "), sunkLines = LogLines("the frame sunk ");
+		LandingDrop();
+		CHECK(g_landed && LogLines("s in the air, the fall ") == landLines + 1, "one landing line (%d)", LogLines("s in the air, the fall ") - landLines);
+		float airLogged = LastLogNumber("landing: "), fallLogged = LastLogNumber("s in the air, the fall ");
+		CHECK(fabsf(airLogged - 0.72f) < 0.08f && fabsf(fallLogged - 497.0f) < 40.0f, "it reads %.2f s in the air (0.72) and the fall %.0f a second (497 within 40; the fake's %.0f)", airLogged, fallLogged, g_landFallSpeed);
+		CHECK(LogLines("the frame sunk ") == sunkLines + 1 && LogLines("the throttle kept at ") > 0, "the line's throttle kept and frame sunk words");
+		CHECK(g_landMinIn05 >= 0.97f * fullIn, "the input %.3f at least in the half second after the landing (%.3f full: the Lead cap off)", g_landMinIn05, fullIn);
+		float lateSpeed = g_landHave05 && g_landHave075 && g_landT075 > g_landT05 ? hypotf(g_landPos075[0] - g_landPos05[0], g_landPos075[1] - g_landPos05[1]) / (g_landT075 - g_landT05) : 0.0f;
+		CHECK(lateSpeed > 800.0f, "+0.5 to +0.75 s: %.0f a second (the game's cut over at 0.45 s; test 42's build was at 398 at +0.39 s and 90%% only at +1.41 s)", lateSpeed);
+		CHECK(g_landHeld0 >= 0 && g_landHeld075 == g_landHeld0, "no \"held to the measured speed\" in the throttle's trace lines within 0.75 s of the landing (%d new)", g_landHeld075 - g_landHeld0);
+		CHECK(g_landPeakF > 6.3f && g_landPeakF < 7.9f && g_landPeakR > 3.2f && g_landPeakR < 4.2f,
+		      "the wheels' travels at their most within 0.15 s: front %+.1f (7.1), rear %+.1f (4; each 0.93 of its sink behind the 0.03 s compression, give or take the pitch's own 0.3 deg settling)", g_landPeakF, g_landPeakR);
+		CHECK(g_landHave06 && fabsf(g_landF06) < 1.0f && fabsf(g_landR06) < 1.0f && fabsf(g_landSeat06 - seat0) < 1.0f,
+		      "by +0.6 s settled: the travels %+.1f and %+.1f, the seat %+.1f from its height", g_landF06, g_landR06, g_landSeat06 - seat0);
+		CHECK(seat0 - g_landSeatLow > 4.5f && seat0 - g_landSeatLow < 6.5f, "the seat's lowest %.1f below its height (4.8 at the rider: the sink between the wheels)", seat0 - g_landSeatLow);
+		CHECK(LogLines("landing: the hold over after ") == overLines + 1, "one \"the hold over\" line");
+		LandingDone();
+		printf("landing: LandHold=0 and LandSink=0 rewritten, off and on again: test 42's build (the cap follows the cut down, the frame not sunk):\n");
+		RewriteIni("LandHold=0.5", "LandHold=0");
+		RewriteIni("LandSink=1", "LandSink=0");
+		LandingGetOffAndOn();
+		landLines = LogLines("s in the air, the fall ");
+		int asBefore = LogLines("the throttle held to the measured speed as before (LandHold=0), not sunk (LandSink=0)");
+		Keys(0.0f, 1.0f);
+		RunFrames(3000);
+		fullIn = MoveInput()[1];
+		LandingDrop();
+		int heldLater = LogLines(", held to the measured speed");
+		CHECK(g_landed && LogLines("s in the air, the fall ") == landLines + 1 && LogLines("the throttle held to the measured speed as before (LandHold=0), not sunk (LandSink=0)") == asBefore + 1,
+		      "one landing line, \"the throttle held to the measured speed as before (LandHold=0), not sunk (LandSink=0)\"");
+		CHECK(g_landMinIn04 < 0.85f * fullIn && g_landHeld0 >= 0 && heldLater > g_landHeld0, "the input down to %.3f within 0.4 s of the landing (under 0.85 of %.3f), \"held to the measured speed\" in %d trace lines since",
+		      g_landMinIn04, fullIn, heldLater - g_landHeld0);
+		CHECK(g_landTravelMax < 1.5f, "the travels %.1f at most after the landing (not sunk)", g_landTravelMax);
+		LandingDone();
+		printf("landing: LandHold=0.5 and LandSink=1 again, the drop against something (frozen from the landing for 1 s): the hold ends at LandStop, no lunge after:\n");
+		RewriteIni("LandHold=0", "LandHold=0.5");
+		RewriteIni("LandSink=0", "LandSink=1");
+		LandingGetOffAndOn();
+		int endedLines = LogLines("under 0.25 of the top (stopped by something)");
+		Keys(0.0f, 1.0f);
+		RunFrames(3000);
+		fullIn = MoveInput()[1];
+		g_landFreeze = 1.0f;
+		LandingDrop();
+		float endedAfter = LastLogNumber("landing: the hold ended after ");
+		CHECK(LogLines("under 0.25 of the top (stopped by something)") == endedLines + 1 && endedAfter < 0.35f,
+		      "one \"the hold ended after %.2f s: the speed along ... under 0.25 of the top (stopped by something)\" line, within 0.35 s (0.28: the filtered speed's 0.2 s)", endedAfter);
+		CHECK(g_landHave06 && g_landIn06 < 0.5f * fullIn, "the input %.3f at +0.6 s (under half of %.3f: the cap back)", g_landIn06, fullIn);
+		float freedSpeed = g_landHaveFreed025 ? hypotf(g_landFreed025[0] - g_landFreedPos[0], g_landFreed025[1] - g_landFreedPos[1]) * 4.0f : -1.0f;
+		CHECK(freedSpeed > 50.0f && freedSpeed < 450.0f, "freed after 1 s: %.0f a second in the first quarter second (no lunge: under 450)", freedSpeed);
+		LandingDone();
+		g_onFrame = NULL;
+		g_landClock = 0.0f;
+		*(float *)(g_turnRadius + 0x30) = turnRadius0;   /* steering as it was */
+		*(float *)(g_turnSlow + 0x30) = turnSlow0;
+		*(float *)(g_turnStand + 0x30) = turnStand0;
+		RunFrames(300);
 		RewriteIni("Suspension=1", "Suspension=0");
 		RewriteIni("BumpMax=30", "BumpMax=0");
 		RewriteIni("LiftRate=120", "LiftRate=0");
@@ -6021,6 +6368,11 @@ static int g_capKind[3];
 static float g_capDepth[3];     /* how far the thing reaches past its face, for when the axis is past it */
 static float g_feetLift;        /* the feet over the ground: onto what the capsule climbed */
 static int g_capHeld;           /* frames the capsule was held at a face it couldn't climb */
+/* Test 42's railing (new 1): held at a face, the capsule slides along it, the push into it taken
+ * off; the game kept about 0.4 of the speed along it, a trace line (0.25 s) after the contact
+ * (850 -> 358, 683 -> 338 with the input at full): the motion along the face is kept at this
+ * share while in contact (1: all of it, the frictionless slide every other check rides). */
+static float g_capSlip = 1.0f;
 static float GroundZAt(float x, float y)
 {
 	float u = (x - g_slopeO[0]) * g_slopeD[0] + (y - g_slopeO[1]) * g_slopeD[1];
@@ -6056,6 +6408,11 @@ static void CapsuleStop(const float before[2])
 		if (s < CAPSULE_R) {   /* held at the contact */
 			p[0] += w->normal[0] * (CAPSULE_R - s);
 			p[1] += w->normal[1] * (CAPSULE_R - s);
+			if (g_capSlip < 1.0f) {   /* the game's loss along it (test 42) */
+				float tx = -w->normal[1], ty = w->normal[0], m = (p[0] - before[0]) * tx + (p[1] - before[1]) * ty;
+				p[0] -= (1.0f - g_capSlip) * m * tx;
+				p[1] -= (1.0f - g_capSlip) * m * ty;
+			}
 		}
 		if (a <= acosf(*Slope()) + 1e-4f)
 			up += push * sinf(a) * cosf(a);   /* within the limit: slid up it */
@@ -6271,6 +6628,313 @@ static void ClimbStepTests(void)
 	RewriteIni("ClimbStep=0", "ClimbStep=1");
 	GetOffAndOn(45.0f);
 	g_camYaw = *head;
+}
+
+/* Riding beside a railing (test 42, new 1: a rail beside the bike, the heading a few degrees into
+ * it, read as a wall or an obstacle ahead, and the speed went 897 -> 359 and 909 -> 31; plan S1).
+ * Each plane a tall face (FakeWall, layer 1) whose line crosses the heading `cross` ahead of the
+ * player, `deg` off it, the face on the left and facing the bike, the pick's normal written for
+ * it; the capsule held at it and kept at g_capSlip of its motion along it (0.4 here: the game's
+ * 850 -> 358 a trace line after the contact), and in the slides the speed by the game's curve
+ * (g_gameCurve), so the Lead cap follows the speed down as it did in the game: without the hold
+ * the fake reads 898 -> 752 -> 604 -> 342 -> 217 -> 162 a quarter second apart, test 42's 909 ->
+ * 818 -> 481 -> 251 -> 110 -> 31. The checks: a face across the way is a wall as before; one at
+ * 10 deg is alongside, left alone, and the slide along it held from the Lead cap for SlideHold;
+ * SlideHold=0, FaceAlong=0, FaceAlongRays=0 and a normal of zeros each as the plan says. */
+static FakePlane *g_alongW;
+static float g_alongU[2];               /* the face's line, the way the bike goes along it */
+static float g_alongLeast;              /* the least output speed (2 x the input) while the capsule was clear of it */
+static float g_alongContact[2];         /* where the capsule first touched it */
+static bool g_alongTouched;
+/* The slide's timeline (AlongSlide), in the frames' own time so no read of the log falls between
+ * the contact and the second after it (a read takes real time the fake doesn't ride, and the
+ * plugin's measured speed dips for that frame; so does every RunFrames call's last sleep, a third
+ * of the time in calls of 10 ms): from the contact, the camera turned 30 deg away from the face
+ * at 0.6 s, the input and the cap's lines read at 0.8 s, how far along it at 1 s. */
+static bool g_alongTimeline;
+static float g_alongT, g_alongTc, g_alongInput08, g_alongWent;
+static int g_alongCapped08, g_alongLinesAtContact;
+static void AlongFrame(float dt)
+{
+	ClimbFrame(dt);
+	if (!g_alongW || !g_alongW->on)
+		return;
+	g_alongT += dt;
+	if (FaceGap(g_alongW) < CAPSULE_R + 0.5f) {
+		if (!g_alongTouched) {
+			g_alongTouched = true;
+			g_alongTc = g_alongT;
+			g_alongContact[0] = PlayerPos()[0];
+			g_alongContact[1] = PlayerPos()[1];
+			if (g_alongTimeline)
+				g_alongLinesAtContact = LogLines("rays: a face alongside, 10 deg off the heading: ");   /* its time not ridden: the hold (if any) starts at once */
+		}
+	} else if (!g_alongTouched) {
+		float out = 2.0f * hypotf(MoveInput()[0], MoveInput()[1]);
+		if (out < g_alongLeast)
+			g_alongLeast = out;
+	}
+	if (!g_alongTimeline || !g_alongTouched)
+		return;
+	float since = g_alongT - g_alongTc;
+	if (since >= 0.6f && since - dt < 0.6f)
+		g_camYaw = PlayerHeading() + 30.0f / DEG;   /* away from the face, on the left */
+	if (since >= 0.8f && since - dt < 0.8f) {
+		g_alongInput08 = hypotf(MoveInput()[0], MoveInput()[1]);
+		g_alongCapped08 = LogLines("held to the measured speed");   /* the hold's second ends 1 s on (the plugin's clock); its read's time not ridden, harmless now */
+	}
+	if (since >= 1.0f && since - dt < 1.0f)
+		g_alongWent = (PlayerPos()[0] - g_alongContact[0]) * g_alongU[0] + (PlayerPos()[1] - g_alongContact[1]) * g_alongU[1];
+}
+/* Plane i as above; halfWidth 0 (a face that goes on) or a post's; kind: the capsule's (CAP_NONE: the rays' alone). */
+static FakePlane *AlongPlane(int i, float cross, float deg, float halfWidth, int kind)
+{
+	FakePlane *w = &g_planes[i];
+	float h = PlayerHeading(), f[2] = { sinf(h), cosf(h) }, r[2] = { cosf(h), -sinf(h) }, sb = sinf(deg / DEG), cb = cosf(deg / DEG);
+	memset(w, 0, sizeof(*w));
+	w->point[0] = PlayerPos()[0] + f[0] * cross;
+	w->point[1] = PlayerPos()[1] + f[1] * cross;
+	w->normal[0] = -sb * f[0] + cb * r[0];   /* the face on the left: its normal points back and to the right */
+	w->normal[1] = -sb * f[1] + cb * r[1];
+	w->layer = 1;
+	w->halfWidth = halfWidth;
+	w->on = true;
+	g_capKind[i] = kind;
+	g_capDepth[i] = 400.0f;
+	g_planeTopDepth[i] = 0.0f;
+	g_capHeld = 0;
+	g_alongU[0] = cb * f[0] + sb * r[0];
+	g_alongU[1] = cb * f[1] + sb * r[1];
+	g_alongW = w;
+	g_alongTouched = false;
+	g_alongLeast = 9.0f;
+	return w;
+}
+static float AlongAhead(const FakePlane *w)   /* the player's axis to the face's line along the heading */
+{
+	float h = PlayerHeading(), c = -(w->normal[0] * sinf(h) + w->normal[1] * cosf(h));
+	return c > 0.01f ? FaceGap(w) / c : 1e9f;
+}
+static void AlongClear(void)
+{
+	ClearObstacles();
+	g_alongW = NULL;
+}
+static float AlongStill(void)   /* moved in a quarter second */
+{
+	float p0[2];
+	Mark(p0);
+	RunFrames(250);
+	return Moved(p0);
+}
+static int AlongVerdicts(void)   /* the face rays' lines for a wall or an obstacle ahead */
+{
+	return LogLines("rays: a wall ahead (") + LogLines("an obstacle ahead (") + LogLines("an obstacle lower than 1.5 wheel radii ahead (");
+}
+/* On afresh, W held from rest for ms (3.5 s: the top, 900). */
+static void AlongOn(int ms)
+{
+	GetOffAndOn(45.0f);
+	g_camYaw = PlayerHeading();
+	Keys(0.0f, 1.0f);
+	RunFrames(ms);
+}
+/* The 10 deg face placed 325 ahead (the bike at 900) and W held 1.5 s (the contact 0.25 s on), the
+ * camera turned 30 deg away from it 0.6 s after the contact (AlongFrame's timeline). Returns how far
+ * along the face's line the bike went in the second after the contact (-1: no contact), with the
+ * input the plugin wrote 0.8 s after it (past the cap's fall, before the hold's end), the "held to
+ * the measured speed" lines by then and the alongside lines by the contact. The log is read
+ * before the face is placed and 0.4 s ridden after, the plugin's measured speed back from the
+ * reads' dip (by a fifth with the log this long: under 0.8 of the top it binds the cap). */
+static float AlongSlide(float *input, int *capped, int *alongBefore)
+{
+	int along0 = LogLines("rays: a face alongside, 10 deg off the heading: "), cap0 = LogLines("held to the measured speed");
+	RunFrames(400);
+	AlongPlane(0, 325.0f, 10.0f, 0.0f, CAP_STEP);
+	g_alongT = 0.0f;
+	g_alongInput08 = -1.0f;
+	g_alongCapped08 = cap0;
+	g_alongLinesAtContact = along0;
+	g_alongWent = -1.0f;
+	g_alongTimeline = true;
+	RunFrames(1500);
+	g_alongTimeline = false;
+	*alongBefore = g_alongLinesAtContact - along0;
+	*input = g_alongInput08;
+	*capped = g_alongCapped08 - cap0;
+	return g_alongTouched && g_alongT - g_alongTc >= 1.0f ? g_alongWent : -1.0f;
+}
+
+static void AlongTests(void)
+{
+	float moved, ahead;
+	g_onFrame = AlongFrame;
+	g_capSlip = 0.4f;
+
+	printf("railing (test 42, new 1): FaceAlong 30 with the rays either side, SlideHold 1 s; a tall face whose line crosses the heading 400 ahead at 60 deg (across the way), W held from rest 3.5 s: a wall, stopped short of it as before, the ride's normal line \"usable\":\n");
+	{
+		AlongOn(0);
+		CHECK(LogLines("a face whose line lies under 30 deg off the heading by the pick's hit normal is alongside and left alone (FaceAlong), if two rays at axle height either side confirm it") >= 1 &&
+		      LogLines("the throttle held at what it was for up to 1 s instead of capped to the measured speed (SlideHold)") >= 1,
+		      "the steer settings line names FaceAlong 30 with the rays (FaceAlongRays=1) and SlideHold 1 s");
+		RunFrames(3500);
+		int wall0 = LogLines("rays: a wall ahead ("), along0 = LogLines("a face alongside"), slide0 = LogLines("slide: "), normal0 = LogLines("rays: the pick's hit normal at the first face (");
+		int usable0 = LogLines("length 1.000, 60 deg off the heading, the rays' slope 90: usable");
+		FakePlane *w = AlongPlane(0, 400.0f, 60.0f, 0.0f, CAP_STEP);
+		RunFrames(2500);
+		moved = AlongStill();
+		ahead = AlongAhead(w);
+		CHECK(LogLines("rays: a wall ahead (") > wall0 && LogLines("a face alongside") == along0 && LogLines("slide: ") == slide0 && ahead > 100.0f && ahead < 220.0f && moved < 5.0f,
+		      "a \"wall ahead\" line (%d), no alongside or slide line, stopped (%.1f in 0.25 s) %.0f from its line along the heading (the front wheel's edge 130 ahead)",
+		      LogLines("rays: a wall ahead (") - wall0, moved, ahead);
+		CHECK(LogLines("rays: the pick's hit normal at the first face (") - normal0 == 1 && LogLines("length 1.000, 60 deg off the heading, the rays' slope 90: usable") - usable0 == 1,
+		      "one \"the pick's hit normal at the first face (...), length 1.000, 60 deg off the heading, the rays' slope 90: usable\" line (%d)", LogLines("rays: the pick's hit normal at the first face (") - normal0);
+
+		printf("railing: on in the same ride, 2.5 s more W, a face at 40 deg 400 ahead: a wall, no hold, stopped short as before:\n");
+		AlongClear();
+		RunFrames(2500);
+		wall0 = LogLines("rays: a wall ahead (");
+		along0 = LogLines("a face alongside");
+		slide0 = LogLines("slide: ");
+		w = AlongPlane(0, 400.0f, 40.0f, 0.0f, CAP_STEP);
+		RunFrames(2500);
+		moved = AlongStill();
+		ahead = AlongAhead(w);
+		CHECK(LogLines("rays: a wall ahead (") > wall0 && LogLines("a face alongside") == along0 && LogLines("slide: ") == slide0 && ahead > 100.0f && ahead < 220.0f && moved < 5.0f && !g_alongTouched,
+		      "a \"wall ahead\" line (%d), no alongside or slide line, stopped (%.1f in 0.25 s) %.0f from its line along the heading, the capsule clear of it",
+		      LogLines("rays: a wall ahead (") - wall0, moved, ahead);
+
+		printf("railing: on again, a post 20 wide 500 ahead whose normal reads 15 deg off the heading (a trunk grazed): the rays either side miss it, across: a wall, stopped short:\n");
+		AlongClear();
+		RunFrames(2500);
+		wall0 = LogLines("rays: a wall ahead (");
+		along0 = LogLines("a face alongside");
+		int note0 = LogLines("(alongside by its normal, 15 deg off the heading, but the rays either side don't say so: toward it found nothing within ");
+		w = AlongPlane(0, 500.0f, 15.0f, 10.0f, CAP_NONE);
+		RunFrames(2500);
+		moved = AlongStill();
+		ahead = FaceGap(w) >= 0.0f ? hypotf(PlayerPos()[0] - w->point[0], PlayerPos()[1] - w->point[1]) : -1.0f;
+		CHECK(LogLines("rays: a wall ahead (") > wall0 && LogLines("a face alongside") == along0 && moved < 5.0f && ahead > 100.0f && ahead < 220.0f,
+		      "a \"wall ahead\" line (%d), no alongside line, stopped (%.1f in 0.25 s) %.0f from the post", LogLines("rays: a wall ahead (") - wall0, moved, ahead);
+		CHECK(LogLines("(alongside by its normal, 15 deg off the heading, but the rays either side don't say so: toward it found nothing within ") > note0,
+		      "the wall line says \"alongside by its normal, 15 deg off the heading, but the rays either side don't say so: toward it found nothing within ...\" (%d)",
+		      LogLines("(alongside by its normal, 15 deg off the heading, but the rays either side don't say so: toward it found nothing within ") - note0);
+		Keys(0.0f, 0.0f);
+		AlongClear();
+	}
+
+	printf("railing: a tall face whose line crosses the heading 325 ahead, 10 deg off it, on the left, at 900 (the speed by the game's curve): alongside (no wall or obstacle line), the input full to the contact; the capsule slides along it at 0.4 of its motion; SlideHold 1: held, 300 or more along it in the second after the contact, the camera turned 30 deg away 0.6 s on:\n");
+	{
+		g_gameCurve = true;
+		AlongOn(3500);
+		int verdicts0 = AlongVerdicts(), start0 = LogLines("slide: along a face 10 deg off the heading (FakeWall, layer 1, seen "), over0 = LogLines("slide: over after "), boost0 = LogLines("the climb limit 47 -> 85");
+		int capped, alongBefore;
+		float input, went = AlongSlide(&input, &capped, &alongBefore);
+		CHECK(went > -1.0f && AlongVerdicts() == verdicts0 && alongBefore == 1 && g_alongLeast >= 1.99f,
+		      "touched it (%s), no wall or obstacle line (%d), one \"a face alongside, 10 deg off the heading\" line before the contact (%d), the input full to it (the output %.2f at the least)",
+		      went > -1.0f ? "yes" : "no", AlongVerdicts() - verdicts0, alongBefore, g_alongLeast);
+		CHECK(went >= 300.0f && capped == 0 && input >= 0.99f, "%.0f along it in the second after the contact, the input %.2f 0.8 s on, no \"held to the measured speed\" by then (%d)", went, input, capped);
+		RunFrames(500);
+		CHECK(LogLines("slide: along a face 10 deg off the heading (FakeWall, layer 1, seen ") - start0 == 1 && LogLines("slide: over after ") - over0 == 1 && LogLines("the climb limit 47 -> 85") == boost0,
+		      "one \"slide: along a face 10 deg off the heading (FakeWall, layer 1, seen ...\" line (%d), one \"slide: over after\" (%d), no climb boost",
+		      LogLines("slide: along a face 10 deg off the heading (FakeWall, layer 1, seen ") - start0, LogLines("slide: over after ") - over0);
+		Keys(0.0f, 0.0f);
+		AlongClear();
+		float slid = went;
+
+		printf("railing: SlideHold=0 written (read again on getting on), the same slide: the Lead cap follows the speed down as in test 42's build, no slide line:\n");
+		RewriteIni("SlideHold=1.0", "SlideHold=0");
+		AlongOn(3500);
+		CHECK(LogLines("no hold on the throttle while sliding along a face (SlideHold=0)") >= 1, "the settings line says SlideHold=0");
+		int slide0 = LogLines("slide: ");
+		went = AlongSlide(&input, &capped, &alongBefore);
+		RunFrames(500);
+		CHECK(went > -1.0f && capped >= 2 && input < 0.8f && went < 0.65f * slid && LogLines("slide: ") == slide0,
+		      "%.0f along it in the second (under 0.65 of the %.0f held), the input %.2f 0.8 s on, %d \"held to the measured speed\" lines by then, no slide line", went, slid, input, capped);
+		Keys(0.0f, 0.0f);
+		AlongClear();
+		RewriteIni("SlideHold=0", "SlideHold=1.0");
+		g_gameCurve = false;
+	}
+
+	printf("railing: FaceAlong=0 written: the 10 deg face judged by its steepness alone, a wall, stopped short of it as in test 42's build:\n");
+	{
+		RewriteIni("FaceAlong=30", "FaceAlong=0");
+		AlongOn(3500);
+		CHECK(LogLines("every face judged by its steepness alone (FaceAlong=0)") >= 1, "the settings line says FaceAlong=0");
+		int wall0 = LogLines("rays: a wall ahead (90 deg): "), along0 = LogLines("a face alongside"), slide0 = LogLines("slide: ");
+		AlongPlane(0, 325.0f, 10.0f, 0.0f, CAP_STEP);
+		RunFrames(2500);
+		moved = AlongStill();
+		CHECK(LogLines("rays: a wall ahead (90 deg): ") > wall0 && LogLines("a face alongside") == along0 && LogLines("slide: ") == slide0 && moved < 5.0f && !g_alongTouched,
+		      "a \"wall ahead (90 deg)\" line (%d), no alongside or slide line, stopped (%.1f in 0.25 s) short of it (the capsule %s)", LogLines("rays: a wall ahead (90 deg): ") - wall0, moved,
+		      g_alongTouched ? "touched it" : "clear of it");
+		Keys(0.0f, 0.0f);
+		AlongClear();
+		RewriteIni("FaceAlong=0", "FaceAlong=30");
+	}
+
+	printf("railing: FaceAlongRays=0 written: the post read by its normal alone, alongside:\n");
+	{
+		RewriteIni("FaceAlongRays=1", "FaceAlongRays=0");
+		AlongOn(2500);
+		CHECK(LogLines("by the normal alone (FaceAlongRays=0)") >= 1, "the settings line says FaceAlongRays=0");
+		int along0 = LogLines("rays: a face alongside, 15 deg off the heading: ");
+		AlongPlane(0, 500.0f, 15.0f, 10.0f, CAP_NONE);
+		RunFrames(600);
+		CHECK(LogLines("rays: a face alongside, 15 deg off the heading: ") > along0, "a \"face alongside, 15 deg off the heading\" line (%d)", LogLines("rays: a face alongside, 15 deg off the heading: ") - along0);
+		Keys(0.0f, 0.0f);
+		AlongClear();
+		RewriteIni("FaceAlongRays=0", "FaceAlongRays=1");
+	}
+
+	printf("railing: the pick's normal zeros on every hit (a game that doesn't fill it): the ride's normal line says so once, the 10 deg face a wall as in test 42's build:\n");
+	{
+		g_fakeNormalBad = true;
+		AlongOn(3500);
+		int bad0 = LogLines("rays: the pick's hit normal at the first face (0.000, 0.000, 0.000), length 0.000, "), notUnit0 = LogLines(": not a unit vector: faces judged by their steepness alone");
+		int wall0 = LogLines("rays: a wall ahead (90 deg): "), along0 = LogLines("a face alongside");
+		AlongPlane(0, 325.0f, 10.0f, 0.0f, CAP_STEP);
+		RunFrames(2500);
+		moved = AlongStill();
+		CHECK(LogLines("rays: the pick's hit normal at the first face (0.000, 0.000, 0.000), length 0.000, ") - bad0 == 1 && LogLines(": not a unit vector: faces judged by their steepness alone") - notUnit0 == 1,
+		      "one \"the pick's hit normal at the first face (0.000, 0.000, 0.000), length 0.000, ...: not a unit vector: faces judged by their steepness alone\" line (%d)",
+		      LogLines(": not a unit vector: faces judged by their steepness alone") - notUnit0);
+		CHECK(LogLines("rays: a wall ahead (90 deg): ") > wall0 && LogLines("a face alongside") == along0 && moved < 5.0f && !g_alongTouched,
+		      "a \"wall ahead (90 deg)\" line (%d), no alongside line, stopped (%.1f in 0.25 s) short of it", LogLines("rays: a wall ahead (90 deg): ") - wall0, moved);
+		g_fakeNormalBad = false;
+		Keys(0.0f, 0.0f);
+		AlongClear();
+	}
+
+	/* CLIMB_ALONG (review of test 43's build: the slide's "no climb boost" can't fail, its tall
+	 * face refused as something at ClimbTop first): a step 15 high across the way 150 ahead,
+	 * under ClimbTop and the axle ray, and a tall face 12 deg off the heading whose line crosses
+	 * the heading 259 ahead, 127 past the axis once the capsule is held at the step: within the
+	 * face rays' reach at rest (the front wheel's edge 129.5, and 5), and past the end of the
+	 * stall's ray at ClimbTop 12 to the left (63 long, the face 70 along it; 59 at 10 deg, which
+	 * would make that line's word "something at 31.9"). */
+	printf("railing: a step 15 high across the way 150 ahead and a tall face 12 deg off the heading whose line crosses it 259 ahead (127 past the axis at the step), W held from rest: no boost, held at the step, \"not climbed: a face alongside\":\n");
+	{
+		AlongOn(0);
+		int boost0 = LogLines("the climb limit 47 -> 85"), along0 = LogLines("not climbed: a face alongside, 12 deg off the heading (FakeWall, layer 1, the face rays' verdict)");
+		AlongPlane(0, 259.0f, 12.0f, 0.0f, CAP_STEP);
+		FakePlane *step = Obstacle(1, 150.0f, 15.0f, CAP_STEP, 60.0f, 1, NULL);
+		RunFrames(3000);
+		CHECK(LogLines("the climb limit 47 -> 85") == boost0 && FaceGap(step) > 17.0f && FaceGap(step) < 19.0f && !g_alongTouched,
+		      "no \"the climb limit 47 -> 85\" line (%d), held at the step (the axis %.1f from its face), the capsule clear of the tall face", LogLines("the climb limit 47 -> 85") - boost0, FaceGap(step));
+		CHECK(LogLines("not climbed: a face alongside, 12 deg off the heading (FakeWall, layer 1, the face rays' verdict)") - along0 == 1,
+		      "one \"climb: stopped with forward held (...): not climbed: a face alongside, 12 deg off the heading (FakeWall, layer 1, the face rays' verdict)\" line (%d)",
+		      LogLines("not climbed: a face alongside, 12 deg off the heading (FakeWall, layer 1, the face rays' verdict)") - along0);
+		Keys(0.0f, 0.0f);
+		AlongClear();
+	}
+	Keys(0.0f, 0.0f);
+	RunFrames(2500);
+	g_capSlip = 1.0f;
+	g_onFrame = ClimbFrame;
+	GetOffAndOn(45.0f);
+	g_camYaw = PlayerHeading();
 }
 
 static void ClimbTests(void)
@@ -6536,6 +7200,7 @@ static void ClimbTests(void)
 		RunFrames(2500);
 	}
 	ClimbStepTests();
+	AlongTests();
 	SetLive(0.0f);
 	SetCamera(0.0f);
 	SetTilt(0.0f);
@@ -6756,9 +7421,13 @@ static void ArmTests(void)
  * packs). On a hit it "pushes" that actor (its plane taken away) 80 ms later, or, with
  * g_ramStays, the actor stays at the front wheel (a plane 100 ahead of the rider). Two actors:
  * FF004D69 on g_ramPlanes[0] and FF004D6A on [1]; with g_ramStepIn the second steps in that
- * far ahead 50 ms after the first ask (test 41: a wolf seen 46 ms after a coyote). */
+ * far ahead 50 ms after the first ask (test 41: a wolf seen 46 ms after a coyote), or later
+ * (g_ramStepInAfter). Test 43's script mirrored: the poll after a decide comes 0.03 s after its
+ * answer (PollAfterDecide), and a hit is matched to the actor through the script's last 32 yeses,
+ * of this ride or an earlier one (okEvents; the plugin's YesKeep). */
 #define RAM_HITS_KEPT 4
 #define RAM_SAMPLES 400
+#define RAM_POLL_AFTER_DECIDE 0.03f   /* CMB_RamScript's PollAfterDecide (test 43): the poll after an answer */
 typedef struct { int ask, who; float speed, ahead, clock, pushIn; } RamHitSeen;
 static int g_ramScript, g_ramAsks, g_ramBadAsks, g_ramHits, g_ramLastSeen, g_ramLastHit, g_ramFirstAsk, g_ramAsksOf[2];
 static int g_ramAskNumber[16], g_ramAskWho[16];   /* the asks seen, and whom each was about */
@@ -6772,8 +7441,16 @@ static int g_ramPending[4], g_ramPendingN;   /* the asks the poll read, their an
 static float g_ramPendingAt[4];
 static float g_ramPollAt, g_ramPollAlign = -1.0f;   /* the poll's next time; g_ramPollAlign >= 0: the first poll after a ride's first ask comes that long after it (the pack rides: the poll's phase against the asks made deterministic) */
 static int g_ramPollSeen, g_ramPollUnread;          /* what the poll read last, and the asks it never saw */
-static float g_ramStepIn;                            /* > 0: the second actor placed this far ahead 50 ms after the first ask */
+static float g_ramStepIn;                            /* > 0: the second actor placed this far ahead g_ramStepInAfter after the first ask */
+static float g_ramStepInAfter = 0.05f;               /* ... 50 ms (test 41's wolf), or later (test 42's AskFree: after the first ask's answer) */
 static bool g_ramSteppedIn;
+/* The script's yeses (CMB_RamScript's okEvents, 32 since test 43): a hit names the ask said yes
+ * to, and the actor pushed is the one that ask was about, however many rides ago (test 42's
+ * YesKeep: the plugin keeps a yes 10 s, out of sight or not, and the harness's rides use the same
+ * two actors). */
+#define RAM_YESES_KEPT 32
+static int g_ramYesAsk[RAM_YESES_KEPT], g_ramYesWho[RAM_YESES_KEPT], g_ramYesNext;
+static float g_ramMinAfterAsk;                       /* the least input in the 0.45 s after the ride's first ask (test 42's AskFree) */
 static float RamGlobal(int i) { return *(float *)(g_ramGlobalsFake[i] + 0x30); }
 static float RamPlaneAhead(int i)   /* past the front wheel's edge (FrontAxle 99.6 + the radius 29.9) */
 {
@@ -6805,12 +7482,16 @@ static void FakeRamScript(float dt)
 		}
 		g_ramAsks++;
 	}
-	if (g_ramStepIn > 0.0f && !g_ramSteppedIn && g_ramAsks >= 1 && g_ramClock - g_ramAskTimes[0] >= 0.05f) {
+	if (g_ramStepIn > 0.0f && !g_ramSteppedIn && g_ramAsks >= 1 && g_ramClock - g_ramAskTimes[0] >= g_ramStepInAfter) {
 		g_ramSteppedIn = true;
 		RamPlace(1, g_ramStepIn);   /* the second animal, nearer than the first */
 	}
 	/* The script's 0.1 s poll (CMB_RamScript's OnTimer): a new number decided on, the answer
-	 * owed 150 ms on; the numbers skipped since the last poll went unread. */
+	 * owed 150 ms on; the numbers skipped since the last poll went unread. Test 43's script:
+	 * OnTimer is busy for the decide and starts its timer again PollAfterDecide (0.03 s) after
+	 * it, so the poll after a decide comes 0.18 s after the one that decided (it came 0.1 s
+	 * after, in the decide's midst, which no script could do: with AskAnswered the plugin's
+	 * next ask is told a frame after the answer, and the poll then reads it 0.03 s on). */
 	if (g_ramClock >= g_ramPollAt) {
 		g_ramPollAt = g_ramClock + 0.1f;
 		if (seen != g_ramPollSeen) {
@@ -6821,11 +7502,21 @@ static void FakeRamScript(float dt)
 				g_ramPending[g_ramPendingN] = seen;
 				g_ramPendingAt[g_ramPendingN++] = g_ramClock;
 			}
+			g_ramPollAt = g_ramClock + 0.15f + RAM_POLL_AFTER_DECIDE;
 		}
 	}
 	if (g_ramPendingN > 0 && g_ramClock - g_ramPendingAt[0] >= 0.15f) {
 		if (g_ramScript == 1 || g_ramScript == 3)
 			*(float *)(g_ramGlobalsFake[3] + 0x30) = g_ramScript == 1 ? (float)g_ramPending[0] : -(float)g_ramPending[0];
+		if (g_ramScript == 1) {   /* a yes remembered, with whom it was about */
+			int who = -1;
+			for (int i = 0; i < g_ramAsks && i < 16; i++)
+				if (g_ramAskNumber[i] == g_ramPending[0])
+					who = g_ramAskWho[i];
+			g_ramYesAsk[g_ramYesNext] = g_ramPending[0];
+			g_ramYesWho[g_ramYesNext] = who;
+			g_ramYesNext = (g_ramYesNext + 1) % RAM_YESES_KEPT;
+		}
 		for (int i = 1; i < g_ramPendingN; i++) {
 			g_ramPending[i - 1] = g_ramPending[i];
 			g_ramPendingAt[i - 1] = g_ramPendingAt[i];
@@ -6833,6 +7524,8 @@ static void FakeRamScript(float dt)
 		g_ramPendingN--;
 	}
 	float in = MoveInput()[1];
+	if (g_ramAsks >= 1 && g_ramClock - g_ramAskTimes[0] < 0.45f && in < g_ramMinAfterAsk)
+		g_ramMinAfterAsk = in;
 	if (g_ramPlanes[0] && g_ramPlanes[0]->on && !g_ramHits && g_ramPlanes[0]->follow == 0.0f) {
 		float ahead = RamPlaneAhead(0);
 		if (ahead < 600.0f && ahead > 0.0f && in < g_ramMinInput)
@@ -6854,9 +7547,9 @@ static void FakeRamScript(float dt)
 			RamHitSeen *h = &g_ramSeenHits[g_ramHits];
 			h->ask = hit;
 			h->who = -1;
-			for (int i = 0; i < g_ramAsks && i < 16; i++)
-				if (g_ramAskNumber[i] == hit)
-					h->who = g_ramAskWho[i];
+			for (int i = 0; i < RAM_YESES_KEPT; i++)   /* the script's yeses: this ride's or an earlier one's */
+				if (g_ramYesAsk[i] == hit && hit > 0)
+					h->who = g_ramYesWho[i];
 			h->speed = RamGlobal(4);
 			h->ahead = h->who >= 0 && g_ramPlanes[h->who] ? RamPlaneAhead(h->who) : 0.0f;
 			h->clock = g_ramClock;
@@ -6928,7 +7621,7 @@ static void RamGo(float keysY, int script, int ms)
 	g_ramSteppedIn = false;
 	g_ramLastSeen = (int)RamGlobal(2);
 	g_ramLastHit = (int)RamGlobal(5);
-	g_ramMinInput = g_ramMinAfter = 2.0f;
+	g_ramMinInput = g_ramMinAfter = g_ramMinAfterAsk = 2.0f;
 	g_ramScript = script;
 	Keys(0.0f, keysY);
 	RunFrames(ms);
@@ -6938,6 +7631,12 @@ static void RamRide(float dist, float keysY, int script, int ms)
 {
 	g_ramPlanes[1] = NULL;
 	RamPlace(0, dist);
+	RamGo(keysY, script, ms);
+}
+
+/* Ridden with the planes as placed (RamPlaceAt). */
+static void RamRide42(float keysY, int script, int ms)
+{
 	RamGo(keysY, script, ms);
 }
 
@@ -6951,7 +7650,9 @@ static void RamRideEnd(void)
 	g_ramScript = 0;
 	g_ramStays = false;
 	g_ramStepIn = 0.0f;
+	g_ramStepInAfter = 0.05f;
 	g_ramPollAlign = -1.0f;
+	g_gameCurve = false;
 	RunFrames(3000);   /* rolled off, at rest */
 }
 
@@ -6973,6 +7674,171 @@ static void RamGetOffAndOn(void)
 	SetCamera(300.0f);
 	SetTilt(30.0f);
 	RunFrames(1000);
+}
+
+/* An actor plane `who` dist ahead, then moved `right` to the right of the heading, `halfWidth`
+ * wide each way (0: for ever), from `bottom` to `top` over the ground (a flier, a hound). */
+static void RamPlaceAt(int who, float dist, float right, float halfWidth, float bottom, float top)
+{
+	RamPlace(who, dist);
+	FakePlane *p = g_ramPlanes[who];
+	float hh = PlayerHeading();
+	p->point[0] += cosf(hh) * right;
+	p->point[1] += -sinf(hh) * right;
+	p->halfWidth = halfWidth;
+	p->bottom = bottom;
+	p->top = top;
+}
+
+/* A [Ram] key written off (or back on) and read again on getting on. */
+static void RamKey(const char *from, const char *to)
+{
+	RewriteIni(from, to);
+	RamGetOffAndOn();
+}
+
+/* Test 42's knocking over (17l): the pack's dogs braked for, the protectron and the eyebot
+ * stopping the bike, the hound passing through the wheel. Each key's ride, then the same with the
+ * key written 0: test 42's build's numbers. */
+static void RamTests42(void)
+{
+	/* AskFree: an actor stepping in inside the face rays' reach (275 at 900), told and answered
+	 * in about 0.18 s (the first's answer read, the poll 0.03 s after it, 150 ms of deciding):
+	 * kept to at 900 meanwhile, hit at Lead as with a yes. */
+	for (int off = 0; off < 2; off++) {
+		if (off)
+			RamKey("AskFree=0.5", "AskFree=0");
+		printf("rams: FF004D69 at 1500 said yes, FF004D6A stepping in 250 past the front wheel 0.26 s after the first ask (once that one is answered), inside the face rays' reach%s:\n",
+		       off ? " (AskFree=0 written: braked for until its yes, as in test 42's build)" : ": the throttle kept while its ask is pending (AskFree), both hit");
+		RamUpToSpeed(1.0f);
+		float full = MoveInput()[1];
+		int keptBefore = LogLines("the throttle kept (AskFree, a medium race)");
+		g_ramPlanes[1] = NULL;
+		RamPlace(0, 1500.0f);
+		g_ramStepIn = 99.6f + 29.9f + 250.0f;
+		g_ramStepInAfter = 0.26f;
+		g_ramPollAlign = 0.09f;
+		RamGo(1.0f, 1, 2400);
+		const RamHitSeen *h0 = &g_ramSeenHits[0], *h1 = &g_ramSeenHits[1];
+		if (!off) {
+			CHECK(g_ramAsksOf[0] == 1 && g_ramAsksOf[1] == 1 && g_ramHits == 2 && h0->who == 1 && h1->who == 0, "asked once about each (%d, %d), two hits (%d): FF004D6A's first, then FF004D69's (%d, %d)",
+			      g_ramAsksOf[0], g_ramAsksOf[1], g_ramHits, h0->who, h1->who);
+			CHECK(g_ramMinInput >= 0.97f * full && h0->speed > 850.0f, "the throttle open all the way to the hit (the least input %.3f of %.3f), FF004D6A hit at %.0f", g_ramMinInput, full, h0->speed);
+			CHECK(LogLines("the throttle kept (AskFree, a medium race)") == keptBefore + 1, "one \"rams: FF004D6A ahead (N past the front wheel at N a second): its ask pending for N ms, the throttle kept (AskFree, a medium race)\" line");
+		} else {
+			CHECK(g_ramMinInput < 0.9f * full && LogLines("the throttle kept (AskFree") == keptBefore, "AskFree=0: eased for FF004D6A until its yes (the least input %.3f of %.3f), no AskFree line; %d hit(s)%s%.0f",
+			      g_ramMinInput, full, g_ramHits, g_ramHits ? ", the first at " : "", g_ramHits ? h0->speed : 0.0f);
+		}
+		RamRideEnd();
+	}
+	printf("rams: the script never answers, AskFree=0: braked for as before, from the face rays' reach on (0.5 s after the first ask at 900):\n");
+	RamUpToSpeed(1.0f);
+	{
+		float full = MoveInput()[1];
+		int lapse = LogLines("no answer in ");
+		RamRide(1500.0f, 1.0f, 2, 3500);
+		float left = RamPlaneAhead(0);
+		CHECK(g_ramHits == 0 && left > -15.0f && left < 80.0f && MoveInput()[1] < 0.05f, "no hit (%d), stops %.1f short of it at the front wheel, next to no input (%g)", g_ramHits, left, MoveInput()[1]);
+		CHECK(g_ramMinAfterAsk >= 0.97f * full && LogLines("no answer in ") == lapse, "the throttle open for 0.45 s after the first ask as before (%.3f of %.3f), no AskFree line", g_ramMinAfterAsk, full);
+		RamRideEnd();
+	}
+
+	/* YesKeep: a pack's dog back 9.5 s after its yes was asked again (and braked for meanwhile). */
+	for (int off = 0; off < 2; off++) {
+		RamKey(off ? "YesKeep=10" : "AskFree=0", off ? "YesKeep=0" : "AskFree=0.5");
+		printf("rams: FF004D69 at 1500 said yes, gone from the rays before the hit, back 600 ahead 4 s later%s:\n",
+		       off ? " (YesKeep=0 written: asked again, as in test 42's build)" : ": the yes kept (YesKeep 10), not asked again, hit on the first ask");
+		RamUpToSpeed(1.0f);
+		int keptBefore = LogLines("s ago, kept)");
+		g_ramPlanes[1] = NULL;
+		RamPlace(0, 1500.0f);
+		RamGo(1.0f, 1, 1100);
+		int firstAsk = g_ramFirstAsk, asksThen = g_ramAsksOf[0], hitsThen = g_ramHits;
+		g_ramPlanes[0]->on = false;
+		RunFrames(4000);
+		RamPlace(0, 600.0f);
+		RunFrames(1500);
+		if (!off) {
+			CHECK(asksThen == 1 && hitsThen == 0 && g_ramAsksOf[0] == 1 && g_ramHits == 1 && g_ramSeenHits[0].ask == firstAsk && g_ramSeenHits[0].who == 0,
+			      "asked once (%d, %d before it went), one hit (%d), of the first ask (%d; %d)", g_ramAsksOf[0], asksThen, g_ramHits, g_ramSeenHits[0].ask, firstAsk);
+			CHECK(LogLines("s ago, kept)") == keptBefore + 1, "one \"to be knocked over, the throttle free (said yes to N s ago, kept)\" line");
+		} else {
+			CHECK(asksThen == 1 && g_ramAsksOf[0] == 2 && g_ramHits == 1 && LogLines("s ago, kept)") == keptBefore, "YesKeep=0: asked again when back (%d asks), hit (%d), no \"kept\" line",
+			      g_ramAsksOf[0], g_ramHits);
+		}
+		RamRideEnd();
+	}
+
+	/* HitGrace: the pack's second dog braked for at 400 after the first was knocked over at 700.
+	 * The game's input curve here (as mode 10's slides have it), so HitKeep's hold brings the
+	 * speed down to 60% as in the game (with the straight line it holds 657 of 900), and the
+	 * MCM's CMB_RamMinSpeed at 650 for the ride: the hit at 900, the measured speed under 650
+	 * from 0.24 s after it, the second actor 230 behind the first reached at about 0.46 s. */
+	for (int off = 0; off < 2; off++) {
+		RamKey(off ? "HitGrace=1" : "YesKeep=0", off ? "HitGrace=0" : "YesKeep=10");
+		printf("rams: two actors 230 apart at full speed, the game's input curve, CMB_RamMinSpeed 650, HitHold 0.4: the speed under 650 at the second%s:\n",
+		       off ? " (HitGrace=0 written: braked for, as in test 42's build)" : ": knocked over all the same, under a second after the first hit (HitGrace 1)");
+		g_gameCurve = true;
+		*(float *)(g_ramGlobalsFake[7] + 0x30) = 650.0f;
+		RamUpToSpeed(1.0f);
+		int graceBefore = LogLines("knocked over all the same (HitGrace)"), slowBefore = LogLines("under CMB_RamMinSpeed's 650: not knocked over");
+		g_ramPlanes[1] = NULL;
+		RamPlace(0, 1500.0f);
+		RamPlace(1, 1730.0f);
+		RamGo(1.0f, 1, 3000);
+		const RamHitSeen *h0 = &g_ramSeenHits[0], *h1 = &g_ramSeenHits[1];
+		if (!off) {
+			CHECK(g_ramHits == 2 && h0->who == 0 && h1->who == 1 && h0->speed > 850.0f && h1->speed < 650.0f, "two hits (%d), at %.0f and %.0f", g_ramHits, h0->speed, g_ramHits > 1 ? h1->speed : 0.0f);
+			CHECK(LogLines("knocked over all the same (HitGrace)") == graceBefore + 1 && LogLines("under CMB_RamMinSpeed's 650: not knocked over") == slowBefore,
+			      "one \"... under CMB_RamMinSpeed's 650, but N s after a hit at N: knocked over all the same (HitGrace)\" line, no \"under CMB_RamMinSpeed\" brake");
+		} else {
+			CHECK(g_ramHits == 1 && h0->who == 0 && LogLines("under CMB_RamMinSpeed's 650: not knocked over") == slowBefore + 1 && LogLines("(HitGrace)") == graceBefore,
+			      "HitGrace=0: one hit (%d, at %.0f), one \"under CMB_RamMinSpeed's 650\" line for the second", g_ramHits, h0->speed);
+		}
+		RamRideEnd();
+		*(float *)(g_ramGlobalsFake[7] + 0x30) = 450.0f;
+	}
+
+	/* HighRay: the eyebot (its capsule between 45 and 114 up) seen only by the wheels' rays down. */
+	for (int off = 0; off < 2; off++) {
+		RamKey(off ? "HighRay=96" : "HitGrace=0", off ? "HighRay=0" : "HitGrace=1");
+		printf("rams: a flier (a capsule from 60 to 130 up) at 1500%s:\n", off ? " (HighRay=0 written: never seen, as in test 42's build)" : ": seen by the high actor ray, said yes, hit at Lead, pushed");
+		RamUpToSpeed(1.0f);
+		int seenBefore = LogLines("(the high actor ray, 96 up): asked the script");
+		g_ramPlanes[1] = NULL;
+		RamPlaceAt(0, 1500.0f, 0.0f, 0.0f, 60.0f, 130.0f);
+		RamRide42(1.0f, 1, 2200);
+		if (!off) {
+			CHECK(g_ramAsks == 1 && LogLines("(the high actor ray, 96 up): asked the script") == seenBefore + 1, "asked once (%d), \"seen ... (the high actor ray, 96 up): asked the script\"", g_ramAsks);
+			CHECK(g_ramHits == 1 && fabsf(g_ramSeenHits[0].ahead) < 80.0f && !g_ramPlanes[0]->on && LogLines("past the front wheel (the high actor ray, 96 up): told the script") >= 1,
+			      "hit (%d) %.0f past the front wheel, pushed off, the hit's line names the ray", g_ramHits, g_ramSeenHits[0].ahead);
+		} else {
+			CHECK(g_ramAsks == 0 && g_ramHits == 0, "HighRay=0: never asked about (%d), no hit", g_ramAsks);
+		}
+		RamRideEnd();
+	}
+
+	/* SideRays: the hound's hit came 67 behind the front wheel's edge. */
+	for (int off = 0; off < 2; off++) {
+		RamKey(off ? "SideRays=20" : "HighRay=0", off ? "SideRays=0" : "HighRay=96");
+		printf("rams: a hound (25 each way) centred 30 right of the heading at 1500%s:\n", off ? " (SideRays=0 written: never seen, as in test 42's build)" : ": seen by the right actor ray, said yes, hit before the wheel's edge, pushed");
+		RamUpToSpeed(1.0f);
+		int seenBefore = LogLines("(the right actor ray): asked the script");
+		g_ramPlanes[1] = NULL;
+		RamPlaceAt(0, 1500.0f, 30.0f, 25.0f, 0.0f, 60.0f);
+		RamRide42(1.0f, 1, 2200);
+		if (!off) {
+			CHECK(g_ramAsks == 1 && LogLines("(the right actor ray): asked the script") == seenBefore + 1 && LogLines("(the left actor ray)") == 0, "asked once (%d), \"seen ... (the right actor ray): asked the script\", the left one never",
+			      g_ramAsks);
+			CHECK(g_ramHits == 1 && g_ramSeenHits[0].ahead > -30.0f && !g_ramPlanes[0]->on && LogLines("past the front wheel (the right actor ray): told the script") >= 1,
+			      "hit (%d) told %.0f past the front wheel, pushed off, the hit's line names the ray", g_ramHits, g_ramSeenHits[0].ahead);
+		} else {
+			CHECK(g_ramAsks == 0 && g_ramHits == 0, "SideRays=0: never asked about (%d), no hit", g_ramAsks);
+		}
+		RamRideEnd();
+	}
+	RamKey("SideRays=0", "SideRays=20");
+	CHECK(LogLines("  ram: AskAnswered=1 AskFree=0.5 YesKeep=10 HitGrace=1 HighRay=96 SideRays=20 Robots=1: ") >= 2, "all of test 42's keys back at their defaults");
 }
 
 /* Finding 7 (test 40's wish): a hostile actor the bike hits at speed is knocked over. */
@@ -6999,6 +7865,12 @@ static void RamTests(void)
 	      LogLines("rams: not all of CMB_RamSeenHi") == 0, "the ram settings line at load (on, HitKeep 0.6 for 0.4 s, AskGap 0.12), the globals all found");
 	CHECK(LogLines("room: no CMB_Room globals (an older ESP): the bike's spot isn't checked") == 1 && LogLines("found CMB_RoomAskX") == 0,
 	      "this ESP has no CMB_Room globals (test 41's room asks; mode 14 has them): one \"room: no CMB_Room globals\" line, nothing else of them");
+	CHECK(LogLines("  ram: AskAnswered=1 AskFree=0.5 YesKeep=10 HitGrace=1 HighRay=96 SideRays=20 Robots=1: each ask told once the one before it is answered, or 0.4 s after it unanswered (AskAgain); "
+	               "an ask of a small or medium race pending under 0.5 s keeping the throttle at speed; a yes kept 10 s out of sight; ") == 1,
+	      "test 42's keys on a line of their own: AskAnswered=1 AskFree=0.5 YesKeep=10 HitGrace=1 HighRay=96 SideRays=20 Robots=1");
+	CHECK(LogLines("rams: CMB_RamRobots: 2 races pass the size and No Knockdowns gates: ProtectronTestRace (medium, flags 00400100, No Knockdowns), EyebotTestRace (small, flags 00400100, No Knockdowns)") == 1 &&
+	          LogLines("CMB_RamRobots isn't there") == 0 && LogLines("CMB_RamRobots can't be read") == 0,
+	      "CMB_RamRobots (0x856, a FormList) read at the start, its two races named (\"rams: CMB_RamRobots: 2 races pass the size and No Knockdowns gates: ProtectronTestRace (medium, ...\"), once");
 
 	printf("rams: the actor 1500 ahead (layer 30, its 3D's user data an Actor FF004D69 of a medium race), at full speed, the script says yes: asked once, the throttle open, the hit told %g s of the speed before the wheel, pushed:\n", 0.06);
 	RamUpToSpeed(1.0f);
@@ -7040,12 +7912,16 @@ static void RamTests(void)
 	CHECK(MoveInput()[1] >= 0.97f * fullIn, "then built up again: 2.5 s later the input %.3f (%.3f at full)", MoveInput()[1], fullIn);
 	RamRideEnd();
 
-	printf("rams: the same, the script never answers: braked for as before, asked again every 0.4 s:\n");
+	printf("rams: the same, the script never answers: braked for as before, asked again every 0.4 s; AskFree 0.5: the throttle open meanwhile, the face rays' reach (0.5 s on) braking as before:\n");
 	RamUpToSpeed(1.0f);
+	float fullNever = MoveInput()[1];
+	int lapseBefore = LogLines("no answer in ");
 	RamRide(1500.0f, 1.0f, 2, 3500);
 	left = RamPlaneAhead(0);
 	CHECK(g_ramHits == 0 && left > -15.0f && left < 80.0f && MoveInput()[1] < 0.05f, "no hit (%d), stops %.1f short of it at the front wheel, next to no input (%g)", g_ramHits, left, MoveInput()[1]);
 	CHECK(g_ramAsks >= 4 && g_ramAsks <= 12, "asked %d times in 3.5 s", g_ramAsks);
+	CHECK(g_ramMinAfterAsk >= 0.97f * fullNever, "the throttle open for 0.45 s after the first ask (the least input %.3f; %.3f at full)", g_ramMinAfterAsk, fullNever);
+	CHECK(LogLines("no answer in ") == lapseBefore + 1, "one \"rams: FF004D69 N past the front wheel, no answer in N ms: braked for\" line (AskFree's 0.5 s run out)");
 	RamRideEnd();
 
 	printf("rams: the script says no: braked for, asked again a second later at the soonest (AskAgainNo):\n");
@@ -7059,7 +7935,11 @@ static void RamTests(void)
 	uint8_t *races[2] = { g_raceBig, g_raceNoKnock };
 	const char *lines[2] = { "is too big (MaxSize)", "can't be knocked down (No Knockdowns)" };
 	for (int i = 0; i < 2; i++) {
-		printf("rams: an actor of a race %s: never asked about, braked for:\n", i ? "flagged No Knockdowns" : "of size 3 (extra large; MaxSize 1)");
+		if (i) {   /* test 42: ProtectronTestRace is in CMB_RamRobots: the gate as before with Robots=0 */
+			RewriteIni("Robots=1", "Robots=0");
+			RamGetOffAndOn();
+		}
+		printf("rams: an actor of a race %s: never asked about, braked for:\n", i ? "flagged No Knockdowns (Robots=0 written, read again on getting on: CMB_RamRobots not used)" : "of size 3 (extra large; MaxSize 1; not in CMB_RamRobots)");
 		*(uint8_t **)(g_ramActor + 0x418) = races[i];
 		int before = LogLines(lines[i]);
 		RamUpToSpeed(1.0f);
@@ -7068,6 +7948,35 @@ static void RamTests(void)
 		CHECK(g_ramAsks == 0 && g_ramHits == 0 && left > -15.0f && left < 80.0f, "no ask (%d), no hit, stops %.0f short", g_ramAsks, left);
 		CHECK(LogLines(lines[i]) == before + 1, "one line: \"%s\"", lines[i]);
 		RamRideEnd();
+	}
+	CHECK(LogLines("Robots=0: ") == 1 && LogLines("CMB_RamRobots not used (Robots=0): the size and No Knockdowns gates for every race (read again on getting on)") == 1, "the settings line again: Robots=0");
+	RewriteIni("Robots=0", "Robots=1");
+	RamGetOffAndOn();
+
+	/* Test 42's robots: the protectron (ProtectronRace: large, No Knockdowns) and the eyebot
+	 * braked for; CMB_RamRobots' races pass both gates. */
+	printf("rams: the same actor of ProtectronTestRace (medium, No Knockdowns; in CMB_RamRobots), Robots=1: asked about, said yes, hit:\n");
+	{
+		int robotBefore = LogLines("rams: FF004D69 (race ProtectronTestRace: medium, No Knockdowns, in CMB_RamRobots) seen"), refusedBefore = LogLines(lines[1]);
+		RamUpToSpeed(1.0f);
+		RamRide(1500.0f, 1.0f, 1, 3000);
+		CHECK(g_ramAsks == 1 && g_ramHits == 1 && g_ramSeenHits[0].who == 0 && g_ramSeenHits[0].speed > 850.0f, "asked (%d), hit (%d) at %.0f", g_ramAsks, g_ramHits, g_ramSeenHits[0].speed);
+		CHECK(LogLines("rams: FF004D69 (race ProtectronTestRace: medium, No Knockdowns, in CMB_RamRobots) seen") == robotBefore + 1 && LogLines(lines[1]) == refusedBefore,
+		      "the ask's line says so (\"(race ProtectronTestRace: medium, No Knockdowns, in CMB_RamRobots)\"), no \"can't be knocked down\" line");
+		RamRideEnd();
+		printf("rams: CMB_RamRobots' first form not a race (an Actor; read again at the ride's start): the whole list refused, the gates as before:\n");
+		uint8_t **robots = *(uint8_t ***)(g_ramRobotsList + 0x20);
+		robots[0] = g_ramActor2;
+		RamGetOffAndOn();
+		CHECK(LogLines("rams: CMB_RamRobots can't be read (its form 1 is a .?AVActor@@ of form type 0x41, not a race): the size and No Knockdowns gates stand") == 1, "one \"CMB_RamRobots can't be read (its form 1 is a .?AVActor@@ ...)\" line");
+		RamUpToSpeed(1.0f);
+		RamRide(1500.0f, 1.0f, 1, 3000);
+		left = RamPlaneAhead(0);
+		CHECK(g_ramAsks == 0 && g_ramHits == 0 && left > -15.0f && left < 80.0f && LogLines(lines[1]) == refusedBefore + 1, "no ask (%d), no hit, stops %.0f short; one \"can't be knocked down (No Knockdowns)\" line", g_ramAsks, left);
+		RamRideEnd();
+		robots[0] = g_ramRobotsEntries[0];
+		RamGetOffAndOn();
+		CHECK(LogLines("rams: CMB_RamRobots: 2 races pass") == 2, "put right, read right again at the next ride's start (a second \"2 races pass\" line)");
 	}
 	*(uint8_t **)(g_ramActor + 0x418) = g_raceMedium;
 
@@ -7083,6 +7992,13 @@ static void RamTests(void)
 	printf("rams: at about 315 a second (W at 0.35; CMB_RamMinSpeed 450), the script says yes: too slow, braked for, no hit:\n");
 	int slowBefore = LogLines("under CMB_RamMinSpeed's 450");
 	RamUpToSpeed(0.35f);
+	/* The script's poll at the ask, its answer 150 ms on (test 42, the railing's fake: this ride's
+	 * yes must be in within about 0.18 s of the ask, before the face rays' brake has slowed the
+	 * bike so far that their reach falls short of the actor and no line can come; with the poll's
+	 * phase left to the frames, 47 or 48 of them a quarter second, a poll every 19 or 20 frames,
+	 * the answer came 160-175 ms after the ask with test 42's fake and over 180 ms with the
+	 * railing's, the plugin the same). Pinned as the pack rides pin theirs; RamRideEnd unpins it. */
+	g_ramPollAlign = 0.0f;
 	RamRide(900.0f, 0.35f, 1, 4000);
 	left = RamPlaneAhead(0);
 	CHECK(g_ramAsks >= 1 && g_ramHits == 0 && left > -15.0f && left < 80.0f, "asked (%d), no hit (%d), stops %.0f short", g_ramAsks, g_ramHits, left);
@@ -7150,7 +8066,9 @@ static void RamTests(void)
 	 * replacing its ask before the script's poll read it. The second steps in nearer, 50 ms
 	 * after the first ask; the poll comes 90 ms after the first ask, so without the gap both
 	 * asks fall inside one poll. */
-	printf("rams: test 41's pack: FF004D69 seen at speed, FF004D6A stepping in nearer (600 ahead) 50 ms later, the script's poll 90 ms after the first ask. AskGap=0.12: the second ask waits, the two told 0.12 s apart at least, the poll reads both, both said yes, both hit:\n");
+	printf("rams: test 41's pack: FF004D69 seen at speed, FF004D6A stepping in nearer (600 ahead) 50 ms later, the script's poll 90 ms after the first ask. AskGap=0.12 (AskAnswered=0 written, read again on getting on: test 42's build's asks): the second ask waits, the two told 0.12 s apart at least, the poll reads both, both said yes, both hit:\n");
+	RewriteIni("AskAnswered=1", "AskAnswered=0");
+	RamGetOffAndOn();
 	RamUpToSpeed(1.0f);
 	int waitsBefore = LogLines("its ask waits"), toldBefore = LogLines("rams: FF004D6A's ask told the script (ask");
 	g_ramPlanes[1] = NULL;
@@ -7186,6 +8104,49 @@ static void RamTests(void)
 	RamRideEnd();
 	RewriteIni("AskGap=0", "AskGap=0.12");
 	RewriteIni("HitHold=0", "HitHold=0.4");
+	RewriteIni("AskAnswered=0", "AskAnswered=1");
+	RamGetOffAndOn();
+
+	/* Test 42's pack: the asks told AskGap apart were answered 234 ms apart at the median, the
+	 * script answering the newest of its poll's; AskAnswered tells the next once the last is
+	 * answered (AskAgain at the longest), and the script polls again 0.03 s after an answer. */
+	printf("rams: the same pack with AskAnswered=1 (the default): FF004D6A's ask waits for the answer to FF004D69's, is told a frame after it, the poll reads both, both said yes, both hit:\n");
+	RamUpToSpeed(1.0f);
+	{
+		int answerWaits = LogLines("(AskAnswered)"), afterAnswer = LogLines("ms after the answer to ask");
+		g_ramPlanes[1] = NULL;
+		RamPlace(0, 1500.0f);
+		g_ramStepIn = 600.0f;
+		g_ramPollAlign = 0.09f;
+		RamGo(1.0f, 1, 2200);
+		h0 = &g_ramSeenHits[0];
+		h1 = &g_ramSeenHits[1];
+		askGap = g_ramAsks >= 2 ? g_ramAskTimes[1] - g_ramAskTimes[0] : 0.0f;
+		CHECK(g_ramAsksOf[0] == 1 && g_ramAsksOf[1] == 1 && g_ramBadAsks == 0, "asked once about each (%d, %d; %d other)", g_ramAsksOf[0], g_ramAsksOf[1], g_ramBadAsks);
+		CHECK(g_ramAsks >= 2 && askGap >= 0.15f && askGap <= 0.35f, "the asks told %.3f s apart (the first's answer: the poll 90 ms after it and 150 ms of deciding)", askGap);
+		CHECK(g_ramPollUnread == 0, "the script's poll read both: %d unread", g_ramPollUnread);
+		CHECK(g_ramHits == 2 && h0->who == 1 && h1->who == 0, "two hits (%d): FF004D6A's first (the nearer), then FF004D69's (%d, %d)", g_ramHits, h0->who, h1->who);
+		CHECK(LogLines("(AskAnswered)") == answerWaits + 1 && LogLines("ms after the answer to ask") == afterAnswer + 1,
+		      "the log: \"FF004D6A ... seen ...: its ask waits for the answer to ask N (AskAnswered)\", then \"FF004D6A's ask told the script (ask N) N ms after it was seen, N ms after the answer to ask N\"");
+		RamRideEnd();
+	}
+
+	printf("rams: two actors (FF004D69 at 1500, FF004D6A at 1550), the script never answers: the second's ask told anyway once AskAgain (0.4 s) has passed, the bike braked for the first as before:\n");
+	RamUpToSpeed(1.0f);
+	{
+		int anywayBefore = LogLines("unanswered for "), toldAnyway = LogLines("unanswered (AskAgain): told anyway");
+		g_ramPlanes[1] = NULL;
+		RamPlace(0, 1500.0f);
+		RamPlace(1, 1550.0f);
+		RamGo(1.0f, 2, 3000);
+		left = RamPlaneAhead(0);
+		float second = g_ramAsks >= 2 ? g_ramAskTimes[1] - g_ramAskTimes[0] : 0.0f;
+		CHECK(g_ramAsks >= 2 && second >= 0.40f && second <= 0.50f && g_ramAskWho[1] == 1, "the second ask %.3f s after the first, about FF004D6A (%d)", second, g_ramAskWho[1]);
+		CHECK(LogLines("unanswered for ") == anywayBefore + 1 && LogLines("unanswered (AskAgain): told anyway") == toldAnyway + 1,
+		      "one \"rams: ask N (FF004D69) unanswered for 400 ms: the next ask told anyway\" line, and FF004D6A's \"..., unanswered (AskAgain): told anyway\"");
+		CHECK(g_ramHits == 0 && left > -15.0f && left < 80.0f && MoveInput()[1] < 0.05f, "no hit (%d), stops %.0f short of FF004D69, next to no input (%g)", g_ramHits, left, MoveInput()[1]);
+		RamRideEnd();
+	}
 
 	printf("rams: [Ram] Enabled=0 written (read again on getting on): never asked about, braked for as before test 41:\n");
 	RewriteIni("Enabled=1", "Enabled=0");
@@ -7198,6 +8159,7 @@ static void RamTests(void)
 	RamRideEnd();
 	RewriteIni("Enabled=0", "Enabled=1");
 	RamGetOffAndOn();
+	RamTests42();
 
 	printf("rams: the 3D's user data a placed object, not an actor: never asked about, one line:\n");
 	static const char *refrNames[] = { ".?AVTESObjectREFR@@", ".?AVTESForm@@" };
@@ -7226,9 +8188,10 @@ static void RamTests(void)
  * is on, else the plane. */
 static float FakeGroundAt(float x, float y)
 {
+	float lower = g_dropOn && g_dropDepth > 0.0f && (x - g_dropPoint[0]) * g_dropDir[0] + (y - g_dropPoint[1]) * g_dropDir[1] >= 0.0f ? g_dropDepth : 0.0f;   /* past a drop's edge with a floor (test 42) */
 	if (g_profileOn)
-		return ProfileGround(x, y, true);
-	return g_groundZ + g_slopeK * ((x - g_slopeO[0]) * g_slopeD[0] + (y - g_slopeO[1]) * g_slopeD[1]);
+		return ProfileGround(x, y, true) - lower;
+	return g_groundZ + g_slopeK * ((x - g_slopeO[0]) * g_slopeD[0] + (y - g_slopeO[1]) * g_slopeD[1]) - lower;
 }
 
 /* A physics-lite controller (test 40's in-air phase, opt-in): while it isn't supported it falls
@@ -7462,6 +8425,111 @@ static float BackLedge(float *lowerGap, float *dzMax)
 	return upper;
 }
 
+/* Test 42's backing too early ("way too far": 56 short of a rail behind the tyre, about 86 on a
+ * slope): the rear's clearance from the parts file, the rear tyre's back edge (|RearAxle y| +
+ * WheelRadius: 36.7 + 29.9 = 66.6 here) plus BackMargin 25 = 91.6, the knee and chest rays ending
+ * a step past it; the ray under where the tyre's edge will be after the step (BackLedge); and
+ * BackClearance=150 for test 42's rule. Level ground, the controller supported, no physics. */
+static float BackGap(const FakePlane *w)   /* the player's distance in front of a plane behind */
+{
+	return (PlayerPos()[0] - w->point[0]) * w->normal[0] + (PlayerPos()[1] - w->point[1]) * w->normal[1];
+}
+static void BackClearTests(void)
+{
+	const float tyre = 36.7f + 29.9f, clear = tyre + 25.0f;
+	float p0[2], h, back[2];
+	BackLevel();
+	g_physOn = false;
+	g_physBit = 1;
+	RunFrames(300);
+
+	printf("backing (test 42): a rail at knee height (20 to 40 over the ground) 100 behind: backs a few units and stops with it 87 to 100 behind the rider, 21 to 33 behind the tyre (the clearance %.1f from the parts file; test 42's build stopped 145 to 195 short):\n", clear);
+	h = PlayerHeading();
+	back[0] = -sinf(h);
+	back[1] = -cosf(h);
+	Mark(p0);
+	FakePlane *rail = &g_planes[0];
+	*rail = (FakePlane){ .on = true, .point = { p0[0] + back[0] * 100.0f, p0[1] + back[1] * 100.0f }, .normal = { -back[0], -back[1] }, .layer = 1, .top = 40.0f, .bottom = 20.0f };
+	int clearBefore = LogLines("reverse: the rear's clearance 92 from the parts file (the tyre's back edge 67 behind the rider + 25)");
+	int kneeBefore = LogLines("reverse: stopped: something behind (knee height, ");
+	int raysBefore = LogLines(" under the rear (92), "), tyreBefore = LogLines(" under the tyre (67), ");
+	Keys(0.0f, -1.0f);
+	RunFrames(2000);
+	float gap = BackGap(rail), moved = Moved(p0);
+	CHECK(moved > 4.0f && moved < 13.0f && gap > 87.0f && gap < 100.0f, "backs %.1f and stops with the rail %.1f behind the rider, %.1f behind the tyre's back edge", moved, gap, gap - tyre);
+	CHECK(LogLines("reverse: the rear's clearance 92 from the parts file (the tyre's back edge 67 behind the rider + 25)") > clearBefore && LogLines("reverse: stopped: something behind (knee height, ") > kneeBefore,
+	      "the log: \"reverse: the rear's clearance 92 from the parts file (the tyre's back edge 67 behind the rider + 25)\" at the push's start, then \"reverse: stopped: something behind (knee height, ...)\"");
+	CHECK(LogLines(" under the rear (92), ") > raysBefore && LogLines(" under the tyre (67), ") > tyreBefore, "the trace's rays lines give the clearance and the ground under the tyre: \"... under the rear (92), ... under the tyre (67), ...\"");
+	BackLetGo();
+	rail->on = false;
+
+	printf("backing (test 42): a ledge 25 deep 90 behind, BackLedge=1: backs about 20 and stops with the edge 66 to 71 behind the rider, the tyre's back edge (66.6) not over it:\n");
+	h = PlayerHeading();
+	back[0] = -sinf(h);
+	back[1] = -cosf(h);
+	Mark(p0);
+	g_dropPoint[0] = p0[0] + back[0] * 90.0f;
+	g_dropPoint[1] = p0[1] + back[1] * 90.0f;
+	g_dropDir[0] = back[0];
+	g_dropDir[1] = back[1];
+	g_dropDepth = 25.0f;
+	g_dropOn = true;
+	int ledgeBefore = LogLines("reverse: stopped: the ground drops away under the rear tyre, "), ledgeWords = LogLines(" units back (the ground -25 there, 25 below the slope 55 back's line)");
+	int stepBefore = LogLines("reverse: stopped: the ground drops away under the step");
+	Keys(0.0f, -1.0f);
+	RunFrames(2000);
+	float edge = (g_dropPoint[0] - PlayerPos()[0]) * back[0] + (g_dropPoint[1] - PlayerPos()[1]) * back[1];
+	moved = Moved(p0);
+	CHECK(moved > 18.0f && moved < 26.0f && edge > 66.0f && edge < 71.0f, "backs %.1f and stops with the edge %.1f behind the rider (the tyre's back edge %.1f short of it)", moved, edge, edge - tyre);
+	CHECK(LogLines("reverse: stopped: the ground drops away under the rear tyre, ") > ledgeBefore && LogLines(" units back (the ground -25 there, 25 below the slope 55 back's line)") > ledgeWords &&
+	      LogLines("reverse: stopped: the ground drops away under the step") == stepBefore,
+	      "the log: \"reverse: stopped: the ground drops away under the rear tyre, 67 units back (the ground -25 there, 25 below the slope 55 back's line)\", not the feet rule's");
+	BackLetGo();
+
+	printf("backing (test 42): BackLedge=0 rewritten, off and on again: test 42's rule, the bike backs on until the edge is under the step, the tyre over the lower ground:\n");
+	RewriteIni("BackLedge=1", "BackLedge=0");
+	GetOffAndOn(60.0f);
+	CHECK(LogLines("  reverse: BackClearance=0 BackMargin=25 BackLedge=0: the rear's clearance the rear tyre's back edge by the parts file (|RearAxle y| + WheelRadius) + 25, 150 without one; no ray under the rear tyre (BackLedge=0, test 42's build) (read again on getting on)") == 1,
+	      "the settings line again, BackLedge=0: no ray under the rear tyre");
+	ledgeBefore = LogLines("reverse: stopped: the ground drops away under the rear tyre, ");
+	stepBefore = LogLines("reverse: stopped: the ground drops away under the step");
+	tyreBefore = LogLines(" under the tyre (");
+	Mark(p0);
+	Keys(0.0f, -1.0f);
+	RunFrames(2000);
+	edge = (g_dropPoint[0] - PlayerPos()[0]) * back[0] + (g_dropPoint[1] - PlayerPos()[1]) * back[1];
+	CHECK(Moved(p0) > 55.0f && edge > 0.0f && edge < 5.0f, "backs %.1f more and stops with the edge %.1f behind the rider (the tyre %.1f over the lower ground)", Moved(p0), edge, tyre - edge);
+	CHECK(LogLines("reverse: stopped: the ground drops away under the step") > stepBefore && LogLines("reverse: stopped: the ground drops away under the rear tyre, ") == ledgeBefore &&
+	      LogLines(" under the tyre (") == tyreBefore, "the log: the feet rule's \"the ground drops away under the step\", no tyre's ray in the trace");
+	BackLetGo();
+	g_dropOn = false;
+	g_dropDepth = 0.0f;
+	BackLevel();
+
+	printf("backing (test 42): BackLedge=1 and BackClearance=150 rewritten, off and on again, a wall 400 behind: test 16's 150, as in test 42's build:\n");
+	RewriteIni("BackLedge=0", "BackLedge=1");
+	RewriteIni("BackClearance=0", "BackClearance=150");
+	GetOffAndOn(60.0f);
+	CHECK(LogLines("  reverse: BackClearance=150 BackMargin=25 BackLedge=1: the rear's clearance 150 as set (150: test 16's number, test 42's build); ") == 1,
+	      "the settings line again, BackClearance=150");
+	h = PlayerHeading();
+	back[0] = -sinf(h);
+	back[1] = -cosf(h);
+	Mark(p0);
+	FakePlane *wall = &g_planes[0];
+	*wall = (FakePlane){ .on = true, .point = { p0[0] + back[0] * 400.0f, p0[1] + back[1] * 400.0f }, .normal = { -back[0], -back[1] }, .layer = 1 };
+	clearBefore = LogLines("reverse: the rear's clearance 150 (BackClearance=150; the tyre's back edge 67 by the parts file)");
+	Keys(0.0f, -1.0f);
+	RunFrames(4500);
+	gap = BackGap(wall);
+	CHECK(Moved(p0) > 200.0f && gap > 145.0f && gap < 195.0f, "backs %.0f and stops %.0f short of the wall (145 to 195, as in test 42's build)", Moved(p0), gap);
+	CHECK(LogLines("reverse: the rear's clearance 150 (BackClearance=150; the tyre's back edge 67 by the parts file)") > clearBefore,
+	      "the log: \"reverse: the rear's clearance 150 (BackClearance=150; the tyre's back edge 67 by the parts file)\"");
+	BackLetGo();
+	wall->on = false;
+	BackLevel();
+}
+
 static void BackingTests(void)
 {
 	float *head = (float *)(g_player + 0xC8);
@@ -7497,7 +8565,11 @@ static void BackingTests(void)
 
 	printf("backing (N2): down 20 deg with the controller in the air all the way (its bit clear, state 2), the fake's controller falling at 686 a second squared when over the ground: the plugin carries it down, not the game's gravity:\n");
 	int heightBefore = LogLines("  height: z ");
+	int landsBefore = LogLines("s in the air, the fall "), keptBefore = LogLines("the throttle kept at "), notSunkBefore = LogLines(", not sunk (Suspension=0)");
 	BackStats n2 = BackInTheAir();
+	int lands = LogLines("s in the air, the fall ") - landsBefore;
+	CHECK(LogLines("the throttle kept at ") == keptBefore && LogLines(", not sunk (Suspension=0)") - notSunkBefore == lands,
+	      "test 42's landing: no throttle kept (no forward key), and the %d landing line(s) (0.3 s in the air before the push, then the rays' word) say \"not sunk (Suspension=0)\"", lands);
 	CHECK(n2.n > 200 && n2.zeroShare <= 0.10f, "the step's dz 0 in %.0f%% of %d steps (test 40's rule: most; 47 of 69 in-air lines read -0.00)", 100.0f * n2.zeroShare, n2.n);
 	CHECK(n2.descent < -100.0f && n2.gameShare <= 0.10f, "the game's fall did %.0f%% of the %.0f down", 100.0f * n2.gameShare, -n2.descent);
 	CHECK(n2.dv99 <= 10.0f, "the vertical speed changed %.1f a second from one step to the next at the 99th percentile (%.1f at most)", n2.dv99, n2.dvMax);
@@ -7585,6 +8657,44 @@ static void BackingTests(void)
 	GetOffAndOn(60.0f);
 	CHECK(LogLines("  reverse: BackFollow=10 BackClose=0.1: going back level or down, each step follows the ground's slope over 10 units centred on its middle") == 2 &&
 	      LogLines("at most 120 a second and 3 a step (read again on getting on)") == 1, "read again on getting on");
+	BackClearTests();
+
+	/* A slow landing (review of test 43's build: under LandStop of the top the hold started and
+	 * the next input ended it as "stopped by something"): at rest, the ground dropping 60 under
+	 * the whole bike, 0.42 s in the air at 686 a second squared (mode full's landing hook), and
+	 * forward pressed 0.25 s into the fall, so the speed along is under a quarter of the top at
+	 * the landing (forward pressed with the drop, it was 277 there, over the 225). */
+	printf("backing (test 43's review): at rest, the ground dropping 60 under the bike, forward pressed 0.25 s into the fall: a slow landing, the throttle not held (the speed along under LandStop's 0.25 of the top), no \"stopped by something\":\n");
+	{
+		float h = PlayerHeading();
+		g_dropDir[0] = sinf(h);
+		g_dropDir[1] = cosf(h);
+		g_dropPoint[0] = PlayerPos()[0] - g_dropDir[0] * 300.0f;
+		g_dropPoint[1] = PlayerPos()[1] - g_dropDir[1] * 300.0f;
+		g_dropDepth = 60.0f;
+		g_dropOn = true;
+		LandingReset();
+		g_landFreeze = 0.0f;
+		int lands0 = LogLines("s in the air, the fall "), slow0 = LogLines(" under LandStop's 0.25 of the top), not sunk (Suspension=0)");
+		int kept0 = LogLines("the throttle kept at "), stopped0 = LogLines("(stopped by something)");
+		g_onFrame = LandingFrame;
+		Keys(0.0f, 0.0f);
+		RunFrames(250);
+		Keys(0.0f, 1.0f);
+		RunFrames(750);
+		float along = LastLogNumber("the throttle not held (the speed along ");
+		CHECK(g_landed && LogLines("s in the air, the fall ") - lands0 == 1 && LogLines(" under LandStop's 0.25 of the top), not sunk (Suspension=0)") - slow0 == 1 &&
+		      LogLines("the throttle kept at ") == kept0 && LogLines("(stopped by something)") == stopped0 && along < 225.0f,
+		      "one landing line, \"the throttle not held (the speed along %.0f under LandStop's 0.25 of the top), not sunk (Suspension=0)\", no throttle kept and no \"stopped by something\" line (%d)",
+		      along, LogLines("(stopped by something)") - stopped0);
+		Keys(0.0f, 0.0f);
+		RunFrames(500);
+		g_onFrame = BackingFrame;
+		g_dropOn = false;
+		g_dropDepth = 0.0f;
+		g_landCutLeft = 0.0f;
+		BackLevel();
+	}
 	SetLive(0.0f);
 	SetCamera(0.0f);
 	SetTilt(0.0f);
@@ -7595,7 +8705,10 @@ static void BackingTests(void)
 /* Mode 14 (test 41: the brought bike stood in Diamond City's gate's chain-link fence):
  * CMB_ControllerScript's room asks, played by the harness. The spot's X, Y, Z written, then
  * CMB_RoomAsk (the number, last); the plugin's CMB_RoomClear and CMB_RoomAnswer (+n room, -n
- * none) read back. */
+ * none) read back. Test 43 (the user's thoughts on test 42's spot): the spot's heading
+ * (CMB_RoomAskAngle) and the box along it, Clear scaled to the bike's length, the test ray
+ * tried again for an ask (RaysRetry), each key's 0 giving test 42's rule; mode 15 is an ESP of
+ * test 42's build (the six, no CMB_RoomAskAngle): the asks to ask 8 and the eight rays. */
 static float RoomGlobal(int i) { return *(float *)(g_roomGlobalsFake[i] + 0x30); }
 static void RoomAsk(int n, float x, float y, float z)
 {
@@ -7604,7 +8717,60 @@ static void RoomAsk(int n, float x, float y, float z)
 	*(float *)(g_roomGlobalsFake[2] + 0x30) = z;
 	*(float *)(g_roomGlobalsFake[3] + 0x30) = (float)n;   /* last, as the script writes it */
 }
-static void RoomTests(void)
+/* Test 43: an ask with the spot's heading, CMB_RoomAskAngle in degrees (the script's GetAngleZ;
+ * -1000 none), written before the rest as the script writes it. */
+static void RoomAskHeading(int n, float x, float y, float z, float degrees)
+{
+	*(float *)(g_roomGlobalsFake[6] + 0x30) = degrees;
+	RoomAsk(n, x, y, z);
+}
+/* Plane i a wall (layer 1) through (x, y), facing along (nx, ny): the planes are one-sided, a ray
+ * from the side the normal points to hits them. */
+static void RoomWall(int i, float x, float y, float nx, float ny)
+{
+	FakePlane *w = &g_planes[i];
+	memset(w, 0, sizeof(*w));
+	w->point[0] = x;
+	w->point[1] = y;
+	w->normal[0] = nx;
+	w->normal[1] = ny;
+	w->layer = 1;
+	w->on = true;
+}
+/* A passage `width` wide along the forward fw, centred on the spot: two walls, facing in. */
+static void RoomPassage(float sx, float sy, const float fw[2], float width)
+{
+	float rt[2] = { fw[1], -fw[0] }, h = 0.5f * width;
+	RoomWall(0, sx + h * rt[0], sy + h * rt[1], -rt[0], -rt[1]);
+	RoomWall(1, sx - h * rt[0], sy - h * rt[1], rt[0], rt[1]);
+}
+static void RoomWallsOff(void)
+{
+	for (int i = 0; i < 3; i++)
+		g_planes[i].on = false;
+}
+/* The line of ask n answered none by the eight 110 rays in the 100-wide passage along the
+ * player's heading (1 rad): the diagonals -x+y and +x-y meet the walls at the same 51
+ * (50 / 0.977), whichever float noise names first; one of the two lines, once. */
+static bool RoomDiagonalLine(int n, float x, float y, float z, const char *head, const char *tail, char *line, size_t size)
+{
+	char other[256];
+	snprintf(line, size, "room: ask %d at (%.0f, %.0f, %.0f)%s: none, something 51 along -x+y (FakeWall, layer 1) %s", n, x, y, z, head, tail);
+	snprintf(other, sizeof(other), "room: ask %d at (%.0f, %.0f, %.0f)%s: none, something 51 along +x-y (FakeWall, layer 1) %s", n, x, y, z, head, tail);
+	int a = LogLines(line), b = LogLines(other);
+	if (b > a)
+		snprintf(line, size, "%s", other);
+	return a + b == 1;
+}
+/* A short ride, for the [Room] keys read again on getting on. */
+static void RoomRide(void)
+{
+	SetLive(60.0f);
+	RunFrames(500);
+	SetLive(0.0f);
+	RunFrames(400);
+}
+static void RoomTests(bool old)
 {
 	SetNormal(0.0f, 0.0f, 1.0f);
 	SetState(0);
@@ -7613,6 +8779,8 @@ static void RoomTests(void)
 	char line[200];
 	printf("room: not riding, on flat ground; the globals found:\n");
 	CHECK(LogLines("found CMB_RoomAskX") == 1 && LogLines("found CMB_RoomClear") == 1 && LogLines("room: no CMB_Room globals") == 0, "CMB_RoomAskX to CMB_RoomClear found, no \"no CMB_Room globals\" line");
+	CHECK(LogLines("rams: CMB_RamRobots isn't there (an older ESP): the size and No Knockdowns gates stand") == 1 && LogLines("rams: CMB_RamRobots:") == 0,
+	      "this ESP has no CMB_RamRobots (test 42's robots; mode 11 has it): one \"isn't there\" line, the gates as before");
 	CHECK(RoomGlobal(4) == 0.0f && LogLines("room: ask") == 0, "no ask yet: nothing answered");
 
 	printf("room: ask 1 at a spot 224 from the player, 30 over the ground, nothing about: room, the ground 30 below, within two frames:\n");
@@ -7710,13 +8878,144 @@ static void RoomTests(void)
 	CHECK(RoomGlobal(4) == -7.0f && RoomGlobal(5) == -2.0f, "CMB_RoomAnswer %g (-7: none), CMB_RoomClear %g (-2)", RoomGlobal(4), RoomGlobal(5));
 	CHECK(LogLines(line) == 1 && LogLines("not trusted (tried again in 3 s)") >= 1, "the line: \"%s\", after the test ray's \"not trusted\"", line);
 	g_dropOn = false;
+
+	/* Test 43 ([Room]: Box, Side, Fore, RaysRetry; CMB_RoomAskAngle, 0x855). */
+	printf("room: test 43's [Room] keys, and CMB_RoomAskAngle %s:\n", old ? "missing (mode 15: test 42's ESP)" : "found");
+	CHECK(LogLines("  room: Box=1 Side=40 Fore=110 RaysRetry=1: the spot checked as a bike-shaped box along the heading the script gives (the eight 110 rays without one); "
+	               "an ask while the rays aren't trusted casts the test ray again for it") == 1, "the settings line, once");
+	if (old)
+		CHECK(LogLines("found CMB_RoomAskX") == 1 && LogLines("found CMB_RoomClear") == 1 && LogLines("found CMB_RoomAskAngle") == 0 &&
+		      LogLines("room: no CMB_RoomAskAngle (an older ESP): the spot checked without a heading, the eight rays as before test 43") == 1,
+		      "the six found, CMB_RoomAskAngle not: one \"no CMB_RoomAskAngle (an older ESP)\" line");
+	else
+		CHECK(LogLines("found CMB_RoomAskAngle") == 1 && LogLines("room: no CMB_RoomAskAngle") == 0, "CMB_RoomAskAngle found, no \"no CMB_RoomAskAngle\" line");
+
+	printf("room: ask 8 with the ground back, right after ask 7's -2 (within the 3 s retry): RaysRetry=1 casts the test ray again for it, room:\n");
+	int worked = LogLines(": rays work;");
+	RoomAsk(8, sx, sy, gz + 30.0f);
+	RunFrames(100);
+	float ago = LastLogNumber("room: ask 8: the rays weren't trusted (the test ray ");
+	CHECK(LogLines("room: ask 8: the rays weren't trusted (the test ray ") == 1 && LogLines("s ago): tried again for it") == 1 && ago > 0.0f && ago < 3.0f,
+	      "the \"tried again for it\" line, once (the test ray %.1f s before)", ago);
+	snprintf(line, sizeof(line), "room: ask 8 at (%.0f, %.0f, %.0f): room (the ground 30 below the spot)", sx, sy, gz + 30.0f);
+	CHECK(LogLines(": rays work;") == worked + 1 && RoomGlobal(4) == 8.0f && LogLines(line) == 1, "\"rays work\" (%d more), CMB_RoomAnswer %g (8: room; test 42's build -8), the line: \"%s\"",
+	      LogLines(": rays work;") - worked, RoomGlobal(4), line);
+
+	float hh8 = PlayerHeading(), fw8[2] = { sinf(hh8), cosf(hh8) }, deg8 = hh8 * DEG;
+	if (old) {
+		printf("room: ask 9 in a passage 100 wide along the player's heading (no heading to give, the ESP has no CMB_RoomAskAngle): none, by the eight 110 rays:\n");
+		RoomPassage(sx, sy, fw8, 100.0f);
+		RoomAskHeading(9, sx, sy, gz + 30.0f, deg8);   /* written, but not found by the plugin */
+		RunFrames(100);
+		CHECK(RoomGlobal(4) == -9.0f && fabsf(RoomGlobal(5) - 51.2f) < 0.5f, "CMB_RoomAnswer %g (-9: none), CMB_RoomClear %g (a diagonal's hit, 50 / 0.977)", RoomGlobal(4), RoomGlobal(5));
+		CHECK(RoomDiagonalLine(9, sx, sy, gz + 30.0f, "", "(no heading given: the eight rays)", line, sizeof(line)), "the line: \"%s\"", line);
+		RoomWallsOff();
+		*(float *)(g_roomGlobalsFake[6] + 0x30) = -1000.0f;
+		return;
+	}
+
+	printf("room: ask 9 in a passage 100 wide along the heading the script gives (%.0f): room, the box's sides 40 out:\n", deg8);
+	RoomPassage(sx, sy, fw8, 100.0f);
+	RoomAskHeading(9, sx, sy, gz + 30.0f, deg8);
+	RunFrames(100);
+	snprintf(line, sizeof(line), "room: ask 9 at (%.0f, %.0f, %.0f), heading %.0f: room (the ground 30 below the spot)", sx, sy, gz + 30.0f, deg8);
+	CHECK(RoomGlobal(4) == 9.0f && fabsf(RoomGlobal(5) - 30.0f) < 0.5f, "CMB_RoomAnswer %g (9: room), CMB_RoomClear %g (the ground 30 below)", RoomGlobal(4), RoomGlobal(5));
+	CHECK(LogLines(line) == 1, "the line: \"%s\"", line);
+
+	printf("room: ask 10, the same passage with the heading turned 90 (across it): none, something 50 along fore:\n");
+	RoomAskHeading(10, sx, sy, gz + 30.0f, deg8 + 90.0f);
+	RunFrames(100);
+	snprintf(line, sizeof(line), "room: ask 10 at (%.0f, %.0f, %.0f), heading %.0f: none, something 50 along fore (of 110: 50 on the bike's 110) (FakeWall, layer 1)", sx, sy, gz + 30.0f, deg8 + 90.0f);
+	CHECK(RoomGlobal(4) == -10.0f && fabsf(RoomGlobal(5) - 50.0f) < 0.5f, "CMB_RoomAnswer %g (-10: none), CMB_RoomClear %g (the wall 50 along the fore ray, scale 1)", RoomGlobal(4), RoomGlobal(5));
+	CHECK(LogLines(line) == 1, "the line: \"%s\"", line);
+
+	printf("room: ask 11, the same passage with no heading given (-1000): none, by the eight 110 rays as before:\n");
+	RoomAskHeading(11, sx, sy, gz + 30.0f, -1000.0f);
+	RunFrames(100);
+	CHECK(RoomGlobal(4) == -11.0f && fabsf(RoomGlobal(5) - 51.2f) < 0.5f, "CMB_RoomAnswer %g (-11: none), CMB_RoomClear %g (a diagonal's hit, 50 / 0.977: test 42's value)", RoomGlobal(4), RoomGlobal(5));
+	CHECK(RoomDiagonalLine(11, sx, sy, gz + 30.0f, "", "(no heading given: the eight rays)", line, sizeof(line)), "the line: \"%s\"", line);
+
+	printf("room: ask 12 in a passage 70 wide along the heading: none, something 35 along the right, 96 on the bike's 110:\n");
+	RoomPassage(sx, sy, fw8, 70.0f);
+	RoomAskHeading(12, sx, sy, gz + 30.0f, deg8);
+	RunFrames(100);
+	snprintf(line, sizeof(line), "room: ask 12 at (%.0f, %.0f, %.0f), heading %.0f: none, something 35 along the right (of 40: 96 on the bike's 110) (FakeWall, layer 1)", sx, sy, gz + 30.0f, deg8);
+	CHECK(RoomGlobal(4) == -12.0f && fabsf(RoomGlobal(5) - 96.25f) < 0.5f, "CMB_RoomAnswer %g (-12: none), CMB_RoomClear %g (35 of 40, on the bike's 110: 96.25)", RoomGlobal(4), RoomGlobal(5));
+	CHECK(LogLines(line) == 1, "the line: \"%s\"", line);
+	RoomWallsOff();
+
+	printf("room: asks 13 and 14, a wall across the heading 100 then 120 ahead of the spot: none (100 along fore), then room:\n");
+	RoomWall(0, sx + 100.0f * fw8[0], sy + 100.0f * fw8[1], -fw8[0], -fw8[1]);
+	RoomAskHeading(13, sx, sy, gz + 30.0f, deg8);
+	RunFrames(100);
+	snprintf(line, sizeof(line), "room: ask 13 at (%.0f, %.0f, %.0f), heading %.0f: none, something 100 along fore (of 110: 100 on the bike's 110) (FakeWall, layer 1)", sx, sy, gz + 30.0f, deg8);
+	CHECK(RoomGlobal(4) == -13.0f && fabsf(RoomGlobal(5) - 100.0f) < 0.5f && LogLines(line) == 1, "CMB_RoomAnswer %g (-13: none), CMB_RoomClear %g, the line: \"%s\"", RoomGlobal(4), RoomGlobal(5), line);
+	RoomWall(0, sx + 120.0f * fw8[0], sy + 120.0f * fw8[1], -fw8[0], -fw8[1]);
+	RoomAskHeading(14, sx, sy, gz + 30.0f, deg8);
+	RunFrames(100);
+	snprintf(line, sizeof(line), "room: ask 14 at (%.0f, %.0f, %.0f), heading %.0f: room (the ground 30 below the spot)", sx, sy, gz + 30.0f, deg8);
+	CHECK(RoomGlobal(4) == 14.0f && LogLines(line) == 1, "CMB_RoomAnswer %g (14: room), the line: \"%s\"", RoomGlobal(4), line);
+	RoomWallsOff();
+
+	printf("room: ask 15 at 80 under the ground (the ground above the spot): none, CMB_RoomClear -80 (the script's parse, test 43, reads it as none):\n");
+	RoomAskHeading(15, sx, sy, gz - 80.0f, deg8);
+	RunFrames(100);
+	snprintf(line, sizeof(line), "room: ask 15 at (%.0f, %.0f, %.0f), heading %.0f: none, the ground 80 above the spot (FakeGround, layer 13), over 60", sx, sy, gz - 80.0f, deg8);
+	CHECK(RoomGlobal(4) == -15.0f && fabsf(RoomGlobal(5) + 80.0f) < 0.5f, "CMB_RoomAnswer %g (-15: none), CMB_RoomClear %g (the ground 80 above)", RoomGlobal(4), RoomGlobal(5));
+	CHECK(LogLines(line) == 1, "the line: \"%s\"", line);
+
+	printf("room: Box=0 rewritten and a ride (read again on getting on): ask 16 in the 100-wide passage along the heading, none by the eight rays (test 42's rule):\n");
+	RewriteIni("Box=1", "Box=0");
+	RoomRide();
+	CHECK(LogLines("  room: Box=0 Side=40 Fore=110 RaysRetry=1: the spot checked by the eight 110 rays, a heading the script gives not used (Box=0, test 42's build); "
+	               "an ask while the rays aren't trusted casts the test ray again for it (read again on getting on)") == 1, "the settings line again, Box=0");
+	RoomPassage(sx, sy, fw8, 100.0f);
+	RoomAskHeading(16, sx, sy, gz + 30.0f, deg8);
+	RunFrames(100);
+	CHECK(RoomGlobal(4) == -16.0f && fabsf(RoomGlobal(5) - 51.2f) < 0.5f, "CMB_RoomAnswer %g (-16: none), CMB_RoomClear %g (a diagonal's hit, as with no heading)", RoomGlobal(4), RoomGlobal(5));
+	char head16[32];
+	snprintf(head16, sizeof(head16), ", heading %.0f", deg8);
+	CHECK(RoomDiagonalLine(16, sx, sy, gz + 30.0f, head16, "(Box=0: the eight rays, the heading not used)", line, sizeof(line)), "the line: \"%s\"", line);
+	RoomWallsOff();
+
+	printf("room: Box=1 and RaysRetry=0 rewritten and a ride; a load where the test ray finds no ground: ask 17 -2, the ground back, ask 18 within the 3 s still -2 (test 42's build), ask 19 after them room:\n");
+	RewriteIni("Box=0", "Box=1");
+	RewriteIni("RaysRetry=1", "RaysRetry=0");
+	RoomRide();
+	CHECK(LogLines("  room: Box=1 Side=40 Fore=110 RaysRetry=0: the spot checked as a bike-shaped box along the heading the script gives (the eight 110 rays without one); "
+	               "an ask while the rays aren't trusted answered not checked until the 3 s retry (RaysRetry=0, test 42's build) (read again on getting on)") == 1, "the settings line again, RaysRetry=0");
+	g_dropPoint[0] = PlayerPos()[0] - 1000.0f;
+	g_dropPoint[1] = PlayerPos()[1];
+	g_dropDir[0] = 1.0f;
+	g_dropDir[1] = 0.0f;
+	g_dropOn = true;
+	Send(3, 1);
+	RunFrames(400);
+	RoomAskHeading(17, sx, sy, gz + 30.0f, deg8);
+	RunFrames(100);
+	CHECK(RoomGlobal(4) == -17.0f && RoomGlobal(5) == -2.0f, "ask 17: CMB_RoomAnswer %g (-17: none), CMB_RoomClear %g (-2: the rays aren't working here)", RoomGlobal(4), RoomGlobal(5));
+	g_dropOn = false;
+	worked = LogLines(": rays work;");
+	RoomAskHeading(18, sx, sy, gz + 30.0f, deg8);
+	RunFrames(100);
+	snprintf(line, sizeof(line), "room: ask 18 at (%.0f, %.0f, %.0f), heading %.0f: none, the rays aren't working here (the test ray beside the player): not looked at", sx, sy, gz + 30.0f, deg8);
+	CHECK(RoomGlobal(4) == -18.0f && RoomGlobal(5) == -2.0f && LogLines(line) == 1, "ask 18 with the ground back: CMB_RoomAnswer %g (-18), CMB_RoomClear %g (-2), the line: \"%s\"", RoomGlobal(4), RoomGlobal(5), line);
+	CHECK(LogLines("room: ask 18: the rays weren't trusted") == 0 && LogLines("room: ask 17: the rays weren't trusted") == 0 && LogLines(": rays work;") == worked,
+	      "no \"tried again for it\" line with RaysRetry=0, no test ray");
+	RunFrames(3000);
+	RoomAskHeading(19, sx, sy, gz + 30.0f, deg8);
+	RunFrames(100);
+	snprintf(line, sizeof(line), "room: ask 19 at (%.0f, %.0f, %.0f), heading %.0f: room (the ground 30 below the spot)", sx, sy, gz + 30.0f, deg8);
+	CHECK(RoomGlobal(4) == 19.0f && LogLines(line) == 1 && LogLines(": rays work;") == worked + 1, "ask 19, past the 3 s: the test ray again by the old cadence, \"rays work\", room: \"%s\"", line);
+	RewriteIni("RaysRetry=0", "RaysRetry=1");
+	*(float *)(g_roomGlobalsFake[6] + 0x30) = -1000.0f;
 }
 
 int main(int argc, char **argv)
 {
 	const char *dllPath = argc > 1 ? argv[1] : "CMB_Slope.dll";
 	int mode = argc > 2 ? atoi(argv[2]) : 0;   /* 0 = full test, 1 = probe only, 2 = wrong game version */
-	g_haveParts = mode == 0 || mode == 7 || mode == 8 || mode == 9 || mode == 10 || mode == 11 || mode == 13;   /* run.sh gives those a [Parts] section */
+	g_haveParts = mode == 0 || mode == 7 || mode == 8 || mode == 9 || mode == 10 || mode == 11 || mode == 12 || mode == 13;   /* run.sh gives those a [Parts] section (mode 12 since test 43: the rear's clearance from it) */
 	g_base = (uintptr_t)GetModuleHandleA(NULL);
 	if ((uintptr_t)g_space > g_base + 0x00300000u || (uintptr_t)g_space + sizeof(g_space) < g_base + RVA_INI_SETTINGS + 8) {
 		printf("image layout doesn't cover the game addresses (g_space at +0x%llx)\n", (unsigned long long)((uintptr_t)g_space - g_base));
@@ -7729,7 +9028,9 @@ int main(int argc, char **argv)
 
 	if (mode == 9)
 		WriteLogMarker(dllPath);   /* the session before's log, for the plugin to keep */
-	g_roomHidden = mode == 11;         /* an older ESP without the CMB_Room globals (test 41): mode 11 checks the one line about it, mode 14 the asks */
+	g_roomHidden = mode == 11;         /* an older ESP without the CMB_Room globals (test 41): mode 11 checks the one line about it, modes 14 and 15 the asks */
+	g_roomAngleHidden = mode == 15;    /* test 42's ESP: the six without CMB_RoomAskAngle (test 43), mode 15 */
+	g_robotsHidden = mode != 11;       /* CMB_RamRobots (test 42) in mode 11 only: mode 14 checks the one "isn't there" line */
 	HMODULE dll = LoadLibraryA(dllPath);
 	if (!dll) { printf("can't load %s\n", dllPath); return 2; }
 	g_vqHooked = HookImport(dll, "VirtualQuery", (void *)CountingVirtualQuery);   /* its memory queries counted (test 37) */
@@ -7741,7 +9042,7 @@ int main(int argc, char **argv)
 	const uint32_t *compatible = version + 2 + 128 + 2;
 	CHECK(compatible[0] == 0x010B0F00u && compatible[1] == 0, "compatible with 1.11.240 only");
 
-	if (mode == 0 || mode == 9 || mode == 10 || mode == 11 || mode == 12 || mode == 13 || mode == 14)
+	if (mode == 0 || mode == 9 || mode == 10 || mode == 11 || mode == 12 || mode == 13 || mode == 14 || mode == 15)
 		WriteAddressLibrary();
 	F4SEInterface f4se = { 0x00070090u, mode == 2 ? 0x010B0DD0u : 0x010B0F00u, 0, 0, QueryInterface, GetPluginHandle, 0, 0, 0 };
 	bool loaded = load(&f4se);
@@ -7785,10 +9086,10 @@ int main(int argc, char **argv)
 		printf("%s\n", g_failures ? "FAILED" : "all ok");
 		return g_failures ? 1 : 0;
 	}
-	if (mode == 14) {
+	if (mode == 14 || mode == 15) {
 		Send(10, 1);   /* GameDataReady */
 		RunFrames(300);
-		RoomTests();
+		RoomTests(mode == 15);
 		printf("%s\n", g_failures ? "FAILED" : "all ok");
 		return g_failures ? 1 : 0;
 	}

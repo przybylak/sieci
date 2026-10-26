@@ -210,6 +210,10 @@
 #define RACE_PLAYABLE         0x1u
 #define RACE_NO_KNOCKDOWNS    0x00400000u   /* RACE DATA flags (xEdit): 'No Knockdowns' */
 #define RAM_MAX_ASK           8388607       /* the asks count 1 to 2^23 - 1, exact in a float, then from 1 again */
+#define RAM_ROBOTS_ID         0x856u        /* CMB_RamRobots: a FormList of the races that pass the size and No Knockdowns gates (test 42's protectrons and eyebot) */
+#define FORM_TYPE_FLST        0x5E          /* BGSListForm (CommonLibF4's ENUM_FORM_ID::kFLST) */
+#define RTTI_FORM_LIST        ".?AVBGSListForm@@"
+#define OFF_FLST_FORMS        0x20          /* BGSListForm::arrayOfForms, a BSTArray<TESForm *> right after TESForm (0x20; CommonLibF4) */
 #define ROOM_GLOBAL_ID        0x84Fu        /* CMB_RoomAskX, AskY, AskZ, Ask (the script writes), Answer, Clear (we write): 84F-854 (the brought bike's spot, CMB_ControllerScript; test 41) */
 #define ROOM_GLOBALS          6
 #define OFF_AV_FLAGS          0x108         /* NiAVObject::flags (bit 0: hidden, app culled); +0x100 is the collision object (test 30); [Lamp] FlagsOffset= overrides */
@@ -247,6 +251,7 @@
 #define PICK_DATA_SIZE        0xE0          /* sizeof(bhkPickData) */
 #define OFF_PICK_FILTER       0x0C          /* bhkPickData: castQuery's collision filter info (0 after the ctor) */
 #define OFF_PICK_HIT_LAYER    0xAC          /* bhkPickData: the hit's collision filter info (layer & 0x7F; test 16) */
+#define OFF_PICK_HIT_NORMAL   0x70          /* bhkPickData: the hit's surface normal (result +0x60, an hknpCollisionResult: position +0x00, normal +0x10; CommonLibF4), the same struct as the layer at +0xAC (test 42) */
 #define LAYER_CHAR_CONTROLLER 30            /* COL_LAYER::kCharController: hit what the player's capsule would */
 #define LAYER_BIPED           8             /* COL_LAYER::kBiped: an actor's body */
 #define COLL_CHAR_CONTROLLER  0x0008877Fu   /* Fallout4.esm's COLL record for that layer: what the capsule collides with (test 36) */
@@ -424,8 +429,30 @@ static float g_obstacleHold = 1.0f;         /* [Steer] ObstacleHold: an obstacle
 static int g_wallFrames = 5;                /* [Steer] WallFrames: while an obstacle verdict is in force, a wall must be seen ahead of the wheel this many frames running before it counts */
 static float g_faceObstacleAt = -100.0f;    /* when the face rays last said obstacle (the verdict in force for ObstacleHold after) */
 static int g_wallSeen;                      /* frames running the face rays' raw verdict has been a wall with its hit ahead of the wheel */
-static int g_faceKind;                      /* the face rays' last verdict: 0 nothing, 1 an obstacle, 2 a wall (a line is logged when it changes) */
+static int g_faceKind;                      /* the face rays' last verdict: 0 nothing, 1 an obstacle, 2 a wall, 3 a face alongside (a line is logged when it changes) */
 static float g_faceNoneSince = -1.0f;       /* since when the rays have found nothing after a verdict (logged as gone after a quarter second: at the rays' reach a hit comes and goes by the frame) */
+/* Riding beside a railing (test 42, new 1: three times in three minutes a rail beside the bike,
+ * the heading a few degrees into it, read as a wall or an obstacle ahead, and the speed went
+ * 897 -> 359 and 909 -> 31): the face rays judged a face by its steepness alone. The pick's hit
+ * normal (bhkPickData+0x70) tells a face across the way from one alongside, which the
+ * controller slides along; and while it slides, the Lead cap no longer follows the speed down
+ * for SlideHold seconds. The settings, [Steer]: */
+static float g_faceAlong = 30.0f;           /* FaceAlong: a face whose line lies under this many degrees off the heading is alongside and left alone (0: off, every face judged by its steepness, as in test 42's build) */
+static int g_faceAlongRays = 1;             /* FaceAlongRays: 1 = two more rays at axle height either side confirm it (a post or a trunk grazed reads an oblique normal: across); 0 = the normal alone */
+static float g_slideHold = 1.0f;            /* SlideHold: sliding along a face with forward held, the throttle held at what it was for up to this many seconds instead of capped to the measured speed + Lead (0: off) */
+static float g_slideAngle = 15.0f;          /* SlideAngle: the velocity this many degrees or more off the heading is a slide too, with no face seen (test 42: turns read 8 off at most, the slides 23 to 44) */
+/* ... and the state: */
+static float g_faceAlongAt = -100.0f;       /* when the face rays last said alongside */
+static float g_faceAlongDeg;                /* that face's angle off the heading, what it was and its layer */
+static char g_faceAlongWhat[64];
+static uint32_t g_faceAlongLayer;
+static bool g_normalLogged;                 /* the ride's line about the pick's hit normal (the first face with one) */
+static bool g_normalBad;                    /* that normal wasn't a unit vector: faces judged by their steepness alone this ride */
+static float g_wallAlongLoggedAt = -100.0f; /* WallAhead's "a face alongside at the front wheel" line, one a second at most */
+static float g_slideSince = -1.0f;          /* the slide's hold began then (-1: none) */
+static float g_slideThrottle;               /* the throttle it holds */
+static bool g_slideSpent;                   /* a hold ran out on this slide: no other till the evidence has gone */
+static bool g_slideLogged;                  /* its start was logged, so its end is too */
 static float g_bumpLift, g_liftSmooth;      /* the bump lift now; the filtered lift the bump sits on */
 static float g_wheelZ[2];                   /* this frame's raw ray hits under the wheels (front, rear), above the feet */
 static bool g_wheelZOk;
@@ -460,6 +487,30 @@ static float g_suspCompressRear = 4.0f;     /* [Tilt] SuspCompressRear: the rear
 static float g_suspDroop = 4.0f;            /* [Tilt] SuspDroop: a wheel drops below the frame at most this much, both wheels, and the frame sinks under the ground's contact by it at most (test 38: at -10 the sliders were off the stanchions) */
 static float g_suspExtend = 0.1f;           /* [Tilt] SuspExtend: a wheel extends away from the frame over this many seconds (compression takes 0.03; test 38: "like there was no weight behind it") */
 static float g_wheelWordAt = -100.0f;       /* when the wheel rays last had a word: without one the lift is held with the pitch for 3 s before it eases off (test 38: the station wagon) */
+/* The landing (test 42, new 3: off a high ledge with W held the bike nearly stopped, 881 -> 544
+ * -> 398 within 0.4 s of a 1.0 s fall, back to 90% only 1.41 s later, the Lead cap following
+ * the game's own landing cut down; and the suspension stayed extended, F -3.0 R -3.0). The
+ * settings, [Steer] and [Tilt]: */
+static float g_landHold = 0.5f;             /* [Steer] LandHold: the Lead cap off for this long after a landing, forward held (0 = off, as before test 43) */
+static float g_landAir = 0.3f;              /* [Steer] LandAir: the least air time that is a landing (the 0.46-0.65 s hops count, test 29's flaps don't) */
+static float g_landStop = 0.25f;            /* [Steer] LandStop: the hold ends early once the measured speed is under this of the top (a landing against a wall) */
+static int g_landSink = 1;                  /* [Tilt] LandSink: the frame sunk on the suspension by the fall's speed (0 = not, as before test 43) */
+static float g_landSpeed = 700.0f;          /* [Tilt] LandSpeed: the fall's speed at which the front takes SuspTravel (686 u/s^2 for 1 s) */
+/* ... and the state: */
+static float g_landAt = -100.0f;            /* when the last landing that counted came (g_clock) */
+static float g_landAirFor;                  /* in the air this long, running (g_airTime is cleared by TrackClear at TRACK_MAX_AIR) */
+static float g_landFallV[3];                /* the player's fall (units a second, down positive) over the last three frames in the air */
+static int g_landFallN;
+static float g_landStepLast;                /* how far the player moved in the last frame in the air (over 300: a load or a teleport, not a fall) */
+static float g_landPrevPos[3];
+static bool g_landPrevOk;
+static bool g_landHolding;                  /* the hold in force, its end still to be told */
+static bool g_landLogged;                   /* the landing's line was logged: its hold's end is too */
+static float g_landLow, g_landLowAt;        /* the hold's lowest speed along and when (g_clock) */
+static float g_landF, g_landR;              /* the sink at the front and rear wheels at its deepest */
+static float g_landS, g_landSVel;           /* the sink's share now (1 = its deepest) on the frame's spring, and its rate */
+static float g_liftApplied, g_pitchApplied; /* g_liftNow and g_pitchNow with the landing's sink on them: what the bike, its parts and the rider are put at */
+#define LAND_RISE_MOST 1.0f                 /* past LandHold the hold goes on at most this long while the speed is still coming back */
 /* A hand of log lines: up to LOG_HAND_SIZE in hand, one more every LOG_HAND_EVERY seconds (10 a
  * minute at most, sustained), filled again on each ride (LogHandTake, LogHandFill). Test 39:
  * the wheel rays' 30 lines a ride were spent by 01:35:02, before the backing tests began. A
@@ -480,6 +531,8 @@ static bool g_holdWaitExpired;              /* the wait ran its second this ride
  * start and 58 in two minutes off-road through a fast travel, and the next three stops had none):
  * from a hand of 20, one more every 3 s (LogHand). */
 static LogHand g_faceHand = { 20.0f, 0.0f, 20.0f, 3.0f };
+static LogHand g_slideHand = { LOG_HAND_SIZE, 0.0f, 0.0f, 0.0f };   /* the slide hold's lines (test 42): 10, one more every 6 s */
+static LogHand g_landHand = { LOG_HAND_SIZE, 0.0f, 0.0f, 0.0f };    /* the landing's lines (test 42): 10, one more every 6 s */
 static float g_faceLoggedAt = -100.0f;
 static float g_faceSince = -1.0f;           /* when the verdict in force began (its kind went from none to one), for the "nothing ahead now" line */
 static float g_faceLastSlope;               /* the last verdict's angle, and what the axle-height ray hit then, and its layer */
@@ -535,6 +588,7 @@ static float g_wallLoggedAt = -100.0f;
 static const char *g_rayWhat;               /* what the last ray hit (its 3D's name), for the log (CastRay) */
 static uintptr_t g_rayObj;                  /* ... and that 3D (NiAVObject *; 0: none), for the actor behind it (rams) */
 static uint32_t g_rayLayer;                 /* the last hit's collision layer */
+static float g_rayHitNormal[3];             /* ... and its surface normal as the pick has it (bhkPickData+0x70; zeros: no hit; test 42) */
 static const char *g_rayActorPassed;        /* the last actor a ray passed through (its 3D's name), for the room's line (test 41); cleared by the caller */
 static uintptr_t g_rayLetBy[3];             /* the 3D roots of actors the bike is to knock over (rams): the face rays and WallAhead pass through them, to see what is behind */
 static int g_rayLetByCount;
@@ -556,6 +610,15 @@ static float g_ramAskAgainNo = 1.0f;      /* AskAgainNo: after a no, asked again
 static float g_ramAskGap = 0.12f;         /* AskGap: two asks are told this many seconds apart at least, a later one waiting (test 41: five asks went unread, a second animal seen 46-120 ms after the first); 0 = told as seen, as in test 41's build */
 static float g_ramHitKeep = 0.6f;         /* HitKeep: at a hit the throttle is held to this share of the speed ... */
 static float g_ramHitHold = 0.4f;         /* HitHold: ... for this many seconds (test 41's answer: the bike should lose speed on a hit; 0 = not) */
+/* Test 42's knocking over (17l: the dogs "strange", the protectron and the eyebot stopping the
+ * bike, the hound passing through the wheel); each 0 gives test 42's build's path. */
+static int g_ramAskAnswered = 1;          /* AskAnswered: the next ask told only once the last is answered (AskAgain at the longest) */
+static float g_ramAskFree = 0.5f;         /* AskFree: an ask of a small or medium race pending this long (from when it was first wanted) keeps the throttle at speed */
+static float g_ramYesKeep = 10.0f;        /* YesKeep: a yes kept this long, the actor out of sight or not */
+static float g_ramHitGrace = 1.0f;        /* HitGrace: this long after a hit at CMB_RamMinSpeed or faster, a yes is knocked over at any speed */
+static float g_ramHighRay = 96.0f;        /* HighRay: a second actor ray this high up (fliers) */
+static float g_ramSideRays = 20.0f;       /* SideRays: two more actor rays this far to each side at axle height (flankers) */
+static int g_ramRobotsOn = 1;             /* Robots: the races in CMB_RamRobots pass the size and No Knockdowns gates */
 static int g_creep = 1;                   /* 1 = a side key from a stop creeps forward round a CreepRadius circle */
 static float g_creepStart = 0.1f;         /* the first forward input tried for the creep (then learnt) */
 /* The throttle (test 21: the game's own speed is there at once and gone at once): forward
@@ -583,7 +646,18 @@ static float g_backSpeed = 80.0f;         /* units a second the bike is pushed b
 enum { PUSH_DELTA, PUSH_RAYSTEP, PUSH_MOD, PUSH_VELOCITY, PUSH_POSITION, PUSH_BRAKE };
 static int g_backPushFirst = PUSH_RAYSTEP;   /* BackPush: the method to start with */
 static bool g_backPushAuto = true;        /* BackPush=auto: steps after rays, else brake */
-static float g_backClearance = 150.0f;    /* this far behind the rider must be clear (test 16: the rear is about 130 back) */
+/* BackClearance: this far behind the rider must be clear (test 16: the vanilla bike's rear is about
+ * 130 back, 150 the number). Test 42 ("way too far"): with the Harley the bike stopped 56 short of
+ * a rail behind the tyre (20:55:53.316) and about 86 on a 33 deg slope (20:59:43.090), the tyre's
+ * back edge being 70.4 behind the rider by the parts file. So 0, the default since test 43: that
+ * edge (|RearAxle y| + WheelRadius) plus BackMargin, 150 without a parts file; 80 to 500 as set,
+ * 150 giving test 42's behaviour. BackLedge: a ray down where the tyre's edge will be after the
+ * step (with a parts file). Read in ReadBackSettings, again on getting on. */
+static float g_backClearance;
+static float g_backMargin = 25.0f;        /* BackMargin: past the tyre's back edge (25: the step's 4 at most, the ray's end being the point judged, and a hand's width; nothing on the bike overhangs the tyre, the glTF's rearmost vertex is the tyre's at y -70.3, the fender ends at -64.2) */
+static int g_backLedge = 1;               /* BackLedge: 1 = the ground under the rear tyre's back edge looked at each step, a drop there stops the bike (0: no such ray, test 42's rules) */
+#define BACK_DROP 20.0f                   /* more than this below is a drop, no step: under the step (the feet rule) and under the rear tyre against the slope 55 back's line (BackLedge) */
+#define BACK_CLEAR_LEAST 60.0f            /* a clearance from the parts file never under this: the far ray stays beyond the one 55 back, the knee and chest rays running between them (never reached by a real bike: the Harley's 95, the harness's 92, 70 with BackMargin 0) */
 static float g_backSink;                  /* BackSink: units the feet go below the hover when closing a gap (0: to the hover, BACK_HOVER over the ground) */
 #define BACK_HOVER 0.5f                   /* closing a gap under the feet, they go this far over the ground (test 39: backing with no step the controller's own hover read 0.0 to 0.2, and every gap closed onto the ground with the controller supported was followed by it in the air and the player through the road) */
 static float g_backFollow = 10.0f;        /* BackFollow: going back level or down, the step follows the ground's slope over this many units centred on the middle of the step, the controller supported or not (test 40's finding 6; 0: test 40's rule, the slope 55 back and the gap closed to the hover when unsupported) */
@@ -600,6 +674,18 @@ static uintptr_t g_turnRadiusGlobal, g_turnStandGlobal, g_turnSlowGlobal;
 static uintptr_t g_headlampGlobal, g_headlampRefGlobals[2];
 static uintptr_t g_ramGlobals[8];   /* CMB_RamSeenHi, SeenLo, Seen (we write), Ok (the script), HitSpeed, Hit (we write), Enemies, MinSpeed (MCM) */
 static uintptr_t g_roomGlobals[ROOM_GLOBALS];   /* CMB_RoomAskX, AskY, AskZ, Ask (the script writes), Answer, Clear (we write): the brought bike's spot (test 41); all six or none */
+static uintptr_t g_roomAngleGlobal;   /* CMB_RoomAskAngle (0x855, test 43): the spot's heading, the player's GetAngleZ in degrees, written by the script before CMB_RoomAsk (-1000, the ESP's value: none written, an older script); found apart from the six, its absence costing only the heading */
+/* [Room] (test 43; the user's thought that the spot be checked as the bike will stand there):
+ * Box 1 = with the heading the script gives, the level rays are a box along it, Fore ahead and
+ * behind the spot, Side to each side, and its four corners; 0, or no heading given, the eight
+ * 110 rays of test 41 (the axes and the diagonals). RaysRetry 1 = an ask that comes while the
+ * rays aren't trusted casts the test ray again for it (test 42's build answered it "not
+ * checked" until the 3 s retry, which only riding would reach). Read in ReadRoomSettings, again
+ * on getting on. */
+static int g_roomBox = 1;
+static float g_roomSide = 40.0f;   /* Side: the parked bike's half width at the bars, 29.4, plus about 10 */
+static float g_roomFore = 110.0f;  /* Fore: half its length, 98 (the parked model is centred, bounds y -98 to 98), plus 12: test 41's 110 */
+static int g_roomRaysRetry = 1;
 static uintptr_t g_lampRef;                 /* the light reference the script placed (CMB_HeadlampRefHi/Lo), looked up once per id */
 static uint32_t g_lampRefId;
 static uintptr_t g_lampRefOld;              /* the one before, kept lit at the lens until the new one's 3D is in (test 33: the beam flickered at every move) */
@@ -634,6 +720,9 @@ static bool g_lampOk;
 static uint32_t g_ourPrefix, g_ourMask;   /* our plugin's form IDs: (id & mask) == prefix */
 static DWORD g_lastGlobalTry;
 static bool g_globalsMissingLogged;
+static uint32_t g_ramRobotsId;               /* CMB_RamRobots' runtime form ID once looked up (0: not looked up: the ram globals aren't all there) */
+static uintptr_t g_ramRobotsForm;            /* ... and the form there (a FormList, 0x856, or nothing: an older ESP) */
+static void RamRobotsRead(void);            /* with the rams below */
 
 /* The chain to the proxy, as found last time (offsets, so it's re-read every check). */
 static int g_ctrlWhere = -1;            /* 0 = process data, 1 = process, 2 = player */
@@ -805,6 +894,7 @@ static float CastRay(uintptr_t cell, const float a[3], const float b[3]);   /* d
 static float CastRayGround(uintptr_t cell, const float a[3], const float b[3]);   /* the same, passing through actors */
 static void RoomReadAnswered(void);   /* the brought bike's spot (test 41): the ask answered already, from CMB_RoomAnswer */
 static bool RaysReady(uintptr_t player);
+static bool RaysUntrustedRetry(float *ago);   /* test 43's RaysRetry: the test ray again now for a room ask */
 static uint8_t ArmRole(const char *name);
 static bool NodeWorldChecked(uintptr_t node, float N[9], float n[3], float *s, float Ni[9]);
 static char g_iniPath[MAX_PATH];
@@ -1035,8 +1125,9 @@ static void ReadLeanSettings(const char *ini, bool log)
 	IniVec(ini, "Tilt", "ArmPoleTurn", poleTurnDefault, g_armPoleTurn);
 	g_armPoleTurnBars = IniFloat(ini, "Tilt", "ArmPoleTurnBars", 10.0f, 0.0f, 45.0f);
 	g_faceLook = IniFloat(ini, "Steer", "FaceLook", 0.3f, 0.0f, 3.0f);
-	float wasMore[18] = { g_turnEaseIn, g_turnEaseOut, g_liftRate, g_bumpMax, g_bumpSettle, g_wallAngle, g_obstacleThrottle, g_obstacleHold, (float)g_wallFrames,
-	                      (float)g_suspension, g_suspFrequency, g_suspDamping, g_suspTravel, g_obstacleAngle, g_suspCompressRear, g_suspDroop, g_suspExtend, g_lowObstacleAngle };
+	float wasMore[27] = { g_turnEaseIn, g_turnEaseOut, g_liftRate, g_bumpMax, g_bumpSettle, g_wallAngle, g_obstacleThrottle, g_obstacleHold, (float)g_wallFrames,
+	                      (float)g_suspension, g_suspFrequency, g_suspDamping, g_suspTravel, g_obstacleAngle, g_suspCompressRear, g_suspDroop, g_suspExtend, g_lowObstacleAngle,
+	                      g_faceAlong, (float)g_faceAlongRays, g_slideHold, g_slideAngle, g_landHold, g_landAir, g_landStop, (float)g_landSink, g_landSpeed };
 	g_turnEaseIn = IniFloat(ini, "Steer", "TurnEaseIn", 0.14f, 0.0f, 3.0f);
 	g_turnEaseOut = IniFloat(ini, "Steer", "TurnEaseOut", 0.08f, 0.0f, 3.0f);
 	g_liftRate = IniFloat(ini, "Tilt", "LiftRate", 120.0f, 0.0f, 2000.0f);
@@ -1049,6 +1140,13 @@ static void ReadLeanSettings(const char *ini, bool log)
 	g_suspCompressRear = IniFloat(ini, "Tilt", "SuspCompressRear", 4.0f, 0.0f, 30.0f);
 	g_suspDroop = IniFloat(ini, "Tilt", "SuspDroop", 4.0f, 0.0f, 30.0f);
 	g_suspExtend = IniFloat(ini, "Tilt", "SuspExtend", 0.1f, 0.03f, 1.0f);
+	/* The landing (test 42, new 3): the Lead cap off for a moment after it, and the frame sunk
+	 * on the suspension by the fall's speed. */
+	g_landSink = (int)GetPrivateProfileIntA("Tilt", "LandSink", 1, ini) != 0;
+	g_landSpeed = IniFloat(ini, "Tilt", "LandSpeed", 700.0f, 100.0f, 3000.0f);
+	g_landHold = IniFloat(ini, "Steer", "LandHold", 0.5f, 0.0f, 2.0f);
+	g_landAir = IniFloat(ini, "Steer", "LandAir", 0.3f, 0.1f, 2.0f);
+	g_landStop = IniFloat(ini, "Steer", "LandStop", 0.25f, 0.0f, 0.9f);
 	g_wallAngle = IniFloat(ini, "Steer", "WallAngle", 55.0f, 20.0f, 90.0f);
 	g_obstacleAngle = IniFloat(ini, "Steer", "ObstacleAngle", 50.0f, 20.0f, 80.0f);
 	g_lowObstacleAngle = IniFloat(ini, "Steer", "LowObstacleAngle", 60.0f, 20.0f, 89.0f);
@@ -1057,6 +1155,12 @@ static void ReadLeanSettings(const char *ini, bool log)
 	g_wallFrames = (int)GetPrivateProfileIntA("Steer", "WallFrames", 5, ini);
 	if (g_wallFrames < 1 || g_wallFrames > 30)
 		g_wallFrames = 5;
+	/* Riding beside a railing (test 42, new 1): a face alongside left alone, and the slide's
+	 * hold on the throttle. */
+	g_faceAlong = IniFloat(ini, "Steer", "FaceAlong", 30.0f, 0.0f, 60.0f);
+	g_faceAlongRays = (int)GetPrivateProfileIntA("Steer", "FaceAlongRays", 1, ini) != 0;
+	g_slideHold = IniFloat(ini, "Steer", "SlideHold", 1.0f, 0.0f, 3.0f);
+	g_slideAngle = IniFloat(ini, "Steer", "SlideAngle", 15.0f, 5.0f, 45.0f);
 	/* Climbing low things (test 40, finding 8), read again on getting on like the face rays'
 	 * keys (an A/B needs no restart). */
 	float wasClimb[8] = { (float)g_climb, g_climbBoost, g_climbTopSetting, g_climbMaxPitch, g_climbHold, g_climbMax, g_climbThrottle, (float)g_climbStep };
@@ -1075,12 +1179,13 @@ static void ReadLeanSettings(const char *ini, bool log)
 	g_lampHandoverFrames = (int)GetPrivateProfileIntA("Lamp", "HandoverFrames", 5, ini);
 	if (g_lampHandoverFrames < 0 || g_lampHandoverFrames > 100)
 		g_lampHandoverFrames = 5;
-	float nowMore[18] = { g_turnEaseIn, g_turnEaseOut, g_liftRate, g_bumpMax, g_bumpSettle, g_wallAngle, g_obstacleThrottle, g_obstacleHold, (float)g_wallFrames,
-	                      (float)g_suspension, g_suspFrequency, g_suspDamping, g_suspTravel, g_obstacleAngle, g_suspCompressRear, g_suspDroop, g_suspExtend, g_lowObstacleAngle };
+	float nowMore[27] = { g_turnEaseIn, g_turnEaseOut, g_liftRate, g_bumpMax, g_bumpSettle, g_wallAngle, g_obstacleThrottle, g_obstacleHold, (float)g_wallFrames,
+	                      (float)g_suspension, g_suspFrequency, g_suspDamping, g_suspTravel, g_obstacleAngle, g_suspCompressRear, g_suspDroop, g_suspExtend, g_lowObstacleAngle,
+	                      g_faceAlong, (float)g_faceAlongRays, g_slideHold, g_slideAngle, g_landHold, g_landAir, g_landStop, (float)g_landSink, g_landSpeed };
 	float now[21] = { g_maxLean, g_leanRate, g_leanSmooth, g_leanDead, g_leanGain, g_torsoLeanSetting, g_armReach, g_torsoTwist, g_faceLook, (float)g_headLevel, g_torsoSideLean, g_wristRoll, g_armPole[0], g_armPole[1], g_armPole[2], g_handPitch, g_torsoSolveFrom,
 	                  g_armPoleTurn[0], g_armPoleTurn[1], g_armPoleTurn[2], g_armPoleTurnBars };
 	bool changed = false;
-	for (int i = 0; i < 18; i++)
+	for (int i = 0; i < 27; i++)
 		changed = changed || wasMore[i] != nowMore[i];
 	for (int i = 0; i < 21; i++)
 		changed = changed || was[i] != now[i];
@@ -1107,13 +1212,35 @@ static void ReadLeanSettings(const char *ini, bool log)
 		    "the hands rolled round the grips %g of the way to their long axes lying in line with the forearms seen along the grips (WristRoll), %g deg above them, the knuckles up (HandPitch), the elbows bent %s (ArmPole)%s; a face ahead looked for %g s of the speed (FaceLook)%s",
 		    g_maxLean, g_leanRate, g_leanSmooth, g_leanDead, g_leanGain, g_headLevel ? "kept level" : "tilting with the bike", torso, g_armReach, g_torsoTwist, g_torsoSideLean, g_wristRoll, g_handPitch, pole, fade, g_faceLook,
 		    log ? "" : " (read again on getting on)");
+		char along[400];
+		if (g_faceAlong > 0.0f)
+			snprintf(along, sizeof(along), "a face whose line lies under %g deg off the heading by the pick's hit normal is alongside and left alone (FaceAlong)%s; ", g_faceAlong,
+			         g_faceAlongRays ? ", if two rays at axle height either side confirm it, a post or a trunk staying across (FaceAlongRays=1)" : ", by the normal alone (FaceAlongRays=0)");
+		else
+			snprintf(along, sizeof(along), "every face judged by its steepness alone (FaceAlong=0); ");
+		char slide[300];
+		if (g_slideHold > 0.0f)
+			snprintf(slide, sizeof(slide), "sliding along a face (one alongside seen, or the velocity %g deg or more off the heading: SlideAngle), the throttle held at what it was for up to %g s instead of capped to the measured speed (SlideHold); ",
+			         g_slideAngle, g_slideHold);
+		else
+			snprintf(slide, sizeof(slide), "no hold on the throttle while sliding along a face (SlideHold=0); ");
+		char land[300], sink[200];
+		if (g_landHold > 0.0f)
+			snprintf(land, sizeof(land), "after a landing (%g s or more in the air: LandAir) with forward held, the Lead cap left off for %g s and after that while the speed is still coming back (%g s more at most), "
+			         "ended early by the speed along under %g of the top (LandHold, LandStop); ", g_landAir, g_landHold, LAND_RISE_MOST, g_landStop);
+		else
+			snprintf(land, sizeof(land), "the throttle held to the measured speed after a landing as before (LandHold=0); ");
+		if (g_landSink)
+			snprintf(sink, sizeof(sink), ", a landing sinking the frame on it by the fall's speed, the front its whole travel at %g a second (LandSink, LandSpeed)", g_landSpeed);
+		else
+			snprintf(sink, sizeof(sink), ", a landing not sunk on it (LandSink=0)");
 		Log("  steer: the keys' turning rate eases in over %g s and out over %g s (TurnEaseIn, TurnEaseOut); a wall is a face of %g deg or more (WallAngle), an obstacle one of %g deg or more, or the climb limit if that is higher (ObstacleAngle), "
-		    "a lower-only one (nothing at 1.5 wheel radii) one of %g deg or more (LowObstacleAngle), holding the throttle to %g (ObstacleThrottle), its verdict in force for %g s after the rays last saw one (ObstacleHold), in which a wall counts only after %d frames seen ahead of the wheel (WallFrames); "
+		    "a lower-only one (nothing at 1.5 wheel radii) one of %g deg or more (LowObstacleAngle), holding the throttle to %g (ObstacleThrottle), its verdict in force for %g s after the rays last saw one (ObstacleHold), in which a wall counts only after %d frames seen ahead of the wheel (WallFrames); %s%s%s"
 		    "the lift rises at most %g units a second (LiftRate), a wheel's bump lift at most %g in one go and settles over %g s (BumpMax, BumpSettle); "
-		    "the suspension %s (Suspension), the frame's lift on a spring of %g Hz with a damping ratio of %g, the wheels rising at most %g into the frame, the rear %g, dropping at most %g below it (the frame sinking by that at most), extending over %g s (SuspFrequency, SuspDamping, SuspTravel, SuspCompressRear, SuspDroop, SuspExtend); "
+		    "the suspension %s (Suspension), the frame's lift on a spring of %g Hz with a damping ratio of %g, the wheels rising at most %g into the frame, the rear %g, dropping at most %g below it (the frame sinking by that at most), extending over %g s (SuspFrequency, SuspDamping, SuspTravel, SuspCompressRear, SuspDroop, SuspExtend)%s; "
 		    "the light %g ahead of the lens, led by %g frames of the speed, the old one kept %d frames at a handover (Ahead, Lead, HandoverFrames)",
-		    g_turnEaseIn, g_turnEaseOut, g_wallAngle, g_obstacleAngle, g_lowObstacleAngle, g_obstacleThrottle, g_obstacleHold, g_wallFrames, g_liftRate, g_bumpMax, g_bumpSettle,
-		    g_suspension ? "on" : "off", g_suspFrequency, g_suspDamping, g_suspTravel, g_suspCompressRear, g_suspDroop, g_suspExtend, g_lampAhead, g_lampLead, g_lampHandoverFrames);
+		    g_turnEaseIn, g_turnEaseOut, g_wallAngle, g_obstacleAngle, g_lowObstacleAngle, g_obstacleThrottle, g_obstacleHold, g_wallFrames, along, slide, land, g_liftRate, g_bumpMax, g_bumpSettle,
+		    g_suspension ? "on" : "off", g_suspFrequency, g_suspDamping, g_suspTravel, g_suspCompressRear, g_suspDroop, g_suspExtend, sink, g_lampAhead, g_lampLead, g_lampHandoverFrames);
 		char top[32];
 		if (g_climbTopSetting > 0.0f)
 			snprintf(top, sizeof(top), "%g", g_climbTopSetting);
@@ -1138,7 +1265,8 @@ static void ReadLeanSettings(const char *ini, bool log)
  * A/B needs no restart). */
 static void ReadRamSettings(const char *ini, bool log)
 {
-	float was[11] = { (float)g_ramOn, g_ramLook, g_ramLead, g_ramPass, (float)g_ramMaxSize, (float)g_ramNoKnockdowns, g_ramAskAgain, g_ramAskAgainNo, g_ramAskGap, g_ramHitKeep, g_ramHitHold };
+	float was[18] = { (float)g_ramOn, g_ramLook, g_ramLead, g_ramPass, (float)g_ramMaxSize, (float)g_ramNoKnockdowns, g_ramAskAgain, g_ramAskAgainNo, g_ramAskGap, g_ramHitKeep, g_ramHitHold,
+	                  (float)g_ramAskAnswered, g_ramAskFree, g_ramYesKeep, g_ramHitGrace, g_ramHighRay, g_ramSideRays, (float)g_ramRobotsOn };
 	g_ramOn = (int)GetPrivateProfileIntA("Ram", "Enabled", 1, ini) != 0;
 	g_ramLook = IniFloat(ini, "Ram", "ActorLook", 0.8f, 0.0f, 3.0f);
 	g_ramLead = IniFloat(ini, "Ram", "Lead", 0.06f, 0.0f, 1.0f);
@@ -1152,16 +1280,78 @@ static void ReadRamSettings(const char *ini, bool log)
 	g_ramAskGap = IniFloat(ini, "Ram", "AskGap", 0.12f, 0.0f, 1.0f);
 	g_ramHitKeep = IniFloat(ini, "Ram", "HitKeep", 0.6f, 0.0f, 1.0f);
 	g_ramHitHold = IniFloat(ini, "Ram", "HitHold", 0.4f, 0.0f, 3.0f);
-	float now[11] = { (float)g_ramOn, g_ramLook, g_ramLead, g_ramPass, (float)g_ramMaxSize, (float)g_ramNoKnockdowns, g_ramAskAgain, g_ramAskAgainNo, g_ramAskGap, g_ramHitKeep, g_ramHitHold };
+	g_ramAskAnswered = (int)GetPrivateProfileIntA("Ram", "AskAnswered", 1, ini) != 0;
+	g_ramAskFree = IniFloat(ini, "Ram", "AskFree", 0.5f, 0.0f, 2.0f);
+	g_ramYesKeep = IniFloat(ini, "Ram", "YesKeep", 10.0f, 0.0f, 60.0f);
+	g_ramHitGrace = IniFloat(ini, "Ram", "HitGrace", 1.0f, 0.0f, 5.0f);
+	g_ramHighRay = IniFloat(ini, "Ram", "HighRay", 96.0f, 0.0f, 200.0f);
+	g_ramSideRays = IniFloat(ini, "Ram", "SideRays", 20.0f, 0.0f, 60.0f);
+	g_ramRobotsOn = (int)GetPrivateProfileIntA("Ram", "Robots", 1, ini) != 0;
+	float now[18] = { (float)g_ramOn, g_ramLook, g_ramLead, g_ramPass, (float)g_ramMaxSize, (float)g_ramNoKnockdowns, g_ramAskAgain, g_ramAskAgainNo, g_ramAskGap, g_ramHitKeep, g_ramHitHold,
+	                  (float)g_ramAskAnswered, g_ramAskFree, g_ramYesKeep, g_ramHitGrace, g_ramHighRay, g_ramSideRays, (float)g_ramRobotsOn };
 	bool changed = false;
-	for (int i = 0; i < 11; i++)
+	for (int i = 0; i < 18; i++)
 		changed = changed || was[i] != now[i];
-	if (log || changed)
-		Log("  ram: Enabled=%d ActorLook=%g Lead=%g Pass=%g MaxSize=%d NoKnockdowns=%d AskAgain=%g AskAgainNo=%g AskGap=%g HitKeep=%g HitHold=%g: %s%s", g_ramOn, g_ramLook, g_ramLead,
-		    g_ramPass, g_ramMaxSize, g_ramNoKnockdowns, g_ramAskAgain, g_ramAskAgainNo, g_ramAskGap, g_ramHitKeep, g_ramHitHold,
-		    !g_ramOn ? "off, no actor asked about, every one braked for as before test 41"
-		    : g_ramHitHold > 0.0f && g_ramHitKeep < 1.0f ? "on, the bike losing speed at a hit" : "on, the speed kept at a hit (HitHold=0 or HitKeep=1)",
-		    log ? "" : " (read again on getting on)");
+	if (!log && !changed)
+		return;
+	Log("  ram: Enabled=%d ActorLook=%g Lead=%g Pass=%g MaxSize=%d NoKnockdowns=%d AskAgain=%g AskAgainNo=%g AskGap=%g HitKeep=%g HitHold=%g: %s%s", g_ramOn, g_ramLook, g_ramLead,
+	    g_ramPass, g_ramMaxSize, g_ramNoKnockdowns, g_ramAskAgain, g_ramAskAgainNo, g_ramAskGap, g_ramHitKeep, g_ramHitHold,
+	    !g_ramOn ? "off, no actor asked about, every one braked for as before test 41"
+	    : g_ramHitHold > 0.0f && g_ramHitKeep < 1.0f ? "on, the bike losing speed at a hit" : "on, the speed kept at a hit (HitHold=0 or HitKeep=1)",
+	    log ? "" : " (read again on getting on)");
+	/* Test 42's keys on a line of their own (the line above is test 41's, word for word). */
+	char asks[160], pending[160], keep[96], grace[128], rays[192];
+	if (g_ramAskAnswered)
+		snprintf(asks, sizeof(asks), "each ask told once the one before it is answered, or %g s after it unanswered (AskAgain)", g_ramAskAgain);
+	else
+		snprintf(asks, sizeof(asks), "the asks told AskGap apart, answered or not, as in test 42's build");
+	if (g_ramAskFree > 0.0f)
+		snprintf(pending, sizeof(pending), "an ask of a small or medium race pending under %g s keeping the throttle at speed", g_ramAskFree);
+	else
+		snprintf(pending, sizeof(pending), "an actor not yet answered for braked for, as in test 42's build");
+	if (g_ramYesKeep > 0.0f)
+		snprintf(keep, sizeof(keep), "a yes kept %g s out of sight", g_ramYesKeep);
+	else
+		snprintf(keep, sizeof(keep), "a yes dropped 3 s out of sight");
+	if (g_ramHitGrace > 0.0f)
+		snprintf(grace, sizeof(grace), "CMB_RamMinSpeed judged by the speed before a hit for %g s after it", g_ramHitGrace);
+	else
+		snprintf(grace, sizeof(grace), "CMB_RamMinSpeed judged by the speed now, a hit's dip or not");
+	if (g_ramHighRay > 0.0f && g_ramSideRays > 0.0f)
+		snprintf(rays, sizeof(rays), "an actor ray %g up for fliers and two %g to each side at axle height for flankers", g_ramHighRay, g_ramSideRays);
+	else if (g_ramHighRay > 0.0f)
+		snprintf(rays, sizeof(rays), "an actor ray %g up for fliers, none to the sides (SideRays=0)", g_ramHighRay);
+	else if (g_ramSideRays > 0.0f)
+		snprintf(rays, sizeof(rays), "two actor rays %g to each side at axle height for flankers, none high (HighRay=0)", g_ramSideRays);
+	else
+		snprintf(rays, sizeof(rays), "the one actor ray at axle height, as in test 42's build");
+	Log("  ram: AskAnswered=%d AskFree=%g YesKeep=%g HitGrace=%g HighRay=%g SideRays=%g Robots=%d: %s; %s; %s; %s; %s; %s%s", g_ramAskAnswered, g_ramAskFree, g_ramYesKeep,
+	    g_ramHitGrace, g_ramHighRay, g_ramSideRays, g_ramRobotsOn, asks, pending, keep, grace, rays,
+	    g_ramRobotsOn ? "the races in CMB_RamRobots past the size and No Knockdowns gates" : "CMB_RamRobots not used (Robots=0): the size and No Knockdowns gates for every race",
+	    log ? "" : " (read again on getting on)");
+}
+
+/* The brought bike's spot ([Room], test 43), read at the start and again on getting on (an A/B
+ * needs no restart: the next call's asks use it). */
+static void ReadRoomSettings(const char *ini, bool log)
+{
+	float was[4] = { (float)g_roomBox, g_roomSide, g_roomFore, (float)g_roomRaysRetry };
+	g_roomBox = (int)GetPrivateProfileIntA("Room", "Box", 1, ini) != 0;
+	g_roomSide = IniFloat(ini, "Room", "Side", 40.0f, 10.0f, 100.0f);
+	g_roomFore = IniFloat(ini, "Room", "Fore", 110.0f, 50.0f, 200.0f);
+	g_roomRaysRetry = (int)GetPrivateProfileIntA("Room", "RaysRetry", 1, ini) != 0;
+	float now[4] = { (float)g_roomBox, g_roomSide, g_roomFore, (float)g_roomRaysRetry };
+	bool changed = false;
+	for (int i = 0; i < 4; i++)
+		changed = changed || was[i] != now[i];
+	if (!log && !changed)
+		return;
+	Log("  room: Box=%d Side=%g Fore=%g RaysRetry=%d: %s; %s%s", g_roomBox, g_roomSide, g_roomFore, g_roomRaysRetry,
+	    g_roomBox ? "the spot checked as a bike-shaped box along the heading the script gives (the eight 110 rays without one)"
+	              : "the spot checked by the eight 110 rays, a heading the script gives not used (Box=0, test 42's build)",
+	    g_roomRaysRetry ? "an ask while the rays aren't trusted casts the test ray again for it"
+	                    : "an ask while the rays aren't trusted answered not checked until the 3 s retry (RaysRetry=0, test 42's build)",
+	    log ? "" : " (read again on getting on)");
 }
 
 /* Backing level or down a slope (test 40's finding 6: "backing up makes the camera shake a
@@ -1172,16 +1362,71 @@ static void ReadBackSettings(const char *ini, bool log)
 	float was[2] = { g_backFollow, g_backClose };
 	g_backFollow = IniFloat(ini, "Steer", "BackFollow", 10.0f, 0.0f, 40.0f);
 	g_backClose = IniFloat(ini, "Steer", "BackClose", 0.1f, 0.0f, 2.0f);
-	if (!log && was[0] == g_backFollow && was[1] == g_backClose)
+	if (log || was[0] != g_backFollow || was[1] != g_backClose) {
+		if (g_backFollow > 0.0f)
+			Log("  reverse: BackFollow=%g BackClose=%g: going back level or down, each step follows the ground's slope over %g units centred on its middle, "
+			    "the controller supported or not; unsupported, a gap over the controller's own clearance (the gap it kept while supported, %g at least, less BackSink) "
+			    "is closed over %g s, at most 120 a second and 3 a step%s",
+			    g_backFollow, g_backClose, g_backFollow, BACK_HOVER, g_backClose, log ? "" : " (read again on getting on)");
+		else
+			Log("  reverse: BackFollow=0 BackClose=%g: going back level or down, each step follows the slope 55 back, and unsupported the gap is closed to %g over "
+			    "the ground, 3 a step at most (test 40's rule)%s", g_backClose, BACK_HOVER, log ? "" : " (read again on getting on)");
+	}
+	/* Test 42's backing too early (BackClearance, BackMargin, BackLedge): on a line of their own,
+	 * the one above being matched word for word by the harness. BackClearance 0 or 80 to 500,
+	 * anything else the default 0 (the parts file's); test 42's build took 150 for anything out
+	 * of its 80 to 500. */
+	float wasC[2] = { g_backClearance, g_backMargin };
+	int wasLedge = g_backLedge;
+	float c = IniFloat(ini, "Steer", "BackClearance", 0.0f, 0.0f, 500.0f);
+	g_backClearance = c >= 80.0f ? c : 0.0f;
+	g_backMargin = IniFloat(ini, "Steer", "BackMargin", 25.0f, 0.0f, 100.0f);
+	g_backLedge = (int)GetPrivateProfileIntA("Steer", "BackLedge", 1, ini) != 0;
+	if (!log && wasC[0] == g_backClearance && wasC[1] == g_backMargin && wasLedge == g_backLedge)
 		return;
-	if (g_backFollow > 0.0f)
-		Log("  reverse: BackFollow=%g BackClose=%g: going back level or down, each step follows the ground's slope over %g units centred on its middle, "
-		    "the controller supported or not; unsupported, a gap over the controller's own clearance (the gap it kept while supported, %g at least, less BackSink) "
-		    "is closed over %g s, at most 120 a second and 3 a step%s",
-		    g_backFollow, g_backClose, g_backFollow, BACK_HOVER, g_backClose, log ? "" : " (read again on getting on)");
+	char clear[160];
+	if (g_backClearance > 0.0f)
+		snprintf(clear, sizeof(clear), "the rear's clearance %g as set (150: test 16's number, test 42's build)", g_backClearance);
 	else
-		Log("  reverse: BackFollow=0 BackClose=%g: going back level or down, each step follows the slope 55 back, and unsupported the gap is closed to %g over "
-		    "the ground, 3 a step at most (test 40's rule)%s", g_backClose, BACK_HOVER, log ? "" : " (read again on getting on)");
+		snprintf(clear, sizeof(clear), "the rear's clearance the rear tyre's back edge by the parts file (|RearAxle y| + WheelRadius) + %g, 150 without one", g_backMargin);
+	Log("  reverse: BackClearance=%g BackMargin=%g BackLedge=%d: %s; %s%s", g_backClearance, g_backMargin, g_backLedge, clear,
+	    g_backLedge ? "with a parts file, the ground looked at under where the rear tyre's back edge will be after each step, more than 20 below the slope 55 back's line there a drop (BackLedge)"
+	                : "no ray under the rear tyre (BackLedge=0, test 42's build)",
+	    log ? "" : " (read again on getting on)");
+}
+
+/* The rear tyre's back edge behind the rider by the parts file (|RearAxle y| + WheelRadius: the
+ * Harley's 70.4, the harness's 66.6). */
+static float BackTyreEdge(void)
+{
+	return fabsf(g_rearAxle[1]) + g_wheelRadius;
+}
+
+/* How far behind the rider must be clear (behindFar in WayBackClear): BackClearance as set, else
+ * the tyre's back edge plus BackMargin with a parts file, else test 16's 150. */
+static float BackClearanceUsed(void)
+{
+	if (g_backClearance > 0.0f)
+		return g_backClearance;
+	if (!g_partsOk)
+		return 150.0f;
+	float c = BackTyreEdge() + g_backMargin;
+	return c < BACK_CLEAR_LEAST ? BACK_CLEAR_LEAST : c;
+}
+
+/* The clearance in use, in a line: after the parts file is read, and at a push back's start
+ * (from a hand of 10, refilled at each ride's start). */
+static LogHand g_backHand = { LOG_HAND_SIZE, 0.0f, 0.0f, 0.0f };
+static void BackClearanceLine(void)
+{
+	if (g_backClearance > 0.0f && g_partsOk)
+		Log("reverse: the rear's clearance %.0f (BackClearance=%g; the tyre's back edge %.0f by the parts file)", BackClearanceUsed(), g_backClearance, BackTyreEdge());
+	else if (g_backClearance > 0.0f)
+		Log("reverse: the rear's clearance %.0f (BackClearance=%g; no parts file)", BackClearanceUsed(), g_backClearance);
+	else if (g_partsOk)
+		Log("reverse: the rear's clearance %.0f from the parts file (the tyre's back edge %.0f behind the rider + %g)", BackClearanceUsed(), BackTyreEdge(), g_backMargin);
+	else
+		Log("reverse: the rear's clearance 150 (BackClearance=0 but no parts file: as before)");
 }
 
 /* The rider's switches, read again on every mount (an A/B needs no restart; test 25). */
@@ -1307,10 +1552,6 @@ static void ReadSettings(void)
 			g_backPushAuto = false;
 			g_backPushFirst = i;
 		}
-	GetPrivateProfileStringA("Steer", "BackClearance", "150", value, sizeof(value), ini);
-	g_backClearance = strtof(value, NULL);
-	if (!(g_backClearance >= 80.0f && g_backClearance <= 500.0f))
-		g_backClearance = 150.0f;
 	GetPrivateProfileStringA("Steer", "BackSink", "0", value, sizeof(value), ini);
 	g_backSink = strtof(value, NULL);
 	if (!(g_backSink >= -5.0f && g_backSink <= 5.0f))
@@ -1352,14 +1593,16 @@ static void ReadSettings(void)
 	    g_layoutSetting == LAYOUT_FILE ? "file" : g_layoutSetting == LAYOUT_TRANSPOSED ? "transposed" : "auto");
 	static const char *const pushValueNames[] = { "delta", "ray", "mod", "velocity", "position", "off" };
 	Log("  steer: Enabled=%d FullSpeed=%g InputHook=%d Creep=%d CreepInput=%g CreepBelow=%g CreepRadius=%g Reverse=%d BackSpeed=%g "
-	    "BackPush=%s BackClearance=%g BackSink=%g BackSupportCheck=%d Throttle=%d Accel=%g Coast=%g Brake=%g Lead=%g BackBelow=%g",
+	    "BackPush=%s BackSink=%g BackSupportCheck=%d Throttle=%d Accel=%g Coast=%g Brake=%g Lead=%g BackBelow=%g (BackClearance, BackMargin and BackLedge on a reverse line of their own)",
 	    g_steer, g_fullSpeed, g_inputHook, g_creep, g_creepStart, g_creepBelow, g_creepRadius, g_reverse, g_backSpeed,
-	    g_backPushAuto ? "auto" : pushValueNames[g_backPushFirst], g_backClearance, g_backSink, g_backSupportCheck,
+	    g_backPushAuto ? "auto" : pushValueNames[g_backPushFirst], g_backSink, g_backSupportCheck,
 	    g_throttleOn, g_accel, g_coast, g_brake, g_lead, g_backBelow);
 	ReadBackSettings(ini, true);
 	ReadRamSettings(ini, true);
+	ReadRoomSettings(ini, true);
 	ReadRiderSwitches(true);
 	ReadParts(ini);
+	BackClearanceLine();   /* the parts file read: the clearance it gives (test 42) */
 	ReadLampSettings(ini);
 }
 
@@ -1722,6 +1965,11 @@ static void FindGlobals(void)
 	if (!allRam) {
 		memset(g_ramGlobals, 0, sizeof(g_ramGlobals));
 		Log("rams: not all of CMB_RamSeenHi to CMB_RamMinSpeed are there (an older %s?): enemies aren't knocked over", ESP_NAME);
+	} else {
+		/* Test 42's robots: CMB_RamRobots, a FormList (not a global: RamRobotsRead checks it). */
+		g_ramRobotsId = prefix | (shift == 12 ? (RAM_ROBOTS_ID & 0xFFFu) : RAM_ROBOTS_ID);
+		g_ramRobotsForm = ((LookupFormByID_t)(g_base + RVA_LOOKUP_FORM))(g_ramRobotsId);
+		RamRobotsRead();
 	}
 	/* The brought bike's spot (test 41): all six or none, and nothing else changes without
 	 * them (an older ESP: the script finds its properties None and checks no spot). */
@@ -1734,6 +1982,12 @@ static void FindGlobals(void)
 		Log("room: no CMB_Room globals (an older ESP): the bike's spot isn't checked");
 	} else {
 		RoomReadAnswered();   /* a save's last answer: not given again */
+		/* Test 43: the spot's heading, apart from the six (an ESP of test 42's build has them but
+		 * not this: the asks are answered as before, by the eight rays). Not looked for without
+		 * the six: then nothing of the spot runs at all. */
+		g_roomAngleGlobal = FindGlobal(prefix, shift, ROOM_GLOBAL_ID + ROOM_GLOBALS, "CMB_RoomAskAngle");
+		if (!g_roomAngleGlobal)
+			Log("room: no CMB_RoomAskAngle (an older ESP): the spot checked without a heading, the eight rays as before test 43");
 	}
 	g_globalsMissingLogged = true;   /* found or not, don't look again */
 }
@@ -2697,6 +2951,20 @@ static void ResetTilt(void)
 	g_wallLogs = 0;   /* WallAhead's lines are capped per ride */
 	LogHandFill(&g_faceHand);   /* the face rays' lines from a full hand again (test 40) */
 	g_faceSince = -1.0f;
+	g_faceAlongAt = -100.0f;   /* test 42: no face alongside seen, the ride's normal line to come, no slide's hold */
+	g_wallAlongLoggedAt = -100.0f;
+	g_normalLogged = g_normalBad = false;
+	g_slideSince = -1.0f;
+	g_slideSpent = g_slideLogged = false;
+	LogHandFill(&g_slideHand);
+	g_landAt = -100.0f;   /* test 42: no landing, no hold, no sink, the fall's frames afresh */
+	g_landAirFor = 0.0f;
+	g_landFallN = 0;
+	g_landPrevOk = g_landHolding = g_landLogged = false;
+	g_landS = g_landSVel = g_landF = g_landR = 0.0f;
+	g_liftApplied = g_pitchApplied = 0.0f;
+	LogHandFill(&g_landHand);
+	LogHandFill(&g_backHand);   /* test 42: the clearance's line at a push's start, from a full hand */
 	ClimbOff("the ride started afresh");   /* the climb's boost off, its state afresh */
 	LogHandFill(&g_climbHand);
 	g_climbCool = false;
@@ -4801,7 +5069,7 @@ static void FrameRider(bool tilt, const float R[9], const float P[3])
 		SolveTorsoLean();   /* TorsoSolveFrom in (1.3 s), and again every half second till final, the best reading kept: the pose settles (test 33's first ride solved 15 deg at 100%; test 39: the first reading at 95% after a jump kept for good); not while the arms move or the grips are short of the riding pose's reach (test 37); taken as it comes, every half second till the riding pose is there (test 38) */
 	bool torso = g_riderHands && g_partsOk && g_torsoNode && g_torsoLeanSet && (g_torsoLean > 0.05f || ((g_torsoTwist > 0.0f || g_torsoSideLean > 0.0f) && fabsf(g_barNow) > 0.3f));
 	bool hands = g_riderHands && g_partsOk && (fabsf(g_barNow) > 0.3f || torso);
-	bool level = g_riderLevel && !hands && fabsf(g_liftNow) < 0.5f;
+	bool level = g_riderLevel && !hands && fabsf(g_liftApplied) < 0.5f;   /* with a landing's sink (test 42) */
 	bool ready = (tilt || hands) && g_riderTilt && g_riderWrite && !level && bikeOk;
 	g_riderApplied = ready;
 	if (!ready) {
@@ -4818,7 +5086,7 @@ static void FrameRider(bool tilt, const float R[9], const float P[3])
 	g_riderIdle = false;
 	/* The bike's own map, x -> R (x - P) + P + lift (its own space), taken to world through
 	 * the bind (A, t) and the bone (Nb, nb, sb): z -> Rw z + tw. */
-	float A[9], t[3], At[9], AP[3], Pbone[3], T9[9], ARA[9], Pw[3], Rw[9], NP[3], tw[3], liftBike[3] = { 0.0f, 0.0f, g_liftNow }, liftW[3], AL[3];
+	float A[9], t[3], At[9], AP[3], Pbone[3], T9[9], ARA[9], Pw[3], Rw[9], NP[3], tw[3], liftBike[3] = { 0.0f, 0.0f, g_liftApplied }, liftW[3], AL[3];   /* the lift with a landing's sink (test 42) */
 	ReadRot((const float *)(bike->original[0] + OFF_BONE_ROT), A);
 	memcpy(t, bike->original[0] + OFF_BONE_POS, 12);
 	Transpose3(A, At);
@@ -5352,7 +5620,7 @@ static void FrameLamp(bool tilt, const float R[9], const float P[3])
 			memcpy(M, M2, sizeof(M2));
 			for (int i = 0; i < 3; i++)
 				m[i] = m2[i] + P[i] - RP[i];
-			m[2] += g_liftNow;
+			m[2] += g_liftApplied;   /* with a landing's sink (test 42) */
 		}
 	}
 	bool nodeLit = false;
@@ -5917,6 +6185,37 @@ static void FrameTilt(void)
 		} else {
 			g_liftNow = targetNow;
 		}
+		/* A landing taken on the suspension (test 42, new 3: "it should sink on the suspension
+		 * and carry on"; the frame stayed extended, F -3.0 R -3.0): the sink LandFrame set, the
+		 * front's and the rear's, on the frame's own spring (SuspFrequency, SuspDamping) from a
+		 * kick: its whole at +0.09 s, back through the line by +0.31 s, 0.09 of it over at
+		 * +0.40 s, settled by +0.55 s; stepped exactly (the spring's own solution over the
+		 * frame's time, so 30 or 190 frames a second give the same dip), its rise capped at
+		 * LiftRate. Put on what is applied (the bike, its parts, the rider, the wheels' targets),
+		 * never on the filtered lift, the median, the track or the pitch's filter: the bump's
+		 * deficit and the droop's floor see the frame as it would be without it. */
+		float dip = 0.0f, nose = 0.0f, run = g_frontAxle[1] - g_rearAxle[1];
+		if ((g_landS != 0.0f || g_landSVel != 0.0f) && g_landF > 0.0f && run > 10.0f) {
+			float damping = g_suspDamping < 0.95f ? g_suspDamping : 0.95f,   /* as the kick was worked out (LandFrame) */ w = 6.2831853f * g_suspFrequency, a = damping * w, wd = w * sqrtf(1.0f - damping * damping);
+			float e = expf(-a * dtb), cs = cosf(wd * dtb), sn = sinf(wd * dtb), s0 = g_landS, v0 = g_landSVel;
+			float pivot = (g_landF * -g_rearAxle[1] + g_landR * g_frontAxle[1]) / run;   /* the sink at the rider, between the wheels */
+			g_landS = e * (s0 * cs + (v0 + a * s0) / wd * sn);
+			g_landSVel = e * (v0 * cs - (a * v0 + w * w * s0) / wd * sn);
+			if (g_liftRate > 0.0f && pivot > 0.0f && (s0 - g_landS) * pivot > g_liftRate * dtb) {
+				g_landS = s0 - g_liftRate * dtb / pivot;   /* rising back no faster than LiftRate */
+				if (g_landSVel < -g_liftRate / pivot)
+					g_landSVel = -g_liftRate / pivot;
+			}
+			if ((float)g_clock - g_landAt > 0.2f && fabsf(g_landS) * g_landF < 0.02f && fabsf(g_landSVel) * g_landF < 0.2f)
+				g_landS = g_landSVel = 0.0f;   /* settled */
+			dip = pivot * g_landS;
+			nose = atanf((g_landF - g_landR) / run) * 57.29578f * g_landS;
+		} else {
+			g_landS = g_landSVel = 0.0f;
+		}
+		g_liftApplied = g_liftNow - dip;
+		g_pitchApplied = g_pitchNow - nose;
+		float tpApplied = tanf(g_pitchApplied / 57.29578f);
 		/* The wheels follow the ground (test 36's wish: "the wheels would follow the ground"):
 		 * each sits on its own ray's hit, moved against the frame by what it lacks from where
 		 * the frame, lifted and pitched as applied this frame, holds it, up into the frame over
@@ -5936,7 +6235,7 @@ static void FrameTilt(void)
 				continue;
 			}
 			if (useWheels && g_wheelZOk && g_suspTravel > 0.0f) {
-				float bottom = g_liftNow + (i == 0 ? g_frontAxle[1] : g_rearAxle[1]) * tp, compress = i == 0 ? g_suspTravel : compressRear;
+				float bottom = g_liftApplied + (i == 0 ? g_frontAxle[1] : g_rearAxle[1]) * tpApplied, compress = i == 0 ? g_suspTravel : compressRear;   /* the landing's sink in it: the wheels come out compressed by it */
 				target = g_wheelZ[i] - bottom;
 				target = target > compress ? compress : target < -g_suspDroop ? -g_suspDroop : target;
 				tau = target < g_wheelOffset[i] ? g_suspExtend : 0.03f;
@@ -5946,10 +6245,13 @@ static void FrameTilt(void)
 	} else {
 		g_liftNow = g_liftSmooth = g_bumpLift = g_liftVel = 0.0f;
 		g_wheelOffset[0] = g_wheelOffset[1] = 0.0f;
+		g_landS = g_landSVel = 0.0f;   /* the tilt off: no sink */
+		g_liftApplied = g_liftNow;
+		g_pitchApplied = g_pitchNow;
 	}
 
 	float R[9];
-	TiltRotation(g_pitchNow, g_rollNow, R);
+	TiltRotation(g_pitchApplied, g_rollNow, R);   /* with the landing's sink (test 42) */
 	float c = (R[0] + R[4] + R[8] - 1.0f) * 0.5f;
 	float angle = acosf(c > 1.0f ? 1.0f : c < -1.0f ? -1.0f : c);
 	g_tiltNow = angle * 57.29578f;
@@ -5960,22 +6262,35 @@ static void FrameTilt(void)
 	}
 	if (g_trace && g_clock - g_lastTrace >= 0.25f) {
 		g_lastTrace = g_clock;
-		char susp[48] = "";
+		char susp[48] = "", landing[48] = "";
 		if (g_suspension)
 			snprintf(susp, sizeof(susp), " | susp F %+.1f R %+.1f", g_wheelOffset[0], g_wheelOffset[1]);
-		Log("trace: normal (%.3f, %.3f, %.3f) state %d%s | raw pitch %.1f roll %.1f | median %.1f %.1f | track %s%.1f | wheels %s%.1f lift %.1f (%d missed) | pitch from %s | target %.1f %.1f | applied %.1f %.1f | speed %.0f (%+.0f along the heading), radius %.0f, turn asked %.0f allowed %.0f deg/s, clamped %d%s%s%s",
+		if (fabsf(g_landS) > 0.05f)   /* a landing's sink on the frame (test 42): what of the lift and the pitch is it */
+			snprintf(landing, sizeof(landing), " (landing %+.1f, nose %+.1f)", g_liftApplied - g_liftNow, g_pitchApplied - g_pitchNow);
+		Log("trace: normal (%.3f, %.3f, %.3f) state %d%s | raw pitch %.1f roll %.1f | median %.1f %.1f | track %s%.1f | wheels %s%.1f lift %.1f%s (%d missed) | pitch from %s | target %.1f %.1f | applied %.1f %.1f | speed %.0f (%+.0f along the heading), radius %.0f, turn asked %.0f allowed %.0f deg/s, clamped %d%s%s%s",
 		    g_groundN[0], g_groundN[1], g_groundN[2], g_lastState, onGround ? "" : " (off the ground)", rawPitch, rawRoll,
 		    medianPitch, medianRoll, g_trackPitchOk ? "" : "(none) ", g_trackPitchOk ? g_trackPitch : 0.0f,
-		    g_wheelPitchOk ? "" : "(none) ", g_wheelPitchOk ? g_wheelPitch : 0.0f, g_liftNow, g_wheelRaysMissed, source,
-		    g_pitchSmooth, g_rollSmooth, g_pitchNow, g_rollNow, g_speed, g_speedAlong, g_steerRadius, g_steerWanted, g_steerAllowed,
+		    g_wheelPitchOk ? "" : "(none) ", g_wheelPitchOk ? g_wheelPitch : 0.0f, g_liftApplied, landing, g_wheelRaysMissed, source,
+		    g_pitchSmooth, g_rollSmooth, g_pitchApplied, g_rollNow, g_speed, g_speedAlong, g_steerRadius, g_steerWanted, g_steerAllowed,
 		    g_steerClamped, g_inputMode == INPUT_BACK ? " | back" : g_inputMode == INPUT_CREEP ? " | creep" : "", susp, ClimbWord());
 		g_wheelRaysMissed = 0;
 		if (g_jumpMax > 0.5f)
 			Log("trace: the arm bones' biggest move between frames %.1f (%s)", g_jumpMax, g_jumpName);
 		g_jumpMax = 0.0f;
-		if (g_throttleOn && g_inputActive)
-			Log("throttle: speed %.2f of the top, input %.2f (keys %.2f, %.2f%s%s)", g_throttle, InputForSpeed(g_throttle),
-			    g_keys[0], g_keys[1], g_throttleWrote ? ", the game gets the throttle's" : "", g_throttleCapped ? ", held to the measured speed" : "");
+		if (g_throttleOn && g_inputActive) {
+			char slide[48] = "", land[64] = "";
+			if (g_slideSince >= 0.0f)
+				snprintf(slide, sizeof(slide), ", slide held %.2f for %.1f s", g_slideThrottle, (float)(g_clock - g_slideSince));
+			if (g_landHolding) {   /* test 42: the landing's hold on */
+				float left = g_landHold - ((float)g_clock - g_landAt);
+				if (left > 0.0f)
+					snprintf(land, sizeof(land), ", landing hold %.2f s left", left);
+				else
+					snprintf(land, sizeof(land), ", landing hold on while the speed comes back");
+			}
+			Log("throttle: speed %.2f of the top, input %.2f (keys %.2f, %.2f%s%s%s%s)", g_throttle, InputForSpeed(g_throttle),
+			    g_keys[0], g_keys[1], g_throttleWrote ? ", the game gets the throttle's" : "", g_throttleCapped ? ", held to the measured speed" : "", slide, land);
+		}
 		if (g_partsOk)
 			Log("parts: bars %+.1f deg (turning %+.0f deg/s), wheels at %.2f rad", g_barNow, g_headingRate, g_wheelAngle);
 		if (g_riderCount)
@@ -6039,7 +6354,7 @@ static void FrameTilt(void)
 			memcpy(M, M2, sizeof(M2));
 			for (int i = 0; i < 3; i++)
 				m[i] = m2[i] + P[i] - RP[i];
-			m[2] += g_liftNow;
+			m[2] += g_liftApplied;   /* with a landing's sink (test 42) */
 		}
 		if (hs->role == ROLE_GLOW && !lampLit)
 			for (int i = 0; i < 9; i++)
@@ -6186,8 +6501,25 @@ typedef struct {
 	bool toAsk;                /* seen, not yet asked about: the ask before it was told under AskGap ago (test 41) */
 	float askWantedAt;         /* when it was seen and the ask queued */
 	bool askWantLogged;        /* its "ask waits" line was logged: the "ask told" line goes with it */
+	int size;                  /* its race's size class as read at the first ask (-1: not read, or unreadable): AskFree's small or medium (test 42) */
+	bool robot;                /* its race is in CMB_RamRobots (Robots) */
+	float firstAskedAt;        /* when its first ask was wanted (told or queued): AskFree's clock, moved by no re-ask or queue wait */
+	bool askFreeLogged, askLapseLogged;   /* its AskFree lines, once each */
+	bool saidNo;               /* the script said no to it (AskFree never again, however soon AskAgainNo asks again) */
+	bool yesKept;              /* its yes kept past the 3 s out of sight by YesKeep: the "throttle free" line says so */
 } RamEntry;
 static RamEntry g_rams[8];
+static int g_ramAskOpen;          /* AskAnswered: the last ask told, until its answer is read (0: answered, or none) */
+static uint32_t g_ramAskOpenId;   /* ... and whom it was about */
+static int g_ramAskAnsweredNo;    /* the last ask answered, and when its answer was read */
+static float g_ramAskAnsweredAt = -100.0f;
+static bool g_ramAnywayLogged;    /* "unanswered ...: the next ask told anyway", once a ride */
+static float g_ramLastHitAt = -100.0f, g_ramLastHitSpeed;   /* HitGrace: the last hit, and its speed */
+static LogHand g_ramHand = { LOG_HAND_SIZE, 0.0f, 0.0f, 0.0f };   /* AskFree's lines (test 42): 10, one more every 6 s */
+#define RAM_ROBOTS_MAX 16
+static uintptr_t g_ramRobots[RAM_ROBOTS_MAX];     /* its races, read right (all, or none) */
+static int g_ramRobotCount;
+static char g_ramRobotsSaid[400];                 /* the list's last verdict logged: logged again only when it changes */
 static int g_ramAskNo;            /* the last ask's number (from CMB_RamSeen at each ride start) */
 static int g_ramOkRead;           /* the CMB_RamOk last acted on */
 static int g_ramRaceOk;           /* 0 not checked this ride, 1 the races read right (the rider's), -1 not */
@@ -6223,6 +6555,13 @@ static void RamReset(void)
 	g_ramToldAt = g_ramAskToldAt = g_ramSlowUntil = -100.0f;
 	g_ramSlowTo = 1.0f;
 	g_rayLetByCount = 0;
+	g_ramAskOpen = g_ramAskAnsweredNo = 0;   /* test 42: no ask open, no hit to grace, AskFree's lines from a full hand */
+	g_ramAskOpenId = 0;
+	g_ramAskAnsweredAt = g_ramLastHitAt = -100.0f;
+	g_ramLastHitSpeed = 0.0f;
+	g_ramAnywayLogged = false;
+	LogHandFill(&g_ramHand);
+	RamRobotsRead();   /* logged only if its verdict changed since the start (a list can't change in a game) */
 }
 
 static bool UnderOrAt(uintptr_t obj, uintptr_t root)
@@ -6308,6 +6647,81 @@ static int RaceSize(uintptr_t actor, uint32_t *flags, const char **edid)
 	return size <= 3 ? (int)size : -1;
 }
 
+/* CMB_RamRobots (test 42: the protectron's race read large and No Knockdowns, flags 42E08901, and
+ * was braked for; the eyebot was never asked about at all): a FormList in the ESP (0x856) of the
+ * robot races to knock over all the same, the targeted way (MaxSize=2 or NoKnockdowns=0 would ask
+ * about every large race not in CMB_RamTooBig: yao guai, mirelurks, radscorpions). Read as the
+ * globals and the races are: its form type (0x5E) and RTTI, the BSTArray at +0x20 (CommonLibF4's
+ * layout) of 1 to 16 forms, each a race by its form type and RTTI; at the first that isn't, the
+ * whole list is refused and the gates stand for every race, so a layout read wrong in a game
+ * version is today's behaviour, not a crash. Read at the start (FindGlobals) and again at each
+ * ride's (RamReset), the verdict logged when it changes (a list can't change in a game; the
+ * harness changes it). */
+static void RamRobotsRead(void)
+{
+	char said[sizeof(g_ramRobotsSaid)];
+	uintptr_t form = g_ramRobotsForm;
+	g_ramRobotCount = 0;
+	if (!g_ramRobotsId)
+		return;   /* not looked up: no ram globals, nothing to gate */
+	if (!form) {
+		snprintf(said, sizeof(said), "rams: CMB_RamRobots isn't there (an older ESP): the size and No Knockdowns gates stand");
+	} else if (!Accessible(form, OFF_FLST_FORMS + 0x18, false) || !GetCOL(form)) {
+		snprintf(said, sizeof(said), "rams: CMB_RamRobots can't be read (form %08X at %p isn't a readable form): the size and No Knockdowns gates stand", g_ramRobotsId, (void *)form);
+	} else if (*(const uint8_t *)(form + OFF_FORM_TYPE) != FORM_TYPE_FLST || !IsA(form, RTTI_FORM_LIST)) {
+		snprintf(said, sizeof(said), "rams: CMB_RamRobots can't be read (form %08X is a %.40s of form type 0x%02X, not a FormList): the size and No Knockdowns gates stand", g_ramRobotsId,
+		         OrNone(ObjectTypeName(form)), *(const uint8_t *)(form + OFF_FORM_TYPE));
+	} else {
+		uintptr_t entries = ReadPtr(form + OFF_FLST_FORMS + OFF_ARRAY_ENTRIES);
+		uint32_t count = *(const uint32_t *)(form + OFF_FLST_FORMS + OFF_ARRAY_COUNT);
+		char names[300] = "";
+		const char *bad = NULL;
+		char why[160];
+		if (count < 1 || count > RAM_ROBOTS_MAX) {
+			snprintf(why, sizeof(why), "its array at +0x20 holds %u forms, 1 to %d expected", count, RAM_ROBOTS_MAX);
+			bad = why;
+		} else if (!entries || !Accessible(entries, 8u * count, false)) {
+			snprintf(why, sizeof(why), "its array's %u entries at %p aren't readable", count, (void *)entries);
+			bad = why;
+		}
+		for (uint32_t i = 0; !bad && i < count; i++) {
+			uintptr_t race = ReadPtr(entries + 8u * i);
+			if (!race || !Accessible(race, OFF_RACE_EDITOR_ID + 8, false) || !GetCOL(race)) {
+				snprintf(why, sizeof(why), "its form %u, %p, isn't a readable form", i + 1, (void *)race);
+				bad = why;
+			} else if (*(const uint8_t *)(race + OFF_FORM_TYPE) != FORM_TYPE_RACE || !IsA(race, RTTI_RACE)) {
+				snprintf(why, sizeof(why), "its form %u is a %.40s of form type 0x%02X, not a race", i + 1, OrNone(ObjectTypeName(race)), *(const uint8_t *)(race + OFF_FORM_TYPE));
+				bad = why;
+			} else {
+				uint32_t size = *(const uint32_t *)(race + OFF_RACE_SIZE), flags = *(const uint32_t *)(race + OFF_RACE_FLAGS);
+				size_t at = strlen(names);
+				snprintf(names + at, sizeof(names) - at, "%s%.40s (%s, flags %08X%s)", i ? ", " : "", OrNone(EntryString(ReadPtr(race + OFF_RACE_EDITOR_ID))),
+				         RaceSizeName(size <= 3 ? (int)size : -1), flags, (flags & RACE_NO_KNOCKDOWNS) ? ", No Knockdowns" : "");
+				g_ramRobots[g_ramRobotCount++] = race;
+			}
+		}
+		if (bad) {
+			g_ramRobotCount = 0;
+			snprintf(said, sizeof(said), "rams: CMB_RamRobots can't be read (%s): the size and No Knockdowns gates stand", bad);
+		} else {
+			snprintf(said, sizeof(said), "rams: CMB_RamRobots: %d races pass the size and No Knockdowns gates: %s", g_ramRobotCount, names);
+		}
+	}
+	if (strcmp(said, g_ramRobotsSaid) != 0) {
+		snprintf(g_ramRobotsSaid, sizeof(g_ramRobotsSaid), "%s", said);
+		Log("%s", said);
+	}
+}
+
+/* A race in CMB_RamRobots, read right (Robots=1). */
+static bool RamRobotListed(uintptr_t race)
+{
+	for (int i = 0; g_ramRobotsOn && race && i < g_ramRobotCount; i++)
+		if (g_ramRobots[i] == race)
+			return true;
+	return false;
+}
+
 /* Once a ride: the rider's own race must read as a playable one of a size class, or the
  * plugin sets no size limit (the script's CMB_RamTooBig still does). */
 static void RamCheckRace(void)
@@ -6340,6 +6754,8 @@ static RamEntry *RamEntryFor(uintptr_t ref, uint32_t id, bool add)
 	e->ref = ref;
 	e->id = id;
 	e->askedAt = e->askPrevAt = e->askLoggedAt = -100.0f;
+	e->size = -1;   /* not read yet (test 42's AskFree) */
+	e->firstAskedAt = -100.0f;
 	return e;
 }
 
@@ -6355,14 +6771,37 @@ static void RamAskTell(RamEntry *e)
 	e->state = RAM_ASKING;
 	e->toAsk = false;
 	g_ramAskToldAt = (float)g_clock;
+	g_ramAskOpen = e->ask;   /* open until its answer is read (test 42's AskAnswered) */
+	g_ramAskOpenId = e->id;
 	SetGlobal(g_ramGlobals[0], (float)(e->id >> 16));
 	SetGlobal(g_ramGlobals[1], (float)(e->id & 0xFFFFu));
 	SetGlobal(g_ramGlobals[2], (float)e->ask);   /* last: the script reads the halves after it */
 }
 
-/* An ask: told now, or, inside AskGap of the ask before it or behind one still waiting, queued
- * in the entry for RamFrame (test 41: a second animal seen 46-120 ms after the first replaced
- * its ask before the script's poll read it). */
+/* Whether an ask may be told now: AskGap after the one before it, and (test 42's AskAnswered)
+ * once that one is answered, or AskAgain after it unanswered, so a script that stalls (or an
+ * answer that never comes) can't hold the queue. Test 42's pack: the asks went out AskGap
+ * (120 ms) apart but were answered 234 ms apart at the median, the script answering the newest
+ * of its poll's and not the rest; told as they are answered, none is passed over. */
+static bool RamAskMayTell(float now)
+{
+	if (now - g_ramAskToldAt < g_ramAskGap)
+		return false;
+	return !(g_ramAskAnswered && g_ramAskOpen && now - g_ramAskToldAt < g_ramAskAgain);
+}
+
+/* A tell past an ask still open (AskAgain gone by unanswered): said once a ride. */
+static void RamAskAnyway(float now)
+{
+	if (!g_ramAskAnswered || !g_ramAskOpen || g_ramAnywayLogged)
+		return;
+	g_ramAnywayLogged = true;
+	Log("rams: ask %d (%08X) unanswered for %.0f ms: the next ask told anyway", g_ramAskOpen, g_ramAskOpenId, (now - g_ramAskToldAt) * 1000.0f);
+}
+
+/* An ask: told now, or, inside AskGap of the ask before it, before that one is answered
+ * (AskAnswered) or behind one still waiting, queued in the entry for RamFrame (test 41: a second
+ * animal seen 46-120 ms after the first replaced its ask before the script's poll read it). */
 static void RamAsk(RamEntry *e, float ahead, float v, const char *which, const char *race)
 {
 	float now = (float)g_clock;
@@ -6370,21 +6809,32 @@ static void RamAsk(RamEntry *e, float ahead, float v, const char *which, const c
 	bool say = first || now - e->askLoggedAt >= 5.0f;
 	if (say)
 		e->askLoggedAt = now;
+	if (first && e->firstAskedAt < -50.0f)
+		e->firstAskedAt = now;   /* AskFree's clock: from the first wanting, a queue's wait counted in */
 	int waiting = 0;
 	for (int i = 0; i < 8; i++)
 		waiting += g_rams[i].ref && g_rams[i].toAsk;
-	if (g_ramAskGap > 0.0f && (waiting || now - g_ramAskToldAt < g_ramAskGap)) {
+	if ((g_ramAskGap > 0.0f || g_ramAskAnswered) && (waiting || !RamAskMayTell(now))) {
 		float wait = g_ramAskToldAt + g_ramAskGap - now;
 		wait = (wait > 0.0f ? wait : 0.0f) + (float)waiting * g_ramAskGap;
 		e->toAsk = true;
 		e->askWantedAt = now;
 		e->askWantLogged = say;
 		e->state = RAM_ASKING;
-		if (say)
+		if (!say)
+			return;
+		const char *again = first ? "" : " (asked again: no answer, or a no a while ago)";
+		if (g_ramAskAnswered && g_ramAskOpen)
+			Log("rams: %08X%s seen %.0f past the front wheel at %.0f a second (%s): its ask waits for the answer to ask %d (AskAnswered)%s", e->id, race, ahead, v, which, g_ramAskOpen, again);
+		else if (g_ramAskAnswered && waiting)
+			Log("rams: %08X%s seen %.0f past the front wheel at %.0f a second (%s): its ask waits behind %d seen before it, each told once the one before it is answered (AskAnswered)%s",
+			    e->id, race, ahead, v, which, waiting, again);
+		else
 			Log("rams: %08X%s seen %.0f past the front wheel at %.0f a second (%s): its ask waits %.0f ms for the one before it, so the script's 0.1 s poll reads both%s",
-			    e->id, race, ahead, v, which, wait * 1000.0f, first ? "" : " (asked again: no answer, or a no a while ago)");
+			    e->id, race, ahead, v, which, wait * 1000.0f, again);
 		return;
 	}
+	RamAskAnyway(now);
 	RamAskTell(e);
 	if (say)
 		Log("rams: %08X%s seen %.0f past the front wheel at %.0f a second (%s): asked the script (ask %d)%s", e->id, race, ahead, v, which, e->ask,
@@ -6403,7 +6853,7 @@ static void RamSeen(uintptr_t actor, float ahead, float v, const char *which)
 		return;
 	if (e->toAsk)
 		return;   /* its ask waits for the gap (RamFrame tells it) */
-	char race[96] = "";
+	char race[128] = "";
 	if (e->ask == 0) {
 		if (g_ramRaceOk == 0)
 			RamCheckRace();
@@ -6412,13 +6862,19 @@ static void RamSeen(uintptr_t actor, float ahead, float v, const char *which)
 			const char *edid = NULL;
 			int size = RaceSize(actor, &flags, &edid);
 			bool noKnock = g_ramNoKnockdowns && (flags & RACE_NO_KNOCKDOWNS);
-			if (size > g_ramMaxSize || size < 0 || noKnock) {
+			bool robot = size >= 0 && RamRobotListed(ReadPtr(actor + OFF_ACTOR_RACE));   /* test 42: CMB_RamRobots' races past both gates (Robots) */
+			if (size < 0 || (!robot && (size > g_ramMaxSize || noKnock))) {
 				e->state = RAM_TOO_BIG;
 				Log("rams: %08X (race %s: size %s, flags %08X) %s: braked for as before", id, OrNone(edid), RaceSizeName(size), flags,
 				    size < 0 ? "has a race that can't be read" : noKnock ? "can't be knocked down (No Knockdowns)" : "is too big (MaxSize)");
 				return;
 			}
-			snprintf(race, sizeof(race), " (race %.40s: %s)", OrNone(edid), RaceSizeName(size));
+			e->size = size;
+			e->robot = robot;
+			if (robot)
+				snprintf(race, sizeof(race), " (race %.40s: %s%s, in CMB_RamRobots)", OrNone(edid), RaceSizeName(size), (flags & RACE_NO_KNOCKDOWNS) ? ", No Knockdowns" : "");
+			else
+				snprintf(race, sizeof(race), " (race %.40s: %s)", OrNone(edid), RaceSizeName(size));
 		}
 	}
 	float wait = e->state == RAM_NO ? g_ramAskAgainNo : g_ramAskAgain;
@@ -6446,6 +6902,11 @@ static void RamFrame(void)
 	if (ok != g_ramOkRead) {
 		g_ramOkRead = ok;
 		int n = ok < 0 ? -ok : ok;
+		if (n && n == g_ramAskOpen) {   /* the ask told last answered, either way: the next may be told (AskAnswered) */
+			g_ramAskOpen = 0;
+			g_ramAskAnsweredNo = n;
+			g_ramAskAnsweredAt = now;
+		}
 		for (int i = 0; n && i < 8; i++) {
 			RamEntry *e = &g_rams[i];
 			if (!e->ref || (e->ask != n && e->askPrev != n) || (e->state != RAM_ASKING && e->state != RAM_NO))
@@ -6453,13 +6914,15 @@ static void RamFrame(void)
 			e->state = ok > 0 ? RAM_YES : RAM_NO;
 			e->okAsk = ok > 0 ? n : 0;
 			e->answeredAt = now;
+			e->saidNo |= ok < 0;
 			Log("rams: %08X %s (ask %d), %.0f ms after the ask", e->id, ok > 0 ? "may be knocked over, the script says" : "is not to be knocked over, the script says: braked for",
 			    n, (now - (n == e->ask ? e->askedAt : e->askPrevAt)) * 1000.0f);
 		}
 	}
-	/* An ask that waited (two within AskGap; test 41): the earliest first, one a gap. One
-	 * answered meanwhile (a late answer to its ask before) has nothing to ask. */
-	if (now - g_ramAskToldAt >= g_ramAskGap) {
+	/* An ask that waited (two within AskGap; test 41; or, test 42's AskAnswered, the one before
+	 * it not yet answered): the earliest first, one a gap. One answered meanwhile (a late answer
+	 * to its ask before) has nothing to ask. */
+	if (RamAskMayTell(now)) {
 		RamEntry *next = NULL;
 		for (int i = 0; i < 8; i++) {
 			RamEntry *e = &g_rams[i];
@@ -6474,8 +6937,16 @@ static void RamFrame(void)
 		}
 		if (next) {
 			float before = now - g_ramAskToldAt;
+			int open = g_ramAskAnswered ? g_ramAskOpen : 0, answered = g_ramAskAnswered ? g_ramAskAnsweredNo : 0;
+			RamAskAnyway(now);
 			RamAskTell(next);
-			if (next->askWantLogged)
+			if (next->askWantLogged && open)
+				Log("rams: %08X's ask told the script (ask %d) %.0f ms after it was seen, %.0f ms after ask %d, unanswered (AskAgain): told anyway", next->id, next->ask,
+				    (now - next->askWantedAt) * 1000.0f, before * 1000.0f, open);
+			else if (next->askWantLogged && answered)
+				Log("rams: %08X's ask told the script (ask %d) %.0f ms after it was seen, %.0f ms after the answer to ask %d", next->id, next->ask,
+				    (now - next->askWantedAt) * 1000.0f, (now - g_ramAskAnsweredAt) * 1000.0f, answered);
+			else if (next->askWantLogged)
 				Log("rams: %08X's ask told the script (ask %d) %.0f ms after it was seen, %.0f ms after the ask before it", next->id, next->ask,
 				    (now - next->askWantedAt) * 1000.0f, before * 1000.0f);
 		}
@@ -6505,7 +6976,18 @@ static void RamFrame(void)
 			if (now - e->hitAt >= g_ramPass + 3.0f && !e->toTell)
 				e->ref = 0;
 		} else if (now - e->seenAt >= 3.0f) {
-			e->ref = 0;   /* out of sight: asked afresh next time */
+			if (e->state == RAM_YES && g_ramYesKeep > 0.0f && now - e->answeredAt < g_ramYesKeep) {
+				/* Test 42's YesKeep: a yes kept out of sight (a pack's dog back 9.5 s after it was
+				 * said yes to was asked again, and braked for meanwhile); its "throttle free" line
+				 * again when it's back, saying so. RamEntryFor may still take the entry for a new
+				 * actor, the oldest seen first. */
+				if (!e->yesKept) {
+					e->yesKept = true;
+					e->freeLogged = false;
+				}
+			} else {
+				e->ref = 0;   /* out of sight: asked afresh next time */
+			}
 		}
 	}
 }
@@ -6531,9 +7013,51 @@ static void RamSlow(float v, char *out, size_t size)
 	snprintf(out, size, "; the throttle held to %.0f%% of it (%.0f a second) for %.2f s", g_ramHitKeep * 100.0f, to * g_fullSpeed, g_ramHitHold);
 }
 
+/* CMB_RamMinSpeed met: by the speed now, or (test 42's HitGrace) by the speed of a hit at
+ * CMB_RamMinSpeed or faster under HitGrace ago, the dip after a hit (HitKeep's hold, the game's
+ * own bump) being the hit's, not a slow ride's: test 42's 10 "under 450" lines all came within
+ * 1 s of a hit or of a brake for an ask not yet answered, the pack's second dog braked for at
+ * 400 after the first was knocked over at 700. `grace`: met by the hit's speed only. */
+static bool RamFastEnough(float v, bool *grace)
+{
+	float least = RamMinSpeed();
+	if (grace)
+		*grace = false;
+	if (v >= least)
+		return true;
+	if (g_ramHitGrace > 0.0f && (float)g_clock - g_ramLastHitAt < g_ramHitGrace && g_ramLastHitSpeed >= least) {
+		if (grace)
+			*grace = true;
+		return true;
+	}
+	return false;
+}
+
+/* Test 42's AskFree: an actor whose ask is pending (told, or waiting its turn) is let by as for a
+ * yes while its race was read small or medium (MaxSize or under: a listed robot that reads
+ * large, or a race not read, isn't), at speed, under AskFree since its ask was first wanted and
+ * short of the Lead point (test 42: the face rays' wall verdict on a dog not yet answered eased
+ * the throttle at the same millisecond as its ask, 20:47:05.987, and the pack's last dog stopped
+ * the bike). Past any of those it is braked for as before: the one actor whose answer didn't
+ * make it stops the bike, not the pack. 0.5 covers every answer test 42 measured (448 ms at the
+ * most), and the actor ray's ActorLook (0.8 s) leaves the face rays' 0.3 s for easing off once
+ * it lapses. */
+static bool RamAskFreeFor(const RamEntry *e)
+{
+	return g_ramAskFree > 0.0f && e->size >= 0 && e->size <= g_ramMaxSize && !e->saidNo;
+}
+
+static bool RamAskFreeOk(const RamEntry *e, float ahead, float v)
+{
+	return RamAskFreeFor(e) && RamFastEnough(v, NULL) && (float)g_clock - e->firstAskedAt < g_ramAskFree && ahead > v * g_ramLead;
+}
+
 /* An actor at axle height ahead (ahead: its hit past the front wheel's edge): true if the
- * throttle stays open for it (a yes at speed, or hit within Pass); tells the hit at Lead. */
-static bool RamFree(uintptr_t actor, float ahead, float v)
+ * throttle stays open for it (a yes at speed, or hit within Pass, or an ask pending: AskFree);
+ * tells the hit at Lead. `which`: one of the extra actor rays (test 42's HighRay, SideRays),
+ * named in the hit's line, whose word is no verdict (the throttle's lines are the face rays');
+ * NULL for the face rays and WallAhead. */
+static bool RamFree(uintptr_t actor, float ahead, float v, const char *which)
 {
 	RamEntry *e = RamEntryFor(actor, *(const uint32_t *)(actor + OFF_FORM_ID), false);
 	if (!e)
@@ -6549,11 +7073,29 @@ static bool RamFree(uintptr_t actor, float ahead, float v)
 		}
 		return true;
 	}
+	if (e->state == RAM_ASKING) {
+		bool kept = RamAskFreeOk(e, ahead, v);
+		if (!which && RamAskFreeFor(e)) {
+			float pending = now - e->firstAskedAt;
+			if (kept && !e->askFreeLogged) {
+				e->askFreeLogged = true;
+				if (LogHandTake(&g_ramHand))
+					Log("rams: %08X ahead (%.0f past the front wheel at %.0f a second): its ask pending for %.0f ms, the throttle kept (AskFree, a %s race)", e->id, ahead, v,
+					    pending * 1000.0f, RaceSizeName(e->size));
+			} else if (!kept && !e->askLapseLogged && RamFastEnough(v, NULL)) {   /* at speed: its time, or the Lead point, ran out (a slow ride never had it) */
+				e->askLapseLogged = true;
+				if (LogHandTake(&g_ramHand))
+					Log("rams: %08X %.0f past the front wheel, no answer in %.0f ms: braked for", e->id, ahead, pending * 1000.0f);
+			}
+		}
+		return kept;
+	}
 	if (e->state != RAM_YES)
 		return false;
 	float least = RamMinSpeed();
-	if (v < least) {
-		if (!e->slowLogged) {
+	bool grace = false;
+	if (!RamFastEnough(v, &grace)) {
+		if (!which && !e->slowLogged) {   /* an extra actor ray brakes for nothing: the face rays say it if it comes to them */
 			e->slowLogged = true;
 			Log("rams: %08X %.0f past the front wheel at %.0f a second, under CMB_RamMinSpeed's %.0f: not knocked over, braked for", e->id, ahead, v, least);
 		}
@@ -6563,24 +7105,36 @@ static bool RamFree(uintptr_t actor, float ahead, float v)
 		e->state = RAM_HIT;
 		e->hitAt = e->stillLoggedAt = now;
 		e->hitSpeed = v;
-		char slow[96];
+		char slow[96], ray[64] = "", graced[160] = "";
 		RamSlow(v, slow, sizeof(slow));
+		if (which)
+			snprintf(ray, sizeof(ray), " (%s)", which);
+		if (grace)
+			snprintf(graced, sizeof(graced), ": under CMB_RamMinSpeed's %.0f, but %.2f s after a hit at %.0f: knocked over all the same (HitGrace)", least, now - g_ramLastHitAt,
+			         g_ramLastHitSpeed);
+		else {
+			g_ramLastHitAt = now;   /* a hit at speed: HitGrace's (one in its grace doesn't renew it) */
+			g_ramLastHitSpeed = v;
+		}
 		bool waiting = false;
 		for (int i = 0; i < 8; i++)
 			waiting |= g_rams[i].ref && g_rams[i].toTell;
 		if (!waiting && now - g_ramToldAt >= RAM_HIT_GAP) {
 			RamTell(e);
-			Log("rams: %08X hit at %.0f a second, %.0f past the front wheel: told the script (ask %d)%s", e->id, v, ahead, e->okAsk, slow);
+			Log("rams: %08X hit at %.0f a second, %.0f past the front wheel%s%s%s told the script (ask %d)%s", e->id, v, ahead, ray, graced, grace ? ";" : ":", e->okAsk, slow);
 		} else {
 			e->toTell = true;   /* told by RamFrame once the gap is up */
-			Log("rams: %08X hit at %.0f a second, %.0f past the front wheel, %.0f ms after the hit told before it: told the script once %.0f ms have passed "
-			    "(ask %d), so its 0.1 s poll reads both%s", e->id, v, ahead, (now - g_ramToldAt) * 1000.0f, RAM_HIT_GAP * 1000.0f, e->okAsk, slow);
+			Log("rams: %08X hit at %.0f a second, %.0f past the front wheel%s%s, %.0f ms after the hit told before it: told the script once %.0f ms have passed "
+			    "(ask %d), so its 0.1 s poll reads both%s", e->id, v, ahead, ray, graced, (now - g_ramToldAt) * 1000.0f, RAM_HIT_GAP * 1000.0f, e->okAsk, slow);
 		}
 		return true;
 	}
-	if (!e->freeLogged) {
+	if (!which && !e->freeLogged) {
 		e->freeLogged = true;
-		Log("rams: %08X ahead (%.0f past the front wheel at %.0f a second): to be knocked over, the throttle free", e->id, ahead, v);
+		if (e->yesKept)
+			Log("rams: %08X ahead (%.0f past the front wheel at %.0f a second): to be knocked over, the throttle free (said yes to %.1f s ago, kept)", e->id, ahead, v, now - e->answeredAt);
+		else
+			Log("rams: %08X ahead (%.0f past the front wheel at %.0f a second): to be knocked over, the throttle free", e->id, ahead, v);
 	}
 	return true;
 }
@@ -6612,15 +7166,18 @@ static bool RamLetByHas(uintptr_t obj)
 	return false;
 }
 
-/* The actor ray's look past an actor: one already said yes to at speed, or just hit, is passed
- * through (RamFree says so for the face rays; this one tells nothing). */
-static bool RamLetsBy(uintptr_t actor, float v)
+/* The actor ray's look past an actor: one already said yes to at speed, or just hit, or (test
+ * 42's AskFree) one whose ask is pending while it keeps the throttle, is passed through (RamFree
+ * says so for the face rays; this one tells nothing). */
+static bool RamLetsBy(uintptr_t actor, float ahead, float v)
 {
 	RamEntry *e = RamEntryFor(actor, *(const uint32_t *)(actor + OFF_FORM_ID), false);
 	if (!e)
 		return false;
 	float now = (float)g_clock;
-	return (e->state == RAM_YES && v >= RamMinSpeed()) || (e->state == RAM_HIT && now - e->hitAt < g_ramPass);
+	if (e->state == RAM_ASKING)
+		return RamAskFreeOk(e, ahead, v);
+	return (e->state == RAM_YES && RamFastEnough(v, NULL)) || (e->state == RAM_HIT && now - e->hitAt < g_ramPass);
 }
 
 /* ------------------------------------------------------------------------- */
@@ -6643,14 +7200,25 @@ static bool RamLetsBy(uintptr_t actor, float v)
  * roof, not the spot). CMB_RoomClear, for the logs: with room, how far below the asked
  * height the ground is; with none, the nearest hit's distance along its ray, the ground's
  * offset when that is what refused it, -1 with no ground within reach, -2 when the rays
- * aren't working here (RaysReady's test ray). No [Room] section: the reaches are the parked
- * bike's measures, nothing to tune; an older ESP has no CMB_Room globals and nothing here
- * runs (FindGlobals). */
-#define ROOM_REACH        110.0f   /* the level rays: the parked bike's length 196 (the parts file's axles at 99.6 and -36.7 with the wheels' 29.9) halved, plus 12 */
+ * aren't working here (RaysReady's test ray). An older ESP has no CMB_Room globals and
+ * nothing here runs (FindGlobals).
+ *
+ * Test 43 ([Room]; the user's thoughts on test 42's spot): the script gives the spot's heading
+ * too (CMB_RoomAskAngle, the player's GetAngleZ, which the bike is placed with), and with Box=1
+ * the eight level rays are a bike-shaped box along it: fore and aft Fore, to each side Side,
+ * and the four corners (sqrt(110^2 + 40^2), 117, by default). A hit is judged by its share of
+ * its ray, CMB_RoomClear being that share of Fore (the side rays' hits counted on the bike's
+ * length: the script compares them with the fore hits); with Box=0 or no heading the eight
+ * rays and their values are test 41's. RaysRetry=1: an ask that comes while the rays aren't
+ * trusted casts the test ray again for itself (test 42's build answered it "not checked" until
+ * riding's 3 s retry). The ground ray and the ray up are as before. */
+#define ROOM_REACH        110.0f   /* the eight level rays without a heading: the parked bike's length 196 (the parts file's axles at 99.6 and -36.7 with the wheels' 29.9) halved, plus 12 */
 #define ROOM_EYE          50.0f    /* their height over the ground: over a curb or a rail of clutter, under a counter or a sign */
 #define ROOM_HEADROOM     120.0f   /* the ray up: the bike's and the rider's height over the ground */
 #define ROOM_GROUND_REACH 100.0f   /* the ground looked for this far above and below the asked height */
 #define ROOM_GROUND_NEAR  60.0f    /* ... and must be within this of it (a curb is 20, a stair's flight more) */
+#define ROOM_NO_HEADING   -999.0f  /* CMB_RoomAskAngle at or under this: no heading given (the ESP's -1000; a heading of 0 or -1 is one) */
+#define ROOM_TIE          0.01f    /* a box ray's hit must be nearer than the one before by this to be named the nearest (on the bike's Fore) */
 static int g_roomAskRead;   /* the CMB_RoomAsk answered already (CMB_RoomAnswer's, at the start and after a load: a save made between an ask and its answer gets the answer) */
 
 static void RoomReadAnswered(void)
@@ -6674,10 +7242,19 @@ static void RoomFrame(void)
 		return;
 	g_roomAskRead = n;
 	float x = GlobalValue(g_roomGlobals[0]), y = GlobalValue(g_roomGlobals[1]), z = GlobalValue(g_roomGlobals[2]);
+	/* Test 43: the heading the script gave with the spot (written before the ask, so read with it). */
+	float deg = g_roomAngleGlobal ? GlobalValue(g_roomAngleGlobal) : ROOM_NO_HEADING - 1.0f;
+	bool heading = g_roomAngleGlobal && isfinite(deg) && deg > ROOM_NO_HEADING, box = g_roomBox && heading, cast = false;
+	char head[40] = "";
+	if (heading)
+		snprintf(head, sizeof(head), ", heading %.0f", deg);
 	float clear = -2.0f;
 	bool room = false;
 	char why[240] = "the rays aren't working here (the test ray beside the player): not looked at";
 	g_rayActorPassed = NULL;
+	float ago;
+	if (g_roomRaysRetry && RaysUntrustedRetry(&ago))
+		Log("room: ask %d: the rays weren't trusted (the test ray %.1f s ago): tried again for it", n, ago);
 	if (RaysReady(player)) {
 		float a[3] = { x, y, z + ROOM_GROUND_REACH }, b[3] = { x, y, z - ROOM_GROUND_REACH };
 		float f = CastRayGround(cell, a, b);
@@ -6691,24 +7268,58 @@ static void RoomFrame(void)
 				snprintf(why, sizeof(why), "the ground %.0f %s the spot (%s, layer %u), over %.0f", fabsf(below), below > 0.0f ? "below" : "above",
 				         g_rayWhat && *g_rayWhat ? g_rayWhat : "unnamed", g_rayLayer, ROOM_GROUND_NEAR);
 			} else {
-				static const float dirs[8][2] = { { 1.0f, 0.0f }, { 0.0f, 1.0f }, { -1.0f, 0.0f }, { 0.0f, -1.0f },
+				static const float axes[8][2] = { { 1.0f, 0.0f }, { 0.0f, 1.0f }, { -1.0f, 0.0f }, { 0.0f, -1.0f },
 				                                  { 0.70710678f, 0.70710678f }, { -0.70710678f, 0.70710678f }, { -0.70710678f, -0.70710678f }, { 0.70710678f, -0.70710678f } };
-				static const char *const names[9] = { "+x", "+y", "-x", "-y", "+x+y", "-x+y", "-x-y", "+x-y", "up" };
-				float eye[3] = { x, y, groundZ + ROOM_EYE }, nearest = -1.0f;
+				static const char *const axisNames[9] = { "+x", "+y", "-x", "-y", "+x+y", "-x+y", "-x-y", "+x-y", "up" };
+				/* Test 43's box: fore and aft Fore along the heading, Side to the right and left,
+				 * and the four corners (each sign of fore with each of right), as GetAngleZ turns:
+				 * forward (sin a, cos a), right (cos a, -sin a). */
+				static const float boxSigns[8][2] = { { 1.0f, 0.0f }, { -1.0f, 0.0f }, { 0.0f, 1.0f }, { 0.0f, -1.0f },
+				                                      { 1.0f, 1.0f }, { 1.0f, -1.0f }, { -1.0f, 1.0f }, { -1.0f, -1.0f } };
+				static const char *const boxNames[9] = { "fore", "aft", "the right", "the left", "fore-right", "fore-left", "aft-right", "aft-left", "up" };
+				float dirs[8][2], reaches[8];
+				if (box) {
+					float h = deg * (3.14159265f / 180.0f), fw[2] = { sinf(h), cosf(h) }, rt[2] = { cosf(h), -sinf(h) };
+					for (int i = 0; i < 8; i++) {
+						float v[2] = { boxSigns[i][0] * g_roomFore * fw[0] + boxSigns[i][1] * g_roomSide * rt[0],
+						               boxSigns[i][0] * g_roomFore * fw[1] + boxSigns[i][1] * g_roomSide * rt[1] };
+						reaches[i] = sqrtf(v[0] * v[0] + v[1] * v[1]);
+						dirs[i][0] = v[0] / reaches[i];
+						dirs[i][1] = v[1] / reaches[i];
+					}
+				} else {
+					for (int i = 0; i < 8; i++) {
+						dirs[i][0] = axes[i][0];
+						dirs[i][1] = axes[i][1];
+						reaches[i] = ROOM_REACH;
+					}
+				}
+				const char *const *names = box ? boxNames : axisNames;
+				float eye[3] = { x, y, groundZ + ROOM_EYE }, nearest = -1.0f, nearD = 0.0f, nearReach = 0.0f;
 				uint32_t nearLayer = 0;
-				const char *nearWhat = "unnamed", *nearDir = "";
+				const char *nearWhat = "unnamed";
+				int nearI = -1;
+				cast = true;
 				for (int i = 0; i < 9; i++) {
-					float reach = i < 8 ? ROOM_REACH : ROOM_HEADROOM;
+					float reach = i < 8 ? reaches[i] : ROOM_HEADROOM;
 					float c[3] = { eye[0] + (i < 8 ? dirs[i][0] * reach : 0.0f), eye[1] + (i < 8 ? dirs[i][1] * reach : 0.0f), eye[2] + (i < 8 ? 0.0f : reach) };
 					float g = CastRayGround(cell, eye, c);
 					if (!(g > 0.0f && g < 1.0f))
 						continue;
-					float d = g * reach;
-					if (nearest < 0.0f || d < nearest) {
-						nearest = d;
+					/* Test 43's scaled Clear: a box ray's hit is judged by how far along the ray it
+					 * is, on the bike's Fore (a side hit at 35 of 40 nearly fits: 96; a fore hit at
+					 * 60 of 110 puts the nose, 98 out, 38 into the wall: 60). The up ray, and every
+					 * one of the eight, as before: the distance itself. A wall square to a ray is
+					 * met by the corners beside it at the same share: the axis's ray, the first of
+					 * them, is named. */
+					float d = g * reach, onBike = box && i < 8 ? g * g_roomFore : d;
+					if (nearest < 0.0f || onBike < nearest - (box ? ROOM_TIE : 0.0f)) {
+						nearest = onBike;
+						nearD = d;
+						nearReach = reach;
+						nearI = i;
 						nearWhat = g_rayWhat && *g_rayWhat ? g_rayWhat : "unnamed";
 						nearLayer = g_rayLayer;
-						nearDir = names[i];
 					}
 				}
 				if (nearest < 0.0f) {
@@ -6716,7 +7327,11 @@ static void RoomFrame(void)
 					clear = below;
 				} else {
 					clear = nearest;
-					snprintf(why, sizeof(why), "something %.0f along %s (%s, layer %u)", nearest, nearDir, nearWhat, nearLayer);
+					if (box && nearI < 8)
+						snprintf(why, sizeof(why), "something %.0f along %s (of %.0f: %.0f on the bike's %.0f) (%s, layer %u)", nearD, names[nearI], nearReach, nearest, g_roomFore,
+						         nearWhat, nearLayer);
+					else
+						snprintf(why, sizeof(why), "something %.0f along %s (%s, layer %u)", nearD, names[nearI], nearWhat, nearLayer);
 				}
 			}
 		}
@@ -6726,10 +7341,11 @@ static void RoomFrame(void)
 	char actor[120] = "";
 	if (g_rayActorPassed)
 		snprintf(actor, sizeof(actor), "; an actor there (%.60s), passed", g_rayActorPassed);
+	const char *rays = !cast || box ? "" : g_roomBox ? " (no heading given: the eight rays)" : heading ? " (Box=0: the eight rays, the heading not used)" : "";
 	if (room)
-		Log("room: ask %d at (%.0f, %.0f, %.0f): room (the ground %.0f %s the spot)%s", n, x, y, z, fabsf(clear), clear >= 0.0f ? "below" : "above", actor);
+		Log("room: ask %d at (%.0f, %.0f, %.0f)%s: room (the ground %.0f %s the spot)%s%s", n, x, y, z, head, fabsf(clear), clear >= 0.0f ? "below" : "above", actor, rays);
 	else
-		Log("room: ask %d at (%.0f, %.0f, %.0f): none, %s%s", n, x, y, z, why, actor);
+		Log("room: ask %d at (%.0f, %.0f, %.0f)%s: none, %s%s%s", n, x, y, z, head, why, actor, rays);
 }
 
 /* Every frame: read the ground once (tilt, average, track all use it). */
@@ -6738,6 +7354,79 @@ static void RoomFrame(void)
  * ground between them sits above the capsule's contact under the rider (the lift that puts
  * the wheels on it). No track lag at a lip or a crest (test 29: the leading wheel went into
  * the new slope). Both rays must hit within 70 units above and 160 below; else the track. */
+/* A face alongside (test 42, new 1: a rail beside the bike, the heading a few degrees into it,
+ * read as a wall ahead three times in three minutes). The angle between the heading and the line
+ * of the face whose pick normal is n, from 0 (the face runs along the heading) to 90 (across the
+ * way), by the normal's level part; 90 when it has none. */
+static float FaceLineDeg(float sh, float ch, const float n[3])
+{
+	float flat = sqrtf(n[0] * n[0] + n[1] * n[1]);
+	if (!(flat > 1e-6f))
+		return 90.0f;
+	float c = -(sh * n[0] + ch * n[1]) / flat;   /* 1: the face square to the heading, facing the bike */
+	return 90.0f - acosf(c > 1.0f ? 1.0f : c < -1.0f ? -1.0f : c) * 57.29578f;
+}
+
+/* That angle, if it can be told (else -1): FaceAlong on, the ride's first normal a unit vector,
+ * n one too (within 2%), a side face (its level part 0.5 at least: steeper than 30 deg, not a
+ * ramp's top), facing the bike (a back face stays across, as before), and not an actor's
+ * capsule or body (layers 30 and 8: a capsule grazed reads oblique, and an actor stays across,
+ * for the rams and the brakes). */
+static float FaceAlongDeg(float sh, float ch, const float n[3], uint32_t layer)
+{
+	if (!(g_faceAlong > 0.0f) || g_normalBad || layer == LAYER_CHAR_CONTROLLER || layer == LAYER_BIPED)
+		return -1.0f;
+	float len = sqrtf(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]), flat = sqrtf(n[0] * n[0] + n[1] * n[1]);
+	if (!(len >= 0.98f && len <= 1.02f) || !(flat >= 0.5f))
+		return -1.0f;
+	float beta = FaceLineDeg(sh, ch, n);
+	return beta >= 0.0f ? beta : -1.0f;
+}
+
+/* The rays either side that confirm a face alongside (FaceAlongRays=1): two rays parallel to
+ * the one that hit it (from o along fwd, its hit d0 on), one 24 toward the face (the capsule's
+ * 18 + 6) and one 24 the other way. Toward the face it is half the face's distance across at
+ * the rays' start when that is less: sliding along it, the capsule's axis 18 from it, a ray 24
+ * over would start behind it. Each is cast as far again past d0 as the face's line puts the
+ * far one's hit, and 20 over (the line at 2 deg at least, 1200 at most). Alongside if both
+ * hit, as far apart along the rays as a face under FaceAlong puts them: the two offsets over
+ * tan FaceAlong (83 at 30 deg with 24 and 24). A post or a trunk the ray grazed, its normal
+ * oblique, has the rays either side miss it: across, as before. The hits' distances (-1: none)
+ * in d[0] (toward the face) and d[1], and the rays' length in *reachOut, for the lines. */
+static bool FaceAlongConfirmed(uintptr_t cell, const float o[3], const float fwd[3], float sh, float ch, const float n[3], float d0, float beta, float d[2], float *reachOut)
+{
+	float right[3] = { ch, -sh, 0.0f };
+	float side = n[0] * right[0] + n[1] * right[1] > 0.0f ? -1.0f : 1.0f;   /* the face lies on the side its normal points away from */
+	float toward = 0.5f * d0 * tanf(beta / 57.29578f), t = tanf((beta > 2.0f ? beta : 2.0f) / 57.29578f);
+	if (!(toward < 24.0f))
+		toward = 24.0f;
+	float reach = d0 + 48.0f / t + 20.0f;
+	if (reach > d0 + 1200.0f)
+		reach = d0 + 1200.0f;
+	float off[2] = { side * toward, -side * 24.0f };
+	*reachOut = reach;
+	for (int k = 0; k < 2; k++) {
+		float a[3], b[3];
+		for (int j = 0; j < 3; j++) {
+			a[j] = o[j] + right[j] * off[k];
+			b[j] = a[j] + fwd[j] * reach;
+		}
+		float f = CastRay(cell, a, b);
+		d[k] = f > 0.0f && f < 1.0f ? f * reach : -1.0f;
+	}
+	return d[0] >= 0.0f && d[1] >= 0.0f && d[1] - d[0] >= (toward + 24.0f) / tanf(g_faceAlong / 57.29578f);
+}
+
+/* A side ray's word for the lines: "hit N along" or "found nothing within R". */
+static const char *SideRayWord(char *out, size_t size, float d, float reach)
+{
+	if (d >= 0.0f)
+		snprintf(out, size, "hit %.0f along", d);
+	else
+		snprintf(out, size, "found nothing within %.0f", reach);
+	return out;
+}
+
 /* The front ray found a surface higher than the front wheel could climb: a face ahead (test
  * 31: a boulder the capsule stepped up while the front wheel, a wheelbase ahead of it, went
  * into it) or a ceiling. A ray forward at axle height tells them apart; against a face the
@@ -6756,7 +7445,7 @@ static void WallAhead(uintptr_t cell, const float pos[3], float sh, float ch, fl
 	 * it, for what is behind it (rams). */
 	for (int n = 0; n < 3; n++) {
 		uintptr_t actor = RamHitActor(g_rayLayer, g_rayObj);
-		if (!actor || !RamFree(actor, f * reach - g_frontAxle[1] - g_wheelRadius, g_speedAlong))
+		if (!actor || !RamFree(actor, f * reach - g_frontAxle[1] - g_wheelRadius, g_speedAlong, NULL))
 			break;
 		if (!RamLetByAdd(actor)) {
 			g_rayLetByCount = 0;
@@ -6769,6 +7458,28 @@ static void WallAhead(uintptr_t cell, const float pos[3], float sh, float ch, fl
 		}
 	}
 	g_rayLetByCount = 0;
+	/* A face alongside at the front wheel (test 42): not one to cut the throttle at, the
+	 * controller slides along it. A tall wall beside the bike (a building's; a rail 50 tall never
+	 * gets here, the front ray's hit on it is within its rise) would otherwise cut the input for a
+	 * quarter second at a time and undo the slide's hold. Confirmed by the rays either side as
+	 * the face rays' alongside is (FaceAlongRays). */
+	float along = FaceAlongDeg(sh, ch, g_rayHitNormal, g_rayLayer);
+	if (along >= 0.0f && along < g_faceAlong) {
+		float n[3] = { g_rayHitNormal[0], g_rayHitNormal[1], g_rayHitNormal[2] }, fwd[3] = { sh, ch, 0.0f }, side[2], sideReach;
+		const char *what = g_rayWhat && *g_rayWhat ? g_rayWhat : "unnamed";
+		uint32_t layer = g_rayLayer;
+		if (!g_faceAlongRays || FaceAlongConfirmed(cell, a, fwd, sh, ch, n, f * reach, along, side, &sideReach)) {
+			g_faceAlongAt = (float)g_clock;   /* a face alongside seen: the slide's evidence, and no climb at it */
+			g_faceAlongDeg = along;
+			snprintf(g_faceAlongWhat, sizeof(g_faceAlongWhat), "%s", what);
+			g_faceAlongLayer = layer;
+			if ((float)g_clock - g_wallAlongLoggedAt >= 1.0f && LogHandTake(&g_faceHand)) {
+				g_wallAlongLoggedAt = (float)g_clock;
+				Log("rays: a face alongside at the front wheel (%.0f deg off the heading, %s, layer %u, %.0f ahead at axle height): the throttle not cut", along, what, layer, f * reach);
+			}
+			return;
+		}
+	}
 	bool obstacle = (float)g_clock - g_faceObstacleAt < g_obstacleHold;
 	if ((float)g_clock - g_wallAheadAt > 1.0f && (float)g_clock - g_wallLoggedAt >= 1.0f && g_wallLogs < 20) {
 		g_wallLogs++;
@@ -6951,6 +7662,7 @@ static void FaceRays(uintptr_t player, bool onGround)
 	const char *hitWhat = NULL;   /* what the axle-height ray hit, and its layer (test 35: bushes with food items stopped the bike like a wall) */
 	uint32_t hitLayer = 0;
 	uintptr_t hitObj = 0;
+	float hitNormal[3] = { 0.0f, 0.0f, 0.0f };   /* ... and its normal (test 42) */
 	/* The actor ray: at axle height, ActorLook seconds of the speed past the front wheel, so the
 	 * script's answer is in before the face rays reach the actor (rams); through one already to
 	 * be knocked over, to the next (two raiders one behind the other: test 41's check of the
@@ -6962,16 +7674,69 @@ static void FaceRays(uintptr_t player, bool onGround)
 			a[k] = pos[k] + up[k] * R;
 			b[k] = a[k] + fwd[k] * La;
 		}
+		uintptr_t centre[3] = { 0, 0, 0 };   /* the actors this ray saw, left to it and the face rays by the extra rays below */
 		for (int n = 0; n < 3; n++) {
 			float f = CastRay(cell, a, b);
 			uintptr_t actor = f > 0.0f && f < 1.0f ? RamHitActor(g_rayLayer, g_rayObj) : 0;
 			if (!actor)
 				break;
+			centre[n] = actor;
 			RamSeen(actor, f * La - wheelFront, v, "the actor ray");
-			if (!RamLetsBy(actor, v) || !RamLetByAdd(actor))
+			if (!RamLetsBy(actor, f * La - wheelFront, v) || !RamLetByAdd(actor))
 				break;
 		}
 		g_rayLetByCount = 0;
+		/* Test 42's fliers and flankers: the eyebot was seen only by the wheels' rays down, its
+		 * capsule between 45 and 114 up (never by the 1.5-radius ray, and the down-rays from 124
+		 * passed through it), and the hound's hit came 67 behind the front wheel's edge, the
+		 * mesh's wheel (126 ahead of the capsule) over it before it crossed the centre line. A
+		 * ray HighRay up (the grips' height, 96) and two at axle height SideRays to each side
+		 * (20, plus an animal's capsule radius of about 25: 45 off the line, where the rider's
+		 * capsule of 18 would brush it), the length of this one, actors only: each actor these
+		 * see that this one didn't is asked about, and its hit told at Lead (RamFree) and let by
+		 * for Pass, as at the centre. No verdict from them: a flier said no to bumps the capsule
+		 * as before. */
+		static char highWhich[40];
+		float right[3] = { ch, -sh, 0.0f }, off[3][3];
+		const char *names[3];
+		int extra = 0;
+		if (g_ramHighRay > 0.0f) {
+			snprintf(highWhich, sizeof(highWhich), "the high actor ray, %.0f up", g_ramHighRay);
+			for (int k = 0; k < 3; k++)
+				off[extra][k] = up[k] * g_ramHighRay;
+			names[extra++] = highWhich;
+		}
+		if (g_ramSideRays > 0.0f)
+			for (int side = 0; side < 2; side++) {
+				float sign = side ? -1.0f : 1.0f;
+				for (int k = 0; k < 3; k++)
+					off[extra][k] = up[k] * R + sign * right[k] * g_ramSideRays;
+				names[extra++] = side ? "the left actor ray" : "the right actor ray";
+			}
+		for (int r = 0; r < extra; r++) {
+			for (int k = 0; k < 3; k++) {
+				a[k] = pos[k] + off[r][k];
+				b[k] = a[k] + fwd[k] * La;
+			}
+			for (int n = 0; n < 3; n++) {
+				float f = CastRay(cell, a, b);
+				uintptr_t actor = f > 0.0f && f < 1.0f ? RamHitActor(g_rayLayer, g_rayObj) : 0;
+				if (!actor)
+					break;   /* nothing, or not an actor: no verdict, as the actor ray's */
+				float ahead = f * La - wheelFront;
+				if (actor == centre[0] || actor == centre[1] || actor == centre[2]) {
+					if (!RamLetsBy(actor, ahead, v))
+						break;   /* the centre's, and not looked past there either */
+				} else {
+					RamSeen(actor, ahead, v, names[r]);
+					if (!RamFree(actor, ahead, v, names[r]))
+						break;
+				}
+				if (!RamLetByAdd(actor))
+					break;
+			}
+			g_rayLetByCount = 0;
+		}
 	}
 	float ahead = 0.0f, slope = 0.0f;
 	for (;;) {   /* once, or again past each actor let by (three at most: RamLetByAdd) */
@@ -6987,6 +7752,7 @@ static void FaceRays(uintptr_t player, bool onGround)
 				hitWhat = g_rayWhat;   /* before the next cast overwrites them */
 				hitLayer = g_rayLayer;
 				hitObj = d[0] >= 0.0f ? g_rayObj : 0;
+				memcpy(hitNormal, g_rayHitNormal, sizeof(hitNormal));
 			}
 		}
 		ahead = d[0] - wheelFront;
@@ -6997,7 +7763,7 @@ static void FaceRays(uintptr_t player, bool onGround)
 		if (!actor)
 			break;
 		RamSeen(actor, ahead, v, "the face rays");
-		if (!RamFree(actor, ahead, v))
+		if (!RamFree(actor, ahead, v, NULL))
 			break;
 		if (!RamLetByAdd(actor)) {
 			g_rayLetByCount = 0;
@@ -7044,8 +7810,8 @@ static void FaceRays(uintptr_t player, bool onGround)
 				 * ended a verdict that was never logged, and what it had been couldn't be told). */
 				if (LogHandTake(&g_faceHand)) {
 					g_faceLoggedAt = (float)g_clock;
-					Log("rays: nothing ahead now (was %s, %.0f deg, %s, layer %u, for %.1f s): the throttle free", g_faceKind == 2 ? "a wall" : "an obstacle",
-					    g_faceLastSlope, g_faceLastWhat[0] ? g_faceLastWhat : "unnamed", g_faceLastLayer, g_faceSince >= 0.0f ? g_faceNoneSince - g_faceSince : 0.0f);
+					Log("rays: nothing ahead now (was %s, %.0f deg%s, %s, layer %u, for %.1f s): the throttle free", g_faceKind == 2 ? "a wall" : g_faceKind == 3 ? "a face alongside" : "an obstacle",
+					    g_faceLastSlope, g_faceKind == 3 ? " off the heading" : "", g_faceLastWhat[0] ? g_faceLastWhat : "unnamed", g_faceLastLayer, g_faceSince >= 0.0f ? g_faceNoneSince - g_faceSince : 0.0f);
 				}
 				g_faceKind = 0;
 				g_faceSince = -1.0f;
@@ -7054,6 +7820,51 @@ static void FaceRays(uintptr_t player, bool onGround)
 		return;
 	}
 	g_faceNoneSince = -1.0f;
+	/* The ride's first face: does the game fill the pick's hit normal (test 42; the layout says it
+	 * does, the layer read beside it works)? One line a ride; a normal that isn't a unit vector
+	 * has every face judged by its steepness alone for the rest of the ride. */
+	if (!g_normalLogged) {
+		g_normalLogged = true;
+		float len = sqrtf(hitNormal[0] * hitNormal[0] + hitNormal[1] * hitNormal[1] + hitNormal[2] * hitNormal[2]);
+		g_normalBad = !(len >= 0.98f && len <= 1.02f);
+		Log("rays: the pick's hit normal at the first face (%.3f, %.3f, %.3f), length %.3f, %.0f deg off the heading, the rays' slope %.0f: %s", hitNormal[0], hitNormal[1], hitNormal[2], len,
+		    FaceLineDeg(sh, ch, hitNormal), slope, g_normalBad ? "not a unit vector: faces judged by their steepness alone" : "usable");
+	}
+	/* A face alongside (test 42, new 1: GRailEnd02 and GRailStrShort01 beside the bike, the heading
+	 * 17 to 28 deg into them, read as a wall or an obstacle ahead by their steepness, and the
+	 * speed went 897 -> 359 and 909 -> 31): its line under FaceAlong off the heading by the pick's
+	 * hit normal, confirmed by the rays either side (FaceAlongRays), is left alone, whatever its
+	 * steepness: the controller slides along it. No ease, no obstacle hold renewed, no wall
+	 * frames counted; the slide's hold (AfterInput) and the climb (CLIMB_ALONG) are told. */
+	char alongNote[200] = "";
+	float along = FaceAlongDeg(sh, ch, hitNormal, hitLayer);
+	if (along >= 0.0f && along < g_faceAlong) {
+		float o[3], side[2] = { -1.0f, -1.0f }, sideReach = 0.0f;
+		for (int k = 0; k < 3; k++)
+			o[k] = pos[k] + up[k] * heights[0];
+		if (!g_faceAlongRays || FaceAlongConfirmed(cell, o, fwd, sh, ch, hitNormal, d[0], along, side, &sideReach)) {
+			g_faceEase = 1.0f;
+			g_faceAlongAt = (float)g_clock;
+			g_faceAlongDeg = along;
+			snprintf(g_faceAlongWhat, sizeof(g_faceAlongWhat), "%s", hitWhat && *hitWhat ? hitWhat : "unnamed");
+			g_faceAlongLayer = hitLayer;
+			if (!g_faceKind)
+				g_faceSince = (float)g_clock;   /* a verdict begins */
+			g_faceLastSlope = along;
+			snprintf(g_faceLastWhat, sizeof(g_faceLastWhat), "%s", hitWhat && *hitWhat ? hitWhat : "");
+			g_faceLastLayer = hitLayer;
+			if (((g_faceKind != 3 && (float)g_clock - g_faceLoggedAt >= 0.25f) || (float)g_clock - g_faceLoggedAt >= 1.0f) && LogHandTake(&g_faceHand)) {
+				g_faceLoggedAt = (float)g_clock;
+				Log("rays: a face alongside, %.0f deg off the heading: %.0f past the front wheel at axle height (%s, layer %u), its normal (%.2f, %.2f, %.2f): left alone",
+				    along, ahead, hitWhat && *hitWhat ? hitWhat : "unnamed", hitLayer, hitNormal[0], hitNormal[1], hitNormal[2]);
+			}
+			g_faceKind = 3;
+			return;
+		}
+		char w0[48], w1[48];
+		snprintf(alongNote, sizeof(alongNote), " (alongside by its normal, %.0f deg off the heading, but the rays either side don't say so: toward it %s, away %s)",
+		         along, SideRayWord(w0, sizeof(w0), side[0], sideReach), SideRayWord(w1, sizeof(w1), side[1], sideReach));
+	}
 	/* The raw verdict, then the state: (a) a wall whose axle-height hit is behind the front
 	 * wheel's edge, with the front wheel's down-ray finding the ground half a radius or more
 	 * above the capsule's contact, is under the bike: an obstacle it has climbed onto (half a
@@ -7105,8 +7916,8 @@ static void FaceRays(uintptr_t player, bool onGround)
 	g_faceLastLayer = hitLayer;
 	if (((kind != g_faceKind && (float)g_clock - g_faceLoggedAt >= 0.25f) || (float)g_clock - g_faceLoggedAt >= 1.0f) && LogHandTake(&g_faceHand)) {
 		g_faceLoggedAt = (float)g_clock;
-		Log("rays: %s ahead (%.0f deg): %.0f past the front wheel at axle height (%s, layer %u), the throttle %s %.0f%%%s", what, slope, ahead,
-		    hitWhat && *hitWhat ? hitWhat : "unnamed", hitLayer, wall ? "eased to" : atWheel ? "left at" : "held to", ease * 100.0f, note);
+		Log("rays: %s ahead (%.0f deg): %.0f past the front wheel at axle height (%s, layer %u), the throttle %s %.0f%%%s%s", what, slope, ahead,
+		    hitWhat && *hitWhat ? hitWhat : "unnamed", hitLayer, wall ? "eased to" : atWheel ? "left at" : "held to", ease * 100.0f, note, alongNote);
 	}
 	g_faceKind = kind;
 }
@@ -7137,7 +7948,7 @@ static void FaceRays(uintptr_t player, bool onGround)
  * again till the bike has moved 60 along its heading or forward is pressed again. A sharp step
  * of 17 to 32 meets the capsule's upright side, which no limit climbs (f8's capsule model): stage
  * 2 steps up onto it (ClimbStepUp, with the reverse's controller functions; ClimbStep). */
-enum { CLIMB_OK, CLIMB_NONE, CLIMB_ACTOR, CLIMB_TALL, CLIMB_WALL, CLIMB_CUT, CLIMB_NOWORD, CLIMB_PITCH, CLIMB_COOL };
+enum { CLIMB_OK, CLIMB_NONE, CLIMB_ACTOR, CLIMB_TALL, CLIMB_WALL, CLIMB_CUT, CLIMB_NOWORD, CLIMB_PITCH, CLIMB_COOL, CLIMB_ALONG };
 typedef struct ClimbLineS {
 	float side;                 /* across, + right */
 	float d4, d10, dTop, angle; /* the hits' distances along the rays (-1: none), the face's angle */
@@ -7241,6 +8052,9 @@ static void ClimbWhy(int why, const ClimbLine *L, float top, char *out, size_t s
 		break;
 	case CLIMB_CUT:
 		snprintf(out, size, "the throttle cut at a face ahead of the front wheel (WallAhead)");
+		break;
+	case CLIMB_ALONG:
+		snprintf(out, size, "a face alongside, %.0f deg off the heading (%s, layer %u, the face rays' verdict)", g_faceAlongDeg, g_faceAlongWhat[0] ? g_faceAlongWhat : "unnamed", g_faceAlongLayer);
 		break;
 	case CLIMB_NOWORD:
 		snprintf(out, size, "the wheels' rays have had no word for half a second");
@@ -7431,7 +8245,9 @@ static void ClimbRays(uintptr_t player, uintptr_t ctrl, bool onGround, float nz)
 			continue;
 		}
 		ClimbCast(cell, o, up, fwd, top, L->d4 + 45.0f, &L->dTop, &L->whatTop, &L->layerTop);
-		L->why = L->dTop >= 0.0f ? CLIMB_TALL : g_faceKind == 2 ? CLIMB_WALL : clock - g_wallAheadAt < 0.25f ? CLIMB_CUT
+		/* A face alongside isn't climbed (test 42: 20:55:51.181, the boost put the capsule up a
+		 * rail's foot the bike was going along). */
+		L->why = L->dTop >= 0.0f ? CLIMB_TALL : g_faceKind == 2 ? CLIMB_WALL : clock - g_faceAlongAt < 0.5f ? CLIMB_ALONG : clock - g_wallAheadAt < 0.25f ? CLIMB_CUT
 		       : !word ? CLIMB_NOWORD : g_wheelPitch > g_climbMaxPitch ? CLIMB_PITCH : g_climbCool ? CLIMB_COOL : CLIMB_OK;
 	}
 	for (int i = 0; i < lines; i++) {   /* the nearest that qualifies, else the nearest face at the capsule */
@@ -7446,7 +8262,7 @@ static void ClimbRays(uintptr_t player, uintptr_t ctrl, bool onGround, float nz)
 		g_climbSeenAt = clock;
 		if (!g_climbOn)
 			ClimbOn(&line[best], pos, nz, top);
-	} else if (g_climbOn && (why == CLIMB_TALL || why == CLIMB_WALL || why == CLIMB_CUT)) {
+	} else if (g_climbOn && (why == CLIMB_TALL || why == CLIMB_WALL || why == CLIMB_CUT || why == CLIMB_ALONG)) {
 		char text[200];
 		ClimbWhy(why, &line[best], top, text, sizeof(text));
 		ClimbOff(text);
@@ -7479,6 +8295,104 @@ static void ClimbRays(uintptr_t player, uintptr_t ctrl, bool onGround, float nz)
 }
 
 static bool g_trackOnGround;   /* last frame's ground state, for the jump's re-solve below */
+
+/* The landing (test 42, new 3), every frame while riding, before the track's own air rule: the
+ * player's fall over the last three frames in the air (the landing frame's own move left out:
+ * it holds the ground's snap), and at the first frame on the ground after LandAir or more in
+ * the air a landing: its hold on the throttle (AfterInput) and its sink on the suspension
+ * (FrameTilt) start from here. A frame in the air that moved over 300 (the steering's door
+ * and fast-travel rule) is a load into the air, not a fall: no landing comes of it. */
+static void LandFrame(uintptr_t player, bool onGround)
+{
+	const float *pos = (const float *)(player + OFF_REFR_POS);
+	if (!isfinite(pos[0]) || !isfinite(pos[1]) || !isfinite(pos[2])) {
+		g_landPrevOk = false;
+		return;
+	}
+	float step = g_landPrevOk ? Distance(pos, g_landPrevPos) : 0.0f, fall = g_landPrevOk && g_frameDt > 0.0f ? (g_landPrevPos[2] - pos[2]) / g_frameDt : 0.0f;
+	bool prevOk = g_landPrevOk;
+	memcpy(g_landPrevPos, pos, sizeof(g_landPrevPos));
+	g_landPrevOk = true;
+	if (!onGround) {
+		/* The first frame takes the time the controller had already said "in the air" (the
+		 * 50 ms hysteresis), so the count is the controller's own. */
+		g_landAirFor = g_landAirFor > 0.0f ? g_landAirFor + g_frameDt : g_groundAir ? g_airFor : g_frameDt;
+		if (prevOk && g_frameDt > 0.0f) {
+			g_landFallV[g_landFallN % 3] = fall;
+			g_landFallN++;
+			g_landStepLast = step;
+		}
+		return;
+	}
+	float air = g_landAirFor;
+	int n = g_landFallN < 3 ? g_landFallN : 3;
+	g_landAirFor = 0.0f;
+	g_landFallN = 0;
+	if (!(air >= g_landAir) || g_landStepLast > 300.0f) {
+		g_landStepLast = 0.0f;
+		return;
+	}
+	g_landStepLast = 0.0f;
+	float vz = 0.0f;
+	for (int i = 0; i < n; i++)
+		vz += g_landFallV[i] / (float)n;
+	float clock = (float)g_clock;
+	double now = SecondsNow();
+	bool back = g_inputActive && now - g_backAt < 0.1, forward = g_inputActive && !back && now - g_forwardAt < 0.1;
+	if (g_landHolding) {   /* a landing within the last one's hold: this one's starts afresh */
+		if (g_landLogged)
+			Log("landing: the hold ended after %.2f s: another landing", clock - g_landAt);
+		g_landHolding = false;
+	}
+	g_landAt = clock;
+	g_landLow = g_speedAlong;
+	g_landLowAt = clock;
+	char hold[200];
+	if (!(g_landHold > 0.0f))
+		snprintf(hold, sizeof(hold), "the throttle held to the measured speed as before (LandHold=0)");
+	else if (!g_throttleOn)
+		snprintf(hold, sizeof(hold), "the throttle not held (Throttle=0: the keys go through as they are)");
+	else if (!forward)
+		snprintf(hold, sizeof(hold), "the throttle not held (forward not held)");
+	else if (!(g_lead > 0.0f && g_lead < 1.0f))
+		snprintf(hold, sizeof(hold), "the throttle not held (no Lead cap to take off: Lead %g)", g_lead);
+	else if (g_speedAlong < g_landStop * g_fullSpeed)   /* slow already: the hold would end at the next input as "stopped by something" (review of test 43's build) */
+		snprintf(hold, sizeof(hold), "the throttle not held (the speed along %.0f under LandStop's %g of the top)", g_speedAlong, g_landStop);
+	else {
+		g_landHolding = true;
+		snprintf(hold, sizeof(hold), "the throttle kept at %.2f for %g s (the Lead cap off; the measured speed %.0f at the landing)", g_throttle, g_landHold, g_speedAlong);
+	}
+	/* The sink: the front's travel by the fall's speed (all of it at LandSpeed), the rear's
+	 * SuspCompressRear at most, put on the frame's spring as a kick that takes it to the whole
+	 * sink at its first dip (FrameTilt). */
+	char sink[160];
+	float run = g_frontAxle[1] - g_rearAxle[1];
+	float compressRear = g_suspCompressRear < g_suspTravel ? g_suspCompressRear : g_suspTravel;
+	g_landS = g_landSVel = 0.0f;
+	g_landF = g_landR = 0.0f;
+	if (!g_landSink)
+		snprintf(sink, sizeof(sink), "not sunk (LandSink=0)");
+	else if (!g_suspension || !(g_suspTravel > 0.0f))
+		snprintf(sink, sizeof(sink), "not sunk (Suspension=0)");
+	else if (!(GlobalValue(g_tiltGlobal) > 0.0f) || !g_partsOk || !(run > 10.0f))
+		snprintf(sink, sizeof(sink), "not sunk (%s)", !(GlobalValue(g_tiltGlobal) > 0.0f) ? "the tilt off" : "no wheels in [Parts]");
+	else if (!(vz > 0.05f * g_landSpeed))
+		snprintf(sink, sizeof(sink), "not sunk (no fall to speak of)");   /* a hop on the level, a backing flip: under half a unit */
+	else {
+		float c = g_suspTravel * (vz < g_landSpeed ? vz / g_landSpeed : 1.0f);
+		g_landF = c < g_suspTravel ? c : g_suspTravel;
+		g_landR = c < compressRear ? c : compressRear;
+		/* The kick: the spring's own (SuspDamping 0.95 at most, so it rings at all: at 1.0 the
+		 * frame's spring is critically damped and has no first dip to aim at). */
+		float damping = g_suspDamping < 0.95f ? g_suspDamping : 0.95f, w = 6.2831853f * g_suspFrequency, a = damping * w, wd = w * sqrtf(1.0f - damping * damping);
+		float tp = atan2f(wd, a) / wd;
+		g_landSVel = wd / (expf(-a * tp) * sinf(wd * tp));   /* 25.2 at 2 Hz damped 0.6: the first dip 1 at +0.09 s */
+		snprintf(sink, sizeof(sink), "the frame sunk %.1f at the front wheel and %.1f at the rear (the nose %.1f deg down)", g_landF, g_landR, atanf((g_landF - g_landR) / run) * 57.29578f);
+	}
+	g_landLogged = LogHandTake(&g_landHand);
+	if (g_landLogged)
+		Log("landing: %.2f s in the air, the fall %.0f a second: %s, %s", air, vz, hold, sink);
+}
 
 static void SampleGround(void)
 {
@@ -7527,6 +8441,7 @@ static void SampleGround(void)
 
 	if (!g_riding || !player || !Accessible(player + OFF_REFR_POS, 12, false))
 		return;
+	LandFrame(player, onGround);   /* test 42: a landing's hold and sink */
 	if (!onGround) {
 		g_airTime += g_frameDt;
 		g_trackOnGround = false;
@@ -7920,6 +8835,105 @@ static double SecondsNow(void)
 	return g_qpcFrequency.QuadPart ? (double)now.QuadPart / (double)g_qpcFrequency.QuadPart : 0.0;
 }
 
+/* The landing's hold (test 42, new 3: off a 1.0 s drop the Lead cap, the measured speed + 0.2,
+ * followed the game's own landing cut down, 881 -> 544 -> 398, and the bike took 1.41 s to be
+ * back at 90%): for LandHold seconds after a landing with forward held the cap is left off, and
+ * past that while the cap would still bind and the speed is still coming back (the quick speed,
+ * 0.05 s, over the measured one, 0.2 s, by a twentieth of the top: the measured speed lags the
+ * game's own recovery by about 0.2 s, and a cap met halfway through it is the same dip again),
+ * LAND_RISE_MOST seconds more at most. Ended early by the measured speed under LandStop of the
+ * top (a landing against something: the cap is back within about 0.28 s of a dead stop, the
+ * filtered speed decaying over 0.2 s; the dips at the landings seen bottomed at 0.44), by the
+ * back key or by forward let go. WallAhead's cut and the face rays' ease are not held off. */
+static bool LandHoldOn(bool forward, bool back)
+{
+	if (!g_landHolding)
+		return false;
+	float clock = (float)g_clock, since = clock - g_landAt > 0.0f ? clock - g_landAt : 0.0f;
+	if (g_speedAlong < g_landLow) {
+		g_landLow = g_speedAlong;
+		g_landLowAt = clock;
+	}
+	const char *keys = back ? "the back key" : !forward ? "forward let go" : NULL;
+	bool stopped = !keys && g_speedAlong < g_landStop * g_fullSpeed;
+	bool over = false;
+	if (!keys && !stopped && since >= g_landHold) {
+		float measured = (g_speedAlong > 0.0f ? g_speedAlong : 0.0f) / (g_fullSpeed > 0.0f ? g_fullSpeed : 900.0f);
+		bool binds = g_throttle > measured + g_lead, rising = g_speedAlongFast > g_speedAlong + 0.05f * g_fullSpeed;
+		over = !binds || !rising || since >= g_landHold + LAND_RISE_MOST;
+	}
+	if (!keys && !stopped && !over)
+		return true;
+	g_landHolding = false;
+	if (g_landLogged) {
+		if (keys)
+			Log("landing: the hold ended after %.2f s: %s (the speed along %.0f)", since, keys, g_speedAlong);
+		else if (stopped)
+			Log("landing: the hold ended after %.2f s: the speed along %.0f under %g of the top (stopped by something)", since, g_speedAlong, g_landStop);
+		else
+			Log("landing: the hold over after %.2f s: the speed along %.0f at its lowest (+%.2f s), %.0f now", since, g_landLow, g_landLowAt - g_landAt, g_speedAlong);
+	}
+	return false;
+}
+
+/* The slide's hold ended (SlideHoldCap), with why: its line if its start had one. */
+static void SlideOver(const char *why, float throttle)
+{
+	if (g_slideLogged)
+		Log("slide: over after %.2f s: %s (the speed along %.0f, the throttle %.2f)", (float)g_clock - g_slideSince, why, g_speedAlong, throttle);
+	g_slideSince = -1.0f;
+	g_slideLogged = false;
+}
+
+/* The slide's hold (test 42, new 1: once the capsule grazed a rail the controller kept about
+ * half the speed, 850 -> 358 and 683 -> 338 with the input at full, and the Lead cap, the
+ * measured speed + 0.2, followed the speed down: a graze ended in a stop rather than a slide).
+ * Sliding along a face with forward held, the cap may not pull the throttle under what it was
+ * when it would first have bound, for SlideHold seconds at most: it holds, never raises (the
+ * cap's lunge guard, test 23, deferred by SlideHold at most, and never from rest). The evidence:
+ * forward held, the move keys passed on, no wall verdict, no cut at the front wheel, no climb
+ * boost, and a face alongside seen in the last half second or the velocity SlideAngle or more
+ * off the heading. Given the cap from the measured speed; returns the cap to use. A hold that ran
+ * its time gives no other till the evidence has gone (a new slide). */
+static float SlideHoldCap(bool forward, bool back, float cap)
+{
+	float clock = (float)g_clock;
+	bool seen = clock - g_faceAlongAt < 0.5f;
+	float off = g_speed > 1.0f ? acosf(g_speedAlong / g_speed > 1.0f ? 1.0f : g_speedAlong / g_speed < -1.0f ? -1.0f : g_speedAlong / g_speed) * 57.29578f : 0.0f;
+	bool veered = g_speed > 60.0f && g_speedAlong < g_speed * cosf(g_slideAngle / 57.29578f);
+	const char *gone = back ? "the back key" : !forward ? "forward let go" : g_inputMode != INPUT_PASS ? "the keys not passed on (a creep or a reverse)"
+	                 : g_faceKind == 2 ? "a wall verdict (the face rays)" : clock - g_wallAheadAt < 0.25f ? "the throttle cut at a face ahead of the front wheel (WallAhead)"
+	                 : g_climbOn ? "the climb's boost on" : !seen && !veered ? "no face alongside for half a second, the velocity within SlideAngle of the heading" : NULL;
+	if (g_slideSince >= 0.0f) {
+		const char *why = gone ? gone : clock - g_slideSince >= g_slideHold ? "its time ran out (SlideHold)" : NULL;
+		if (!why)
+			return cap > g_slideThrottle ? cap : g_slideThrottle;
+		SlideOver(why, g_throttle < cap ? g_throttle : cap);
+		g_slideSpent = !gone;
+		return cap;
+	}
+	if (gone) {
+		g_slideSpent = false;   /* the evidence gone: the next slide may be held again */
+		return cap;
+	}
+	if (!(g_slideHold > 0.0f) || g_slideSpent || !(g_throttle > cap) || !(g_speed > 60.0f))
+		return cap;   /* off, spent on this slide, the cap not binding, or from rest */
+	g_slideSince = clock;
+	g_slideThrottle = g_throttle;
+	g_slideLogged = LogHandTake(&g_slideHand);
+	if (g_slideLogged) {
+		char velocity[48];
+		snprintf(velocity, sizeof(velocity), ", the velocity %.0f deg off the heading", off);
+		if (seen)
+			Log("slide: along a face %.0f deg off the heading (%s, layer %u, seen %.2f s ago)%s: the throttle held at %.2f for up to %g s (the speed along %.0f would have capped it at %.2f)",
+			    g_faceAlongDeg, g_faceAlongWhat[0] ? g_faceAlongWhat : "unnamed", g_faceAlongLayer, clock - g_faceAlongAt, velocity, g_slideThrottle, g_slideHold, g_speedAlong, cap);
+		else
+			Log("slide: no face alongside seen in the last half second%s (SlideAngle %g): the throttle held at %.2f for up to %g s (the speed along %.0f would have capped it at %.2f)",
+			    velocity, g_slideAngle, g_slideThrottle, g_slideHold, g_speedAlong, cap);
+	}
+	return g_slideThrottle;
+}
+
 static void AfterInput(void)
 {
 	float x = g_moveVec[0], y = g_moveVec[1];
@@ -7982,17 +8996,23 @@ static void AfterInput(void)
 		 * for a second and then surged to catch up; stuck on a hillside with W held, the throttle
 		 * sat at 0.8 and would have lunged once free): at most Lead above the measured speed. */
 		g_throttleCapped = false;
-		if (g_lead > 0.0f && g_lead < 1.0f && g_fullSpeed > 0.0f && g_throttle > 0.1f) {
+		if (LandHoldOn(forward, back)) {
+			/* A landing's hold (test 42): the cap left off, the throttle where the jump left it
+			 * (only the cap, the back key, a coast or RamSlow ever lower it). */
+		} else if (g_lead > 0.0f && g_lead < 1.0f && g_fullSpeed > 0.0f && g_throttle > 0.1f) {
 			/* The cap's floor is ClimbThrottle while the climb's boost is on (test 40: stuck at a
 			 * trunk the cap held it to 0.20, an input of 0.37, about 180 u/s; how fast the capsule
 			 * climbs goes with its push), 0.1 otherwise. */
 			float measured = (g_speedAlong > 0.0f ? g_speedAlong : 0.0f) / g_fullSpeed, cap = measured + g_lead, least = g_climbOn ? g_climbThrottle : 0.1f;
 			if (cap < least)
 				cap = least;
-			if (g_throttle > cap) {
-				g_throttle = cap;
-				g_throttleCapped = true;
+			float held = SlideHoldCap(forward, back, cap);   /* sliding along a face: not under what the throttle was (test 42) */
+			if (g_throttle > held) {
+				g_throttle = held;
+				g_throttleCapped = !(held > cap);   /* held by the slide's hold is not "held to the measured speed" (the trace names the hold) */
 			}
+		} else if (g_slideSince >= 0.0f) {
+			SlideOver(back ? "the back key" : "the throttle down to a tenth", g_throttle);
 		}
 		/* A knock-over (rams; test 41: "the bike should lose speed on a hit"): held to HitKeep of
 		 * the speed at the hit for HitHold seconds (RamSlow), then built up again from there. */
@@ -8521,8 +9541,12 @@ static __attribute__((aligned(16))) uint8_t g_pick[PICK_DATA_SIZE + 0x20];   /* 
 static uint32_t g_rayFilter = LAYER_CHAR_CONTROLLER;   /* the rays' collision filter (0 = everything, if the test says) */
 static float g_rayHit[3];           /* where the last ray's hit was (what it hit and its layer: g_rayWhat, g_rayLayer, with the tilt's state) */
 static float g_rayGroundNear, g_rayGroundFar;   /* the ground just behind and under the rear, for the trace */
+static float g_rayClearance;                    /* the rear's clearance the last check used (BackClearanceUsed), for the trace */
+static int g_rayTyre;                           /* the last check's ray under the rear tyre (BackLedge): 0 not cast, 1 ground found, 2 none */
+static float g_rayTyreGround, g_rayTyreAt;      /* its ground over the feet, and how far back */
 static float g_rayFeetGap = -99.0f, g_rayDz;   /* the feet ray's gap under the feet (-99: no ray) and the step's dz, for the trace */
 static float g_pickRetryAt;         /* a failed test ray is tried again from then */
+#define PICK_RETRY 3.0f             /* that long after it (test 16: rubble or a bridge under the first test) */
 static float g_passedLogged = -100.0f;
 static char g_wayWhy[200];          /* why the way back isn't clear (the last check) */
 static bool g_wayQuiet;             /* checking a turn: say why only if it stops the bike too */
@@ -8721,6 +9745,7 @@ static float CastRay(uintptr_t cell, const float a[3], const float b[3])
 	for (int tries = 0; tries < 8; tries++) {
 		g_rayWhat = NULL;
 		g_rayObj = 0;
+		g_rayHitNormal[0] = g_rayHitNormal[1] = g_rayHitNormal[2] = 0.0f;   /* a miss leaves zeros */
 		g_pickReset(g_pick);
 		*(uint32_t *)(g_pick + OFF_PICK_FILTER) = g_rayFilter;
 		g_pickSet(g_pick, from, b);
@@ -8731,6 +9756,7 @@ static float CastRay(uintptr_t cell, const float a[3], const float b[3])
 		f = isfinite(f) && f >= 0.0f && f <= 1.0f ? f : 0.0f;
 		t = done + (1.0f - done) * f;
 		g_rayLayer = *(const uint32_t *)(g_pick + OFF_PICK_HIT_LAYER) & 0x7F;
+		memcpy(g_rayHitNormal, g_pick + OFF_PICK_HIT_NORMAL, sizeof(g_rayHitNormal));   /* this try's: the hit returned keeps its own (test 42) */
 		for (int i = 0; i < 3; i++)
 			g_rayHit[i] = a[i] + (b[i] - a[i]) * t;
 		bool own = false;   /* the rider's own 3D: passed through like a layer that isn't solid (test 36) */
@@ -8780,6 +9806,7 @@ static float CastRay(uintptr_t cell, const float a[3], const float b[3])
 		g_rayWhat = NULL;   /* nothing hit: the actor's name and layer aren't the ray's (RaysReady's line) */
 		g_rayObj = 0;
 		g_rayLayer = 0;
+		g_rayHitNormal[0] = g_rayHitNormal[1] = g_rayHitNormal[2] = 0.0f;
 		return 1.0f;
 	}
 	return t;
@@ -8852,7 +9879,7 @@ static bool RaysReady(uintptr_t player)
 	if (g_pickState)
 		return g_pickState > 0;
 	g_pickState = -1;
-	g_pickRetryAt = g_clock + 3.0f;
+	g_pickRetryAt = g_clock + PICK_RETRY;
 	uintptr_t cell = ReadPtr(player + OFF_REFR_CELL);
 	if (!FindPickFunctions())
 		return false;
@@ -8881,6 +9908,22 @@ static bool RaysReady(uintptr_t player)
 	    ok ? "rays work" : "not trusted (tried again in 3 s)", *(void **)(g_pick + 0xC0), *(void **)(g_pick + 0xD0));
 	g_pickState = ok ? 1 : -1;
 	return ok;
+}
+
+/* Test 43's RaysRetry: a room ask that comes while the rays aren't trusted gets the test ray
+ * again at once, not at PICK_RETRY after the failed one (that cadence stays for riding: test
+ * 16's rubble and bridges). In test 42's build the ask was answered "not checked", and on foot
+ * nothing else would cast the test ray before the script gave up on the spot. True when the
+ * test was due again for it (RaysReady then casts it and logs its line), *ago how long since
+ * the failed one; false when the rays are trusted, untested, or due anyway. One test ray per
+ * ask at the most: RoomFrame reads each ask once. */
+static bool RaysUntrustedRetry(float *ago)
+{
+	if (g_pickState >= 0 || g_clock >= g_pickRetryAt)
+		return false;
+	*ago = g_clock - (g_pickRetryAt - PICK_RETRY);
+	g_pickState = 0;
+	return true;
 }
 
 /* Does the controller hold itself supported: the supported bit (0x400 of its flags, set by
@@ -8944,7 +9987,8 @@ static double g_hgtAt;
 static int g_hgtCalls, g_hgtSup, g_hgtVels;
 
 /* A push back starts: the window, the controller's own clearance and the flips start afresh;
- * the capsule's fields and its gravity said (Trace=1), as the climb's line reads them. */
+ * the rear's clearance said (test 42; from a hand of 10 a ride), and the capsule's fields and
+ * its gravity (Trace=1), as the climb's line reads them. */
 static void BackPushStart(uintptr_t ctrl)
 {
 	g_backFresh = false;
@@ -8952,6 +9996,8 @@ static void BackPushStart(uintptr_t ctrl)
 	g_backFlips = g_backFlipsQuiet = 0;
 	g_hgtHave = false;
 	g_backKind = BACK_NONE;
+	if (LogHandTake(&g_backHand))
+		BackClearanceLine();   /* test 42: the clearance this push keeps */
 	if (!g_trace)
 		return;
 	float f[6];
@@ -9144,13 +10190,27 @@ static void BackFollowStep(uintptr_t cell, const float *pos, const float dir[2],
 }
 
 /* Is the way back clear for a step of `step` units along `heading`? The ground is found 55
- * units behind the rider (clear of their own body) and under the rear (BackClearance): there
- * must be some, and the rays at knee height on either side of the bike (20 units out) and at
- * chest height in the middle follow it between (so a slope behind isn't taken for a wall). The
- * feet go to the ground under the step, near the slope's (dz). Not while the bike is in the air
- * (test 16: steps down a steep slope left it unsupported for seconds): it lands first. Else why
- * not (logged once a second, with what the ray hit, its layer and where). The ground rays pass
- * through actors (CastRayGround), the knee and chest rays don't: Dogmeat behind stops it. */
+ * units behind the rider (clear of their own body) and under the rear (BackClearanceUsed: the
+ * tyre's back edge by the parts file + BackMargin since test 43, else BackClearance or 150):
+ * there must be some, and the rays at knee height on either side of the bike (20 units out) and
+ * at chest height in the middle follow it between (so a slope behind isn't taken for a wall),
+ * ending a step past the clearance. The feet go to the ground under the step, near the slope's
+ * (dz). Not while the bike is in the air (test 16: steps down a steep slope left it unsupported
+ * for seconds): it lands first. Else why not (logged once a second, with what the ray hit, its
+ * layer and where). The ground rays pass through actors (CastRayGround), the knee and chest rays
+ * don't: Dogmeat behind stops it. */
+/* Test 42 (BackLedge, with a parts file): with the far ray now 92 to 95 back, not 150, a ledge
+ * would be found by the feet rule alone, the rear tyre hanging 62 to 67 over it by then. So a ray
+ * down where the tyre's back edge will be after this step: more than BACK_DROP (the feet rule's
+ * 20) below the slope 55 back's line there (the line the uphill step follows), or no ground
+ * within 60 of it, and the bike stops with the tyre's edge a step short of the lip. The ray runs
+ * from 60 over that line to 60 under it, not from the feet: a 40 deg slope down puts the ground
+ * 59 to 62 under the feet there, which a ray to 60 under the feet would read as no ground, a stop
+ * the steps never made before (the near ray takes up to 45 deg). On a slope the line matches the ground (no stop); a 50 deg break
+ * between the 55 ray and the tyre reads 15 to 19 under the line, no stop either, so the window's
+ * edges are left to the steps as before. A lip already between 55 back and the tyre's edge when
+ * the push starts reads to the near ray as a slope, and the feet rule stops the bike as it did
+ * before test 43. No "too steep under the rear tyre": every clause is a new way to stop. */
 static bool WayBackClear(uintptr_t player, uintptr_t ctrl, float heading, float step, float *dz)
 {
 	uintptr_t cell = ReadPtr(player + OFF_REFR_CELL);
@@ -9161,10 +10221,13 @@ static bool WayBackClear(uintptr_t player, uintptr_t ctrl, float heading, float 
 	float dir[2] = { -sinf(heading), -cosf(heading) }, right[2] = { cosf(heading), -sinf(heading) };
 	const char *why = NULL;
 	bool hit = false;
-	float at = 0.0f, behindNear = 55.0f, behindFar = g_backClearance, groundNear = 0.0f, groundFar = 0.0f;
+	float at = 0.0f, behindNear = 55.0f, behindFar = BackClearanceUsed(), groundNear = 0.0f, groundFar = 0.0f;
+	char whyMore[96] = "";   /* the tyre's ray: what it read */
 	g_rayGrounded = false;
 	g_rayFeetGap = -99.0f;
 	g_backKind = BACK_NONE;
+	g_rayClearance = behindFar;
+	g_rayTyre = 0;
 	{
 		float a[3] = { pos[0] + dir[0] * behindNear, pos[1] + dir[1] * behindNear, pos[2] + 60.0f };
 		float b[3] = { a[0], a[1], pos[2] - 60.0f };
@@ -9178,6 +10241,28 @@ static bool WayBackClear(uintptr_t player, uintptr_t ctrl, float heading, float 
 			why = "too steep just behind";
 			at = behindNear;
 			hit = true;
+		}
+	}
+	float tyreAt = BackTyreEdge() + step;   /* where the rear tyre's back edge will be after this step */
+	if (!why && g_backLedge && g_partsOk && tyreAt > behindNear) {
+		float line = groundNear * tyreAt / behindNear;   /* the slope 55 back's line there */
+		float a[3] = { pos[0] + dir[0] * tyreAt, pos[1] + dir[1] * tyreAt, pos[2] + line + 60.0f };
+		float b[3] = { a[0], a[1], pos[2] + line - 60.0f };
+		float f = CastRayGround(cell, a, b);
+		g_rayTyreAt = tyreAt;
+		if (f >= 1.0f) {
+			g_rayTyre = 2;
+			why = "no ground under the rear tyre";
+			at = tyreAt;
+			snprintf(whyMore, sizeof(whyMore), " (none within 60 of the slope 55 back's line there)");
+		} else {
+			g_rayTyre = 1;
+			g_rayTyreGround = line + 60.0f - f * 120.0f;
+			if (g_rayTyreGround < line - BACK_DROP) {
+				why = "the ground drops away under the rear tyre";
+				at = tyreAt;
+				snprintf(whyMore, sizeof(whyMore), " (the ground %+.0f there, %.0f below the slope 55 back's line)", g_rayTyreGround, line - g_rayTyreGround);
+			}
 		}
 	}
 	if (!why) {
@@ -9246,7 +10331,7 @@ static bool WayBackClear(uintptr_t player, uintptr_t ctrl, float heading, float 
 		if (f < 1.0f) {
 			below = f * 40.0f - 2.0f;
 			g_rayFeetGap = below;
-			if (below > 20.0f) {
+			if (below > BACK_DROP) {
 				why = "the ground drops away under the step";
 				at = step;
 			} else {
@@ -9277,7 +10362,7 @@ static bool WayBackClear(uintptr_t player, uintptr_t ctrl, float heading, float 
 			         at, g_rayWhat && *g_rayWhat ? g_rayWhat : "unnamed", g_rayLayer, g_rayHit[0] - pos[0], g_rayHit[1] - pos[1],
 			         g_rayHit[2] - pos[2]);
 		else
-			snprintf(g_wayWhy, sizeof(g_wayWhy), "%s, %.0f units back", why, at);
+			snprintf(g_wayWhy, sizeof(g_wayWhy), "%s, %.0f units back%s", why, at, whyMore);
 		if (!g_wayQuiet && g_clock - g_blockedLogged >= 1.0f) {
 			g_blockedLogged = g_clock;
 			Log("reverse: stopped: %s", g_wayWhy);
@@ -9743,10 +10828,15 @@ static void TraceControls(void)
 					snprintf(follow, sizeof(follow), "; uphill: the slope 55 back");
 				else if (g_backKind == BACK_OLD)
 					snprintf(follow, sizeof(follow), "; the slope 55 back (BackFollow=0), %s, closing %.2f", own, g_backClosing);
-				Log("  rays (filter %u): the ground %+.0f just behind, %+.0f under the rear, feet gap %+.1f, step dz %+.2f, "
+				char tyre[48] = "";   /* test 42: the ray under the rear tyre (BackLedge), when this check cast it */
+				if (g_rayTyre == 1)
+					snprintf(tyre, sizeof(tyre), ", %+.0f under the tyre (%.0f)", g_rayTyreGround, g_rayTyreAt);
+				else if (g_rayTyre == 2)
+					snprintf(tyre, sizeof(tyre), ", none under the tyre (%.0f)", g_rayTyreAt);
+				Log("  rays (filter %u): the ground %+.0f just behind, %+.0f under the rear (%.0f)%s, feet gap %+.1f, step dz %+.2f, "
 				    "%s%s%s; controller: state %d, supported bit %d, support count %u, fake support %d, in air pre-move %d, "
 				    "flags %08X; proxy +18 %u, +12C %08X (%g)",
-				    g_rayFilter, g_rayGroundNear, g_rayGroundFar, g_rayFeetGap, g_rayDz,
+				    g_rayFilter, g_rayGroundNear, g_rayGroundFar, g_rayClearance, tyre, g_rayFeetGap, g_rayDz,
 				    g_rayGrounded ? "on the ground by the rays" : "not grounded by the rays", g_pushBlocked ? "; stopped" : "", follow,
 				    g_lastState, (flags & 0x400u) != 0, fields ? *(const uint32_t *)(c + OFF_CTRL_SUPPORT_COUNT) : 0,
 				    fields ? *(const uint8_t *)(c + OFF_CTRL_FAKE_SUPPORT) : 0, fields ? *(const uint8_t *)(c + OFF_CTRL_IN_AIR_PRE_MOVE) : 0,
@@ -9997,6 +11087,7 @@ static void Tick(DWORD now)
 		ReadRiderSwitches(false);
 		ReadRamSettings(g_iniPath, false);
 		ReadBackSettings(g_iniPath, false);
+		ReadRoomSettings(g_iniPath, false);
 		/* Test 27: the block of a ride carried into the next one when nothing was held at the
 		 * dismount (the bike's skins had gone first): a ride starts afresh. */
 		g_riderBlocked = false;

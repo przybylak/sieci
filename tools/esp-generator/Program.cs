@@ -48,12 +48,22 @@ public static class Vanilla
         Fo4(0x01A009), Fo4(0x0BB7D9), Fo4(0x01DB4A), Fo4(0x0E12A6), Fo4(0x108019), Fo4(0x0AE0B7), Fo4(0x0A0F2F),
         Fo4(0x0D77E3), Fo4(0x0B28D3), Fo4(0x0B1F08), Fo4(0x1A6D64), Fo4(0x0636AB), Fo4(0x02047E), Fo4(0x0D9804), Fo4(0x01D31E),
     };
+    // The robots knocked over all the same (CMB_RamRobots; Mutagen's Fallout4 FormKeys): ProtectronRace
+    // 0DFB33, EyeBotRace 0A563A, HandyRace 0359F4 (Mr. Handy, Mister Gutsy and Nanny share it),
+    // AssaultronRace 0D8417. Test 42: the protectron's race reads large with No Knockdowns, so CMB_Slope.dll's
+    // gates braked for it (7 times) where test 40 wanted it knocked over; the plugin lets the races listed
+    // here past those two gates ([Ram] Robots). Sentry bots and Liberty Prime stay in TooBigToKnockOver;
+    // the synths (SynthGen1/2) are humanoid and not listed; the robobrain is DLC and can't be listed.
+    public static readonly FormKey[] Robots =
+    {
+        Fo4(0x0DFB33), Fo4(0x0A563A), Fo4(0x0359F4), Fo4(0x0D8417),
+    };
 
     // Record types of the vanilla forms above, for the property type check.
     public static string Describe(FormKey key) =>
         key == PlayerRef ? "PlacedNpc"
         : key == XMarker ? "Static"
-        : key == HumanRace || TooBigToKnockOver.Contains(key) ? "Race"
+        : key == HumanRace || TooBigToKnockOver.Contains(key) || Robots.Contains(key) ? "Race"
         : key == SpeedMult || key == CarryWeight || key == FallingDamageMod || key == Health ? "ActorValueInformation"
         : key == Pipboy ? "Armor"
         : key == AnimArchetypePlayer ? "Keyword"
@@ -479,7 +489,9 @@ public static class Program
         // CMB_RamScript about it (SeenHi/Lo: its form id's halves; Seen: the ask's number), the script
         // answers in Ok (the number: yes; minus it: no), and the plugin tells the hit (HitSpeed, then
         // Hit: the number of the ask said yes to). Enemies and MinSpeed are the MCM's, read by both;
-        // Damage the script's. Fixed IDs 0x845-0x84D, the list of races never knocked over 0x84E.
+        // Damage the script's. Fixed IDs 0x845-0x84D, the list of races never knocked over 0x84E; test 43's
+        // list of the robots let past the plugin's size and No Knockdowns gates, CMB_RamRobots, is 0x856
+        // (after the room globals, below, so no ID here moves).
         // Test 40: on by default, 10% of their health is fine, from 450 a second (half riding speed).
         var gRam = new[] { "SeenHi", "SeenLo", "Seen", "Ok", "HitSpeed", "Hit" }.Select(n => Global(mod, "CMB_Ram" + n, 0)).ToArray();
         var gRamEnemies = Global(mod, "CMB_RamEnemies", 1);
@@ -499,13 +511,32 @@ public static class Program
         // it, CMB_ControllerScript asks CMB_Slope.dll whether a spot has room (RoomAskX/Y/Z: the spot, at
         // the player's height; RoomAsk: the ask's number), the plugin answers in RoomAnswer (the number:
         // room; minus it: none) and RoomClear (with room, how far below the asked Z the ground is; with
-        // none, how far along its ray the nearest hit was, or the ground's offset, -1 with no ground within
-        // 100, -2 when the plugin's rays aren't working there). Fixed IDs 0x84F-0x854, floats 0. The controller's
-        // properties for them aren't Mandatory: an older ESP leaves them None and no spot is checked.
+        // none, how far along its ray the nearest hit was (since test 43 on the bike's 110: a side ray's hit scaled
+        // to the box's length), or the ground's offset, -1 with no ground within 100, -2 when the plugin's rays
+        // aren't working there). Fixed IDs 0x84F-0x854, floats 0. The controller's
+        // properties for them aren't Mandatory: an older ESP leaves them None and no spot is checked. Test 43:
+        // the spot's heading too, CMB_RoomAskAngle 0x855 (below).
         var gRoom = new[] { "AskX", "AskY", "AskZ", "Ask", "Answer", "Clear" }.Select(n => Global(mod, "CMB_Room" + n, 0)).ToArray();
         for (int i = 0; i < gRoom.Length; i++)
             if (gRoom[i].FormKey.ID != 0x84F + i)
                 throw new InvalidOperationException($"{gRoom[i].EditorID} must be 0x{0x84F + i:X} (CMB_RoomAskX..CMB_RoomClear 0x84F-0x854, CMB_Slope.dll looks for them), got {gRoom[i].FormKey.ID:X}");
+        // Test 43: the spot's heading (degrees, the player's GetAngleZ), written by the controller with the spot
+        // before the ask's number, so the plugin checks a bike-shaped box along it ([Room] Box: 110 fore and aft,
+        // 40 to the sides) instead of eight level rays 110 out (test 42: a passage under about 220 wide never had
+        // room). -1000 = none written (an older script): a heading of exactly 0 or -1 stays a heading, and
+        // GetAngleZ's range (0-360 or +-180) isn't confirmed. The plugin finds it by ID apart from the six (an
+        // ESP without it keeps the eight rays); the controller's property isn't Mandatory either.
+        var gRoomAngle = Global(mod, "CMB_RoomAskAngle", -1000);
+        if (gRoomAngle.FormKey.ID != 0x855)
+            throw new InvalidOperationException($"CMB_RoomAskAngle must be 0x855 (CMB_Slope.dll looks for it), got {gRoomAngle.FormKey.ID:X}");
+        // Test 43: the robots knocked over all the same (Vanilla.Robots: test 42's protectron reads large with No
+        // Knockdowns and was braked for). Read by the plugin only ([Ram] Robots: the races in it pass its size and
+        // No Knockdowns gates), by ID, so no script property; CMB_RamScript's own refusals (CMB_RamTooBig) stand.
+        var ramRobots = mod.FormLists.AddNew("CMB_RamRobots");
+        foreach (var race in Vanilla.Robots)
+            ramRobots.Items.Add(new FormLink<IFallout4MajorRecordGetter>(race));
+        if (ramRobots.FormKey.ID != 0x856)
+            throw new InvalidOperationException($"CMB_RamRobots must be 0x856 (CMB_Slope.dll looks for it), got {ramRobots.FormKey.ID:X}");
 
         // --- Controller quest ---
         quest.Name = "Commonwealth Motorbike";
@@ -591,6 +622,7 @@ public static class Program
             Obj("CMB_RoomAsk", gRoom[3]),
             Obj("CMB_RoomAnswer", gRoom[4]),
             Obj("CMB_RoomClear", gRoom[5]),
+            Obj("CMB_RoomAskAngle", gRoomAngle),
             Obj("GroundProbeRef", probeRef));
         // Knocking enemies over: does anything only with CMB_Slope.dll (F4SE), which writes the asks.
         var ram = Script("CMB_RamScript",
