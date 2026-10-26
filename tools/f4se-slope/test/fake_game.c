@@ -43,6 +43,7 @@
 #define LAMP_REF_FORMID       0xFF001234u   /* the light reference "the script placed" */
 #define RAM_FORMID            (0xFE000000u | (LIGHT_INDEX << 12) | 0x845u)   /* CMB_RamSeenHi, SeenLo, Seen, Ok, HitSpeed, Hit, Enemies, MinSpeed */
 #define ROOM_FORMID           (0xFE000000u | (LIGHT_INDEX << 12) | 0x84Fu)   /* CMB_RoomAskX, AskY, AskZ, Ask, Answer, Clear (the brought bike's spot, test 41), then CMB_RoomAskAngle (0x855, test 43: the spot's heading) */
+#define SND_FORMID            (0xFE000000u | (LIGHT_INDEX << 12) | 0x857u)   /* CMB_SndLoop01-11 (857-861), CMB_SndGen (862), CMB_SndDriven (863): the engine sound (test 44's build) */
 #define RAM_ACTOR_FORMID      0xFF004D69u   /* the actor ahead: a created reference (test 40's super mutant's id), all 32 bits */
 #define RAM_ACTOR2_FORMID     0xFF004D6Au   /* a second one, behind it (mode 11: the hits' spacing) */
 #define LAMP_REF2_FORMID      0xFF001235u   /* the fresh one of a handover (test 33) */
@@ -410,6 +411,7 @@ static bool g_robotsHidden;
 static uint8_t *g_roomGlobalsFake[7];   /* CMB_RoomAskX to CMB_RoomClear (test 41), CMB_RoomAskAngle (test 43) */
 static bool g_roomHidden;               /* mode 11: an older ESP without them (the form lookup finds none) */
 static bool g_roomAngleHidden;          /* mode 15: test 42's ESP, the six without CMB_RoomAskAngle */
+static uint8_t *g_sndGlobalsFake[13];   /* CMB_SndLoop01-11, CMB_SndGen, CMB_SndDriven (test 44's build: in every mode, the driver idle where nothing is written) */
 static int g_picks;
 static void *FakePickCtor(uint8_t *pick)
 {
@@ -609,6 +611,143 @@ static void WriteAddressLibrary(void)
 	}
 	fclose(f);
 }
+/* The engine sound (mode 16, test 44's build): BSSoundHandle's SetFrequency, FadeTo and IsPlaying as
+ * the plugin finds them through the Address Library (this in rcx: the handle the plugin builds per
+ * call, { soundID, assumeSuccess 0, state 1 }), each call recorded against the loop whose instance id
+ * it names, and true for one the harness's script "plays". g_sndRefuseOver1: SetFrequency over 1
+ * returns false (a voice made with a frequency ratio of 1 at most). */
+typedef struct { uint32_t soundID; uint8_t assumeSuccess, state, pad[2]; } FakeSoundHandle;
+#define SND_LOOPS 11
+static uint32_t g_sndPlaying[SND_LOOPS];   /* the instance ids playing (0: none): the script's StartEngineLoops plays them */
+static uint32_t g_sndNextId = 1001;        /* the next instance id (fresh for every set, as the game's) */
+static float g_sndFreq[SND_LOOPS];         /* each loop's frequency ratio as last taken (1 when played) */
+static int g_sndAtt[SND_LOOPS];            /* its attenuation as last taken (0 when played) */
+static int g_sndFreqCalls[SND_LOOPS], g_sndFadeCalls[SND_LOOPS], g_sndAskCalls, g_sndStrayCalls, g_sndBadHandles, g_sndOver1Tries;
+/* Calls that change a loop's value by no more than the plugin's thresholds (PitchStep 0.003, LevelStep 30), not
+ * counting each loop's first two of a set (the hand-over's) nor a loop coming out of or going into silence (10000). */
+static int g_sndSmallSteps, g_sndSetCalls[SND_LOOPS];
+static float g_sndFreqMax;                 /* the largest ratio asked for since it was cleared */
+static bool g_sndRefuseOver1;
+static int g_sndFirstFadeMs[SND_LOOPS];    /* each loop's first FadeTo of a set: its milliseconds (-1: none yet) */
+/* Each loop's first call of a set (SetFrequency or FadeTo), over the run, and those made with CMB_SndDriven
+ * already the set's generation: the hand-over's first frame must come before the answer, or the script
+ * raises the loops' volume (the idle's, the nine's from 0) before their first level is set. */
+static int g_sndFirstCalls, g_sndFirstLate;
+static void SndFirstCall(int i)
+{
+	if (g_sndSetCalls[i])
+		return;
+	g_sndFirstCalls++;
+	if (*(float *)(g_sndGlobalsFake[12] + 0x30) == *(float *)(g_sndGlobalsFake[11] + 0x30))
+		g_sndFirstLate++;
+}
+static int SndLoopOf(const FakeSoundHandle *h)
+{
+	if (h->assumeSuccess != 0 || h->state != 1)
+		g_sndBadHandles++;
+	for (int i = 0; i < SND_LOOPS; i++)
+		if (h->soundID && g_sndPlaying[i] == h->soundID)
+			return i;
+	return -1;
+}
+static bool FakeSoundSetFrequency(const FakeSoundHandle *h, float ratio)
+{
+	int i = SndLoopOf(h);
+	if (i < 0) {
+		g_sndStrayCalls++;
+		return false;
+	}
+	g_sndFreqCalls[i]++;
+	SndFirstCall(i);
+	if (g_sndSetCalls[i]++ >= 2 && g_sndAtt[i] != 10000 && fabsf(ratio - g_sndFreq[i]) <= 0.003f)
+		g_sndSmallSteps++;
+	if (ratio > g_sndFreqMax)
+		g_sndFreqMax = ratio;
+	if (ratio > 1.0f)
+		g_sndOver1Tries++;
+	if (g_sndRefuseOver1 && ratio > 1.0f)
+		return false;
+	g_sndFreq[i] = ratio;
+	return true;
+}
+static bool FakeSoundFadeTo(const FakeSoundHandle *h, uint16_t attenuation, uint16_t ms)
+{
+	int i = SndLoopOf(h);
+	if (i < 0) {
+		g_sndStrayCalls++;
+		return false;
+	}
+	g_sndFadeCalls[i]++;
+	SndFirstCall(i);
+	if (g_sndFirstFadeMs[i] < 0)
+		g_sndFirstFadeMs[i] = ms;
+	if (g_sndSetCalls[i]++ >= 2 && g_sndAtt[i] != 10000 && attenuation != 10000 && abs((int)attenuation - g_sndAtt[i]) <= 30)
+		g_sndSmallSteps++;
+	g_sndAtt[i] = attenuation;
+	return true;
+}
+static bool FakeSoundIsPlaying(const FakeSoundHandle *h)
+{
+	g_sndAskCalls++;
+	return SndLoopOf(h) >= 0;
+}
+static int SndCalls(void)
+{
+	int n = g_sndStrayCalls;
+	for (int i = 0; i < SND_LOOPS; i++)
+		n += g_sndFreqCalls[i] + g_sndFadeCalls[i];
+	return n;
+}
+
+/* An Address Library for mode 16, as F4SE's (a count, then {id, offset} pairs sorted by id): the
+ * five IDs the plugin cross-checks at the game's RVAs (wrong: that one 8 off, -1 none), the three
+ * sound functions at the fake's own (dataSound: SetFrequency's in the fake's data, not its code),
+ * the pick functions as WriteAddressLibrary has them, padded with dummies; truncated: the last pair
+ * cut off (not 8 + 16 x the count). */
+typedef struct { uint64_t id, rva; } LibPair;
+static int CmpLibPair(const void *a, const void *b)
+{
+	uint64_t x = ((const LibPair *)a)->id, y = ((const LibPair *)b)->id;
+	return x < y ? -1 : x > y;
+}
+static void WriteSoundLibrary(const char *path, int wrong, bool dataSound, bool truncated)
+{
+	static LibPair p[700];
+	int n = 0;
+	const uint64_t cross[5][2] = { { 4796065, RVA_PLAYER_CAMERA }, { 4796135, RVA_DATA_HANDLER }, { 4799306, RVA_PLAYER_CONTROLS },
+	                               { 2704108, RVA_INI_SETTINGS }, { 2703234, RVA_INI_PREF_SETTINGS } };
+	for (int i = 0; i < 5; i++) {
+		p[n].id = cross[i][0];
+		p[n++].rva = cross[i][1] + (i == wrong ? 8 : 0);
+	}
+	struct { uint64_t id; void *f; } funcs[] = {
+		{ 2267059, (void *)FakeSoundSetFrequency }, { 2267074, (void *)FakeSoundFadeTo }, { 2267046, (void *)FakeSoundIsPlaying },
+		{ 2200263, (void *)FakeCellPick }, { 2230668, (void *)FakePickCtor }, { 2236622, (void *)FakePickSetStartEnd },
+		{ 2277761, (void *)FakePickReset }, { 2277770, (void *)FakePickHasHit }, { 2277771, (void *)FakePickFraction },
+	};
+	for (int i = 0; i < 9; i++) {
+		p[n].id = funcs[i].id;
+		p[n++].rva = (uintptr_t)funcs[i].f - g_base;
+	}
+	if (dataSound)
+		p[5].rva = (uintptr_t)g_space + 0x100 - g_base;   /* SetFrequency's: in the image, in no code section */
+	int ours = n;
+	for (uint64_t id = 2200000; n < 600 + ours; id += 300) {
+		bool taken = false;
+		for (int i = 0; i < ours; i++)
+			taken |= p[i].id == id;
+		if (!taken) {
+			p[n].id = id;
+			p[n++].rva = 0x1000 + id;
+		}
+	}
+	qsort(p, (size_t)n, sizeof(p[0]), CmpLibPair);
+	FILE *f = fopen(path, "wb");
+	uint64_t count = (uint64_t)n;
+	fwrite(&count, 8, 1, f);
+	fwrite(p, sizeof(p[0]), (size_t)(truncated ? n - 1 : n), f);
+	fclose(f);
+}
 static void FakeSetVelocity(uint8_t *self, const float *v) { (void)self; if (g_honour & 2) memcpy(g_fakeVel, v, 16); }
 static uint8_t g_bonesOriginal[0x50];
 static int g_deleted;
@@ -702,6 +841,8 @@ static uintptr_t FakeLookupFormByID(uint32_t id)
 		return (uintptr_t)g_ramGlobalsFake[id - RAM_FORMID];
 	if (id == RAM_FORMID + 0x11)   /* CMB_RamRobots, 0x856 (the planner's correction: 0x855 is CMB_RoomAskAngle) */
 		return g_robotsHidden ? 0 : (uintptr_t)g_ramRobotsList;
+	if (id >= SND_FORMID && id < SND_FORMID + 13)
+		return (uintptr_t)g_sndGlobalsFake[id - SND_FORMID];
 	if (id >= ROOM_FORMID && id < ROOM_FORMID + 7)
 		return g_roomHidden || (id == ROOM_FORMID + 6 && g_roomAngleHidden) ? 0 : (uintptr_t)g_roomGlobalsFake[id - ROOM_FORMID];
 	return id == SLOPE_GLOBAL_FORMID ? (uintptr_t)g_global : id == CAMERA_GLOBAL_FORMID ? (uintptr_t)g_cameraGlobal
@@ -853,6 +994,10 @@ static void BuildGame(void)
 	for (int i = 0; i < 7; i++)
 		g_roomGlobalsFake[i] = NewGlobal(ROOM_FORMID + (uint32_t)i, room[i]);
 	*(float *)(g_roomGlobalsFake[6] + 0x30) = -1000.0f;   /* the ESP's: no heading written (an older script) */
+	static const char *snd[13] = { "CMB_SndLoop01", "CMB_SndLoop02", "CMB_SndLoop03", "CMB_SndLoop04", "CMB_SndLoop05", "CMB_SndLoop06", "CMB_SndLoop07",
+	                               "CMB_SndLoop08", "CMB_SndLoop09", "CMB_SndLoop10", "CMB_SndLoop11", "CMB_SndGen", "CMB_SndDriven" };
+	for (int i = 0; i < 13; i++)
+		g_sndGlobalsFake[i] = NewGlobal(SND_FORMID + (uint32_t)i, snd[i]);
 	/* The collision layer records (test 36): the character controller's, with what it collides
 	 * with (Fallout4.esm's list: not clutter (4), bipeds (8), non-collidable (15), dead bipeds (32)
 	 * or navcut (49); test 37: the phantoms it does hold, spells (7), cloud traps (16), the
@@ -9011,6 +9156,417 @@ static void RoomTests(bool old)
 	*(float *)(g_roomGlobalsFake[6] + 0x30) = -1000.0f;
 }
 
+/* --- The engine sound (mode 16, test 44's build): the harness plays the controller script's side of
+ * the hand-over (StartEngineLoops: eleven loops played, their ids into CMB_SndLoop01-11, CMB_SndGen
+ * bumped last; StopEngineLoops: stopped, the ids 0, CMB_SndGen bumped) and reads CMB_SndDriven. The
+ * expected numbers are the v4 model's (engine_model.py, its Python twin) on this ride: the plugin's
+ * throttle from a tenth, +1/3 a second on W, the fake moving at 900 x it (g_gameCurve), the plugin's
+ * speed a 0.2 s lag of that (g_speedAlong); at 6 ms frames the twin shifts to 2nd at 556 u/s and
+ * 2365 rpm, to 3rd at 887 and 2918, to 4th at 900 and 2344, 1.75, 3.0 and 4.25 s after W, and
+ * cruises at 900 in 4th at 1937 rpm on On2000 (pitch 0.9685 x the wander's 1 + w), its level
+ * 0.3 x (9.6 log2(1937/3000) + 5 x (0.45 - 1)) = -2.64 dB; at rest the idle at 0.3 x -17.2 = -5.16
+ * dB, the others silent. The idle's first level comes over FirstFade's 400 ms (the script plays it
+ * with no attenuation). The riding globals aren't asked (test 44's review: a rider with the MCM's
+ * three sliders at 0): the last rides drive a set with them all 0, the steering off, the plugin's
+ * own speed and the throttle read from it. */
+static float SndGlobal(int i) { return *(float *)(g_sndGlobalsFake[i] + 0x30); }
+static void SndSet(int i, float v) { *(float *)(g_sndGlobalsFake[i] + 0x30) = v; }
+static float SndGen(void) { return SndGlobal(11); }
+static float SndDriven(void) { return SndGlobal(12); }
+static void SndClearCounts(void)
+{
+	memset(g_sndFreqCalls, 0, sizeof(g_sndFreqCalls));
+	memset(g_sndFadeCalls, 0, sizeof(g_sndFadeCalls));
+	g_sndAskCalls = g_sndStrayCalls = g_sndBadHandles = g_sndOver1Tries = g_sndSmallSteps = 0;
+	g_sndFreqMax = 0.0f;
+}
+static void ScriptStartLoops(void)
+{
+	for (int i = 0; i < SND_LOOPS; i++) {
+		g_sndPlaying[i] = g_sndNextId++;
+		g_sndFreq[i] = 1.0f;
+		g_sndAtt[i] = 0;
+		g_sndSetCalls[i] = 0;
+		g_sndFirstFadeMs[i] = -1;
+		SndSet(i, (float)g_sndPlaying[i]);
+	}
+	SndClearCounts();
+	SndSet(11, SndGen() + 1.0f);
+}
+static void ScriptStopLoops(void)
+{
+	memset(g_sndPlaying, 0, sizeof(g_sndPlaying));
+	for (int i = 0; i < SND_LOOPS; i++)
+		SndSet(i, 0.0f);
+	SndSet(11, SndGen() + 1.0f);
+}
+static void SndGetOn(void)
+{
+	SetLive(45.0f);
+	SetCamera(300.0f);
+	SetTilt(30.0f);
+	RunFrames(600);   /* a tick or more: the ride's start (its settings read again) */
+}
+static void SndGetOff(void)
+{
+	Keys(0.0f, 0.0f);
+	RunFrames(2500);   /* rolled to a stop */
+	ScriptStopLoops();
+	SetLive(0.0f);
+	SetCamera(0.0f);
+	SetTilt(0.0f);
+	RunFrames(400);
+}
+static void SndOffer(void)
+{
+	ScriptStartLoops();
+	OneFrame();
+	OneFrame();
+}
+static int SndSilentOthers(int except)   /* the loops at 10000 (silent) but one */
+{
+	int n = 0;
+	for (int i = 0; i < SND_LOOPS; i++)
+		n += i != except && g_sndAtt[i] == 10000;
+	return n;
+}
+/* The gear lines ("sound: gear N at V u/s, R rpm") after the log's last line holding marker. */
+static int SndGearLines(const char *marker, int *gear, float *v, float *rpm, int max)
+{
+	static char line[4096];
+	FILE *f = OpenLog();
+	int n = 0;
+	if (!f)
+		return 0;
+	while (fgets(line, sizeof(line), f)) {
+		if (strstr(line, marker))
+			n = 0;
+		const char *at = strstr(line, "sound: gear ");
+		if (at && n < max && sscanf(at, "sound: gear %d at %f u/s, %f rpm", &gear[n], &v[n], &rpm[n]) == 3)
+			n++;
+	}
+	fclose(f);
+	return n;
+}
+static void SndFullThrottle(int ms)
+{
+	Keys(0.0f, 1.0f);
+	RunFrames(ms);
+}
+
+static void SoundTests(void)
+{
+	float *head = (float *)(g_player + 0xC8);
+	*(float *)(g_turnRadius + 0x30) = 180.0f;   /* steering on: the input hook, the throttle and the measured speed with it */
+	*(float *)(g_turnSlow + 0x30) = 50.0f;
+	*(float *)(g_turnStand + 0x30) = 60.0f;
+	SetNormal(0.0f, 0.0f, 1.0f);
+	SetState(0);
+	FlatGround();
+	g_camYaw = *head;
+	g_handlerStyle = 2;
+	g_honour = 4;
+	g_gameCurve = true;   /* the speed for an input by the game's own curve: 900 x the plugin's throttle */
+	Keys(0.0f, 0.0f);
+	g_onFrame = FakeGameFrame;
+	char line[600];
+
+	printf("sound: at the start, the settings ([Sound]: only the keys the run rewrites, at the model's defaults) and the globals:\n");
+	CHECK(LogLines("  sound: Drive=1 Library= Fade=25 FirstFade=400 PitchStep=0.003 LevelStep=30 Trace=1 Loops=idle:860,on:1400,on:1700,on:2000,on:2400,on:2800,on:3300,off:1400,off:1800,off:2300,off:2800: "
+	               "the engine's loops driven by this plugin once the script hands them over (the Address Library read at the first hand-over)") == 1,
+	      "the driver's line: Drive=1, the default Library, Fade 25 ms, FirstFade 400 ms, PitchStep 0.003, LevelStep 30, the eleven loops of the v4 set");
+	CHECK(LogLines("  sound: IdleRpm=860 Launch=640 ClutchIn=1900 ClutchFall=900 ClutchDecel=150 AccelTau=0.25 Gears=555.556,750,960,1161.6 ShiftRpm=2500 ShiftLo=2200 DownRpm=1750 "
+	               "MinShiftGap=1.25 DownGap=0.5 ShiftCatch=0.9 ShiftTime=0.35 FlareTime=0.08 Flare=0.05 FlareTau=0.04 ShiftFall=0.1 RpmUp=0.1 RpmDown=0.22 RiseRate=2.64 "
+	               "LoadRise=0.08 LoadFall=0.15 CruiseLoad=0.45 FullAccel=400 LashDip=0.032 LashTau=0.15 CoastFall=70 BrakeFall=300 IdleFade=150,330 MinPitch=0.75 "
+	               "MaxPitch=1.25 OnSplit=0.5 OffSplit=0.5 Hyst=0.02 XfadeTime=0.05 OnAbove=0.3 OffBelow=0.15 OffHold=0.05 FamilyTime=0.08 ShiftFamily=1 Wander=0.006 "
+	               "WanderTau=0.8 WanderSeed=12345 LevelScale=0.3 RpmDb=9.6 LoadDb=5 IdleDb=-17.2 LevelRpm=3000") == 1,
+	      "the model's line: every constant at CHANGES.md section 3's value (the gears as given: FullSpeed 900)");
+	CHECK(LogLines("sound: found CMB_SndLoop01 to CMB_SndLoop11, CMB_SndGen and CMB_SndDriven (FE005857-FE005863)") == 1 && LogLines("sound: not all of CMB_SndLoop01") == 0,
+	      "CMB_SndLoop01-11, CMB_SndGen and CMB_SndDriven found (0x857-0x863), one line");
+
+	printf("sound: riding, nothing handed over (the other modes, an older script): no call, CMB_SndDriven 0, no Address Library read:\n");
+	SndGetOn();
+	RunFrames(500);
+	CHECK(SndCalls() == 0 && g_sndAskCalls == 0 && SndDriven() == 0.0f && LogLines("sound: generation") == 0 && LogLines("sound: no Address Library") == 0 &&
+	      LogLines("sound: the Address Library") == 0, "nothing called (%d), CMB_SndDriven %g, no generation line, the library not looked for", SndCalls(), SndDriven());
+
+	printf("sound: no Address Library: the set declined at once, CMB_SndDriven -gen, nothing called:\n");
+	SndOffer();
+	float gen = SndGen();
+	CHECK(gen == 1.0f && SndDriven() == -1.0f, "generation %g: CMB_SndDriven %g (-1) within two frames", gen, SndDriven());
+	CHECK(LogLines("sound: no Address Library at ") == 1 && LogLines("(also looked for next to this plugin): the script's crossfade drives the engine") == 1 &&
+	      LogLines("sound: generation 1 declined (no Address Library at ") == 1, "the library's line and the decline's (\"sound: generation 1 declined (no Address Library at ...\")");
+	CHECK(SndCalls() == 0 && g_sndAskCalls == 0, "no sound function called (%d, IsPlaying %d)", SndCalls(), g_sndAskCalls);
+
+	printf("sound: an Address Library with one cross-check wrong (PlayerControls::Singleton 8 off), [Sound] Library=sndlib_bad.bin read on getting on:\n");
+	WriteSoundLibrary("sndlib_bad.bin", 2, false, false);
+	SndGetOff();
+	RewriteIni("Library=\n", "Library=sndlib_bad.bin\n");
+	SndGetOn();
+	CHECK(LogLines("  sound: Drive=1 Library=sndlib_bad.bin Fade=25 ") == 1 && LogLines("(the Address Library read at the first hand-over) (read again on getting on)") == 1,
+	      "the driver's line again with the new Library, \"(read again on getting on)\"");
+	SndOffer();
+	gen = SndGen();
+	CHECK(SndDriven() == -gen && LogLines("sound: the Address Library at sndlib_bad.bin doesn't match this game (ID 4799306 gives 0x31F0B88 where the plugin has 0x031F0B80, "
+	                                      "PlayerControls::Singleton): the script's crossfade drives the engine") == 1,
+	      "generation %g declined (CMB_SndDriven %g): \"doesn't match this game (ID 4799306 gives 0x31F0B88 where the plugin has 0x031F0B80 ...\"", gen, SndDriven());
+	CHECK(SndCalls() == 0 && g_sndAskCalls == 0, "nothing called");
+
+	printf("sound: one of the wrong size (its last pair cut off), and one with SetFrequency outside the game's code:\n");
+	WriteSoundLibrary("sndlib_short.bin", -1, false, true);
+	SndGetOff();
+	RewriteIni("Library=sndlib_bad.bin\n", "Library=sndlib_short.bin\n");
+	SndGetOn();
+	SndOffer();
+	gen = SndGen();
+	CHECK(SndDriven() == -gen && LogLines("sound: the Address Library at sndlib_short.bin is not the expected format (") == 1 &&
+	          LogLines("declined (the Address Library at sndlib_short.bin is not the expected format)") == 1,
+	      "generation %g declined (%g): \"is not the expected format\"", gen, SndDriven());
+	WriteSoundLibrary("sndlib_data.bin", -1, true, false);
+	SndGetOff();
+	RewriteIni("Library=sndlib_short.bin\n", "Library=sndlib_data.bin\n");
+	SndGetOn();
+	SndOffer();
+	gen = SndGen();
+	CHECK(SndDriven() == -gen && LogLines("sound: BSSoundHandle::SetFrequency (ID 2267059) at +0x") == 1 && LogLines("isn't in the game's code (.text +0x1000-+0x") == 1 &&
+	          LogLines("declined (BSSoundHandle::SetFrequency isn't in the game's code)") == 1,
+	      "generation %g declined (%g): \"BSSoundHandle::SetFrequency (ID 2267059) at +0x... isn't in the game's code (.text ...)\"", gen, SndDriven());
+	CHECK(SndCalls() == 0 && g_sndAskCalls == 0, "nothing called");
+
+	printf("sound: the good one at the default place (next to the plugin), Drive=0: declined, the library not read:\n");
+	WriteSoundLibrary("version-1-11-240-0.bin", -1, false, false);
+	SndGetOff();
+	RewriteIni("Library=sndlib_data.bin\n", "Library=\n");
+	RewriteIni("Drive=1\n", "Drive=0\n");
+	SndGetOn();
+	SndOffer();
+	gen = SndGen();
+	CHECK(SndDriven() == -gen && LogLines("declined ([Sound] Drive=0): CMB_SndDriven") == 1 && LogLines("matches this game") == 0 && SndCalls() == 0 && g_sndAskCalls == 0,
+	      "generation %g declined (%g): \"declined ([Sound] Drive=0)\", nothing called, no library line", gen, SndDriven());
+
+	printf("sound: Drive=1: the set taken within two frames, every loop given its pitch and level first:\n");
+	SndGetOff();
+	RewriteIni("Drive=0\n", "Drive=1\n");
+	SndGetOn();
+	SndOffer();
+	gen = SndGen();
+	CHECK(SndDriven() == gen, "generation %g: CMB_SndDriven %g within two frames", gen, SndDriven());
+	CHECK(LogLines("version-1-11-240-0.bin (614 ids) matches this game (PlayerCamera, TESDataHandler, PlayerControls, INISettingCollection and INIPrefSettingCollection "
+	               "where the plugin has them); BSSoundHandle::SetFrequency +0x") == 1 && LogLines("matches this game") == 1,
+	      "the library's line: \"the Address Library at ...version-1-11-240-0.bin (614 ids) matches this game (...); BSSoundHandle::SetFrequency +0x...\"");
+	snprintf(line, sizeof(line), "sound: generation %g: loops %u %u %u %u %u %u %u %u %u %u %u playing 11 of 11", gen, g_sndPlaying[0], g_sndPlaying[1], g_sndPlaying[2],
+	         g_sndPlaying[3], g_sndPlaying[4], g_sndPlaying[5], g_sndPlaying[6], g_sndPlaying[7], g_sndPlaying[8], g_sndPlaying[9], g_sndPlaying[10]);
+	CHECK(LogLines(line) == 1, "the IsPlaying line: \"%s\"", line);
+	snprintf(line, sizeof(line), "sound: generation %g driven (CMB_SndDriven %g): 11 loops' pitch and level from the engine model, the speed and the keys from the steering; "
+	         "FadeTo's attenuation taken as hundredths of a dB (0 = full, 10000 = -100 dB: an assumption), 25 ms fades, the first of each loop heard over 400 ms", gen, gen);
+	CHECK(LogLines(line) == 1, "the hand-over's line, the attenuation's unit named an assumption, Fade's 25 ms and FirstFade's 400");
+	int both = 0;
+	for (int i = 0; i < SND_LOOPS; i++)
+		both += g_sndFreqCalls[i] >= 1 && g_sndFadeCalls[i] >= 1;
+	CHECK(both == 11 && g_sndBadHandles == 0 && g_sndStrayCalls == 0, "all 11 given SetFrequency and FadeTo (%d), the handles { id, 0, 1 } (%d not), none on another id (%d)",
+	      both, g_sndBadHandles, g_sndStrayCalls);
+	CHECK(g_sndFirstCalls == 11 && g_sndFirstLate == 0, "the first frame's calls before CMB_SndDriven = gen: %d of the 11 loops' first calls (%d) made with it already the generation (0)",
+	      g_sndFirstLate, g_sndFirstCalls);
+	int quick = 0;
+	for (int i = 1; i < SND_LOOPS; i++)
+		quick += g_sndAtt[i] == 10000 && g_sndFirstFadeMs[i] == 25;
+	CHECK(g_sndFirstFadeMs[0] == 400 && g_sndAtt[0] < 10000 && quick == 10, "the idle's first FadeTo (to %d) over FirstFade's 400 ms (%d: it settles from the script's level, no step), "
+	      "the ten silenced over Fade's 25 (%d of 10)", g_sndAtt[0], g_sndFirstFadeMs[0], quick);
+
+	printf("sound: at rest: the idle at the level law's idle floor (0.3 x -17.2 dB = 516), pitch 1; the other ten silent (10000):\n");
+	RunFrames(500);
+	CHECK(abs(g_sndAtt[0] - 516) <= 2 && fabsf(g_sndFreq[0] - 1.0f) < 0.002f && SndSilentOthers(0) == 10, "the idle at %d (516), pitch %.4f (1); %d others at 10000 (10)",
+	      g_sndAtt[0], g_sndFreq[0], SndSilentOthers(0));
+
+	printf("sound: full throttle from rest (W for 7 s): gears 2, 3, 4 in order where the twin shifts; at the top speed the cruise loop (On2000) on its own:\n");
+	snprintf(line, sizeof(line), "sound: generation %g driven", gen);
+	SndFullThrottle(7000);
+	int gears[8];
+	float gv[8], grpm[8];
+	int ng = SndGearLines(line, gears, gv, grpm, 8);
+	CHECK(ng == 3 && gears[0] == 2 && gears[1] == 3 && gears[2] == 4, "%d gear lines: %d %d %d (2 3 4)", ng, ng > 0 ? gears[0] : 0, ng > 1 ? gears[1] : 0, ng > 2 ? gears[2] : 0);
+	CHECK(ng == 3 && fabsf(gv[0] - 556.0f) < 60.0f && fabsf(grpm[0] - 2365.0f) < 120.0f && fabsf(gv[1] - 887.0f) < 40.0f && fabsf(grpm[1] - 2918.0f) < 120.0f &&
+	          fabsf(gv[2] - 900.0f) < 20.0f && fabsf(grpm[2] - 2344.0f) < 120.0f,
+	      "at %.0f u/s %.0f rpm, %.0f %.0f, %.0f %.0f (the twin: 556 2365, 887 2918, 900 2344; the frames' timing moves the speed the plugin reads)",
+	      ng > 0 ? gv[0] : 0.0f, ng > 0 ? grpm[0] : 0.0f, ng > 1 ? gv[1] : 0.0f, ng > 1 ? grpm[1] : 0.0f, ng > 2 ? gv[2] : 0.0f, ng > 2 ? grpm[2] : 0.0f);
+	CHECK(fabsf(g_sndFreq[3] - 1937.0f / 2000.0f) < 0.03f && abs(g_sndAtt[3] - 264) <= 40 && SndSilentOthers(3) == 10,
+	      "On2000 at pitch %.4f (1937/2000 = 0.9685, within 0.03: the wander) and %d (264: -2.64 dB), the other ten silent (%d)", g_sndFreq[3], g_sndAtt[3], SndSilentOthers(3));
+	CHECK(LogLines("| engine g4 19") >= 1, "the trace line's \"| engine g4 19.. rpm load ...\" (%d)", LogLines("| engine g4 19"));
+	CHECK(g_sndSmallSteps == 0 && g_sndStrayCalls == 0, "the ride's calls each a change over the thresholds (PitchStep 0.003, LevelStep 30): %d under them, %d on other ids",
+	      g_sndSmallSteps, g_sndStrayCalls);
+
+	printf("sound: steady cruise: a call only for a loop whose values moved (the wander's pitch, about 9 a second on the one audible loop):\n");
+	SndClearCounts();
+	RunFrames(2000);
+	int cruiseCalls = SndCalls(), onOthers = cruiseCalls - g_sndFreqCalls[3] - g_sndFadeCalls[3];
+	CHECK(cruiseCalls < 40 && onOthers == 0 && g_sndSmallSteps == 0, "%d calls in 2 s (under 20 a second), %d on the silent ten (0), %d under the thresholds (0)", cruiseCalls,
+	      onOthers, g_sndSmallSteps);
+
+	printf("sound: Wander=0 (read on getting on, a new set): steady cruise calls only on a measured change (the fake's frame hitches move the speed read by up to 1%%):\n");
+	SndGetOff();
+	RewriteIni("Wander=0.006\n", "Wander=0\n");
+	SndGetOn();
+	SndOffer();
+	gen = SndGen();
+	CHECK(SndDriven() == gen && LogLines("ShiftFamily=1 Wander=0 WanderTau=0.8") == 1, "taken (%g), the model's line again with Wander=0", SndDriven());
+	SndFullThrottle(7000);
+	SndClearCounts();
+	RunFrames(2000);
+	CHECK(SndCalls() < 10 && SndCalls() == g_sndFreqCalls[3] + g_sndFadeCalls[3] && g_sndSmallSteps == 0, "%d calls in 2 s of steady cruise (under 5 a second), all on On2000 (%d), %d under the thresholds",
+	      SndCalls(), g_sndFreqCalls[3] + g_sndFadeCalls[3], g_sndSmallSteps);
+	RewriteIni("Wander=0\n", "Wander=0.006\n");
+
+	printf("sound: the ids to 0 (the script's StopEngineLoops): CMB_SndDriven 0 within two frames, no further call, the ride's summary:\n");
+	Keys(0.0f, 0.0f);
+	RunFrames(2500);
+	float driven = gen;
+	ScriptStopLoops();
+	SndClearCounts();
+	OneFrame();
+	OneFrame();
+	CHECK(SndDriven() == 0.0f, "CMB_SndDriven %g (0)", SndDriven());
+	RunFrames(500);
+	CHECK(SndCalls() == 0, "no call after (%d)", SndCalls());
+	snprintf(line, sizeof(line), "sound: generation %g let go (the ids went to 0, generation %g): driven ", driven, SndGen());
+	CHECK(LogLines(line) == 1 && LogLines("gears used 1 2 3 4") >= 1, "the summary: \"%s... s, N calls ..., gears used 1 2 3 4\"", line);
+
+	printf("sound: a set with one id 0 (a loop the script couldn't play): declined, nothing called:\n");
+	ScriptStartLoops();
+	SndSet(11, SndGen() - 1.0f);   /* the ids first, then the bump, as the script: here CMB_SndLoop05 0 */
+	g_sndPlaying[4] = 0;
+	SndSet(4, 0.0f);
+	SndSet(11, SndGen() + 1.0f);
+	OneFrame();
+	OneFrame();
+	gen = SndGen();
+	snprintf(line, sizeof(line), "sound: generation %g declined (CMB_SndLoop05 is 0: the set isn't whole): CMB_SndDriven %g", gen, -gen);
+	CHECK(SndDriven() == -gen && LogLines(line) == 1 && SndCalls() == 0 && g_sndAskCalls == 0, "CMB_SndDriven %g, \"%s\", nothing called (%d, IsPlaying %d)", SndDriven(), line,
+	      SndCalls(), g_sndAskCalls);
+	ScriptStopLoops();
+
+	printf("sound: a changed Loops line (the idle made at 900), LevelScale 0.6 and FirstFade=0, read on getting on: at rest the idle at 860/900 and twice the floor, its first FadeTo over Fade's 25 ms:\n");
+	SndGetOff();
+	RewriteIni("Loops=idle:860,", "Loops=idle:900,");
+	RewriteIni("LevelScale=0.3\n", "LevelScale=0.6\n");
+	RewriteIni("FirstFade=400\n", "FirstFade=0\n");
+	SndGetOn();
+	SndOffer();
+	gen = SndGen();
+	RunFrames(300);
+	CHECK(LogLines("Fade=25 FirstFade=0 PitchStep=0.003 LevelStep=30 Trace=1 Loops=idle:900,on:1400,") == 1 &&
+	          LogLines("RpmDb=9.6 LoadDb=5 IdleDb=-17.2 LevelRpm=3000 (read again on getting on)") >= 1,
+	      "the two lines again with the new values, \"(read again on getting on)\"");
+	CHECK(SndDriven() == gen && fabsf(g_sndFreq[0] - 860.0f / 900.0f) < 0.002f && abs(g_sndAtt[0] - 1032) <= 3, "the idle at pitch %.4f (0.9556) and %d (1032)", g_sndFreq[0], g_sndAtt[0]);
+	snprintf(line, sizeof(line), "sound: generation %g driven (CMB_SndDriven %g): ", gen, gen);
+	CHECK(g_sndFirstFadeMs[0] == 25 && LogLines(line) == 1 && LogLines("25 ms fades, the first of each loop heard over 25 ms") == 1,
+	      "FirstFade=0: the idle's first FadeTo over Fade's 25 ms (%d), the driven line \"25 ms fades, the first of each loop heard over 25 ms\"", g_sndFirstFadeMs[0]);
+	SndGetOff();
+	RewriteIni("Loops=idle:900,", "Loops=idle:860,");
+	RewriteIni("LevelScale=0.6\n", "LevelScale=0.3\n");
+	RewriteIni("FirstFade=0\n", "FirstFade=400\n");
+
+	printf("sound: a load while driven: let go, the save's set left alone (CMB_SndDriven = its generation), the script's next set taken:\n");
+	SndGetOn();
+	SndOffer();
+	gen = SndGen();
+	CHECK(SndDriven() == gen, "driven (%g)", SndDriven());
+	RunFrames(300);
+	memset(g_sndPlaying, 0, sizeof(g_sndPlaying));   /* the sounds don't survive the load; the globals are the save's */
+	SndClearCounts();
+	Send(3, 1);   /* PostLoadGame */
+	RunFrames(300);
+	snprintf(line, sizeof(line), "sound: generation %g already answered (CMB_SndDriven %g: a save's set, its ids from before the save): left alone", gen, gen);
+	CHECK(SndCalls() == 0 && g_sndAskCalls == 0 && SndDriven() == gen && LogLines(line) == 1, "nothing called on the save's ids (%d, IsPlaying %d), CMB_SndDriven still %g, \"%s\"",
+	      SndCalls(), g_sndAskCalls, SndDriven(), line);
+	CHECK(LogLines("let go (a load: the loops don't survive it): driven ") == 1, "the summary line of the load's let-go");
+	ScriptStopLoops();
+	SndOffer();
+	CHECK(SndDriven() == SndGen(), "the script's set after the load (generation %g) taken: CMB_SndDriven %g", SndGen(), SndDriven());
+	printf("sound: a load with the script's new set there before the plugin's first frame after it: taken:\n");
+	RunFrames(300);
+	memset(g_sndPlaying, 0, sizeof(g_sndPlaying));
+	Send(3, 1);
+	ScriptStopLoops();
+	SndOffer();
+	CHECK(SndDriven() == SndGen(), "generation %g taken: CMB_SndDriven %g", SndGen(), SndDriven());
+
+	printf("sound: SetFrequency over 1 refused (the fake's switch), a ride from rest: the clamp line once, no ratio over 1 asked after it:\n");
+	SndGetOff();
+	g_sndRefuseOver1 = true;
+	SndGetOn();
+	SndOffer();
+	gen = SndGen();
+	Keys(0.0f, 1.0f);
+	for (int i = 0; i < 30 && LogLines("sound: pitch over 1 refused: the loops pitched down only") < 1; i++)
+		RunFrames(100);
+	int tries = g_sndOver1Tries;
+	SndClearCounts();
+	RunFrames(6000);
+	CHECK(LogLines("sound: pitch over 1 refused: the loops pitched down only") == 1 && tries >= 1, "the line once (%d over 1 asked before it)", tries);
+	CHECK(g_sndOver1Tries == 0 && g_sndFreqMax <= 1.0f && SndCalls() > 0 && SndDriven() == gen, "after it: %d over 1, the largest %.4f, %d calls, still driven (%g)", g_sndOver1Tries,
+	      g_sndFreqMax, SndCalls(), SndDriven());
+	g_sndRefuseOver1 = false;
+
+	printf("sound: the riding globals 0 with the set still handed over (as the menu's three sliders at 0 read on the bike): still driven, no let-go:\n");
+	Keys(0.0f, 0.0f);
+	RunFrames(2500);
+	SetLive(0.0f);
+	SetCamera(0.0f);
+	SetTilt(0.0f);
+	SndClearCounts();
+	RunFrames(400);
+	snprintf(line, sizeof(line), "sound: generation %g let go", gen);
+	CHECK(SndDriven() == gen && LogLines(line) == 0 && g_sndStrayCalls == 0, "CMB_SndDriven still %g, no \"%s\" line (%d), %d calls at rest, none on other ids (%d)", SndDriven(), line,
+	      LogLines(line), SndCalls(), g_sndStrayCalls);
+
+	printf("sound: the script's StopEngineLoops, its eleven SetValue calls a frame apart, then the bump: let go at the first id gone to 0, \"the ids went to 0\", nothing called after:\n");
+	SndSet(0, 0.0f);
+	OneFrame();
+	float afterFirst = SndDriven();
+	SndClearCounts();
+	for (int i = 1; i < SND_LOOPS; i++) {
+		SndSet(i, 0.0f);
+		OneFrame();
+	}
+	SndSet(11, SndGen() + 1.0f);
+	OneFrame();
+	memset(g_sndPlaying, 0, sizeof(g_sndPlaying));   /* stopped after the withdrawal, as the script's StopEngineLoops */
+	RunFrames(200);
+	snprintf(line, sizeof(line), "sound: generation %g let go (the ids went to 0): driven ", gen);
+	CHECK(afterFirst == 0.0f && SndDriven() == 0.0f && SndCalls() == 0 && LogLines(line) == 1 && LogLines("the ids changed without a new generation") == 0,
+	      "CMB_SndDriven %g after the first id's frame, %g after the bump, %d calls after, \"%s...\" once, no \"the ids changed without a new generation\"", afterFirst, SndDriven(),
+	      SndCalls(), line);
+
+	printf("sound: a set offered with the riding globals 0 (a rider with the menu's three sliders at 0, never driven before test 44's review): taken within two frames, the throttle read from the speed:\n");
+	ScriptStartLoops();
+	gen = SndGen();
+	OneFrame();
+	OneFrame();
+	snprintf(line, sizeof(line), "sound: generation %g driven (CMB_SndDriven %g): 11 loops' pitch and level from the engine model, the throttle read from the speed (the input hook is off); ",
+	         gen, gen);
+	CHECK(SndDriven() == gen && LogLines(line) == 1 && LogLines("declined (not riding") == 0 && g_sndFirstFadeMs[0] == 400,
+	      "CMB_SndDriven %g, \"%s...\", no \"not riding\" decline, the idle's first FadeTo over 400 ms (%d)", SndDriven(), line, g_sndFirstFadeMs[0]);
+
+	printf("sound: riding with the three at 0, full throttle from rest (W for 7 s, the steering off: the plugin's own speed): the gears up to 4th, at the top speed On2000 heard and the idle silent; the stop: let go:\n");
+	snprintf(line, sizeof(line), "sound: generation %g driven", gen);
+	SndClearCounts();
+	SndFullThrottle(7000);
+	ng = SndGearLines(line, gears, gv, grpm, 8);
+	CHECK(ng >= 3 && gears[ng - 1] == 4 && gears[0] == 2 && g_sndAtt[0] == 10000 && g_sndAtt[3] < 10000 && SndCalls() > 0 && g_sndStrayCalls == 0,
+	      "%d gear lines, the first %d and the last %d (2, 4), the idle at %d (10000), On2000 at %d, %d calls, none on other ids (%d)", ng, ng > 0 ? gears[0] : 0,
+	      ng > 0 ? gears[ng - 1] : 0, g_sndAtt[0], g_sndAtt[3], SndCalls(), g_sndStrayCalls);
+	Keys(0.0f, 0.0f);
+	RunFrames(2500);
+	ScriptStopLoops();
+	SndClearCounts();
+	RunFrames(200);
+	snprintf(line, sizeof(line), "sound: generation %g let go (the ids went to 0, generation %g): driven ", gen, SndGen());
+	CHECK(SndDriven() == 0.0f && SndCalls() == 0 && LogLines(line) == 1, "CMB_SndDriven %g, %d calls after, \"%s...\"", SndDriven(), SndCalls(), line);
+
+	printf("sound: over the run, every set taken given its first frame's calls before CMB_SndDriven = gen:\n");
+	CHECK(g_sndFirstCalls >= 11 * 8 && g_sndFirstLate == 0, "%d of the loops' %d first calls of a set made with CMB_SndDriven already the generation (0)", g_sndFirstLate, g_sndFirstCalls);
+}
+
 int main(int argc, char **argv)
 {
 	const char *dllPath = argc > 1 ? argv[1] : "CMB_Slope.dll";
@@ -9090,6 +9646,13 @@ int main(int argc, char **argv)
 		Send(10, 1);   /* GameDataReady */
 		RunFrames(300);
 		RoomTests(mode == 15);
+		printf("%s\n", g_failures ? "FAILED" : "all ok");
+		return g_failures ? 1 : 0;
+	}
+	if (mode == 16) {   /* the engine sound (test 44's build): the Address Library written by the tests themselves */
+		Send(10, 1);   /* GameDataReady */
+		RunFrames(300);
+		SoundTests();
 		printf("%s\n", g_failures ? "FAILED" : "all ok");
 		return g_failures ? 1 : 0;
 	}

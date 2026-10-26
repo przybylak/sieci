@@ -11,3 +11,8 @@ Data/Textures/CMB/
 Data/Meshes/Actors/
 Data/Meshes/AnimTextData/
 tools/f4se-slope/test/last_*.log
+# Built from someone else's recording (tools/sound/run_all.sh): it and everything made from it stay out of the repository
+# (the patterns: the nine loops only the package has; the idle, cruise, start and stop are the tracked synthesised fallback)
+tools/sound/out/
+Data/Sound/FX/CMB/CMB_EngineOn*LP.wav
+Data/Sound/FX/CMB/CMB_EngineOff*LP.wav

@@ -64,6 +64,15 @@ The scripts need to be compiled to `Data\Scripts\*.pex`. Two ways:
 
 Load order doesn't matter: the plugin doesn't edit any vanilla record.
 
+**The engine sound:** the repository's `Data\Sound\FX\CMB` has only the synthesised fallback four (`CMB_EngineIdleLP`,
+`CMB_EngineCruiseLP`, `CMB_EngineStart`, `CMB_EngineStop`). The package's 13 files replace those four with recorded
+ones and add the nine loops the F4SE plugin drives; they are built from demodave's recording (Freesound 502690, CC0,
+not in the repository) by `sh tools/sound/run_all.sh <its WAV> <out dir>` (Python 3 and numpy, about 8 minutes):
+put `<out dir>\loops\*.wav` in the zip's (or the installed mod's) `Sound\FX\CMB`, over the four, not in the
+repository's. Without them the nine loops have no files, so with `CMB_Slope.dll` the plugin gets no full set
+([DESIGN.md](DESIGN.md), *The engine sound*): set `[Sound] Drive=0` in `CMB_Slope.ini`, and the engine is the script's
+crossfade of the four, as without the plugin.
+
 ## 4. Rider-pose plugin and animation data
 
 With the mod installed (step 4 reads the riding clips' data from it):

@@ -382,7 +382,13 @@ public static class Program
         AddInteriorCell(mod, cell);
 
         // --- Engine sounds (added last so earlier form IDs stay put) ---
-        // tools/sound/make_engine_sounds.py writes the files to Data\Sound\FX\CMB.
+        // The files go to Data\Sound\FX\CMB. Since test 44 they are the recorded set (tools/sound: the
+        // start, the stop and the 860 rpm idle from demodave's recording, the riding loops resynthesised
+        // from its pulses); tools/sound/make_engine_sounds.py writes the older synthesised set. The cruise
+        // loop keeps its file name: in the recorded set CMB_EngineCruiseLP.wav is the on-load 2000 rpm loop
+        // (what 4th gear turns at riding speed, the plugin's On2000), so the script's own crossfade works
+        // with or without the plugin, and a build from the repository alone keeps its synthesised cruise.
+        // The nine more the plugin drives are after the CMB_Snd globals below.
         var sndStart = EngineSound(mod, "CMB_EngineStartSD", "CMB_EngineStart.wav", loop: false);
         var sndStop = EngineSound(mod, "CMB_EngineStopSD", "CMB_EngineStop.wav", loop: false);
         var sndIdle = EngineSound(mod, "CMB_EngineIdleLPSD", "CMB_EngineIdleLP.wav", loop: true);
@@ -538,6 +544,36 @@ public static class Program
         if (ramRobots.FormKey.ID != 0x856)
             throw new InvalidOperationException($"CMB_RamRobots must be 0x856 (CMB_Slope.dll looks for it), got {ramRobots.FormKey.ID:X}");
 
+        // --- The engine sound (test 44): CMB_Slope.dll pitches and levels the engine's loops each frame from
+        // an rpm, gear and load model of the bike's speed and the forward key ([Sound]). The controller plays
+        // the eleven loops (the idle, six on load, four off load) and writes each one's instance id to
+        // CMB_SndLoop01..11 in the order of the plugin's [Sound] Loops line (idle 860; on 1400, 1700, 2000,
+        // 2400, 2800, 3300; off 1400, 1800, 2300, 2800), 0 for none: ids are whole numbers under 2^24, which a
+        // float holds exactly. Then it bumps CMB_SndGen (a new set of loops, or none: all eleven 0), last. The
+        // plugin answers in CMB_SndDriven: the generation when it drives that set, minus it when it declines
+        // (its log says why), 0 when it has let go. Fixed IDs 0x857-0x863, floats 0, right after
+        // CMB_RamRobots so no ID above moves; the plugin finds them by ID. The controller's properties for
+        // them aren't Mandatory: an older ESP leaves them None, and the script's own crossfade of the idle and
+        // cruise loops plays, as before.
+        var gSndLoop = Enumerable.Range(1, 11).Select(i => Global(mod, $"CMB_SndLoop{i:D2}", 0)).ToArray();
+        var gSndGen = Global(mod, "CMB_SndGen", 0);
+        var gSndDriven = Global(mod, "CMB_SndDriven", 0);
+        var sndForms = gSndLoop.Append(gSndGen).Append(gSndDriven).ToArray();
+        for (int i = 0; i < sndForms.Length; i++)
+            if (sndForms[i].FormKey.ID != 0x857 + i)
+                throw new InvalidOperationException($"{sndForms[i].EditorID} must be 0x{0x857 + i:X} (CMB_SndLoop01..CMB_SndLoop11 0x857-0x861, CMB_SndGen 0x862, CMB_SndDriven 0x863, CMB_Slope.dll looks for them), got {sndForms[i].FormKey.ID:X}");
+        // The nine riding loops beside the idle and the cruise (On2000) ones, played at no volume until the
+        // plugin brings each in. Their IDs fall where they do: only the controller's properties find them.
+        var sndOn1400 = EngineSound(mod, "CMB_EngineOn1400LPSD", "CMB_EngineOn1400LP.wav", loop: true);
+        var sndOn1700 = EngineSound(mod, "CMB_EngineOn1700LPSD", "CMB_EngineOn1700LP.wav", loop: true);
+        var sndOn2400 = EngineSound(mod, "CMB_EngineOn2400LPSD", "CMB_EngineOn2400LP.wav", loop: true);
+        var sndOn2800 = EngineSound(mod, "CMB_EngineOn2800LPSD", "CMB_EngineOn2800LP.wav", loop: true);
+        var sndOn3300 = EngineSound(mod, "CMB_EngineOn3300LPSD", "CMB_EngineOn3300LP.wav", loop: true);
+        var sndOff1400 = EngineSound(mod, "CMB_EngineOff1400LPSD", "CMB_EngineOff1400LP.wav", loop: true);
+        var sndOff1800 = EngineSound(mod, "CMB_EngineOff1800LPSD", "CMB_EngineOff1800LP.wav", loop: true);
+        var sndOff2300 = EngineSound(mod, "CMB_EngineOff2300LPSD", "CMB_EngineOff2300LP.wav", loop: true);
+        var sndOff2800 = EngineSound(mod, "CMB_EngineOff2800LPSD", "CMB_EngineOff2800LP.wav", loop: true);
+
         // --- Controller quest ---
         quest.Name = "Commonwealth Motorbike";
         quest.Data = new QuestData
@@ -623,6 +659,28 @@ public static class Program
             Obj("CMB_RoomAnswer", gRoom[4]),
             Obj("CMB_RoomClear", gRoom[5]),
             Obj("CMB_RoomAskAngle", gRoomAngle),
+            Obj("CMB_EngineOn1400Sound", sndOn1400),
+            Obj("CMB_EngineOn1700Sound", sndOn1700),
+            Obj("CMB_EngineOn2400Sound", sndOn2400),
+            Obj("CMB_EngineOn2800Sound", sndOn2800),
+            Obj("CMB_EngineOn3300Sound", sndOn3300),
+            Obj("CMB_EngineOff1400Sound", sndOff1400),
+            Obj("CMB_EngineOff1800Sound", sndOff1800),
+            Obj("CMB_EngineOff2300Sound", sndOff2300),
+            Obj("CMB_EngineOff2800Sound", sndOff2800),
+            Obj("CMB_SndLoop01", gSndLoop[0]),
+            Obj("CMB_SndLoop02", gSndLoop[1]),
+            Obj("CMB_SndLoop03", gSndLoop[2]),
+            Obj("CMB_SndLoop04", gSndLoop[3]),
+            Obj("CMB_SndLoop05", gSndLoop[4]),
+            Obj("CMB_SndLoop06", gSndLoop[5]),
+            Obj("CMB_SndLoop07", gSndLoop[6]),
+            Obj("CMB_SndLoop08", gSndLoop[7]),
+            Obj("CMB_SndLoop09", gSndLoop[8]),
+            Obj("CMB_SndLoop10", gSndLoop[9]),
+            Obj("CMB_SndLoop11", gSndLoop[10]),
+            Obj("CMB_SndGen", gSndGen),
+            Obj("CMB_SndDriven", gSndDriven),
             Obj("GroundProbeRef", probeRef));
         // Knocking enemies over: does anything only with CMB_Slope.dll (F4SE), which writes the asks.
         var ram = Script("CMB_RamScript",

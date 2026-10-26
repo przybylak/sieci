@@ -84,6 +84,14 @@
  *   pushes it away) and the bike loses some speed (test 41); anything else is braked for as
  *   before. [Ram] Enabled=0 or the MCM's "Knock enemies over" off: never.
  *
+ *   Engine sound (test 44's build): the script plays the engine's eleven loops and hands their
+ *   instance ids over through the CMB_Snd globals; the plugin answers in CMB_SndDriven and, when
+ *   it takes them, sets every loop's pitch and level each frame (BSSoundHandle's SetFrequency and
+ *   FadeTo, found through the Address Library, trusted only when five known IDs cross-check) from
+ *   an rpm, gear and load model of the bike's speed and the keys (the v4 model of tools/sound,
+ *   every constant and the loop table in [Sound]). Declined or [Sound] Drive=0: the script's idle
+ *   and cruise crossfade, as before.
+ *
  * With Probe=1 it also logs (Documents\My Games\Fallout4\F4SE\CMB_Slope.log) the
  * layout of the controller, the proxy and the objects listed in DumpPointers, then on
  * getting on, 1 and 3 seconds into the ride and on getting off, what changed: that's
@@ -216,6 +224,9 @@
 #define OFF_FLST_FORMS        0x20          /* BGSListForm::arrayOfForms, a BSTArray<TESForm *> right after TESForm (0x20; CommonLibF4) */
 #define ROOM_GLOBAL_ID        0x84Fu        /* CMB_RoomAskX, AskY, AskZ, Ask (the script writes), Answer, Clear (we write): 84F-854 (the brought bike's spot, CMB_ControllerScript; test 41) */
 #define ROOM_GLOBALS          6
+#define SND_LOOPS             11            /* the engine's loops the script hands over (test 44's build): CMB_SndLoop01 to CMB_SndLoop11 */
+#define SND_GLOBALS           (SND_LOOPS + 2)
+#define SND_GLOBAL_ID         0x857u        /* CMB_SndLoop01-11 857-861 (the loops' instance ids, the script writes), CMB_SndGen 862 (the script bumps it after them), CMB_SndDriven 863 (we write it) */
 #define OFF_AV_FLAGS          0x108         /* NiAVObject::flags (bit 0: hidden, app culled); +0x100 is the collision object (test 30); [Lamp] FlagsOffset= overrides */
 #define OFF_MOVE_INPUT        0x44          /* PlayerControls: moveInputVec x (strafe), y (forward +1, back -1) */
 #define OFF_PREV_MOVE         0x5C          /* PlayerControls: prevMoveVec (what the movement used last) */
@@ -675,6 +686,11 @@ static uintptr_t g_headlampGlobal, g_headlampRefGlobals[2];
 static uintptr_t g_ramGlobals[8];   /* CMB_RamSeenHi, SeenLo, Seen (we write), Ok (the script), HitSpeed, Hit (we write), Enemies, MinSpeed (MCM) */
 static uintptr_t g_roomGlobals[ROOM_GLOBALS];   /* CMB_RoomAskX, AskY, AskZ, Ask (the script writes), Answer, Clear (we write): the brought bike's spot (test 41); all six or none */
 static uintptr_t g_roomAngleGlobal;   /* CMB_RoomAskAngle (0x855, test 43): the spot's heading, the player's GetAngleZ in degrees, written by the script before CMB_RoomAsk (-1000, the ESP's value: none written, an older script); found apart from the six, its absence costing only the heading */
+static uintptr_t g_sndGlobals[SND_GLOBALS];   /* CMB_SndLoop01-11 (the script writes the loops' instance ids), CMB_SndGen (the script), CMB_SndDriven (we write): the engine sound (test 44's build); all thirteen or none */
+static void ReadSoundSettings(const char *ini, bool log);   /* the engine sound, with its driver below */
+static const char *SoundTraceWord(void);
+static void SoundFrame(void);
+static void SoundLoadReset(void);
 /* [Room] (test 43; the user's thought that the spot be checked as the bike will stand there):
  * Box 1 = with the heading the script gives, the level rays are a box along it, Fore ahead and
  * behind the spot, Side to each side, and its four corners; 0, or no heading given, the eight
@@ -1600,6 +1616,7 @@ static void ReadSettings(void)
 	ReadBackSettings(ini, true);
 	ReadRamSettings(ini, true);
 	ReadRoomSettings(ini, true);
+	ReadSoundSettings(ini, true);
 	ReadRiderSwitches(true);
 	ReadParts(ini);
 	BackClearanceLine();   /* the parts file read: the clearance it gives (test 42) */
@@ -1927,6 +1944,19 @@ static uintptr_t FindGlobal(uint32_t prefix, uint32_t shift, uint32_t localId, c
 	return form;
 }
 
+/* The same without a line (the engine sound's thirteen: one line for them all). */
+static uintptr_t FindGlobalQuiet(uint32_t prefix, uint32_t shift, uint32_t localId, const char *editorId)
+{
+	uint32_t id = prefix | (shift == 12 ? (localId & 0xFFFu) : localId);
+	uintptr_t form = ((LookupFormByID_t)(g_base + RVA_LOOKUP_FORM))(id);
+	if (!form || !Accessible(form, 0x38, false) || *(const uint8_t *)(form + OFF_FORM_TYPE) != FORM_TYPE_GLOB)
+		return 0;
+	uintptr_t edid = ReadPtr(form + OFF_GLOBAL_EDITOR_ID);
+	if (edid && Accessible(edid, strlen(editorId) + 1, false) && strcmp((const char *)edid, editorId) != 0)
+		return 0;
+	return form;
+}
+
 static void FindGlobals(void)
 {
 	uint32_t prefix, shift;
@@ -1988,6 +2018,24 @@ static void FindGlobals(void)
 		g_roomAngleGlobal = FindGlobal(prefix, shift, ROOM_GLOBAL_ID + ROOM_GLOBALS, "CMB_RoomAskAngle");
 		if (!g_roomAngleGlobal)
 			Log("room: no CMB_RoomAskAngle (an older ESP): the spot checked without a heading, the eight rays as before test 43");
+	}
+	/* The engine sound (test 44's build): all thirteen or none, looked for without a line each
+	 * (one line for them all). Without them the driver never runs: the script's crossfade. */
+	static char sndNames[SND_GLOBALS][16];
+	bool allSnd = true;
+	for (int i = 0; i < SND_GLOBALS; i++) {
+		if (i < SND_LOOPS)
+			snprintf(sndNames[i], sizeof(sndNames[i]), "CMB_SndLoop%02d", i + 1);
+		else
+			snprintf(sndNames[i], sizeof(sndNames[i]), "%s", i == SND_LOOPS ? "CMB_SndGen" : "CMB_SndDriven");
+		allSnd &= (g_sndGlobals[i] = FindGlobalQuiet(prefix, shift, SND_GLOBAL_ID + (uint32_t)i, sndNames[i])) != 0;
+	}
+	if (!allSnd) {
+		memset(g_sndGlobals, 0, sizeof(g_sndGlobals));
+		Log("sound: not all of CMB_SndLoop01 to CMB_SndDriven are there (an older %s): the script's crossfade drives the engine", ESP_NAME);
+	} else {
+		Log("sound: found CMB_SndLoop01 to CMB_SndLoop11, CMB_SndGen and CMB_SndDriven (%08X-%08X)", *(const uint32_t *)(g_sndGlobals[0] + OFF_FORM_ID),
+		    *(const uint32_t *)(g_sndGlobals[SND_GLOBALS - 1] + OFF_FORM_ID));
 	}
 	g_globalsMissingLogged = true;   /* found or not, don't look again */
 }
@@ -6267,12 +6315,12 @@ static void FrameTilt(void)
 			snprintf(susp, sizeof(susp), " | susp F %+.1f R %+.1f", g_wheelOffset[0], g_wheelOffset[1]);
 		if (fabsf(g_landS) > 0.05f)   /* a landing's sink on the frame (test 42): what of the lift and the pitch is it */
 			snprintf(landing, sizeof(landing), " (landing %+.1f, nose %+.1f)", g_liftApplied - g_liftNow, g_pitchApplied - g_pitchNow);
-		Log("trace: normal (%.3f, %.3f, %.3f) state %d%s | raw pitch %.1f roll %.1f | median %.1f %.1f | track %s%.1f | wheels %s%.1f lift %.1f%s (%d missed) | pitch from %s | target %.1f %.1f | applied %.1f %.1f | speed %.0f (%+.0f along the heading), radius %.0f, turn asked %.0f allowed %.0f deg/s, clamped %d%s%s%s",
+		Log("trace: normal (%.3f, %.3f, %.3f) state %d%s | raw pitch %.1f roll %.1f | median %.1f %.1f | track %s%.1f | wheels %s%.1f lift %.1f%s (%d missed) | pitch from %s | target %.1f %.1f | applied %.1f %.1f | speed %.0f (%+.0f along the heading), radius %.0f, turn asked %.0f allowed %.0f deg/s, clamped %d%s%s%s%s",
 		    g_groundN[0], g_groundN[1], g_groundN[2], g_lastState, onGround ? "" : " (off the ground)", rawPitch, rawRoll,
 		    medianPitch, medianRoll, g_trackPitchOk ? "" : "(none) ", g_trackPitchOk ? g_trackPitch : 0.0f,
 		    g_wheelPitchOk ? "" : "(none) ", g_wheelPitchOk ? g_wheelPitch : 0.0f, g_liftApplied, landing, g_wheelRaysMissed, source,
 		    g_pitchSmooth, g_rollSmooth, g_pitchApplied, g_rollNow, g_speed, g_speedAlong, g_steerRadius, g_steerWanted, g_steerAllowed,
-		    g_steerClamped, g_inputMode == INPUT_BACK ? " | back" : g_inputMode == INPUT_CREEP ? " | creep" : "", susp, ClimbWord());
+		    g_steerClamped, g_inputMode == INPUT_BACK ? " | back" : g_inputMode == INPUT_CREEP ? " | creep" : "", susp, ClimbWord(), SoundTraceWord());
 		g_wheelRaysMissed = 0;
 		if (g_jumpMax > 0.5f)
 			Log("trace: the arm bones' biggest move between frames %.1f (%s)", g_jumpMax, g_jumpName);
@@ -10879,6 +10927,1174 @@ static void TraceControls(void)
 }
 
 /* ------------------------------------------------------------------------- */
+/* The engine sound (test 44's build)                                        */
+/* ------------------------------------------------------------------------- */
+
+/* The controller script plays the engine's loops (one Sound.Play instance each, in the order of
+ * [Sound] Loops) and hands them over through the CMB_Snd globals: their instance ids into
+ * CMB_SndLoop01 to CMB_SndLoop11, then CMB_SndGen bumped (a new set of loops). The plugin answers
+ * in CMB_SndDriven within a few frames: the generation when it drives that set (each frame every
+ * loop's pitch and level from the engine model below, fed with the bike's speed and the keys),
+ * minus it when it declines (no Address Library or one that doesn't match this game, Drive=0, an
+ * id 0, none of the loops playing: one line why), 0 when it has let go (the ids gone to 0: the
+ * script's StopEngineLoops at every ride's end; a load lets go too, CMB_SndDriven then left at the
+ * loaded save's value). The riding globals aren't asked: the script offers a set only while
+ * riding and withdraws it at every ride's end, and a rider with the menu's three sliders at 0 has
+ * CMB_SlopeLive, CMB_CameraLive and CMB_TiltLive all 0 on the bike. Declined, or not answered in
+ * half a second, the script crossfades its idle and cruise loops by speed once a tick, as before
+ * this build. The game functions are BSSoundHandle's SetFrequency, FadeTo and IsPlaying
+ * (CommonLibF4's IDs), found through the Address Library, which is trusted only when five other
+ * IDs give the RVAs this plugin has for them and the three lie in the game's code. Two
+ * assumptions the log lets test 44 check: a Papyrus instance id is the handle's soundID, and
+ * FadeTo's attenuation is in hundredths of a dB (0 = full, 10000 = -100 dB). */
+#define ID_SOUND_IS_PLAYING    2267046u     /* BSSoundHandle::IsPlaying() const (CommonLibF4's IDs.h) */
+#define ID_SOUND_SET_FREQUENCY 2267059u     /* BSSoundHandle::SetFrequency(float) */
+#define ID_SOUND_FADE_TO       2267074u     /* BSSoundHandle::FadeTo(uint16 attenuation, uint16 ms) */
+#define SND_ANSWER_WAIT        0.35f        /* s: a hand-over answered within this of its first sight, its loops playing or not (the script waits 0.5 s) */
+#define SND_FAIL_LIMIT         30           /* calls failing in a row on one loop (half a second at 60 fps): let go */
+#define SND_SILENT             10000        /* FadeTo's attenuation for a loop at gain 0 (-100 dB, by the assumption above) */
+#define SND_GEAR_LINE_GAP      0.25f        /* s: gear lines at most 4 a second */
+
+/* --- The engine model (v4): tools/sound/engine_model.py's C twin, cmb_engine.h, brought in as it
+ * stands (the same constants and order of operations; each constant's measurement is in the
+ * comments on engine_model.py's DEFAULTS). Called once a frame while driving: EngineStep, then
+ * EngineMix.
+ *
+ * Calibrated to the Iron 883 reference rides. Four gears with the measured steps 1.35 / 1.28 /
+ * 1.21 (4th cruises at 900 u/s at 1937 rpm); the full-throttle up-shift at 2500 and a steady key's
+ * at 2200 (from the rider's load, made from the smoothed acceleration), at least minShiftGap between
+ * up-shifts, the engine caught up with its gear, the next gear landing over downRpm; an up-shift is
+ * a clutch gap of shiftTime with a flare and a fall to the new gear, the off family playing through
+ * it (shiftFamily); with the throttle on a down-shift under downRpm whose lower gear stays under
+ * shiftLo; with the throttle shut the rpm dips by lashDip, falls no faster than coastFall
+ * (brakeFall braking) and never rises, the gear following the speed silently; the clutch goes in
+ * near the stop (the fall to idle at most clutchFall rpm a second); the rpm rises at most riseRate
+ * in log rpm a second (the pitch is set once a frame); the level is the paris ride's law (rpm and
+ * the rider's load, scaled by levelScale, re levelRpm). The loops: the idle, and an on-load and an
+ * off-load family, one loop playing in each but for a short hand-over with hysteresis, the family
+ * from the rider's throttle; the family loops' pitch carries a slow random wander (an
+ * Ornstein-Uhlenbeck walk from a 32-bit LCG, the same numbers as engine_model.py). */
+#define ENGINE_MAX_GEARS 8
+#define ENGINE_MAX_LOOPS 16
+#define ENGINE_FAMILY_IDLE 1
+#define ENGINE_FAMILY_ON   2
+#define ENGINE_FAMILY_OFF  4
+#define ENGINE_EPS 1e-4f   /* timer comparisons: float and double agree when a time is a whole number of frames */
+
+typedef struct {
+	float idleRpm, launch, clutchIn, clutchFall, clutchDecel, accelTau;
+	float gears[ENGINE_MAX_GEARS];     /* each gear's speed (units a second) at shiftRpm */
+	int gearCount;
+	float shiftRpm, shiftLo, downRpm, minShiftGap, downGap, shiftCatch;
+	float shiftTime, flareTime, flare, flareTau, shiftFall;    /* an up-shift's clutch gap */
+	float rpmUp, rpmDown, loadRise, loadFall;                  /* time constants, seconds */
+	float riseRate;                                             /* the rpm's fastest rise, log rpm a second */
+	float cruiseLoad, fullAccel;                                /* the rider's load: cruiseLoad + smoothed accel / fullAccel */
+	float lashDip, lashTau, coastFall, brakeFall;               /* throttle shut */
+	float idleFade0, idleFade1;                                 /* the idle fades out between idleRpm + these (log rpm) */
+	float minPitch, maxPitch;
+	float onSplit, offSplit;                    /* where between two neighbours' bases (log) the boundary lies */
+	float hyst, xfadeTime;                      /* past a boundary by hyst (log rpm) -> a hand-over of xfadeTime s */
+	float onAbove, offBelow, offHold, familyTime;
+	int shiftFamily;                            /* 1: the off family plays through an up-shift's gap */
+	float wander, wanderTau;                    /* the family loops' pitch x (1 + w): w's sd and time constant (s) */
+	uint32_t wanderSeed;
+	float levelScale, rpmDb, loadDb, idleDb, levelRpm;   /* level dB = levelScale * max(idleDb, rpmDb log2(rpm/levelRpm) + loadDb (load - 1)) */
+} EngineCfg;
+
+typedef struct {
+	int cur, prev;     /* indices into the loop array; prev -1 = no hand-over */
+	float x;           /* the hand-over's progress 0..1 */
+} EngineFamilyState;
+
+typedef struct {
+	int gear;
+	float rpm, load, riderLoad, shiftLeft, shiftRpm0, sinceUp, sinceShift, speedPrev, accS, coastRef;
+	int inShift, coasting, clutch;    /* inShift, clutch: this frame's, for the caller's trace */
+	int onLoad;
+	float offTimer, familyW;          /* familyW: 0 = off load .. 1 = on load */
+	EngineFamilyState fam[2];         /* [0] on load, [1] off load; cur -1 until the first step */
+	float wander;                     /* the heard rpm's slow wander (a fraction) */
+	uint32_t lcg;                     /* its random numbers */
+} EngineState;
+
+typedef struct {
+	float base;     /* the rpm the loop was made at */
+	int families;   /* ENGINE_FAMILY_* bits */
+} EngineLoop;
+
+static void EngineDefaults(EngineCfg *c)
+{
+	static const float gears[] = { 555.556f, 750.0f, 960.0f, 1161.6f };
+	int i;
+	c->idleRpm = 860.0f; c->launch = 640.0f; c->clutchIn = 1900.0f; c->clutchFall = 900.0f;
+	c->clutchDecel = 150.0f; c->accelTau = 0.25f;
+	for (i = 0; i < 4; i++)
+		c->gears[i] = gears[i];
+	c->gearCount = 4;
+	c->shiftRpm = 2500.0f; c->shiftLo = 2200.0f; c->downRpm = 1750.0f; c->minShiftGap = 1.25f; c->downGap = 0.5f; c->shiftCatch = 0.9f;
+	c->shiftTime = 0.35f; c->flareTime = 0.08f; c->flare = 0.05f; c->flareTau = 0.04f; c->shiftFall = 0.10f;
+	c->rpmUp = 0.10f; c->rpmDown = 0.22f; c->loadRise = 0.08f; c->loadFall = 0.15f; c->riseRate = 2.64f;
+	c->cruiseLoad = 0.45f; c->fullAccel = 400.0f;
+	c->lashDip = 0.032f; c->lashTau = 0.15f; c->coastFall = 70.0f; c->brakeFall = 300.0f;
+	c->idleFade0 = 150.0f; c->idleFade1 = 330.0f;
+	c->minPitch = 0.75f; c->maxPitch = 1.25f;
+	c->onSplit = 0.5f; c->offSplit = 0.5f; c->hyst = 0.02f; c->xfadeTime = 0.05f;
+	c->onAbove = 0.30f; c->offBelow = 0.15f; c->offHold = 0.05f; c->familyTime = 0.08f; c->shiftFamily = 1;
+	c->wander = 0.006f; c->wanderTau = 0.8f; c->wanderSeed = 12345u;
+	c->levelScale = 0.3f; c->rpmDb = 9.6f; c->loadDb = 5.0f; c->idleDb = -17.2f; c->levelRpm = 3000.0f;
+}
+
+static void EngineReset(const EngineCfg *c, EngineState *s)
+{
+	s->gear = 0; s->rpm = c->idleRpm; s->load = 0.0f; s->riderLoad = 0.0f; s->shiftLeft = 0.0f; s->shiftRpm0 = 0.0f;
+	s->sinceUp = 9.0f; s->sinceShift = 9.0f; s->speedPrev = 0.0f; s->accS = 0.0f; s->coastRef = 0.0f;
+	s->inShift = 0; s->coasting = 0; s->clutch = 1;
+	s->onLoad = 0; s->offTimer = 0.0f; s->familyW = 0.0f;
+	s->fam[0].cur = s->fam[1].cur = -1;
+	s->fam[0].prev = s->fam[1].prev = -1;
+	s->fam[0].x = s->fam[1].x = 1.0f;
+	s->wander = 0.0f;
+	s->lcg = c->wanderSeed;
+}
+
+/* uniform in [-1, 1) from a 32-bit LCG (Numerical Recipes' constants; engine_model.py draws the same numbers) */
+static float EngineNoise(EngineState *s)
+{
+	s->lcg = s->lcg * 1664525u + 1013904223u;
+	return (float)(s->lcg >> 8) / 8388608.0f - 1.0f;
+}
+
+static float EngineGearK(const EngineCfg *c, int g)
+{
+	return c->shiftRpm / c->gears[g];
+}
+
+/* The family member next above (dir 1) or below (dir -1) loop i by base, or the lowest (i < 0); -1 if none. */
+static int EngineNeighbour(const EngineLoop *loops, int n, int family, int i, int dir)
+{
+	int k, best = -1;
+	for (k = 0; k < n; k++) {
+		if (!(loops[k].families & family) || k == i)
+			continue;
+		if (i < 0) {
+			if (best < 0 || loops[k].base < loops[best].base)
+				best = k;
+		} else if (dir > 0 ? loops[k].base > loops[i].base : loops[k].base < loops[i].base) {
+			if (best < 0 || (dir > 0 ? loops[k].base < loops[best].base : loops[k].base > loops[best].base))
+				best = k;
+		}
+	}
+	return best;
+}
+
+/* log rpm of the boundary between family members lo and hi (lo's base below hi's) */
+static float EngineBound(const EngineLoop *loops, int lo, int hi, float split)
+{
+	float a = logf(loops[lo].base), b = logf(loops[hi].base);
+	return a + split * (b - a);
+}
+
+/* downOnly: through an up-shift's gap the loop may only hand over downward */
+static void EngineFamilyStep(const EngineCfg *c, EngineFamilyState *f, const EngineLoop *loops, int n, int family,
+                             float split, float rpm, float dt, int downOnly)
+{
+	float lr = logf(rpm);
+	if (f->cur < 0) {
+		f->cur = EngineNeighbour(loops, n, family, -1, 0);
+		f->prev = -1;
+		f->x = 1.0f;
+		if (f->cur < 0)
+			return;
+	}
+	if (f->x < 1.0f) {
+		f->x += dt / c->xfadeTime;
+		if (f->x > 1.0f)
+			f->x = 1.0f;
+	}
+	if (f->x >= 1.0f) {
+		int t = f->cur, k;
+		f->prev = -1;
+		while (!downOnly) {
+			k = EngineNeighbour(loops, n, family, t, 1);
+			if (k < 0 || lr <= EngineBound(loops, t, k, split) + c->hyst)
+				break;
+			t = k;
+		}
+		for (;;) {
+			k = EngineNeighbour(loops, n, family, t, -1);
+			if (k < 0 || lr >= EngineBound(loops, k, t, split) - c->hyst)
+				break;
+			t = k;
+		}
+		if (t != f->cur) {
+			f->prev = f->cur;
+			f->cur = t;
+			f->x = dt / c->xfadeTime;
+			if (f->x > 1.0f)
+				f->x = 1.0f;
+		}
+	}
+}
+
+static float EngineSmooth(float x, float want, float dt, float tau)
+{
+	return x + (want - x) * (1.0f - expf(-dt / tau));
+}
+
+static void EngineStep(const EngineCfg *c, EngineState *s, const EngineLoop *loops, int n,
+                       float dt, float speed, float forward, int braking)
+{
+	float v = fabsf(speed), accel, want, wantRider, engWant, pull, k, k0, rGear, target, tau, newRpm, d;
+	int top = c->gearCount - 1, throttle, inShift, famOn;
+	if (dt < 1e-4f)
+		dt = 1e-4f;
+	accel = (speed - s->speedPrev) / dt;
+	s->speedPrev = speed;
+	s->accS = EngineSmooth(s->accS, accel, dt, c->accelTau);
+	/* the rider's demand: forward held and gaining speed = full; held at a steady speed = cruise; off = closed */
+	if (braking || forward <= 0.0f)
+		want = 0.0f;
+	else {
+		want = c->cruiseLoad + (s->accS > 0.0f ? s->accS : 0.0f) / c->fullAccel;   /* smoothed: a noisy speed doesn't fake a pull */
+		if (want > 1.0f)
+			want = 1.0f;
+		want *= forward;
+	}
+	wantRider = want;
+	s->riderLoad = EngineSmooth(s->riderLoad, want, dt, want > s->riderLoad ? c->loadRise : c->loadFall);
+	pull = (s->riderLoad - c->cruiseLoad) / (1.0f - c->cruiseLoad);
+	pull = pull < 0.0f ? 0.0f : (pull > 1.0f ? 1.0f : pull);
+	s->sinceUp += dt;
+	s->sinceShift += dt;
+	if (s->shiftLeft > 0.0f)
+		s->shiftLeft -= dt;
+	inShift = s->shiftLeft > ENGINE_EPS;
+	engWant = inShift ? 0.0f : want;
+	s->load = EngineSmooth(s->load, engWant, dt, engWant > s->load ? c->loadRise : c->loadFall);
+	throttle = want > 0.0f;
+	k0 = EngineGearK(c, 0);
+	/* the clutch goes in near the stop: shut, 1st gear under clutchIn, and braking, slowing hard or under the slip */
+	s->clutch = !throttle && v * k0 < c->clutchIn &&
+	            (braking || s->accS < -c->clutchDecel || v * k0 < c->idleRpm + c->launch);
+	/* the gear */
+	if (s->clutch) {
+		s->gear = 0;
+		s->shiftLeft = 0.0f;
+		inShift = 0;
+	} else if (!inShift) {
+		k = EngineGearK(c, s->gear);
+		if (throttle) {
+			float upAt = c->shiftLo + (c->shiftRpm - c->shiftLo) * pull;
+			if (s->gear < top && v * k > upAt && s->rpm > c->shiftCatch * upAt &&    /* the engine caught up with its gear */
+			    v * EngineGearK(c, s->gear + 1) > c->downRpm && s->sinceUp >= c->minShiftGap - ENGINE_EPS &&
+			    s->sinceShift >= c->downGap - ENGINE_EPS) {
+				s->gear++;
+				s->shiftLeft = c->shiftTime;
+				s->shiftRpm0 = s->rpm;
+				inShift = 1;
+				s->sinceUp = 0.0f;
+				s->sinceShift = 0.0f;
+			} else if (s->gear > 0 && v * k < c->downRpm && v * EngineGearK(c, s->gear - 1) < c->shiftLo &&
+			           s->sinceShift >= c->downGap - ENGINE_EPS) {
+				s->gear--;
+				s->sinceShift = 0.0f;
+			}
+		} else if (s->gear > 0 && s->rpm * s->rpm > v * v * k * EngineGearK(c, s->gear - 1) &&
+		           s->sinceShift >= c->downGap - ENGINE_EPS) {
+			/* coasting: to the gear whose rpm is nearer the engine's (silent: the rpm doesn't rise when shut) */
+			s->gear--;
+			s->sinceShift = 0.0f;
+		}
+	}
+	/* the rpm */
+	rGear = v * EngineGearK(c, s->gear);
+	if (s->clutch) {
+		target = c->idleRpm;
+		tau = c->rpmDown;
+		s->coasting = 0;
+	} else if (inShift) {
+		if (c->shiftTime - s->shiftLeft < c->flareTime) {
+			target = s->shiftRpm0 * (1.0f + c->flare);
+			tau = c->flareTau;
+		} else {
+			target = rGear > c->idleRpm ? rGear : c->idleRpm;
+			tau = c->shiftFall;
+		}
+		s->coasting = 0;
+	} else if (throttle) {
+		target = rGear > c->idleRpm ? rGear : c->idleRpm;
+		if (s->gear == 0) {
+			float slip = c->idleRpm + c->launch * (forward < 1.0f ? forward : 1.0f);    /* the clutch slips until 1st takes over */
+			if (slip > target)
+				target = slip;
+		}
+		tau = target > s->rpm ? c->rpmUp : c->rpmDown;
+		s->coasting = 0;
+	} else {
+		float lash = rGear * (1.0f - c->lashDip);
+		if (!s->coasting) {
+			s->coastRef = s->rpm * (1.0f - c->lashDip);
+			s->coasting = 1;
+		}
+		s->coastRef -= (braking ? c->brakeFall : c->coastFall) * dt;
+		target = s->coastRef > lash ? s->coastRef : lash;
+		if (c->idleRpm > target)
+			target = c->idleRpm;
+		if (target > s->rpm)
+			target = s->rpm;
+		tau = c->lashTau;
+	}
+	newRpm = EngineSmooth(s->rpm, target, dt, tau);
+	if (s->clutch && newRpm < s->rpm - c->clutchFall * dt)
+		newRpm = s->rpm - c->clutchFall * dt;
+	{
+		float top = s->rpm * expf(c->riseRate * dt);    /* the fastest rise (the pitch is set once a frame) */
+		if (newRpm > top)
+			newRpm = top;
+	}
+	s->rpm = newRpm;
+	/* the heard rpm's wander: dw = -w dt / tau + sd sqrt(2 dt / tau) n, n of unit variance (uniform x sqrt 3) */
+	s->wander += -s->wander * dt / c->wanderTau + c->wander * sqrtf(2.0f * dt / c->wanderTau) * 1.7320508f * EngineNoise(s);
+	/* the family: on load once the rider's load passes onAbove; off load after offHold s of the throttle under offBelow */
+	if (s->onLoad) {
+		s->offTimer = wantRider < c->offBelow ? s->offTimer + dt : 0.0f;
+		if (s->offTimer >= c->offHold - ENGINE_EPS) {
+			s->onLoad = 0;
+			s->offTimer = 0.0f;
+		}
+	} else if (s->riderLoad > c->onAbove || (s->gear == 0 && wantRider > c->onAbove))
+		s->onLoad = 1;    /* in 1st gear (a launch) from the key press */
+	famOn = s->onLoad && !(c->shiftFamily && inShift);
+	d = dt / c->familyTime;
+	if (s->rpm <= c->idleRpm + c->idleFade0)
+		s->familyW = famOn ? 1.0f : 0.0f;    /* both families silent: no crossfade to wait for */
+	else
+		s->familyW = famOn ? (s->familyW + d > 1.0f ? 1.0f : s->familyW + d) : (s->familyW - d < 0.0f ? 0.0f : s->familyW - d);
+	s->inShift = inShift;
+	EngineFamilyStep(c, &s->fam[0], loops, n, ENGINE_FAMILY_ON, c->onSplit, s->rpm, dt, inShift);
+	EngineFamilyStep(c, &s->fam[1], loops, n, ENGINE_FAMILY_OFF, c->offSplit, s->rpm, dt, inShift);
+}
+
+/* The overall level in dB re full load at levelRpm. */
+static float EngineLevelDb(const EngineCfg *c, const EngineState *s)
+{
+	float db = c->rpmDb * log2f(s->rpm / c->levelRpm) + c->loadDb * ((s->riderLoad < 1.0f ? s->riderLoad : 1.0f) - 1.0f);
+	if (db < c->idleDb)
+		db = c->idleDb;
+	return c->levelScale * db;
+}
+
+static void EngineMix(const EngineCfg *c, const EngineState *s, const EngineLoop *loops, int n, float *gain, float *pitch)
+{
+	int i, j, haveOff = 0, lowOn, lowOff, inBand;
+	float lo = logf(c->idleRpm + c->idleFade0), hi = logf(c->idleRpm + c->idleFade1);
+	float f = (logf(s->rpm) - lo) / (hi - lo), wIdle, wRun, wFam[2], level;
+	float p2[ENGINE_MAX_LOOPS];
+	if (f < 0.0f) f = 0.0f;
+	if (f > 1.0f) f = 1.0f;
+	wIdle = cosf(f * 1.5707963f);
+	wRun = sinf(f * 1.5707963f);
+	for (i = 0; i < n; i++) {
+		p2[i] = 0.0f;
+		if (loops[i].families & ENGINE_FAMILY_OFF)
+			haveOff = 1;
+		if (loops[i].families & ENGINE_FAMILY_IDLE)
+			p2[i] += wIdle * wIdle;
+	}
+	wFam[0] = haveOff ? sinf(s->familyW * 1.5707963f) : 1.0f;
+	wFam[1] = haveOff ? cosf(s->familyW * 1.5707963f) : 0.0f;
+	for (j = 0; j < 2; j++) {
+		const EngineFamilyState *fs = &s->fam[j];
+		float g = 1.0f, w = wRun * wFam[j];
+		if (fs->cur < 0)
+			continue;
+		if (fs->prev >= 0) {
+			float gp = w * cosf(fs->x * 1.5707963f);
+			g = sinf(fs->x * 1.5707963f);
+			p2[fs->prev] += gp * gp;
+		}
+		p2[fs->cur] += (w * g) * (w * g);    /* in power: a loop in both families is one voice */
+	}
+	level = powf(10.0f, EngineLevelDb(c, s) / 20.0f);
+	lowOn = EngineNeighbour(loops, n, ENGINE_FAMILY_ON, -1, 0);
+	lowOff = EngineNeighbour(loops, n, ENGINE_FAMILY_OFF, -1, 0);
+	inBand = s->rpm < c->idleRpm + c->idleFade1;
+	for (i = 0; i < n; i++) {
+		float p = s->rpm / loops[i].base;
+		int free = inBand && ((loops[i].families & ENGINE_FAMILY_IDLE) || i == lowOn || i == lowOff);
+		if (!(loops[i].families & ENGINE_FAMILY_IDLE))
+			p *= 1.0f + s->wander;
+		if (!free)
+			p = p < c->minPitch ? c->minPitch : (p > c->maxPitch ? c->maxPitch : p);
+		gain[i] = sqrtf(p2[i]) * level;
+		pitch[i] = p;
+	}
+}
+
+/* --- [Sound]: the driver's switches and every constant of the model, read at the start and again
+ * on getting on (an A/B needs no restart: the next hand-over uses them). The defaults are the
+ * model's (engine_model.py v4 final, CHANGES.md section 3). */
+typedef struct {
+	int drive;                 /* Drive: 1 = take the loops the script hands over; 0 = never (the script's crossfade, as before test 44) */
+	char library[MAX_PATH];    /* Library: the Address Library's path ("": next to this plugin, then <game>\Data\F4SE\Plugins) */
+	int fade;                  /* Fade: FadeTo's ms */
+	int firstFade;             /* FirstFade: the hand-over's first FadeTo of each loop heard, ms (0: Fade) */
+	float pitchStep;           /* PitchStep: SetFrequency only when the ratio moved more than this since the last call */
+	float levelStep;           /* LevelStep: FadeTo only when the attenuation moved more than this (hundredths of a dB) */
+	int trace;                 /* Trace: the trace line ([Tilt] Trace=1) gains the engine's gear, rpm and load */
+	EngineCfg cfg;             /* the model's constants, the gears scaled to the bike's top speed */
+	float gearsIni[ENGINE_MAX_GEARS];   /* Gears as given (for a top speed of 900) */
+	EngineLoop loops[SND_LOOPS];       /* Loops: the loop table, in the order of CMB_SndLoop01... */
+	int loopCount;
+} SoundSettings;
+static SoundSettings g_snd;
+static bool g_sndRead;
+
+static const char kSndLoopsDefault[] = "idle:860,on:1400,on:1700,on:2000,on:2400,on:2800,on:3300,off:1400,off:1800,off:2300,off:2800";
+
+/* "family:base,..." (family idle, on, off, or on+off for one loop in both), at most SND_LOOPS; the
+ * count, or 0 if it isn't that. */
+static int ParseSoundLoops(const char *text, EngineLoop *out)
+{
+	int n = 0;
+	const char *p = text;
+	for (;;) {
+		while (*p == ' ' || *p == ',' || *p == '\t')
+			p++;
+		if (!*p)
+			break;
+		if (n >= SND_LOOPS)
+			return 0;
+		char word[16];
+		int k = 0;
+		while (*p && *p != ':' && *p != ',' && k < (int)sizeof(word) - 1)
+			word[k++] = *p++;
+		word[k] = 0;
+		while (k > 0 && word[k - 1] == ' ')
+			word[--k] = 0;
+		if (*p != ':')
+			return 0;
+		p++;
+		int families = _stricmp(word, "idle") == 0 ? ENGINE_FAMILY_IDLE : _stricmp(word, "on") == 0 ? ENGINE_FAMILY_ON
+		             : _stricmp(word, "off") == 0 ? ENGINE_FAMILY_OFF : _stricmp(word, "on+off") == 0 ? ENGINE_FAMILY_ON | ENGINE_FAMILY_OFF : 0;
+		char *end;
+		float base = strtof(p, &end);
+		if (!families || end == p || !(base >= 100.0f && base <= 20000.0f))
+			return 0;
+		p = end;
+		while (*p == ' ' || *p == '\t')
+			p++;
+		if (*p && *p != ',')
+			return 0;
+		out[n].base = base;
+		out[n].families = families;
+		n++;
+	}
+	return n;
+}
+
+/* "a,b,..." of up to max numbers, each within lo..hi; the count, or 0 if it isn't that. */
+static int ParseNumbers(const char *text, float *out, int max, float lo, float hi)
+{
+	int n = 0;
+	const char *p = text;
+	for (;;) {
+		while (*p == ' ' || *p == ',' || *p == '\t')
+			p++;
+		if (!*p)
+			break;
+		char *end;
+		float v = strtof(p, &end);
+		if (end == p || n >= max || !(v >= lo && v <= hi))
+			return 0;
+		out[n++] = v;
+		p = end;
+	}
+	return n;
+}
+
+static void SoundLoopsText(const SoundSettings *s, char *out, size_t size)
+{
+	size_t len = 0;
+	out[0] = 0;
+	for (int i = 0; i < s->loopCount && len + 24 < size; i++) {
+		int f = s->loops[i].families;
+		len += (size_t)snprintf(out + len, size - len, "%s%s:%g", i ? "," : "", f == ENGINE_FAMILY_IDLE ? "idle" : f == ENGINE_FAMILY_ON ? "on"
+		                        : f == ENGINE_FAMILY_OFF ? "off" : f == (ENGINE_FAMILY_ON | ENGINE_FAMILY_OFF) ? "on+off" : "idle+", (double)s->loops[i].base);
+	}
+}
+
+static void ReadSoundSettings(const char *ini, bool log)
+{
+	SoundSettings s;
+	memset(&s, 0, sizeof(s));
+	char value[512], bad[160] = "";
+	EngineCfg *c = &s.cfg;
+	EngineDefaults(c);
+	s.drive = (int)GetPrivateProfileIntA("Sound", "Drive", 1, ini) != 0;
+	GetPrivateProfileStringA("Sound", "Library", "", s.library, sizeof(s.library), ini);
+	s.fade = (int)IniFloat(ini, "Sound", "Fade", 25.0f, 0.0f, 2000.0f);
+	s.firstFade = (int)IniFloat(ini, "Sound", "FirstFade", 400.0f, 0.0f, 2000.0f);
+	s.pitchStep = IniFloat(ini, "Sound", "PitchStep", 0.003f, 0.0f, 0.1f);
+	s.levelStep = IniFloat(ini, "Sound", "LevelStep", 30.0f, 0.0f, 2000.0f);
+	s.trace = (int)GetPrivateProfileIntA("Sound", "Trace", 1, ini) != 0;
+	c->idleRpm = IniFloat(ini, "Sound", "IdleRpm", c->idleRpm, 300.0f, 3000.0f);
+	c->launch = IniFloat(ini, "Sound", "Launch", c->launch, 0.0f, 5000.0f);
+	c->clutchIn = IniFloat(ini, "Sound", "ClutchIn", c->clutchIn, 0.0f, 10000.0f);
+	c->clutchFall = IniFloat(ini, "Sound", "ClutchFall", c->clutchFall, 1.0f, 100000.0f);
+	c->clutchDecel = IniFloat(ini, "Sound", "ClutchDecel", c->clutchDecel, 0.0f, 100000.0f);
+	c->accelTau = IniFloat(ini, "Sound", "AccelTau", c->accelTau, 0.001f, 10.0f);
+	memcpy(s.gearsIni, c->gears, sizeof(s.gearsIni));
+	GetPrivateProfileStringA("Sound", "Gears", "", value, sizeof(value), ini);
+	if (value[0]) {
+		float g[ENGINE_MAX_GEARS];
+		int n = ParseNumbers(value, g, ENGINE_MAX_GEARS, 1.0f, 100000.0f);
+		for (int i = 1; i < n; i++)
+			if (!(g[i] > g[i - 1]))
+				n = 0;   /* the gears' speeds rise */
+		if (n > 0) {
+			memset(s.gearsIni, 0, sizeof(s.gearsIni));
+			memcpy(s.gearsIni, g, sizeof(float) * (size_t)n);
+			c->gearCount = n;
+		} else
+			snprintf(bad + strlen(bad), sizeof(bad) - strlen(bad), " Gears (not rising numbers, 8 at most)");
+	}
+	/* The gears are for a top speed of 900 (each gear's speed at ShiftRpm): another FullSpeed scales them. */
+	float scale = g_fullSpeed > 0.0f ? g_fullSpeed / 900.0f : 1.0f;
+	for (int i = 0; i < ENGINE_MAX_GEARS; i++)
+		c->gears[i] = i < c->gearCount ? s.gearsIni[i] * scale : 0.0f;
+	c->shiftRpm = IniFloat(ini, "Sound", "ShiftRpm", c->shiftRpm, 300.0f, 20000.0f);
+	c->shiftLo = IniFloat(ini, "Sound", "ShiftLo", c->shiftLo, 300.0f, 20000.0f);
+	c->downRpm = IniFloat(ini, "Sound", "DownRpm", c->downRpm, 100.0f, 20000.0f);
+	c->minShiftGap = IniFloat(ini, "Sound", "MinShiftGap", c->minShiftGap, 0.0f, 30.0f);
+	c->downGap = IniFloat(ini, "Sound", "DownGap", c->downGap, 0.0f, 30.0f);
+	c->shiftCatch = IniFloat(ini, "Sound", "ShiftCatch", c->shiftCatch, 0.0f, 1.0f);
+	c->shiftTime = IniFloat(ini, "Sound", "ShiftTime", c->shiftTime, 0.0f, 5.0f);
+	c->flareTime = IniFloat(ini, "Sound", "FlareTime", c->flareTime, 0.0f, 5.0f);
+	c->flare = IniFloat(ini, "Sound", "Flare", c->flare, 0.0f, 1.0f);
+	c->flareTau = IniFloat(ini, "Sound", "FlareTau", c->flareTau, 0.001f, 5.0f);
+	c->shiftFall = IniFloat(ini, "Sound", "ShiftFall", c->shiftFall, 0.001f, 5.0f);
+	c->rpmUp = IniFloat(ini, "Sound", "RpmUp", c->rpmUp, 0.001f, 10.0f);
+	c->rpmDown = IniFloat(ini, "Sound", "RpmDown", c->rpmDown, 0.001f, 10.0f);
+	c->riseRate = IniFloat(ini, "Sound", "RiseRate", c->riseRate, 0.01f, 1000.0f);
+	c->loadRise = IniFloat(ini, "Sound", "LoadRise", c->loadRise, 0.001f, 10.0f);
+	c->loadFall = IniFloat(ini, "Sound", "LoadFall", c->loadFall, 0.001f, 10.0f);
+	c->cruiseLoad = IniFloat(ini, "Sound", "CruiseLoad", c->cruiseLoad, 0.0f, 0.99f);   /* under 1: the pull divides by 1 - it */
+	c->fullAccel = IniFloat(ini, "Sound", "FullAccel", c->fullAccel, 1.0f, 100000.0f);
+	c->lashDip = IniFloat(ini, "Sound", "LashDip", c->lashDip, 0.0f, 0.5f);
+	c->lashTau = IniFloat(ini, "Sound", "LashTau", c->lashTau, 0.001f, 10.0f);
+	c->coastFall = IniFloat(ini, "Sound", "CoastFall", c->coastFall, 0.0f, 100000.0f);
+	c->brakeFall = IniFloat(ini, "Sound", "BrakeFall", c->brakeFall, 0.0f, 100000.0f);
+	GetPrivateProfileStringA("Sound", "IdleFade", "", value, sizeof(value), ini);
+	if (value[0]) {
+		float f[2];
+		if (ParseNumbers(value, f, 2, 0.0f, 10000.0f) == 2 && f[1] > f[0]) {   /* two, rising: the fade's band has a width */
+			c->idleFade0 = f[0];
+			c->idleFade1 = f[1];
+		} else
+			snprintf(bad + strlen(bad), sizeof(bad) - strlen(bad), " IdleFade (two rising numbers)");
+	}
+	c->minPitch = IniFloat(ini, "Sound", "MinPitch", c->minPitch, 0.05f, 1.0f);
+	c->maxPitch = IniFloat(ini, "Sound", "MaxPitch", c->maxPitch, 1.0f, 8.0f);
+	c->onSplit = IniFloat(ini, "Sound", "OnSplit", c->onSplit, 0.0f, 1.0f);
+	c->offSplit = IniFloat(ini, "Sound", "OffSplit", c->offSplit, 0.0f, 1.0f);
+	c->hyst = IniFloat(ini, "Sound", "Hyst", c->hyst, 0.0f, 1.0f);
+	c->xfadeTime = IniFloat(ini, "Sound", "XfadeTime", c->xfadeTime, 0.001f, 5.0f);
+	c->onAbove = IniFloat(ini, "Sound", "OnAbove", c->onAbove, 0.0f, 1.0f);
+	c->offBelow = IniFloat(ini, "Sound", "OffBelow", c->offBelow, 0.0f, 1.0f);
+	c->offHold = IniFloat(ini, "Sound", "OffHold", c->offHold, 0.0f, 10.0f);
+	c->familyTime = IniFloat(ini, "Sound", "FamilyTime", c->familyTime, 0.001f, 5.0f);
+	c->shiftFamily = (int)GetPrivateProfileIntA("Sound", "ShiftFamily", c->shiftFamily, ini) != 0;
+	c->wander = IniFloat(ini, "Sound", "Wander", c->wander, 0.0f, 0.2f);
+	c->wanderTau = IniFloat(ini, "Sound", "WanderTau", c->wanderTau, 0.01f, 100.0f);
+	GetPrivateProfileStringA("Sound", "WanderSeed", "12345", value, sizeof(value), ini);
+	c->wanderSeed = (uint32_t)strtoul(value, NULL, 0);
+	c->levelScale = IniFloat(ini, "Sound", "LevelScale", c->levelScale, 0.0f, 4.0f);
+	c->rpmDb = IniFloat(ini, "Sound", "RpmDb", c->rpmDb, -60.0f, 60.0f);
+	c->loadDb = IniFloat(ini, "Sound", "LoadDb", c->loadDb, -60.0f, 60.0f);
+	c->idleDb = IniFloat(ini, "Sound", "IdleDb", c->idleDb, -100.0f, 0.0f);
+	c->levelRpm = IniFloat(ini, "Sound", "LevelRpm", c->levelRpm, 100.0f, 30000.0f);
+	GetPrivateProfileStringA("Sound", "Loops", kSndLoopsDefault, value, sizeof(value), ini);
+	s.loopCount = ParseSoundLoops(value, s.loops);
+	if (!s.loopCount) {
+		snprintf(bad + strlen(bad), sizeof(bad) - strlen(bad), " Loops (family:base,... with family idle, on, off or on+off, %d at most)", SND_LOOPS);
+		s.loopCount = ParseSoundLoops(kSndLoopsDefault, s.loops);
+	}
+	bool changed = !g_sndRead || memcmp(&s, &g_snd, sizeof(s)) != 0;   /* both zeroed first: their padding compares too */
+	memcpy(&g_snd, &s, sizeof(s));
+	g_sndRead = true;
+	if (!log && !changed)
+		return;
+	char loops[400];
+	SoundLoopsText(&s, loops, sizeof(loops));
+	Log("  sound: Drive=%d Library=%s Fade=%d FirstFade=%d PitchStep=%g LevelStep=%g Trace=%d Loops=%s: %s%s%s%s", s.drive, s.library, s.fade, s.firstFade, (double)s.pitchStep,
+	    (double)s.levelStep, s.trace, loops,
+	    s.drive ? "the engine's loops driven by this plugin once the script hands them over (the Address Library read at the first hand-over)"
+	            : "never driven by this plugin (Drive=0): the script's idle and cruise crossfade, as before test 44",
+	    bad[0] ? "; not understood, the defaults used:" : "", bad, log ? "" : " (read again on getting on)");
+	char gears[160], scaled[64] = "";
+	size_t len = 0;
+	gears[0] = 0;
+	for (int i = 0; i < c->gearCount && len + 16 < sizeof(gears); i++)
+		len += (size_t)snprintf(gears + len, sizeof(gears) - len, "%s%g", i ? "," : "", (double)s.gearsIni[i]);
+	if (scale != 1.0f)
+		snprintf(scaled, sizeof(scaled), " (the gears x %.3f for FullSpeed %g)", (double)scale, (double)g_fullSpeed);
+	Log("  sound: IdleRpm=%g Launch=%g ClutchIn=%g ClutchFall=%g ClutchDecel=%g AccelTau=%g Gears=%s ShiftRpm=%g ShiftLo=%g DownRpm=%g "
+	    "MinShiftGap=%g DownGap=%g ShiftCatch=%g ShiftTime=%g FlareTime=%g Flare=%g FlareTau=%g ShiftFall=%g RpmUp=%g RpmDown=%g RiseRate=%g "
+	    "LoadRise=%g LoadFall=%g CruiseLoad=%g FullAccel=%g LashDip=%g LashTau=%g CoastFall=%g BrakeFall=%g IdleFade=%g,%g MinPitch=%g "
+	    "MaxPitch=%g OnSplit=%g OffSplit=%g Hyst=%g XfadeTime=%g OnAbove=%g OffBelow=%g OffHold=%g FamilyTime=%g ShiftFamily=%d Wander=%g "
+	    "WanderTau=%g WanderSeed=%u LevelScale=%g RpmDb=%g LoadDb=%g IdleDb=%g LevelRpm=%g%s%s",
+	    (double)c->idleRpm, (double)c->launch, (double)c->clutchIn, (double)c->clutchFall, (double)c->clutchDecel, (double)c->accelTau, gears,
+	    (double)c->shiftRpm, (double)c->shiftLo, (double)c->downRpm, (double)c->minShiftGap, (double)c->downGap, (double)c->shiftCatch,
+	    (double)c->shiftTime, (double)c->flareTime, (double)c->flare, (double)c->flareTau, (double)c->shiftFall, (double)c->rpmUp,
+	    (double)c->rpmDown, (double)c->riseRate, (double)c->loadRise, (double)c->loadFall, (double)c->cruiseLoad, (double)c->fullAccel,
+	    (double)c->lashDip, (double)c->lashTau, (double)c->coastFall, (double)c->brakeFall, (double)c->idleFade0, (double)c->idleFade1,
+	    (double)c->minPitch, (double)c->maxPitch, (double)c->onSplit, (double)c->offSplit, (double)c->hyst, (double)c->xfadeTime,
+	    (double)c->onAbove, (double)c->offBelow, (double)c->offHold, (double)c->familyTime, c->shiftFamily, (double)c->wander,
+	    (double)c->wanderTau, (unsigned)c->wanderSeed, (double)c->levelScale, (double)c->rpmDb, (double)c->loadDb, (double)c->idleDb,
+	    (double)c->levelRpm, scaled, log ? "" : " (read again on getting on)");
+}
+
+/* --- The Address Library for the sound: read the first time a set of loops is offered (not at
+ * the start: no cost when riding never starts), again only when the Library key has changed or the
+ * last read found no file. */
+typedef struct { uint32_t soundID; uint8_t assumeSuccess; uint8_t state; uint8_t pad[2]; } SoundHandle;   /* BSSoundHandle (CommonLibF4: 8 bytes) */
+typedef bool (*SoundSetFrequencyFn)(SoundHandle *h, float ratio);                      /* MS x64: this in rcx, the ratio in xmm1 */
+typedef bool (*SoundFadeToFn)(SoundHandle *h, uint16_t attenuation, uint16_t ms);
+typedef bool (*SoundIsPlayingFn)(const SoundHandle *h);
+static SoundSetFrequencyFn g_sndSetFrequency;
+static SoundFadeToFn g_sndFadeTo;
+static SoundIsPlayingFn g_sndIsPlaying;
+static int g_sndLib;                   /* 0 not read, 1 good, -1 not to be used, -2 no file */
+static char g_sndLibFor[MAX_PATH];     /* the Library key it was read for */
+static char g_sndLibWhy[MAX_PATH + 96]; /* why not (for a declined hand-over's line) */
+
+/* The five cross-checks: IDs of objects whose RVAs this plugin has from F4SE 0.7.9's source, as
+ * CommonLibF4's IDs.h names them. */
+static const struct { uint32_t id, rva; const char *name; } kSndCross[5] = {
+	{ 4796065u, RVA_PLAYER_CAMERA, "PlayerCamera::Singleton" },
+	{ 4796135u, RVA_DATA_HANDLER, "TESDataHandler::Singleton" },
+	{ 4799306u, RVA_PLAYER_CONTROLS, "PlayerControls::Singleton" },
+	{ 2704108u, RVA_INI_SETTINGS, "INISettingCollection::Singleton" },
+	{ 2703234u, RVA_INI_PREF_SETTINGS, "INIPrefSettingCollection::Singleton" },
+};
+
+static bool LibraryRva(FILE *f, uint64_t count, uint64_t id, uint64_t *rva)
+{
+	uint64_t lo = 0, hi = count;
+	while (lo < hi) {
+		uint64_t mid = lo + (hi - lo) / 2, pair[2];
+		if (_fseeki64(f, (long long)(8 + 16 * mid), SEEK_SET) != 0 || fread(pair, 16, 1, f) != 1)
+			return false;
+		if (pair[0] == id) {
+			*rva = pair[1];
+			return true;
+		}
+		if (pair[0] < id)
+			lo = mid + 1;
+		else
+			hi = mid;
+	}
+	return false;
+}
+
+/* Is the RVA inside one of the game's code sections (executable, by its PE headers: the game's
+ * .text)? The section's name, or the code sections' spans when it is in none, in where. */
+static bool InGameCode(uint64_t rva, char *where, size_t size)
+{
+	const IMAGE_DOS_HEADER *dos = (const IMAGE_DOS_HEADER *)g_base;
+	const IMAGE_NT_HEADERS64 *nt = (const IMAGE_NT_HEADERS64 *)(g_base + dos->e_lfanew);
+	const IMAGE_SECTION_HEADER *sec = IMAGE_FIRST_SECTION(nt);
+	size_t len = 0;
+	where[0] = 0;
+	for (unsigned i = 0; i < nt->FileHeader.NumberOfSections; i++, sec++) {
+		uint64_t start = sec->VirtualAddress, end = start + (sec->Misc.VirtualSize ? sec->Misc.VirtualSize : sec->SizeOfRawData);
+		bool code = (sec->Characteristics & IMAGE_SCN_MEM_EXECUTE) != 0;
+		if (code && rva >= start && rva < end) {
+			snprintf(where, size, "%.8s", (const char *)sec->Name);
+			return true;
+		}
+		if (code && len + 48 < size)
+			len += (size_t)snprintf(where + len, size - len, "%s%.8s +0x%llX-+0x%llX", len ? ", " : "", (const char *)sec->Name,
+			                        (unsigned long long)start, (unsigned long long)end);
+	}
+	return false;
+}
+
+static bool SoundLibraryReady(void)
+{
+	if (g_sndLib && g_sndLib != -2 && strcmp(g_sndLibFor, g_snd.library) == 0)
+		return g_sndLib > 0;
+	snprintf(g_sndLibFor, sizeof(g_sndLibFor), "%s", g_snd.library);
+	g_sndLib = -1;
+	g_sndSetFrequency = NULL;
+	g_sndFadeTo = NULL;
+	g_sndIsPlaying = NULL;
+	char path[MAX_PATH * 2];
+	FILE *f;
+	if (g_snd.library[0]) {
+		snprintf(path, sizeof(path), "%s", g_snd.library);
+		f = fopen(path, "rb");
+	} else
+		f = OpenAddressLibrary(path, sizeof(path));
+	if (!f) {
+		g_sndLib = -2;
+		snprintf(g_sndLibWhy, sizeof(g_sndLibWhy), "no Address Library at %s", path);
+		Log("sound: no Address Library at %s%s: the script's crossfade drives the engine", path, g_snd.library[0] ? "" : " (also looked for next to this plugin)");
+		return false;
+	}
+	uint64_t count = 0;
+	long long size = -1;
+	if (_fseeki64(f, 0, SEEK_END) == 0)
+		size = _ftelli64(f);
+	bool ok = _fseeki64(f, 0, SEEK_SET) == 0 && fread(&count, 8, 1, f) == 1 && size >= 8 && count <= ((uint64_t)size - 8) / 16 &&
+	          (uint64_t)size == 8 + 16 * count;
+	if (!ok) {
+		fclose(f);
+		snprintf(g_sndLibWhy, sizeof(g_sndLibWhy), "the Address Library at %s is not the expected format", path);
+		Log("sound: the Address Library at %s is not the expected format (%lld bytes, not 8 + 16 x its count %llu): the script's crossfade drives the engine", path,
+		    size, (unsigned long long)count);
+		return false;
+	}
+	for (int i = 0; i < 5; i++) {
+		uint64_t rva = 0;
+		bool have = LibraryRva(f, count, kSndCross[i].id, &rva);
+		if (!have || rva != kSndCross[i].rva) {
+			fclose(f);
+			snprintf(g_sndLibWhy, sizeof(g_sndLibWhy), "the Address Library at %s doesn't match this game", path);
+			if (have)
+				Log("sound: the Address Library at %s doesn't match this game (ID %u gives 0x%llX where the plugin has 0x%08X, %s): the script's crossfade drives the engine",
+				    path, kSndCross[i].id, (unsigned long long)rva, kSndCross[i].rva, kSndCross[i].name);
+			else
+				Log("sound: the Address Library at %s doesn't match this game (ID %u isn't in it where the plugin has 0x%08X, %s): the script's crossfade drives the engine",
+				    path, kSndCross[i].id, kSndCross[i].rva, kSndCross[i].name);
+			return false;
+		}
+	}
+	static const struct { uint32_t id; const char *name; } funcs[3] = {
+		{ ID_SOUND_SET_FREQUENCY, "SetFrequency" }, { ID_SOUND_FADE_TO, "FadeTo" }, { ID_SOUND_IS_PLAYING, "IsPlaying" },
+	};
+	uint64_t rvas[3];
+	char where[3][160];
+	for (int i = 0; i < 3; i++) {
+		if (!LibraryRva(f, count, funcs[i].id, &rvas[i])) {
+			fclose(f);
+			snprintf(g_sndLibWhy, sizeof(g_sndLibWhy), "BSSoundHandle::%s isn't in the Address Library", funcs[i].name);
+			Log("sound: BSSoundHandle::%s (ID %u) isn't in the Address Library at %s: the script's crossfade drives the engine", funcs[i].name, funcs[i].id, path);
+			return false;
+		}
+		if (!InGameCode(rvas[i], where[i], sizeof(where[i]))) {
+			fclose(f);
+			snprintf(g_sndLibWhy, sizeof(g_sndLibWhy), "BSSoundHandle::%s isn't in the game's code", funcs[i].name);
+			Log("sound: BSSoundHandle::%s (ID %u) at +0x%llX isn't in the game's code (%s): the script's crossfade drives the engine", funcs[i].name,
+			    funcs[i].id, (unsigned long long)rvas[i], where[i][0] ? where[i] : "no executable section");
+			return false;
+		}
+	}
+	fclose(f);
+	g_sndSetFrequency = (SoundSetFrequencyFn)(g_base + (uintptr_t)rvas[0]);
+	g_sndFadeTo = (SoundFadeToFn)(g_base + (uintptr_t)rvas[1]);
+	g_sndIsPlaying = (SoundIsPlayingFn)(g_base + (uintptr_t)rvas[2]);
+	g_sndLib = 1;
+	Log("sound: the Address Library at %s (%llu ids) matches this game (PlayerCamera, TESDataHandler, PlayerControls, INISettingCollection and "
+	    "INIPrefSettingCollection where the plugin has them); BSSoundHandle::SetFrequency +0x%llX, FadeTo +0x%llX, IsPlaying +0x%llX, in %s", path,
+	    (unsigned long long)count, (unsigned long long)rvas[0], (unsigned long long)rvas[1], (unsigned long long)rvas[2], where[0]);
+	return true;
+}
+
+/* --- The driver */
+enum { SND_IDLE, SND_WAIT, SND_DRIVE };
+static int g_sndState;                 /* nothing, a hand-over seen and not yet answered, driving */
+static float g_sndLastGen = -0.5f;     /* CMB_SndGen as last looked at (-0.5: none can be, the script counts whole numbers) */
+static float g_sndGen;                 /* the generation waited on or driven */
+static float g_sndSince;               /* when it was first seen, or driven from */
+static float g_sndIdsAt[SND_LOOPS];    /* the CMB_SndLoop globals as handed over */
+static uint32_t g_sndIds[SND_LOOPS];
+static int g_sndN;                     /* the loops driven: the Loops table's */
+static EngineCfg g_sndCfg;             /* the settings' model and table, as at the hand-over */
+static EngineLoop g_sndLoops[SND_LOOPS];
+static EngineState g_sndEng;
+static float g_sndRatio[SND_LOOPS];    /* the pitch each loop last took (SetFrequency accepted) */
+static int g_sndAtt[SND_LOOPS];        /* and its attenuation (SND_SILENT: silent) */
+static int g_sndFails[SND_LOOPS];      /* calls on it failed in a row */
+static bool g_sndOver1Refused, g_sndOver1Taken, g_sndDownOnly;   /* SetFrequency over 1 refused, taken (this set); refused and one of 1 or under taken: the ratios held at 1 at most (for the session) */
+static float g_sndOver1Value;
+static int g_sndCalls[2], g_sndFailed; /* this drive's SetFrequency and FadeTo calls, the failed ones */
+static float g_sndRpmMin, g_sndRpmMax;
+static unsigned g_sndGearsUsed;
+static float g_sndGearLineAt;          /* the last gear line */
+static int g_sndGearsUnsaid;           /* gear changes since it, not logged */
+static float g_sndOwnSpeed, g_sndOwnPos[3];   /* the speed along the heading measured here, when the steering doesn't */
+static bool g_sndOwnHave;
+static float g_sndOwnAccel, g_sndOwnPrev;     /* and its acceleration, for the keys from the speed */
+static bool g_sndKeysFromSpeed;               /* this drive: the input hook off, the throttle read from the speed */
+
+/* The model's inputs: the speed along the heading, as a size (the steering's g_speedAlong, smoothed
+ * over 0.2 s; with the steering off, measured here the same way; backing up, its size: the engine
+ * idles, the clutch in), the forward key (0 or 1) and braking (the back key while moving forward),
+ * as the climb and the landing read the keys from the input hook. With the hook off the keys aren't
+ * known: forward while the bike holds or gains speed, braking while it loses it faster than the
+ * game's coast does. */
+static void SoundInputs(float *speed, float *forward, int *braking)
+{
+	float dt = g_frameDt;
+	float v = g_speedAlong;
+	if (!g_steerHave) {
+		uintptr_t player = Player();
+		if (player && Accessible(player + OFF_REFR_POS, 12, false) && Accessible(player + OFF_REFR_HEADING, 4, false)) {
+			const float *pos = (const float *)(player + OFF_REFR_POS);
+			float h = *(const float *)(player + OFF_REFR_HEADING);
+			if (g_sndOwnHave && dt > 0.0f && isfinite(h)) {
+				float dx = pos[0] - g_sndOwnPos[0], dy = pos[1] - g_sndOwnPos[1];
+				if (hypotf(dx, dy) > 300.0f)
+					g_sndOwnSpeed = 0.0f;   /* a door, a fast travel */
+				else
+					g_sndOwnSpeed += ((dx * sinf(h) + dy * cosf(h)) / dt - g_sndOwnSpeed) * (1.0f - expf(-dt / 0.2f));
+			}
+			memcpy(g_sndOwnPos, pos, sizeof(g_sndOwnPos));
+			g_sndOwnHave = true;
+		}
+		v = g_sndOwnSpeed;
+	} else
+		g_sndOwnHave = false;
+	if (!isfinite(v))
+		v = 0.0f;
+	*speed = fabsf(v);
+	if (g_inputActive) {
+		double now = SecondsNow();
+		bool back = now - g_backAt < 0.1, fwd = !back && now - g_forwardAt < 0.1;
+		*forward = fwd ? 1.0f : 0.0f;
+		*braking = back && v > 10.0f;
+		g_sndKeysFromSpeed = false;
+	} else {
+		if (dt > 0.0f)
+			g_sndOwnAccel += ((v - g_sndOwnPrev) / dt - g_sndOwnAccel) * (1.0f - expf(-dt / 0.25f));
+		*forward = v > 30.0f && g_sndOwnAccel > -100.0f ? 1.0f : 0.0f;   /* the game's coast loses 450 u/s a second */
+		*braking = v > 10.0f && g_sndOwnAccel < -1000.0f;               /* its brake 2250 */
+		g_sndKeysFromSpeed = true;
+	}
+	g_sndOwnPrev = v;
+}
+
+static const char *SoundTraceWord(void)
+{
+	static char word[64];
+	if (g_sndState != SND_DRIVE || !g_snd.trace)
+		return "";
+	snprintf(word, sizeof(word), " | engine g%d %.0f rpm load %.2f", g_sndEng.gear + 1, g_sndEng.rpm, g_sndEng.load);
+	return word;
+}
+
+static void SoundDecline(const char *why)
+{
+	SetGlobal(g_sndGlobals[SND_LOOPS + 1], -g_sndGen);
+	Log("sound: generation %g declined (%s): CMB_SndDriven %g, the script's crossfade drives the engine", g_sndGen, why, -g_sndGen);
+	g_sndState = SND_IDLE;
+}
+
+/* Let go of the set driven: no further calls; CMB_SndDriven 0 unless a load (the loaded save's
+ * value stands: it tells the save's set from the script's next). The ride's summary. */
+static void SoundEnd(const char *why, bool writeDriven)
+{
+	if (g_sndState == SND_WAIT) {
+		Log("sound: generation %g not answered (%s)", g_sndGen, why);
+		g_sndState = SND_IDLE;
+		return;
+	}
+	if (g_sndState != SND_DRIVE)
+		return;
+	g_sndState = SND_IDLE;
+	if (writeDriven)
+		SetGlobal(g_sndGlobals[SND_LOOPS + 1], 0.0f);
+	char gears[24] = "";
+	size_t len = 0;
+	for (int g = 0; g < ENGINE_MAX_GEARS && len + 4 < sizeof(gears); g++)
+		if (g_sndGearsUsed & (1u << g))
+			len += (size_t)snprintf(gears + len, sizeof(gears) - len, "%s%d", len ? " " : "", g + 1);
+	Log("sound: generation %g let go (%s): driven %.1f s, %d calls (SetFrequency %d, FadeTo %d), %d failed, %.0f-%.0f rpm, gears used %s", g_sndGen, why,
+	    (float)g_clock - g_sndSince, g_sndCalls[0] + g_sndCalls[1], g_sndCalls[0], g_sndCalls[1], g_sndFailed, g_sndRpmMin, g_sndRpmMax, gears[0] ? gears : "none");
+}
+
+static void SoundLoadReset(void)
+{
+	SoundEnd("a load: the loops don't survive it", false);
+	g_sndState = SND_IDLE;
+	g_sndLastGen = -0.5f;   /* the generation forgotten: the loaded save's own is left alone by CMB_SndDriven's word (SoundOffer) */
+	g_sndOwnHave = false;
+}
+
+static SoundHandle SoundHandleOf(int i)
+{
+	SoundHandle h = { g_sndIds[i], 0, 1, { 0, 0 } };   /* assumeSuccess 0, state 1 (kPlaying): built per call from the instance id */
+	return h;
+}
+
+static void SoundSetFrequency(int i, float ratio)
+{
+	SoundHandle h = SoundHandleOf(i);
+	bool ok = g_sndSetFrequency(&h, ratio);
+	g_sndCalls[0]++;
+	if (ok) {
+		g_sndRatio[i] = ratio;
+		g_sndFails[i] = 0;
+		if (ratio > 1.0f)
+			g_sndOver1Taken = true;
+		else if (g_sndOver1Refused && !g_sndOver1Taken && !g_sndDownOnly) {
+			g_sndDownOnly = true;
+			Log("sound: pitch over 1 refused: the loops pitched down only (SetFrequency(%.3f) refused, (%.3f) taken: MaxPitch 1 from now on, this session)", g_sndOver1Value, ratio);
+		}
+	} else {
+		g_sndFailed++;
+		g_sndFails[i]++;
+		if (ratio > 1.0f && !g_sndOver1Refused) {
+			g_sndOver1Refused = true;
+			g_sndOver1Value = ratio;
+		}
+	}
+}
+
+static void SoundFadeTo(int i, int att, int ms)
+{
+	SoundHandle h = SoundHandleOf(i);
+	bool ok = g_sndFadeTo(&h, (uint16_t)att, (uint16_t)ms);
+	g_sndCalls[1]++;
+	if (ok) {
+		g_sndAtt[i] = att;
+		g_sndFails[i] = 0;
+	} else {
+		g_sndFailed++;
+		g_sndFails[i]++;
+	}
+}
+
+/* The hand-over's first FadeTo of a loop heard: over FirstFade (0: Fade). The script plays the idle
+ * at its instance volume with no attenuation till the hand-over, and the model's first level is
+ * under that (at rest 516, 5.2 dB), which over Fade's 25 ms was a step down: over FirstFade's 400
+ * it settles. */
+static int SoundFirstFadeMs(void)
+{
+	return g_snd.firstFade > 0 ? g_snd.firstFade : g_snd.fade;
+}
+
+/* One loop's pitch and level to the game: SetFrequency when the ratio moved over PitchStep since
+ * the one it took (and on coming back from silence), FadeTo when the attenuation moved over
+ * LevelStep; a loop at gain 0 gets FadeTo(10000) once and no pitch while silent. first: both, the
+ * FadeTo of a loop heard over FirstFade (a silent one's over Fade: out at once). */
+static void SoundSend(int i, float gain, float pitch, bool first)
+{
+	float ratio = g_sndDownOnly && pitch > 1.0f ? 1.0f : pitch;
+	int att = SND_SILENT;
+	if (gain > 0.0f) {
+		float cb = -2000.0f * log10f(gain);   /* hundredths of a dB under full */
+		att = !(cb > 0.0f) ? 0 : cb >= (float)SND_SILENT ? SND_SILENT : (int)lroundf(cb);
+	}
+	bool silent = att >= SND_SILENT, wasSilent = g_sndAtt[i] >= SND_SILENT;
+	if (first || (!silent && (wasSilent || fabsf(ratio - g_sndRatio[i]) > g_snd.pitchStep)))
+		SoundSetFrequency(i, ratio);
+	if (first || (silent ? !wasSilent : wasSilent || abs(att - g_sndAtt[i]) > g_snd.levelStep))
+		SoundFadeTo(i, att, first && !silent ? SoundFirstFadeMs() : g_snd.fade);
+}
+
+/* A gear change in the log, at most 4 a second (the ones between said in the next). */
+static void SoundGearLine(float v, float rpm0)
+{
+	float clock = (float)g_clock;
+	if (clock - g_sndGearLineAt < SND_GEAR_LINE_GAP) {
+		g_sndGearsUnsaid++;
+		return;
+	}
+	char more[48] = "";
+	if (g_sndGearsUnsaid)
+		snprintf(more, sizeof(more), " (%d change%s since the last line not logged)", g_sndGearsUnsaid, g_sndGearsUnsaid == 1 ? "" : "s");
+	g_sndGearLineAt = clock;
+	g_sndGearsUnsaid = 0;
+	Log("sound: gear %d at %.0f u/s, %.0f rpm%s%s", g_sndEng.gear + 1, v, rpm0, g_sndEng.clutch ? " (clutch in)" : "", more);
+}
+
+static void SoundTakeOver(int playing)
+{
+	g_sndCfg = g_snd.cfg;
+	g_sndN = g_snd.loopCount;
+	memcpy(g_sndLoops, g_snd.loops, sizeof(g_sndLoops));
+	EngineReset(&g_sndCfg, &g_sndEng);
+	float v, fwd, gain[ENGINE_MAX_LOOPS], pitch[ENGINE_MAX_LOOPS];
+	int brk;
+	g_sndOwnHave = false;   /* the plugin's own speed (the steering off) measured afresh */
+	g_sndOwnSpeed = g_sndOwnAccel = 0.0f;
+	g_sndOwnPrev = g_speedAlong;
+	SoundInputs(&v, &fwd, &brk);
+	g_sndEng.speedPrev = v;   /* a hand-over may come moving (a load into a ride): no acceleration from rest in its first frame */
+	EngineStep(&g_sndCfg, &g_sndEng, g_sndLoops, g_sndN, g_frameDt, v, fwd, brk);
+	EngineMix(&g_sndCfg, &g_sndEng, g_sndLoops, g_sndN, gain, pitch);
+	g_sndCalls[0] = g_sndCalls[1] = g_sndFailed = 0;
+	g_sndOver1Refused = g_sndOver1Taken = false;   /* learnt afresh on each set (the clamp, once learnt, stays) */
+	for (int i = 0; i < SND_LOOPS; i++) {
+		g_sndRatio[i] = 1.0f;
+		g_sndAtt[i] = 0;
+		g_sndFails[i] = 0;
+	}
+	for (int i = 0; i < g_sndN; i++)
+		SoundSend(i, gain[i], pitch[i], true);   /* the first frame's pitch and level for all, before the script raises their volume */
+	int extra = 0;
+	for (int i = g_sndN; i < SND_LOOPS; i++)
+		if (g_sndIds[i]) {
+			SoundFadeTo(i, SND_SILENT, g_snd.fade);   /* a loop past the Loops table: silent, and left alone */
+			extra++;
+		}
+	g_sndState = SND_DRIVE;
+	g_sndSince = (float)g_clock;
+	g_sndRpmMin = g_sndRpmMax = g_sndEng.rpm;
+	g_sndGearsUsed = 1u << g_sndEng.gear;
+	g_sndGearLineAt = -100.0f;
+	g_sndGearsUnsaid = 0;
+	SetGlobal(g_sndGlobals[SND_LOOPS + 1], g_sndGen);
+	char extraWords[64] = "";
+	if (extra)
+		snprintf(extraWords, sizeof(extraWords), "; %d past the Loops table silenced", extra);
+	Log("sound: generation %g driven (CMB_SndDriven %g): %d loops' pitch and level from the engine model, %s; FadeTo's attenuation taken as hundredths of a dB "
+	    "(0 = full, 10000 = -100 dB: an assumption), %d ms fades, the first of each loop heard over %d ms%s%s", g_sndGen, g_sndGen, g_sndN,
+	    g_sndKeysFromSpeed ? "the throttle read from the speed (the input hook is off)" : "the speed and the keys from the steering", g_snd.fade,
+	    SoundFirstFadeMs(), playing < g_sndN ? " (not all of them playing yet)" : "", extraWords);
+}
+
+/* A new CMB_SndGen: a set of loops offered, or the ids gone to 0. */
+static void SoundOffer(float gen)
+{
+	if (!(gen > 0.0f) || gen != floorf(gen))
+		return;   /* 0: nothing offered yet (a new game, an older script) */
+	float driven = GlobalValue(g_sndGlobals[SND_LOOPS + 1]);
+	if (fabsf(driven) == gen) {
+		/* Answered before: after a load, the save's own set (its ids from before the save mean
+		 * nothing now, or name other sounds); the script's next, after the load, is taken. */
+		Log("sound: generation %g already answered (CMB_SndDriven %g: a save's set, its ids from before the save): left alone", gen, driven);
+		return;
+	}
+	bool any = false;
+	for (int i = 0; i < SND_LOOPS; i++) {
+		g_sndIdsAt[i] = GlobalValue(g_sndGlobals[i]);
+		any |= g_sndIdsAt[i] != 0.0f;
+	}
+	if (!any) {
+		SetGlobal(g_sndGlobals[SND_LOOPS + 1], 0.0f);   /* the script stopped its loops: nothing to drive */
+		return;
+	}
+	g_sndState = SND_WAIT;
+	g_sndGen = gen;
+	g_sndSince = (float)g_clock;
+}
+
+/* A set offered: answered once it can be (the library good, the loops playing), within
+ * SND_ANSWER_WAIT. Not the riding globals: the script offers a set only while riding (with the
+ * menu's three sliders at 0 the globals are all 0 on the bike). */
+static void SoundWait(void)
+{
+	char why[160];
+	float waited = (float)g_clock - g_sndSince;
+	if (!g_snd.drive) {
+		SoundDecline("[Sound] Drive=0");
+		return;
+	}
+	for (int i = 0; i < SND_LOOPS; i++) {
+		float f = g_sndIdsAt[i];
+		bool ok = f >= 1.0f && f < 16777216.0f && f == floorf(f);   /* a whole number a float holds exactly */
+		if (i < g_snd.loopCount ? !ok : f != 0.0f && !ok) {
+			snprintf(why, sizeof(why), "CMB_SndLoop%02d is %g: %s", i + 1, f, i < g_snd.loopCount ? "the set isn't whole" : "not an instance id");
+			SoundDecline(why);
+			return;
+		}
+		g_sndIds[i] = ok ? (uint32_t)f : 0u;
+	}
+	if (!SoundLibraryReady()) {
+		SoundDecline(g_sndLibWhy);
+		return;
+	}
+	int playing = 0;
+	char ids[SND_LOOPS * 12 + 8];
+	size_t len = 0;
+	for (int i = 0; i < g_snd.loopCount; i++) {
+		SoundHandle h = SoundHandleOf(i);
+		playing += g_sndIsPlaying(&h) ? 1 : 0;
+		len += (size_t)snprintf(ids + len, sizeof(ids) - len, "%s%u", i ? " " : "", g_sndIds[i]);
+	}
+	if (playing < g_snd.loopCount && waited < SND_ANSWER_WAIT)
+		return;   /* asked again next frame: a sound can take a frame or two to start */
+	Log("sound: generation %g: loops %s playing %d of %d", g_sndGen, ids, playing, g_snd.loopCount);
+	if (!playing) {
+		SoundDecline("IsPlaying says none of them plays: a Papyrus instance id may not be the sound's id");
+		return;
+	}
+	SoundTakeOver(playing);
+}
+
+/* Every frame of a set driven, till its ids change (the script's StopEngineLoops at every ride's
+ * end: its eleven SetValue calls may span frames, so the first id gone to 0 lets go) or a new
+ * generation comes (SoundFrame). Not the riding globals (SoundWait). */
+static void SoundDrive(void)
+{
+	bool same = true, toZero = true;
+	for (int i = 0; i < SND_LOOPS; i++) {
+		float f = GlobalValue(g_sndGlobals[i]);
+		if (f != g_sndIdsAt[i]) {
+			same = false;
+			toZero &= f == 0.0f;
+		}
+	}
+	if (!same) {
+		SoundEnd(toZero ? "the ids went to 0" : "the ids changed without a new generation", true);
+		return;
+	}
+	float v, fwd, gain[ENGINE_MAX_LOOPS], pitch[ENGINE_MAX_LOOPS];
+	int brk, gear0 = g_sndEng.gear;
+	SoundInputs(&v, &fwd, &brk);
+	float rpm0 = g_sndEng.rpm;
+	EngineStep(&g_sndCfg, &g_sndEng, g_sndLoops, g_sndN, g_frameDt, v, fwd, brk);
+	EngineMix(&g_sndCfg, &g_sndEng, g_sndLoops, g_sndN, gain, pitch);
+	if (g_sndEng.rpm < g_sndRpmMin)
+		g_sndRpmMin = g_sndEng.rpm;
+	if (g_sndEng.rpm > g_sndRpmMax)
+		g_sndRpmMax = g_sndEng.rpm;
+	g_sndGearsUsed |= 1u << g_sndEng.gear;
+	if (g_sndEng.gear != gear0)
+		SoundGearLine(v, rpm0);
+	for (int i = 0; i < g_sndN; i++)
+		SoundSend(i, gain[i], pitch[i], false);
+	for (int i = 0; i < g_sndN; i++)
+		if (g_sndFails[i] >= SND_FAIL_LIMIT) {
+			g_sndState = SND_IDLE;
+			SetGlobal(g_sndGlobals[SND_LOOPS + 1], -g_sndGen);
+			Log("sound: loop %d (id %u): %d calls in a row failed: generation %g no longer driven (CMB_SndDriven %g), the loops left as they were; "
+			    "%d calls (SetFrequency %d, FadeTo %d), %d failed in %.1f s", i + 1, g_sndIds[i], g_sndFails[i], g_sndGen, -g_sndGen,
+			    g_sndCalls[0] + g_sndCalls[1], g_sndCalls[0], g_sndCalls[1], g_sndFailed, (float)g_clock - g_sndSince);
+			return;
+		}
+}
+
+/* Every frame, after the steering (its speed and keys of this frame). */
+static void SoundFrame(void)
+{
+	if (!g_sndGlobals[SND_LOOPS] || !g_sndRead)
+		return;   /* no CMB_Snd globals (an older ESP): the script's crossfade */
+	float gen = GlobalValue(g_sndGlobals[SND_LOOPS]);
+	if (g_sndState != SND_IDLE && gen != g_sndGen) {
+		bool any = false;
+		for (int i = 0; i < SND_LOOPS; i++)
+			any |= GlobalValue(g_sndGlobals[i]) != 0.0f;
+		char why[64];
+		snprintf(why, sizeof(why), any ? "a new set, generation %g" : "the ids went to 0, generation %g", gen);
+		SoundEnd(why, true);
+	}
+	if (gen != g_sndLastGen) {
+		g_sndLastGen = gen;
+		SoundOffer(gen);
+	}
+	if (g_sndState == SND_WAIT)
+		SoundWait();
+	else if (g_sndState == SND_DRIVE)
+		SoundDrive();
+}
+
+/* ------------------------------------------------------------------------- */
 /* Every frame / every IntervalMs                                            */
 /* ------------------------------------------------------------------------- */
 
@@ -11088,6 +12304,7 @@ static void Tick(DWORD now)
 		ReadRamSettings(g_iniPath, false);
 		ReadBackSettings(g_iniPath, false);
 		ReadRoomSettings(g_iniPath, false);
+		ReadSoundSettings(g_iniPath, false);   /* the engine sound's keys and its loop table: an A/B needs no restart (the next hand-over uses them) */
 		/* Test 27: the block of a ride carried into the next one when nothing was held at the
 		 * dismount (the bike's skins had gone first): a ride starts afresh. */
 		g_riderBlocked = false;
@@ -11171,6 +12388,7 @@ static void Frame(void)
 	double t0 = Clock();
 	FrameTime();
 	FrameSteer();
+	SoundFrame();   /* the engine sound (test 44's build): after the steering's speed and keys of this frame */
 	SampleGround();
 	RoomFrame();   /* the brought bike's spot (test 41): the script's ask answered, riding or not */
 	TraceControls();
@@ -11268,6 +12486,7 @@ static void OnF4SEMessage(F4SEMessage *msg)
 		g_pickRetryAt = 0.0f;
 		g_solidMaskRead = false;                /* and the collision layer record read again with it */
 		RoomReadAnswered();                     /* the loaded save's last room answer is the one given (test 41) */
+		SoundLoadReset();                       /* the engine's loops don't survive a load: let go, the generation forgotten */
 		g_pushProven = false;
 		g_pushRetryAt = 0.0f;
 		memset(g_refused, 0, sizeof(g_refused));

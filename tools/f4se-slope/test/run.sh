@@ -8,7 +8,9 @@
 # parts file, the ray under the rear tyre), the arms (test 41: ArmPole and the inside arm's
 # fade) and the brought bike's spot (test 41: the room asks; test 42's answer, the box along the
 # spot's heading and the test ray tried again for an ask, with an ESP of test 42's build too);
-# riding beside a railing (test 42) rides with the climbing. 16 modes. Needs MinGW-w64 and wine64.
+# riding beside a railing (test 42) rides with the climbing; the engine sound (test 44's build: the
+# script's hand-over of its loops played by the harness, the Address Library and the sound functions
+# the fake's own). 17 modes. Needs MinGW-w64 and wine64.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 WORK="$(mktemp -d)"
@@ -51,4 +53,6 @@ PARTS20="${PARTS/BarAngle=10/BarAngle=20}"   # the game's bar angle, so the bars
 run arms 13 "$KNOWN[Tilt]\nMaxRoll=10\nPivotHeight=74\nPivotForward=0\nTorsoLean=8\nTorsoTwist=0.75\nTorsoSideLean=0.25\nBumpMax=0\nLiftRate=0\nSuspension=0\nArmPole=1.1,-0.3,-0.9\nArmPoleTurn=0.35,-0.3,-1.0\nArmPoleTurnBars=10\n$PARTS20"   # test 41's finding 5: the inside arm's fade at 5 and 12 deg of the bars, both arms, ArmPoleTurn=0,0,0 for a ride, the arm lines' figures against the bones; TorsoLean 8 so the arms are solved with the bars straight
 run room 14 "$KNOWN$TILT0[Room]\nBox=1\nSide=40\nFore=110\nRaysRetry=1\n"   # test 41: the brought bike's spot, the controller's room asks played by the harness (modes 14 and 15 only; mode 11 is the ESP without the CMB_Room globals); test 42's spot: Box, Side, Fore and RaysRetry at their defaults, so rides can rewrite Box and RaysRetry to 0
 run roomold 15 "$KNOWN$TILT0"   # test 43: an ESP of test 42's build (the six CMB_Room globals, no CMB_RoomAskAngle) with this plugin: the eight rays as before; no [Room] section, the code's defaults
+SOUND='[Sound]\nDrive=1\nLibrary=\nFirstFade=400\nWander=0.006\nLevelScale=0.3\nLoops=idle:860,on:1400,on:1700,on:2000,on:2400,on:2800,on:3300,off:1400,off:1800,off:2300,off:2800\n'
+run sound 16 "$KNOWN[Tilt]\nTrace=1\nPivotHeight=74\nPivotForward=0\nBumpMax=0\nLiftRate=0\nSuspension=0\n$SOUND"   # test 44's build: the engine sound (mode 16 only); Drive, Library, FirstFade, Wander, LevelScale and Loops at their defaults so the run can rewrite them (the other modes have no [Sound] section: the code's defaults, the driver idle with nothing handed over); Trace=1 for the trace line's engine word
 exit $status

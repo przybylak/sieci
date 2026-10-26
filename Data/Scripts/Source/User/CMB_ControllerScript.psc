@@ -86,9 +86,11 @@ Group Optional
 	Sound Property CMB_EngineStartSound Auto Const
 	Sound Property CMB_EngineStopSound Auto Const
 	Sound Property CMB_EngineIdleSound Auto Const
-	{Looping. Crossfaded with the cruise loop by how fast you're going.}
+	{Looping. Crossfaded with the cruise loop by how fast you're going (with CMB_Slope.dll driving
+	the engine sound, the plugin's first loop: PluginDrivesSound).}
 	Sound Property CMB_EngineCruiseSound Auto Const
-	{Looping.}
+	{Looping. The plugin's fourth (On2000): the package's CMB_EngineCruiseLP.wav is the on-load
+	2000 rpm loop since test 44.}
 	GlobalVariable Property CMB_EngineVolume Auto Const
 	{Engine volume, 0-100. Default 70.}
 	GlobalVariable Property CMB_RidingCameraDistance Auto Const
@@ -178,6 +180,41 @@ Group Optional
 	wide never had room, even where the bike fits lengthwise). The ESP's value, -1000, is none
 	written (an older script): the eight rays. Not Mandatory: an ESP from before test 43 leaves it
 	None, and the spot is asked about without a heading, as before.}
+	Sound Property CMB_EngineOn1400Sound Auto Const
+	Sound Property CMB_EngineOn1700Sound Auto Const
+	Sound Property CMB_EngineOn2400Sound Auto Const
+	Sound Property CMB_EngineOn2800Sound Auto Const
+	Sound Property CMB_EngineOn3300Sound Auto Const
+	Sound Property CMB_EngineOff1400Sound Auto Const
+	Sound Property CMB_EngineOff1800Sound Auto Const
+	Sound Property CMB_EngineOff2300Sound Auto Const
+	Sound Property CMB_EngineOff2800Sound Auto Const
+	{Test 44: the nine riding loops beside the idle and the cruise (On2000) ones, on load and off
+	load at the rpm in their names, looping. Played at no volume with the other two at the end of
+	the start sound and handed to CMB_Slope.dll, which pitches and levels all eleven each frame
+	(PluginDrivesSound); stopped again when it doesn't take them. Not Mandatory: an ESP from
+	before test 44 leaves them None, and the two loops' crossfade plays, as before.}
+	GlobalVariable Property CMB_SndLoop01 Auto Const
+	GlobalVariable Property CMB_SndLoop02 Auto Const
+	GlobalVariable Property CMB_SndLoop03 Auto Const
+	GlobalVariable Property CMB_SndLoop04 Auto Const
+	GlobalVariable Property CMB_SndLoop05 Auto Const
+	GlobalVariable Property CMB_SndLoop06 Auto Const
+	GlobalVariable Property CMB_SndLoop07 Auto Const
+	GlobalVariable Property CMB_SndLoop08 Auto Const
+	GlobalVariable Property CMB_SndLoop09 Auto Const
+	GlobalVariable Property CMB_SndLoop10 Auto Const
+	GlobalVariable Property CMB_SndLoop11 Auto Const
+	GlobalVariable Property CMB_SndGen Auto Const
+	GlobalVariable Property CMB_SndDriven Auto Const
+	{Test 44: the engine loops handed to CMB_Slope.dll (optional, F4SE). This script writes each
+	loop's instance id to SndLoop01..11 in the order of the plugin's [Sound] Loops line
+	(EngineLoopCount: the idle, on load 1400, 1700, 2000 (the cruise loop), 2400, 2800, 3300, off
+	load 1400, 1800, 2300, 2800), then a new number in SndGen, last: a new set of loops, or with all
+	eleven 0 none (the ride is over, or the set withdrawn). The plugin answers in SndDriven: the
+	number when it drives that set, minus it when it declines it (its log says why), 0 when it has
+	let go. Not Mandatory: an ESP from before test 44 leaves them None, and the two loops' crossfade
+	plays.}
 EndGroup
 
 ; ---------------------------------------------------------------------------
@@ -236,6 +273,34 @@ float Property EngineStartLength = 2.4 AutoReadOnly
 {The start sound ends on idle; the loops take over after it.}
 float Property CruiseSpeed = 700.0 AutoReadOnly
 {Units per second at which only the cruise loop is heard.}
+bool Property PluginDrivesSound = true AutoReadOnly
+{Test 44: true: with CMB_Slope.dll (F4SE) and an ESP that has the CMB_Snd globals, eleven engine
+loops play from the end of the start sound (the idle and cruise ones as before, nine more at no
+volume) and are handed to the plugin, which sets each one's pitch and level every frame from an
+rpm, gear and load model of the bike's speed and the forward key (its [Sound] section); the script
+then keeps only the MCM's engine volume on them (UpdateEngineSound). Without the plugin, with an
+older ESP, or when the plugin declines them or lets go of them (its log says why), the idle and
+cruise loops play crossfaded by speed once a tick, as before. False: that crossfade only, as before
+test 44. A script constant, as CheckBikeSpot is.}
+int Property EngineLoopCount = 11 AutoReadOnly
+{The loops handed over, in the order of the CMB_SndLoop globals and the plugin's [Sound] Loops
+line: 0 the idle (860 rpm), 1-6 on load (1400, 1700, 2000, 2400, 2800, 3300), 7-10 off load
+(1400, 1800, 2300, 2800). The cruise loop is number 3 (On2000).}
+int Property CruiseLoop = 3 AutoReadOnly
+int Property MaxSoundId = 16777216 AutoReadOnly
+{2^24: a float holds every whole number below it exactly, so a larger instance id can't be written
+to a global; the loops aren't handed over then, and the crossfade plays.}
+float Property SoundAnswerWait = 0.5 AutoReadOnly
+{The plugin's answer to a new set of loops is waited for this long, polled every SoundPollInterval:
+counted polls, a frame or more each, so the plugin gets ten frames even through a slow one. It
+answers within a frame or two; none in this long means no plugin (or one from before test 44), and
+the crossfade plays.}
+float Property SoundPollInterval = 0.05 AutoReadOnly
+bool Property StopEngineAtDeath = true AutoReadOnly
+{Test 44's audit of the ways a ride ends: a death ends in a load, which stops every sound, but till
+then the engine idled on beside the body through the death camera. True: the ride tick that finds
+the rider dead stops the engine loops (nothing else: the load undoes the rest). False: they play on
+until the load, as before test 44.}
 float Property TickInterval = 1.0 AutoReadOnly
 float Property DeliveryRetryInterval = 20.0 AutoReadOnly
 float Property MountRange = 350.0 AutoReadOnly
@@ -339,6 +404,17 @@ bool riding = false
 bool busy = false
 int engineIdle = 0
 int engineCruise = 0
+; Test 44, the loops handed to the plugin (PluginDrivesSound): all eleven instance ids in the
+; CMB_SndLoop globals' order (the idle's and the cruise's too), None while only those two play.
+int[] engineLoops
+; StopEngineLoops counts here: a start or a hand-off that finds it changed was overtaken by a ride
+; end or a newer start, whose stop has taken the loops back.
+int engineSet = 0
+int sndGen = 0         ; the last number written to CMB_SndGen
+int offeredGen = 0     ; the number the CMB_Snd globals hold a set of loops for (0: none)
+bool soundDriven = false
+int drivenGen = 0      ; the set the plugin drives while soundDriven
+float drivenVolume = -1.0   ; the engine volume last put on its loops
 bool keysDelivered = false
 bool riderPoseApplied = false
 float playerSpeedDelta = 0.0
@@ -477,6 +553,9 @@ Function OnGameReloaded()
 	if bag
 		bag.OnGameReloaded()
 	endif
+	; Before the ride's setup below: its engine sound offer waits up to SoundAnswerWait for the
+	; plugin's answer (test 44), which held the hotkey up on every load into a ride.
+	RefreshHotkey()
 
 	if !riding && headlampRef
 		RemoveHeadlamp()
@@ -514,12 +593,15 @@ Function OnGameReloaded()
 		; Sounds don't survive a load, and their old instance numbers mean nothing now.
 		engineIdle = 0
 		engineCruise = 0
+		; Test 44: nor the plugin's eleven, nor its hold on them. The CMB_Snd globals still hold the
+		; save's set (offeredGen says so): StartEngineLoops' stop withdraws it before the new one.
+		engineLoops = None
+		soundDriven = false
 		StartEngineLoops()
 	elseif bikeAtDoor
 		; The bike waits at a door: the way out is watched for (as riding's is, put back here).
 		RegisterForPlayerTeleport()
 	endif
-	RefreshHotkey()
 EndFunction
 
 ; Defaults that changed: a save that still has the old value gets the new one, once.
@@ -1837,6 +1919,11 @@ Function RideTick()
 	if busy || !riding
 		return
 	endif
+	if StopEngineAtDeath && (engineIdle > 0 || engineCruise > 0) && PlayerRef.IsDead()
+		; Test 44: the death camera, before the load that ends the ride (StopEngineAtDeath).
+		StopEngineLoops()
+		Log("Engine sound: the rider is dead: the engine loops stopped (the load that follows ends the ride).")
+	endif
 	CheckTiltLive()
 	if wornSlotToLog
 		; Test 41: the bike's slot, read a tick after the equip (EquipBike).
@@ -2038,6 +2125,11 @@ Function FinishRide()
 		PlaySound(CMB_EngineStopSound)
 	endif
 	riding = false
+	; Test 44: a ride end overlapping the start (the hotkey or the keys just after getting on, deep
+	; water) found its loops still in their Play above, ids not yet kept, and StartEngineLoops looked
+	; at riding before this: stopped again now (nothing to do when none plays). A start that looks
+	; after this stops them itself (StartEngineLoops, OfferEngineLoops).
+	StopEngineLoops()
 	; Watched again if the bike waits at a door or the keys are still to come.
 	UpdateTeleportWatch()
 	StartTimer(CleanupDelay, TimerCleanup)
@@ -2971,12 +3063,16 @@ float Function EngineVolume()
 	return volume
 EndFunction
 
-; Two loops play while riding: idle and cruise, crossfaded by speed each tick.
-Function StartEngineLoops()
+; Two loops play while riding: idle and cruise, crossfaded by speed each tick. Test 44
+; (PluginDrivesSound): nine more join them and CMB_Slope.dll takes all eleven (OfferEngineLoops);
+; when it doesn't, the crossfade plays as before. abOffer false: the two only, not offered (the
+; plugin let go of the eleven mid-ride: UpdateEngineSound).
+Function StartEngineLoops(bool abOffer = true)
 	StopEngineLoops()
 	if EngineVolume() <= 0.0
 		return
 	endif
+	int set = engineSet
 	if CMB_EngineIdleSound
 		engineIdle = CMB_EngineIdleSound.Play(PlayerRef)
 	endif
@@ -2984,9 +3080,287 @@ Function StartEngineLoops()
 		engineCruise = CMB_EngineCruiseSound.Play(PlayerRef)
 	endif
 	UpdateEngineSound(0.0)
+	if !PluginDrivesSound
+		return
+	elseif !riding
+		; Test 44: the ride ended while the two were starting, and its stop may have come before
+		; their ids did: stopped now, not left playing on.
+		StopEngineLoops()
+	elseif abOffer && engineSet == set
+		OfferEngineLoops(set)
+	endif
 EndFunction
 
+; Test 44: the nine more loops, each at no volume at once (the plugin brings each in at its own
+; level), the eleven ids to the CMB_SndLoop globals in order and the generation last (the plugin
+; reads them all once it's new); then the plugin's answer in CMB_SndDriven, waited for
+; SoundAnswerWait. Run from the TimerEngine event or the load's OnGameReloaded, outside busy, so the
+; waits hold up nothing; a ride end meanwhile (FinishRide's stop, which counts engineSet up) ends
+; it. aiSet: engineSet when the two loops were started.
+Function OfferEngineLoops(int aiSet)
+	if !SoundGlobalsThere()
+		Log("Engine sound: the script's crossfade (the ESP has no CMB_Snd globals or the nine loops for the plugin).")
+		return
+	endif
+	int[] ids = new int[11]
+	ids[0] = engineIdle
+	ids[CruiseLoop] = engineCruise
+	engineLoops = ids
+	int i = 1
+	while i < EngineLoopCount
+		if i != CruiseLoop
+			int id = LoopSound(i).Play(PlayerRef)
+			; Kept at once, so a stop from here on finds it.
+			ids[i] = id
+			if id > 0
+				Sound.SetInstanceVolume(id, 0.0)
+			endif
+			if engineSet != aiSet
+				; A ride end (or a newer start) came between the plays: its stop may have missed the
+				; latest. Stopped here; the two as well if the ride is over.
+				StopExtraLoops(ids)
+				if !riding
+					StopEngineLoops()
+				endif
+				return
+			endif
+		endif
+		i += 1
+	endwhile
+	; Each id goes to a float: whole numbers under 2^24 are exact. A play that failed (0) or a
+	; larger id can't be handed over.
+	i = 0
+	while i < EngineLoopCount
+		if ids[i] <= 0 || ids[i] >= MaxSoundId
+			int bad = ids[i]
+			; Dropped before the log line, whose call lets a stop run: then engineLoops is no longer ours.
+			DropExtraLoops()
+			Log("Engine sound: the script's crossfade (loop " + (i + 1) + ", " + LoopName(i) + ", has the instance id " + bad + ": " + Ternary(bad <= 0, "it didn't play", "too large for a global") + ").")
+			return
+		endif
+		i += 1
+	endwhile
+	int gen = NextSoundGen()
+	; Before the writes, so a stop between them withdraws what they wrote.
+	offeredGen = gen
+	i = 0
+	while i < EngineLoopCount
+		LoopGlobal(i).SetValue(ids[i] as float)
+		if engineSet != aiSet
+			return   ; that stop has withdrawn the set
+		endif
+		i += 1
+	endwhile
+	CMB_SndGen.SetValue(gen as float)
+	; Counted polls, not summed waits (as RoomAt): ten 0.05s don't add up to 0.5 exactly in a float.
+	int polls = (SoundAnswerWait / SoundPollInterval + 0.5) as int
+	int poll = 0
+	while poll < polls
+		Utility.Wait(SoundPollInterval)
+		poll += 1
+		float answer = CMB_SndDriven.GetValue()
+		; Looked at after both calls, with none between this and what's done below.
+		if engineSet != aiSet
+			; A ride end or a newer start: its stop has taken the loops back and withdrawn the set.
+			return
+		endif
+		if answer == (gen as float)
+			; Claimed before the calls below, which let a ride tick run: its UpdateEngineSound
+			; mustn't crossfade the idle and cruise loops from here on.
+			soundDriven = true
+			drivenGen = gen
+			drivenVolume = EngineVolume()
+			Log("Engine sound: the plugin drives the " + EngineLoopCount + " loops (generation " + gen + ", answered in poll " + poll + ").")
+			SetLoopsVolume(drivenVolume)
+			return
+		elseif answer == -(gen as float)
+			DropExtraLoops()
+			Log("Engine sound: the script's crossfade (the plugin declined generation " + gen + ": see its log).")
+			return
+		endif
+	endwhile
+	DropExtraLoops()
+	; The literal, not the float: Papyrus prints 0.500000 (SoundAnswerWait).
+	Log("Engine sound: the script's crossfade (the plugin didn't answer in 0.5 s, generation " + gen + ").")
+EndFunction
+
+; Test 44: the handed-over set falls back to the crossfade: the nine more loops stopped, the idle
+; and cruise ones kept, and the set withdrawn from the globals.
+Function DropExtraLoops()
+	; Taken and withdrawn before any call that lets another thread run: both are still this set's.
+	int[] ids = engineLoops
+	engineLoops = None
+	WithdrawLoops()
+	if ids
+		StopExtraLoops(ids)
+	endif
+EndFunction
+
+; The nine besides the idle's (0) and the cruise's: those two are engineIdle and engineCruise.
+Function StopExtraLoops(int[] akIds)
+	int i = 1
+	while i < akIds.Length
+		if i != CruiseLoop && akIds[i] > 0
+			Sound.StopInstance(akIds[i])
+		endif
+		i += 1
+	endwhile
+EndFunction
+
+; Test 44: the globals cleared and a new generation with no loops in it, so the plugin lets go of
+; the last set (CMB_SndDriven 0) and makes no call on those ids again. Only when they hold one.
+Function WithdrawLoops()
+	if offeredGen == 0 || !SoundGlobalsThere()
+		return
+	endif
+	; Cleared before the writes (calls that let another thread run): withdrawn once.
+	offeredGen = 0
+	int i = 0
+	while i < EngineLoopCount
+		LoopGlobal(i).SetValue(0.0)
+		i += 1
+	endwhile
+	CMB_SndGen.SetValue(NextSoundGen() as float)
+EndFunction
+
+; A number not used before, as RoomAt's asks are: the global's (a save's, after a load) or the last
+; one written, whichever is larger, plus one. Well within a float's whole numbers; a wrap at a million
+; is never seen (two or three a ride).
+int Function NextSoundGen()
+	int n = CMB_SndGen.GetValue() as int
+	if n < sndGen
+		n = sndGen
+	endif
+	n += 1
+	if n > 1000000
+		n = 1
+	endif
+	sndGen = n
+	return n
+EndFunction
+
+Function SetLoopsVolume(float afVolume)
+	int[] ids = engineLoops
+	if !ids
+		return
+	endif
+	int i = 0
+	while i < ids.Length
+		if ids[i] > 0
+			Sound.SetInstanceVolume(ids[i], afVolume)
+		endif
+		i += 1
+	endwhile
+EndFunction
+
+; Test 44: the ESP's globals and loops for the plugin (an ESP from before test 44 has none).
+bool Function SoundGlobalsThere()
+	if !CMB_SndGen || !CMB_SndDriven
+		return false
+	endif
+	int i = 0
+	while i < EngineLoopCount
+		if !LoopGlobal(i) || !LoopSound(i)
+			return false
+		endif
+		i += 1
+	endwhile
+	return true
+EndFunction
+
+; The loops in the order of the CMB_SndLoop globals and the plugin's [Sound] Loops line.
+Sound Function LoopSound(int aiLoop)
+	if aiLoop == 0
+		return CMB_EngineIdleSound
+	elseif aiLoop == 1
+		return CMB_EngineOn1400Sound
+	elseif aiLoop == 2
+		return CMB_EngineOn1700Sound
+	elseif aiLoop == 3
+		return CMB_EngineCruiseSound
+	elseif aiLoop == 4
+		return CMB_EngineOn2400Sound
+	elseif aiLoop == 5
+		return CMB_EngineOn2800Sound
+	elseif aiLoop == 6
+		return CMB_EngineOn3300Sound
+	elseif aiLoop == 7
+		return CMB_EngineOff1400Sound
+	elseif aiLoop == 8
+		return CMB_EngineOff1800Sound
+	elseif aiLoop == 9
+		return CMB_EngineOff2300Sound
+	elseif aiLoop == 10
+		return CMB_EngineOff2800Sound
+	endif
+	return None
+EndFunction
+
+GlobalVariable Function LoopGlobal(int aiLoop)
+	if aiLoop == 0
+		return CMB_SndLoop01
+	elseif aiLoop == 1
+		return CMB_SndLoop02
+	elseif aiLoop == 2
+		return CMB_SndLoop03
+	elseif aiLoop == 3
+		return CMB_SndLoop04
+	elseif aiLoop == 4
+		return CMB_SndLoop05
+	elseif aiLoop == 5
+		return CMB_SndLoop06
+	elseif aiLoop == 6
+		return CMB_SndLoop07
+	elseif aiLoop == 7
+		return CMB_SndLoop08
+	elseif aiLoop == 8
+		return CMB_SndLoop09
+	elseif aiLoop == 9
+		return CMB_SndLoop10
+	elseif aiLoop == 10
+		return CMB_SndLoop11
+	endif
+	return None
+EndFunction
+
+string Function LoopName(int aiLoop)
+	if aiLoop == 0
+		return "Idle"
+	elseif aiLoop <= 6
+		return "On" + LoopRpm(aiLoop)
+	endif
+	return "Off" + LoopRpm(aiLoop)
+EndFunction
+
+int Function LoopRpm(int aiLoop)
+	if aiLoop == 0
+		return 860
+	elseif aiLoop == 1 || aiLoop == 7
+		return 1400
+	elseif aiLoop == 2
+		return 1700
+	elseif aiLoop == 3
+		return 2000
+	elseif aiLoop == 4
+		return 2400
+	elseif aiLoop == 5 || aiLoop == 10
+		return 2800
+	elseif aiLoop == 6
+		return 3300
+	elseif aiLoop == 8
+		return 1800
+	endif
+	return 2300
+EndFunction
+
+; Every loop it started stopped, and their ids forgotten. Test 44: the set handed to the plugin
+; withdrawn first (so it lets go before the ids die), and the nine more stopped too.
 Function StopEngineLoops()
+	engineSet += 1
+	soundDriven = false
+	int[] ids = engineLoops
+	engineLoops = None
+	WithdrawLoops()
 	if engineIdle > 0
 		Sound.StopInstance(engineIdle)
 	endif
@@ -2995,10 +3369,31 @@ Function StopEngineLoops()
 	endif
 	engineIdle = 0
 	engineCruise = 0
+	if ids
+		StopExtraLoops(ids)
+	endif
 EndFunction
 
 Function UpdateEngineSound(float afStepDistance)
 	float volume = EngineVolume()
+	if soundDriven
+		; Test 44: the plugin pitches and levels the eleven; the script keeps only the MCM's volume on
+		; them, put on again when it changes. A plugin that has let go of them (CMB_SndDriven no longer
+		; the generation: its log says why) left its last pitch and level on each, so the two the
+		; crossfade plays are started afresh, the others stopped.
+		float driven = CMB_SndDriven.GetValue()
+		if !soundDriven
+			; A stop came during the call (a ride end, or a newer start): nothing here is ours now.
+			return
+		elseif driven != (drivenGen as float)
+			Log("Engine sound: the plugin let go of generation " + drivenGen + " (CMB_SndDriven reads " + Whole(driven) + "): the script's crossfade, its two loops started afresh.")
+			StartEngineLoops(false)
+		elseif volume != drivenVolume
+			drivenVolume = volume
+			SetLoopsVolume(volume)
+		endif
+		return
+	endif
 	float load = afStepDistance / (CruiseSpeed * TickInterval)
 	if load > 1.0
 		load = 1.0
