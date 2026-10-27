@@ -2,6 +2,7 @@
 """A ride through the engine model (engine_model.py), rendered the way the game plays it.
 
   python3 -I render.py --loops <dir> --out ride.wav [--stepped] [--table idle:860,on:1400,...] [--cfg '{"ShiftRpm": 2600}']
+                       [--ride ride.csv]
 
 The ride (31 s, the demo ride every demo of the engine sound has used): 0-2.4 s the start sound (the loops silent),
 2.4-6 idle, 6-10 full throttle from rest, 10-16 the top speed (900 u/s) with the key held, 16-19 key released (the
@@ -20,6 +21,10 @@ CMB_EngineIdleLP.wav, on:R is CMB_EngineOn<R>LP.wav and off:R is CMB_EngineOff<R
 except on:2000, the cruise sound record's CMB_EngineCruiseLP.wav (CMB_EngineOn2000LP.wav in a set built before it took
 that name, demo D's: read when there is no CMB_EngineCruiseLP.wav). The CSVs name the voices by their table entry.
 --cfg overrides model constants (engine_model.DEFAULTS' names), as a JSON object or a path to a JSON file.
+
+--ride plays a recorded ride instead of the demo ride: a CSV with the header t,speed,forward,braking[,held] (seconds,
+units a second, 0/1, 0/1, 0/1: the plugin's trace replayed, say), the speed interpolated between rows and the keys held
+from each row. It starts 2.4 s in (after the start sound) and is followed by 3 s at rest and the stop sound.
 
 Writes the WAV (mono 16-bit, peak-normalised to 0.89), <out>.csv (the model's state at 10 Hz: t, speed, forward,
 gear, rpm, load, the rider's load, the on-family weight, clutch in, in an up-shift, coasting, the level in dB) and
@@ -108,8 +113,32 @@ def ride_profile():
     return at
 
 
+def csv_profile(path, offset=2.4):
+    """(t) -> (speed, forward, braking, held) from a ride CSV (t,speed,forward,braking[,held]), its first row at offset s;
+    and the ride's length."""
+    rows = []
+    with open(path) as fh:
+        head = fh.readline().strip().split(",")
+        for ln in fh:
+            if ln.strip():
+                rows.append([float(x) for x in ln.split(",")])
+    a = np.array(rows)
+    t = a[:, 0] - a[0, 0]
+    col = {n: i for i, n in enumerate(head)}
+
+    def at(tt):
+        x = tt - offset
+        if x < 0.0 or x > t[-1]:
+            return 0.0, 0.0, False, False
+        i = min(len(t) - 1, int(np.searchsorted(t, x, side="right")) - 1)
+        v = float(np.interp(x, t, a[:, col["speed"]]))
+        hd = bool(a[i, col["held"]]) if "held" in col else False
+        return v, float(a[i, col["forward"]]), bool(a[i, col["braking"]]) and v > 10.0, hd
+    return at, float(t[-1])
+
+
 def render(loops_dir, cfg, loops_on, loops_off, idle, T=31.0, start=(0.0, "CMB_EngineStart"), stop=(28.0, "CMB_EngineStop"),
-           run_from=2.2, run_to=28.2, step_pitch=False, phase_seed=None):
+           run_from=2.2, run_to=28.2, step_pitch=False, phase_seed=None, profile=None):
     """Returns (rows, the raw mix, the voices' names). rows: (t, v, fwd, gear, rpm, load, rider load, on-family weight,
     {loop: (gain, pitch)}, clutch, in_shift, coasting, level dB). phase_seed: start every loop at a random point
     instead (the game starts them together, so their relative phase at a hand-over is arbitrary)."""
@@ -121,7 +150,7 @@ def render(loops_dir, cfg, loops_on, loops_off, idle, T=31.0, start=(0.0, "CMB_E
             raise SystemExit(f"{n}.wav: {s} Hz; 44100 expected")
         buf[n] = x / (np.sqrt(np.mean(x ** 2)) + 1e-12) * 0.1
     eng = Engine(list(loops_on), list(loops_off), tuple(idle), cfg)
-    prof = ride_profile()
+    prof = profile or ride_profile()
     N = int(T * SR)
     out = np.zeros(N)
     pos = {n: 0.0 for n in names}
@@ -135,8 +164,8 @@ def render(loops_dir, cfg, loops_on, loops_off, idle, T=31.0, start=(0.0, "CMB_E
     ramp = np.linspace(0, 1, spf, endpoint=False)
     for f in range(N // spf):
         t = f / FPS
-        v, fwd, brk = prof(t)
-        mix = eng.step(1.0 / FPS, v, fwd, brk)
+        v, fwd, brk, *held = prof(t)
+        mix = eng.step(1.0 / FPS, v, fwd, brk, bool(held and held[0]))
         run = 1.0 if run_from <= t < run_to else 0.0
         if t < run_from + 0.3 and run:
             run = (t - run_from) / 0.3
@@ -195,12 +224,18 @@ def main() -> int:
     ap.add_argument("--table", default=TABLE, help="the loop set as family:rpm,... (the plugin INI's Loops form)")
     ap.add_argument("--cfg", default=None, help="model constants to override: a JSON object or a JSON file")
     ap.add_argument("--phase-seed", type=int, default=None, help="start each loop at a random point (seeded)")
+    ap.add_argument("--ride", default=None, help="a recorded ride (CSV t,speed,forward,braking[,held]) instead of the demo ride")
     a = ap.parse_args()
     cfg = None
     if a.cfg:
         cfg = json.load(open(a.cfg)) if os.path.isfile(a.cfg) else json.loads(a.cfg)
     on, off, idle = parse_table(a.table)
-    rows, mix, names = render(a.loops, cfg, on, off, idle, step_pitch=a.stepped, phase_seed=a.phase_seed)
+    kw = {}
+    if a.ride:
+        prof, length = csv_profile(a.ride)
+        T = 2.4 + length + 3.0
+        kw = dict(profile=prof, T=T, stop=(T - 3.0, "CMB_EngineStop"), run_to=T - 2.8)
+    rows, mix, names = render(a.loops, cfg, on, off, idle, step_pitch=a.stepped, phase_seed=a.phase_seed, **kw)
     a.out.parent.mkdir(parents=True, exist_ok=True)
     write(a.out, mix / np.max(np.abs(mix)) * 0.89, SR)
     write_csv(rows, names, a.out.with_suffix(".csv"), a.out.with_name(a.out.stem + "_frames.csv"))

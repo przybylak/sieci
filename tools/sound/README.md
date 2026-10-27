@@ -14,8 +14,8 @@ sh tools/sound/run_all.sh <demodave's idle.wav> [out dir]          # everything,
 | `make_grain_loops.py` | Pulse-grain loops for the riding range. Every firing pulse of the recording's 34 blips and the falls after them is found, typed (the V-twin's A and B pulses) and timed. A loop at R rpm lays real pulses at R's firing times, each drawn at random from the pulses nearest R. Ten loops: on load at 1400 to 3300 rpm, throttle shut at 1400 to 2800 rpm. Writes them limited and unlimited, plus each pulse's attack. |
 | `make_piece_loops.py` | The files cut from the recording itself. These are the idle loop (92.0 to 98.3 s), the start (0.25 to 2.6 s) and the stop (158.6 to 160.6 s), plus the 2300 rpm closed-throttle loop made from 18 flattened pieces of its falls. Before that it finds every engine cycle in the recording with a dechirped comb map and a cycle walker. |
 | `build_loops.py` | The shipped set. Each riding loop's tone is matched to the reference ride: a third-octave EQ, the brightness law, the attacks, the half-order line pattern on 1400, 1700 and 2000, and the pulse-to-pulse brightness. Each loop is then levelled to -13.5 dBFS RMS through a look-ahead limiter. The idle, start and stop are copied as they are. The 2000 rpm loop on load is written as `CMB_EngineCruiseLP.wav`, the file the cruise sound record plays. |
-| `engine_model.py` | The engine model: rpm, gear, load, and each loop's pitch and level, frame by frame. The plugin's C port follows it, and every constant's measured basis is in its `DEFAULTS`. |
-| `render.py` | Renders the demo ride through the model and a loop set, the way the game plays it. Writes a WAV and CSVs of the model's state. |
+| `engine_model.py` | The engine model: rpm, gear, load, and each loop's pitch and level, frame by frame. The plugin's C port follows it, and every constant's measured basis is in its `DEFAULTS`. Since test 45's build the gears follow a "heard speed" with a real ride's limits rather than the game's bike (`HeardSpeed` and the keys after it). |
+| `render.py` | Renders the demo ride, or a recorded one (`--ride`), through the model and a loop set, the way the game plays it. Writes a WAV and CSVs of the model's state. |
 | `run_all.sh` | Runs all of the above, end to end. |
 | `make_engine_sounds.py` | The old synthesiser: the fallback set (see below). |
 
@@ -78,6 +78,7 @@ You can audition a change before it goes into the plugin's INI:
 ```
 python3 -I tools/sound/render.py --loops <loops> --out ride.wav --cfg '{"ShiftRpm": 2600, "Wander": 0.0}'
 python3 -I tools/sound/render.py --loops <loops> --out ride.wav --table idle:860,on:1400,on:2000,off:1800
+python3 -I tools/sound/render.py --loops <loops> --out ride.wav --ride ride.csv
 ```
 
 - `--cfg` takes `engine_model.DEFAULTS` names, as a JSON object or a JSON file. The plugin's `[Sound]` section has a
@@ -86,6 +87,14 @@ python3 -I tools/sound/render.py --loops <loops> --out ride.wav --table idle:860
   means `CMB_EngineOn<R>LP.wav` and `off:R` means `CMB_EngineOff<R>LP.wav`, except `on:2000`, which is
   `CMB_EngineCruiseLP.wav` (or `CMB_EngineOn2000LP.wav` when that isn't there: a set built before the cruise took
   that name, as demo D's was). The CSVs name each loop by its table entry.
+- `--ride` plays a recorded ride instead of the demo ride: a CSV with the header `t,speed,forward,braking[,held]`
+  (seconds, units a second, then 0 or 1 each; `held` is the plugin holding the throttle for something ahead). The
+  speed is interpolated between rows and the keys kept from each row. The ride starts 2.4 s in, after the start sound,
+  and ends with 3 s at rest and the stop sound. Demo E (test 45's build) is 51 s of test 44's ride, its speed and keys
+  every 0.25 s from the plugin's log, rendered this way.
+- Test 44's model is `--cfg '{"HeardSpeed": 0, "CoastFall": 70, "DownRpm": 1750, "ClutchFall": 900, "LevelScale": 0.3,
+  "LaunchDraw": [0, 0], "LaunchRise": 0, "ShiftDraw": [0, 0], "DownHold": 0, "DownHeld": 0}'`, the same values the
+  INI's comments give.
 - The CSV (`ride.csv`, 10 rows a second) gives the gear, rpm, load, on-family weight, clutch, shift and coast state,
   and the level. `ride_frames.csv` gives every frame's gain and pitch per loop.
 

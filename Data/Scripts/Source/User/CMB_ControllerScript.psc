@@ -171,8 +171,9 @@ Group Optional
 	ray the nearest hit was, on the bike's 110 (test 43: a hit on a side ray of the bike-shaped box
 	scaled to its length), or the ground's offset when that refused it (minus for above), exactly
 	-1 with no ground within 100 of the asked Z, exactly -2 when the plugin's rays aren't working
-	there, which counts as not checked). Not Mandatory: an ESP from before test 41 leaves them
-	None, and no spot is checked.}
+	there, which counts as not checked, exactly -3 (test 44, the plugin's [Room] Line) when the
+	line from the player to the spot is blocked: a fence or a wall between them). Not Mandatory:
+	an ESP from before test 41 leaves them None, and no spot is checked.}
 	GlobalVariable Property CMB_RoomAskAngle Auto Const
 	{Test 43: the spot's heading, the player's GetAngleZ in degrees, written with the spot before
 	the ask's number, so CMB_Slope.dll checks a bike-shaped box along it ([Room] Box: 110 fore and
@@ -234,6 +235,15 @@ float Property ShoreDelay = 3.0 AutoReadOnly
 float Property ShoreRetryInterval = 10.0 AutoReadOnly
 float Property MaxSettleDistance = 400.0 AutoReadOnly
 {The parked bike snaps to walkable ground, unless that's farther than this.}
+float Property SpotSettleMax = 30.0 AutoReadOnly
+{Test 44: called by Sanctuary's houses, the bike was checked with room at a spot and then moved
+about 250 by SettleBike's snap to the nearest navmesh (MaxSettleDistance 400), into a hedge. The
+brought bike at a spot the plugin found room at (its ground known from CMB_RoomClear) keeps the
+snap only if it lands within this of the checked spot's ground; farther, the snap is undone: the
+bike is put back on the checked spot, level on its ground (the smaller change than trying the
+next spot, which would need a snap per spot; the spots after it were not the plugin's choice).
+Each such settle is logged ("The bike settled N from the checked spot"). 0: the snap taken as
+far as MaxSettleDistance, as in test 44's build.}
 float Property MaxGroundStep = 30.0 AutoReadOnly
 {The ground under the player, carried over to the bike beside them, may be this much
 higher or lower there; more and the bike is parked level at the player's height (one
@@ -490,6 +500,11 @@ float spotX   ; the spot PickBikeSpot found room at: its world x, y and the play
 float spotY
 float spotAngle
 bool spotKnown = false
+; Test 44: the checked spot's ground (the asked height less CMB_RoomClear, with room), for
+; SettleBike's SpotSettleMax; spotGroundKnown false for a spot taken without room (the most room,
+; or not checked).
+float spotGround
+bool spotGroundKnown = false
 ; The last answer's CMB_RoomClear (RoomAt; 0 when there was none), for CallTakesBestSpot.
 float lastRoomClear = 0.0
 Actor[] stowedFollowers
@@ -1287,7 +1302,8 @@ bool Function RollBikeUp(bool abFromDoor = false)
 			PlaceBike(SpotForward(spot), SpotRight(spot))
 		endif
 		BikeRef.Enable(true)
-		SettleBike()
+		; Test 44: the snap measured against the checked spot (SpotSettleMax).
+		SettleBike(false, spotKnown && spotGroundKnown)
 	endif
 	bikeWaitsForShore = false
 	ForgetDoor()
@@ -1306,6 +1322,7 @@ EndFunction
 ; choice.
 int Function PickBikeSpot(bool abFromDoor)
 	spotKnown = false
+	spotGroundKnown = false
 	if !CheckBikeSpot
 		return 0
 	endif
@@ -1362,6 +1379,9 @@ int Function PickBikeSpot(bool abFromDoor)
 			spotY = y
 			spotAngle = angle
 			spotKnown = true
+			; With room CMB_RoomClear is how far under the asked height (the player's, pz) the ground is.
+			spotGround = pz - lastRoomClear
+			spotGroundKnown = true
 			return spot
 		elseif room < 0 && CallTakesBestSpot && !abFromDoor && lastRoomClear > 0.0 && lastRoomClear <= 200.0 && lastRoomClear > bestClear
 			; Refused for a hit along a ray (a share of the plugin's Fore, which the INI allows up to
@@ -1461,6 +1481,9 @@ int Function RoomAt(float afX, float afY, float afZ, int aiSpot, float afAngle, 
 			if clear == -2.0
 				Log(try + "not checked (the plugin's rays aren't working here)" + asUnchecked)
 				return -2
+			elseif clear == -3.0
+				; Test 44 (the plugin's [Room] Line): a fence or a wall between the player and the spot.
+				Log(try + "none (no clear line from the player to it).")
 			elseif clear == -1.0
 				Log(try + "none (no ground within 100 of the spot).")
 			elseif clear < 0.0
@@ -2274,12 +2297,27 @@ EndFunction
 ; - no navmesh near (steep rock): abBesidePlayer, the plane under the player's feet
 ;   carried over to the bike, if that moves it at most MaxGroundStep up or down;
 ;   otherwise level where it was put.
-Function SettleBike(bool abBesidePlayer = false)
+; Test 44: abChecked, the brought bike at a spot the plugin found room at (spotX/Y, spotGround):
+; a snap farther than SpotSettleMax from it is undone, the bike put back there level.
+Function SettleBike(bool abBesidePlayer = false, bool abChecked = false)
 	float angle = BikeRef.GetAngleZ()
 	float x = BikeRef.GetPositionX()
 	float y = BikeRef.GetPositionY()
 	float z = BikeRef.GetPositionZ()
 	BikeRef.MoveToNearestNavmeshLocation()
+	if abChecked && SpotSettleMax > 0.0
+		float sx = BikeRef.GetPositionX() - spotX
+		float sy = BikeRef.GetPositionY() - spotY
+		float sz = BikeRef.GetPositionZ() - spotGround
+		float off = Math.Sqrt(sx * sx + sy * sy + sz * sz)
+		if off > SpotSettleMax
+			BikeRef.SetPosition(spotX, spotY, spotGround)
+			BikeRef.SetAngle(0.0, 0.0, angle)
+			Log("The bike settled " + Whole(off) + " from the checked spot (the navmesh snap), over " + Whole(SpotSettleMax) + ": put back on the checked spot, level on its ground.")
+			return
+		endif
+		Log("The bike settled " + Whole(off) + " from the checked spot (the navmesh snap, " + Whole(SpotSettleMax) + " at most).")
+	endif
 	float dx = BikeRef.GetPositionX() - x
 	float dy = BikeRef.GetPositionY() - y
 	float dz = BikeRef.GetPositionZ() - z

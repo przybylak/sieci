@@ -402,7 +402,7 @@ static float g_dropPoint[2], g_dropDir[2];
 static float g_dropDepth;   /* past the drop's edge the ground is this far below (layer 13; 0 = none, bottomless, as before test 43; test 42's landing) */
 static float g_landCutLeft;  /* the game's own landing cut (test 42: 881 -> 544 -> 398 in 0.4 s): the speed times 0.35 while this lasts */
 static uint8_t *g_wallObj, *g_groundObj, *g_shelfObj, *g_actorObj, g_fakeWorld[64];
-static uint8_t *g_ramGlobalsFake[8], *g_ramActor, *g_ramActor2, *g_actorObj2, *g_raceHuman, *g_raceMedium, *g_raceBig, *g_raceNoKnock, *g_raceEyebot;
+static uint8_t *g_ramGlobalsFake[8], *g_ramActor, *g_ramActor2, *g_actorObj2, *g_raceHuman, *g_raceMedium, *g_raceBig, *g_raceNoKnock, *g_raceEyebot, *g_raceSmall;
 /* CMB_RamRobots (test 42's robots, 0x856): a BGSListForm (form type 0x5E, its BSTArray of forms at
  * +0x20) holding ProtectronTestRace and EyebotTestRace; mode 11 only (the others are an ESP
  * without it: the plugin says once that it isn't there). */
@@ -1079,10 +1079,10 @@ static void BuildGame(void)
 		static const char *actorNames[] = { ".?AVActor@@", ".?AVTESObjectREFR@@", ".?AVTESForm@@" };
 		static const char *raceNames[] = { ".?AVTESRace@@", ".?AVTESForm@@" };
 		void **vtActor = MakeClass(actorNames, 3), **vtRace = MakeClass(raceNames, 2);
-		uint8_t **races[5] = { &g_raceHuman, &g_raceMedium, &g_raceBig, &g_raceNoKnock, &g_raceEyebot };
-		static const char *raceIds[5] = { "HumanRace", "RaiderTestRace", "SupermutantBehemothRace", "ProtectronTestRace", "EyebotTestRace" };
-		static const uint32_t raceSizes[5] = { 1, 1, 3, 1, 0 }, raceFlags[5] = { 0x3, 0x100, 0x100, 0x400100, 0x400100 };
-		for (int i = 0; i < 5; i++) {
+		uint8_t **races[6] = { &g_raceHuman, &g_raceMedium, &g_raceBig, &g_raceNoKnock, &g_raceEyebot, &g_raceSmall };   /* WolfTestRace: test 44's dogs (PendingPass) */
+		static const char *raceIds[6] = { "HumanRace", "RaiderTestRace", "SupermutantBehemothRace", "ProtectronTestRace", "EyebotTestRace", "WolfTestRace" };
+		static const uint32_t raceSizes[6] = { 1, 1, 3, 1, 0, 0 }, raceFlags[6] = { 0x3, 0x100, 0x100, 0x400100, 0x400100, 0x100 };
+		for (int i = 0; i < 6; i++) {
 			uint8_t *r = (uint8_t *)NewObject(vtRace, 0x800);
 			*(uint32_t *)(r + 0x14) = 0x00013746u + (uint32_t)i;
 			r[0x1A] = 0x11;
@@ -7082,6 +7082,61 @@ static void AlongTests(void)
 	g_camYaw = PlayerHeading();
 }
 
+/* Test 44's rails (the note's 2: a wooden road barrier and a guard rail round a brush pile
+ * climbed, the bike hung astride them): ClimbMaxTop=18, the default, rewritten from the 0 the
+ * checks above ride with. A beam 25 high 400 ahead, its top 10 deep for the rays down and the
+ * ground behind it as in front: no boost, held at it, one "a beam with a drop behind it" line.
+ * A step 25 high whose top goes on 400 (the ground at its height a wheelbase past the face): the
+ * boost as with ClimbMaxTop=0, stepped up onto it (stage 2), over it. Each on a ride of its own
+ * (the climb's hand full at its start). */
+static void RailTests(void)
+{
+	float cos85 = cosf(85.0f / DEG);
+	static const char beamWords[] = "not climbed: a beam with a drop behind it, not a step up: something at 18 above the feet ";
+	RewriteIni("ClimbMaxTop=0", "ClimbMaxTop=18");
+	printf("rails (test 44): ClimbMaxTop=18 rewritten, off and on again; a beam 25 high 400 ahead (its top 10 deep, the ground behind it as in front), W held 4 s: no boost, held at it, one \"a beam with a drop behind it\" line:\n");
+	GetOffAndOn(45.0f);
+	g_camYaw = PlayerHeading();
+	CHECK(LogLines("a face with something 18 above the feet within 45 past it climbed only if a ray down a wheelbase past it finds the ground that high (ClimbMaxTop: a step up, not a beam with a drop behind it); a sharp step the limit can't take stepped up onto (ClimbStep=1)") == 1,
+	      "the climb's settings line again: ClimbMaxTop 18, a step up, not a beam");
+	{
+		int low0 = LogLines("climb: a low face at the capsule"), beam0 = LogLines(beamWords), far0 = LogLines("), and a wheelbase on, "), sets0 = g_setPositions;
+		g_slopeMin = 1.0f;
+		FakePlane *w = Obstacle(0, 400.0f, 25.0f, CAP_STEP, 10.0f, 1, NULL);
+		g_planeTopDepth[0] = 10.0f;
+		float passed = RideAt(w, 10.0f, 4000);
+		CHECK(passed < 0.0f && FaceGap(w) > 17.0f && g_setPositions == sets0 && Near(g_slopeMin, COS47) && LogLines("climb: a low face at the capsule") == low0,
+		      "held at it (the axis %.1f from its face), the limit 47 throughout (the steepest %.2f deg), no boost (%d line), no step up (%d)", FaceGap(w), acosf(g_slopeMin) * DEG,
+		      LogLines("climb: a low face at the capsule") - low0, g_setPositions - sets0);
+		CHECK(LogLines(beamWords) - beam0 == 1 && LogLines("), and a wheelbase on, ") - far0 == 1,
+		      "one \"climb: stopped with forward held (...): not climbed: a beam with a drop behind it, not a step up: something at 18 above the feet ... (...), and a wheelbase on, ... ahead, the ground ... over the feet's ground line (...)\" line (%d, %d)",
+		      LogLines(beamWords) - beam0, LogLines("), and a wheelbase on, ") - far0);
+		RollOff();
+	}
+
+	printf("rails (test 44): ClimbMaxTop=18, a step 25 high 400 ahead whose top goes on 400 (the ground at its height a wheelbase past the face), SetPosition honoured, W held: the boost on, stepped up onto it, over it, as with ClimbMaxTop=0:\n");
+	GetOffAndOn(45.0f);
+	g_camYaw = PlayerHeading();
+	{
+		int low0 = LogLines("climb: a low face at the capsule"), beam0 = LogLines(beamWords), step0 = LogLines("climb: stepped up 26.5 (the top 25.0 at "), over0 = LogLines("climb: over it after");
+		g_slopeMin = 1.0f;
+		FakePlane *w = Obstacle(0, 400.0f, 25.0f, CAP_STEP, 400.0f, 1, NULL);
+		g_planeTopDepth[0] = 400.0f;
+		float took = UntilBoost(cos85, 3000);
+		RunFrames(600);
+		float lift = g_feetLift;
+		RunFrames(600);
+		CHECK(took > 0.0f && LogLines("climb: a low face at the capsule") - low0 == 1 && LogLines(beamWords) == beam0, "the boost on at the step (%.2f s), one \"low face\" line, no beam line", took);
+		CHECK(LogLines("climb: stepped up 26.5 (the top 25.0 at ") - step0 >= 1 && lift > 24.5f && LogLines("climb: over it after") - over0 == 1 && FaceGap(w) < -20.0f,
+		      "stepped up onto it (%d \"stepped up 26.5 (the top 25.0 at ...\" line(s)), the feet %.1f over the ground 0.6 s after the boost, \"over it\" (%d), the axis %.0f past the face",
+		      LogLines("climb: stepped up 26.5 (the top 25.0 at ") - step0, lift, LogLines("climb: over it after") - over0, -FaceGap(w));
+		RollOff();
+	}
+	RewriteIni("ClimbMaxTop=18", "ClimbMaxTop=0");
+	GetOffAndOn(45.0f);
+	g_camYaw = PlayerHeading();
+}
+
 static void ClimbTests(void)
 {
 	float *head = (float *)(g_player + 0xC8), cos85 = cosf(85.0f / DEG), passed;
@@ -7346,6 +7401,7 @@ static void ClimbTests(void)
 	}
 	ClimbStepTests();
 	AlongTests();
+	RailTests();
 	SetLive(0.0f);
 	SetCamera(0.0f);
 	SetTilt(0.0f);
@@ -7596,6 +7652,7 @@ static bool g_ramSteppedIn;
 #define RAM_YESES_KEPT 32
 static int g_ramYesAsk[RAM_YESES_KEPT], g_ramYesWho[RAM_YESES_KEPT], g_ramYesNext;
 static float g_ramMinAfterAsk;                       /* the least input in the 0.45 s after the ride's first ask (test 42's AskFree) */
+static float g_ramMinBeforeHit;                      /* the least input from the ride's start to its first hit (test 44's PendingPass and FaceActors) */
 static float RamGlobal(int i) { return *(float *)(g_ramGlobalsFake[i] + 0x30); }
 static float RamPlaneAhead(int i)   /* past the front wheel's edge (FrontAxle 99.6 + the radius 29.9) */
 {
@@ -7702,6 +7759,8 @@ static void FakeRamScript(float dt)
 		}
 		g_ramHits++;
 	}
+	if (!g_ramHits && in < g_ramMinBeforeHit)
+		g_ramMinBeforeHit = in;   /* after the hit's own frame: its hold isn't counted */
 	for (int k = 0; k < g_ramHits && k < RAM_HITS_KEPT; k++) {
 		RamHitSeen *h = &g_ramSeenHits[k];
 		if (h->pushIn < 0.0f)
@@ -7766,7 +7825,7 @@ static void RamGo(float keysY, int script, int ms)
 	g_ramSteppedIn = false;
 	g_ramLastSeen = (int)RamGlobal(2);
 	g_ramLastHit = (int)RamGlobal(5);
-	g_ramMinInput = g_ramMinAfter = g_ramMinAfterAsk = 2.0f;
+	g_ramMinInput = g_ramMinAfter = g_ramMinAfterAsk = g_ramMinBeforeHit = 2.0f;
 	g_ramScript = script;
 	Keys(0.0f, keysY);
 	RunFrames(ms);
@@ -7920,6 +7979,8 @@ static void RamTests42(void)
 	 * MCM's CMB_RamMinSpeed at 650 for the ride: the hit at 900, the measured speed under 650
 	 * from 0.24 s after it, the second actor 230 behind the first reached at about 0.46 s. */
 	for (int off = 0; off < 2; off++) {
+		if (off)
+			RewriteIni("SeenGrace=1.5", "SeenGrace=0");   /* test 44's SeenGrace would knock the second over too: first seen at full speed */
 		RamKey(off ? "HitGrace=1" : "YesKeep=0", off ? "HitGrace=0" : "YesKeep=10");
 		printf("rams: two actors 230 apart at full speed, the game's input curve, CMB_RamMinSpeed 650, HitHold 0.4: the speed under 650 at the second%s:\n",
 		       off ? " (HitGrace=0 written: braked for, as in test 42's build)" : ": knocked over all the same, under a second after the first hit (HitGrace 1)");
@@ -7943,6 +8004,7 @@ static void RamTests42(void)
 		RamRideEnd();
 		*(float *)(g_ramGlobalsFake[7] + 0x30) = 450.0f;
 	}
+	RewriteIni("SeenGrace=0", "SeenGrace=1.5");   /* read again at the next ride's start */
 
 	/* HighRay: the eyebot (its capsule between 45 and 114 up) seen only by the wheels' rays down. */
 	for (int off = 0; off < 2; off++) {
@@ -7986,6 +8048,130 @@ static void RamTests42(void)
 	CHECK(LogLines("  ram: AskAnswered=1 AskFree=0.5 YesKeep=10 HitGrace=1 HighRay=96 SideRays=20 Robots=1: ") >= 2, "all of test 42's keys back at their defaults");
 }
 
+/* Test 44's knocking over: the pack's dogs braked for with their ask pending at the wheel
+ * (PendingPass), the protectron hit, gone and ridden at again inside the face rays' reach while
+ * its entry was still the old hit's (FaceActors), and its yes at a speed the brakes had brought
+ * under CMB_RamMinSpeed (SeenGrace). Each key's ride, then the same with the key written 0: test
+ * 44's build's numbers. */
+static void RamTests44(void)
+{
+	float left;
+	/* PendingPass: a small race stepping in 60 past the front wheel at 900, the script's poll
+	 * 0.05 s after the ask and 150 ms of deciding: its ask is pending when it reaches the Lead
+	 * point (54 at 900). */
+	for (int off = 0; off < 2; off++) {
+		if (off)
+			RamKey("PendingPass=1", "PendingPass=0");
+		printf("rams: FF004D69 of a small race (WolfTestRace) 60 past the front wheel at full speed, its yes 0.2 s after the ask%s:\n",
+		       off ? " (PendingPass=0 written: braked for at the wheel, as in test 44's build)" : ": passed at the wheel with its ask pending, the throttle kept, hit on its yes");
+		*(uint8_t **)(g_ramActor + 0x418) = g_raceSmall;
+		RamUpToSpeed(1.0f);
+		float full = MoveInput()[1];
+		int passBefore = LogLines("passed, its hit told when the yes comes (PendingPass, a small race)"), onYesBefore = LogLines("(PendingPass): told the script (ask"),
+		    lapseBefore = LogLines("no answer in ");
+		g_ramPlanes[1] = NULL;
+		RamPlace(0, 99.6f + 29.9f + 60.0f);
+		g_ramPollAlign = 0.05f;
+		RamGo(1.0f, 1, 1200);
+		const RamHitSeen *h0 = &g_ramSeenHits[0];
+		if (!off) {
+			CHECK(g_ramAsks == 1 && g_ramHits == 1 && h0->who == 0 && h0->ahead < 0.0f && h0->speed > 700.0f && !g_ramPlanes[0]->on,
+			      "asked once (%d), one hit (%d) told %.0f past the front wheel (passed first), at %.0f (the pass's speed), pushed off", g_ramAsks, g_ramHits, h0->ahead, h0->speed);
+			CHECK(g_ramMinBeforeHit >= 0.97f * full, "the throttle open all the way to the hit (the least input %.3f of %.3f)", g_ramMinBeforeHit, full);
+			CHECK(LogLines("passed, its hit told when the yes comes (PendingPass, a small race)") == passBefore + 1 && LogLines("(PendingPass): told the script (ask") == onYesBefore + 1 &&
+			          LogLines("no answer in ") == lapseBefore,
+			      "the log: \"rams: FF004D69 at the front wheel (N past it at N a second), its ask pending for N ms: passed, its hit told when the yes comes (PendingPass, a small race)\", then "
+			      "\"rams: FF004D69 hit on its yes, N ms after it was passed at the front wheel at N a second (PendingPass): told the script (ask N)\"; no \"no answer in\" line");
+		} else {
+			CHECK(g_ramMinBeforeHit < 0.9f * full && LogLines("no answer in ") == lapseBefore + 1 && LogLines("(PendingPass") == passBefore + onYesBefore,
+			      "PendingPass=0: braked for at the wheel (the least input %.3f of %.3f), one \"no answer in N ms: braked for\" line, no PendingPass line; %d hit(s)", g_ramMinBeforeHit, full, g_ramHits);
+		}
+		RamRideEnd();
+	}
+	*(uint8_t **)(g_ramActor + 0x418) = g_raceMedium;
+
+	/* FaceActors: hit at 1500 and pushed, then back 250 past the front wheel 2.7 s after the hit
+	 * (the entry the hit's till Pass + 3 s), inside the face rays' reach (275 at 900). */
+	for (int off = 0; off < 2; off++) {
+		RamKey(off ? "FaceActors=1" : "PendingPass=0", off ? "FaceActors=0" : "PendingPass=1");
+		printf("rams: FF004D69 (medium) hit at 1500 and pushed, then straight ahead again 250 past the front wheel 2.7 s after the hit%s:\n",
+		       off ? " (FaceActors=0 written: the old hit's entry, a wall ahead to the face rays, as in test 44's build)" : ": asked afresh, not braked as a wall, knocked over again");
+		RamUpToSpeed(1.0f);
+		int afreshBefore = LogLines("asked afresh (FaceActors)"), wallBefore = LogLines("(SkeletonExport, layer 30), the throttle eased to");
+		RamRide(1500.0f, 1.0f, 1, 1900);
+		int asks1 = g_ramAsks, hits1 = g_ramHits;
+		float hitClock = g_ramSeenHits[0].clock;
+		RunFrames(2300);
+		float in0 = MoveInput()[1], since = g_ramClock - hitClock;
+		RamPlace(0, 99.6f + 29.9f + 250.0f);
+		g_ramPollAlign = 0.0f;
+		RamGo(1.0f, 1, 1000);
+		const RamHitSeen *h0 = &g_ramSeenHits[0];
+		CHECK(asks1 == 1 && hits1 == 1 && since > 2.4f && since < 3.0f, "the first approach: asked (%d), hit (%d); back %.2f s after the hit", asks1, hits1, since);
+		if (!off) {
+			CHECK(g_ramAsks == 1 && g_ramHits == 1 && h0->who == 0 && h0->speed > 0.95f * 900.0f * in0 && !g_ramPlanes[0]->on, "asked again (%d), hit again (%d) at %.0f, pushed off", g_ramAsks, g_ramHits, h0->speed);
+			CHECK(g_ramMinBeforeHit >= 0.97f * in0 && LogLines("(SkeletonExport, layer 30), the throttle eased to") == wallBefore,
+			      "not braked as a wall: the least input %.3f (%.3f at its return), no \"rays: a wall ahead ... (SkeletonExport, layer 30)\" line", g_ramMinBeforeHit, in0);
+			CHECK(LogLines("asked afresh (FaceActors)") == afreshBefore + 1, "one \"rams: FF004D69 seen again N past the front wheel (the actor ray), N s after its hit, N s out of the rays: asked afresh (FaceActors)\" line");
+		} else {
+			left = RamPlaneAhead(0);
+			CHECK(g_ramAsks == 0 && g_ramHits == 0 && LogLines("(SkeletonExport, layer 30), the throttle eased to") > wallBefore && left > -15.0f && left < 80.0f && LogLines("asked afresh (FaceActors)") == afreshBefore,
+			      "FaceActors=0: not asked (%d), no hit, \"rays: a wall ahead ... (SkeletonExport, layer 30)\" (%d), stops %.0f short", g_ramAsks, LogLines("(SkeletonExport, layer 30), the throttle eased to") - wallBefore, left);
+		}
+		RamRideEnd();
+	}
+
+	/* SeenGrace, and FaceActors' robots: the protectron's race read large (in CMB_RamRobots), first
+	 * seen 250 past the front wheel at 900, its yes 0.3 s after the ask; CMB_RamMinSpeed 650 for
+	 * the rides, so the face rays' brake while its ask is pending (FaceActors=0) has the speed under
+	 * it by the yes. */
+	*(uint32_t *)(g_raceNoKnock + 0x1AC) = 2;
+	*(uint8_t **)(g_ramActor + 0x418) = g_raceNoKnock;
+	*(float *)(g_ramGlobalsFake[7] + 0x30) = 650.0f;
+	for (int off = 0; off < 2; off++) {
+		if (off)
+			RamKey("SeenGrace=1.5", "SeenGrace=0");
+		printf("rams: FF004D69 of ProtectronTestRace read large (in CMB_RamRobots) 250 past the front wheel at 900, CMB_RamMinSpeed 650, FaceActors=0: braked for while its ask is pending, its yes under 650%s:\n",
+		       off ? " (SeenGrace=0 written: braked for, as in test 44's build)" : ": knocked over all the same, first seen at about 800 (SeenGrace 1.5)");
+		RamUpToSpeed(1.0f);
+		int graceBefore = LogLines("knocked over all the same (SeenGrace)"), slowBefore = LogLines("under CMB_RamMinSpeed's 650: not knocked over");
+		g_ramPollAlign = 0.15f;
+		RamRide(99.6f + 29.9f + 250.0f, 1.0f, 1, 1500);
+		const RamHitSeen *h0 = &g_ramSeenHits[0];
+		if (!off) {
+			CHECK(g_ramAsks == 1 && g_ramHits == 1 && h0->who == 0 && h0->speed < 650.0f && !g_ramPlanes[0]->on, "asked (%d), hit (%d) at %.0f, pushed off", g_ramAsks, g_ramHits, h0->speed);
+			CHECK(LogLines("knocked over all the same (SeenGrace)") == graceBefore + 1 && LogLines("under CMB_RamMinSpeed's 650: not knocked over") == slowBefore,
+			      "one \"... under CMB_RamMinSpeed's 650, but first seen N s ago at N: knocked over all the same (SeenGrace)\" line, no \"under CMB_RamMinSpeed\" brake");
+		} else {
+			left = RamPlaneAhead(0);
+			CHECK(g_ramAsks == 1 && g_ramHits == 0 && LogLines("under CMB_RamMinSpeed's 650: not knocked over") == slowBefore + 1 && LogLines("(SeenGrace)") == graceBefore && left > -15.0f && left < 80.0f,
+			      "SeenGrace=0: asked (%d), no hit (%d), one \"under CMB_RamMinSpeed's 650: not knocked over, braked for\" line, stops %.0f short", g_ramAsks, g_ramHits, left);
+		}
+		RamRideEnd();
+	}
+	*(float *)(g_ramGlobalsFake[7] + 0x30) = 450.0f;
+	RewriteIni("SeenGrace=0", "SeenGrace=1.5");
+	RamKey("FaceActors=0", "FaceActors=1");
+	printf("rams: the same protectron (large, in CMB_RamRobots) 250 past the front wheel at 900, FaceActors=1: kept to while its ask is pending (AskFree), not braked as a wall, hit at speed:\n");
+	{
+		RamUpToSpeed(1.0f);
+		float full = MoveInput()[1];
+		int keptBefore = LogLines("the throttle kept (AskFree, a large race in CMB_RamRobots)"), wallBefore = LogLines("(SkeletonExport, layer 30), the throttle eased to");
+		g_ramPollAlign = 0.0f;
+		RamRide(99.6f + 29.9f + 250.0f, 1.0f, 1, 1500);
+		const RamHitSeen *h0 = &g_ramSeenHits[0];
+		CHECK(g_ramAsks == 1 && g_ramHits == 1 && h0->who == 0 && h0->speed > 850.0f && g_ramMinBeforeHit >= 0.97f * full, "asked (%d), hit (%d) at %.0f, the throttle open to it (the least input %.3f of %.3f)",
+		      g_ramAsks, g_ramHits, h0->speed, g_ramMinBeforeHit, full);
+		CHECK(LogLines("the throttle kept (AskFree, a large race in CMB_RamRobots)") == keptBefore + 1 && LogLines("(SkeletonExport, layer 30), the throttle eased to") == wallBefore,
+		      "one \"its ask pending for N ms, the throttle kept (AskFree, a large race in CMB_RamRobots)\" line, no wall line");
+		RamRideEnd();
+	}
+	*(uint32_t *)(g_raceNoKnock + 0x1AC) = 1;
+	*(uint8_t **)(g_ramActor + 0x418) = g_raceMedium;
+	RamGetOffAndOn();
+	CHECK(LogLines("  ram: PendingPass=1 FaceActors=1 SeenGrace=1.5: ") >= 2, "test 44's keys back at their defaults");
+}
+
 /* Finding 7 (test 40's wish): a hostile actor the bike hits at speed is knocked over. */
 static void RamTests(void)
 {
@@ -8013,6 +8199,10 @@ static void RamTests(void)
 	CHECK(LogLines("  ram: AskAnswered=1 AskFree=0.5 YesKeep=10 HitGrace=1 HighRay=96 SideRays=20 Robots=1: each ask told once the one before it is answered, or 0.4 s after it unanswered (AskAgain); "
 	               "an ask of a small or medium race pending under 0.5 s keeping the throttle at speed; a yes kept 10 s out of sight; ") == 1,
 	      "test 42's keys on a line of their own: AskAnswered=1 AskFree=0.5 YesKeep=10 HitGrace=1 HighRay=96 SideRays=20 Robots=1");
+	CHECK(LogLines("  ram: PendingPass=1 FaceActors=1 SeenGrace=1.5: a small race whose ask is still pending at the front wheel passed, its hit told when the yes comes; "
+	               "an actor hit over Pass ago and seen again asked afresh, a CMB_RamRobots race kept to while its ask is pending (AskFree); "
+	               "CMB_RamMinSpeed judged by the speed an actor was first seen at for 1.5 s after") == 1,
+	      "test 44's keys on a third line: PendingPass=1 FaceActors=1 SeenGrace=1.5");
 	CHECK(LogLines("rams: CMB_RamRobots: 2 races pass the size and No Knockdowns gates: ProtectronTestRace (medium, flags 00400100, No Knockdowns), EyebotTestRace (small, flags 00400100, No Knockdowns)") == 1 &&
 	          LogLines("CMB_RamRobots isn't there") == 0 && LogLines("CMB_RamRobots can't be read") == 0,
 	      "CMB_RamRobots (0x856, a FormList) read at the start, its two races named (\"rams: CMB_RamRobots: 2 races pass the size and No Knockdowns gates: ProtectronTestRace (medium, ...\"), once");
@@ -8305,6 +8495,7 @@ static void RamTests(void)
 	RewriteIni("Enabled=0", "Enabled=1");
 	RamGetOffAndOn();
 	RamTests42();
+	RamTests44();
 
 	printf("rams: the 3D's user data a placed object, not an actor: never asked about, one line:\n");
 	static const char *refrNames[] = { ".?AVTESObjectREFR@@", ".?AVTESForm@@" };
@@ -8675,6 +8866,83 @@ static void BackClearTests(void)
 	BackLevel();
 }
 
+/* Test 44's rails (the note's 2a and 2c: astride a wooden road barrier, on a grill, the feet 28 to
+ * 32 over the ground just behind and every push back "the ground drops away under the step"): a
+ * beam `high` tall and 40 deep under the capsule (20 ahead of the player to 20 behind), the ground
+ * `high` down in front of it and behind it (both wheels' rays find it there: hung up), the fake's
+ * controller supported by its feet and falling when not. Back held for ms; how far the player
+ * went, and the feet over the ground under them at the end. */
+static float BackHungRide(float high, int ms, float *gap)
+{
+	BackLevel();
+	float h = PlayerHeading(), back[2] = { -sinf(h), -cosf(h) };
+	g_slopeO[0] = PlayerPos()[0] - back[0] * 20.0f;
+	g_slopeO[1] = PlayerPos()[1] - back[1] * 20.0f;
+	g_slopeD[0] = back[0];
+	g_slopeD[1] = back[1];
+	g_slopeK = 0.0f;
+	g_groundZ = PlayerPos()[2] - high;
+	static const float u[4] = { 0.0f, 0.002f, 40.0f, 40.002f };
+	g_profileN = 4;
+	for (int i = 0; i < 4; i++) {
+		g_profileU[i] = u[i];
+		g_profileZ[i] = i == 1 || i == 2 ? high : 0.0f;
+	}
+	g_rippleAmp = 0.0f;
+	g_profileOn = true;
+	g_physOn = true;
+	g_physBit = -1;
+	RunFrames(300);
+	float p0[2];
+	Mark(p0);
+	Keys(0.0f, -1.0f);
+	RunFrames(ms);
+	float moved = Moved(p0);
+	*gap = PlayerPos()[2] - FakeGroundAt(PlayerPos()[0], PlayerPos()[1]);
+	BackLetGo();
+	g_physOn = false;
+	g_physBit = 1;
+	BackLevel();
+	RunFrames(300);
+	return moved;
+}
+static void BackHungTests(void)
+{
+	printf("backing (test 44's rails): hung up astride a beam 30 high and 40 deep (the ground 30 under both wheels), back held 2.5 s: off the beam's back onto the ground behind, \"reverse: hung up (both wheels' rays ...): the ground 30 under the step backed off onto\":\n");
+	CHECK(LogLines("  reverse: BackHungDrop=40: hung up (both wheels' rays finding the ground over 10 under the feet, or forward stalled at a face at the capsule, in the last 3 s and within 40 of there), a drop of up to 40 under the step is backed off (20 otherwise)") == 1,
+	      "the reverse's BackHungDrop line at load: 40, hung up said in plain words");
+	static const char hungWords[] = "reverse: hung up (both wheels' rays found the ground under the feet, 30 at the front and 30 at the rear, ";
+	int hung0 = LogLines(hungWords), onto0 = LogLines("): the ground 30 under the step backed off onto (BackHungDrop 40; over 20 a drop otherwise)"), drop0 = LogLines("reverse: stopped: the ground drops away under the step");
+	float gap, moved = BackHungRide(30.0f, 2500, &gap);
+	CHECK(moved > 40.0f && fabsf(gap) < 0.5f && g_physUnder < 0.5f, "backed %.0f (the beam's back 20 behind), the feet %+.2f over the ground behind it at the end (%.2f under it at the most)", moved, gap, g_physUnder);
+	CHECK(LogLines(hungWords) - hung0 >= 1 && LogLines("): the ground 30 under the step backed off onto (BackHungDrop 40; over 20 a drop otherwise)") - onto0 >= 1 &&
+	      LogLines("reverse: stopped: the ground drops away under the step") == drop0,
+	      "the log: \"%s...): the ground 30 under the step backed off onto (BackHungDrop 40; over 20 a drop otherwise)\" (%d), no \"drops away under the step\" (%d)", hungWords,
+	      LogLines(hungWords) - hung0, LogLines("reverse: stopped: the ground drops away under the step") - drop0);
+
+	printf("backing (test 44's rails): hung up on a beam 50 high (over BackHungDrop's 40), back held 1.5 s: stopped at its back, \"(50 down, over BackHungDrop's 40 though hung up)\":\n");
+	int over0 = LogLines("reverse: stopped: the ground drops away under the step, ");
+	int over1 = LogLines(" units back (50 down, over BackHungDrop's 40 though hung up)");
+	moved = BackHungRide(50.0f, 1500, &gap);
+	CHECK(moved > 15.0f && moved < 21.0f && fabsf(gap) < 0.5f && LogLines("reverse: stopped: the ground drops away under the step, ") > over0 &&
+	      LogLines(" units back (50 down, over BackHungDrop's 40 though hung up)") > over1,
+	      "backed %.1f, the beam's back 20 behind, the feet %+.2f over the beam at the end; \"reverse: stopped: the ground drops away under the step, ... units back (50 down, over BackHungDrop's 40 though hung up)\"", moved, gap);
+
+	printf("backing (test 44's rails): BackHungDrop=0 rewritten, off and on again, the beam 30 high again: stopped at its back as in test 44's build:\n");
+	RewriteIni("BackHungDrop=40", "BackHungDrop=0");
+	GetOffAndOn(60.0f);
+	CHECK(LogLines("  reverse: BackHungDrop=0: more than 20 under the step is a drop, hung up or not (test 44's build) (read again on getting on)") == 1, "the settings line again, BackHungDrop=0");
+	hung0 = LogLines("reverse: hung up (");
+	drop0 = LogLines("reverse: stopped: the ground drops away under the step, ");
+	over1 = LogLines(" though hung up)");
+	moved = BackHungRide(30.0f, 1500, &gap);
+	CHECK(moved > 15.0f && moved < 21.0f && fabsf(gap) < 0.5f && LogLines("reverse: hung up (") == hung0 && LogLines("reverse: stopped: the ground drops away under the step, ") > drop0 &&
+	      LogLines(" though hung up)") == over1,
+	      "backed %.1f, the feet %+.2f over the beam at the end, \"the ground drops away under the step\" without the hung-up words, no \"hung up\" line", moved, gap);
+	RewriteIni("BackHungDrop=0", "BackHungDrop=40");
+	GetOffAndOn(60.0f);
+}
+
 static void BackingTests(void)
 {
 	float *head = (float *)(g_player + 0xC8);
@@ -8802,6 +9070,7 @@ static void BackingTests(void)
 	GetOffAndOn(60.0f);
 	CHECK(LogLines("  reverse: BackFollow=10 BackClose=0.1: going back level or down, each step follows the ground's slope over 10 units centred on its middle") == 2 &&
 	      LogLines("at most 120 a second and 3 a step (read again on getting on)") == 1, "read again on getting on");
+	BackHungTests();
 	BackClearTests();
 
 	/* A slow landing (review of test 43's build: under LandStop of the top the hold started and
@@ -8915,6 +9184,138 @@ static void RoomRide(void)
 	SetLive(0.0f);
 	RunFrames(400);
 }
+/* Test 44 ([Room] Line and GroundNear; the tester's calls by Sanctuary's houses: a spot through a
+ * picket fence, one inside a house on its floor 34 over the player's feet, one in a hedge): a fence
+ * (a wall 90 high, facing the player, halfway out: the box at the spot is behind it and doesn't see
+ * it) is no spot; a floor 34 over the player's ground at the spot is none (over 25); the spot's
+ * ground 21 below past an edge: as the line decides, room without the fence, none with it. Mode 14
+ * then rewrites Line=0 and GroundNear=60 and rides: the fence and the floor have room again and
+ * test 44's ask 5 (80 over the ground) is a ledge by the asked height, as in test 44's build. Asks
+ * n on, at the player's height; mode 15 (old) without a heading, the eight rays. */
+static void RoomLineAsk(bool old, int n, float x, float y, float z, float deg)
+{
+	if (old)
+		RoomAsk(n, x, y, z);
+	else
+		RoomAskHeading(n, x, y, z, deg);
+	RunFrames(100);
+}
+static void RoomFence(int i, const float p[2], float sx, float sy)
+{
+	float d[2] = { sx - p[0], sy - p[1] }, h = hypotf(d[0], d[1]);
+	RoomWall(i, p[0] + 0.5f * d[0], p[1] + 0.5f * d[1], -d[0] / h, -d[1] / h);
+	g_planes[i].top = 90.0f;
+}
+static void RoomLineTests(bool old, int n, float gz, float sx, float sy)
+{
+	char line[400], head[32] = "";
+	const char *rays = old ? " (no heading given: the eight rays)" : "";
+	float p[2] = { PlayerPos()[0], PlayerPos()[1] }, hh = PlayerHeading(), fw[2] = { sinf(hh), cosf(hh) }, deg = hh * DEG;
+	float flat = hypotf(sx - p[0], sy - p[1]);
+	if (!old)
+		snprintf(head, sizeof(head), ", heading %.0f", deg);
+	printf("room: test 44's [Room] keys (Line, GroundNear), and ask 1's line with the line's word:\n");
+	CHECK(LogLines("  room: Line=50 GroundNear=25: a clear line asked for from the player to the spot, that high over the ground under each (the player's by a ray down under them); "
+	               "the spot's ground within 25 of the player's") == 1, "the settings line, once");
+	snprintf(line, sizeof(line), "room: ask 1 at (%.0f, %.0f, %.0f): room (the ground 30 below the spot) (no heading given: the eight rays); a clear line from the player (%.0f long, 50 over each ground), "
+	         "the spot's ground 0 below the player's (within 25)", sx, sy, gz + 30.0f, hypotf(200.0f, 100.0f));   /* asked from where the player stood then */
+	CHECK(LogLines(line) == 1, "the line: \"%s\"", line);
+
+	printf("room: ask %d, a fence (a wall 90 high) halfway between the player and the spot, facing the player (the box behind it): none, no clear line, CMB_RoomClear -3:\n", n);
+	RoomFence(0, p, sx, sy);
+	RoomLineAsk(old, n, sx, sy, gz, deg);
+	snprintf(line, sizeof(line), "room: ask %d at (%.0f, %.0f, %.0f)%s: none, no clear line from the player: something %.0f along the %.0f to the spot (FakeWall, layer 1), 50 over the ground under each "
+	         "(the player's %.0f, the spot's %.0f)", n, sx, sy, gz, head, 0.5f * flat, flat, gz, gz);
+	CHECK(RoomGlobal(4) == -(float)n && RoomGlobal(5) == -3.0f, "CMB_RoomAnswer %g (-%d: none), CMB_RoomClear %g (-3: no line)", RoomGlobal(4), n, RoomGlobal(5));
+	CHECK(LogLines(line) == 1, "the line: \"%s\"", line);
+	RoomWallsOff();
+	n++;
+
+	printf("room: ask %d at the player's height on a floor 34 over the ground at the spot (the house's): none, the ground 34 above the player's, over 25:\n", n);
+	g_shelfHeight = 34.0f;
+	g_shelfAhead = (sx - p[0]) * fw[0] + (sy - p[1]) * fw[1];   /* the disc's centre on the heading line, level with the spot: within its 60 */
+	g_shelfOn = true;
+	RoomLineAsk(old, n, sx, sy, gz, deg);
+	snprintf(line, sizeof(line), "room: ask %d at (%.0f, %.0f, %.0f)%s: none, the ground 34 above the player's (FakeShelf, layer 1), over 25; a clear line from the player", n, sx, sy, gz, head);
+	CHECK(RoomGlobal(4) == -(float)n && fabsf(RoomGlobal(5) + 34.0f) < 0.5f, "CMB_RoomAnswer %g (-%d: none), CMB_RoomClear %g (the floor 34 above)", RoomGlobal(4), n, RoomGlobal(5));
+	CHECK(LogLines(line) == 1, "the line: \"%s\"", line);
+	g_shelfOn = false;
+	g_shelfHeight = 0.0f;
+	n++;
+
+	printf("room: asks %d and %d, the spot's ground 21 below past an edge a quarter of the way out: room by the line, then with the fence between, none:\n", n, n + 1);
+	float d[2] = { (sx - p[0]) / flat, (sy - p[1]) / flat }, slant = sqrtf(flat * flat + 21.0f * 21.0f);
+	g_dropPoint[0] = p[0] + 0.25f * flat * d[0];
+	g_dropPoint[1] = p[1] + 0.25f * flat * d[1];
+	g_dropDir[0] = d[0];
+	g_dropDir[1] = d[1];
+	g_dropDepth = 21.0f;
+	g_dropOn = true;
+	RoomLineAsk(old, n, sx, sy, gz, deg);
+	snprintf(line, sizeof(line), "room: ask %d at (%.0f, %.0f, %.0f)%s: room (the ground 21 below the spot)%s; a clear line from the player (%.0f long, 50 over each ground), the spot's ground 21 below the player's (within 25)",
+	         n, sx, sy, gz, head, rays, slant);
+	CHECK(RoomGlobal(4) == (float)n && fabsf(RoomGlobal(5) - 21.0f) < 0.5f, "CMB_RoomAnswer %g (%d: room), CMB_RoomClear %g (the ground 21 below)", RoomGlobal(4), n, RoomGlobal(5));
+	CHECK(LogLines(line) == 1, "the line: \"%s\"", line);
+	n++;
+	RoomFence(0, p, sx, sy);
+	RoomLineAsk(old, n, sx, sy, gz, deg);
+	snprintf(line, sizeof(line), "room: ask %d at (%.0f, %.0f, %.0f)%s: none, no clear line from the player: something %.0f along the %.0f to the spot (FakeWall, layer 1), 50 over the ground under each "
+	         "(the player's %.0f, the spot's %.0f)", n, sx, sy, gz, head, 0.5f * slant, slant, gz, gz - 21.0f);
+	CHECK(RoomGlobal(4) == -(float)n && RoomGlobal(5) == -3.0f, "CMB_RoomAnswer %g (-%d: none), CMB_RoomClear %g (-3: no line)", RoomGlobal(4), n, RoomGlobal(5));
+	CHECK(LogLines(line) == 1, "the line: \"%s\"", line);
+	RoomWallsOff();
+	g_dropOn = false;
+	g_dropDepth = 0.0f;
+	n++;
+	if (old)
+		return;
+
+	printf("room: Line=0 and GroundNear=60 rewritten and a ride (test 44's build): the fence, the floor 34 up and the 21 below behind the fence have room, ask 5's 80 over the ground is a ledge again:\n");
+	RewriteIni("Line=50", "Line=0");
+	RewriteIni("GroundNear=25", "GroundNear=60");
+	RoomRide();
+	CHECK(LogLines("  room: Line=0 GroundNear=60: no line from the player (Line=0, test 44's build); the spot's ground within 60 of the asked height (Line=0) (read again on getting on)") == 1,
+	      "the settings line again, Line=0 GroundNear=60");
+	char tail[440];
+	RoomFence(0, p, sx, sy);
+	RoomLineAsk(old, n, sx, sy, gz, deg);
+	snprintf(line, sizeof(line), "room: ask %d at (%.0f, %.0f, %.0f)%s: room (the ground 0 below the spot)", n, sx, sy, gz, head);
+	snprintf(tail, sizeof(tail), "%s; ", line);
+	CHECK(RoomGlobal(4) == (float)n && LogLines(line) == 1 && LogLines(tail) == 0, "the fence: CMB_RoomAnswer %g (%d: room), the line, nothing after it: \"%s\"", RoomGlobal(4), n, line);
+	RoomWallsOff();
+	n++;
+	g_shelfHeight = 34.0f;
+	g_shelfAhead = (sx - p[0]) * fw[0] + (sy - p[1]) * fw[1];
+	g_shelfOn = true;
+	RoomLineAsk(old, n, sx, sy, gz, deg);
+	snprintf(line, sizeof(line), "room: ask %d at (%.0f, %.0f, %.0f)%s: room (the ground 34 above the spot)", n, sx, sy, gz, head);
+	snprintf(tail, sizeof(tail), "%s; ", line);
+	CHECK(RoomGlobal(4) == (float)n && fabsf(RoomGlobal(5) + 34.0f) < 0.5f && LogLines(line) == 1 && LogLines(tail) == 0, "the floor: CMB_RoomAnswer %g (%d: room), CMB_RoomClear %g, the line: \"%s\"",
+	      RoomGlobal(4), n, RoomGlobal(5), line);
+	g_shelfOn = false;
+	g_shelfHeight = 0.0f;
+	n++;
+	g_dropPoint[0] = p[0] + 0.25f * flat * d[0];
+	g_dropPoint[1] = p[1] + 0.25f * flat * d[1];
+	g_dropDepth = 21.0f;
+	g_dropOn = true;
+	RoomFence(0, p, sx, sy);
+	RoomLineAsk(old, n, sx, sy, gz, deg);
+	snprintf(line, sizeof(line), "room: ask %d at (%.0f, %.0f, %.0f)%s: room (the ground 21 below the spot)", n, sx, sy, gz, head);
+	snprintf(tail, sizeof(tail), "%s; ", line);
+	CHECK(RoomGlobal(4) == (float)n && LogLines(line) == 1 && LogLines(tail) == 0, "21 below behind the fence: CMB_RoomAnswer %g (%d: room), the line: \"%s\"", RoomGlobal(4), n, line);
+	RoomWallsOff();
+	g_dropOn = false;
+	g_dropDepth = 0.0f;
+	n++;
+	RoomLineAsk(old, n, sx, sy, gz + 80.0f, deg);
+	snprintf(line, sizeof(line), "room: ask %d at (%.0f, %.0f, %.0f)%s: none, the ground 80 below the spot (FakeGround, layer 13), over 60", n, sx, sy, gz + 80.0f, head);
+	CHECK(RoomGlobal(4) == -(float)n && fabsf(RoomGlobal(5) - 80.0f) < 0.5f && LogLines(line) == 1, "80 over the ground: CMB_RoomAnswer %g (-%d: none), CMB_RoomClear %g, the line: \"%s\"",
+	      RoomGlobal(4), n, RoomGlobal(5), line);
+	RewriteIni("Line=0", "Line=50");
+	RewriteIni("GroundNear=60", "GroundNear=25");
+}
+
 static void RoomTests(bool old)
 {
 	SetNormal(0.0f, 0.0f, 1.0f);
@@ -8982,12 +9383,20 @@ static void RoomTests(bool old)
 	CHECK(LogLines(line) == 1, "the line: \"%s\"", line);
 	g_dropOn = false;
 
-	printf("room: ask 5 at 80 over the ground (a ledge: over 60): none, the ground 80 below:\n");
-	RoomAsk(5, sx, sy, gz + 80.0f);
+	printf("room: ask 5 at the player's height past a drop 80 down a quarter of the way out (a ledge: test 44's GroundNear 25 of the player's ground): none, the ground 80 below the player's:\n");
+	g_dropPoint[0] = sx - 150.0f;
+	g_dropPoint[1] = sy;
+	g_dropDir[0] = 1.0f;
+	g_dropDir[1] = 0.0f;
+	g_dropDepth = 80.0f;
+	g_dropOn = true;   /* the player (200 back) on the upper ground; the line from 50 over it to 50 over the lower clears the edge */
+	RoomAsk(5, sx, sy, gz);
 	RunFrames(100);
-	snprintf(line, sizeof(line), "room: ask 5 at (%.0f, %.0f, %.0f): none, the ground 80 below the spot (FakeGround, layer 13), over 60", sx, sy, gz + 80.0f);
+	snprintf(line, sizeof(line), "room: ask 5 at (%.0f, %.0f, %.0f): none, the ground 80 below the player's (FakeGround, layer 13), over 25; a clear line from the player", sx, sy, gz);
 	CHECK(RoomGlobal(4) == -5.0f && fabsf(RoomGlobal(5) - 80.0f) < 0.5f, "CMB_RoomAnswer %g (-5: none), CMB_RoomClear %g (the ground's 80)", RoomGlobal(4), RoomGlobal(5));
 	CHECK(LogLines(line) == 1, "the line: \"%s\"", line);
+	g_dropOn = false;
+	g_dropDepth = 0.0f;
 
 	printf("room: ask 6 under a roof 115 over the ground (the ray up from 50 to 170): none, something 65 along up:\n");
 	float hh = PlayerHeading(), fw[2] = { sinf(hh), cosf(hh) };
@@ -9056,6 +9465,7 @@ static void RoomTests(bool old)
 		CHECK(RoomDiagonalLine(9, sx, sy, gz + 30.0f, "", "(no heading given: the eight rays)", line, sizeof(line)), "the line: \"%s\"", line);
 		RoomWallsOff();
 		*(float *)(g_roomGlobalsFake[6] + 0x30) = -1000.0f;
+		RoomLineTests(true, 10, gz, sx, sy);
 		return;
 	}
 
@@ -9102,12 +9512,17 @@ static void RoomTests(bool old)
 	CHECK(RoomGlobal(4) == 14.0f && LogLines(line) == 1, "CMB_RoomAnswer %g (14: room), the line: \"%s\"", RoomGlobal(4), line);
 	RoomWallsOff();
 
-	printf("room: ask 15 at 80 under the ground (the ground above the spot): none, CMB_RoomClear -80 (the script's parse, test 43, reads it as none):\n");
-	RoomAskHeading(15, sx, sy, gz - 80.0f, deg8);
+	printf("room: ask 15 at the player's height on a disc 80 over the ground (the ground above the spot; test 44: of the player's): none, CMB_RoomClear -80 (the script's parse, test 43, reads it as none):\n");
+	g_shelfHeight = 80.0f;
+	g_shelfAhead = (sx - PlayerPos()[0]) * fw8[0] + (sy - PlayerPos()[1]) * fw8[1];
+	g_shelfOn = true;
+	RoomAskHeading(15, sx, sy, gz, deg8);
 	RunFrames(100);
-	snprintf(line, sizeof(line), "room: ask 15 at (%.0f, %.0f, %.0f), heading %.0f: none, the ground 80 above the spot (FakeGround, layer 13), over 60", sx, sy, gz - 80.0f, deg8);
+	snprintf(line, sizeof(line), "room: ask 15 at (%.0f, %.0f, %.0f), heading %.0f: none, the ground 80 above the player's (FakeShelf, layer 1), over 25; a clear line from the player", sx, sy, gz, deg8);
 	CHECK(RoomGlobal(4) == -15.0f && fabsf(RoomGlobal(5) + 80.0f) < 0.5f, "CMB_RoomAnswer %g (-15: none), CMB_RoomClear %g (the ground 80 above)", RoomGlobal(4), RoomGlobal(5));
 	CHECK(LogLines(line) == 1, "the line: \"%s\"", line);
+	g_shelfOn = false;
+	g_shelfHeight = 0.0f;
 
 	printf("room: Box=0 rewritten and a ride (read again on getting on): ask 16 in the 100-wide passage along the heading, none by the eight rays (test 42's rule):\n");
 	RewriteIni("Box=1", "Box=0");
@@ -9153,19 +9568,26 @@ static void RoomTests(bool old)
 	snprintf(line, sizeof(line), "room: ask 19 at (%.0f, %.0f, %.0f), heading %.0f: room (the ground 30 below the spot)", sx, sy, gz + 30.0f, deg8);
 	CHECK(RoomGlobal(4) == 19.0f && LogLines(line) == 1 && LogLines(": rays work;") == worked + 1, "ask 19, past the 3 s: the test ray again by the old cadence, \"rays work\", room: \"%s\"", line);
 	RewriteIni("RaysRetry=0", "RaysRetry=1");
+	RoomLineTests(false, 20, gz, sx, sy);
 	*(float *)(g_roomGlobalsFake[6] + 0x30) = -1000.0f;
 }
 
 /* --- The engine sound (mode 16, test 44's build): the harness plays the controller script's side of
  * the hand-over (StartEngineLoops: eleven loops played, their ids into CMB_SndLoop01-11, CMB_SndGen
  * bumped last; StopEngineLoops: stopped, the ids 0, CMB_SndGen bumped) and reads CMB_SndDriven. The
- * expected numbers are the v4 model's (engine_model.py, its Python twin) on this ride: the plugin's
- * throttle from a tenth, +1/3 a second on W, the fake moving at 900 x it (g_gameCurve), the plugin's
- * speed a 0.2 s lag of that (g_speedAlong); at 6 ms frames the twin shifts to 2nd at 556 u/s and
- * 2365 rpm, to 3rd at 887 and 2918, to 4th at 900 and 2344, 1.75, 3.0 and 4.25 s after W, and
- * cruises at 900 in 4th at 1937 rpm on On2000 (pitch 0.9685 x the wander's 1 + w), its level
- * 0.3 x (9.6 log2(1937/3000) + 5 x (0.45 - 1)) = -2.64 dB; at rest the idle at 0.3 x -17.2 = -5.16
- * dB, the others silent. The idle's first level comes over FirstFade's 400 ms (the script plays it
+ * expected numbers are test 45's model's (engine_model.py, its Python twin) on this ride: the
+ * plugin's throttle from a tenth, +1/3 a second on W (at most Lead 0.2 over the measured speed),
+ * -1/2 a second off, the fake moving at 900 x it (g_gameCurve), the plugin's speed a 0.2 s lag of
+ * that (g_speedAlong); at 6 ms frames the twin's heard speed (its first pull's points drawn: the
+ * shift at 2429, the launch at 1293) shifts to 2nd at 2393 rpm (the bike at 896 u/s, heard 540),
+ * to 3rd at 2381 (900, heard 729), to 4th at 2316 (900, heard 900), 3.24, 4.59 and 5.84 s after W,
+ * and cruises at 900 in 4th at 1937 rpm on On2000 (pitch 0.9685 x the wander's 1 + w), its level
+ * 0.7 x (9.6 log2(1937/3000) + 5 x (0.45 - 1)) = -6.17 dB; at rest the idle at 0.7 x -17.2 =
+ * -12.04 dB, the others silent. A 0.3 s tap at the cruise: no gear change (test 44's model: 4->3
+ * at 813 u/s on the press again, back 0.7 s later); let go: in 4th till the coast's blip (4->3 at
+ * 1667 rpm, 1.6 s on) and the clutch at the bike's 150 u/s (2202 rpm), none silent. The settings
+ * of test 44 (HeardSpeed=0 and the rest) give test 44's numbers: 2nd at 556 u/s and 2365 rpm, 3rd
+ * at 887 and 2918, 4th at 900 and 2344, the idle at 0.3 x -17.2 = -5.16 dB. The idle's first level comes over FirstFade's 400 ms (the script plays it
  * with no attenuation). The riding globals aren't asked (test 44's review: a rider with the MCM's
  * three sliders at 0): the last rides drive a set with them all 0, the steering off, the plugin's
  * own speed and the throttle read from it. */
@@ -9230,7 +9652,10 @@ static int SndSilentOthers(int except)   /* the loops at 10000 (silent) but one 
 		n += i != except && g_sndAtt[i] == 10000;
 	return n;
 }
-/* The gear lines ("sound: gear N at V u/s, R rpm") after the log's last line holding marker. */
+/* The gear lines ("sound: gear N at V u/s, R rpm[, heard H u/s[, a blip]][ (clutch in)]") after the
+ * log's last line holding marker; heard -1 where the line has none, flags 1 a blip, 2 the clutch in. */
+static float g_sndHeard[16];
+static int g_sndGearFlags[16];
 static int SndGearLines(const char *marker, int *gear, float *v, float *rpm, int max)
 {
 	static char line[4096];
@@ -9242,8 +9667,12 @@ static int SndGearLines(const char *marker, int *gear, float *v, float *rpm, int
 		if (strstr(line, marker))
 			n = 0;
 		const char *at = strstr(line, "sound: gear ");
-		if (at && n < max && sscanf(at, "sound: gear %d at %f u/s, %f rpm", &gear[n], &v[n], &rpm[n]) == 3)
+		if (at && n < max && n < 16 && sscanf(at, "sound: gear %d at %f u/s, %f rpm", &gear[n], &v[n], &rpm[n]) == 3) {
+			const char *h = strstr(at, " rpm, heard ");
+			g_sndHeard[n] = h && sscanf(h, " rpm, heard %f", &g_sndHeard[n]) == 1 ? g_sndHeard[n] : -1.0f;
+			g_sndGearFlags[n] = (strstr(at, ", a blip") ? 1 : 0) | (strstr(at, "(clutch in)") ? 2 : 0);
 			n++;
+		}
 	}
 	fclose(f);
 	return n;
@@ -9275,12 +9704,17 @@ static void SoundTests(void)
 	CHECK(LogLines("  sound: Drive=1 Library= Fade=25 FirstFade=400 PitchStep=0.003 LevelStep=30 Trace=1 Loops=idle:860,on:1400,on:1700,on:2000,on:2400,on:2800,on:3300,off:1400,off:1800,off:2300,off:2800: "
 	               "the engine's loops driven by this plugin once the script hands them over (the Address Library read at the first hand-over)") == 1,
 	      "the driver's line: Drive=1, the default Library, Fade 25 ms, FirstFade 400 ms, PitchStep 0.003, LevelStep 30, the eleven loops of the v4 set");
-	CHECK(LogLines("  sound: IdleRpm=860 Launch=640 ClutchIn=1900 ClutchFall=900 ClutchDecel=150 AccelTau=0.25 Gears=555.556,750,960,1161.6 ShiftRpm=2500 ShiftLo=2200 DownRpm=1750 "
+	CHECK(LogLines("  sound: IdleRpm=860 Launch=640 ClutchIn=1900 ClutchFall=750 ClutchDecel=150 AccelTau=0.25 Gears=555.556,750,960,1161.6 ShiftRpm=2500 ShiftLo=2200 DownRpm=1475 "
 	               "MinShiftGap=1.25 DownGap=0.5 ShiftCatch=0.9 ShiftTime=0.35 FlareTime=0.08 Flare=0.05 FlareTau=0.04 ShiftFall=0.1 RpmUp=0.1 RpmDown=0.22 RiseRate=2.64 "
-	               "LoadRise=0.08 LoadFall=0.15 CruiseLoad=0.45 FullAccel=400 LashDip=0.032 LashTau=0.15 CoastFall=70 BrakeFall=300 IdleFade=150,330 MinPitch=0.75 "
+	               "LoadRise=0.08 LoadFall=0.15 CruiseLoad=0.45 FullAccel=400 LashDip=0.032 LashTau=0.15 CoastFall=150 BrakeFall=300 IdleFade=150,330 MinPitch=0.75 "
 	               "MaxPitch=1.25 OnSplit=0.5 OffSplit=0.5 Hyst=0.02 XfadeTime=0.05 OnAbove=0.3 OffBelow=0.15 OffHold=0.05 FamilyTime=0.08 ShiftFamily=1 Wander=0.006 "
-	               "WanderTau=0.8 WanderSeed=12345 LevelScale=0.3 RpmDb=9.6 LoadDb=5 IdleDb=-17.2 LevelRpm=3000") == 1,
-	      "the model's line: every constant at CHANGES.md section 3's value (the gears as given: FullSpeed 900)");
+	               "WanderTau=0.8 WanderSeed=12345 LevelScale=0.7 RpmDb=9.6 LoadDb=5 IdleDb=-17.2 LevelRpm=3000") == 1,
+	      "the model's line: every constant at its value (test 45: ClutchFall 750, DownRpm 1475, CoastFall 150, LevelScale 0.7; the gears as given: FullSpeed 900)");
+	CHECK(LogLines("  sound: HeardSpeed=1 HeardRise=140 HeardTau=0.8 HeardLead=150 HeardPull=60 ClutchSpeed=150 CoastDown=1700 Blip=0.09 BlipTime=0.3 BlipTau=0.05 "
+	               "LaunchDraw=1250,1500 LaunchRise=350 ShiftDraw=2000,2900 DownHold=1 DownHeld=1: the engine follows a heard speed (up at most HeardRise, down with "
+	               "engine braking after a let-up); the launch's slip climbs from each pull's start; each pull's up-shift point drawn; a down-shift with the throttle on "
+	               "after DownHold under DownRpm, none while the throttle is held for something ahead") == 1,
+	      "test 45's line: the heard speed and the pulls at their defaults, each named");
 	CHECK(LogLines("sound: found CMB_SndLoop01 to CMB_SndLoop11, CMB_SndGen and CMB_SndDriven (FE005857-FE005863)") == 1 && LogLines("sound: not all of CMB_SndLoop01") == 0,
 	      "CMB_SndLoop01-11, CMB_SndGen and CMB_SndDriven found (0x857-0x863), one line");
 
@@ -9373,25 +9807,29 @@ static void SoundTests(void)
 	CHECK(g_sndFirstFadeMs[0] == 400 && g_sndAtt[0] < 10000 && quick == 10, "the idle's first FadeTo (to %d) over FirstFade's 400 ms (%d: it settles from the script's level, no step), "
 	      "the ten silenced over Fade's 25 (%d of 10)", g_sndAtt[0], g_sndFirstFadeMs[0], quick);
 
-	printf("sound: at rest: the idle at the level law's idle floor (0.3 x -17.2 dB = 516), pitch 1; the other ten silent (10000):\n");
+	printf("sound: at rest: the idle at the level law's idle floor (0.7 x -17.2 dB = 1204), pitch 1; the other ten silent (10000):\n");
 	RunFrames(500);
-	CHECK(abs(g_sndAtt[0] - 516) <= 2 && fabsf(g_sndFreq[0] - 1.0f) < 0.002f && SndSilentOthers(0) == 10, "the idle at %d (516), pitch %.4f (1); %d others at 10000 (10)",
+	CHECK(abs(g_sndAtt[0] - 1204) <= 2 && fabsf(g_sndFreq[0] - 1.0f) < 0.002f && SndSilentOthers(0) == 10, "the idle at %d (1204), pitch %.4f (1); %d others at 10000 (10)",
 	      g_sndAtt[0], g_sndFreq[0], SndSilentOthers(0));
 
-	printf("sound: full throttle from rest (W for 7 s): gears 2, 3, 4 in order where the twin shifts; at the top speed the cruise loop (On2000) on its own:\n");
+	printf("sound: full throttle from rest (W for 8 s): gears 2, 3, 4 in order where the twin shifts (by the heard speed: the bike at its top speed long before); at the top speed the cruise loop (On2000) on its own:\n");
 	snprintf(line, sizeof(line), "sound: generation %g driven", gen);
-	SndFullThrottle(7000);
+	SndFullThrottle(8000);
 	int gears[8];
 	float gv[8], grpm[8];
 	int ng = SndGearLines(line, gears, gv, grpm, 8);
 	CHECK(ng == 3 && gears[0] == 2 && gears[1] == 3 && gears[2] == 4, "%d gear lines: %d %d %d (2 3 4)", ng, ng > 0 ? gears[0] : 0, ng > 1 ? gears[1] : 0, ng > 2 ? gears[2] : 0);
-	CHECK(ng == 3 && fabsf(gv[0] - 556.0f) < 60.0f && fabsf(grpm[0] - 2365.0f) < 120.0f && fabsf(gv[1] - 887.0f) < 40.0f && fabsf(grpm[1] - 2918.0f) < 120.0f &&
-	          fabsf(gv[2] - 900.0f) < 20.0f && fabsf(grpm[2] - 2344.0f) < 120.0f,
-	      "at %.0f u/s %.0f rpm, %.0f %.0f, %.0f %.0f (the twin: 556 2365, 887 2918, 900 2344; the frames' timing moves the speed the plugin reads)",
-	      ng > 0 ? gv[0] : 0.0f, ng > 0 ? grpm[0] : 0.0f, ng > 1 ? gv[1] : 0.0f, ng > 1 ? grpm[1] : 0.0f, ng > 2 ? gv[2] : 0.0f, ng > 2 ? grpm[2] : 0.0f);
-	CHECK(fabsf(g_sndFreq[3] - 1937.0f / 2000.0f) < 0.03f && abs(g_sndAtt[3] - 264) <= 40 && SndSilentOthers(3) == 10,
-	      "On2000 at pitch %.4f (1937/2000 = 0.9685, within 0.03: the wander) and %d (264: -2.64 dB), the other ten silent (%d)", g_sndFreq[3], g_sndAtt[3], SndSilentOthers(3));
-	CHECK(LogLines("| engine g4 19") >= 1, "the trace line's \"| engine g4 19.. rpm load ...\" (%d)", LogLines("| engine g4 19"));
+	CHECK(ng == 3 && fabsf(grpm[0] - 2393.0f) < 120.0f && fabsf(g_sndHeard[0] - 540.0f) < 40.0f && fabsf(gv[0] - 896.0f) < 60.0f &&
+	          fabsf(grpm[1] - 2381.0f) < 120.0f && fabsf(g_sndHeard[1] - 729.0f) < 60.0f && fabsf(gv[1] - 900.0f) < 40.0f &&
+	          fabsf(grpm[2] - 2316.0f) < 120.0f && fabsf(g_sndHeard[2] - 900.0f) < 20.0f && fabsf(gv[2] - 900.0f) < 40.0f,
+	      "at %.0f rpm (heard %.0f, the bike %.0f), %.0f (%.0f, %.0f), %.0f (%.0f, %.0f) (the twin: 2393 (540, 896), 2381 (729, 900), 2316 (900, 900): the first pull's "
+	      "shift point drawn at 2429; the frames' timing moves the speed the plugin reads)",
+	      ng > 0 ? grpm[0] : 0.0f, ng > 0 ? g_sndHeard[0] : 0.0f, ng > 0 ? gv[0] : 0.0f, ng > 1 ? grpm[1] : 0.0f, ng > 1 ? g_sndHeard[1] : 0.0f, ng > 1 ? gv[1] : 0.0f,
+	      ng > 2 ? grpm[2] : 0.0f, ng > 2 ? g_sndHeard[2] : 0.0f, ng > 2 ? gv[2] : 0.0f);
+	CHECK(fabsf(g_sndFreq[3] - 1937.0f / 2000.0f) < 0.03f && abs(g_sndAtt[3] - 617) <= 40 && SndSilentOthers(3) == 10,
+	      "On2000 at pitch %.4f (1937/2000 = 0.9685, within 0.03: the wander) and %d (617: -6.17 dB), the other ten silent (%d)", g_sndFreq[3], g_sndAtt[3], SndSilentOthers(3));
+	CHECK(LogLines("| engine g4 19") >= 1 && LogLines(" heard 900") >= 1, "the trace line's \"| engine g4 19.. rpm load ... heard 900\" (%d, %d)", LogLines("| engine g4 19"),
+	      LogLines(" heard 900"));
 	CHECK(g_sndSmallSteps == 0 && g_sndStrayCalls == 0, "the ride's calls each a change over the thresholds (PitchStep 0.003, LevelStep 30): %d under them, %d on other ids",
 	      g_sndSmallSteps, g_sndStrayCalls);
 
@@ -9402,6 +9840,27 @@ static void SoundTests(void)
 	CHECK(cruiseCalls < 40 && onOthers == 0 && g_sndSmallSteps == 0, "%d calls in 2 s (under 20 a second), %d on the silent ten (0), %d under the thresholds (0)", cruiseCalls,
 	      onOthers, g_sndSmallSteps);
 
+	printf("sound: a 0.3 s tap of the key at the cruise (test 44: 4->3 on the press again, 3->4 0.5 s later): no gear change:\n");
+	int ng0 = SndGearLines(line, gears, gv, grpm, 8);
+	Keys(0.0f, 0.0f);
+	RunFrames(300);
+	Keys(0.0f, 1.0f);
+	RunFrames(3000);
+	ng = SndGearLines(line, gears, gv, grpm, 8);
+	CHECK(ng == ng0 && g_sndAtt[3] < 10000, "%d gear lines after it (%d before), On2000 heard again (%d)", ng, ng0, g_sndAtt[3]);
+
+	printf("sound: let go at the cruise to a stop: in 4th, the rpm falling with engine braking; any down-shift a blip; the clutch at the bike's 150 u/s from over 1600 rpm (the twin: a blip 4->3 at 1667, the clutch at 2202), then the idle:\n");
+	Keys(0.0f, 0.0f);
+	RunFrames(5000);   /* stopped in 2 s, the clutch from ~2200 at ClutchFall's 750 rpm a second, then RpmDown's 0.22 s */
+	ng = SndGearLines(line, gears, gv, grpm, 8);
+	int silent = 0;
+	for (int i = ng0; i < ng - 1; i++)
+		silent += !(g_sndGearFlags[i] & 1);
+	CHECK(ng > ng0 && gears[ng - 1] == 1 && (g_sndGearFlags[ng - 1] & 2) && grpm[ng - 1] > 1600.0f && gv[ng - 1] < 160.0f && silent == 0,
+	      "%d gear lines, the last gear %d (1) with the clutch in (%d) at %.0f rpm (over 1600) and %.0f u/s (under 160); %d down-shifts without a blip (0)", ng - ng0,
+	      ng > 0 ? gears[ng - 1] : 0, ng > 0 ? (g_sndGearFlags[ng - 1] & 2) != 0 : 0, ng > 0 ? grpm[ng - 1] : 0.0f, ng > 0 ? gv[ng - 1] : 0.0f, silent);
+	CHECK(abs(g_sndAtt[0] - 1204) <= 30 && fabsf(g_sndFreq[0] - 1.0f) < 0.01f, "the idle at %d (1204, within LevelStep's 30), pitch %.4f (1, within 0.01)", g_sndAtt[0], g_sndFreq[0]);
+
 	printf("sound: Wander=0 (read on getting on, a new set): steady cruise calls only on a measured change (the fake's frame hitches move the speed read by up to 1%%):\n");
 	SndGetOff();
 	RewriteIni("Wander=0.006\n", "Wander=0\n");
@@ -9409,7 +9868,7 @@ static void SoundTests(void)
 	SndOffer();
 	gen = SndGen();
 	CHECK(SndDriven() == gen && LogLines("ShiftFamily=1 Wander=0 WanderTau=0.8") == 1, "taken (%g), the model's line again with Wander=0", SndDriven());
-	SndFullThrottle(7000);
+	SndFullThrottle(8000);
 	SndClearCounts();
 	RunFrames(2000);
 	CHECK(SndCalls() < 10 && SndCalls() == g_sndFreqCalls[3] + g_sndFadeCalls[3] && g_sndSmallSteps == 0, "%d calls in 2 s of steady cruise (under 5 a second), all on On2000 (%d), %d under the thresholds",
@@ -9428,7 +9887,9 @@ static void SoundTests(void)
 	RunFrames(500);
 	CHECK(SndCalls() == 0, "no call after (%d)", SndCalls());
 	snprintf(line, sizeof(line), "sound: generation %g let go (the ids went to 0, generation %g): driven ", driven, SndGen());
-	CHECK(LogLines(line) == 1 && LogLines("gears used 1 2 3 4") >= 1, "the summary: \"%s... s, N calls ..., gears used 1 2 3 4\"", line);
+	CHECK(LogLines(line) == 1 && LogLines("gears used 1 2 3 4") >= 1 && LogLines("FadeTo N: each posts its change to the audio thread)") == 0 &&
+	          LogLines(": each posts its change to the audio thread), ") >= 1 && LogLines(" failed, ") == 0 && LogLines("returned false") == 0,
+	      "the summary: \"%s... s, N calls (SetFrequency N, FadeTo N: each posts its change to the audio thread), ..., gears used 1 2 3 4\", no failures counted", line);
 
 	printf("sound: a set with one id 0 (a loop the script couldn't play): declined, nothing called:\n");
 	ScriptStartLoops();
@@ -9444,10 +9905,10 @@ static void SoundTests(void)
 	      SndCalls(), g_sndAskCalls);
 	ScriptStopLoops();
 
-	printf("sound: a changed Loops line (the idle made at 900), LevelScale 0.6 and FirstFade=0, read on getting on: at rest the idle at 860/900 and twice the floor, its first FadeTo over Fade's 25 ms:\n");
+	printf("sound: a changed Loops line (the idle made at 900), LevelScale 1.4 and FirstFade=0, read on getting on: at rest the idle at 860/900 and twice the floor, its first FadeTo over Fade's 25 ms:\n");
 	SndGetOff();
 	RewriteIni("Loops=idle:860,", "Loops=idle:900,");
-	RewriteIni("LevelScale=0.3\n", "LevelScale=0.6\n");
+	RewriteIni("LevelScale=0.7\n", "LevelScale=1.4\n");
 	RewriteIni("FirstFade=400\n", "FirstFade=0\n");
 	SndGetOn();
 	SndOffer();
@@ -9456,14 +9917,42 @@ static void SoundTests(void)
 	CHECK(LogLines("Fade=25 FirstFade=0 PitchStep=0.003 LevelStep=30 Trace=1 Loops=idle:900,on:1400,") == 1 &&
 	          LogLines("RpmDb=9.6 LoadDb=5 IdleDb=-17.2 LevelRpm=3000 (read again on getting on)") >= 1,
 	      "the two lines again with the new values, \"(read again on getting on)\"");
-	CHECK(SndDriven() == gen && fabsf(g_sndFreq[0] - 860.0f / 900.0f) < 0.002f && abs(g_sndAtt[0] - 1032) <= 3, "the idle at pitch %.4f (0.9556) and %d (1032)", g_sndFreq[0], g_sndAtt[0]);
+	CHECK(SndDriven() == gen && fabsf(g_sndFreq[0] - 860.0f / 900.0f) < 0.002f && abs(g_sndAtt[0] - 2408) <= 3, "the idle at pitch %.4f (0.9556) and %d (2408)", g_sndFreq[0], g_sndAtt[0]);
 	snprintf(line, sizeof(line), "sound: generation %g driven (CMB_SndDriven %g): ", gen, gen);
 	CHECK(g_sndFirstFadeMs[0] == 25 && LogLines(line) == 1 && LogLines("25 ms fades, the first of each loop heard over 25 ms") == 1,
 	      "FirstFade=0: the idle's first FadeTo over Fade's 25 ms (%d), the driven line \"25 ms fades, the first of each loop heard over 25 ms\"", g_sndFirstFadeMs[0]);
 	SndGetOff();
 	RewriteIni("Loops=idle:900,", "Loops=idle:860,");
-	RewriteIni("LevelScale=0.6\n", "LevelScale=0.3\n");
+	RewriteIni("LevelScale=1.4\n", "LevelScale=0.7\n");
 	RewriteIni("FirstFade=0\n", "FirstFade=400\n");
+
+	printf("sound: test 44's settings (HeardSpeed=0, CoastFall 70, DownRpm 1750, LevelScale 0.3, ClutchFall 900, LaunchDraw 0,0, LaunchRise 0, ShiftDraw 0,0, DownHold 0, "
+	       "DownHeld 0), read on getting on: test 44's model, its numbers (the idle at 516; W: 2nd at 556 u/s and 2365 rpm, 3rd at 887 and 2918, 4th at 900 and 2344):\n");
+	static const char *const old44[][2] = { { "HeardSpeed=1\n", "HeardSpeed=0\n" }, { "CoastFall=150\n", "CoastFall=70\n" }, { "DownRpm=1475\n", "DownRpm=1750\n" },
+		{ "LevelScale=0.7\n", "LevelScale=0.3\n" }, { "ClutchFall=750\n", "ClutchFall=900\n" }, { "LaunchDraw=1250,1500\n", "LaunchDraw=0,0\n" },
+		{ "LaunchRise=350\n", "LaunchRise=0\n" }, { "ShiftDraw=2000,2900\n", "ShiftDraw=0,0\n" }, { "DownHold=1\n", "DownHold=0\n" }, { "DownHeld=1\n", "DownHeld=0\n" } };
+	for (int i = 0; i < (int)(sizeof(old44) / sizeof(old44[0])); i++)
+		RewriteIni(old44[i][0], old44[i][1]);
+	SndGetOn();
+	SndOffer();
+	gen = SndGen();
+	RunFrames(500);
+	CHECK(SndDriven() == gen && LogLines("  sound: HeardSpeed=0 HeardRise=140 ") == 1 && LogLines("LaunchDraw=0,0 LaunchRise=0 ShiftDraw=0,0 DownHold=0 DownHeld=0: the engine follows "
+	      "the bike's own speed (HeardSpeed=0, as up to test 44); a flat launch slip at IdleRpm + Launch; every pull's up-shift at ShiftRpm; a down-shift with the throttle on "
+	      "at once under DownRpm (read again on getting on)") == 1 && abs(g_sndAtt[0] - 516) <= 2,
+	      "taken (%g), test 45's line with test 44's values, each named so; the idle at %d (516)", SndDriven(), g_sndAtt[0]);
+	snprintf(line, sizeof(line), "sound: generation %g driven", gen);
+	SndFullThrottle(7000);
+	ng = SndGearLines(line, gears, gv, grpm, 8);
+	CHECK(ng == 3 && gears[0] == 2 && gears[1] == 3 && gears[2] == 4 && fabsf(gv[0] - 556.0f) < 60.0f && fabsf(grpm[0] - 2365.0f) < 120.0f && fabsf(gv[1] - 887.0f) < 40.0f &&
+	          fabsf(grpm[1] - 2918.0f) < 120.0f && fabsf(gv[2] - 900.0f) < 20.0f && fabsf(grpm[2] - 2344.0f) < 120.0f && g_sndHeard[0] < 0.0f,
+	      "%d gear lines: %d at %.0f u/s %.0f rpm, %d %.0f %.0f, %d %.0f %.0f (test 44's twin: 2 556 2365, 3 887 2918, 4 900 2344), no heard speed in them", ng,
+	      ng > 0 ? gears[0] : 0, ng > 0 ? gv[0] : 0.0f, ng > 0 ? grpm[0] : 0.0f, ng > 1 ? gears[1] : 0, ng > 1 ? gv[1] : 0.0f, ng > 1 ? grpm[1] : 0.0f,
+	      ng > 2 ? gears[2] : 0, ng > 2 ? gv[2] : 0.0f, ng > 2 ? grpm[2] : 0.0f);
+	CHECK(abs(g_sndAtt[3] - 264) <= 40, "On2000 at %d (264: test 44's -2.64 dB)", g_sndAtt[3]);
+	SndGetOff();
+	for (int i = 0; i < (int)(sizeof(old44) / sizeof(old44[0])); i++)
+		RewriteIni(old44[i][1], old44[i][0]);
 
 	printf("sound: a load while driven: let go, the save's set left alone (CMB_SndDriven = its generation), the script's next set taken:\n");
 	SndGetOn();
@@ -9547,10 +10036,10 @@ static void SoundTests(void)
 	CHECK(SndDriven() == gen && LogLines(line) == 1 && LogLines("declined (not riding") == 0 && g_sndFirstFadeMs[0] == 400,
 	      "CMB_SndDriven %g, \"%s...\", no \"not riding\" decline, the idle's first FadeTo over 400 ms (%d)", SndDriven(), line, g_sndFirstFadeMs[0]);
 
-	printf("sound: riding with the three at 0, full throttle from rest (W for 7 s, the steering off: the plugin's own speed): the gears up to 4th, at the top speed On2000 heard and the idle silent; the stop: let go:\n");
+	printf("sound: riding with the three at 0, full throttle from rest (W for 8 s, the steering off: the plugin's own speed): the gears up to 4th, at the top speed On2000 heard and the idle silent; the stop: let go:\n");
 	snprintf(line, sizeof(line), "sound: generation %g driven", gen);
 	SndClearCounts();
-	SndFullThrottle(7000);
+	SndFullThrottle(8000);
 	ng = SndGearLines(line, gears, gv, grpm, 8);
 	CHECK(ng >= 3 && gears[ng - 1] == 4 && gears[0] == 2 && g_sndAtt[0] == 10000 && g_sndAtt[3] < 10000 && SndCalls() > 0 && g_sndStrayCalls == 0,
 	      "%d gear lines, the first %d and the last %d (2, 4), the idle at %d (10000), On2000 at %d, %d calls, none on other ids (%d)", ng, ng > 0 ? gears[0] : 0,
