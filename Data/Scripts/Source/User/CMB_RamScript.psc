@@ -75,7 +75,8 @@ int[] okEvents
 Actor[] okActors
 string[] okNames
 int okNext = 0
-; The last few knocked over, for the cooldown.
+; The last few knocked over, for the cooldown (real seconds; cleared on getting on, and a stamp
+; later than now dropped as an earlier session's: test 46, DropStaleStamps).
 Actor[] knocked
 float[] knockedAt
 int knockedNext = 0
@@ -126,6 +127,8 @@ EndFunction
 ; made mid-ride isn't logged).
 Function StartRide()
 	Remember()
+	; Test 46: the stamps of an earlier session counted and logged before all are cleared below.
+	DropStaleStamps(Utility.GetCurrentRealTime())
 	int i = 0
 	while i < okEvents.Length
 		okEvents[i] = 0
@@ -139,6 +142,17 @@ Function StartRide()
 		pushed[i] = None
 		i += 1
 	endwhile
+	; Test 46: the refusals' log stamps start afresh with each ride; the cooldown's stamps are
+	; kept (a dog knocked over just before a quick get-off and on is still in its 3 s), those
+	; from an earlier session dropped by DropStaleStamps above (test 45: dogs refused "knocked
+	; over less than 3 s ago" with nothing knocked over this session).
+	i = 0
+	while i < refusedKeys.Length
+		refusedKeys[i] = ""
+		refusedAt[i] = 0.0
+		i += 1
+	endwhile
+	refusedNext = 0
 	lastSeen = CMB_RamSeen.GetValue() as int
 	lastHit = CMB_RamHit.GetValue() as int
 	CMB_RamOk.SetValue(0.0)
@@ -283,6 +297,7 @@ EndFunction
 
 bool Function KnockedWithin(Actor akTarget, float afSeconds)
 	float now = Utility.GetCurrentRealTime()
+	DropStaleStamps(now)
 	int i = 0
 	while i < knocked.Length
 		if knocked[i] == akTarget && now - knockedAt[i] < afSeconds
@@ -296,6 +311,7 @@ EndFunction
 ; True the first time in RefusalLogEvery seconds this actor is refused for this reason.
 bool Function RefusalIsNews(string asKey)
 	float now = Utility.GetCurrentRealTime()
+	DropStaleStamps(now)
 	int i = 0
 	while i < refusedKeys.Length
 		if refusedKeys[i] == asKey && now - refusedAt[i] < RefusalLogEvery
@@ -307,6 +323,58 @@ bool Function RefusalIsNews(string asKey)
 	refusedAt[refusedNext] = now
 	refusedNext = (refusedNext + 1) % refusedKeys.Length
 	return true
+EndFunction
+
+; Test 46: Utility.GetCurrentRealTime() starts again with every game launch, and these stamps are
+; kept in the save, so one from an earlier session can lie in this one's "future", where "now - at
+; < Cooldown" held: test 45's dogs were refused "knocked over less than 3 s ago" by test 41's
+; save's stamps until four new knock-overs had cycled the ring, and the refusals' log stamps hid
+; the refusals (RefusalIsNews said no). A stamp later than now is from an earlier session: cleared
+; wherever they're read (StartRide clears them all as well). No switch: a plain bug fix.
+Function DropStaleStamps(float afNow)
+	int n = 0
+	int i = 0
+	if knocked
+		while i < knocked.Length
+			if knockedAt[i] > afNow
+				if knocked[i]
+					n += 1
+				endif
+				knocked[i] = None
+				knockedAt[i] = 0.0
+			endif
+			i += 1
+		endwhile
+	endif
+	if refusedKeys
+		i = 0
+		while i < refusedKeys.Length
+			if refusedAt[i] > afNow
+				if refusedKeys[i] != ""
+					n += 1
+				endif
+				refusedKeys[i] = ""
+				refusedAt[i] = 0.0
+			endif
+			i += 1
+		endwhile
+	endif
+	if pushed
+		i = 0
+		while i < pushed.Length
+			if pushedAt[i] > afNow
+				if pushed[i]
+					n += 1
+				endif
+				pushed[i] = None
+				pushedAt[i] = 0.0
+			endif
+			i += 1
+		endwhile
+	endif
+	if n > 0
+		Log("Ram: " + n + " stale knock-over/refusal stamps from an earlier session cleared.")
+	endif
 EndFunction
 
 ; The push first (it can't wait), away from the rider: harder the faster the bike, force 3 at
@@ -391,6 +459,7 @@ EndFunction
 ; or the plugin's brake as before CMB_RamRobots).
 Function MeasurePushes(bool abNow)
 	float now = Utility.GetCurrentRealTime()
+	DropStaleStamps(now)
 	int i = 0
 	while i < pushed.Length
 		Actor target = pushed[i]

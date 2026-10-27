@@ -19,6 +19,7 @@ float Function GetPositionX() native
 float Function GetPositionY() native
 Form Function GetBaseObject() native
 float Function GetValue(ActorValue akAV) native
+float Function GetBaseValue(ActorValue akAV) native
 Function ModValue(ActorValue akAV, float afAmount) native
 Event OnActivate(ObjectReference akActionRef)
 EndEvent

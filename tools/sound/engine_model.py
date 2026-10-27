@@ -56,10 +56,18 @@ both (one voice: its gains add in power).
     families' lowest loops follow the rpm unclamped.
 
 Level (the law of the level-linear paris ride, scaled): in dB re full load at LevelRpm (3000),
-  LevelScale * max(IdleDb, RpmDb * log2(rpm / LevelRpm) + LoadDb * (rider load - 1)).
+  LevelScale * max(IdleDb, RpmDb * log2(rpm / LevelRpm) + LoadDb * (rider load - 1)) + LevelOffset,
+held at 0 dB (the game's volume tops out there; test 46) before the crossfades, so each loop's gain is 1 at most and a
+hand-over at the ceiling stays equal power (level_db() gives it before the ceiling).
 LevelScale 0.3 is what the daily and autumn cameras deliver (0.29-0.36 of paris's range): idle -5.2 dB, full load
 at 3000 rpm 0 dB. Test 45: 0.7 (the tester: the cameras' compression copied, not the bike; paris's pull is 11.6 dB over
-its idle): idle -12.0 dB.
+its idle): idle -12.0 dB. Test 46 (the tester: too quiet, not punchy; the game plays the loops faithfully, its volume
+tops out at 1): LevelScale 1.0 and LevelOffset +5 dB: the cruise at -3.8 dB (-6.2 in test 45), a full-load pull at
+0 dB (clamped from +1.9 at 2400 rpm: +3.8 over the cruise), the throttle closed at the cruise -2.6..-3.1, the idle
+-12.2 dB (8.4 under the cruise; -12.0 in test 45: the one-shots meet it as they did). The demo ride's windows (the
+first pull 6.5-10 s, the cruise 12-16 s, power sums): the first pull +2.6 over the cruise (+2.1 at 0.7; paris about
++4 over steady riding; with the 0 dB ceiling a louder cruise leaves a pull less room: 6.8 dB of offset would put the
+cruise at -2 and every pull within 2 dB of it).
 
 The heard speed (test 45; HeardSpeed=0: the bike's own speed, as up to test 44). The game's bike does everything 2-3x
 faster than the reference rides (0 to 900 u/s in about 3 s, a let-up stops it in about 2 s), and the gears tied to
@@ -171,10 +179,13 @@ DEFAULTS = dict(
                                    # 0.45 % and 0.32 % measured the same way (39 seeds); autumn 0.41-0.73 %
     WanderSeed=12345,
     # --- level, dB re full load at LevelRpm: LevelScale * max(IdleDb, RpmDb log2(rpm/LevelRpm) + LoadDb (load - 1))
-    LevelScale=0.7,       # paris (linear): idle 11.6 dB under a pull, the throttle closing -4..-5 dB; 0.7 gives the
-                          # idle -12.0 dB, on - off 3.5 dB (0.3 up to test 44: what the daily/autumn cameras deliver,
-                          # 0.29-0.36 of paris's range; the tester measured the game's states within 2.6 dB)
+    LevelScale=1.0,       # paris (linear): idle 11.6 dB under a pull, the throttle closing -4..-5 dB; 1.0 (test 46) is
+                          # paris's own law: the idle 8.4 dB under the cruise, a full-load pull at the cruise's rpm 2.75
+                          # over it (0.7 in test 45: idle -12.0 dB, on - off 3.5 dB, the pull's windows +2.1 over the
+                          # cruise; 0.3 up to test 44: what the daily/autumn cameras deliver, 0.29-0.36 of paris's range)
     RpmDb=9.6, LoadDb=5.0, IdleDb=-17.2,   # paris (linear): 9.6 dB per rpm doubling, on - off 5.0 dB, idle -17.2
+    LevelOffset=5.0,      # dB on every level, each loop's gain then held at 0 dB (test 46; 0 with LevelScale 0.7: test
+                          # 45's levels): the cruise at -3.8 dB, full load from about 2100 rpm at the 0 dB ceiling
     LevelRpm=3000.0,      # the level law's own reference (it was ShiftRpm; moving the shift point to 2500 must not
                           # make all riding 0.76 dB louder against the idle)
     # --- test 45: the heard speed and the pulls (the module's docstring); every one off restores test 44's
@@ -492,11 +503,11 @@ class Engine:
         """The overall level in dB re full load at LevelRpm."""
         c = self.c
         db = c["RpmDb"] * math.log2(self.rpm / c["LevelRpm"]) + c["LoadDb"] * (min(1.0, self.rload) - 1.0)
-        return c["LevelScale"] * max(c["IdleDb"], db)
+        return c["LevelScale"] * max(c["IdleDb"], db) + c["LevelOffset"]
 
     def idle_level(self):
         """The level the idle plays at (gain): the one-shots' idle parts are matched to it."""
-        return 10 ** (self.c["LevelScale"] * self.c["IdleDb"] / 20)
+        return min(1.0, 10 ** ((self.c["LevelScale"] * self.c["IdleDb"] + self.c["LevelOffset"]) / 20))
 
     def mix(self):
         """{loop name: (gain 0..1, pitch ratio)}."""
@@ -517,7 +528,7 @@ class Engine:
                 n, b = fam.loops[i]
                 base[n] = b
                 p2[n] = p2.get(n, 0.0) + (w_run * w * g) ** 2
-        level = 10 ** (self.level_db() / 20)
+        level = min(1.0, 10 ** (self.level_db() / 20))   # 0 dB at most (test 46), before the crossfades: equal power through them
         in_band = self.rpm < c["IdleRpm"] + c["IdleFade"][1]
         out = {}
         for n, q in p2.items():
@@ -526,5 +537,5 @@ class Engine:
                 p *= 1.0 + self.wander
             if not (in_band and (n == self.idle[0] or n in self.lowest)):
                 p = min(c["MaxPitch"], max(c["MinPitch"], p))
-            out[n] = (math.sqrt(q) * level, p)
+            out[n] = (min(1.0, math.sqrt(q) * level), p)   # (q is 1 at most: the level's ceiling holds each loop's)
         return out

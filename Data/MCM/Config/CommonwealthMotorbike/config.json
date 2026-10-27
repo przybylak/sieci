@@ -285,7 +285,7 @@
     {
       "type": "slider",
       "text": "Engine volume",
-      "help": "0 = silent. The engine loops pick it up the next time you get on.",
+      "help": "0 = silent. The engine follows it as you ride.",
       "valueOptions": {
         "min": 0,
         "max": 100,

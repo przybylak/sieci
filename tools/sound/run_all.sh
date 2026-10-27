@@ -10,8 +10,11 @@
 #   demo/    CMB_engine_demo.wav (the model's renderer: the pitch glides within each frame) and
 #            CMB_engine_demo_stepped.wav (the game's way: the pitch steps once a frame), each with its CSVs
 #   work/    the grain and piece tools' outputs and every tool's log
+# The last stage (hot_loops.py, since test 45's answer) takes every file of loops/ 2.5 dB hotter through a memoryless
+# soft limiter (knee -6 dBFS, ceiling -1). HOT=0 leaves the set as build_loops.py writes it: test 45's set.
 # With CHECK=<dir> set, every WAV in loops/ is compared byte for byte with the one of the same name in <dir> (the
-# cruise loop with CMB_EngineOn2000LP.wav when <dir> is a set built before it took the cruise's name, demo D's).
+# cruise loop with CMB_EngineOn2000LP.wav when <dir> is a set built before it took the cruise's name, demo D's; a set
+# built before test 45's answer, demo D's or test 45's, with HOT=0).
 #
 # The recording is someone else's work (Creative Commons 0, but still not ours to re-host): it and everything built
 # from it stay out of the repository. Every tool runs isolated (python3 -I -B) with its files as arguments.
@@ -34,6 +37,10 @@ $PY "$HERE/make_piece_loops.py" --idle "$SRC" --out "$OUT/work/pieces" > "$OUT/w
 echo "the loop set (build_loops.py) ..."
 $PY "$HERE/build_loops.py" --grains "$OUT/work/grains" --unlimited "$OUT/work/grains_unlimited" \
     --pieces "$OUT/work/pieces" --out "$OUT/loops" > "$OUT/work/build.log" 2>&1
+if [ "${HOT:-1}" != 0 ]; then
+    echo "hotter (hot_loops.py) ..."
+    $PY "$HERE/hot_loops.py" --in "$OUT/loops" --out "$OUT/loops" > "$OUT/work/hot.log" 2>&1
+fi
 echo "the demo ride (render.py) ..."
 $PY "$HERE/render.py" --loops "$OUT/loops" --out "$OUT/demo/CMB_engine_demo.wav" > "$OUT/work/render.log" 2>&1
 $PY "$HERE/render.py" --loops "$OUT/loops" --out "$OUT/demo/CMB_engine_demo_stepped.wav" --stepped \

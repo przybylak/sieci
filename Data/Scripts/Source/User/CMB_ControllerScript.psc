@@ -180,7 +180,21 @@ Group Optional
 	aft, 40 to the sides) instead of eight level rays 110 out (test 42: a passage under about 220
 	wide never had room, even where the bike fits lengthwise). The ESP's value, -1000, is none
 	written (an older script): the eight rays. Not Mandatory: an ESP from before test 43 leaves it
-	None, and the spot is asked about without a heading, as before.}
+	None, and the spot is asked about without a heading, as before. Test 46: with room, the plugin
+	may have slid the spot or turned it 90 ([Room] Slide: the box had a hit), and CMB_RoomAskX/Y and
+	this then hold where it found room: read back after a room answer (RoomAt).}
+	GlobalVariable Property CMB_RoomOptions Auto Const
+	GlobalVariable Property CMB_RoomPitch Auto Const
+	GlobalVariable Property CMB_RoomRoll Auto Const
+	GlobalVariable Property CMB_RoomGround Auto Const
+	{Test 46 (test 45's 12 calls, 5 fine), written by CMB_Slope.dll. Options: its [Room] keys for this
+	script, bit 1 Around (the four spots around the player after the seven ahead) and bit 2 (its
+	LineFallback=0: a call with no spot with room nor one to take for the most room is refused, the
+	bike not brought); 0, or no plugin, is test 45's build. Pitch and Roll: with each answer, the
+	ground's tilt under the parked bike's wheels at the spot with room, or at a refused one a call
+	can take for the most room ([Room] ParkTilt; -1000 none), and Ground that spot's ground height
+	with it; SettleBike sets the brought bike to them where it stays on the spot. Not Mandatory: an
+	ESP from before test 46 leaves them None, and nothing changes.}
 	Sound Property CMB_EngineOn1400Sound Auto Const
 	Sound Property CMB_EngineOn1700Sound Auto Const
 	Sound Property CMB_EngineOn2400Sound Auto Const
@@ -287,8 +301,10 @@ bool Property PluginDrivesSound = true AutoReadOnly
 {Test 44: true: with CMB_Slope.dll (F4SE) and an ESP that has the CMB_Snd globals, eleven engine
 loops play from the end of the start sound (the idle and cruise ones as before, nine more at no
 volume) and are handed to the plugin, which sets each one's pitch and level every frame from an
-rpm, gear and load model of the bike's speed and the forward key (its [Sound] section); the script
-then keeps only the MCM's engine volume on them (UpdateEngineSound). Without the plugin, with an
+rpm, gear and load model of the bike's speed and the forward key (its [Sound] section); since test
+46 the plugin puts the MCM's engine volume in their levels too (BSSoundHandle::SetVolume, the value
+Sound.SetInstanceVolume sets), so the script makes no call on them while it offers them or the
+plugin drives them (UpdateEngineSound). Without the plugin, with an
 older ESP, or when the plugin declines them or lets go of them (its log says why), the idle and
 cruise loops play crossfaded by speed once a tick, as before. False: that crossfade only, as before
 test 44. A script constant, as CheckBikeSpot is.}
@@ -332,6 +348,11 @@ right or left (nearer: a gate's fence runs across the way), 300 ahead and 60 rig
 (past a narrow spot), and 100 straight ahead (as close as the bike stands without being under
 the player's nose); then, for a bring from a door, where the bike waited: the rider parked it
 there, so it's always acceptable.}
+int Property AroundSpots = 4 AutoReadOnly
+{Test 46 (test 45: every spot was ahead, where the fence or the wall the player faced was): with
+the plugin's [Room] Around (CMB_RoomOptions bit 1), when none of the BikeSpots has room these are
+asked too: 100 behind and 110 right (beside the player, its nose 10 ahead of them), the same on
+the left, 120 behind turned across the player's heading (SpotTurn), and 220 straight behind.}
 float Property RoomAnswerWait = 0.5 AutoReadOnly
 {One spot's answer is waited for this long, polled every RoomPollInterval. The plugin answers
 within a frame or two; none in this long means no plugin, and the first spot is taken untested,
@@ -427,7 +448,6 @@ int sndGen = 0         ; the last number written to CMB_SndGen
 int offeredGen = 0     ; the number the CMB_Snd globals hold a set of loops for (0: none)
 bool soundDriven = false
 int drivenGen = 0      ; the set the plugin drives while soundDriven
-float drivenVolume = -1.0   ; the engine volume last put on its loops
 bool keysDelivered = false
 bool riderPoseApplied = false
 float playerSpeedDelta = 0.0
@@ -510,6 +530,22 @@ float spotGround
 bool spotGroundKnown = false
 ; The last answer's CMB_RoomClear (RoomAt; 0 when there was none), for CallTakesBestSpot.
 float lastRoomClear = 0.0
+; Test 46: a room answer's spot and heading read back (the plugin's [Room] Slide may have moved or
+; turned it), and the ground's tilt under the wheels there (its ParkTilt; lastRoomTilted false
+; without one); spotPitch/spotRoll/spotTiltKnown the chosen spot's, for SettleBike.
+float lastRoomX
+float lastRoomY
+float lastRoomAngle
+float lastRoomPitch
+float lastRoomRoll
+float lastRoomGround
+bool lastRoomTilted = false
+float spotPitch
+float spotRoll
+bool spotTiltKnown = false
+; Test 46: the last RollBikeUp found no spot and brought nothing (a call refused: the plugin's
+; [Room] LineFallback=0).
+bool rollRefused = false
 Actor[] stowedFollowers
 Actor[] boostedFollowers
 float[] boostedDeltas
@@ -872,6 +908,15 @@ Function FollowHeadlamp()
 		return
 	endif
 	float now = Utility.GetCurrentRealTime()
+	; Test 46: the two stamps are kept in the save and the real-time clock starts again with each
+	; launch: after a load into a ride with the lamp kept, a stamp later than now is an earlier
+	; session's, and held off the 3D check (and the old lamp's retirement) until the clock caught up.
+	if lampPlacedAt > now
+		lampPlacedAt = now
+	endif
+	if lampRetireAt > now + 2.5
+		lampRetireAt = now
+	endif
 	if headlampRefOld && now >= lampRetireAt
 		RetireOldHeadlamp()
 	endif
@@ -1219,6 +1264,7 @@ Function Mount()
 	if FuelEnabled()
 		Debug.Notification("Fuel: " + CountFuel())
 	endif
+	APWatchRideStart()   ; test 46: AP once at getting on (after the fade: its reads take a few frames)
 EndFunction
 
 Function Dismount()
@@ -1273,6 +1319,16 @@ Function CallBike()
 		return
 	endif
 	RollBikeUp()
+	if rollRefused
+		; Test 46 (the plugin's [Room] LineFallback=0): no spot with room around the player, nor one
+		; to take for the most room: the bike stays where it was rather than past a fence or inside
+		; a house (test 45's calls 1, 6 and 8).
+		busy = false
+		notice = "There's no room for your motorbike here."
+		Debug.Notification(notice)
+		Log("Calling the bike refused: no spot with room around the player (the spot lines above say why): " + notice)
+		return
+	endif
 	PlaySound(CMB_EngineStopSound)
 	busy = false
 	Log("Bike called to the player.")
@@ -1283,13 +1339,23 @@ EndFunction
 ; bringing it from a door. The caller holds busy. Test 41: the first of the BikeSpots with room
 ; (PickBikeSpot). abFromDoor: the bike waits outside a door the rider parked it at, so with
 ; room at none of them it's left there (false then); a call takes the one with the most room
-; (test 43, CallTakesBestSpot), or the first spot as before.
+; (test 43, CallTakesBestSpot), or the first spot as before. Test 46: with none of those either
+; and the plugin's [Room] LineFallback=0, nothing is brought: rollRefused, the bike shown again
+; where it was if it was shown, false.
 bool Function RollBikeUp(bool abFromDoor = false)
+	rollRefused = false
+	bool wasShown = !BikeRef.IsDisabled()
 	; Disabled before the asks: standing where it waited, the bike would be in its own way at a
 	; spot over it (a disabled reference has no collision).
 	BikeRef.Disable()
 	int spot = PickBikeSpot(abFromDoor)
-	if spot < 0
+	if spot == -2
+		rollRefused = true
+		if wasShown
+			BikeRef.Enable(false)
+		endif
+		return false
+	elseif spot < 0
 		; Where it waited: the shadow move put it there at the rider's height, and LeaveBikeOutside
 		; only showed it. Shown again, and settled on the ground there like any park.
 		BikeRef.Enable(false)
@@ -1321,11 +1387,16 @@ EndFunction
 ; unless this is a bring and a spot was already refused, when where it waited is the surer
 ; place. Test 43: the first spot answered "not checked" (the plugin's rays not working yet, right
 ; after a load) is asked about once more RoomRaysWait later (RetryUncheckedSpot), and a call with
-; room at none takes the one with the most room (CallTakesBestSpot). Every try is logged, and the
-; choice.
+; room at none takes the one with the most room (CallTakesBestSpot). Test 46 (test 45's calls by
+; fences and walls): with the plugin's [Room] Around (CMB_RoomOptions), the AroundSpots after the
+; seven, each with its own heading (SpotTurn); a spot with room is taken where the plugin found it
+; (slid or turned: RoomAt reads it back); and with its LineFallback=0 a call with no spot to take
+; returns -2, refused (each spot that could be taken for the most room has a clear line; the first
+; spot was past the fence or inside the house). Every try is logged, and the choice.
 int Function PickBikeSpot(bool abFromDoor)
 	spotKnown = false
 	spotGroundKnown = false
+	spotTiltKnown = false
 	if !CheckBikeSpot
 		return 0
 	endif
@@ -1337,16 +1408,24 @@ int Function PickBikeSpot(bool abFromDoor)
 	int bestSpot = -1
 	float bestX = 0.0
 	float bestY = 0.0
+	float bestAngle = 0.0
 	float bestClear = 0.0
+	; Test 46: its ground and tilt, measured by the plugin ([Room] ParkTilt).
+	bool bestTilted = false
+	float bestPitch = 0.0
+	float bestRoll = 0.0
+	float bestGround = 0.0
+	int spots = BikeSpots
 	int spot = 0
-	while spot < BikeSpots
+	while spot < spots
 		float forward = SpotForward(spot)
 		float right = SpotRight(spot)
 		float x = px + OffsetX(angle, forward, right)
 		float y = py + OffsetY(angle, forward, right)
+		float heading = angle + SpotTurn(spot)
 		int room = 0
 		if spot == 0 && RetryUncheckedSpot
-			room = RoomAt(x, y, pz, spot, angle, ": asked again in " + Tenths(RoomRaysWait) + " s.")
+			room = RoomAt(x, y, pz, spot, heading, ": asked again in " + Tenths(RoomRaysWait) + " s.")
 			if room == -2
 				; Test 43: no verdict yet (the plugin's test ray hasn't passed, right after a load;
 				; its RaysRetry tries it again for the next ask). Asked about once more, from where
@@ -1359,7 +1438,8 @@ int Function PickBikeSpot(bool abFromDoor)
 				pz = PlayerRef.GetPositionZ()
 				x = px + OffsetX(angle, forward, right)
 				y = py + OffsetY(angle, forward, right)
-				room = RoomAt(x, y, pz, spot, angle)
+				heading = angle + SpotTurn(spot)
+				room = RoomAt(x, y, pz, spot, heading)
 				if room == -2 || room == 0
 					if abFromDoor
 						Log("The bike's spot: where it waited (spot 1 not checked twice: the plugin's rays aren't working here).")
@@ -1370,32 +1450,54 @@ int Function PickBikeSpot(bool abFromDoor)
 				endif
 			endif
 		else
-			room = RoomAt(x, y, pz, spot, angle)
+			room = RoomAt(x, y, pz, spot, heading)
 		endif
 		if room == -2
 			; Not checked (the plugin's rays): as no answer, as before test 43.
 			room = 0
 		endif
 		if room > 0
-			Log("The bike's spot: " + (spot + 1) + " (" + SpotText(spot) + "), heading " + Whole(angle) + ".")
-			spotX = x
-			spotY = y
-			spotAngle = angle
+			; Test 46: where the plugin found room (its [Room] Slide may have moved or turned the spot).
+			spotX = lastRoomX
+			spotY = lastRoomY
+			spotAngle = lastRoomAngle
 			spotKnown = true
 			; With room CMB_RoomClear is how far under the asked height (the player's, pz) the ground is.
 			spotGround = pz - lastRoomClear
 			spotGroundKnown = true
+			; Test 46: the ground's tilt under the wheels there (the plugin's [Room] ParkTilt).
+			spotPitch = lastRoomPitch
+			spotRoll = lastRoomRoll
+			spotTiltKnown = lastRoomTilted
+			string moved = ""
+			float turned = lastRoomAngle - heading
+			while turned > 180.0
+				turned -= 360.0
+			endwhile
+			while turned < -180.0
+				turned += 360.0
+			endwhile
+			if Math.Abs(lastRoomX - x) > 0.5 || Math.Abs(lastRoomY - y) > 0.5 || Math.Abs(turned) > 0.05
+				moved = ", where the plugin found room (" + Whole(Math.Sqrt((lastRoomX - x) * (lastRoomX - x) + (lastRoomY - y) * (lastRoomY - y))) + " from the asked spot, turned " + Whole(turned) + ")"
+			endif
+			Log("The bike's spot: " + (spot + 1) + " (" + SpotText(spot) + "), heading " + Whole(spotAngle) + moved + ".")
 			return spot
 		elseif room < 0 && CallTakesBestSpot && !abFromDoor && lastRoomClear > 0.0 && lastRoomClear <= 200.0 && lastRoomClear > bestClear
 			; Refused for a hit along a ray (a share of the plugin's Fore, which the INI allows up to
 			; 200) or the ground under 100 below: the most room so far. The ground above (minus),
-			; none within 100 (-1) and not checked (-2) don't count. Test 45's review: the plugin
-			; checks the box at a spot refused for its ground below too (with [Room] Line), its
-			; Clear the box's nearest hit when that is less, so none taken here is unchecked.
+			; none within 100 (-1), no clear line (-3) and not checked (-2) don't count. Test 45's
+			; review: the plugin checks the box at a spot refused for its ground below too (with
+			; [Room] Line), its Clear the box's nearest hit when that is less, so none taken here is
+			; unchecked.
 			bestSpot = spot
 			bestX = x
 			bestY = y
+			bestAngle = heading
 			bestClear = lastRoomClear
+			bestTilted = lastRoomTilted
+			bestPitch = lastRoomPitch
+			bestRoll = lastRoomRoll
+			bestGround = lastRoomGround
 		elseif room == 0
 			if abFromDoor && spot > 0
 				Log("The bike's spot: where it waited (spot " + (spot + 1) + " not checked, the earlier ones without room).")
@@ -1405,21 +1507,50 @@ int Function PickBikeSpot(bool abFromDoor)
 			return 0
 		endif
 		spot += 1
+		if spot == BikeSpots && RoomOption(1)
+			; Test 46 (the plugin's [Room] Around): beside and behind the player too.
+			spots = BikeSpots + AroundSpots
+		endif
 	endwhile
 	if abFromDoor
-		Log("The bike's spot: where it waited (none of the " + BikeSpots + " has room).")
+		Log("The bike's spot: where it waited (none of the " + spots + " has room).")
 		return -1
 	endif
 	if bestSpot >= 0
-		Log("The bike's spot: " + (bestSpot + 1) + " (" + SpotText(bestSpot) + "), heading " + Whole(angle) + ", the most room of the " + BikeSpots + " (the nearest hit " + Whole(bestClear) + " along a ray, on the bike's 110, or the ground " + Whole(bestClear) + " below; none has room, a call takes the most room).")
+		Log("The bike's spot: " + (bestSpot + 1) + " (" + SpotText(bestSpot) + "), heading " + Whole(bestAngle) + ", the most room of the " + spots + " (the nearest hit " + Whole(bestClear) + " along a ray, on the bike's 110, or the ground " + Whole(bestClear) + " below; none has room, a call takes the most room).")
 		spotX = bestX
 		spotY = bestY
-		spotAngle = angle
+		spotAngle = bestAngle
 		spotKnown = true
+		if bestTilted
+			; Test 46 (the plugin's [Room] ParkTilt; test 45's call 11, its most-room spot left level by
+			; a coarse navmesh): its ground and tilt known, it's settled as a checked spot.
+			spotGround = bestGround
+			spotGroundKnown = true
+			spotPitch = bestPitch
+			spotRoll = bestRoll
+			spotTiltKnown = true
+		endif
 		return bestSpot
 	endif
-	Log("The bike's spot: 1 (" + SpotText(0) + "), none of the " + BikeSpots + " has room (a call takes the first, as before test 41).")
+	if RoomOption(2)
+		; Test 46 (the plugin's [Room] LineFallback=0): nothing to take; the first spot was past the
+		; fence, inside the house or beyond the rubble (test 45's calls 1, 6 and 8).
+		Log("The bike's spot: none of the " + spots + " has room, and none to take for the most room (a hit along its box or the ground below, each with a clear line): the call is refused.")
+		return -2
+	endif
+	Log("The bike's spot: 1 (" + SpotText(0) + "), none of the " + spots + " has room (a call takes the first, as before test 41).")
 	return 0
+EndFunction
+
+; Test 46: a bit of CMB_RoomOptions, the plugin's [Room] keys for this script (1 Around, 2 a call
+; with no spot refused); false without the global or the plugin (0: test 45's build).
+bool Function RoomOption(int aiBit)
+	if !CMB_RoomOptions
+		return false
+	endif
+	int options = CMB_RoomOptions.GetValue() as int
+	return (options / aiBit) % 2 == 1
 EndFunction
 
 ; Asks CMB_Slope.dll whether the parked bike has room at (afX, afY, afZ), facing afAngle (the
@@ -1429,10 +1560,17 @@ EndFunction
 ; time, above what the global holds (a save keeps the globals), so an old answer can't be read
 ; as this one. lastRoomClear is the answer's CMB_RoomClear (0 with none). asUnchecked ends the
 ; "not checked" line (PickBikeSpot's retry says so there). Busy is the caller's: the waits are
-; inside its hold.
+; inside its hold. Test 46: with room, lastRoomX/Y/Angle are where the plugin found it (read back
+; from CMB_RoomAskX/Y/Angle: its [Room] Slide may have moved or turned the spot; as asked with an
+; older plugin), and lastRoomPitch/Roll the ground's tilt under the wheels there (CMB_RoomPitch and
+; Roll, lastRoomTilted; -1000 none: its ParkTilt off, or an older plugin or ESP).
 int Function RoomAt(float afX, float afY, float afZ, int aiSpot, float afAngle, string asUnchecked = ".")
 	string try = "Bike's spot " + (aiSpot + 1) + " (" + SpotText(aiSpot) + "): "
 	lastRoomClear = 0.0
+	lastRoomX = afX
+	lastRoomY = afY
+	lastRoomAngle = afAngle
+	lastRoomTilted = false
 	if !CMB_RoomAskX || !CMB_RoomAskY || !CMB_RoomAskZ || !CMB_RoomAsk || !CMB_RoomAnswer || !CMB_RoomClear
 		Log(try + "not checked (the ESP has no CMB_Room globals).")
 		return 0
@@ -1454,6 +1592,11 @@ int Function RoomAt(float afX, float afY, float afZ, int aiSpot, float afAngle, 
 		; Before the number, like the spot: the plugin reads them all once the number is new.
 		CMB_RoomAskAngle.SetValue(afAngle)
 	endif
+	if CMB_RoomPitch && CMB_RoomRoll
+		; Test 46: none until the plugin measures one for this answer (an older plugin never does).
+		CMB_RoomPitch.SetValue(-1000.0)
+		CMB_RoomRoll.SetValue(-1000.0)
+	endif
 	CMB_RoomAsk.SetValue(n as float)
 	; Counted polls, not summed waits: ten 0.05s don't add up to 0.5 exactly in a float.
 	int polls = (RoomAnswerWait / RoomPollInterval + 0.5) as int
@@ -1465,10 +1608,17 @@ int Function RoomAt(float afX, float afY, float afZ, int aiSpot, float afAngle, 
 		if answer == n
 			float clear = CMB_RoomClear.GetValue()
 			lastRoomClear = clear
+			; Test 46: where the plugin found room, and the ground's tilt there.
+			lastRoomX = CMB_RoomAskX.GetValue()
+			lastRoomY = CMB_RoomAskY.GetValue()
+			if CMB_RoomAskAngle
+				lastRoomAngle = CMB_RoomAskAngle.GetValue()
+			endif
+			string tilt = RoomTiltRead()
 			if clear < 0.0
-				Log(try + "room (the ground " + Whole(-clear) + " above).")
+				Log(try + "room (the ground " + Whole(-clear) + " above" + tilt + ").")
 			else
-				Log(try + "room (the ground " + Whole(clear) + " below).")
+				Log(try + "room (the ground " + Whole(clear) + " below" + tilt + ").")
 			endif
 			return 1
 		elseif answer == -n
@@ -1483,6 +1633,8 @@ int Function RoomAt(float afX, float afY, float afZ, int aiSpot, float afAngle, 
 			; going on to the next.
 			float clear = CMB_RoomClear.GetValue()
 			lastRoomClear = clear
+			; Test 46: a spot a call can take for the most room comes with its ground's tilt too.
+			string tilt = RoomTiltRead()
 			if clear == -2.0
 				Log(try + "not checked (the plugin's rays aren't working here)" + asUnchecked)
 				return -2
@@ -1490,11 +1642,11 @@ int Function RoomAt(float afX, float afY, float afZ, int aiSpot, float afAngle, 
 				; Test 44 (the plugin's [Room] Line): a fence or a wall between the player and the spot.
 				Log(try + "none (no clear line from the player to it).")
 			elseif clear == -1.0
-				Log(try + "none (no ground within 100 of the spot).")
+				Log(try + "none (no ground within reach of the spot).")
 			elseif clear < 0.0
 				Log(try + "none (the ground " + Whole(-clear) + " above the spot).")
 			else
-				Log(try + "none (the nearest hit " + Whole(clear) + " along a ray, on the bike's 110, or the ground " + Whole(clear) + " off).")
+				Log(try + "none (the nearest hit " + Whole(clear) + " along a ray, on the bike's 110, or the ground " + Whole(clear) + " off" + tilt + ").")
 			endif
 			return -1
 		endif
@@ -1504,7 +1656,8 @@ int Function RoomAt(float afX, float afY, float afZ, int aiSpot, float afAngle, 
 	return 0
 EndFunction
 
-; The BikeSpots: the player's forward and right offsets as PlaceBike takes them.
+; The BikeSpots, then (test 46) the AroundSpots: the player's forward and right offsets as
+; PlaceBike takes them, and the heading's turn from the player's (SpotTurn).
 float Function SpotForward(int aiSpot)
 	if aiSpot < 2
 		return CallAheadDistance
@@ -1512,12 +1665,22 @@ float Function SpotForward(int aiSpot)
 		return 150.0
 	elseif aiSpot < 6
 		return 300.0
+	elseif aiSpot < 7
+		return 100.0
+	elseif aiSpot < 9
+		return -100.0   ; beside the player, the nose 10 ahead of them
+	elseif aiSpot < 10
+		return -120.0   ; behind, across: 80 to 160 behind them
 	endif
-	return 100.0
+	return -CallAheadDistance
 EndFunction
 
 float Function SpotRight(int aiSpot)
-	if aiSpot >= 6
+	if aiSpot == 7
+		return ParkSideOffset
+	elseif aiSpot == 8
+		return -ParkSideOffset
+	elseif aiSpot >= 6
 		return 0.0
 	elseif aiSpot % 2 == 0
 		return 60.0
@@ -1525,16 +1688,46 @@ float Function SpotRight(int aiSpot)
 	return -60.0
 EndFunction
 
-; "220 ahead, 60 right", "220 ahead, 60 left", "100 ahead".
+float Function SpotTurn(int aiSpot)
+	if aiSpot == 9
+		return 90.0
+	endif
+	return 0.0
+EndFunction
+
+; "220 ahead, 60 right", "220 ahead, 60 left", "100 ahead"; test 46's "100 behind, 110 right",
+; "120 behind, across", "220 behind".
 string Function SpotText(int aiSpot)
+	float forward = SpotForward(aiSpot)
 	float right = SpotRight(aiSpot)
-	string text = Whole(SpotForward(aiSpot)) + " ahead"
+	string text = Whole(forward) + " ahead"
+	if forward < 0.0
+		text = Whole(-forward) + " behind"
+	endif
 	if right > 0.0
-		return text + ", " + Whole(right) + " right"
+		text += ", " + Whole(right) + " right"
 	elseif right < 0.0
-		return text + ", " + Whole(-right) + " left"
+		text += ", " + Whole(-right) + " left"
+	endif
+	if SpotTurn(aiSpot) != 0.0
+		text += ", across"
 	endif
 	return text
+EndFunction
+
+; Test 46: the ground's tilt under the wheels at the spot just answered (the plugin's [Room]
+; ParkTilt: CMB_RoomPitch over -1000) into lastRoomPitch/Roll/Ground and lastRoomTilted, and its
+; words for the spot's line ("" without).
+string Function RoomTiltRead()
+	lastRoomTilted = false
+	if !CMB_RoomPitch || !CMB_RoomRoll || !CMB_RoomGround || CMB_RoomPitch.GetValue() <= -999.0
+		return ""
+	endif
+	lastRoomPitch = CMB_RoomPitch.GetValue()
+	lastRoomRoll = CMB_RoomRoll.GetValue()
+	lastRoomGround = CMB_RoomGround.GetValue()
+	lastRoomTilted = true
+	return ", its wheels' ground at pitch " + Tenths(Math.Abs(lastRoomPitch)) + Ternary(lastRoomPitch < 0.0, " down", " up") + ", roll " + Tenths(Math.Abs(lastRoomRoll))
 EndFunction
 
 ; A value to the nearest whole unit ("12", "-3"): Papyrus prints floats with six decimals.
@@ -1599,6 +1792,13 @@ bool Function BringBikeFromDoor(string asWho)
 		; Where it waits is inside: with room at no spot, the spot a call takes (test 43: the one
 		; with the most room, CallTakesBestSpot; else the first).
 		RollBikeUp(false)
+		if rollRefused
+			; Test 46: no spot with room around the player (the plugin's [Room] LineFallback=0): it
+			; stays hidden, still marked; a press goes on to a call, which says so.
+			busy = false
+			Log("Bike not brought (" + asWho + ") from where the player went in: no spot with room around the player, kept hidden.")
+			return false
+		endif
 		busy = false
 		Log("Bike brought (" + asWho + ") from where the player went in, kept hidden there: outdoors in " + doorWorld + " again.")
 		return true
@@ -1723,6 +1923,8 @@ Event OnTimer(int aiTimerID)
 		CheckTeleport()
 	elseif aiTimerID == TimerBusyWatch
 		BusyWatchFired()
+	elseif aiTimerID == TimerAPWatch
+		APWatchPoll()
 	endif
 EndEvent
 
@@ -2161,6 +2363,7 @@ Function FinishRide()
 	; Watched again if the bike waits at a door or the keys are still to come.
 	UpdateTeleportWatch()
 	StartTimer(CleanupDelay, TimerCleanup)
+	APWatchRideEnd()   ; test 46: off the bike, AP logged for a while
 EndFunction
 
 ; Safety net after every dismount: whatever a ride tick that was still running
@@ -2303,7 +2506,11 @@ EndFunction
 ;   carried over to the bike, if that moves it at most MaxGroundStep up or down;
 ;   otherwise level where it was put.
 ; Test 44: abChecked, the brought bike at a spot the plugin found room at (spotX/Y, spotGround):
-; a snap farther than SpotSettleMax from it is undone, the bike put back there level.
+; a snap farther than SpotSettleMax from it is undone, the bike put back there level. Test 46:
+; with the ground's tilt the plugin measured under the wheels there (spotTiltKnown, its [Room]
+; ParkTilt), the bike that stays on the checked spot (the snap kept or undone) is tilted by it
+; instead: test 45's call 11 was left level where the navmesh was too coarse to tilt by, call
+; 10's roll was held to ParkMaxRoll's 10.
 Function SettleBike(bool abBesidePlayer = false, bool abChecked = false)
 	float angle = BikeRef.GetAngleZ()
 	float x = BikeRef.GetPositionX()
@@ -2317,11 +2524,20 @@ Function SettleBike(bool abBesidePlayer = false, bool abChecked = false)
 		float off = Math.Sqrt(sx * sx + sy * sy + sz * sz)
 		if off > SpotSettleMax
 			BikeRef.SetPosition(spotX, spotY, spotGround)
+			if spotTiltKnown
+				Log("The bike settled " + Whole(off) + " from the checked spot (the navmesh snap), over " + Whole(SpotSettleMax) + ": put back on the checked spot, on its ground.")
+				TiltBikeAsMeasured(angle)
+				return
+			endif
 			BikeRef.SetAngle(0.0, 0.0, angle)
 			Log("The bike settled " + Whole(off) + " from the checked spot (the navmesh snap), over " + Whole(SpotSettleMax) + ": put back on the checked spot, level on its ground.")
 			return
 		endif
 		Log("The bike settled " + Whole(off) + " from the checked spot (the navmesh snap, " + Whole(SpotSettleMax) + " at most).")
+		if spotTiltKnown
+			TiltBikeAsMeasured(angle)
+			return
+		endif
 	endif
 	float dx = BikeRef.GetPositionX() - x
 	float dy = BikeRef.GetPositionY() - y
@@ -2344,6 +2560,20 @@ Function SettleBike(bool abBesidePlayer = false, bool abChecked = false)
 	else
 		BikeRef.SetAngle(0.0, 0.0, angle)
 	endif
+EndFunction
+
+; Test 46 (CMB_Slope.dll's [Room] ParkTilt): the brought bike on its checked spot tilted to the
+; ground the plugin measured under its wheels there (spotPitch, spotRoll: the pitch held to 45, the
+; roll to its [Room] ParkRoll, 20 by default, rather than ParkMaxRoll's 10), keeping its heading
+; afAngle; level if CMB_MaxTilt is 0, as every park.
+Function TiltBikeAsMeasured(float afAngle)
+	if CMB_MaxTilt && CMB_MaxTilt.GetValue() <= 0.0
+		BikeRef.SetAngle(0.0, 0.0, afAngle)
+		Log("Parked bike level on the checked spot (tilting turned off).")
+		return
+	endif
+	BikeRef.SetAngle(spotPitch, spotRoll, afAngle)
+	Log("Parked bike tilted to the ground under its wheels (the plugin's, on the checked spot): pitch " + spotPitch + ", roll " + spotRoll + ".")
 EndFunction
 
 ; The ground under the player as CMB_Slope.dll sees it now, into groundX/Y/Z.
@@ -2970,6 +3200,108 @@ Function CatchUpFollowers()
 EndFunction
 
 ; ---------------------------------------------------------------------------
+; The AP watch (test 46, diagnostics)
+; ---------------------------------------------------------------------------
+
+; Test 45: after the rides the AP bar stayed at 77% through 30 s of walking, then at 0 for a
+; minute: no drain and no refill, while the sprint's drain worked ("it has happened for a
+; while"). Nothing in the mod touches AP, and what keeps the game's refill off isn't known. The
+; player's AP, its rate and the rate's mult (value and base) and whether they sprint are logged
+; ("AP: 77.0 of 100.0 (77% of its max), rate 5.0 (base 5.0), mult 100.0 (base 100.0), sprinting
+; no; 12 s after getting off."): once at each getting on, and off the bike every APWatchEvery
+; seconds for APWatchTime seconds after getting off, and past that while AP is under its max (a
+; line no different from the last one only every APWatchQuiet polls) and once when it's back at
+; it. CMB_Slope.dll's [Diag] APWatch logs the refill's gates in the game beside it ("AP watch
+; (...)" in CMB_Slope.log).
+Group AP_Watch
+	ActorValue Property ActionPoints Auto Const
+	{Vanilla (000002D5). Test 46's AP watch only: unfilled (an older ESP), there's none.}
+	ActorValue Property ActionPointsRate Auto Const
+	{Vanilla (000002D8).}
+	ActorValue Property ActionPointsRateMult Auto Const
+	{Vanilla (00000359).}
+EndGroup
+
+int Property TimerAPWatch = 46 AutoReadOnly
+float Property APWatchTime = 120.0 AutoReadOnly
+{Test 46: how long after getting off AP is logged every APWatchEvery seconds, whatever it is.
+0 = no AP lines at all, as before test 46.}
+float Property APWatchEvery = 2.0 AutoReadOnly
+int Property APWatchQuiet = 10 AutoReadOnly
+{Past APWatchTime, while AP is under its max: a line no different from the last one logged only
+every this many polls (20 s).}
+
+; Real seconds at getting off; one later than now is an earlier session's (kept in the save: the
+; clock starts again with each launch) and counts as past APWatchTime.
+float apWatchFrom = 0.0
+string apWatchLast = ""   ; past APWatchTime, the last poll's line while AP was under its max
+int apWatchSame = 0       ; polls since a line was logged, past APWatchTime
+
+bool Function APWatchReady()
+	return APWatchTime > 0.0 && ActionPoints && ActionPointsRate && ActionPointsRateMult
+EndFunction
+
+string Function SignedTenths(float afValue)
+	if afValue < 0.0
+		return "-" + Tenths(-afValue)
+	endif
+	return Tenths(afValue)
+EndFunction
+
+string Function APText(float afShare)
+	return "AP: " + SignedTenths(PlayerRef.GetValue(ActionPoints)) + " of " + SignedTenths(PlayerRef.GetBaseValue(ActionPoints)) + " (" + Whole(afShare * 100.0) + "% of its max), rate " + SignedTenths(PlayerRef.GetValue(ActionPointsRate)) + " (base " + SignedTenths(PlayerRef.GetBaseValue(ActionPointsRate)) + "), mult " + SignedTenths(PlayerRef.GetValue(ActionPointsRateMult)) + " (base " + SignedTenths(PlayerRef.GetBaseValue(ActionPointsRateMult)) + "), sprinting " + Ternary(PlayerRef.IsSprinting(), "yes", "no")
+EndFunction
+
+; Getting on (the end of Mount): the line once; the poll stops (off the bike only).
+Function APWatchRideStart()
+	CancelTimer(TimerAPWatch)
+	if APWatchReady()
+		Log(APText(PlayerRef.GetValuePercentage(ActionPoints)) + "; getting on.")
+	endif
+EndFunction
+
+; Getting off (FinishRide, every way off): the poll starts.
+Function APWatchRideEnd()
+	if APWatchReady()
+		apWatchFrom = Utility.GetCurrentRealTime()
+		apWatchLast = ""
+		apWatchSame = 0
+		StartTimer(APWatchEvery, TimerAPWatch)
+	endif
+EndFunction
+
+Function APWatchPoll()
+	if riding || !APWatchReady()
+		return
+	endif
+	float now = Utility.GetCurrentRealTime()
+	if apWatchFrom > now
+		apWatchFrom = now - APWatchTime
+	endif
+	float since = now - apWatchFrom
+	float share = PlayerRef.GetValuePercentage(ActionPoints)
+	if since < APWatchTime
+		Log(APText(share) + "; " + Whole(since) + " s after getting off.")
+	elseif share < 0.995
+		string text = APText(share)
+		if text != apWatchLast || apWatchSame >= APWatchQuiet - 1
+			Log(text + "; " + Whole(since) + " s after getting off, under its max.")
+			apWatchSame = 0
+		else
+			apWatchSame += 1
+		endif
+		apWatchLast = text
+	elseif apWatchLast != ""
+		Log(APText(share) + "; " + Whole(since) + " s after getting off, back at its max.")
+		apWatchLast = ""
+		apWatchSame = 0
+	endif
+	if !riding
+		StartTimer(APWatchEvery, TimerAPWatch)
+	endif
+EndFunction
+
+; ---------------------------------------------------------------------------
 ; Fuel
 ; ---------------------------------------------------------------------------
 
@@ -3208,13 +3540,13 @@ Function OfferEngineLoops(int aiSet)
 			return
 		endif
 		if answer == (gen as float)
-			; Claimed before the calls below, which let a ride tick run: its UpdateEngineSound
-			; mustn't crossfade the idle and cruise loops from here on.
+			; Claimed before the call below, which lets a ride tick run: its UpdateEngineSound
+			; mustn't crossfade the idle and cruise loops from here on. Test 46: nor is their volume
+			; put on them: the plugin's SetVolume carries the MCM's engine volume in each level (the
+			; value SetInstanceVolume sets, which would undo the level), read every frame.
 			soundDriven = true
 			drivenGen = gen
-			drivenVolume = EngineVolume()
-			Log("Engine sound: the plugin drives the " + EngineLoopCount + " loops (generation " + gen + ", answered in poll " + poll + ").")
-			SetLoopsVolume(drivenVolume)
+			Log("Engine sound: the plugin drives the " + EngineLoopCount + " loops (generation " + gen + ", answered in poll " + poll + "), the engine volume in their levels.")
 			return
 		elseif answer == -(gen as float)
 			DropExtraLoops()
@@ -3280,20 +3612,6 @@ int Function NextSoundGen()
 	endif
 	sndGen = n
 	return n
-EndFunction
-
-Function SetLoopsVolume(float afVolume)
-	int[] ids = engineLoops
-	if !ids
-		return
-	endif
-	int i = 0
-	while i < ids.Length
-		if ids[i] > 0
-			Sound.SetInstanceVolume(ids[i], afVolume)
-		endif
-		i += 1
-	endwhile
 EndFunction
 
 ; Test 44: the ESP's globals and loops for the plugin (an ESP from before test 44 has none).
@@ -3418,12 +3736,11 @@ Function StopEngineLoops()
 EndFunction
 
 Function UpdateEngineSound(float afStepDistance)
-	float volume = EngineVolume()
 	if soundDriven
-		; Test 44: the plugin pitches and levels the eleven; the script keeps only the MCM's volume on
-		; them, put on again when it changes. A plugin that has let go of them (CMB_SndDriven no longer
-		; the generation: its log says why) left its last pitch and level on each, so the two the
-		; crossfade plays are started afresh, the others stopped.
+		; Test 44: the plugin pitches and levels the eleven; since test 46 the MCM's volume too (it
+		; reads CMB_EngineVolume every frame), so nothing here touches them. A plugin that has let go
+		; of them (CMB_SndDriven no longer the generation: its log says why) left its last pitch and
+		; level on each, so the two the crossfade plays are started afresh, the others stopped.
 		float driven = CMB_SndDriven.GetValue()
 		if !soundDriven
 			; A stop came during the call (a ride end, or a newer start): nothing here is ours now.
@@ -3431,12 +3748,16 @@ Function UpdateEngineSound(float afStepDistance)
 		elseif driven != (drivenGen as float)
 			Log("Engine sound: the plugin let go of generation " + drivenGen + " (CMB_SndDriven reads " + Whole(driven) + "): the script's crossfade, its two loops started afresh.")
 			StartEngineLoops(false)
-		elseif volume != drivenVolume
-			drivenVolume = volume
-			SetLoopsVolume(volume)
 		endif
 		return
+	elseif engineLoops
+		; Test 46: a set being offered (OfferEngineLoops, till its answer): the plugin may already be
+		; bringing them in by SetVolume from the levels StartEngineLoops left (the idle at the engine
+		; volume, the cruise silent), which a crossfade here would undo. Declined or unanswered, the
+		; set is dropped (engineLoops None) and the crossfade goes on from the next tick.
+		return
 	endif
+	float volume = EngineVolume()
 	float load = afStepDistance / (CruiseSpeed * TickInterval)
 	if load > 1.0
 		load = 1.0

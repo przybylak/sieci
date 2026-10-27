@@ -29,6 +29,11 @@ public static class Vanilla
     public static readonly FormKey CarryWeight = Fo4(0x0002DC);
     public static readonly FormKey FallingDamageMod = Fo4(0x0BA43D);
     public static readonly FormKey Health = Fo4(0x0002D4);
+    // Test 46's AP watch (CMB_ControllerScript logs AP, its rate and the rate's mult; Mutagen's
+    // Fallout4 FormKeys: ActionPoints 0002D5, ActionPointsRate 0002D8, ActionPointsRateMult 000359).
+    public static readonly FormKey ActionPoints = Fo4(0x0002D5);
+    public static readonly FormKey ActionPointsRate = Fo4(0x0002D8);
+    public static readonly FormKey ActionPointsRateMult = Fo4(0x000359);
     public static readonly FormKey Pipboy = Fo4(0x021B3B);
     public static readonly FormKey AnimArchetypePlayer = Fo4(0x06B508);
     public static readonly FormKey HumanRaceSubGraphData = Fo4(0x166729);
@@ -64,7 +69,8 @@ public static class Vanilla
         key == PlayerRef ? "PlacedNpc"
         : key == XMarker ? "Static"
         : key == HumanRace || TooBigToKnockOver.Contains(key) || Robots.Contains(key) ? "Race"
-        : key == SpeedMult || key == CarryWeight || key == FallingDamageMod || key == Health ? "ActorValueInformation"
+        : key == SpeedMult || key == CarryWeight || key == FallingDamageMod || key == Health
+            || key == ActionPoints || key == ActionPointsRate || key == ActionPointsRateMult ? "ActorValueInformation"
         : key == Pipboy ? "Armor"
         : key == AnimArchetypePlayer ? "Keyword"
         : key == AmmoFlamerFuel ? "Ammunition"
@@ -127,6 +133,7 @@ public static class Program
         Directory.CreateDirectory(dataDir);
         mod.WriteToBinary(output);
         Console.WriteLine($"Wrote {output}");
+        CheckSoundsReadBack(mod, output);
         WriteMcm(mod, dataDir);
         Dump(output);
         return 0;
@@ -245,7 +252,7 @@ public static class Program
                 Section("Side bag"),
                 Slider("Side bag capacity", "Pounds with F4SE (items without it). 0 = unlimited.", "CMB_BagCapacity", 0, 500, 10),
                 Section("Sound"),
-                Slider("Engine volume", "0 = silent. The engine loops pick it up the next time you get on.", "CMB_EngineVolume", 0, 100, 5),
+                Slider("Engine volume", "0 = silent. The engine follows it as you ride.", "CMB_EngineVolume", 0, 100, 5),
                 Section("Headlamp"),
                 new
                 {
@@ -394,6 +401,8 @@ public static class Program
         var sndIdle = EngineSound(mod, "CMB_EngineIdleLPSD", "CMB_EngineIdleLP.wav", loop: true);
         var sndCruise = EngineSound(mod, "CMB_EngineCruiseLPSD", "CMB_EngineCruiseLP.wav", loop: true);
         var gEngineVolume = Global(mod, "CMB_EngineVolume", 70);
+        if (gEngineVolume.FormKey.ID != 0x81C)   // test 46: CMB_Slope.dll puts it on the engine's loops it drives, found by ID
+            throw new InvalidOperationException($"CMB_EngineVolume must be 0x81C (CMB_Slope.dll looks for it), got {gEngineVolume.FormKey.ID:X}");
 
         // --- Riding safety and the ground-planted bike (also last, for the same reason) ---
         var gFallCut = Global(mod, "CMB_FallDamageCut", 75);   // percent less fall damage while riding
@@ -574,6 +583,33 @@ public static class Program
         var sndOff2300 = EngineSound(mod, "CMB_EngineOff2300LPSD", "CMB_EngineOff2300LP.wav", loop: true);
         var sndOff2800 = EngineSound(mod, "CMB_EngineOff2800LPSD", "CMB_EngineOff2800LP.wav", loop: true);
 
+        // --- Test 46 (test 45's 12 calls by fences, a house and a hillside, 5 fine): CMB_Slope.dll tells the
+        // controller its [Room] keys for the script in CMB_RoomOptions (bit 1 Around: four spots beside and behind
+        // the player after the seven ahead; bit 2, its LineFallback=0: a call with no spot with room nor one to take
+        // for the most room is refused) and, with each answer, the ground's tilt under the parked bike's wheels at
+        // the spot with room (or a refused one a call can take for the most room) in CMB_RoomPitch and CMB_RoomRoll
+        // (degrees as SetAngle takes them; -1000 none), that spot's ground height in CMB_RoomGround, which SettleBike
+        // sets the brought bike to and on. Fixed IDs 0x86D-0x870, after the nine loops' descriptors so no ID
+        // above moves; the plugin finds them by ID. The controller's properties aren't Mandatory: an older ESP
+        // leaves them None, and the spots, the call's fallback and the tilt are test 45's.
+        var gRoomOptions = Global(mod, "CMB_RoomOptions", 0);
+        var gRoomPitch = Global(mod, "CMB_RoomPitch", -1000);
+        var gRoomRoll = Global(mod, "CMB_RoomRoll", -1000);
+        var gRoomGround = Global(mod, "CMB_RoomGround", 0);
+        var roomMore = new[] { gRoomOptions, gRoomPitch, gRoomRoll, gRoomGround };
+        for (int i = 0; i < roomMore.Length; i++)
+            if (roomMore[i].FormKey.ID != 0x86D + i)
+                throw new InvalidOperationException($"{roomMore[i].EditorID} must be 0x{0x86D + i:X} (CMB_RoomOptions, CMB_RoomPitch, CMB_RoomRoll, CMB_RoomGround 0x86D-0x870, CMB_Slope.dll looks for them), got {roomMore[i].FormKey.ID:X}");
+
+        // The engine's own output model (test 45's answer), made last so every earlier form ID stays put (it comes
+        // after the room globals 0x86D-0x870, so it is 0x871); all 13 engine sounds play through it.
+        var engineModel = EngineOutputModel(mod);
+        foreach (var s in new[] { sndStart, sndStop, sndIdle, sndCruise, sndOn1400, sndOn1700, sndOn2400, sndOn2800, sndOn3300,
+                                  sndOff1400, sndOff1800, sndOff2300, sndOff2800 })
+            s.OutputModel.SetTo(engineModel);
+        if (mod.SoundDescriptors.FirstOrDefault(s => s.OutputModel.FormKey != engineModel.FormKey) is { } missed)
+            throw new InvalidOperationException($"{missed.EditorID} doesn't play through {engineModel.EditorID}: give it that output model");
+
         // --- Controller quest ---
         quest.Name = "Commonwealth Motorbike";
         quest.Data = new QuestData
@@ -602,6 +638,9 @@ public static class Program
             Obj("CMB_SwimWatchAbility", swimAbility),
             Obj("FallingDamageMod", Vanilla.FallingDamageMod),
             Obj("Health", Vanilla.Health),
+            Obj("ActionPoints", Vanilla.ActionPoints),
+            Obj("ActionPointsRate", Vanilla.ActionPointsRate),
+            Obj("ActionPointsRateMult", Vanilla.ActionPointsRateMult),
             Obj("CMB_BikeKeys", keys),
             Obj("CMB_KeysMenu", msgKeys),
             Obj("SpeedMult", Vanilla.SpeedMult),
@@ -659,6 +698,10 @@ public static class Program
             Obj("CMB_RoomAnswer", gRoom[4]),
             Obj("CMB_RoomClear", gRoom[5]),
             Obj("CMB_RoomAskAngle", gRoomAngle),
+            Obj("CMB_RoomOptions", gRoomOptions),
+            Obj("CMB_RoomPitch", gRoomPitch),
+            Obj("CMB_RoomRoll", gRoomRoll),
+            Obj("CMB_RoomGround", gRoomGround),
             Obj("CMB_EngineOn1400Sound", sndOn1400),
             Obj("CMB_EngineOn1700Sound", sndOn1700),
             Obj("CMB_EngineOn2400Sound", sndOn2400),
@@ -942,11 +985,11 @@ public static class Program
         Data = value,
     };
 
+    // The output model is set once CMB_SOMMonoEngine exists (EngineOutputModel: made after every other record).
     static SoundDescriptor EngineSound(Fallout4Mod mod, string editorId, string file, bool loop)
     {
         var sound = mod.SoundDescriptors.AddNew(editorId);
         sound.Category.SetTo(Vanilla.AudioCategorySFX);
-        sound.OutputModel.SetTo(Vanilla.SOMMono02000); // mono, heard up to ~2000 units away
         sound.SoundFiles.Add($@"FX\CMB\{file}");     // relative to Data\Sound
         sound.Data = new SoundDescriptorStandardData { Priority = 128 };
         sound.LoopAndRumble = new SoundLoopAndRumble
@@ -954,6 +997,90 @@ public static class Program
             Loop = loop ? SoundDescriptor.LoopType.Loop : SoundDescriptor.LoopType.None,
         };
         return sound;
+    }
+
+    // The engine's output model, since test 45's answer. Until then the engine played through the vanilla
+    // SOMMono02000 (0x7E5DC): full level within 150 units, then a curve of 50/20/5/0 % out to 2000. The riding
+    // camera sits about 450 out (fVanityModeMaxDist), and the listener is most likely the camera, so the engine
+    // lost a few dB to distance alone. This is that model with its distances scaled: full level out to 600 (past
+    // the camera), the same curve from there to 4000. The rest is what a mono sound placed in the world takes:
+    // Uses HRTF (a point source; the speaker grid below is only for Defined Speaker Output, and is the plain
+    // mono-to-front, left-to-left, right-to-right one), attenuated with distance, no Doppler or distance delay (the
+    // camera rides with the bike), the reverb send full, no static attenuation, no effect chain. Those fields
+    // weren't read from the game's own record (no Fallout4.esm here): compare with SOMMono02000 in xEdit if the
+    // engine is placed or reverberates differently from test 45. No INI can switch this off: the
+    // generator's output model is the only way back (CMB_SOMMonoEngine's distances 150 and 2000, or the
+    // descriptors on Vanilla.SOMMono02000).
+    public const string EngineModelId = "CMB_SOMMonoEngine";
+    public const float EngineModelFullTo = 600, EngineModelSilentAt = 4000;
+    static readonly byte[] EngineModelCurve = { 50, 20, 5, 0 };
+    const byte EngineModelReverbSend = 100;
+
+    static SoundOutputModel EngineOutputModel(Fallout4Mod mod)
+    {
+        var model = mod.SoundOutputModels.AddNew(EngineModelId);
+        model.Data = new SoundOutputData
+        {
+            Flags = SoundOutputModel.Flag.AttenuatesWithDistance,
+            // The field is xEdit's "Reverb Send %", a byte of 0-100; Mutagen reads a byte as a fraction of 255.
+            ReverbSendPercent = new Percent(EngineModelReverbSend / 255.0),
+        };
+        model.Type = SoundOutputModel.TypeEnum.UsesHrtf;
+        model.OutputChannels = new SoundOutputChannels
+        {
+            Channel0 = new SoundOutputChannel { L = 100, R = 100 },
+            Channel1 = new SoundOutputChannel { L = 100 },
+            Channel2 = new SoundOutputChannel { R = 100 },
+        };
+        model.DynamicAttentuation = new DynamicAttentuationValues
+        {
+            FadeInDistanceStart = 0,
+            FadeInDistanceEnd = 0,
+            FadeOutDistanceStart = EngineModelFullTo,
+            FadeOutDistanceEnd = EngineModelSilentAt,
+            FadeInCurveValue1 = 100, FadeInCurveValue2 = 100, FadeInCurveValue3 = 100, FadeInCurveValue4 = 100,
+            FadeOutCurveValue1 = EngineModelCurve[0], FadeOutCurveValue2 = EngineModelCurve[1],
+            FadeOutCurveValue3 = EngineModelCurve[2], FadeOutCurveValue4 = EngineModelCurve[3],
+        };
+        return model;
+    }
+
+    // The output models and the sounds' links to them, read back from the written file and compared with the
+    // records built, field for field (since test 45's answer, when the engine got its own model).
+    static void CheckSoundsReadBack(Fallout4Mod built, string path)
+    {
+        using var back = Fallout4Mod.CreateFromBinaryOverlay(path, Fallout4Release.Fallout4);
+        foreach (var m in built.SoundOutputModels)
+        {
+            var r = back.SoundOutputModels.FirstOrDefault(x => x.FormKey == m.FormKey);
+            if (r == null || r.EditorID != m.EditorID || SopmLine(r) != SopmLine(m))
+                throw new InvalidOperationException($"{m.EditorID} written as {SopmLine(m)}, read back as " +
+                                                    (r == null ? "nothing" : $"{r.EditorID}: {SopmLine(r)}"));
+        }
+        foreach (var s in built.SoundDescriptors)
+        {
+            var r = back.SoundDescriptors.FirstOrDefault(x => x.FormKey == s.FormKey);
+            if (r == null || r.OutputModel.FormKey != s.OutputModel.FormKey)
+                throw new InvalidOperationException($"{s.EditorID}: written with the output model {s.OutputModel.FormKey}, read back with " +
+                                                    (r == null ? "no record" : $"{r.OutputModel.FormKey}"));
+        }
+        Console.WriteLine($"read back: {built.SoundOutputModels.Count} output model(s) and {built.SoundDescriptors.Count} sounds as written");
+    }
+
+    // One line with every field of an output model: the dump prints it, check_plugin.py compares it with what
+    // the generator writes, and Main compares the record read back with the one built.
+    static string SopmLine(ISoundOutputModelGetter m)
+    {
+        static string Ch(ISoundOutputChannelGetter c) => $"{c.L},{c.R},{c.C},{c.LFE},{c.RL},{c.RR},{c.BL},{c.BR}";
+        var a = m.DynamicAttentuation;
+        var ch = m.OutputChannels;
+        return $"flags {m.Data?.Flags} reverb {(m.Data == null ? "none" : $"{(int)Math.Round(m.Data.ReverbSendPercent.Value * 255)}")} " +
+               $"type {m.Type?.ToString() ?? "none"} static {m.StaticAttenuation?.ToString() ?? "none"} " +
+               (ch == null ? "channels none " : $"ch0 {Ch(ch.Channel0)} ch1 {Ch(ch.Channel1)} ch2 {Ch(ch.Channel2)} ") +
+               (a == null ? "attenuation none " :
+                   $"fade-in {a.FadeInDistanceStart}-{a.FadeInDistanceEnd} [{a.FadeInCurveValue1},{a.FadeInCurveValue2},{a.FadeInCurveValue3},{a.FadeInCurveValue4}] " +
+                   $"fade-out {a.FadeOutDistanceStart}-{a.FadeOutDistanceEnd} [{a.FadeOutCurveValue1},{a.FadeOutCurveValue2},{a.FadeOutCurveValue3},{a.FadeOutCurveValue4}] ") +
+               $"effect-chain {(m.EffectChain.IsNull ? "none" : m.EffectChain.FormKey.ToString())}";
     }
 
     static ScriptObjectProperty Obj(string name, FormKey target) => new()
@@ -988,6 +1115,12 @@ public static class Program
             if (vmad != null)
                 foreach (var s in vmad.Scripts)
                     PrintScript(s, "      ", types);
+            // The sounds' output model and the output models' fields (check_plugin.py reads both).
+            if (rec is ISoundDescriptorGetter snd)
+                Console.WriteLine($"      output model {snd.OutputModel.FormKey} " +
+                                  $"{types.GetValueOrDefault(snd.OutputModel.FormKey, Vanilla.Describe(snd.OutputModel.FormKey))}");
+            if (rec is ISoundOutputModelGetter som)
+                Console.WriteLine($"      sopm {SopmLine(som)}");
             if (rec is IRaceGetter race)
             {
                 if (!race.SubgraphAdditiveRace.IsNull)

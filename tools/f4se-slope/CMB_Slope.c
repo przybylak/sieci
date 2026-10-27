@@ -92,11 +92,18 @@
  *
  *   Engine sound (test 44's build): the script plays the engine's eleven loops and hands their
  *   instance ids over through the CMB_Snd globals; the plugin answers in CMB_SndDriven and, when
- *   it takes them, sets every loop's pitch and level each frame (BSSoundHandle's SetFrequency and
- *   FadeTo, found through the Address Library, trusted only when five known IDs cross-check) from
- *   an rpm, gear and load model of the bike's speed and the keys (the v4 model of tools/sound,
- *   every constant and the loop table in [Sound]). Declined or [Sound] Drive=0: the script's idle
- *   and cruise crossfade, as before.
+ *   it takes them, sets every loop's pitch and level each frame (BSSoundHandle's SetFrequency and,
+ *   since test 46, SetVolume with the MCM's engine volume folded in, applied at once: FadeTo's
+ *   fades of 100 ms at least made a hole at every family switch and hand-over; [Sound] SetVolume=0
+ *   is test 45's FadeTo; found through the Address Library, trusted only when six known IDs
+ *   cross-check) from an rpm, gear and load model of the bike's speed and the keys (the v4 model
+ *   of tools/sound, every constant and the loop table in [Sound]). Declined or [Sound] Drive=0:
+ *   the script's idle and cruise crossfade, as before.
+ *
+ *   AP watch (test 46, diagnostics only): test 45's AP stopped refilling after the rides, and
+ *   nothing in the mod touches AP; off the bike the gates of the player's AP refill (the sprinting
+ *   bit, PlayerCamera+0x1A5, the AP regen delay, the CachedValues' bit 22) are logged for a while
+ *   after each getting off, and when one changes ([Diag] APWatch). Read only, never written.
  *
  * With Probe=1 it also logs (Documents\My Games\Fallout4\F4SE\CMB_Slope.log) the
  * layout of the controller, the proxy and the objects listed in DumpPointers, then on
@@ -230,9 +237,12 @@
 #define OFF_FLST_FORMS        0x20          /* BGSListForm::arrayOfForms, a BSTArray<TESForm *> right after TESForm (0x20; CommonLibF4) */
 #define ROOM_GLOBAL_ID        0x84Fu        /* CMB_RoomAskX, AskY, AskZ, Ask (the script writes), Answer, Clear (we write): 84F-854 (the brought bike's spot, CMB_ControllerScript; test 41) */
 #define ROOM_GLOBALS          6
+#define ROOM_MORE_ID          0x86Du        /* CMB_RoomOptions, CMB_RoomPitch, CMB_RoomRoll, CMB_RoomGround: 86D-870 (test 46: the script's spots around the player and its call's fallback, the brought bike's tilt and ground), after the nine engine loops' descriptors so no ID moves */
+#define ROOM_MORE_GLOBALS     4
 #define SND_LOOPS             11            /* the engine's loops the script hands over (test 44's build): CMB_SndLoop01 to CMB_SndLoop11 */
 #define SND_GLOBALS           (SND_LOOPS + 2)
 #define SND_GLOBAL_ID         0x857u        /* CMB_SndLoop01-11 857-861 (the loops' instance ids, the script writes), CMB_SndGen 862 (the script bumps it after them), CMB_SndDriven 863 (we write it) */
+#define ENGINE_VOLUME_GLOBAL_ID 0x81Cu      /* CMB_EngineVolume (the MCM's engine volume, 0 to 100): since test 46 this plugin puts it on the loops it drives */
 #define OFF_AV_FLAGS          0x108         /* NiAVObject::flags (bit 0: hidden, app culled); +0x100 is the collision object (test 30); [Lamp] FlagsOffset= overrides */
 #define OFF_MOVE_INPUT        0x44          /* PlayerControls: moveInputVec x (strafe), y (forward +1, back -1) */
 #define OFF_PREV_MOVE         0x5C          /* PlayerControls: prevMoveVec (what the movement used last) */
@@ -552,6 +562,10 @@ static LogHand g_slideHand = { LOG_HAND_SIZE, 0.0f, 0.0f, 0.0f };   /* the slide
 static LogHand g_landHand = { LOG_HAND_SIZE, 0.0f, 0.0f, 0.0f };    /* the landing's lines (test 42): 10, one more every 6 s */
 static float g_faceLoggedAt = -100.0f;
 static float g_faceSince = -1.0f;           /* when the verdict in force began (its kind went from none to one), for the "nothing ahead now" line */
+/* Test 45's raised rail met square at 905 (5:57.7: "a wall ahead (84 deg): 187 past the front
+ * wheel ... eased to 68%", then "-11 past the front wheel ... eased to 0%", the front wheel in
+ * the rail): the ease went by FaceLook's span, not by what a stop from that speed needs. */
+static float g_wallStop = 0.6f;             /* [Steer] WallStop: a wall dead ahead (not an actor, nor a face alongside by its normal) eased by the distance a stop needs, v^2 / (2 x WallStop x FullSpeed / Brake) + a tenth of a second of the speed + 10, the reach that far for the same faces; 0 = by FaceLook's span alone (test 45's build) */
 static float g_faceLastSlope;               /* the last verdict's angle, and what the axle-height ray hit then, and its layer */
 static char g_faceLastWhat[64];
 static uint32_t g_faceLastLayer;
@@ -580,6 +594,12 @@ static int g_climbStep = 1;                 /* ClimbStep: 1 = a sharp step the b
  * ray's slope stretched 158 ahead, and a step onto level ground on a slope of a few degrees read
  * as a beam. */
 static float g_climbMaxTop = 18.0f;         /* ClimbMaxTop: 0 = the ClimbTop rule alone (test 44's build) */
+/* Test 45's rails (2:56.4 a raised guard rail met at an angle and 9:48.9 a picket fence's post
+ * read "narrow, the ray 36 to the right passes it": a ray at 18 passes under a rail's beam,
+ * between posts or between pickets; 5:24.0 a guard rail lying on the ground, its top under 18,
+ * climbed by design and ridden along on top of). */
+static int g_narrowHeights = 3;             /* NarrowHeights: the narrow test's side rays at ClimbMaxTop, 6 over it and the face's top less 4 (those within the face), narrow only if every one passes on a side; 0 or 1 = at ClimbMaxTop alone (test 45's build) */
+static float g_climbBeamLow = 8.0f;         /* ClimbBeamLow: a face this high or more under ClimbMaxTop, upright, long and thin (no ground at half its top two capsule radii past it) isn't climbed either (CLIMB_LOWBEAM); 0 = climbed (test 45's build) */
 /* ... and the state: */
 static bool g_climbOn;                      /* on: the slot holds g_climbValue */
 static float g_climbValue;                  /* ClimbBoost in the slot's unit, never less steep than the riding value (ApplySlope) */
@@ -723,10 +743,12 @@ static uintptr_t g_ramGlobals[8];   /* CMB_RamSeenHi, SeenLo, Seen (we write), O
 static uintptr_t g_roomGlobals[ROOM_GLOBALS];   /* CMB_RoomAskX, AskY, AskZ, Ask (the script writes), Answer, Clear (we write): the brought bike's spot (test 41); all six or none */
 static uintptr_t g_roomAngleGlobal;   /* CMB_RoomAskAngle (0x855, test 43): the spot's heading, the player's GetAngleZ in degrees, written by the script before CMB_RoomAsk (-1000, the ESP's value: none written, an older script); found apart from the six, its absence costing only the heading */
 static uintptr_t g_sndGlobals[SND_GLOBALS];   /* CMB_SndLoop01-11 (the script writes the loops' instance ids), CMB_SndGen (the script), CMB_SndDriven (we write): the engine sound (test 44's build); all thirteen or none */
+static uintptr_t g_engineVolumeGlobal;        /* CMB_EngineVolume (test 46: the loops' volume is this plugin's; 0: not found, 0.7 the MCM's default) */
 static void ReadSoundSettings(const char *ini, bool log);   /* the engine sound, with its driver below */
 static const char *SoundTraceWord(void);
 static void SoundFrame(void);
 static void SoundLoadReset(void);
+static void ReadDiagSettings(const char *ini, bool log);   /* the AP watch (test 46), with it before Tick */
 /* [Room] (test 43; the user's thought that the spot be checked as the bike will stand there):
  * Box 1 = with the heading the script gives, the level rays are a box along it, Fore ahead and
  * behind the spot, Side to each side, and its four corners; 0, or no heading given, the eight
@@ -755,6 +777,26 @@ static float g_roomGroundNear = 25.0f;
  * floor, a hedge's top or a ledge is a step; a slope isn't); 0 = within GroundNear, test 45's
  * first build. Read in ReadRoomSettings, again on getting on. */
 static float g_roomGroundSlope = 25.0f;
+/* Test 45 (12 calls by Sanctuary's houses and on a hillside; 5 fine, uphill among them): every spot
+ * the script tried was ahead of the player, where the fence or the wall they faced was; a call with
+ * no spot with room took the first, past the fence or inside the house; the most-room spot's box
+ * had the fence 59 and the wall 78 along its 110; facing down a hillside the spots' ground was more
+ * than 100 below and the box's level rays met the slope behind the spot; the bike was then left
+ * level by the navmesh snap. Around 1 = the script asks spots beside and behind the player after
+ * the seven ahead; LineFallback 0 = a call with no spot with room nor a most-room one (each such
+ * spot has a clear line) is refused, nothing placed; 1 = the first spot, test 45's build. Both
+ * are the script's: we tell it in CMB_RoomOptions (bit 1 Around, bit 2 refuse). Slide 1 = a box
+ * with a hit is slid away from it by what it lacks plus ROOM_SLIDE_MARGIN, else turned 90 either
+ * way, each checked again in full (line, ground, box), the first with room answered (the spot and
+ * heading written back to CMB_RoomAskX/Y/Angle). Tilted 1 = the spot's ground looked for down to
+ * 100 plus its distance times tan GroundSlope (with Line and GroundSlope), and the box's rays
+ * tilted with the ground under its ends. ParkTilt 1 = a spot with room, or one a call can take for
+ * the most room, gets the ground under the parked bike's wheels (CMB_RoomPitch and Roll, as the
+ * script's SetAngle takes them, and CMB_RoomGround), its roll held to ParkRoll. Each 0
+ * (LineFallback 1) gives test 45's build. Read in ReadRoomSettings, again on getting on. */
+static int g_roomAround = 1, g_roomLineFallback = 0, g_roomSlide = 1, g_roomTilted = 1, g_roomParkTilt = 1;
+static float g_roomParkRoll = 20.0f;   /* ParkRoll: a Sportster on its side stand leans about 10 deg on the level; past about 20 across a slope it would tip off the stand (stand uphill) or onto it (downhill) */
+static uintptr_t g_roomMoreGlobals[ROOM_MORE_GLOBALS];   /* CMB_RoomOptions, CMB_RoomPitch, CMB_RoomRoll, CMB_RoomGround (we write them all): test 46, found apart from the seven, their absence costing only the above */
 static uintptr_t g_lampRef;                 /* the light reference the script placed (CMB_HeadlampRefHi/Lo), looked up once per id */
 static uint32_t g_lampRefId;
 static uintptr_t g_lampRefOld;              /* the one before, kept lit at the lens until the new one's 3D is in (test 33: the beam flickered at every move) */
@@ -962,6 +1004,7 @@ static bool Invert3(const float *a, float *out);
 static float CastRay(uintptr_t cell, const float a[3], const float b[3]);   /* defined with the reverse's rays */
 static float CastRayGround(uintptr_t cell, const float a[3], const float b[3]);   /* the same, passing through actors */
 static void RoomReadAnswered(void);   /* the brought bike's spot (test 41): the ask answered already, from CMB_RoomAnswer */
+static void RoomWriteOptions(void);   /* test 46: [Room] Around and LineFallback for the script, CMB_RoomOptions */
 static bool RaysReady(uintptr_t player);
 static bool RaysUntrustedRetry(float *ago);   /* test 43's RaysRetry: the test ray again now for a room ask */
 static uint8_t ArmRole(const char *name);
@@ -1194,9 +1237,9 @@ static void ReadLeanSettings(const char *ini, bool log)
 	IniVec(ini, "Tilt", "ArmPoleTurn", poleTurnDefault, g_armPoleTurn);
 	g_armPoleTurnBars = IniFloat(ini, "Tilt", "ArmPoleTurnBars", 10.0f, 0.0f, 45.0f);
 	g_faceLook = IniFloat(ini, "Steer", "FaceLook", 0.3f, 0.0f, 3.0f);
-	float wasMore[27] = { g_turnEaseIn, g_turnEaseOut, g_liftRate, g_bumpMax, g_bumpSettle, g_wallAngle, g_obstacleThrottle, g_obstacleHold, (float)g_wallFrames,
+	float wasMore[28] = { g_turnEaseIn, g_turnEaseOut, g_liftRate, g_bumpMax, g_bumpSettle, g_wallAngle, g_obstacleThrottle, g_obstacleHold, (float)g_wallFrames,
 	                      (float)g_suspension, g_suspFrequency, g_suspDamping, g_suspTravel, g_obstacleAngle, g_suspCompressRear, g_suspDroop, g_suspExtend, g_lowObstacleAngle,
-	                      g_faceAlong, (float)g_faceAlongRays, g_slideHold, g_slideAngle, g_landHold, g_landAir, g_landStop, (float)g_landSink, g_landSpeed };
+	                      g_faceAlong, (float)g_faceAlongRays, g_slideHold, g_slideAngle, g_landHold, g_landAir, g_landStop, (float)g_landSink, g_landSpeed, g_wallStop };
 	g_turnEaseIn = IniFloat(ini, "Steer", "TurnEaseIn", 0.14f, 0.0f, 3.0f);
 	g_turnEaseOut = IniFloat(ini, "Steer", "TurnEaseOut", 0.08f, 0.0f, 3.0f);
 	g_liftRate = IniFloat(ini, "Tilt", "LiftRate", 120.0f, 0.0f, 2000.0f);
@@ -1230,9 +1273,10 @@ static void ReadLeanSettings(const char *ini, bool log)
 	g_faceAlongRays = (int)GetPrivateProfileIntA("Steer", "FaceAlongRays", 1, ini) != 0;
 	g_slideHold = IniFloat(ini, "Steer", "SlideHold", 1.0f, 0.0f, 3.0f);
 	g_slideAngle = IniFloat(ini, "Steer", "SlideAngle", 15.0f, 5.0f, 45.0f);
+	g_wallStop = IniFloat(ini, "Steer", "WallStop", 0.6f, 0.0f, 2.0f);   /* test 45's rail met square at 905 */
 	/* Climbing low things (test 40, finding 8), read again on getting on like the face rays'
 	 * keys (an A/B needs no restart). */
-	float wasClimb[9] = { (float)g_climb, g_climbBoost, g_climbTopSetting, g_climbMaxPitch, g_climbHold, g_climbMax, g_climbThrottle, (float)g_climbStep, g_climbMaxTop };
+	float wasClimb[11] = { (float)g_climb, g_climbBoost, g_climbTopSetting, g_climbMaxPitch, g_climbHold, g_climbMax, g_climbThrottle, (float)g_climbStep, g_climbMaxTop, (float)g_narrowHeights, g_climbBeamLow };
 	g_climb = (int)GetPrivateProfileIntA("Steer", "Climb", 1, ini) != 0;
 	g_climbBoost = IniFloat(ini, "Steer", "ClimbBoost", 85.0f, 47.0f, 89.0f);
 	g_climbTopSetting = IniFloat(ini, "Steer", "ClimbTop", 0.0f, 0.0f, 60.0f);
@@ -1242,24 +1286,28 @@ static void ReadLeanSettings(const char *ini, bool log)
 	g_climbThrottle = IniFloat(ini, "Steer", "ClimbThrottle", 0.4f, 0.1f, 1.0f);
 	g_climbStep = (int)GetPrivateProfileIntA("Steer", "ClimbStep", 1, ini) != 0;   /* stage 2 (test 41), with the boost only */
 	g_climbMaxTop = IniFloat(ini, "Steer", "ClimbMaxTop", 18.0f, 0.0f, 60.0f);   /* test 44's rails */
-	float nowClimb[9] = { (float)g_climb, g_climbBoost, g_climbTopSetting, g_climbMaxPitch, g_climbHold, g_climbMax, g_climbThrottle, (float)g_climbStep, g_climbMaxTop };
+	g_narrowHeights = (int)GetPrivateProfileIntA("Steer", "NarrowHeights", 3, ini);   /* test 45's rails */
+	if (g_narrowHeights < 1 || g_narrowHeights > 3)
+		g_narrowHeights = g_narrowHeights < 1 ? 1 : 3;
+	g_climbBeamLow = IniFloat(ini, "Steer", "ClimbBeamLow", 8.0f, 0.0f, 60.0f);
+	float nowClimb[11] = { (float)g_climb, g_climbBoost, g_climbTopSetting, g_climbMaxPitch, g_climbHold, g_climbMax, g_climbThrottle, (float)g_climbStep, g_climbMaxTop, (float)g_narrowHeights, g_climbBeamLow };
 	/* The light's placing, read again on getting on as well (an A/B needs no restart). */
 	g_lampAhead = IniFloat(ini, "Lamp", "Ahead", 28.0f, -100.0f, 200.0f);
 	g_lampLead = IniFloat(ini, "Lamp", "Lead", 1.0f, 0.0f, 5.0f);
 	g_lampHandoverFrames = (int)GetPrivateProfileIntA("Lamp", "HandoverFrames", 5, ini);
 	if (g_lampHandoverFrames < 0 || g_lampHandoverFrames > 100)
 		g_lampHandoverFrames = 5;
-	float nowMore[27] = { g_turnEaseIn, g_turnEaseOut, g_liftRate, g_bumpMax, g_bumpSettle, g_wallAngle, g_obstacleThrottle, g_obstacleHold, (float)g_wallFrames,
+	float nowMore[28] = { g_turnEaseIn, g_turnEaseOut, g_liftRate, g_bumpMax, g_bumpSettle, g_wallAngle, g_obstacleThrottle, g_obstacleHold, (float)g_wallFrames,
 	                      (float)g_suspension, g_suspFrequency, g_suspDamping, g_suspTravel, g_obstacleAngle, g_suspCompressRear, g_suspDroop, g_suspExtend, g_lowObstacleAngle,
-	                      g_faceAlong, (float)g_faceAlongRays, g_slideHold, g_slideAngle, g_landHold, g_landAir, g_landStop, (float)g_landSink, g_landSpeed };
+	                      g_faceAlong, (float)g_faceAlongRays, g_slideHold, g_slideAngle, g_landHold, g_landAir, g_landStop, (float)g_landSink, g_landSpeed, g_wallStop };
 	float now[21] = { g_maxLean, g_leanRate, g_leanSmooth, g_leanDead, g_leanGain, g_torsoLeanSetting, g_armReach, g_torsoTwist, g_faceLook, (float)g_headLevel, g_torsoSideLean, g_wristRoll, g_armPole[0], g_armPole[1], g_armPole[2], g_handPitch, g_torsoSolveFrom,
 	                  g_armPoleTurn[0], g_armPoleTurn[1], g_armPoleTurn[2], g_armPoleTurnBars };
 	bool changed = false;
-	for (int i = 0; i < 27; i++)
+	for (int i = 0; i < 28; i++)
 		changed = changed || wasMore[i] != nowMore[i];
 	for (int i = 0; i < 21; i++)
 		changed = changed || was[i] != now[i];
-	for (int i = 0; i < 9; i++)
+	for (int i = 0; i < 11; i++)
 		changed = changed || wasClimb[i] != nowClimb[i];
 	if (log || changed) {
 		char torso[96], pole[96], fade[200];
@@ -1294,6 +1342,12 @@ static void ReadLeanSettings(const char *ini, bool log)
 			         g_slideAngle, g_slideHold);
 		else
 			snprintf(slide, sizeof(slide), "no hold on the throttle while sliding along a face (SlideHold=0); ");
+		char wallStop[400];   /* test 45's rail met square at 905 */
+		if (g_wallStop > 0.0f)
+			snprintf(wallStop, sizeof(wallStop), "a wall dead ahead (not an actor) eased by the distance a stop needs: the speed squared over twice %g of the brake's rate (FullSpeed / Brake, %g a second a second), a tenth of a second of the speed and 10, the throttle none within it, and looked for that far past the front wheel when FaceLook's reach is shorter, a face alongside by its normal not (WallStop); ",
+			         g_wallStop, g_fullSpeed / (g_brake > 0.05f ? g_brake : 0.05f));
+		else
+			snprintf(wallStop, sizeof(wallStop), "a wall eased by FaceLook's reach alone, to nothing at the wheel (WallStop=0); ");
 		char land[300], sink[200];
 		if (g_landHold > 0.0f)
 			snprintf(land, sizeof(land), "after a landing (%g s or more in the air: LandAir) with forward held, the Lead cap left off for %g s and after that while the speed is still coming back (%g s more at most), "
@@ -1305,11 +1359,11 @@ static void ReadLeanSettings(const char *ini, bool log)
 		else
 			snprintf(sink, sizeof(sink), ", a landing not sunk on it (LandSink=0)");
 		Log("  steer: the keys' turning rate eases in over %g s and out over %g s (TurnEaseIn, TurnEaseOut); a wall is a face of %g deg or more (WallAngle), an obstacle one of %g deg or more, or the climb limit if that is higher (ObstacleAngle), "
-		    "a lower-only one (nothing at 1.5 wheel radii) one of %g deg or more (LowObstacleAngle), holding the throttle to %g (ObstacleThrottle), its verdict in force for %g s after the rays last saw one (ObstacleHold), in which a wall counts only after %d frames seen ahead of the wheel (WallFrames); %s%s%s"
+		    "a lower-only one (nothing at 1.5 wheel radii) one of %g deg or more (LowObstacleAngle), holding the throttle to %g (ObstacleThrottle), its verdict in force for %g s after the rays last saw one (ObstacleHold), in which a wall counts only after %d frames seen ahead of the wheel (WallFrames); %s%s%s%s"
 		    "the lift rises at most %g units a second (LiftRate), a wheel's bump lift at most %g in one go and settles over %g s (BumpMax, BumpSettle); "
 		    "the suspension %s (Suspension), the frame's lift on a spring of %g Hz with a damping ratio of %g, the wheels rising at most %g into the frame, the rear %g, dropping at most %g below it (the frame sinking by that at most), extending over %g s (SuspFrequency, SuspDamping, SuspTravel, SuspCompressRear, SuspDroop, SuspExtend)%s; "
 		    "the light %g ahead of the lens, led by %g frames of the speed, the old one kept %d frames at a handover (Ahead, Lead, HandoverFrames)",
-		    g_turnEaseIn, g_turnEaseOut, g_wallAngle, g_obstacleAngle, g_lowObstacleAngle, g_obstacleThrottle, g_obstacleHold, g_wallFrames, along, slide, land, g_liftRate, g_bumpMax, g_bumpSettle,
+		    g_turnEaseIn, g_turnEaseOut, g_wallAngle, g_obstacleAngle, g_lowObstacleAngle, g_obstacleThrottle, g_obstacleHold, g_wallFrames, wallStop, along, slide, land, g_liftRate, g_bumpMax, g_bumpSettle,
 		    g_suspension ? "on" : "off", g_suspFrequency, g_suspDamping, g_suspTravel, g_suspCompressRear, g_suspDroop, g_suspExtend, sink, g_lampAhead, g_lampLead, g_lampHandoverFrames);
 		char top[32];
 		if (g_climbTopSetting > 0.0f)
@@ -1322,12 +1376,22 @@ static void ReadLeanSettings(const char *ini, bool log)
 			         "and room for the capsule over it, the controller put up by the top + 1.5 and 4 on, twice an obstacle at most, 0.25 s apart");
 		else
 			snprintf(step, sizeof(step), "; sharp steps not stepped up onto (ClimbStep=0)");
-		char maxTop[600];
+		char maxTop[1100], narrow[200], low[400] = "";
+		if (g_narrowHeights >= 2)   /* test 45's rails */
+			snprintf(narrow, sizeof(narrow), "rays two capsule radii to a side pass it at %g%s, each where it is within the face (NarrowHeights=%d)", g_climbMaxTop,
+			         g_narrowHeights >= 3 ? ", 6 over it and the face's top less 4" : " and 6 over it", g_narrowHeights);
+		else
+			snprintf(narrow, sizeof(narrow), "a ray at %g two capsule radii to a side passes it", g_climbMaxTop);
+		if (g_climbBeamLow > 0.0f && g_climbBeamLow < g_climbMaxTop)
+			snprintf(low, sizeof(low), "; a lower face, its top %g or more over its foot, not climbed either if upright (80 to 100 deg at its foot and at its top), long (not narrow at 10 and its top less 2) "
+			         "and thin (the ground two capsule radii past its face under half its top over its foot): a rail lying on the ground (ClimbBeamLow), a kerb, a step, a log or a stump still climbed", g_climbBeamLow);
+		else
+			snprintf(low, sizeof(low), "; any lower face climbed (ClimbBeamLow=0)");
 		if (g_climbMaxTop > 0.0f)
-			snprintf(maxTop, sizeof(maxTop), "; a face with something %g above the feet within 45 past it climbed only if round (receding toward its foot), narrow (a ray at %g two capsule radii to a side passes it) "
+			snprintf(maxTop, sizeof(maxTop), "; a face with something %g above the feet within 45 past it climbed only if round (receding toward its foot), narrow (%s) "
 			         "or a step up (a ray down a wheelbase past it finds the ground that high over the ground at its foot) (ClimbMaxTop: a log, a stump or a step, not a rail or a beam with a drop behind it), "
-			         "and a low face with something 1.5 or 2 ClimbTops above the feet within 45 past it not climbed (a barrier's bar)",
-			         g_climbMaxTop, g_climbMaxTop);
+			         "and a low face with something 1.5 or 2 ClimbTops above the feet within 45 past it not climbed (a barrier's bar)%s",
+			         g_climbMaxTop, narrow, low);
 		else
 			snprintf(maxTop, sizeof(maxTop), "; any face under ClimbTop climbed, a beam with a drop behind it too (ClimbMaxTop=0, test 44's build)");
 		if (g_climb)
@@ -1432,6 +1496,7 @@ static void ReadRoomSettings(const char *ini, bool log)
 {
 	float was[4] = { (float)g_roomBox, g_roomSide, g_roomFore, (float)g_roomRaysRetry };
 	float wasLine = g_roomLine, wasNear = g_roomGroundNear, wasSlope = g_roomGroundSlope;
+	float wasMore[6] = { (float)g_roomAround, (float)g_roomLineFallback, (float)g_roomSlide, (float)g_roomTilted, (float)g_roomParkTilt, g_roomParkRoll };
 	g_roomBox = (int)GetPrivateProfileIntA("Room", "Box", 1, ini) != 0;
 	g_roomSide = IniFloat(ini, "Room", "Side", 40.0f, 10.0f, 100.0f);
 	g_roomFore = IniFloat(ini, "Room", "Fore", 110.0f, 50.0f, 200.0f);
@@ -1462,6 +1527,35 @@ static void ReadRoomSettings(const char *ini, bool log)
 		                      : "no line from the player (Line=0, test 44's build)",
 		    g_roomGroundNear, g_roomLine > 0.0f ? "the player's" : "the asked height (Line=0)", slope, log ? "" : " (read again on getting on)");
 	}
+	/* Test 46's five, on a line of their own. */
+	g_roomAround = (int)GetPrivateProfileIntA("Room", "Around", 1, ini) != 0;
+	g_roomLineFallback = (int)GetPrivateProfileIntA("Room", "LineFallback", 0, ini) != 0;
+	g_roomSlide = (int)GetPrivateProfileIntA("Room", "Slide", 1, ini) != 0;
+	g_roomTilted = (int)GetPrivateProfileIntA("Room", "Tilted", 1, ini) != 0;
+	g_roomParkTilt = (int)GetPrivateProfileIntA("Room", "ParkTilt", 1, ini) != 0;
+	g_roomParkRoll = IniFloat(ini, "Room", "ParkRoll", 20.0f, 0.0f, 45.0f);
+	float nowMore[6] = { (float)g_roomAround, (float)g_roomLineFallback, (float)g_roomSlide, (float)g_roomTilted, (float)g_roomParkTilt, g_roomParkRoll };
+	bool moreChanged = false;
+	for (int i = 0; i < 6; i++)
+		moreChanged = moreChanged || wasMore[i] != nowMore[i];
+	if (log || moreChanged) {
+		char park[120];
+		if (g_roomParkTilt)
+			snprintf(park, sizeof(park), "the brought bike tilted to the ground under its wheels, its roll up to %g", g_roomParkRoll);
+		else
+			snprintf(park, sizeof(park), "the brought bike's tilt the script's own (ParkTilt=0, test 45's build)");
+		Log("  room: Around=%d LineFallback=%d Slide=%d Tilted=%d ParkTilt=%d ParkRoll=%g: %s; %s; %s; %s; %s%s", g_roomAround, g_roomLineFallback, g_roomSlide, g_roomTilted,
+		    g_roomParkTilt, g_roomParkRoll,
+		    g_roomAround ? "spots beside and behind the player asked after the seven ahead" : "the seven spots ahead only (Around=0, test 45's build)",
+		    g_roomLineFallback ? "a call with no spot with room nor a most-room one takes the first spot (LineFallback=1, test 45's build)"
+		                       : "a call with no spot with room nor a most-room one (with a clear line) is refused, the bike not brought",
+		    g_roomSlide ? "a box with a hit slid away from it by what it lacks and 10, else turned 90 either way, and checked again"
+		                : "a box with a hit not moved (Slide=0, test 45's build)",
+		    g_roomTilted ? "the spot's ground looked for down to 100 and its distance times tan GroundSlope, the box tilted with the ground under its ends"
+		                 : "the spot's ground within 100, the box level (Tilted=0, test 45's build)",
+		    park, log ? "" : " (read again on getting on)");
+	}
+	RoomWriteOptions();
 }
 
 /* Backing level or down a slope (test 40's finding 6: "backing up makes the camera shake a
@@ -1723,6 +1817,7 @@ static void ReadSettings(void)
 	ReadRamSettings(ini, true);
 	ReadRoomSettings(ini, true);
 	ReadSoundSettings(ini, true);
+	ReadDiagSettings(ini, true);
 	ReadRiderSwitches(true);
 	ReadParts(ini);
 	BackClearanceLine();   /* the parts file read: the clearance it gives (test 42) */
@@ -2124,6 +2219,18 @@ static void FindGlobals(void)
 		g_roomAngleGlobal = FindGlobal(prefix, shift, ROOM_GLOBAL_ID + ROOM_GLOBALS, "CMB_RoomAskAngle");
 		if (!g_roomAngleGlobal)
 			Log("room: no CMB_RoomAskAngle (an older ESP): the spot checked without a heading, the eight rays as before test 43");
+		/* Test 46: the script's spots around the player and its call's fallback ([Room] Around and
+		 * LineFallback, told in CMB_RoomOptions), and the brought bike's tilt (ParkTilt, CMB_RoomPitch
+		 * and Roll): all three or none (an ESP of test 45's build: the script as then). */
+		static const char *more[ROOM_MORE_GLOBALS] = { "CMB_RoomOptions", "CMB_RoomPitch", "CMB_RoomRoll", "CMB_RoomGround" };
+		bool allMore = true;
+		for (int i = 0; i < ROOM_MORE_GLOBALS; i++)
+			allMore &= (g_roomMoreGlobals[i] = FindGlobal(prefix, shift, ROOM_MORE_ID + (uint32_t)i, more[i])) != 0;
+		if (!allMore) {
+			memset(g_roomMoreGlobals, 0, sizeof(g_roomMoreGlobals));
+			Log("room: no CMB_RoomOptions to CMB_RoomGround (an older ESP): the script's spots, its call's fallback and the brought bike's tilt as in test 45's build");
+		} else
+			RoomWriteOptions();
 	}
 	/* The engine sound (test 44's build): all thirteen or none, looked for without a line each
 	 * (one line for them all). Without them the driver never runs: the script's crossfade. */
@@ -2140,8 +2247,16 @@ static void FindGlobals(void)
 		memset(g_sndGlobals, 0, sizeof(g_sndGlobals));
 		Log("sound: not all of CMB_SndLoop01 to CMB_SndDriven are there (an older %s): the script's crossfade drives the engine", ESP_NAME);
 	} else {
-		Log("sound: found CMB_SndLoop01 to CMB_SndLoop11, CMB_SndGen and CMB_SndDriven (%08X-%08X)", *(const uint32_t *)(g_sndGlobals[0] + OFF_FORM_ID),
-		    *(const uint32_t *)(g_sndGlobals[SND_GLOBALS - 1] + OFF_FORM_ID));
+		/* Test 46: the MCM's engine volume, which this plugin puts on the loops it drives (SetVolume is the value the
+		 * script's Sound.SetInstanceVolume sets, so the script no longer touches them) */
+		g_engineVolumeGlobal = FindGlobalQuiet(prefix, shift, ENGINE_VOLUME_GLOBAL_ID, "CMB_EngineVolume");
+		char ev[96];
+		if (g_engineVolumeGlobal)
+			snprintf(ev, sizeof(ev), ", CMB_EngineVolume (%08X)", *(const uint32_t *)(g_engineVolumeGlobal + OFF_FORM_ID));
+		else
+			snprintf(ev, sizeof(ev), "; no CMB_EngineVolume (0x%03X): the engine volume taken as the MCM's default, 70", ENGINE_VOLUME_GLOBAL_ID);
+		Log("sound: found CMB_SndLoop01 to CMB_SndLoop11, CMB_SndGen and CMB_SndDriven (%08X-%08X)%s", *(const uint32_t *)(g_sndGlobals[0] + OFF_FORM_ID),
+		    *(const uint32_t *)(g_sndGlobals[SND_GLOBALS - 1] + OFF_FORM_ID), ev);
 	}
 	g_globalsMissingLogged = true;   /* found or not, don't look again */
 }
@@ -7512,7 +7627,30 @@ static bool RamLetsBy(uintptr_t actor, float ahead, float v)
  * by more than GroundNear (or the slope's own rise between them, if more): a floor, a hedge's
  * top or a ledge is a step, a slope isn't. And a spot refused for its ground below, which a
  * call's most-room choice can take (CMB_RoomClear over 0), has its box checked too, its
- * CMB_RoomClear the box's nearest hit when that is less. GroundSlope=0: test 45's first build. */
+ * CMB_RoomClear the box's nearest hit when that is less. GroundSlope=0: test 45's first build.
+ *
+ * Test 45 ([Room] Around, LineFallback, Slide, Tilted, ParkTilt; 12 calls, 5 fine): the spot's
+ * look is RoomLook, run for the asked spot and, with Slide, for it moved or turned. A box with a
+ * hit on one of its eight rays (the line and the ground passed: the most-room spot of calls 2 and
+ * 4 had the fence 59 and the wall 78 along its 110) is slid away from the hit by what the ray
+ * lacked plus ROOM_SLIDE_MARGIN (a fore hit at d: Fore - d + 10 back along the heading), unless
+ * the moved box would stand on the player, and checked again in full; no room there, the box is
+ * turned 90 to the right, then to the left, about the same spot (along a fence or a wall it
+ * faced). The first with room is the answer: its spot and heading written back to CMB_RoomAskX/Y
+ * and CMB_RoomAskAngle, CMB_RoomClear its ground's; none, the asked spot's answer as before. Each
+ * try has a line of its own ("room: ask N: slid 50 back along its heading to (x, y): room ...",
+ * "room: ask N: turned 90 to the right, heading H: none, ..."). Tilted: the spot's ground looked
+ * for down to ROOM_GROUND_REACH plus the spot's distance from the player times tan GroundSlope
+ * (calls 10 and 11 facing down a hillside: "no ground within 100"), and the box's eight rays
+ * follow the ground under its ends (RoomBoxTilt; the level aft rays met the slope behind the spot,
+ * 30-89 along). ParkTilt: with room, the ground under the parked bike's wheels and to its sides
+ * (RoomParkTilt) gives CMB_RoomPitch and CMB_RoomRoll, and its ground CMB_RoomGround, which the
+ * script sets the brought bike to and on (call 11's coarse navmesh left it level; call 10's roll
+ * was held to 10); a spot refused that a call can take for the most room (its box cast, its
+ * CMB_RoomClear over 0) gets them too, call 11's being such a spot. ROOM_NO_TILT when not measured.
+ * A spot refused for its ground below deeper than ROOM_GROUND_REACH under the asked height (found
+ * by Tilted's deeper look only) is not one to take: CMB_RoomClear -1, as test 45's build (review).
+ * Around and LineFallback are the script's, told in CMB_RoomOptions. */
 #define ROOM_REACH        110.0f   /* the eight level rays without a heading: the parked bike's length 196 (the parts file's axles at 99.6 and -36.7 with the wheels' 29.9) halved, plus 12 */
 #define ROOM_EYE          50.0f    /* their height over the ground: over a curb or a rail of clutter, under a counter or a sign */
 #define ROOM_HEADROOM     120.0f   /* the ray up: the bike's and the rider's height over the ground */
@@ -7523,12 +7661,405 @@ static bool RamLetsBy(uintptr_t actor, float ahead, float v)
 #define ROOM_NO_LINE      -3.0f    /* CMB_RoomClear for a spot refused for the line from the player ([Room] Line, test 44): exact, as -1 and -2 (a ground refused is over GroundNear's 5 at least) */
 #define ROOM_UNDER_PLAYER 20.0f    /* the ray down under the player for their ground starts this over their feet (to ROOM_GROUND_REACH under them) */
 #define ROOM_PROFILE_STEP 25.0f    /* [Room] GroundSlope (test 45's review): the ground along the line followed at most this far apart (a 25 deg slope rises 12 in it, a floor's step is 34) */
+#define ROOM_SLIDE_MARGIN 10.0f    /* [Room] Slide (test 46): a box slid away from its hit by what its ray lacked and this */
+#define ROOM_WHEEL_ALONG  68.0f    /* [Room] ParkTilt (test 46): the parked bike's wheels meet the ground this far ahead of and behind its middle (the parts file's axles 136.3 apart, the model centred) */
+#define ROOM_PARK_ACROSS  35.0f    /* ... and the ground across it is read this far to each side (the script's ProbeAcross) */
+#define ROOM_PARK_PITCH   45.0f    /* ... its pitch held to the script's ParkMaxPitch */
+#define ROOM_NO_TILT      -1000.0f /* CMB_RoomPitch and Roll with no tilt measured (ParkTilt=0, no heading, no room, a ray under a wheel missed): the ESP's value */
+/* The box's eight rays: (fore, right) signs, and their names (test 43). */
+static const float g_roomBoxSigns[8][2] = { { 1.0f, 0.0f }, { -1.0f, 0.0f }, { 0.0f, 1.0f }, { 0.0f, -1.0f },
+                                           { 1.0f, 1.0f }, { 1.0f, -1.0f }, { -1.0f, 1.0f }, { -1.0f, -1.0f } };
+static const char *const g_roomBoxNames[9] = { "fore", "aft", "the right", "the left", "fore-right", "fore-left", "aft-right", "aft-left", "up" };
 static int g_roomAskRead;   /* the CMB_RoomAsk answered already (CMB_RoomAnswer's, at the start and after a load: a save made between an ask and its answer gets the answer) */
 
 static void RoomReadAnswered(void)
 {
 	int answered = g_roomGlobals[4] ? (int)GlobalValue(g_roomGlobals[4]) : 0;
 	g_roomAskRead = answered < 0 ? -answered : answered;
+}
+
+/* Test 46: [Room] Around and LineFallback for the script (bit 1: ask the spots beside and behind
+ * the player; bit 2: a call with no spot with room nor a most-room one is refused), written at the
+ * start, with the settings and with every answer (a save's value never outlives a session). */
+static void RoomWriteOptions(void)
+{
+	SetGlobal(g_roomMoreGlobals[0], (float)((g_roomAround ? 1 : 0) + (g_roomLineFallback ? 0 : 2)));
+}
+
+/* One spot's look (RoomFrame's; test 46: the asked spot, and with Slide the same moved or turned). */
+typedef struct {
+	bool room, cast, slideable;   /* slideable: a hit on one of the box's eight rays, the line and the ground passed ([Room] Slide may move or turn it) */
+	float clear;                  /* CMB_RoomClear's value for it */
+	float groundZ;                /* the ground found under it */
+	int nearI;                    /* the ray with the nearest hit: 0-7 the level ones (the box's with a heading), 8 the ray up; -1 none */
+	float nearG;                  /* ... its share of its ray */
+	float tiltAlong, tiltAcross;  /* [Room] Tilted: the box's rise per unit along its heading and to its right (0: level) */
+	const char *actor;            /* an actor its own rays passed, for its line */
+	char why[640], lineNote[360], tiltNote[120];
+} RoomSpot;
+
+/* [Room] Tilted (test 46; calls 10 and 11 facing down a hillside: the box's level rays from 50 over
+ * the spot's ground met the slope behind it, aft-left at 30 to 89 along): the ground under the
+ * box's ends, a ray down at Fore ahead and behind and at Side to each side, each from GroundNear
+ * plus the most a GroundSlope slope rises there over the spot's ground to as far under it. Along
+ * each axis a slope where both ends are found and the spot's ground lies within GroundNear of the
+ * line between them (a wall's top or a ditch at one end isn't a slope: that axis stays level); its
+ * rise per unit then tilts the box's rays to follow the ground, 50 over it. Through actors, as the
+ * box; an actor these pass isn't the box's. */
+static void RoomBoxTilt(uintptr_t cell, float x, float y, float groundZ, const float fw[2], const float rt[2], float slopeTan, RoomSpot *r)
+{
+	const char *actorWas = g_rayActorPassed;
+	float t[2] = { 0.0f, 0.0f };
+	for (int axis = 0; axis < 2; axis++) {
+		const float *u = axis ? rt : fw;
+		float len = axis ? g_roomSide : g_roomFore, span = len * slopeTan + g_roomGroundNear, ends[2] = { 0.0f, 0.0f };
+		bool found = true;
+		for (int s = 0; s < 2 && found; s++) {
+			float k = s ? -len : len;
+			float a[3] = { x + k * u[0], y + k * u[1], groundZ + span }, b[3] = { a[0], a[1], groundZ - span };
+			float f = CastRayGround(cell, a, b);
+			found = f > 0.0f && f < 1.0f;
+			if (found)
+				ends[s] = a[2] + (b[2] - a[2]) * f;
+		}
+		if (found && fabsf(ends[0] + ends[1] - 2.0f * groundZ) <= g_roomGroundNear)
+			t[axis] = (ends[0] - ends[1]) / (2.0f * len);
+	}
+	g_rayActorPassed = actorWas;
+	r->tiltAlong = t[0];
+	r->tiltAcross = t[1];
+	float along = atanf(t[0]) * 57.29578f, across = atanf(t[1]) * 57.29578f;
+	along = fabsf(along) < 0.5f ? 0.0f : along;   /* "0", not "-0" */
+	across = fabsf(across) < 0.5f ? 0.0f : across;
+	if (along != 0.0f || across != 0.0f)
+		snprintf(r->tiltNote, sizeof(r->tiltNote), "; the box tilted with the ground under its ends (%.0f deg along its heading, %.0f across)", along, across);
+}
+
+/* The spot (x, y) asked at height z along deg (box: as a bike-shaped box along it; else the eight
+ * rays): its ground, the line from the player, the slope, the box. The rays are ready. */
+static void RoomLook(uintptr_t player, uintptr_t cell, float x, float y, float z, float deg, bool box, RoomSpot *r)
+{
+	memset(r, 0, sizeof(*r));
+	r->nearI = -1;
+	g_rayActorPassed = NULL;
+	const float *pos = (const float *)(player + OFF_REFR_POS);
+	bool sloped = g_roomLine > 0.0f && g_roomGroundSlope > 0.0f;
+	float slopeTan = sloped ? tanf(g_roomGroundSlope * (3.14159265f / 180.0f)) : 0.0f;
+	/* [Room] Tilted (test 46; calls 10 and 11 facing down a hillside: "no ground within 100"): the
+	 * ground looked for down to ROOM_GROUND_REACH and the spot's distance from the player times tan
+	 * GroundSlope (with Line and GroundSlope: the most the slope's allowance lets it lie below). */
+	float reachBelow = ROOM_GROUND_REACH;
+	if (g_roomTilted && sloped)
+		reachBelow += hypotf(x - pos[0], y - pos[1]) * slopeTan;
+	float a[3] = { x, y, z + ROOM_GROUND_REACH }, b[3] = { x, y, z - reachBelow };
+	float f = CastRayGround(cell, a, b);
+	if (!(f > 0.0f && f < 1.0f)) {
+		r->clear = -1.0f;
+		if (reachBelow > ROOM_GROUND_REACH)
+			snprintf(r->why, sizeof(r->why), "no ground within %.0f above or %.0f below the spot", ROOM_GROUND_REACH, reachBelow);
+		else
+			snprintf(r->why, sizeof(r->why), "no ground within %.0f above or below the spot", ROOM_GROUND_REACH);
+		r->actor = g_rayActorPassed;
+		return;
+	}
+	float groundZ = a[2] + (b[2] - a[2]) * f, below = z - groundZ;
+	r->groundZ = groundZ;
+	const char *groundWhat = g_rayWhat && *g_rayWhat ? g_rayWhat : "unnamed";
+	uint32_t groundLayer = g_rayLayer;
+	/* Test 44 ([Room] Line, GroundNear): the ground under the player (a ray down from just
+	 * over their feet; none within ROOM_GROUND_REACH: the asked height, the player's when
+	 * the script asked), then a line from Line over it to Line over the spot's ground: a
+	 * fence or a wall between them is no spot (the box at the spot doesn't reach one 110
+	 * away, nor a house's wall it stands inside). Through actors, as the box: a settler in
+	 * the way isn't a wall. Before the ground's test, so a spot refused for its ground (a
+	 * call can still take it, CallTakesBestSpot) has a clear line. An actor these pass
+	 * isn't the spot's: the line's "an actor there" stays the spot's rays'. */
+	float refZ = z, nearLimit = ROOM_GROUND_NEAR, px = x, py = y, len = 0.0f;
+	bool lineBlocked = false, underPlayer = false;
+	if (g_roomLine > 0.0f) {
+		nearLimit = g_roomGroundNear;
+		const char *actorWas = g_rayActorPassed;
+		px = pos[0];
+		py = pos[1];
+		float pa[3] = { pos[0], pos[1], pos[2] + ROOM_UNDER_PLAYER }, pb[3] = { pos[0], pos[1], pos[2] - ROOM_GROUND_REACH };
+		float pf = CastRayGround(cell, pa, pb);
+		if (pf > 0.0f && pf < 1.0f) {
+			refZ = pa[2] + (pb[2] - pa[2]) * pf;
+			underPlayer = true;
+		}
+		float la[3] = { pos[0], pos[1], refZ + g_roomLine }, lb[3] = { x, y, groundZ + g_roomLine };
+		float lf = CastRayGround(cell, la, lb);
+		len = sqrtf((lb[0] - la[0]) * (lb[0] - la[0]) + (lb[1] - la[1]) * (lb[1] - la[1]) + (lb[2] - la[2]) * (lb[2] - la[2]));
+		if (lf > 0.0f && lf < 1.0f) {
+			lineBlocked = true;
+			r->clear = ROOM_NO_LINE;
+			snprintf(r->why, sizeof(r->why), "no clear line from the player: something %.0f along the %.0f to the spot (%s, layer %u), %.0f over the ground under each (the player's %.0f%s, the spot's %.0f)",
+			         lf * len, len, g_rayWhat && *g_rayWhat ? g_rayWhat : "unnamed", g_rayLayer, g_roomLine, refZ,
+			         underPlayer ? "" : ", the asked height: none under them", groundZ);
+		}
+		g_rayActorPassed = actorWas;
+	}
+	float off = refZ - groundZ;   /* + the spot's ground under the reference: the player's ground, or (Line=0) the asked height, as before */
+	const char *refName = underPlayer ? "the player's" : "the asked height (none under the player)";
+	/* Test 45's review ([Room] GroundSlope, with Line): the ground may be off by GroundNear plus
+	 * the spot's distance times tan GroundSlope (an open slope); past GroundNear the ground is
+	 * followed along the line, a ray down from the line (clear: just cast) every
+	 * ROOM_PROFILE_STEP at most, and no two neighbours, the player's ground and the spot's at
+	 * the ends, may differ by more than GroundNear, or the slope's own rise between them if
+	 * more: a floor, a hedge's top or a ledge is a step, a slope isn't. Through actors, as the
+	 * line. GroundSlope=0: within GroundNear, test 45's first build; Line=0: test 44's. */
+	float flat = hypotf(x - px, y - py), allow = nearLimit, seg = 0.0f, stepAllow = 0.0f;
+	char allowNote[80] = "", stepNote[200] = "";
+	if (sloped) {
+		allow = nearLimit + flat * slopeTan;
+		snprintf(allowNote, sizeof(allowNote), " (%.0f and %g deg over the %.0f to it)", nearLimit, g_roomGroundSlope, flat);
+	}
+	bool groundOk = !lineBlocked && fabsf(off) <= allow, byProfile = false, stepRefused = false;
+	if (groundOk && fabsf(off) > nearLimit) {   /* sloped only: else allow is nearLimit */
+		byProfile = true;
+		int steps = (int)ceilf(flat / ROOM_PROFILE_STEP);
+		if (steps < 1)
+			steps = 1;
+		seg = flat / (float)steps;
+		stepAllow = fmaxf(nearLimit, seg * slopeTan);
+		const char *actorWas = g_rayActorPassed;
+		float prevZ = refZ;
+		for (int i = 1; i <= steps; i++) {
+			float t = (float)i / (float)steps, zi = groundZ;
+			const char *what = groundWhat;
+			uint32_t layer = groundLayer;
+			if (i < steps) {
+				float base = refZ + (groundZ - refZ) * t;
+				float sa[3] = { px + (x - px) * t, py + (y - py) * t, base + g_roomLine }, sb[3] = { sa[0], sa[1], base - ROOM_GROUND_REACH };
+				float sf = CastRayGround(cell, sa, sb);
+				if (!(sf > 0.0f && sf < 1.0f)) {
+					stepRefused = true;
+					snprintf(stepNote, sizeof(stepNote), "; not a slope: no ground under it %.0f along", t * flat);
+					break;
+				}
+				zi = sa[2] + (sb[2] - sa[2]) * sf;
+				what = g_rayWhat && *g_rayWhat ? g_rayWhat : "unnamed";
+				layer = g_rayLayer;
+			}
+			float dz = zi - prevZ;
+			if (fabsf(dz) > stepAllow) {
+				stepRefused = true;
+				snprintf(stepNote, sizeof(stepNote), "; not a slope: a step of %.0f %s %.0f along it (%s, layer %u), over %.0f", fabsf(dz), dz > 0.0f ? "up" : "down", t * flat,
+				         what, layer, stepAllow);
+				break;
+			}
+			prevZ = zi;
+		}
+		g_rayActorPassed = actorWas;
+		groundOk = !stepRefused;
+	}
+	if (groundOk && g_roomLine > 0.0f) {
+		if (byProfile)
+			snprintf(r->lineNote, sizeof(r->lineNote), "; a clear line from the player (%.0f long, %.0f over each ground), the spot's ground %.0f %s %s (over %.0f: within %.0f%s, "
+			         "the ground followed every %.0f along it, no step over %.0f)", len, g_roomLine, fabsf(off), off >= 0.0f ? "below" : "above", refName, nearLimit, allow, allowNote,
+			         seg, stepAllow);
+		else
+			snprintf(r->lineNote, sizeof(r->lineNote), "; a clear line from the player (%.0f long, %.0f over each ground), the spot's ground %.0f %s %s (within %.0f)", len, g_roomLine,
+			         fabsf(off), off >= 0.0f ? "below" : "above", refName, nearLimit);
+	}
+	/* Review of test 46's Tilted: a spot refused for its ground below, that ground deeper than
+	 * ROOM_GROUND_REACH under the asked height (found only by Tilted's deeper look), isn't one a
+	 * call takes for the most room: CMB_RoomClear -1, as in test 45's build, whose ray didn't
+	 * reach it, and no box. Its depth as Clear (up to 200 for the script) would outrank every
+	 * near-fit box (110 at most): a ledge's or a step's foot 130 to 200 below the player taken,
+	 * and ParkTilt's measured ground there keeping the bike down there. */
+	bool tooDeep = !lineBlocked && !groundOk && off > 0.0f && below > ROOM_GROUND_REACH;
+	if (!lineBlocked && !groundOk) {
+		r->clear = tooDeep ? -1.0f : off;
+		if (g_roomLine > 0.0f)
+			snprintf(r->why, sizeof(r->why), "the ground %.0f %s %s (%s, layer %u), over %.0f%s; a clear line from the player%s", fabsf(off), off > 0.0f ? "below" : "above",
+			         refName, groundWhat, groundLayer, stepRefused ? nearLimit : allow, stepRefused ? "" : allowNote, stepNote);
+		else
+			snprintf(r->why, sizeof(r->why), "the ground %.0f %s the spot (%s, layer %u), over %.0f", fabsf(below), below > 0.0f ? "below" : "above",
+			         groundWhat, groundLayer, ROOM_GROUND_NEAR);
+		if (tooDeep) {
+			size_t used = strlen(r->why);
+			snprintf(r->why + used, sizeof(r->why) - used, "; %.0f under the asked height, past the %.0f a call's most room takes (Tilted's deeper look found it): not one to take",
+			         below, ROOM_GROUND_REACH);
+		}
+	}
+	/* The box: at a spot whose ground passed, and (test 45's review, with Line) at one refused
+	 * for its ground below, which a call's most-room choice can take (CMB_RoomClear over 0):
+	 * test 45's first build placed such a spot with nothing looked at there. */
+	bool boxed = groundOk || (g_roomLine > 0.0f && !lineBlocked && off > 0.0f && !tooDeep);
+	if (!boxed) {
+		r->actor = g_rayActorPassed;
+		return;
+	}
+	static const float axes[8][2] = { { 1.0f, 0.0f }, { 0.0f, 1.0f }, { -1.0f, 0.0f }, { 0.0f, -1.0f },
+	                                  { 0.70710678f, 0.70710678f }, { -0.70710678f, 0.70710678f }, { -0.70710678f, -0.70710678f }, { 0.70710678f, -0.70710678f } };
+	static const char *const axisNames[9] = { "+x", "+y", "-x", "-y", "+x+y", "-x+y", "-x-y", "+x-y", "up" };
+	/* Test 43's box: fore and aft Fore along the heading, Side to the right and left, and the
+	 * four corners (each sign of fore with each of right), as GetAngleZ turns: forward (sin a,
+	 * cos a), right (cos a, -sin a). Test 46's Tilted: each ray rises with the ground under the
+	 * box's ends (RoomBoxTilt; level where they make no slope). */
+	float dirs[8][3], reaches[8];
+	if (box) {
+		float h = deg * (3.14159265f / 180.0f), fw[2] = { sinf(h), cosf(h) }, rt[2] = { cosf(h), -sinf(h) };
+		if (g_roomTilted && sloped)   /* with Line and GroundSlope, as the slope's allowance */
+			RoomBoxTilt(cell, x, y, groundZ, fw, rt, slopeTan, r);
+		for (int i = 0; i < 8; i++) {
+			float v[3] = { g_roomBoxSigns[i][0] * g_roomFore * fw[0] + g_roomBoxSigns[i][1] * g_roomSide * rt[0],
+			               g_roomBoxSigns[i][0] * g_roomFore * fw[1] + g_roomBoxSigns[i][1] * g_roomSide * rt[1],
+			               g_roomBoxSigns[i][0] * g_roomFore * r->tiltAlong + g_roomBoxSigns[i][1] * g_roomSide * r->tiltAcross };
+			reaches[i] = sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+			for (int k = 0; k < 3; k++)
+				dirs[i][k] = v[k] / reaches[i];
+		}
+	} else {
+		for (int i = 0; i < 8; i++) {
+			dirs[i][0] = axes[i][0];
+			dirs[i][1] = axes[i][1];
+			dirs[i][2] = 0.0f;
+			reaches[i] = ROOM_REACH;
+		}
+	}
+	const char *const *names = box ? g_roomBoxNames : axisNames;
+	float eye[3] = { x, y, groundZ + ROOM_EYE }, nearest = -1.0f, nearD = 0.0f, nearReach = 0.0f, nearG = 0.0f;
+	uint32_t nearLayer = 0;
+	const char *nearWhat = "unnamed";
+	int nearI = -1;
+	r->cast = true;
+	for (int i = 0; i < 9; i++) {
+		float reach = i < 8 ? reaches[i] : ROOM_HEADROOM;
+		float c[3] = { eye[0] + (i < 8 ? dirs[i][0] * reach : 0.0f), eye[1] + (i < 8 ? dirs[i][1] * reach : 0.0f), eye[2] + (i < 8 ? dirs[i][2] * reach : reach) };
+		float g = CastRayGround(cell, eye, c);
+		if (!(g > 0.0f && g < 1.0f))
+			continue;
+		/* Test 43's scaled Clear: a box ray's hit is judged by how far along the ray it
+		 * is, on the bike's Fore (a side hit at 35 of 40 nearly fits: 96; a fore hit at
+		 * 60 of 110 puts the nose, 98 out, 38 into the wall: 60). The up ray, and every
+		 * one of the eight, as before: the distance itself. A wall square to a ray is
+		 * met by the corners beside it at the same share: the axis's ray, the first of
+		 * them, is named. */
+		float d = g * reach, onBike = box && i < 8 ? g * g_roomFore : d;
+		if (nearest < 0.0f || onBike < nearest - (box ? ROOM_TIE : 0.0f)) {
+			nearest = onBike;
+			nearD = d;
+			nearReach = reach;
+			nearG = g;
+			nearI = i;
+			nearWhat = g_rayWhat && *g_rayWhat ? g_rayWhat : "unnamed";
+			nearLayer = g_rayLayer;
+		}
+	}
+	r->nearI = nearI;
+	r->nearG = nearG;
+	char hit[240] = "";
+	if (nearest >= 0.0f) {
+		if (box && nearI < 8)
+			snprintf(hit, sizeof(hit), "something %.0f along %s (of %.0f: %.0f on the bike's %.0f) (%s, layer %u)", nearD, names[nearI], nearReach, nearest, g_roomFore,
+			         nearWhat, nearLayer);
+		else
+			snprintf(hit, sizeof(hit), "something %.0f along %s (%s, layer %u)", nearD, names[nearI], nearWhat, nearLayer);
+	}
+	if (!groundOk) {
+		/* Refused for its ground below: the box's word after the ground's, and the less of the two. */
+		size_t used = strlen(r->why);
+		snprintf(r->why + used, sizeof(r->why) - used, "; checked at its ground: %s", nearest < 0.0f ? "clear" : hit);
+		if (nearest >= 0.0f && nearest < r->clear)
+			r->clear = nearest;
+	} else if (nearest < 0.0f) {
+		r->room = true;
+		r->clear = below;
+	} else {
+		r->clear = nearest;
+		snprintf(r->why, sizeof(r->why), "%s", hit);
+		r->slideable = box && nearI < 8;
+	}
+	r->actor = g_rayActorPassed;
+}
+
+/* [Room] ParkTilt (test 46; call 11's bike left level where the navmesh was too coarse to tilt it
+ * by, call 10's roll held to the script's 10): the ground under the parked bike at a spot with
+ * room, or one a call can take for the most room, along deg: a ray down under each wheel's
+ * contact (ROOM_WHEEL_ALONG ahead and behind its middle) and ROOM_PARK_ACROSS to each side, each
+ * from as high over the spot's ground as a 45 deg slope rises there, and 20, to as far under it.
+ * The plane through them (across x along, as the script's navmesh probes) gives the pitch and the
+ * roll the way the script's TiltParkedBike takes
+ * them from a normal n (the model faces the heading's back: pitch atan(-(fw.n) / n.z), the nose
+ * up on a rise ahead; roll asin(rt.n), the bike leaning the way the ground falls), the pitch held
+ * to ROOM_PARK_PITCH and the roll to ParkRoll. False, the note saying why, with a ray missing or no
+ * slope there. Through actors; an actor these pass isn't the spot's. */
+static bool RoomParkTilt(uintptr_t cell, float x, float y, float groundZ, float deg, float *pitch, float *roll, char *note, size_t size)
+{
+	static const float at[4][2] = { { ROOM_WHEEL_ALONG, 0.0f }, { -ROOM_WHEEL_ALONG, 0.0f }, { 0.0f, ROOM_PARK_ACROSS }, { 0.0f, -ROOM_PARK_ACROSS } };
+	static const char *const atNames[4] = { "front wheel", "rear wheel", "right side", "left side" };
+	float h = deg * (3.14159265f / 180.0f), fw[2] = { sinf(h), cosf(h) }, rt[2] = { cosf(h), -sinf(h) }, p[4][3];
+	const char *actorWas = g_rayActorPassed;
+	for (int i = 0; i < 4; i++) {
+		float reach = fabsf(at[i][0]) + fabsf(at[i][1]) + 20.0f;
+		float a[3] = { x + at[i][0] * fw[0] + at[i][1] * rt[0], y + at[i][0] * fw[1] + at[i][1] * rt[1], groundZ + reach }, b[3] = { a[0], a[1], groundZ - reach };
+		float f = CastRayGround(cell, a, b);
+		if (!(f > 0.0f && f < 1.0f)) {
+			g_rayActorPassed = actorWas;
+			*pitch = *roll = ROOM_NO_TILT;
+			snprintf(note, size, "; not tilted for parking: no ground under its %s within %.0f", atNames[i], reach);
+			return false;
+		}
+		p[i][0] = a[0];
+		p[i][1] = a[1];
+		p[i][2] = a[2] + (b[2] - a[2]) * f;
+	}
+	g_rayActorPassed = actorWas;
+	float A[3] = { p[0][0] - p[1][0], p[0][1] - p[1][1], p[0][2] - p[1][2] }, B[3] = { p[2][0] - p[3][0], p[2][1] - p[3][1], p[2][2] - p[3][2] };
+	float n[3] = { B[1] * A[2] - B[2] * A[1], B[2] * A[0] - B[0] * A[2], B[0] * A[1] - B[1] * A[0] };
+	float len = sqrtf(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+	if (!(len > 1.0f) || n[2] / len < 0.17f) {
+		*pitch = *roll = ROOM_NO_TILT;
+		snprintf(note, size, "; not tilted for parking: the ground under its wheels makes no slope");
+		return false;
+	}
+	for (int k = 0; k < 3; k++)
+		n[k] /= len;
+	float along = n[0] * fw[0] + n[1] * fw[1], side = n[0] * rt[0] + n[1] * rt[1];
+	float pt = atanf(-along / n[2]) * 57.29578f, raw = asinf(side > 1.0f ? 1.0f : side < -1.0f ? -1.0f : side) * 57.29578f;
+	float rl = raw > g_roomParkRoll ? g_roomParkRoll : raw < -g_roomParkRoll ? -g_roomParkRoll : raw;
+	if (pt > ROOM_PARK_PITCH)
+		pt = ROOM_PARK_PITCH;
+	else if (pt < -ROOM_PARK_PITCH)
+		pt = -ROOM_PARK_PITCH;
+	if (fabsf(pt) < 0.05f)   /* "0.0", not "-0.0", on the level */
+		pt = 0.0f;
+	if (fabsf(rl) < 0.05f)
+		rl = 0.0f;
+	if (fabsf(raw) < 0.05f)
+		raw = 0.0f;
+	*pitch = pt;
+	*roll = rl;
+	char held[64] = "";
+	if (rl != raw)
+		snprintf(held, sizeof(held), " (its %.1f held to ParkRoll's %g)", raw, g_roomParkRoll);
+	snprintf(note, size, "; parked tilted to the ground under its wheels: pitch %.1f, roll %.1f%s", pt, rl, held);
+	return true;
+}
+
+/* A spot's line: the prefix ("room: ask N at (x, y, z), heading H"; a try's "room: ask N: slid ..."),
+ * its answer, then its notes. */
+static void RoomLogSpot(const char *prefix, const RoomSpot *r, const char *rays, const char *park)
+{
+	char actor[120] = "";
+	if (r->actor)
+		snprintf(actor, sizeof(actor), "; an actor there (%.60s), passed", r->actor);
+	if (r->room)
+		Log("%s: room (the ground %.0f %s the spot)%s%s%s%s%s", prefix, fabsf(r->clear), r->clear >= 0.0f ? "below" : "above", actor, rays, r->lineNote, r->tiltNote, park);
+	else
+		Log("%s: none, %s%s%s%s%s%s", prefix, r->why, actor, rays, r->lineNote, r->tiltNote, park);
+}
+
+/* [Room] Slide (test 46): the box at (x, y) along deg would stand on the player (their capsule
+ * within it): such a move or turn isn't tried. */
+static bool RoomBoxOnPlayer(uintptr_t player, float x, float y, float deg)
+{
+	const float *pos = (const float *)(player + OFF_REFR_POS);
+	float h = deg * (3.14159265f / 180.0f), dx = pos[0] - x, dy = pos[1] - y;
+	float along = dx * sinf(h) + dy * cosf(h), across = dx * cosf(h) - dy * sinf(h);
+	return fabsf(along) < g_roomFore + g_capsuleRadius && fabsf(across) < g_roomSide + g_capsuleRadius;
 }
 
 static void RoomFrame(void)
@@ -7548,229 +8079,97 @@ static void RoomFrame(void)
 	float x = GlobalValue(g_roomGlobals[0]), y = GlobalValue(g_roomGlobals[1]), z = GlobalValue(g_roomGlobals[2]);
 	/* Test 43: the heading the script gave with the spot (written before the ask, so read with it). */
 	float deg = g_roomAngleGlobal ? GlobalValue(g_roomAngleGlobal) : ROOM_NO_HEADING - 1.0f;
-	bool heading = g_roomAngleGlobal && isfinite(deg) && deg > ROOM_NO_HEADING, box = g_roomBox && heading, cast = false;
+	bool heading = g_roomAngleGlobal && isfinite(deg) && deg > ROOM_NO_HEADING, box = g_roomBox && heading;
 	char head[40] = "";
 	if (heading)
 		snprintf(head, sizeof(head), ", heading %.0f", deg);
-	float clear = -2.0f;
-	bool room = false;
-	char why[640] = "the rays aren't working here (the test ray beside the player): not looked at";
-	char lineNote[360] = "";   /* test 44: with Line, the line's and the ground's word on a spot that passed them, ending the answer's line */
-	g_rayActorPassed = NULL;
 	float ago;
 	if (g_roomRaysRetry && RaysUntrustedRetry(&ago))
 		Log("room: ask %d: the rays weren't trusted (the test ray %.1f s ago): tried again for it", n, ago);
-	if (RaysReady(player)) {
-		float a[3] = { x, y, z + ROOM_GROUND_REACH }, b[3] = { x, y, z - ROOM_GROUND_REACH };
-		float f = CastRayGround(cell, a, b);
-		if (!(f > 0.0f && f < 1.0f)) {
-			clear = -1.0f;
-			snprintf(why, sizeof(why), "no ground within %.0f above or below the spot", ROOM_GROUND_REACH);
-		} else {
-			float groundZ = a[2] + (b[2] - a[2]) * f, below = z - groundZ;
-			const char *groundWhat = g_rayWhat && *g_rayWhat ? g_rayWhat : "unnamed";
-			uint32_t groundLayer = g_rayLayer;
-			/* Test 44 ([Room] Line, GroundNear): the ground under the player (a ray down from just
-			 * over their feet; none within ROOM_GROUND_REACH: the asked height, the player's when
-			 * the script asked), then a line from Line over it to Line over the spot's ground: a
-			 * fence or a wall between them is no spot (the box at the spot doesn't reach one 110
-			 * away, nor a house's wall it stands inside). Through actors, as the box: a settler in
-			 * the way isn't a wall. Before the ground's test, so a spot refused for its ground (a
-			 * call can still take it, CallTakesBestSpot) has a clear line. An actor these pass
-			 * isn't the spot's: the line's "an actor there" stays the spot's rays'. */
-			float refZ = z, nearLimit = ROOM_GROUND_NEAR, px = x, py = y, len = 0.0f;
-			bool lineBlocked = false, underPlayer = false;
-			if (g_roomLine > 0.0f) {
-				nearLimit = g_roomGroundNear;
-				const char *actorWas = g_rayActorPassed;
-				const float *pos = (const float *)(player + OFF_REFR_POS);
-				px = pos[0];
-				py = pos[1];
-				float pa[3] = { pos[0], pos[1], pos[2] + ROOM_UNDER_PLAYER }, pb[3] = { pos[0], pos[1], pos[2] - ROOM_GROUND_REACH };
-				float pf = CastRayGround(cell, pa, pb);
-				if (pf > 0.0f && pf < 1.0f) {
-					refZ = pa[2] + (pb[2] - pa[2]) * pf;
-					underPlayer = true;
-				}
-				float la[3] = { pos[0], pos[1], refZ + g_roomLine }, lb[3] = { x, y, groundZ + g_roomLine };
-				float lf = CastRayGround(cell, la, lb);
-				len = sqrtf((lb[0] - la[0]) * (lb[0] - la[0]) + (lb[1] - la[1]) * (lb[1] - la[1]) + (lb[2] - la[2]) * (lb[2] - la[2]));
-				if (lf > 0.0f && lf < 1.0f) {
-					lineBlocked = true;
-					clear = ROOM_NO_LINE;
-					snprintf(why, sizeof(why), "no clear line from the player: something %.0f along the %.0f to the spot (%s, layer %u), %.0f over the ground under each (the player's %.0f%s, the spot's %.0f)",
-					         lf * len, len, g_rayWhat && *g_rayWhat ? g_rayWhat : "unnamed", g_rayLayer, g_roomLine, refZ,
-					         underPlayer ? "" : ", the asked height: none under them", groundZ);
-				}
-				g_rayActorPassed = actorWas;
+	RoomSpot r, t;
+	memset(&r, 0, sizeof(r));
+	r.clear = -2.0f;
+	r.nearI = -1;
+	snprintf(r.why, sizeof(r.why), "the rays aren't working here (the test ray beside the player): not looked at");
+	g_rayActorPassed = NULL;
+	bool rays = RaysReady(player);
+	if (rays)
+		RoomLook(player, cell, x, y, z, deg, box, &r);
+	const char *raysWord = !r.cast || box ? "" : g_roomBox ? " (no heading given: the eight rays)" : heading ? " (Box=0: the eight rays, the heading not used)" : "";
+	/* Test 46's ParkTilt: the ground under the wheels where the answer is room, or at a spot a call
+	 * can take for the most room (its box cast, Clear over 0: test 45's call 11); a heading needed. */
+	float pitch = ROOM_NO_TILT, roll = ROOM_NO_TILT, ground = 0.0f;
+	char park[160] = "", prefix[160];
+	if ((r.room || (r.cast && r.clear > 0.0f)) && heading && g_roomParkTilt && RoomParkTilt(cell, x, y, r.groundZ, deg, &pitch, &roll, park, sizeof(park)))
+		ground = r.groundZ;
+	snprintf(prefix, sizeof(prefix), "room: ask %d at (%.0f, %.0f, %.0f)%s", n, x, y, z, head);
+	RoomLogSpot(prefix, &r, raysWord, park);
+	bool room = r.room;
+	float clear = r.clear, fx = x, fy = y, fdeg = deg;
+	/* Test 46's Slide: a box with a hit on one of its eight rays (the line and the ground passed)
+	 * slid away from the hit by what its ray lacked and ROOM_SLIDE_MARGIN, else turned 90 to the
+	 * right, then to the left, about the same spot; each checked again in full, a move that
+	 * would stand the box on the player not tried; the first with room is the answer. */
+	if (rays && !room && r.slideable && g_roomSlide) {
+		static const char *const away[8] = { "back along its heading", "forward along its heading", "to its left", "to its right",
+		                                     "back and to its left", "back and to its right", "forward and to its left", "forward and to its right" };
+		float h = deg * (3.14159265f / 180.0f), fw[2] = { sinf(h), cosf(h) }, rt[2] = { cosf(h), -sinf(h) };
+		int i = r.nearI;
+		float v[2] = { g_roomBoxSigns[i][0] * g_roomFore * fw[0] + g_roomBoxSigns[i][1] * g_roomSide * rt[0],
+		               g_roomBoxSigns[i][0] * g_roomFore * fw[1] + g_roomBoxSigns[i][1] * g_roomSide * rt[1] };
+		float lv = hypotf(v[0], v[1]), by = (1.0f - r.nearG) * lv + ROOM_SLIDE_MARGIN, sx = x - v[0] / lv * by, sy = y - v[1] / lv * by;
+		snprintf(prefix, sizeof(prefix), "room: ask %d: slid %.0f %s to (%.0f, %.0f)", n, by, away[i], sx, sy);
+		if (RoomBoxOnPlayer(player, sx, sy, deg))
+			Log("%s: not tried, the box would stand on the player", prefix);
+		else {
+			RoomLook(player, cell, sx, sy, z, deg, true, &t);
+			park[0] = 0;
+			if (t.room) {
+				room = true;
+				clear = t.clear;
+				fx = sx;
+				fy = sy;
+				pitch = roll = ROOM_NO_TILT;   /* the asked spot's are no longer the answer's */
+				ground = 0.0f;
+				if (g_roomParkTilt && RoomParkTilt(cell, sx, sy, t.groundZ, deg, &pitch, &roll, park, sizeof(park)))
+					ground = t.groundZ;
 			}
-			float off = refZ - groundZ;   /* + the spot's ground under the reference: the player's ground, or (Line=0) the asked height, as before */
-			const char *refName = underPlayer ? "the player's" : "the asked height (none under the player)";
-			/* Test 45's review ([Room] GroundSlope, with Line): the ground may be off by GroundNear plus
-			 * the spot's distance times tan GroundSlope (an open slope); past GroundNear the ground is
-			 * followed along the line, a ray down from the line (clear: just cast) every
-			 * ROOM_PROFILE_STEP at most, and no two neighbours, the player's ground and the spot's at
-			 * the ends, may differ by more than GroundNear, or the slope's own rise between them if
-			 * more: a floor, a hedge's top or a ledge is a step, a slope isn't. Through actors, as the
-			 * line. GroundSlope=0: within GroundNear, test 45's first build; Line=0: test 44's. */
-			float flat = hypotf(x - px, y - py), slopeTan = 0.0f, allow = nearLimit, seg = 0.0f, stepAllow = 0.0f;
-			bool sloped = g_roomLine > 0.0f && g_roomGroundSlope > 0.0f;
-			char allowNote[80] = "", stepNote[200] = "";
-			if (sloped) {
-				slopeTan = tanf(g_roomGroundSlope * (3.14159265f / 180.0f));
-				allow = nearLimit + flat * slopeTan;
-				snprintf(allowNote, sizeof(allowNote), " (%.0f and %g deg over the %.0f to it)", nearLimit, g_roomGroundSlope, flat);
+			RoomLogSpot(prefix, &t, "", park);
+		}
+		for (int k = 0; k < 2 && !room; k++) {
+			float td = fmodf(deg + (k ? 270.0f : 90.0f), 360.0f);
+			if (td < 0.0f)
+				td += 360.0f;
+			snprintf(prefix, sizeof(prefix), "room: ask %d: turned 90 to the %s, heading %.0f", n, k ? "left" : "right", td);
+			if (RoomBoxOnPlayer(player, x, y, td)) {
+				Log("%s: not tried, the box would stand on the player", prefix);
+				continue;
 			}
-			bool groundOk = !lineBlocked && fabsf(off) <= allow, byProfile = false, stepRefused = false;
-			if (groundOk && fabsf(off) > nearLimit) {   /* sloped only: else allow is nearLimit */
-				byProfile = true;
-				int steps = (int)ceilf(flat / ROOM_PROFILE_STEP);
-				if (steps < 1)
-					steps = 1;
-				seg = flat / (float)steps;
-				stepAllow = fmaxf(nearLimit, seg * slopeTan);
-				const char *actorWas = g_rayActorPassed;
-				float prevZ = refZ;
-				for (int i = 1; i <= steps; i++) {
-					float t = (float)i / (float)steps, zi = groundZ;
-					const char *what = groundWhat;
-					uint32_t layer = groundLayer;
-					if (i < steps) {
-						float base = refZ + (groundZ - refZ) * t;
-						float sa[3] = { px + (x - px) * t, py + (y - py) * t, base + g_roomLine }, sb[3] = { sa[0], sa[1], base - ROOM_GROUND_REACH };
-						float sf = CastRayGround(cell, sa, sb);
-						if (!(sf > 0.0f && sf < 1.0f)) {
-							stepRefused = true;
-							snprintf(stepNote, sizeof(stepNote), "; not a slope: no ground under it %.0f along", t * flat);
-							break;
-						}
-						zi = sa[2] + (sb[2] - sa[2]) * sf;
-						what = g_rayWhat && *g_rayWhat ? g_rayWhat : "unnamed";
-						layer = g_rayLayer;
-					}
-					float dz = zi - prevZ;
-					if (fabsf(dz) > stepAllow) {
-						stepRefused = true;
-						snprintf(stepNote, sizeof(stepNote), "; not a slope: a step of %.0f %s %.0f along it (%s, layer %u), over %.0f", fabsf(dz), dz > 0.0f ? "up" : "down", t * flat,
-						         what, layer, stepAllow);
-						break;
-					}
-					prevZ = zi;
-				}
-				g_rayActorPassed = actorWas;
-				groundOk = !stepRefused;
+			RoomLook(player, cell, x, y, z, td, true, &t);
+			park[0] = 0;
+			if (t.room) {
+				room = true;
+				clear = t.clear;
+				fdeg = td;
+				pitch = roll = ROOM_NO_TILT;
+				ground = 0.0f;
+				if (g_roomParkTilt && RoomParkTilt(cell, x, y, t.groundZ, td, &pitch, &roll, park, sizeof(park)))
+					ground = t.groundZ;
 			}
-			if (groundOk && g_roomLine > 0.0f) {
-				if (byProfile)
-					snprintf(lineNote, sizeof(lineNote), "; a clear line from the player (%.0f long, %.0f over each ground), the spot's ground %.0f %s %s (over %.0f: within %.0f%s, "
-					         "the ground followed every %.0f along it, no step over %.0f)", len, g_roomLine, fabsf(off), off >= 0.0f ? "below" : "above", refName, nearLimit, allow, allowNote,
-					         seg, stepAllow);
-				else
-					snprintf(lineNote, sizeof(lineNote), "; a clear line from the player (%.0f long, %.0f over each ground), the spot's ground %.0f %s %s (within %.0f)", len, g_roomLine,
-					         fabsf(off), off >= 0.0f ? "below" : "above", refName, nearLimit);
-			}
-			if (!lineBlocked && !groundOk) {
-				clear = off;
-				if (g_roomLine > 0.0f)
-					snprintf(why, sizeof(why), "the ground %.0f %s %s (%s, layer %u), over %.0f%s; a clear line from the player%s", fabsf(off), off > 0.0f ? "below" : "above",
-					         refName, groundWhat, groundLayer, stepRefused ? nearLimit : allow, stepRefused ? "" : allowNote, stepNote);
-				else
-					snprintf(why, sizeof(why), "the ground %.0f %s the spot (%s, layer %u), over %.0f", fabsf(below), below > 0.0f ? "below" : "above",
-					         groundWhat, groundLayer, ROOM_GROUND_NEAR);
-			}
-			/* The box: at a spot whose ground passed, and (test 45's review, with Line) at one refused
-			 * for its ground below, which a call's most-room choice can take (CMB_RoomClear over 0):
-			 * test 45's first build placed such a spot with nothing looked at there. */
-			bool boxed = groundOk || (g_roomLine > 0.0f && !lineBlocked && off > 0.0f);
-			if (boxed) {
-				static const float axes[8][2] = { { 1.0f, 0.0f }, { 0.0f, 1.0f }, { -1.0f, 0.0f }, { 0.0f, -1.0f },
-				                                  { 0.70710678f, 0.70710678f }, { -0.70710678f, 0.70710678f }, { -0.70710678f, -0.70710678f }, { 0.70710678f, -0.70710678f } };
-				static const char *const axisNames[9] = { "+x", "+y", "-x", "-y", "+x+y", "-x+y", "-x-y", "+x-y", "up" };
-				/* Test 43's box: fore and aft Fore along the heading, Side to the right and left,
-				 * and the four corners (each sign of fore with each of right), as GetAngleZ turns:
-				 * forward (sin a, cos a), right (cos a, -sin a). */
-				static const float boxSigns[8][2] = { { 1.0f, 0.0f }, { -1.0f, 0.0f }, { 0.0f, 1.0f }, { 0.0f, -1.0f },
-				                                      { 1.0f, 1.0f }, { 1.0f, -1.0f }, { -1.0f, 1.0f }, { -1.0f, -1.0f } };
-				static const char *const boxNames[9] = { "fore", "aft", "the right", "the left", "fore-right", "fore-left", "aft-right", "aft-left", "up" };
-				float dirs[8][2], reaches[8];
-				if (box) {
-					float h = deg * (3.14159265f / 180.0f), fw[2] = { sinf(h), cosf(h) }, rt[2] = { cosf(h), -sinf(h) };
-					for (int i = 0; i < 8; i++) {
-						float v[2] = { boxSigns[i][0] * g_roomFore * fw[0] + boxSigns[i][1] * g_roomSide * rt[0],
-						               boxSigns[i][0] * g_roomFore * fw[1] + boxSigns[i][1] * g_roomSide * rt[1] };
-						reaches[i] = sqrtf(v[0] * v[0] + v[1] * v[1]);
-						dirs[i][0] = v[0] / reaches[i];
-						dirs[i][1] = v[1] / reaches[i];
-					}
-				} else {
-					for (int i = 0; i < 8; i++) {
-						dirs[i][0] = axes[i][0];
-						dirs[i][1] = axes[i][1];
-						reaches[i] = ROOM_REACH;
-					}
-				}
-				const char *const *names = box ? boxNames : axisNames;
-				float eye[3] = { x, y, groundZ + ROOM_EYE }, nearest = -1.0f, nearD = 0.0f, nearReach = 0.0f;
-				uint32_t nearLayer = 0;
-				const char *nearWhat = "unnamed";
-				int nearI = -1;
-				cast = true;
-				for (int i = 0; i < 9; i++) {
-					float reach = i < 8 ? reaches[i] : ROOM_HEADROOM;
-					float c[3] = { eye[0] + (i < 8 ? dirs[i][0] * reach : 0.0f), eye[1] + (i < 8 ? dirs[i][1] * reach : 0.0f), eye[2] + (i < 8 ? 0.0f : reach) };
-					float g = CastRayGround(cell, eye, c);
-					if (!(g > 0.0f && g < 1.0f))
-						continue;
-					/* Test 43's scaled Clear: a box ray's hit is judged by how far along the ray it
-					 * is, on the bike's Fore (a side hit at 35 of 40 nearly fits: 96; a fore hit at
-					 * 60 of 110 puts the nose, 98 out, 38 into the wall: 60). The up ray, and every
-					 * one of the eight, as before: the distance itself. A wall square to a ray is
-					 * met by the corners beside it at the same share: the axis's ray, the first of
-					 * them, is named. */
-					float d = g * reach, onBike = box && i < 8 ? g * g_roomFore : d;
-					if (nearest < 0.0f || onBike < nearest - (box ? ROOM_TIE : 0.0f)) {
-						nearest = onBike;
-						nearD = d;
-						nearReach = reach;
-						nearI = i;
-						nearWhat = g_rayWhat && *g_rayWhat ? g_rayWhat : "unnamed";
-						nearLayer = g_rayLayer;
-					}
-				}
-				char hit[240] = "";
-				if (nearest >= 0.0f) {
-					if (box && nearI < 8)
-						snprintf(hit, sizeof(hit), "something %.0f along %s (of %.0f: %.0f on the bike's %.0f) (%s, layer %u)", nearD, names[nearI], nearReach, nearest, g_roomFore,
-						         nearWhat, nearLayer);
-					else
-						snprintf(hit, sizeof(hit), "something %.0f along %s (%s, layer %u)", nearD, names[nearI], nearWhat, nearLayer);
-				}
-				if (!groundOk) {
-					/* Refused for its ground below: the box's word after the ground's, and the less of the two. */
-					size_t used = strlen(why);
-					snprintf(why + used, sizeof(why) - used, "; checked at its ground: %s", nearest < 0.0f ? "clear" : hit);
-					if (nearest >= 0.0f && nearest < clear)
-						clear = nearest;
-				} else if (nearest < 0.0f) {
-					room = true;
-					clear = below;
-				} else {
-					clear = nearest;
-					snprintf(why, sizeof(why), "%s", hit);
-				}
-			}
+			RoomLogSpot(prefix, &t, "", park);
+		}
+		if (room) {   /* where it has room, for the script: before the answer, which it reads first */
+			SetGlobal(g_roomGlobals[0], fx);
+			SetGlobal(g_roomGlobals[1], fy);
+			SetGlobal(g_roomAngleGlobal, fdeg);
 		}
 	}
+	RoomWriteOptions();
+	SetGlobal(g_roomMoreGlobals[1], pitch);
+	SetGlobal(g_roomMoreGlobals[2], roll);
+	SetGlobal(g_roomMoreGlobals[3], ground);   /* with a tilt (Pitch over -1000): the ground under the spot it's for */
 	SetGlobal(g_roomGlobals[5], clear);
 	SetGlobal(g_roomGlobals[4], room ? (float)n : -(float)n);   /* last: the script reads it first */
-	char actor[120] = "";
-	if (g_rayActorPassed)
-		snprintf(actor, sizeof(actor), "; an actor there (%.60s), passed", g_rayActorPassed);
-	const char *rays = !cast || box ? "" : g_roomBox ? " (no heading given: the eight rays)" : heading ? " (Box=0: the eight rays, the heading not used)" : "";
-	if (room)
-		Log("room: ask %d at (%.0f, %.0f, %.0f)%s: room (the ground %.0f %s the spot)%s%s%s", n, x, y, z, head, fabsf(clear), clear >= 0.0f ? "below" : "above", actor, rays, lineNote);
-	else
-		Log("room: ask %d at (%.0f, %.0f, %.0f)%s: none, %s%s%s%s", n, x, y, z, head, why, actor, rays, lineNote);
 }
 
 /* Every frame: read the ground once (tilt, average, track all use it). */
@@ -8052,6 +8451,22 @@ static void WheelRays(uintptr_t player, bool onGround)
  * onto, never a wall; and for ObstacleHold seconds after an obstacle verdict a wall needs its
  * hit ahead of the wheel on WallFrames frames running before it counts (an obstacle till
  * then). A line is logged when the verdict's kind changes, else at most one a second. */
+/* WallStop (test 45's raised rail met square at 905, 5:57.7: "a wall ahead (84 deg): 187 past the
+ * front wheel ... eased to 68%", the bike 905 -> 175 in about 0.55 s, then "-11 past the front
+ * wheel ... eased to 0%" with the front wheel in the rail): what a stop from v needs past the
+ * front wheel, v^2 over twice WallStop of the brake's rate (FullSpeed / Brake: 2250 a second a
+ * second at 900 and 0.4; at 0.6, 1350, about what test 45's stop made with the input still at
+ * 30 to 68%), plus a tenth of a second of the speed (the input's and the game's lag) and 10.
+ * 0: off (WallStop=0). */
+static float WallStopNeed(float v)
+{
+	if (!(g_wallStop > 0.0f))
+		return 0.0f;
+	float a = g_wallStop * g_fullSpeed / (g_brake > 0.05f ? g_brake : 0.05f);
+	v = v > 0.0f ? v : 0.0f;
+	return v * v / (2.0f * a) + 0.1f * v + 10.0f;
+}
+
 static void FaceRays(uintptr_t player, bool onGround)
 {
 	g_faceEase = 1.0f;
@@ -8213,6 +8628,48 @@ static void FaceRays(uintptr_t player, bool onGround)
 		}
 	}
 	g_rayLetByCount = 0;
+	/* WallStop (test 45's raised rail met square at 905): nothing at axle height within
+	 * FaceLook's reach, and a stop from this speed needs more than it: the rays at axle height
+	 * and at 1.5 radii again, as far past the front wheel as the stop needs, for a wall dead
+	 * ahead only: not an actor (the rams keep the face rays' reach), nor a face alongside by its
+	 * normal whatever the rays either side would say (riding alongside stays as it was). */
+	float need = WallStopNeed(v);
+	bool beyond = false;
+	if (d[0] < 0.0f && need > span) {
+		float lx[2] = { wheelFront + need, wheelFront + need + (L1 - L) }, dx[2] = { -1.0f, -1.0f }, xNormal[3] = { 0.0f, 0.0f, 0.0f };
+		const char *xWhat = NULL;
+		uint32_t xLayer = 0;
+		for (int i = 0; i < 2; i++) {
+			float a[3], b[3];
+			for (int k = 0; k < 3; k++) {
+				a[k] = pos[k] + up[k] * heights[i];
+				b[k] = a[k] + fwd[k] * lx[i];
+			}
+			float f = CastRay(cell, a, b);
+			dx[i] = f > 0.0f && f < 1.0f ? f * lx[i] : -1.0f;
+			if (i == 0) {
+				if (dx[0] < 0.0f)
+					break;
+				xWhat = g_rayWhat;
+				xLayer = g_rayLayer;
+				memcpy(xNormal, g_rayHitNormal, sizeof(xNormal));
+			}
+		}
+		if (dx[0] >= 0.0f && dx[1] >= 0.0f && xLayer != LAYER_CHAR_CONTROLLER && xLayer != LAYER_BIPED) {
+			float run = dx[1] - dx[0], along = FaceAlongDeg(sh, ch, xNormal, xLayer);
+			float xSlope = g_pitchNow + atan2f(heights[1] - heights[0], run > 0.0f ? run : 0.0f) * 57.29578f;
+			if (xSlope >= g_wallAngle && !(along >= 0.0f && along < g_faceAlong)) {
+				beyond = true;
+				d[0] = dx[0];
+				d[1] = dx[1];
+				d[2] = -1.0f;
+				hitWhat = xWhat;
+				hitLayer = xLayer;
+				memcpy(hitNormal, xNormal, sizeof(hitNormal));
+				ahead = d[0] - wheelFront;
+			}
+		}
+	}
 	const char *what = NULL;
 	bool wall = false;
 	if (d[0] >= 0.0f && d[1] < 0.0f) {
@@ -8339,7 +8796,17 @@ static void FaceRays(uintptr_t player, bool onGround)
 	if (!wall && !forNow)
 		g_faceObstacleAt = (float)g_clock;
 	float ease;
-	if (wall)
+	char stopNote[160] = "";
+	/* WallStop: not for an actor (the rams' brakes as they were), nor (review) for a face alongside
+	 * by its normal that the rays either side don't confirm, as the longer cast leaves it out: such
+	 * a face keeps FaceLook's ease (test 45's 09:30:22.316, a station wagon 22 deg off at 909, 278
+	 * ahead: 99%; WallStop's 0% would have braked hard for the car the bike then rode past). */
+	bool stopEase = wall && need > 0.0f && !(along >= 0.0f && along < g_faceAlong) && hitLayer != LAYER_CHAR_CONTROLLER && hitLayer != LAYER_BIPED;
+	if (stopEase) {
+		float left = ahead - need;
+		ease = left <= 0.0f ? 0.0f : left >= span ? 1.0f : left / span;
+		snprintf(stopNote, sizeof(stopNote), " (a stop from %.0f needs %.0f past the front wheel%s: WallStop)", v, need, beyond ? ", looked for that far, past FaceLook's reach" : "");
+	} else if (wall)
 		ease = ahead <= 0.0f ? 0.0f : ahead >= span ? 1.0f : ahead / span;
 	else if (atWheel || (underBike && g_obstacleThrottle <= 0.0f))
 		ease = 1.0f;   /* (c); and ObstacleThrottle=0 stops short of obstacles, but on top of one there's nothing ahead to stop short of (review) */
@@ -8356,8 +8823,8 @@ static void FaceRays(uintptr_t player, bool onGround)
 	g_faceLastLayer = hitLayer;
 	if (((kind != g_faceKind && (float)g_clock - g_faceLoggedAt >= 0.25f) || (float)g_clock - g_faceLoggedAt >= 1.0f) && LogHandTake(&g_faceHand)) {
 		g_faceLoggedAt = (float)g_clock;
-		Log("rays: %s ahead (%.0f deg): %.0f past the front wheel at axle height (%s, layer %u), the throttle %s %.0f%%%s%s", what, slope, ahead,
-		    hitWhat && *hitWhat ? hitWhat : "unnamed", hitLayer, wall ? "eased to" : atWheel ? "left at" : "held to", ease * 100.0f, note, alongNote);
+		Log("rays: %s ahead (%.0f deg): %.0f past the front wheel at axle height (%s, layer %u), the throttle %s %.0f%%%s%s%s", what, slope, ahead,
+		    hitWhat && *hitWhat ? hitWhat : "unnamed", hitLayer, wall ? "eased to" : atWheel ? "left at" : "held to", ease * 100.0f, note, alongNote, stopNote);
 	}
 	g_faceKind = kind;
 }
@@ -8388,7 +8855,7 @@ static void FaceRays(uintptr_t player, bool onGround)
  * again till the bike has moved 60 along its heading or forward is pressed again. A sharp step
  * of 17 to 32 meets the capsule's upright side, which no limit climbs (f8's capsule model): stage
  * 2 steps up onto it (ClimbStepUp, with the reverse's controller functions; ClimbStep). */
-enum { CLIMB_OK, CLIMB_NONE, CLIMB_ACTOR, CLIMB_TALL, CLIMB_WALL, CLIMB_CUT, CLIMB_NOWORD, CLIMB_PITCH, CLIMB_COOL, CLIMB_ALONG, CLIMB_BEAM, CLIMB_BAR };
+enum { CLIMB_OK, CLIMB_NONE, CLIMB_ACTOR, CLIMB_TALL, CLIMB_WALL, CLIMB_CUT, CLIMB_NOWORD, CLIMB_PITCH, CLIMB_COOL, CLIMB_ALONG, CLIMB_BEAM, CLIMB_BAR, CLIMB_LOWBEAM };
 enum { MAXTOP_NONE, MAXTOP_ROUND, MAXTOP_NARROW, MAXTOP_STEP, MAXTOP_BEAM };   /* ClimbMaxTop's word on a face its ray met (ClimbBeam) */
 typedef struct ClimbLineS {
 	float side;                 /* across, + right */
@@ -8401,6 +8868,12 @@ typedef struct ClimbLineS {
 	uint32_t layerMax, layerFar;
 	int maxWord;                /* MAXTOP_*: what ClimbMaxTop's judgement said (ClimbBeam) */
 	float narrowAt;             /* MAXTOP_NARROW: the side ray that passed it, across (+ right) */
+	float narrowH[3];           /* the heights the narrow test cast at (NarrowHeights; test 45's rails), and how many */
+	int narrowN;
+	float metH;                 /* not narrow: the height a side ray met it at that the ray at ClimbMaxTop passed under (0: none such) */
+	float faceTop;              /* its top over the ground at its foot, by a ray down just past its face (NAN: none, or not cast) */
+	float topAngle;             /* ClimbBeamLow: the face's angle between the nearer of the hits at 4 and 10 and the ray at its top less 2 */
+	bool lowJudged;             /* ClimbBeamLow judged it (its top within ClimbBeamLow to ClimbMaxTop): maxWord is that judgement's */
 	float dBar, barH;           /* the bar rays (CLIMB_BAR): the hit (-1: none or not cast), and the ray's height above the feet */
 	const char *whatBar;
 	uint32_t layerBar;
@@ -8487,55 +8960,221 @@ static void ClimbCast(uintptr_t cell, const float o[3], const float up[3], const
 		*layer = *d >= 0.0f ? g_rayLayer : 0;
 }
 
+/* The ground at a face's foot (absolute height): a ray down 2 short of where the climb ray at 4
+ * met it (d4 along it from o), from 2 over that hit to 38 under, through actors; the line under
+ * the hit along the bike's pitch if that finds nothing. */
+static float ClimbFoot(uintptr_t cell, const float o[3], float sh, float ch, float cp, float sp, float d4)
+{
+	float hx = d4 * cp - 4.0f * sp - 2.0f, hz = o[2] + 4.0f * cp + d4 * sp;   /* 2 short of the 4 ray's hit, level with it */
+	float a[3] = { o[0] + sh * hx, o[1] + ch * hx, hz + 2.0f }, b[3] = { a[0], a[1], hz - 38.0f };
+	float f = CastRayGround(cell, a, b);
+	return f > 0.0f && f < 1.0f ? a[2] + (b[2] - a[2]) * f : hz - 4.0f * cp;
+}
+
+/* The height above the feet, along the bike's up, at which a climb ray from o passes the
+ * height z at hx along the heading (the rays go along the bike's pitched axis). */
+static float ClimbRayHeight(const float o[3], float cp, float sp, float hx, float z)
+{
+	return (z - o[2] - hx * sp / cp) * cp;
+}
+
+/* A face's top over the ground at its foot (test 45's rails): a ray straight down 1.5 past where
+ * the climb ray at h met it (d along it from o), from `from` over the foot to 2 under it, through
+ * actors (NAN: nothing there). */
+static float ClimbFaceTop(uintptr_t cell, const float o[3], float sh, float ch, float cp, float sp, float h, float d, float foot, float from)
+{
+	float x = d * cp - h * sp + 1.5f;
+	float a[3] = { o[0] + sh * x, o[1] + ch * x, foot + from }, b[3] = { a[0], a[1], foot - 2.0f };
+	float f = CastRayGround(cell, a, b);
+	return f > 0.0f && f < 1.0f ? a[2] + (b[2] - a[2]) * f - foot : NAN;
+}
+
+/* "18", "18 and 24", "18, 24 and 26": the narrow test's heights, for the lines. */
+static const char *HeightsWord(const float *h, int n, char *out, size_t size)
+{
+	out[0] = 0;
+	for (int i = 0; i < n; i++) {
+		size_t used = strlen(out);
+		snprintf(out + used, size - used, "%s%.0f", i == 0 ? "" : i == n - 1 ? " and " : ", ", h[i]);
+	}
+	return out;
+}
+
+/* The narrow test (test 44's rails): a side two capsule radii off the line whose ray passes the
+ * face, at every one of the n heights h[] where the line's own ray met it d[] along (test 45's
+ * rails: at 2:56.4 a raised guard rail met at an angle and at 9:48.9 a picket fence's post read
+ * narrow, a ray at 18 passing under a rail's beam, between posts or between pickets). Each starts
+ * as far back and reaches three times that past the face, so a rail met at up to about 58 deg
+ * off square still meets both. True with L->narrowAt that side, the left tried first; else
+ * L->metH, the first height over h[0] a side's ray met it at where the one at h[0] passed (0:
+ * none such). */
+static bool ClimbNarrow(uintptr_t cell, const float o[3], const float up[3], const float fwd[3], const float right[3], const float h[], const float d[], int n, ClimbLine *L)
+{
+	float off = 2.0f * g_capsuleRadius;
+	L->metH = 0.0f;
+	for (int k = 0; k < 2; k++) {
+		float across = k ? off : -off, a[3];
+		for (int j = 0; j < 3; j++)
+			a[j] = o[j] + right[j] * across - fwd[j] * off;
+		bool passes = true;
+		for (int i = 0; i < n && passes; i++) {
+			float dd;
+			ClimbCast(cell, a, up, fwd, h[i], off + d[i] + 2.0f * off, &dd, NULL, NULL);
+			if (dd >= 0.0f) {
+				passes = false;
+				if (i > 0 && L->metH == 0.0f)
+					L->metH = h[i];
+			}
+		}
+		if (passes) {
+			L->narrowAt = L->side + across;
+			return true;
+		}
+	}
+	return false;
+}
+
 /* ClimbMaxTop's judgement of a face its ray met (L->dMax; test 44's rails, test 45's review),
  * from the line's origin o (the feet, moved across): round, narrow, a step up, or a beam (true).
  * - Round: it recedes toward its foot, the ray at 4 meeting it further on than the one at 10
  *   (the face over 100 deg): a log lying on the ground. An upright rail reads 90.
- * - Narrow: a ray at ClimbMaxTop two capsule radii to either side of the line passes it: a
- *   stump. Each starts as far back and reaches three times that past the face, so a rail met at
- *   up to about 58 deg off square still meets both.
+ * - Narrow: a side's rays two capsule radii off the line pass it (ClimbNarrow): a stump. Test
+ *   45's rails: at ClimbMaxTop, 6 over it and the face's top less 4 (NarrowHeights; the top by a
+ *   ray down 1.5 past where the ray at ClimbMaxTop met it, from ClimbTop + 2 over its foot,
+ *   ClimbTop less 4 if that finds no top over ClimbMaxTop), each where the line's own ray at
+ *   that height meets the face within 45 past the ray at 4, under ClimbTop, and 2 or more from
+ *   the others.
  * - A step up: a ray straight down a wheelbase past the face (the 4 ray's hit plus the axles'
  *   136.3, along the heading, through actors) finds the ground ClimbMaxTop or more over the
- *   ground at the face's foot (a ray down 2 short of the 4 ray's hit, from 2 over it to 38
- *   under; the line under the hit along the bike's pitch if that finds nothing). It starts
- *   ClimbTop + 8 over that foot plus ClimbMaxPitch's rise over the run (safely over a top under
- *   ClimbTop, however the ground slopes) and ends ClimbTop + 8 under it. Test 45's review: the
- *   ground line was the rear wheel's ray's slope stretched 158 ahead, so a step of 18 to 31.9
- *   onto level ground read as a beam on a slope of a few degrees, and downhill the ray started
- *   inside the step. */
+ *   ground at the face's foot (ClimbFoot). It starts ClimbTop + 8 over that foot plus
+ *   ClimbMaxPitch's rise over the run (safely over a top under ClimbTop, however the ground
+ *   slopes) and ends ClimbTop + 8 under it. Test 45's review: the ground line was the rear
+ *   wheel's ray's slope stretched 158 ahead, so a step of 18 to 31.9 onto level ground read as
+ *   a beam on a slope of a few degrees, and downhill the ray started inside the step. */
 static bool ClimbBeam(uintptr_t cell, const float o[3], const float up[3], const float fwd[3], const float right[3], float sh, float ch, float cp, float sp, float top, ClimbLine *L)
 {
 	if (L->d10 >= 0.0f && L->angle > 100.0f) {
 		L->maxWord = MAXTOP_ROUND;
 		return false;
 	}
-	float off = 2.0f * g_capsuleRadius;
-	for (int k = 0; k < 2; k++) {
-		float across = k ? off : -off, a[3], d;
-		for (int j = 0; j < 3; j++)
-			a[j] = o[j] + right[j] * across - fwd[j] * off;
-		ClimbCast(cell, a, up, fwd, g_climbMaxTop, off + L->dMax + 2.0f * off, &d, NULL, NULL);
-		if (d < 0.0f) {
-			L->maxWord = MAXTOP_NARROW;
-			L->narrowAt = L->side + across;
-			return false;
+	float foot = ClimbFoot(cell, o, sh, ch, cp, sp, L->d4);
+	float h[3] = { g_climbMaxTop, 0.0f, 0.0f }, d[3] = { L->dMax, 0.0f, 0.0f };
+	int n = 1;
+	if (g_narrowHeights >= 2) {
+		float want[2] = { g_climbMaxTop + 6.0f, 0.0f };
+		int wants = 1;
+		if (g_narrowHeights >= 3) {
+			L->faceTop = ClimbFaceTop(cell, o, sh, ch, cp, sp, g_climbMaxTop, L->dMax, foot, top + 2.0f);
+			float hx = L->dMax * cp - g_climbMaxTop * sp + 1.5f;
+			want[wants++] = L->faceTop > g_climbMaxTop ? ClimbRayHeight(o, cp, sp, hx, foot + L->faceTop - 4.0f) : top - 4.0f;
+		}
+		for (int w = 0; w < wants; w++) {
+			bool apart = want[w] < top && want[w] >= g_climbMaxTop + 2.0f;
+			for (int i = 0; i < n; i++)
+				apart = apart && fabsf(want[w] - h[i]) >= 2.0f;
+			if (!apart)
+				continue;
+			float dd;
+			ClimbCast(cell, o, up, fwd, want[w], L->d4 + 45.0f, &dd, NULL, NULL);
+			if (dd >= 0.0f) {
+				int at = n++;
+				for (; at > 1 && h[at - 1] > want[w]; at--) {   /* kept low to high, ClimbMaxTop first */
+					h[at] = h[at - 1];
+					d[at] = d[at - 1];
+				}
+				h[at] = want[w];
+				d[at] = dd;
+			}
 		}
 	}
-	float hx = L->d4 * cp - 4.0f * sp - 2.0f, hz = o[2] + 4.0f * cp + L->d4 * sp;   /* 2 short of the 4 ray's hit, level with it */
-	float a[3] = { o[0] + sh * hx, o[1] + ch * hx, hz + 2.0f }, b[3] = { a[0], a[1], hz - 38.0f };
-	float f = CastRayGround(cell, a, b);
-	float foot = f > 0.0f && f < 1.0f ? a[2] + (b[2] - a[2]) * f : hz - 4.0f * cp;
+	memcpy(L->narrowH, h, sizeof(h));
+	L->narrowN = n;
+	if (ClimbNarrow(cell, o, up, fwd, right, h, d, n, L)) {
+		L->maxWord = MAXTOP_NARROW;
+		return false;
+	}
+	float hx = L->d4 * cp - 4.0f * sp - 2.0f;   /* where the foot was read */
 	float h0 = top + 8.0f;
 	L->farAt = L->d4 * cp + (g_frontAxle[1] - g_rearAxle[1]);
 	L->farFrom = h0 + (L->farAt - hx) * tanf(g_climbMaxPitch / 57.29578f);
 	float c[3] = { o[0] + sh * L->farAt, o[1] + ch * L->farAt, foot + L->farFrom }, e[3] = { c[0], c[1], foot - h0 };
-	f = CastRayGround(cell, c, e);
+	float f = CastRayGround(cell, c, e);
 	if (f > 0.0f && f < 1.0f) {
 		L->farZ = c[2] + (e[2] - c[2]) * f - foot;
 		L->whatFar = g_rayWhat && *g_rayWhat ? g_rayWhat : "unnamed";
 		L->layerFar = g_rayLayer;
 	}
 	L->maxWord = L->farZ >= g_climbMaxTop ? MAXTOP_STEP : MAXTOP_BEAM;   /* NAN (no ground) is a beam too */
+	return L->maxWord == MAXTOP_BEAM;
+}
+
+/* ClimbBeamLow's judgement (test 45's rails, 5:24.0: a guard rail lying on the ground, "61 ahead
+ * at 4, 61 at 10 (95 deg), nothing at 31.9" and nothing at ClimbMaxTop, climbed by design, and
+ * the bike rode along on top of it) of a face its ray at ClimbMaxTop passed over, judged only
+ * where everything else would climb it: a low beam (true) if
+ * - its top (ClimbFaceTop, 1.5 past where the ray at 4 met it, from ClimbMaxTop + 2 over its
+ *   foot) is ClimbBeamLow or more over its foot (and under ClimbMaxTop);
+ * - it is upright: 80 to 100 deg between the hits at 4 and 10, and between the nearer of those
+ *   under its top and a ray at its top less 2 (a log's face recedes toward its foot under its
+ *   middle and leans back over it: under 17 across it reads under 100 at its foot, and over 100
+ *   or under 80 at its top);
+ * - it is long: not narrow (ClimbNarrow) at 10 and at its top less 2, those within it;
+ * - it is thin: a ray straight down two capsule radii past its face (from ClimbMaxTop + 8 over
+ *   its foot plus ClimbMaxPitch's rise over that run, to ClimbMaxTop + 8 under it) finds the
+ *   ground under half its top over its foot, or none: a kerb or a step has its top going on.
+ * Else climbed as before, its word (round, narrow or a step up) for the boost's line. */
+static bool ClimbLowBeam(uintptr_t cell, const float o[3], const float up[3], const float fwd[3], const float right[3], float sh, float ch, float cp, float sp, ClimbLine *L)
+{
+	if (L->grazed || L->d4 < 0.0f)
+		return false;
+	float foot = ClimbFoot(cell, o, sh, ch, cp, sp, L->d4);
+	L->faceTop = ClimbFaceTop(cell, o, sh, ch, cp, sp, 4.0f, L->d4, foot, g_climbMaxTop + 2.0f);
+	if (!(L->faceTop >= g_climbBeamLow && L->faceTop < g_climbMaxTop))
+		return false;
+	L->lowJudged = true;
+	if (L->d10 >= 0.0f && (L->angle < 80.0f || L->angle > 100.0f)) {
+		L->maxWord = MAXTOP_ROUND;   /* leaning back, or receding toward its foot */
+		L->topAngle = L->angle;
+		return false;
+	}
+	float hx = L->d4 * cp - 4.0f * sp, ht = ClimbRayHeight(o, cp, sp, hx, foot + L->faceTop - 2.0f), dt;
+	bool tenNearer = L->d10 >= 0.0f && L->d10 < L->d4 && ht - 10.0f >= 1.0f;
+	float hn = tenNearer ? 10.0f : 4.0f, dn = tenNearer ? L->d10 : L->d4;
+	if (!(ht - hn >= 1.0f))
+		return false;   /* too low to tell (its top found under ClimbBeamLow along the rays): climbed as before */
+	ClimbCast(cell, o, up, fwd, ht, L->d4 + 45.0f, &dt, NULL, NULL);
+	if (dt < 0.0f)
+		return false;   /* not met under its top: it can't be told, climbed as before */
+	L->topAngle = g_pitchNow + atan2f(ht - hn, dt - dn) * 57.29578f;
+	if (L->topAngle < 80.0f || L->topAngle > 100.0f) {
+		L->maxWord = MAXTOP_ROUND;
+		return false;
+	}
+	float h[3] = { 0.0f, 0.0f, 0.0f }, d[3] = { 0.0f, 0.0f, 0.0f };
+	int n = 0;
+	if (L->d10 >= 0.0f && ht - 10.0f >= 2.0f) {
+		h[n] = 10.0f;
+		d[n++] = L->d10;
+	}
+	h[n] = ht;
+	d[n++] = dt;
+	memcpy(L->narrowH, h, sizeof(h));
+	L->narrowN = n;
+	if (ClimbNarrow(cell, o, up, fwd, right, h, d, n, L)) {
+		L->maxWord = MAXTOP_NARROW;   /* a stump */
+		return false;
+	}
+	float run = 2.0f * g_capsuleRadius, h0 = g_climbMaxTop + 8.0f;
+	L->farAt = hx + run;
+	L->farFrom = h0 + run * tanf(g_climbMaxPitch / 57.29578f);
+	float c[3] = { o[0] + sh * L->farAt, o[1] + ch * L->farAt, foot + L->farFrom }, e[3] = { c[0], c[1], foot - h0 };
+	float f = CastRayGround(cell, c, e);
+	if (f > 0.0f && f < 1.0f) {
+		L->farZ = c[2] + (e[2] - c[2]) * f - foot;
+		L->whatFar = g_rayWhat && *g_rayWhat ? g_rayWhat : "unnamed";
+		L->layerFar = g_rayLayer;
+	}
+	L->maxWord = L->farZ >= 0.5f * L->faceTop ? MAXTOP_STEP : MAXTOP_BEAM;   /* NAN (no ground) is a beam too */
 	return L->maxWord == MAXTOP_BEAM;
 }
 
@@ -8564,9 +9203,32 @@ static void ClimbWhy(int why, const ClimbLine *L, float top, char *out, size_t s
 			snprintf(farText, sizeof(farText), "the ground %.1f over the ground at its foot (%s, layer %u)", L->farZ, L->whatFar, L->layerFar);
 		else
 			snprintf(farText, sizeof(farText), "no ground from %.0f over the ground at its foot to %.0f under it", L ? L->farFrom : 0.0f, top + 8.0f);
+		char heights[200] = "";
+		if (L && L->narrowN > 1) {   /* test 45's rails */
+			char hw[48];
+			HeightsWord(L->narrowH, L->narrowN, hw, sizeof(hw));
+			if (L->metH > 0.0f)
+				snprintf(heights, sizeof(heights), ", cast at %s; a side's at %g passes it, at %.0f meets it (NarrowHeights)", hw, g_climbMaxTop, L->metH);
+			else
+				snprintf(heights, sizeof(heights), ", cast at %s (NarrowHeights)", hw);
+		}
 		snprintf(out, size, "a beam with a drop behind it, not a step up: something at %g above the feet %.0f ahead (%s, layer %u; ClimbMaxTop), not round (%.0f deg at its foot) and long "
-		         "(the rays %.0f to either side meet it too), and a wheelbase on, %.0f ahead, %s",
-		         g_climbMaxTop, L ? L->dMax : 0.0f, L ? L->whatMax : "unnamed", L ? L->layerMax : 0, L ? L->angle : 0.0f, 2.0f * g_capsuleRadius, L ? L->farAt : 0.0f, farText);
+		         "(the rays %.0f to either side meet it too%s), and a wheelbase on, %.0f ahead, %s",
+		         g_climbMaxTop, L ? L->dMax : 0.0f, L ? L->whatMax : "unnamed", L ? L->layerMax : 0, L ? L->angle : 0.0f, 2.0f * g_capsuleRadius, heights, L ? L->farAt : 0.0f, farText);
+		break;
+	}
+	case CLIMB_LOWBEAM: {   /* test 45's guard rail lying on the ground */
+		char farText[160], hw[48] = "";
+		if (L && isfinite(L->farZ))
+			snprintf(farText, sizeof(farText), "the ground %.1f over the ground at its foot (%s, layer %u)", L->farZ, L->whatFar, L->layerFar);
+		else
+			snprintf(farText, sizeof(farText), "no ground from %.0f over the ground at its foot to %.0f under it", L ? L->farFrom : 0.0f, g_climbMaxTop + 8.0f);
+		if (L)
+			HeightsWord(L->narrowH, L->narrowN, hw, sizeof(hw));
+		snprintf(out, size, "a low beam with a drop behind it: its top %.1f over the ground at its foot %.0f ahead (%s, layer %u; ClimbBeamLow %g), upright (%.0f deg at its foot, %.0f at its top) "
+		         "and long (the rays %.0f to either side meet it too, cast at %s), and %.0f past its face, %.0f ahead, %s",
+		         L ? L->faceTop : 0.0f, L ? L->d4 : 0.0f, L ? L->what4 : "unnamed", L ? L->layer4 : 0, g_climbBeamLow, L ? L->angle : 0.0f, L ? L->topAngle : 0.0f, 2.0f * g_capsuleRadius, hw,
+		         2.0f * g_capsuleRadius, L ? L->farAt : 0.0f, farText);
 		break;
 	}
 	case CLIMB_BAR:
@@ -8608,12 +9270,23 @@ static void ClimbOn(const ClimbLine *L, const float pos[3], float nz, float top)
 		snprintf(at10, sizeof(at10), "nothing");
 	if (L->side != 0.0f)
 		snprintf(side, sizeof(side), " (the line %.0f to the %s)", fabsf(L->side), L->side > 0.0f ? "right" : "left");
-	char maxWord[160] = "";   /* what ClimbMaxTop said of a face its ray met (test 45's review: logs and stumps climbed, rails not) */
-	if (L->maxWord == MAXTOP_ROUND)
+	char maxWord[240] = "", hw[48] = "", hwText[80] = "";   /* what ClimbMaxTop said of a face its ray met (test 45's review: logs and stumps climbed, rails not) */
+	if (L->narrowN > 1 || L->lowJudged)
+		snprintf(hwText, sizeof(hwText), " at %s", HeightsWord(L->narrowH, L->narrowN, hw, sizeof(hw)));
+	if (L->lowJudged && L->maxWord == MAXTOP_ROUND)   /* test 45's rails: what ClimbBeamLow said of a face under ClimbMaxTop */
+		snprintf(maxWord, sizeof(maxWord), "; its top %.1f over its foot: not upright (%.0f deg at its foot, %.0f at its top), a log (ClimbBeamLow)", L->faceTop, L->angle, L->topAngle);
+	else if (L->lowJudged && L->maxWord == MAXTOP_NARROW)
+		snprintf(maxWord, sizeof(maxWord), "; its top %.1f over its foot: narrow, the ray %.0f to the %s passes it%s (ClimbBeamLow)", L->faceTop, fabsf(L->narrowAt - L->side),
+		         L->narrowAt > L->side ? "right" : "left", hwText);
+	else if (L->lowJudged && L->maxWord == MAXTOP_STEP)
+		snprintf(maxWord, sizeof(maxWord), "; its top %.1f over its foot: a step up, the ground %.1f over its foot %.0f past its face (ClimbBeamLow)", L->faceTop, L->farZ, 2.0f * g_capsuleRadius);
+	else if (L->lowJudged)
+		snprintf(maxWord, sizeof(maxWord), "; its top %.1f over its foot: too low to tell (ClimbBeamLow)", L->faceTop);
+	else if (L->maxWord == MAXTOP_ROUND)
 		snprintf(maxWord, sizeof(maxWord), "; at %g %.0f ahead: round, receding toward its foot (ClimbMaxTop)", g_climbMaxTop, L->dMax);
 	else if (L->maxWord == MAXTOP_NARROW)
-		snprintf(maxWord, sizeof(maxWord), "; at %g %.0f ahead: narrow, the ray %.0f to the %s passes it (ClimbMaxTop)", g_climbMaxTop, L->dMax, fabsf(L->narrowAt - L->side),
-		         L->narrowAt > L->side ? "right" : "left");
+		snprintf(maxWord, sizeof(maxWord), "; at %g %.0f ahead: narrow, the ray %.0f to the %s passes it%s (ClimbMaxTop%s)", g_climbMaxTop, L->dMax, fabsf(L->narrowAt - L->side),
+		         L->narrowAt > L->side ? "right" : "left", hwText, L->narrowN > 1 ? ", NarrowHeights" : "");
 	else if (L->maxWord == MAXTOP_STEP)
 		snprintf(maxWord, sizeof(maxWord), "; at %g %.0f ahead: a step up, the ground %.1f over the ground at its foot %.0f ahead (ClimbMaxTop)", g_climbMaxTop, L->dMax, L->farZ, L->farAt);
 	Log("climb: a low face at the capsule (%s, layer %u)%s: %.0f ahead at 4, %s at 10 (%.0f deg), nothing at %.1f within %.0f%s; the wheels' pitch %.1f, the ground normal %.1f, speed %.0f: the climb limit %.0f -> %.0f",
@@ -8736,7 +9409,7 @@ static void ClimbRays(uintptr_t player, uintptr_t ctrl, bool onGround, float nz)
 		memset(L, 0, sizeof(*L));
 		L->side = i == 0 ? 0.0f : i == 1 ? -12.0f : 12.0f;
 		L->d10 = L->dTop = L->dMax = L->dBar = -1.0f;
-		L->farZ = NAN;
+		L->farZ = L->faceTop = NAN;
 		L->what4 = L->whatTop = L->whatMax = L->whatFar = L->whatBar = "unnamed";
 		L->why = CLIMB_NONE;
 		float o[3];
@@ -8777,7 +9450,7 @@ static void ClimbRays(uintptr_t player, uintptr_t ctrl, bool onGround, float nz)
 		 * as ClimbTop's, meeting something not an actor (CLIMB_BAR). Then a face with something
 		 * at ClimbMaxTop within 45 past it is climbed only if round, narrow or a step up
 		 * (ClimbBeam; else CLIMB_BEAM). */
-		bool beam = false, bar = false;
+		bool beam = false, bar = false, maxCast = false;
 		if (!g_climbOn && L->dTop < 0.0f && g_climbMaxTop > 0.0f) {
 			for (int k = 0; k < 2 && !bar; k++) {
 				L->barH = (k ? 2.0f : 1.5f) * top;
@@ -8785,6 +9458,7 @@ static void ClimbRays(uintptr_t player, uintptr_t ctrl, bool onGround, float nz)
 				bar = L->dBar >= 0.0f && L->layerBar != LAYER_CHAR_CONTROLLER && L->layerBar != LAYER_BIPED;
 			}
 			if (!bar && g_climbMaxTop < top) {
+				maxCast = true;
 				ClimbCast(cell, o, up, fwd, g_climbMaxTop, L->d4 + 45.0f, &L->dMax, &L->whatMax, &L->layerMax);
 				if (L->dMax >= 0.0f)
 					beam = ClimbBeam(cell, o, up, fwd, right, sh, ch, cp, sp, top, L);
@@ -8794,6 +9468,11 @@ static void ClimbRays(uintptr_t player, uintptr_t ctrl, bool onGround, float nz)
 		 * rail's foot the bike was going along). */
 		L->why = L->dTop >= 0.0f ? CLIMB_TALL : bar ? CLIMB_BAR : beam ? CLIMB_BEAM : g_faceKind == 2 ? CLIMB_WALL : clock - g_faceAlongAt < 0.5f ? CLIMB_ALONG : clock - g_wallAheadAt < 0.25f ? CLIMB_CUT
 		       : !word ? CLIMB_NOWORD : g_wheelPitch > g_climbMaxPitch ? CLIMB_PITCH : g_climbCool ? CLIMB_COOL : CLIMB_OK;
+		/* Test 45's guard rail lying on the ground (ClimbBeamLow): a face under ClimbMaxTop that
+		 * everything else would climb, judged last (its rays only then). */
+		if (L->why == CLIMB_OK && maxCast && L->dMax < 0.0f && g_climbBeamLow > 0.0f && g_climbBeamLow < g_climbMaxTop &&
+		    ClimbLowBeam(cell, o, up, fwd, right, sh, ch, cp, sp, L))
+			L->why = CLIMB_LOWBEAM;
 	}
 	for (int i = 0; i < lines; i++) {   /* the nearest that qualifies, else the nearest face at the capsule */
 		if (line[i].why == CLIMB_NONE)
@@ -11463,14 +12142,29 @@ static void TraceControls(void)
  * riding and withdraws it at every ride's end, and a rider with the menu's three sliders at 0 has
  * CMB_SlopeLive, CMB_CameraLive and CMB_TiltLive all 0 on the bike. Declined, or not answered in
  * half a second, the script crossfades its idle and cruise loops by speed once a tick, as before
- * this build. The game functions are BSSoundHandle's SetFrequency, FadeTo and IsPlaying
- * (CommonLibF4's IDs), found through the Address Library, which is trusted only when five other
- * IDs give the RVAs this plugin has for them and the three lie in the game's code. Two
+ * this build. Since test 46 the script makes no call on a set it has offered (its crossfade and the MCM's
+ * volume leave them alone): the plugin puts the engine volume (CMB_EngineVolume) in their levels. The game
+ * functions are BSSoundHandle's SetFrequency, FadeTo, IsPlaying and (test 46) SetVolume
+ * (CommonLibF4's IDs; SetVolume's ID from test 45's tester), found through the Address Library, which
+ * is trusted only when five other IDs give the RVAs this plugin has for them, SetVolume's gives the RVA
+ * test 45's disassembly found, and the other three lie in the game's code. Two
  * assumptions the log lets test 44 check: a Papyrus instance id is the handle's soundID, and
  * FadeTo's attenuation is in hundredths of a dB (0 = full, 10000 = -100 dB). */
 #define ID_SOUND_IS_PLAYING    2267046u     /* BSSoundHandle::IsPlaying() const (CommonLibF4's IDs.h) */
 #define ID_SOUND_SET_FREQUENCY 2267059u     /* BSSoundHandle::SetFrequency(float) */
 #define ID_SOUND_FADE_TO       2267074u     /* BSSoundHandle::FadeTo(uint16 attenuation, uint16 ms) */
+/* Test 46: BSSoundHandle::SetVolume(float), from test 45's disassembly of 1.11.240 (its tester): it posts audio message
+ * 13 carrying the volume x 1000 (truncated), which the audio thread applies at once, with no ramp, whenever it moved
+ * by 0.001 or more, clamped to [1e-5, 1], entering the voice as 2000 x log10(volume) beside FadeTo's attenuation; the
+ * value Papyrus's Sound.SetInstanceVolume sets. FadeTo (the same handler's message 0x12) runs every fade for at least
+ * 100 ms, linear in hundredths of a dB from where it finds the loop: a loop coming back from 10000 stays under -40 dB
+ * for most of it, so every family switch and hand-over made a hole (test 45: two at every up-shift, one at each
+ * hand-over). Its RVA is this plugin's own, cross-checked as the sixth (kSndCross), and called there as
+ * LookupFormByID is. */
+#define ID_SOUND_SET_VOLUME    2267057u
+#define RVA_SOUND_SET_VOLUME   0x0162E160u
+#define SND_VOLUME_STEP        0.001f       /* SetVolume only when the volume moved this much (the game's own step: its message carries thousandths) */
+#define SND_MASTER_DELAY       0.15f        /* s: SetVolume=0, the engine volume put on the loops this long after the take-over (test 45's script put it on at its first look at the answer, 0.05 s or more, the loops silenced at the take-over by then 50 dB down; FadeTo takes 0.1 s) */
 #define SND_ANSWER_WAIT        0.35f        /* s: a hand-over answered within this of its first sight, its loops playing or not (the script waits 0.5 s) */
 #define SND_FAIL_LIMIT         30           /* calls returning false in a row on one loop (half a second at 60 fps): let go (a safety net: both only post a message to the audio thread, test 44's tester found by disassembly, so they don't fail) */
 #define SND_SILENT             10000        /* FadeTo's attenuation for a loop at gain 0 (-100 dB, by the assumption above) */
@@ -11491,7 +12185,8 @@ static void TraceControls(void)
  * (brakeFall braking) and never rises, the gear following the speed silently; the clutch goes in
  * near the stop (the fall to idle at most clutchFall rpm a second); the rpm rises at most riseRate
  * in log rpm a second (the pitch is set once a frame); the level is the paris ride's law (rpm and
- * the rider's load, scaled by levelScale, re levelRpm). The loops: the idle, and an on-load and an
+ * the rider's load, scaled by levelScale, re levelRpm, plus levelOffset, at most 0 dB, so each
+ * loop's gain is at most 1: test 46). The loops: the idle, and an on-load and an
  * off-load family, one loop playing in each but for a short hand-over with hysteresis, the family
  * from the rider's throttle; the family loops' pitch carries a slow random wander (an
  * Ornstein-Uhlenbeck walk from a 32-bit LCG, the same numbers as engine_model.py).
@@ -11537,7 +12232,8 @@ typedef struct {
 	int shiftFamily;                            /* 1: the off family plays through an up-shift's gap */
 	float wander, wanderTau;                    /* the family loops' pitch x (1 + w): w's sd and time constant (s) */
 	uint32_t wanderSeed;
-	float levelScale, rpmDb, loadDb, idleDb, levelRpm;   /* level dB = levelScale * max(idleDb, rpmDb log2(rpm/levelRpm) + loadDb (load - 1)) */
+	float levelScale, rpmDb, loadDb, idleDb, levelRpm;   /* level dB = levelScale * max(idleDb, rpmDb log2(rpm/levelRpm) + loadDb (load - 1)) + levelOffset */
+	float levelOffset;                          /* test 46: dB on every level, each loop's gain then held at 1 (0 dB); 0: test 45's levels */
 	/* test 45: the heard speed and the pulls (engine_model.py's docstring); each one off restores test 44's model */
 	int heardSpeed;                             /* 1: the engine follows the heard speed; 0: the bike's own */
 	float heardRise, heardTau, heardLead, heardPull;   /* its fastest rise (u/s^2), its fall after the bike (s), 1st's lead and full load's gap (u/s) */
@@ -11594,7 +12290,7 @@ static void EngineDefaults(EngineCfg *c)
 	c->onSplit = 0.5f; c->offSplit = 0.5f; c->hyst = 0.02f; c->xfadeTime = 0.05f;
 	c->onAbove = 0.30f; c->offBelow = 0.15f; c->offHold = 0.05f; c->familyTime = 0.08f; c->shiftFamily = 1;
 	c->wander = 0.006f; c->wanderTau = 0.8f; c->wanderSeed = 12345u;
-	c->levelScale = 0.7f; c->rpmDb = 9.6f; c->loadDb = 5.0f; c->idleDb = -17.2f; c->levelRpm = 3000.0f;
+	c->levelScale = 1.0f; c->rpmDb = 9.6f; c->loadDb = 5.0f; c->idleDb = -17.2f; c->levelRpm = 3000.0f; c->levelOffset = 5.0f;
 	c->heardSpeed = 1; c->heardRise = 140.0f; c->heardTau = 0.8f; c->heardLead = 150.0f; c->heardPull = 60.0f;
 	c->clutchSpeed = 150.0f; c->coastDown = 1700.0f; c->blip = 0.09f; c->blipTime = 0.30f; c->blipTau = 0.05f;
 	c->launchDraw0 = 1250.0f; c->launchDraw1 = 1500.0f; c->launchRise = 350.0f; c->shiftDraw0 = 2000.0f; c->shiftDraw1 = 2900.0f;
@@ -11935,13 +12631,13 @@ static void EngineStep(const EngineCfg *c, EngineState *s, const EngineLoop *loo
 	EngineFamilyStep(c, &s->fam[1], loops, n, ENGINE_FAMILY_OFF, c->offSplit, s->rpm, dt, inShift);
 }
 
-/* The overall level in dB re full load at levelRpm. */
+/* The overall level in dB re full load at levelRpm, the offset on (test 46). */
 static float EngineLevelDb(const EngineCfg *c, const EngineState *s)
 {
 	float db = c->rpmDb * log2f(s->rpm / c->levelRpm) + c->loadDb * ((s->riderLoad < 1.0f ? s->riderLoad : 1.0f) - 1.0f);
 	if (db < c->idleDb)
 		db = c->idleDb;
-	return c->levelScale * db;
+	return c->levelScale * db + c->levelOffset;
 }
 
 static void EngineMix(const EngineCfg *c, const EngineState *s, const EngineLoop *loops, int n, float *gain, float *pitch)
@@ -11976,6 +12672,8 @@ static void EngineMix(const EngineCfg *c, const EngineState *s, const EngineLoop
 		p2[fs->cur] += (w * g) * (w * g);    /* in power: a loop in both families is one voice */
 	}
 	level = powf(10.0f, EngineLevelDb(c, s) / 20.0f);
+	if (level > 1.0f)
+		level = 1.0f;    /* test 46: 0 dB at most (the game's volume tops out at 1), before the crossfades: equal power through them */
 	lowOn = EngineNeighbour(loops, n, ENGINE_FAMILY_ON, -1, 0);
 	lowOff = EngineNeighbour(loops, n, ENGINE_FAMILY_OFF, -1, 0);
 	inBand = s->rpm < c->idleRpm + c->idleFade1;
@@ -11987,6 +12685,8 @@ static void EngineMix(const EngineCfg *c, const EngineState *s, const EngineLoop
 		if (!free)
 			p = p < c->minPitch ? c->minPitch : (p > c->maxPitch ? c->maxPitch : p);
 		gain[i] = sqrtf(p2[i]) * level;
+		if (gain[i] > 1.0f)
+			gain[i] = 1.0f;    /* (a loop's p2 is 1 at most: the level's ceiling holds each loop's) */
 		pitch[i] = p;
 	}
 }
@@ -11997,10 +12697,11 @@ static void EngineMix(const EngineCfg *c, const EngineState *s, const EngineLoop
 typedef struct {
 	int drive;                 /* Drive: 1 = take the loops the script hands over; 0 = never (the script's crossfade, as before test 44) */
 	char library[MAX_PATH];    /* Library: the Address Library's path ("": next to this plugin, then <game>\Data\F4SE\Plugins) */
-	int fade;                  /* Fade: FadeTo's ms */
-	int firstFade;             /* FirstFade: the hand-over's first FadeTo of each loop heard, ms (0: Fade) */
+	int setVolume;             /* SetVolume (test 46): 1 = the levels by BSSoundHandle::SetVolume, at once, the engine volume folded in; 0 = by FadeTo, as test 45 */
+	int fade;                  /* Fade: FadeTo's ms (SetVolume=0) */
+	int firstFade;             /* FirstFade: ms; SetVolume=1 the plugin's ramp from the script's levels to the model's (0: none); 0 the hand-over's first FadeTo of each loop heard (0: Fade) */
 	float pitchStep;           /* PitchStep: SetFrequency only when the ratio moved more than this since the last call */
-	float levelStep;           /* LevelStep: FadeTo only when the attenuation moved more than this (hundredths of a dB) */
+	float levelStep;           /* LevelStep: FadeTo only when the attenuation moved more than this (hundredths of a dB; SetVolume=0) */
 	int trace;                 /* Trace: the trace line ([Tilt] Trace=1) gains the engine's gear, rpm and load */
 	EngineCfg cfg;             /* the model's constants, the gears scaled to the bike's top speed */
 	float gearsIni[ENGINE_MAX_GEARS];   /* Gears as given (for a top speed of 900) */
@@ -12093,6 +12794,7 @@ static void ReadSoundSettings(const char *ini, bool log)
 	EngineDefaults(c);
 	s.drive = (int)GetPrivateProfileIntA("Sound", "Drive", 1, ini) != 0;
 	GetPrivateProfileStringA("Sound", "Library", "", s.library, sizeof(s.library), ini);
+	s.setVolume = (int)GetPrivateProfileIntA("Sound", "SetVolume", 1, ini) != 0;
 	s.fade = (int)IniFloat(ini, "Sound", "Fade", 25.0f, 0.0f, 2000.0f);
 	s.firstFade = (int)IniFloat(ini, "Sound", "FirstFade", 400.0f, 0.0f, 2000.0f);
 	s.pitchStep = IniFloat(ini, "Sound", "PitchStep", 0.003f, 0.0f, 0.1f);
@@ -12174,6 +12876,7 @@ static void ReadSoundSettings(const char *ini, bool log)
 	c->loadDb = IniFloat(ini, "Sound", "LoadDb", c->loadDb, -60.0f, 60.0f);
 	c->idleDb = IniFloat(ini, "Sound", "IdleDb", c->idleDb, -100.0f, 0.0f);
 	c->levelRpm = IniFloat(ini, "Sound", "LevelRpm", c->levelRpm, 100.0f, 30000.0f);
+	c->levelOffset = IniFloat(ini, "Sound", "LevelOffset", c->levelOffset, -60.0f, 60.0f);
 	/* test 45: the heard speed and the pulls */
 	c->heardSpeed = (int)GetPrivateProfileIntA("Sound", "HeardSpeed", c->heardSpeed, ini) != 0;
 	c->heardRise = IniFloat(ini, "Sound", "HeardRise", c->heardRise, 1.0f, 100000.0f);   /* over 0: the slip divides by it */
@@ -12216,10 +12919,12 @@ static void ReadSoundSettings(const char *ini, bool log)
 		return;
 	char loops[400];
 	SoundLoopsText(&s, loops, sizeof(loops));
-	Log("  sound: Drive=%d Library=%s Fade=%d FirstFade=%d PitchStep=%g LevelStep=%g Trace=%d Loops=%s: %s%s%s%s", s.drive, s.library, s.fade, s.firstFade, (double)s.pitchStep,
-	    (double)s.levelStep, s.trace, loops,
+	Log("  sound: Drive=%d Library=%s SetVolume=%d Fade=%d FirstFade=%d PitchStep=%g LevelStep=%g Trace=%d Loops=%s: %s%s%s%s%s", s.drive, s.library, s.setVolume, s.fade,
+	    s.firstFade, (double)s.pitchStep, (double)s.levelStep, s.trace, loops,
 	    s.drive ? "the engine's loops driven by this plugin once the script hands them over (the Address Library read at the first hand-over)"
 	            : "never driven by this plugin (Drive=0): the script's idle and cruise crossfade, as before test 44",
+	    !s.drive ? "" : s.setVolume ? "; their levels by SetVolume, at once, the engine volume in them (Fade and LevelStep unused)"
+	                               : "; their levels by FadeTo (SetVolume=0, as test 45), the engine volume by SetVolume",
 	    bad[0] ? "; not understood, the defaults used:" : "", bad, log ? "" : " (read again on getting on)");
 	char gears[160], scaled[64] = "";
 	size_t len = 0;
@@ -12232,7 +12937,7 @@ static void ReadSoundSettings(const char *ini, bool log)
 	    "MinShiftGap=%g DownGap=%g ShiftCatch=%g ShiftTime=%g FlareTime=%g Flare=%g FlareTau=%g ShiftFall=%g RpmUp=%g RpmDown=%g RiseRate=%g "
 	    "LoadRise=%g LoadFall=%g CruiseLoad=%g FullAccel=%g LashDip=%g LashTau=%g CoastFall=%g BrakeFall=%g IdleFade=%g,%g MinPitch=%g "
 	    "MaxPitch=%g OnSplit=%g OffSplit=%g Hyst=%g XfadeTime=%g OnAbove=%g OffBelow=%g OffHold=%g FamilyTime=%g ShiftFamily=%d Wander=%g "
-	    "WanderTau=%g WanderSeed=%u LevelScale=%g RpmDb=%g LoadDb=%g IdleDb=%g LevelRpm=%g%s%s",
+	    "WanderTau=%g WanderSeed=%u LevelScale=%g LevelOffset=%g RpmDb=%g LoadDb=%g IdleDb=%g LevelRpm=%g%s%s",
 	    (double)c->idleRpm, (double)c->launch, (double)c->clutchIn, (double)c->clutchFall, (double)c->clutchDecel, (double)c->accelTau, gears,
 	    (double)c->shiftRpm, (double)c->shiftLo, (double)c->downRpm, (double)c->minShiftGap, (double)c->downGap, (double)c->shiftCatch,
 	    (double)c->shiftTime, (double)c->flareTime, (double)c->flare, (double)c->flareTau, (double)c->shiftFall, (double)c->rpmUp,
@@ -12240,7 +12945,7 @@ static void ReadSoundSettings(const char *ini, bool log)
 	    (double)c->lashDip, (double)c->lashTau, (double)c->coastFall, (double)c->brakeFall, (double)c->idleFade0, (double)c->idleFade1,
 	    (double)c->minPitch, (double)c->maxPitch, (double)c->onSplit, (double)c->offSplit, (double)c->hyst, (double)c->xfadeTime,
 	    (double)c->onAbove, (double)c->offBelow, (double)c->offHold, (double)c->familyTime, c->shiftFamily, (double)c->wander,
-	    (double)c->wanderTau, (unsigned)c->wanderSeed, (double)c->levelScale, (double)c->rpmDb, (double)c->loadDb, (double)c->idleDb,
+	    (double)c->wanderTau, (unsigned)c->wanderSeed, (double)c->levelScale, (double)c->levelOffset, (double)c->rpmDb, (double)c->loadDb, (double)c->idleDb,
 	    (double)c->levelRpm, scaled, log ? "" : " (read again on getting on)");
 	Log("  sound: HeardSpeed=%d HeardRise=%g HeardTau=%g HeardLead=%g HeardPull=%g ClutchSpeed=%g CoastDown=%g Blip=%g BlipTime=%g BlipTau=%g LaunchDraw=%g,%g "
 	    "LaunchRise=%g ShiftDraw=%g,%g DownHold=%g DownHeld=%d: %s; %s; %s; %s%s",
@@ -12263,21 +12968,27 @@ typedef struct { uint32_t soundID; uint8_t assumeSuccess; uint8_t state; uint8_t
 typedef bool (*SoundSetFrequencyFn)(SoundHandle *h, float ratio);                      /* MS x64: this in rcx, the ratio in xmm1 */
 typedef bool (*SoundFadeToFn)(SoundHandle *h, uint16_t attenuation, uint16_t ms);
 typedef bool (*SoundIsPlayingFn)(const SoundHandle *h);
+typedef bool (*SoundSetVolumeFn)(SoundHandle *h, float volume);                        /* as SetFrequency: this in rcx, the volume in xmm1 */
 static SoundSetFrequencyFn g_sndSetFrequency;
 static SoundFadeToFn g_sndFadeTo;
 static SoundIsPlayingFn g_sndIsPlaying;
+static SoundSetVolumeFn g_sndSetVolume;
 static int g_sndLib;                   /* 0 not read, 1 good, -1 not to be used, -2 no file */
 static char g_sndLibFor[MAX_PATH];     /* the Library key it was read for */
 static char g_sndLibWhy[MAX_PATH + 96]; /* why not (for a declined hand-over's line) */
 
-/* The five cross-checks: IDs of objects whose RVAs this plugin has from F4SE 0.7.9's source, as
- * CommonLibF4's IDs.h names them. */
-static const struct { uint32_t id, rva; const char *name; } kSndCross[5] = {
+/* The six cross-checks: IDs of objects whose RVAs this plugin has from F4SE 0.7.9's source, as
+ * CommonLibF4's IDs.h names them, and (test 46) BSSoundHandle::SetVolume's from test 45's
+ * disassembly: a library without it at that RVA isn't used (without SetVolume the loops' volume,
+ * which the script no longer sets, can't be put on them: the script's crossfade then). */
+#define SND_CROSS 6
+static const struct { uint32_t id, rva; const char *name; } kSndCross[SND_CROSS] = {
 	{ 4796065u, RVA_PLAYER_CAMERA, "PlayerCamera::Singleton" },
 	{ 4796135u, RVA_DATA_HANDLER, "TESDataHandler::Singleton" },
 	{ 4799306u, RVA_PLAYER_CONTROLS, "PlayerControls::Singleton" },
 	{ 2704108u, RVA_INI_SETTINGS, "INISettingCollection::Singleton" },
 	{ 2703234u, RVA_INI_PREF_SETTINGS, "INIPrefSettingCollection::Singleton" },
+	{ ID_SOUND_SET_VOLUME, RVA_SOUND_SET_VOLUME, "BSSoundHandle::SetVolume" },
 };
 
 static bool LibraryRva(FILE *f, uint64_t count, uint64_t id, uint64_t *rva)
@@ -12331,6 +13042,7 @@ static bool SoundLibraryReady(void)
 	g_sndSetFrequency = NULL;
 	g_sndFadeTo = NULL;
 	g_sndIsPlaying = NULL;
+	g_sndSetVolume = NULL;
 	char path[MAX_PATH * 2];
 	FILE *f;
 	if (g_snd.library[0]) {
@@ -12357,12 +13069,15 @@ static bool SoundLibraryReady(void)
 		    size, (unsigned long long)count);
 		return false;
 	}
-	for (int i = 0; i < 5; i++) {
+	for (int i = 0; i < SND_CROSS; i++) {
 		uint64_t rva = 0;
 		bool have = LibraryRva(f, count, kSndCross[i].id, &rva);
 		if (!have || rva != kSndCross[i].rva) {
 			fclose(f);
-			snprintf(g_sndLibWhy, sizeof(g_sndLibWhy), "the Address Library at %s doesn't match this game", path);
+			if (kSndCross[i].id == ID_SOUND_SET_VOLUME)   /* test 46: without SetVolume no volume can be put on the loops */
+				snprintf(g_sndLibWhy, sizeof(g_sndLibWhy), "the Address Library at %s hasn't BSSoundHandle::SetVolume where the plugin has it", path);
+			else
+				snprintf(g_sndLibWhy, sizeof(g_sndLibWhy), "the Address Library at %s doesn't match this game", path);
 			if (have)
 				Log("sound: the Address Library at %s doesn't match this game (ID %u gives 0x%llX where the plugin has 0x%08X, %s): the script's crossfade drives the engine",
 				    path, kSndCross[i].id, (unsigned long long)rva, kSndCross[i].rva, kSndCross[i].name);
@@ -12396,10 +13111,12 @@ static bool SoundLibraryReady(void)
 	g_sndSetFrequency = (SoundSetFrequencyFn)(g_base + (uintptr_t)rvas[0]);
 	g_sndFadeTo = (SoundFadeToFn)(g_base + (uintptr_t)rvas[1]);
 	g_sndIsPlaying = (SoundIsPlayingFn)(g_base + (uintptr_t)rvas[2]);
+	g_sndSetVolume = (SoundSetVolumeFn)(g_base + (uintptr_t)RVA_SOUND_SET_VOLUME);   /* the library gives it there (the sixth cross-check) */
 	g_sndLib = 1;
-	Log("sound: the Address Library at %s (%llu ids) matches this game (PlayerCamera, TESDataHandler, PlayerControls, INISettingCollection and "
-	    "INIPrefSettingCollection where the plugin has them); BSSoundHandle::SetFrequency +0x%llX, FadeTo +0x%llX, IsPlaying +0x%llX, in %s", path,
-	    (unsigned long long)count, (unsigned long long)rvas[0], (unsigned long long)rvas[1], (unsigned long long)rvas[2], where[0]);
+	Log("sound: the Address Library at %s (%llu ids) matches this game (PlayerCamera, TESDataHandler, PlayerControls, INISettingCollection, "
+	    "INIPrefSettingCollection and BSSoundHandle::SetVolume where the plugin has them); BSSoundHandle::SetFrequency +0x%llX, FadeTo +0x%llX, IsPlaying +0x%llX, "
+	    "in %s; SetVolume +0x%X", path, (unsigned long long)count, (unsigned long long)rvas[0], (unsigned long long)rvas[1], (unsigned long long)rvas[2], where[0],
+	    RVA_SOUND_SET_VOLUME);
 	return true;
 }
 
@@ -12420,7 +13137,16 @@ static int g_sndAtt[SND_LOOPS];        /* and its attenuation (SND_SILENT: silen
 static int g_sndFails[SND_LOOPS];      /* calls on it failed in a row */
 static bool g_sndOver1Refused, g_sndOver1Taken, g_sndDownOnly;   /* SetFrequency over 1 refused, taken (this set); refused and one of 1 or under taken: the ratios held at 1 at most (for the session) */
 static float g_sndOver1Value;
-static int g_sndCalls[2], g_sndFailed; /* this drive's SetFrequency and FadeTo calls, the ones that returned false (none expected) */
+static int g_sndCalls[3], g_sndFailed; /* this drive's SetFrequency, FadeTo and SetVolume calls, the ones that returned false (none expected) */
+/* Test 46: the levels by SetVolume ([Sound] SetVolume=1), applied by the game at once, the engine volume in them (the
+ * script no longer sets the loops' volume); SetVolume=0 FadeTo's, as test 45, and the engine volume by SetVolume. */
+static bool g_sndByVolume;             /* this set's levels by SetVolume (the key as at the take-over) */
+static float g_sndVol[SND_LOOPS];      /* the volume each loop last took by SetVolume (0: silent) */
+static float g_sndStartLevel[SND_LOOPS];   /* each loop's level as the script left it, re the engine volume: FirstFade's ramp starts there */
+static float g_sndEngVol;              /* the engine volume (CMB_EngineVolume / 100) in the levels */
+static float g_sndDriveT;              /* s since the take-over */
+static float g_sndRampTime;            /* SetVolume=1: FirstFade's ramp, s (0: none) */
+static bool g_sndMasterOn;             /* SetVolume=0: the engine volume put on the loops (SND_MASTER_DELAY after the take-over) */
 static float g_sndRpmMin, g_sndRpmMax;
 static unsigned g_sndGearsUsed;
 static float g_sndGearLineAt;          /* the last gear line */
@@ -12520,11 +13246,11 @@ static void SoundEnd(const char *why, bool writeDriven)
 	char refused[48] = "";
 	if (g_sndFailed)
 		snprintf(refused, sizeof(refused), ", %d returned false", g_sndFailed);
-	/* SetFrequency and FadeTo only post a message to the audio thread (test 44's tester disassembled them): there is
-	 * nothing in them to fail, so the line doesn't count failures; one returning false is named all the same */
-	Log("sound: generation %g let go (%s): driven %.1f s, %d calls (SetFrequency %d, FadeTo %d: each posts its change to the audio thread%s), %.0f-%.0f rpm, gears used %s",
-	    g_sndGen, why, (float)g_clock - g_sndSince, g_sndCalls[0] + g_sndCalls[1], g_sndCalls[0], g_sndCalls[1], refused, g_sndRpmMin, g_sndRpmMax,
-	    gears[0] ? gears : "none");
+	/* SetFrequency, FadeTo and SetVolume only post a message to the audio thread (test 44's and 45's testers disassembled
+	 * them): there is nothing in them to fail, so the line doesn't count failures; one returning false is named all the same */
+	Log("sound: generation %g let go (%s): driven %.1f s, %d calls (SetFrequency %d, FadeTo %d, SetVolume %d: each posts its change to the audio thread%s), "
+	    "%.0f-%.0f rpm, gears used %s", g_sndGen, why, (float)g_clock - g_sndSince, g_sndCalls[0] + g_sndCalls[1] + g_sndCalls[2], g_sndCalls[0], g_sndCalls[1],
+	    g_sndCalls[2], refused, g_sndRpmMin, g_sndRpmMax, gears[0] ? gears : "none");
 }
 
 static void SoundLoadReset(void)
@@ -12579,6 +13305,29 @@ static void SoundFadeTo(int i, int att, int ms)
 	}
 }
 
+static void SoundSetVolume(int i, float volume)
+{
+	SoundHandle h = SoundHandleOf(i);
+	bool ok = g_sndSetVolume(&h, volume);
+	g_sndCalls[2]++;
+	if (ok) {
+		g_sndVol[i] = volume;
+		g_sndFails[i] = 0;
+	} else {
+		g_sndFailed++;
+		g_sndFails[i]++;
+	}
+}
+
+/* The MCM's engine volume, 0 to 1 as the script's EngineVolume reads it (no CMB_EngineVolume: 0.7, the MCM's default). */
+static float SoundEngineVolume(void)
+{
+	if (!g_engineVolumeGlobal)
+		return 0.7f;
+	float v = GlobalValue(g_engineVolumeGlobal) / 100.0f;
+	return v > 1.0f ? 1.0f : v > 0.0f ? v : 0.0f;
+}
+
 /* The hand-over's first FadeTo of a loop heard: over FirstFade (0: Fade). The script plays the idle
  * at its instance volume with no attenuation till the hand-over, and the model's first level is
  * under that (at rest 1204, 12.0 dB; 516 up to test 44), which over Fade's 25 ms was a step down: over FirstFade's 400
@@ -12589,12 +13338,32 @@ static int SoundFirstFadeMs(void)
 }
 
 /* One loop's pitch and level to the game: SetFrequency when the ratio moved over PitchStep since
- * the one it took (and on coming back from silence), FadeTo when the attenuation moved over
- * LevelStep; a loop at gain 0 gets FadeTo(10000) once and no pitch while silent. first: both, the
- * FadeTo of a loop heard over FirstFade (a silent one's over Fade: out at once). */
+ * the one it took (and on coming back from silence). SetVolume=1 (test 46): SetVolume(the gain x
+ * the engine volume) when it moved by 0.001 or more (the game's own step), the first FirstFade ms
+ * the gain on a straight line from the script's level; a loop under 0.001 is silent (the game's
+ * message carries 0): SetVolume(0) once and no pitch while silent. SetVolume=0, as test 45: FadeTo
+ * when the attenuation moved over LevelStep; a loop at gain 0 gets FadeTo(10000) once and no pitch
+ * while silent. first: both, the FadeTo of a loop heard over FirstFade (a silent one's over Fade:
+ * out at once). */
 static void SoundSend(int i, float gain, float pitch, bool first)
 {
 	float ratio = g_sndDownOnly && pitch > 1.0f ? 1.0f : pitch;
+	if (g_sndByVolume) {
+		float level = gain;
+		if (g_sndDriveT < g_sndRampTime)
+			level = g_sndStartLevel[i] + (gain - g_sndStartLevel[i]) * (g_sndDriveT / g_sndRampTime);
+		float vol = level * g_sndEngVol;
+		if (!(vol >= SND_VOLUME_STEP))
+			vol = 0.0f;
+		else if (vol > 1.0f)
+			vol = 1.0f;
+		bool silent = vol <= 0.0f, wasSilent = g_sndVol[i] <= 0.0f;
+		if (first || (!silent && (wasSilent || fabsf(ratio - g_sndRatio[i]) > g_snd.pitchStep)))
+			SoundSetFrequency(i, ratio);
+		if (first || fabsf(vol - g_sndVol[i]) >= SND_VOLUME_STEP || (silent && !wasSilent))
+			SoundSetVolume(i, vol);
+		return;
+	}
 	int att = SND_SILENT;
 	if (gain > 0.0f) {
 		float cb = -2000.0f * log10f(gain);   /* hundredths of a dB under full */
@@ -12641,19 +13410,31 @@ static void SoundTakeOver(int playing)
 	g_sndEng.vh = v;          /* and the heard speed the bike's */
 	EngineStep(&g_sndCfg, &g_sndEng, g_sndLoops, g_sndN, g_frameDt, v, fwd, brk, held);
 	EngineMix(&g_sndCfg, &g_sndEng, g_sndLoops, g_sndN, gain, pitch);
-	g_sndCalls[0] = g_sndCalls[1] = g_sndFailed = 0;
+	g_sndCalls[0] = g_sndCalls[1] = g_sndCalls[2] = g_sndFailed = 0;
 	g_sndOver1Refused = g_sndOver1Taken = false;   /* learnt afresh on each set (the clamp, once learnt, stays) */
+	g_sndByVolume = g_snd.setVolume != 0;
+	g_sndEngVol = SoundEngineVolume();
+	g_sndDriveT = 0.0f;
+	g_sndRampTime = g_sndByVolume && g_snd.firstFade > 0 ? (float)g_snd.firstFade / 1000.0f : 0.0f;
+	g_sndMasterOn = false;
 	for (int i = 0; i < SND_LOOPS; i++) {
 		g_sndRatio[i] = 1.0f;
-		g_sndAtt[i] = 0;
+		g_sndAtt[i] = 0;   /* each set's loops are played afresh: no attenuation on them (FadeTo is the plugin's alone) */
 		g_sndFails[i] = 0;
+		/* as the script leaves them (StartEngineLoops): CMB_SndLoop01, its idle, at the engine volume, the cruise at
+		 * 0 x it (the crossfade at rest), the nine more at 0; its crossfade leaves them alone while it offers them */
+		g_sndStartLevel[i] = i == 0 ? 1.0f : 0.0f;
+		g_sndVol[i] = g_sndStartLevel[i] * g_sndEngVol;
 	}
 	for (int i = 0; i < g_sndN; i++)
-		SoundSend(i, gain[i], pitch[i], true);   /* the first frame's pitch and level for all, before the script raises their volume */
+		SoundSend(i, gain[i], pitch[i], true);   /* the first frame's pitch and level for all, before CMB_SndDriven says so */
 	int extra = 0;
 	for (int i = g_sndN; i < SND_LOOPS; i++)
 		if (g_sndIds[i]) {
-			SoundFadeTo(i, SND_SILENT, g_snd.fade);   /* a loop past the Loops table: silent, and left alone */
+			if (g_sndByVolume)
+				SoundSetVolume(i, 0.0f);   /* a loop past the Loops table: silent, and left alone */
+			else
+				SoundFadeTo(i, SND_SILENT, g_snd.fade);
 			extra++;
 		}
 	g_sndState = SND_DRIVE;
@@ -12663,13 +13444,28 @@ static void SoundTakeOver(int playing)
 	g_sndGearLineAt = -100.0f;
 	g_sndGearsUnsaid = 0;
 	SetGlobal(g_sndGlobals[SND_LOOPS + 1], g_sndGen);
-	char extraWords[64] = "";
+	char extraWords[64] = "", engineWords[80];
 	if (extra)
 		snprintf(extraWords, sizeof(extraWords), "; %d past the Loops table silenced", extra);
-	Log("sound: generation %g driven (CMB_SndDriven %g): %d loops' pitch and level from the engine model, %s; FadeTo's attenuation taken as hundredths of a dB "
-	    "(0 = full, 10000 = -100 dB: an assumption), %d ms fades, the first of each loop heard over %d ms%s%s", g_sndGen, g_sndGen, g_sndN,
-	    g_sndKeysFromSpeed ? "the throttle read from the speed (the input hook is off)" : "the speed and the keys from the steering", g_snd.fade,
-	    SoundFirstFadeMs(), playing < g_sndN ? " (not all of them playing yet)" : "", extraWords);
+	if (g_engineVolumeGlobal)
+		snprintf(engineWords, sizeof(engineWords), "CMB_EngineVolume %g: x%.2f", (double)GlobalValue(g_engineVolumeGlobal), (double)g_sndEngVol);
+	else
+		snprintf(engineWords, sizeof(engineWords), "no CMB_EngineVolume: x%.2f", (double)g_sndEngVol);
+	const char *keys = g_sndKeysFromSpeed ? "the throttle read from the speed (the input hook is off)" : "the speed and the keys from the steering";
+	if (g_sndByVolume) {
+		char ramp[128];
+		if (g_sndRampTime > 0.0f)
+			snprintf(ramp, sizeof(ramp), "the first %d ms a straight ramp from the script's levels (the idle at the engine volume, the rest silent)", g_snd.firstFade);
+		else
+			snprintf(ramp, sizeof(ramp), "the model's levels at once (FirstFade=0)");
+		Log("sound: generation %g driven (CMB_SndDriven %g): %d loops' pitch and level from the engine model, %s; the levels by SetVolume (applied at once, "
+		    "no fade, no FadeTo), the engine volume folded in (%s, read every frame), %s%s%s", g_sndGen, g_sndGen, g_sndN, keys, engineWords, ramp,
+		    playing < g_sndN ? " (not all of them playing yet)" : "", extraWords);
+	} else
+		Log("sound: generation %g driven (CMB_SndDriven %g): %d loops' pitch and level from the engine model, %s; FadeTo's attenuation taken as hundredths of a dB "
+		    "(0 = full, 10000 = -100 dB: an assumption), %d ms fades, the first of each loop heard over %d ms%s%s; SetVolume=0: the levels by FadeTo as test 45, "
+		    "the engine volume (%s) put on every loop by SetVolume %.2f s on, as the script did", g_sndGen, g_sndGen, g_sndN, keys, g_snd.fade,
+		    SoundFirstFadeMs(), playing < g_sndN ? " (not all of them playing yet)" : "", extraWords, engineWords, (double)SND_MASTER_DELAY);
 }
 
 /* A new CMB_SndGen: a set of loops offered, or the ids gone to 0. */
@@ -12760,6 +13556,18 @@ static void SoundDrive(void)
 	}
 	float v, fwd, gain[ENGINE_MAX_LOOPS], pitch[ENGINE_MAX_LOOPS];
 	int brk, held, gear0 = g_sndEng.gear;
+	g_sndDriveT += g_frameDt;
+	/* test 46: the MCM's engine volume read every frame (the script no longer puts it on the loops) */
+	float ev = SoundEngineVolume();
+	if (fabsf(ev - g_sndEngVol) >= 0.0005f) {
+		Log("sound: the engine volume %.2f -> %.2f (CMB_EngineVolume %g): %s", (double)g_sndEngVol, (double)ev, (double)GlobalValue(g_engineVolumeGlobal),
+		    g_sndByVolume ? "in every loop's level from this frame" : g_sndMasterOn ? "put on every loop by SetVolume" : "put on every loop with the rest shortly");
+		g_sndEngVol = ev;
+		if (!g_sndByVolume && g_sndMasterOn)
+			for (int i = 0; i < SND_LOOPS; i++)
+				if (g_sndIds[i] && fabsf(g_sndVol[i] - ev) >= SND_VOLUME_STEP)
+					SoundSetVolume(i, ev);
+	}
 	SoundInputs(&v, &fwd, &brk, &held);
 	float rpm0 = g_sndEng.rpm;
 	EngineStep(&g_sndCfg, &g_sndEng, g_sndLoops, g_sndN, g_frameDt, v, fwd, brk, held);
@@ -12773,13 +13581,19 @@ static void SoundDrive(void)
 		SoundGearLine(v, rpm0);
 	for (int i = 0; i < g_sndN; i++)
 		SoundSend(i, gain[i], pitch[i], false);
+	if (!g_sndByVolume && !g_sndMasterOn && g_sndDriveT >= SND_MASTER_DELAY - ENGINE_EPS) {
+		g_sndMasterOn = true;   /* SetVolume=0: the engine volume on every loop, as the script's SetInstanceVolume put it at its first look at the answer */
+		for (int i = 0; i < SND_LOOPS; i++)
+			if (g_sndIds[i] && fabsf(g_sndVol[i] - g_sndEngVol) >= SND_VOLUME_STEP)   /* the idle has it from the script already */
+				SoundSetVolume(i, g_sndEngVol);
+	}
 	for (int i = 0; i < g_sndN; i++)
 		if (g_sndFails[i] >= SND_FAIL_LIMIT) {
 			g_sndState = SND_IDLE;
 			SetGlobal(g_sndGlobals[SND_LOOPS + 1], -g_sndGen);
 			Log("sound: loop %d (id %u): %d calls in a row returned false (they only post a message: not expected): generation %g no longer driven (CMB_SndDriven %g), "
-			    "the loops left as they were; %d calls (SetFrequency %d, FadeTo %d), %d returned false, in %.1f s", i + 1, g_sndIds[i], g_sndFails[i], g_sndGen, -g_sndGen,
-			    g_sndCalls[0] + g_sndCalls[1], g_sndCalls[0], g_sndCalls[1], g_sndFailed, (float)g_clock - g_sndSince);
+			    "the loops left as they were; %d calls (SetFrequency %d, FadeTo %d, SetVolume %d), %d returned false, in %.1f s", i + 1, g_sndIds[i], g_sndFails[i], g_sndGen,
+			    -g_sndGen, g_sndCalls[0] + g_sndCalls[1] + g_sndCalls[2], g_sndCalls[0], g_sndCalls[1], g_sndCalls[2], g_sndFailed, (float)g_clock - g_sndSince);
 			return;
 		}
 }
@@ -12938,6 +13752,182 @@ static void WatchTiltGlobal(bool riding, float degrees, float camera, float tilt
 	g_tiltZeroSince = -1.0f;
 }
 
+/* ------------------------------------------------------------------------- */
+/* The AP watch (test 46): diagnostics only, nothing written                 */
+/* ------------------------------------------------------------------------- */
+
+/* Test 45: after the rides the AP bar stayed at 77% through 30 s of walking, then at 0 for a
+ * minute: no drain and no refill, while the sprint's drain itself worked ("it has happened for a
+ * while"). Nothing in the mod touches AP. The player's refill (1.11.240, the test-45 note's
+ * disassembly; the offsets CommonLibF4's) runs only with
+ *   (a) the actor state's sprinting bit clear (ActorState at Actor+0x128, its flags +0x08, bit 8),
+ *   (b) PlayerCamera+0x1A5 at 0 (bowZoomedIn: the scope's hold-breath),
+ *   (c) the AP regen delay run out (HighProcessData::apRegenDelay, [[Actor+0x300]+0x10]+0x64),
+ *   (d) bit 22 of the process's CachedValues flags set ([[Actor+0x300]+0x58]+0x2C: set when AP
+ *       drops under its max, cleared when it's full),
+ * at a rate from the ActionPointsRate and ActionPointsRateMult AVs (the controller script logs
+ * those, with AP itself: "AP: ..."). Off the bike, every APWatchEvery seconds for APWatchFor
+ * seconds after each getting off, and past that whenever one of the four (or whether it can be
+ * read) changes, they're logged with the player's AP modifiers (Actor+0x450: permanent,
+ * temporary, damage; the damage under 0 while AP is under its max) and the delay's raw bits: read
+ * through the safe reads, never written. [Diag] APWatch=0: none of it, as before test 46. */
+#define OFF_ACTOR_STATE_FLAGS 0x130   /* ActorState (Actor+0x128)'s flags (+0x08): moveMode, its bit 8 sprinting */
+#define AP_SPRINTING          0x100u
+#define OFF_CAMERA_BOW_ZOOM   0x1A5   /* PlayerCamera::bowZoomedIn */
+#define OFF_PROCESS_HIGH      0x10    /* AIProcess::high (HighProcessData *) */
+#define OFF_PROCESS_CACHED    0x58    /* AIProcess::cachedValues (CachedValues *) */
+#define OFF_CACHED_FLAGS      0x2C    /* CachedValues::flags */
+#define AP_CACHED_BIT         (1u << 22)
+#define OFF_HIGH_AP_DELAY     0x64    /* HighProcessData::apRegenDelay (seconds) */
+#define OFF_ACTOR_AP_MODS     0x450   /* Actor::actionPointsModifiers: permanent, temporary, damage */
+
+static int g_apWatch = 1;
+static float g_apWatchFor = 120.0f, g_apWatchEvery = 2.0f;
+static bool g_apWatchOn;              /* off the bike since a getting off: the watch runs */
+static bool g_apWatchOverSaid;        /* the window's end said */
+static DWORD g_apWatchStart, g_apWatchNext;
+
+typedef struct {
+	bool state, zoom, cached, delay, mods;   /* each read */
+	uint32_t stateFlags, cachedFlags, delayBits;
+	uint8_t zoomByte;
+	uintptr_t process, high, cachedPtr;
+	float delaySeconds, ap[3];
+} ApGates;
+static ApGates g_apLast;
+static bool g_apLastKnown;
+
+/* [Diag], read at the start and again on each getting off (an A/B needs no restart). */
+static void ReadDiagSettings(const char *ini, bool log)
+{
+	int was = g_apWatch;
+	float wasFor = g_apWatchFor, wasEvery = g_apWatchEvery;
+	g_apWatch = (int)GetPrivateProfileIntA("Diag", "APWatch", 1, ini) != 0;
+	g_apWatchFor = IniFloat(ini, "Diag", "APWatchFor", 120.0f, 0.0f, 3600.0f);
+	g_apWatchEvery = IniFloat(ini, "Diag", "APWatchEvery", 2.0f, 0.1f, 60.0f);
+	if (log || was != g_apWatch || wasFor != g_apWatchFor || wasEvery != g_apWatchEvery)
+		Log("  diag: APWatch=%d APWatchFor=%g APWatchEvery=%g: %s%s", g_apWatch, g_apWatchFor, g_apWatchEvery,
+		    g_apWatch ? "off the bike, the gates of the player's AP refill (the sprinting bit, PlayerCamera+0x1A5, the AP regen delay and the CachedValues' bit 22) "
+		                "logged every APWatchEvery s for APWatchFor s after each getting off, and past that when one changes; read only"
+		              : "the AP watch off (APWatch=0, as before test 46)",
+		    log ? "" : " (read again on getting off)");
+}
+
+static void ApRead(ApGates *g)
+{
+	memset(g, 0, sizeof(*g));
+	uintptr_t player = Player();
+	if (!player)
+		return;
+	if (Accessible(player + OFF_ACTOR_STATE_FLAGS, 4, false)) {
+		g->state = true;
+		g->stateFlags = *(const uint32_t *)(player + OFF_ACTOR_STATE_FLAGS);
+	}
+	if (Accessible(player + OFF_ACTOR_AP_MODS, sizeof(g->ap), false)) {
+		g->mods = true;
+		memcpy(g->ap, (const void *)(player + OFF_ACTOR_AP_MODS), sizeof(g->ap));
+	}
+	uintptr_t camera = ReadPtr(g_base + RVA_PLAYER_CAMERA);
+	if (camera && IsA(camera, RTTI_CAMERA) && Accessible(camera + OFF_CAMERA_BOW_ZOOM, 1, false)) {
+		g->zoom = true;
+		g->zoomByte = *(const uint8_t *)(camera + OFF_CAMERA_BOW_ZOOM);
+	}
+	g->process = ReadPtr(player + OFF_ACTOR_PROCESS);
+	if (!g->process)
+		return;
+	g->high = ReadPtr(g->process + OFF_PROCESS_HIGH);
+	g->cachedPtr = ReadPtr(g->process + OFF_PROCESS_CACHED);
+	if (g->cachedPtr && Accessible(g->cachedPtr + OFF_CACHED_FLAGS, 4, false)) {
+		g->cached = true;
+		g->cachedFlags = *(const uint32_t *)(g->cachedPtr + OFF_CACHED_FLAGS);
+	}
+	if (g->high && Accessible(g->high + OFF_HIGH_AP_DELAY, 4, false)) {
+		g->delay = true;
+		memcpy(&g->delayBits, (const void *)(g->high + OFF_HIGH_AP_DELAY), 4);
+		memcpy(&g->delaySeconds, &g->delayBits, 4);
+	}
+}
+
+/* A gate changed (or whether it can be read, or the objects holding them). */
+static bool ApChanged(const ApGates *a, const ApGates *b)
+{
+	return a->state != b->state || ((a->stateFlags ^ b->stateFlags) & AP_SPRINTING) || a->zoom != b->zoom || a->zoomByte != b->zoomByte ||
+	       a->process != b->process || a->high != b->high || a->cachedPtr != b->cachedPtr || a->cached != b->cached ||
+	       ((a->cachedFlags ^ b->cachedFlags) & AP_CACHED_BIT) || a->delay != b->delay || (a->delaySeconds > 0.0f) != (b->delaySeconds > 0.0f);
+}
+
+static void ApLog(const ApGates *g, float since, const char *why)
+{
+	char sprint[64], zoom[48], cached[112], delay[160], mods[256], shut[96] = "";
+	if (g->state)
+		snprintf(sprint, sizeof(sprint), "%s (the actor state's flags 0x%08X)", (g->stateFlags & AP_SPRINTING) ? "yes" : "no", g->stateFlags);
+	else
+		snprintf(sprint, sizeof(sprint), "? (the actor state unreadable)");
+	if (g->zoom)
+		snprintf(zoom, sizeof(zoom), "%u", g->zoomByte);
+	else
+		snprintf(zoom, sizeof(zoom), "? (no PlayerCamera)");
+	if (g->cached)
+		snprintf(cached, sizeof(cached), "%p, flags 0x%08X (bit 22 %s)", (void *)g->cachedPtr, g->cachedFlags, (g->cachedFlags & AP_CACHED_BIT) ? "set" : "clear");
+	else
+		snprintf(cached, sizeof(cached), "%s", g->cachedPtr ? "unreadable" : "none");
+	if (g->delay)
+		snprintf(delay, sizeof(delay), "%.2f (raw 0x%08X, HighProcessData %p +0x64)", g->delaySeconds, g->delayBits, (void *)g->high);
+	else
+		snprintf(delay, sizeof(delay), "? (%s)", g->high ? "unreadable" : "no HighProcessData");
+	if (g->mods)
+		snprintf(mods, sizeof(mods), "%.1f, %.1f, %.1f (permanent, temporary, damage: AP %s)", g->ap[0], g->ap[1], g->ap[2],
+		         g->ap[2] < 0.0f ? "under its max" : "at its max");
+	else
+		snprintf(mods, sizeof(mods), "? (unreadable)");
+	if (g->state && (g->stateFlags & AP_SPRINTING))
+		strcat(shut, ", (a) sprinting");
+	if (g->zoom && g->zoomByte)
+		strcat(shut, ", (b) bowZoomedIn");
+	if (g->delay && g->delaySeconds > 0.0f)
+		strcat(shut, ", (c) the delay");
+	if (!g->cached || !(g->cachedFlags & AP_CACHED_BIT))
+		strcat(shut, ", (d) bit 22");
+	Log("AP watch (%.1f s after getting off%s): sprinting %s, PlayerCamera+0x1A5 %s, the process %p, its CachedValues %s, apRegenDelay %s, the AP modifiers %s; refill gates shut: %s",
+	    since, why, sprint, zoom, (void *)g->process, cached, delay, mods, shut[0] ? shut + 2 : "none");
+}
+
+/* Each tick: off the bike since a getting off, a look every APWatchEvery s; logged in the first
+ * APWatchFor s, past them when something changed since the last look. */
+static void ApWatchTick(DWORD now, bool riding)
+{
+	if (riding) {
+		g_apWatchOn = false;   /* off the bike only */
+		return;
+	}
+	if (g_wasRiding) {   /* got off: a watch of its own */
+		ReadDiagSettings(g_iniPath, false);
+		g_apWatchOn = g_apWatch != 0;
+		g_apWatchStart = g_apWatchNext = now;
+		g_apLastKnown = false;
+		g_apWatchOverSaid = false;
+	}
+	if (!g_apWatchOn || (int32_t)(now - g_apWatchNext) < 0)
+		return;
+	DWORD every = (DWORD)(g_apWatchEvery * 1000.0f + 0.5f);
+	g_apWatchNext += every;
+	if ((int32_t)(now - g_apWatchNext) >= 0)
+		g_apWatchNext = now + every;   /* behind (a pause, a hitch): from now on */
+	float since = (float)(now - g_apWatchStart) / 1000.0f;
+	bool window = since < g_apWatchFor + 0.5f * g_apWatchEvery;
+	ApGates g;
+	ApRead(&g);
+	bool changed = !g_apLastKnown || ApChanged(&g, &g_apLast);
+	if (window || changed)
+		ApLog(&g, since, window ? "" : ", a change");
+	if (!window && !g_apWatchOverSaid) {
+		g_apWatchOverSaid = true;
+		Log("AP watch: the %g s after getting off are over (APWatchFor): a line from now on only when one of the gates changes", g_apWatchFor);
+	}
+	g_apLast = g;
+	g_apLastKnown = true;
+}
+
 static void Tick(DWORD now)
 {
 	if (!AnyGlobal()) {
@@ -13093,6 +14083,7 @@ static void Tick(DWORD now)
 	if (g_probe && ctrl && !riding && g_wasRiding) {
 		SnapDiff("getting off (after putting the limit back)");
 	}
+	ApWatchTick(now, riding);   /* test 46: off the bike, the AP refill's gates ([Diag] APWatch) */
 	g_wasRiding = riding;
 }
 
