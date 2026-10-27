@@ -302,7 +302,10 @@ static void FakeGetVelocity(uint8_t *self, float *out) { (void)self; memcpy(out,
  * 47 degrees, which the rays read between the axle and 1.5 radii as 47). */
 /* halfWidth: 0 = the plane goes on for ever; else a hit more than this along its line from point is
  * no hit (a post, a trunk: test 42's railing checks, mode 10). */
-typedef struct { bool on; float point[2], normal[2]; uint32_t layer; float top, bottom, follow, slant; uint8_t *what; float halfWidth; } FakePlane;
+/* round: a log lying along the plane's line (test 45's review, mode 10): for the rays its section
+ * is a circle `top` across resting on the ground, its front on the line, so the face recedes
+ * toward its foot and its top is round; a ray starting inside it meets nothing (as Havok's). */
+typedef struct { bool on; float point[2], normal[2]; uint32_t layer; float top, bottom, follow, slant; uint8_t *what; float halfWidth; bool round; } FakePlane;
 static bool g_shelfOn;
 static float g_shelfHeight, g_shelfAhead, g_shelfRadius = 60.0f;   /* a disc this high over the ground (a hole this deep in it when negative: test 38), this far ahead of the player along their heading, of this radius */
 static uint32_t g_shelfLayer = 1;  /* the disc's layer, and its 3D (NULL: FakeShelf): test 39's radstag is layer 30, "SkeletonExport" */
@@ -377,6 +380,7 @@ static float g_creepDrag;         /* rough ground: only the input above this mov
  * times the input, so the Lead cap binds on a speed loss as it does in the game (with the
  * straight line a throttle of 0.5 runs at 0.66 of the top, and the cap hardly ever binds). */
 static bool g_gameCurve;
+static float g_topCap;   /* mode 16 (test 45's review): the bike no faster than this (u/s), as a lower MCM Speed slider gives (100%: 360); 0: none */
 static float GameCurve(float in)
 {
 	static const float cin[] = { 0.00f, 0.10f, 0.16f, 0.33f, 0.51f, 0.66f, 0.85f, 0.95f, 1.00f };
@@ -535,6 +539,27 @@ static uint8_t *FakeCellPick(uint8_t *cell, uint8_t *pick)
 		float cot = w->slant > 0.0f ? 1.0f / tanf(w->slant / DEG) : 0.0f;   /* a slanted face sits further from the player the higher up: its surface is where the distance to the foot line equals the height over the ground times the cotangent */
 		float da = (a[0] - point[0]) * normal[0] + (a[1] - point[1]) * normal[1] + (a[2] - g_groundZ) * cot;
 		float db = (b[0] - point[0]) * normal[0] + (b[1] - point[1]) * normal[1] + (b[2] - g_groundZ) * cot;
+		if (w->round && w->top > 0.0f) {   /* a log: where the ray enters the circle (s + R)^2 + (z - zc)^2 = R^2 across the line */
+			float R = 0.5f * w->top, sa = da + R, za = a[2] - (g_groundZ + R), ds = db - da, dz = b[2] - a[2];
+			float qa = ds * ds + dz * dz, qb = 2.0f * (sa * ds + za * dz), qc = sa * sa + za * za - R * R, disc = qb * qb - 4.0f * qa * qc;
+			if (!(qa > 0.0f) || qc <= 0.0f || disc < 0.0f)
+				continue;   /* no length, starting inside it, or passing it by */
+			float tp = (-qb - sqrtf(disc)) / (2.0f * qa);
+			if (!(tp >= 0.0f && tp <= 1.0f) || tp >= t)
+				continue;
+			if (w->halfWidth > 0.0f) {
+				float x = a[0] + (b[0] - a[0]) * tp, y = a[1] + (b[1] - a[1]) * tp;
+				if (fabsf((x - point[0]) * -normal[1] + (y - point[1]) * normal[0]) > w->halfWidth)
+					continue;
+			}
+			t = tp;
+			what = w->what ? w->what : g_wallObj;
+			layer = w->layer;
+			nrm[0] = normal[0] * (sa + ds * tp) / R;   /* the circle's outward normal at the hit */
+			nrm[1] = normal[1] * (sa + ds * tp) / R;
+			nrm[2] = (za + dz * tp) / R;
+			continue;
+		}
 		if (!(da > 0.0f && db <= 0.0f))
 			continue;
 		float tp = da / (da - db), z = a[2] + (b[2] - a[2]) * tp;
@@ -562,7 +587,7 @@ static uint8_t *FakeCellPick(uint8_t *cell, uint8_t *pick)
 	}
 	for (int i = 0; i < 3; i++) {   /* the planes' flat tops (mode 10's stage 2): a ray coming down onto one */
 		const FakePlane *w = &g_planes[i];
-		if (!w->on || g_planeTopDepth[i] <= 0.0f || w->top <= 0.0f || w->follow != 0.0f)
+		if (!w->on || g_planeTopDepth[i] <= 0.0f || w->top <= 0.0f || w->follow != 0.0f || w->round)
 			continue;
 		float zt = g_groundZ + w->top;
 		if (!(a[2] > zt && b[2] <= zt))
@@ -2602,6 +2627,8 @@ static void FakeGameFrame(float dt)
 		speed = speed > 2.0f * g_creepDrag ? speed - 2.0f * g_creepDrag : 0.0f;   /* the output is 2 x the input */
 	if (g_gameCurve && speed > 0.0f)
 		speed = 2.0f * GameCurve(0.5f * speed);   /* mode 10's slides (test 42) */
+	if (g_topCap > 0.0f && speed * 450.0f > g_topCap)
+		speed = g_topCap / 450.0f;
 	if (g_landCutLeft > 0.0f) {   /* the game's own landing cut (test 42's landing, mode 0) */
 		speed *= 0.35f;
 		g_landCutLeft -= dt;
@@ -6534,7 +6561,7 @@ static float ContactAngle(int kind, float T)
 static void CapsuleStop(const float before[2])
 {
 	float *p = PlayerPos(), lift = 0.0f;
-	float raised = p[2] - GroundZAt(p[0], p[1]);   /* the feet over the ground now: the plugin's SetPosition (stage 2's step up) may have put them up since the last frame */
+	float raised = p[2] - GroundZAt(before[0], before[1]);   /* the feet over the ground now: the plugin's SetPosition (stage 2's step up) may have put them up since the last frame (over the ground where they stood before this frame's move: on a slope down, the ground under the moved feet is lower, and a capsule held at a face crept up it) */
 	for (int i = 0; i < 3; i++) {
 		const FakePlane *w = &g_planes[i];
 		if (!w->on || !g_capKind[i] || w->follow != 0.0f)
@@ -7084,33 +7111,41 @@ static void AlongTests(void)
 
 /* Test 44's rails (the note's 2: a wooden road barrier and a guard rail round a brush pile
  * climbed, the bike hung astride them): ClimbMaxTop=18, the default, rewritten from the 0 the
- * checks above ride with. A beam 25 high 400 ahead, its top 10 deep for the rays down and the
+ * checks above ride with. A rail 27 high 400 ahead, its top 10 deep for the rays down and the
  * ground behind it as in front: no boost, held at it, one "a beam with a drop behind it" line.
  * A step 25 high whose top goes on 400 (the ground at its height a wheelbase past the face): the
- * boost as with ClimbMaxTop=0, stepped up onto it (stage 2), over it. Each on a ride of its own
- * (the climb's hand full at its start). */
+ * boost as with ClimbMaxTop=0, stepped up onto it (stage 2), over it. Test 45's review: the same
+ * step on a 4 deg slope up to it and down to it (the ground at the face's foot, not a line
+ * stretched from the rear wheel), round logs 25 and 30 across and a stump 25 high and 30 across
+ * (test 42: "trunks, stumps ok") climbed, and a barrier's low foot with its bar beyond (test
+ * 44's 22:47:39) not. Each on a ride of its own (the climb's hand full at its start). */
 static void RailTests(void)
 {
 	float cos85 = cosf(85.0f / DEG);
 	static const char beamWords[] = "not climbed: a beam with a drop behind it, not a step up: something at 18 above the feet ";
+	static const char stepWord[] = "ahead: a step up, the ground ";
+	static const char longWords[] = "ahead (FakeWall, layer 1; ClimbMaxTop), not round (90 deg at its foot) and long (the rays 36 to either side meet it too), and a wheelbase on, ";
+	static const char footWords[] = " ahead, the ground 0.0 over the ground at its foot (FakeGround, layer 13)";
 	RewriteIni("ClimbMaxTop=0", "ClimbMaxTop=18");
-	printf("rails (test 44): ClimbMaxTop=18 rewritten, off and on again; a beam 25 high 400 ahead (its top 10 deep, the ground behind it as in front), W held 4 s: no boost, held at it, one \"a beam with a drop behind it\" line:\n");
+	printf("rails (test 44): ClimbMaxTop=18 rewritten, off and on again; a rail 27 high 400 ahead (its top 10 deep, the ground behind it as in front), W held 4 s: no boost, held at it, one \"a beam with a drop behind it\" line:\n");
 	GetOffAndOn(45.0f);
 	g_camYaw = PlayerHeading();
-	CHECK(LogLines("a face with something 18 above the feet within 45 past it climbed only if a ray down a wheelbase past it finds the ground that high (ClimbMaxTop: a step up, not a beam with a drop behind it); a sharp step the limit can't take stepped up onto (ClimbStep=1)") == 1,
-	      "the climb's settings line again: ClimbMaxTop 18, a step up, not a beam");
+	CHECK(LogLines("a face with something 18 above the feet within 45 past it climbed only if round (receding toward its foot), narrow (a ray at 18 two capsule radii to a side passes it) or a step up (a ray down a wheelbase past it finds the ground that high over the ground at its foot) "
+	               "(ClimbMaxTop: a log, a stump or a step, not a rail or a beam with a drop behind it), and a low face with something 1.5 or 2 ClimbTops above the feet within 45 past it not climbed (a barrier's bar); a sharp step the limit can't take stepped up onto (ClimbStep=1)") == 1,
+	      "the climb's settings line again: ClimbMaxTop 18, a log, a stump or a step, not a rail or a beam, nor a barrier's bar");
 	{
 		int low0 = LogLines("climb: a low face at the capsule"), beam0 = LogLines(beamWords), far0 = LogLines("), and a wheelbase on, "), sets0 = g_setPositions;
+		int long0 = LogLines(longWords), foot0 = LogLines(footWords);
 		g_slopeMin = 1.0f;
-		FakePlane *w = Obstacle(0, 400.0f, 25.0f, CAP_STEP, 10.0f, 1, NULL);
+		FakePlane *w = Obstacle(0, 400.0f, 27.0f, CAP_STEP, 10.0f, 1, NULL);
 		g_planeTopDepth[0] = 10.0f;
 		float passed = RideAt(w, 10.0f, 4000);
 		CHECK(passed < 0.0f && FaceGap(w) > 17.0f && g_setPositions == sets0 && Near(g_slopeMin, COS47) && LogLines("climb: a low face at the capsule") == low0,
 		      "held at it (the axis %.1f from its face), the limit 47 throughout (the steepest %.2f deg), no boost (%d line), no step up (%d)", FaceGap(w), acosf(g_slopeMin) * DEG,
 		      LogLines("climb: a low face at the capsule") - low0, g_setPositions - sets0);
-		CHECK(LogLines(beamWords) - beam0 == 1 && LogLines("), and a wheelbase on, ") - far0 == 1,
-		      "one \"climb: stopped with forward held (...): not climbed: a beam with a drop behind it, not a step up: something at 18 above the feet ... (...), and a wheelbase on, ... ahead, the ground ... over the feet's ground line (...)\" line (%d, %d)",
-		      LogLines(beamWords) - beam0, LogLines("), and a wheelbase on, ") - far0);
+		CHECK(LogLines(beamWords) - beam0 == 1 && LogLines("), and a wheelbase on, ") - far0 == 1 && LogLines(longWords) - long0 == 1 && LogLines(footWords) - foot0 == 1,
+		      "one \"climb: stopped with forward held (...): not climbed: a beam with a drop behind it, not a step up: something at 18 above the feet ... %s...%s\" line (%d, %d, %d, %d)", longWords, footWords,
+		      LogLines(beamWords) - beam0, LogLines("), and a wheelbase on, ") - far0, LogLines(longWords) - long0, LogLines(footWords) - foot0);
 		RollOff();
 	}
 
@@ -7119,6 +7154,7 @@ static void RailTests(void)
 	g_camYaw = PlayerHeading();
 	{
 		int low0 = LogLines("climb: a low face at the capsule"), beam0 = LogLines(beamWords), step0 = LogLines("climb: stepped up 26.5 (the top 25.0 at "), over0 = LogLines("climb: over it after");
+		int word0 = LogLines("ahead: a step up, the ground 25.0 over the ground at its foot ");
 		g_slopeMin = 1.0f;
 		FakePlane *w = Obstacle(0, 400.0f, 25.0f, CAP_STEP, 400.0f, 1, NULL);
 		g_planeTopDepth[0] = 400.0f;
@@ -7126,13 +7162,128 @@ static void RailTests(void)
 		RunFrames(600);
 		float lift = g_feetLift;
 		RunFrames(600);
-		CHECK(took > 0.0f && LogLines("climb: a low face at the capsule") - low0 == 1 && LogLines(beamWords) == beam0, "the boost on at the step (%.2f s), one \"low face\" line, no beam line", took);
+		CHECK(took > 0.0f && LogLines("climb: a low face at the capsule") - low0 == 1 && LogLines(beamWords) == beam0 && LogLines("ahead: a step up, the ground 25.0 over the ground at its foot ") - word0 == 1,
+		      "the boost on at the step (%.2f s), one \"low face\" line saying \"...; at 18 ... ahead: a step up, the ground 25.0 over the ground at its foot ... (ClimbMaxTop)\" (%d), no beam line", took,
+		      LogLines("ahead: a step up, the ground 25.0 over the ground at its foot ") - word0);
 		CHECK(LogLines("climb: stepped up 26.5 (the top 25.0 at ") - step0 >= 1 && lift > 24.5f && LogLines("climb: over it after") - over0 == 1 && FaceGap(w) < -20.0f,
 		      "stepped up onto it (%d \"stepped up 26.5 (the top 25.0 at ...\" line(s)), the feet %.1f over the ground 0.6 s after the boost, \"over it\" (%d), the axis %.0f past the face",
 		      LogLines("climb: stepped up 26.5 (the top 25.0 at ") - step0, lift, LogLines("climb: over it after") - over0, -FaceGap(w));
 		RollOff();
 	}
+
+	/* Test 45's review: on a slope of a few degrees the line stretched from the rear wheel's ray
+	 * 158 ahead put a step's level top under 18 uphill (refused past 2.9 deg for a 25 step) and
+	 * started the ray down inside it downhill. The slope rises (or falls) 4 deg along the
+	 * heading to the step's foot, its top level at 25 over that foot. */
+	for (int k = 0; k < 2; k++) {
+		printf("rails (test 45's review): ClimbMaxTop=18, the same step 25 high 400 ahead, its top level and 400 deep, on a 4 deg slope %s to it, SetPosition honoured, W held: the boost on, stepped up onto it, over it, as on the flat:\n",
+		       k ? "down" : "up");
+		GetOffAndOn(45.0f);
+		g_camYaw = PlayerHeading();
+		float h = PlayerHeading(), fx = sinf(h), fy = cosf(h), feet = PlayerPos()[2], sk = tanf((k ? -4.0f : 4.0f) / DEG);
+		int low0 = LogLines("climb: a low face at the capsule"), beam0 = LogLines(beamWords), word0 = LogLines(stepWord), step0 = LogLines("climb: stepped up "), over0 = LogLines("climb: over it after");
+		FakePlane *w = Obstacle(0, 400.0f, 25.0f, CAP_STEP, 400.0f, 1, NULL);
+		g_planeTopDepth[0] = 400.0f;
+		g_slopeK = sk;   /* the ground along the heading, the step's foot on its line */
+		g_slopeD[0] = fx;
+		g_slopeD[1] = fy;
+		g_slopeO[0] = w->point[0];
+		g_slopeO[1] = w->point[1];
+		g_groundZ = feet + 400.0f * sk;
+		float lean[3] = { k ? fx : -fx, k ? fy : -fy, 0.0f };   /* the normal leans back uphill, ahead downhill */
+		SetNormalTowards(lean, 4.0f);
+		float took = UntilBoost(cos85, 3000);
+		float said = LastLogNumber(stepWord);
+		RunFrames(600);
+		float lift = g_feetLift;
+		RunFrames(600);
+		CHECK(took > 0.0f && LogLines("climb: a low face at the capsule") - low0 == 1 && LogLines(beamWords) == beam0 && LogLines(stepWord) - word0 == 1 && fabsf(said - 25.0f) < 0.5f,
+		      "the boost on at the step (%.2f s), one \"low face\" line saying \"a step up, the ground %.1f over the ground at its foot\" (%d), no beam line", took, said, LogLines(stepWord) - word0);
+		CHECK(LogLines("climb: stepped up ") - step0 >= 1 && lift > 24.5f && LogLines("climb: over it after") - over0 == 1 && FaceGap(w) < -20.0f,
+		      "stepped up onto it (%d \"stepped up\" line(s)), the feet %.1f over the ground 0.6 s after the boost, \"over it\" (%d), the axis %.0f past the face",
+		      LogLines("climb: stepped up ") - step0, lift, LogLines("climb: over it after") - over0, -FaceGap(w));
+		Keys(0.0f, 0.0f);
+		ClearObstacles();
+		SetNormal(0.0f, 0.0f, 1.0f);
+		FlatGround();
+		RunFrames(2500);
+	}
+
+	/* Round logs (the rays see a circle: the ray at 4 meets it 3.1 to 3.9 further on than the one
+	 * at 10, the face 117 to 123 deg at its foot), the ground behind them as in front: climbed. */
+	for (int k = 0; k < 2; k++) {
+		float T = k ? 30.0f : 25.0f;
+		printf("rails (test 45's review): ClimbMaxTop=18, a round log %.0f across 600 ahead (its face receding toward its foot, the ground behind it as in front), W held: the boost on, over it, as with ClimbMaxTop=0 (test 42: \"trunks, stumps ok\"):\n", T);
+		GetOffAndOn(45.0f);
+		g_camYaw = PlayerHeading();
+		int low0 = LogLines("climb: a low face at the capsule"), beam0 = LogLines(beamWords), round0 = LogLines("ahead: round, receding toward its foot (ClimbMaxTop)"), over0 = LogLines("climb: over it after");
+		g_slopeMin = 1.0f;
+		FakePlane *w = Obstacle(0, 600.0f, T, CAP_LOG, T, 1, NULL);
+		w->round = true;
+		float passed = RideAt(w, T, 3000);
+		float steepest = g_slopeMin;
+		RunFrames(500);
+		CHECK(passed > 0.0f && Near(steepest, cos85) && LogLines("climb: a low face at the capsule") - low0 == 1 && LogLines("climb: over it after") - over0 == 1,
+		      "over it within 3 s (%.2f s), the limit at 85 (the steepest %.2f deg), one \"low face\" and one \"over it\" line (%d, %d)", passed, acosf(steepest) * DEG,
+		      LogLines("climb: a low face at the capsule") - low0, LogLines("climb: over it after") - over0);
+		CHECK(LogLines("ahead: round, receding toward its foot (ClimbMaxTop)") - round0 == 1 && LogLines(beamWords) == beam0,
+		      "the low face line says \"...; at 18 ... ahead: round, receding toward its foot (ClimbMaxTop)\" (%d), no beam line", LogLines("ahead: round, receding toward its foot (ClimbMaxTop)") - round0);
+		RollOff();
+	}
+
+	/* A stump: sharp, 25 high, 30 across (halfWidth 15), its top 30 deep, the ground behind it as
+	 * in front; the side rays 36 off the line pass it. */
+	printf("rails (test 45's review): ClimbMaxTop=18, a stump 25 high and 30 across 400 ahead (sharp, its top 30 deep, the ground behind it as in front), SetPosition honoured, W held: the boost on (the rays 36 to the sides pass it), stepped up onto it, over it:\n");
+	GetOffAndOn(45.0f);
+	g_camYaw = PlayerHeading();
+	{
+		int low0 = LogLines("climb: a low face at the capsule"), beam0 = LogLines(beamWords), narrow0 = LogLines("ahead: narrow, the ray 36 to the "), step0 = LogLines("climb: stepped up 26.5 (the top 25.0 at ");
+		FakePlane *w = Obstacle(0, 400.0f, 25.0f, CAP_STEP, 30.0f, 1, NULL);
+		w->halfWidth = 15.0f;
+		g_planeTopDepth[0] = 30.0f;
+		float passed = RideAt(w, 30.0f, 4000);
+		CHECK(passed > 0.0f && LogLines("climb: a low face at the capsule") - low0 >= 1 && LogLines("ahead: narrow, the ray 36 to the ") - narrow0 >= 1 && LogLines(beamWords) == beam0,
+		      "over it within 4 s (%.2f s), the low face line saying \"...; at 18 ... ahead: narrow, the ray 36 to the ... passes it (ClimbMaxTop)\" (%d), no beam line", passed,
+		      LogLines("ahead: narrow, the ray 36 to the ") - narrow0);
+		CHECK(LogLines("climb: stepped up 26.5 (the top 25.0 at ") - step0 >= 1, "stepped up onto it (%d \"stepped up 26.5 (the top 25.0 at ...\" line(s))", LogLines("climb: stepped up 26.5 (the top 25.0 at ") - step0);
+		RollOff();
+	}
+
+	/* Test 44's barrier at 22:47:39 (0000DD7E_Physics, "the front hit 65 above the feet"): a low
+	 * foot at the capsule and a bar beyond it over ClimbTop, which neither the ray at 18 nor the
+	 * one at 31.9 meets: the bar ray at 47.9 does. */
+	static const char barWords[] = "not climbed: a bar beyond the low face: something at 48 above the feet 43 ahead (FakeWall, layer 1; ClimbMaxTop), where the capsule would hang on the face under it (a barrier)";
+	printf("rails (test 45's review): ClimbMaxTop=18, a barrier 400 ahead: a foot 8 high and 10 deep, and 25 past its face a bar from 40 to 65 over the ground, W held 4 s: no boost, held at the foot, one \"a bar beyond the low face\" line:\n");
+	GetOffAndOn(45.0f);
+	g_camYaw = PlayerHeading();
+	{
+		int low0 = LogLines("climb: a low face at the capsule"), bar0 = LogLines(barWords), sets0 = g_setPositions;
+		g_slopeMin = 1.0f;
+		FakePlane *foot = Obstacle(0, 400.0f, 8.0f, CAP_STEP, 10.0f, 1, NULL);
+		FakePlane *bar = Obstacle(1, 425.0f, 65.0f, CAP_STEP, 10.0f, 1, NULL);
+		bar->bottom = 40.0f;
+		g_planeTopDepth[0] = g_planeTopDepth[1] = 10.0f;
+		float passed = RideAt(foot, 10.0f, 4000);
+		CHECK(passed < 0.0f && FaceGap(foot) > 17.0f && g_setPositions == sets0 && Near(g_slopeMin, COS47) && LogLines("climb: a low face at the capsule") == low0,
+		      "held at the foot (the axis %.1f from its face), the limit 47 throughout (the steepest %.2f deg), no boost (%d line), no step up (%d)", FaceGap(foot), acosf(g_slopeMin) * DEG,
+		      LogLines("climb: a low face at the capsule") - low0, g_setPositions - sets0);
+		CHECK(LogLines(barWords) - bar0 == 1, "one \"climb: stopped with forward held (...): %s\" line (%d)", barWords, LogLines(barWords) - bar0);
+		RollOff();
+	}
 	RewriteIni("ClimbMaxTop=18", "ClimbMaxTop=0");
+	GetOffAndOn(45.0f);
+	g_camYaw = PlayerHeading();
+	printf("rails (test 45's review): ClimbMaxTop=0 again (read again on getting on), the same barrier, W held: the boost on at its foot, as in test 44's build:\n");
+	{
+		int bar0 = LogLines("not climbed: a bar beyond the low face");
+		Obstacle(0, 400.0f, 8.0f, CAP_STEP, 10.0f, 1, NULL);
+		FakePlane *bar = Obstacle(1, 425.0f, 65.0f, CAP_STEP, 10.0f, 1, NULL);
+		bar->bottom = 40.0f;
+		g_planeTopDepth[0] = g_planeTopDepth[1] = 10.0f;
+		float took = UntilBoost(cos85, 3000);
+		CHECK(took > 0.0f && LogLines("not climbed: a bar beyond the low face") == bar0, "the boost on at the foot (%.2f s), no bar line", took);
+		RollOff();
+	}
 	GetOffAndOn(45.0f);
 	g_camYaw = PlayerHeading();
 }
@@ -7625,7 +7776,8 @@ static void ArmTests(void)
  * far ahead 50 ms after the first ask (test 41: a wolf seen 46 ms after a coyote), or later
  * (g_ramStepInAfter). Test 43's script mirrored: the poll after a decide comes 0.03 s after its
  * answer (PollAfterDecide), and a hit is matched to the actor through the script's last 32 yeses,
- * of this ride or an earlier one (okEvents; the plugin's YesKeep). */
+ * of this ride or an earlier one (okEvents; the plugin's YesKeep). Its Cooldown too (review of test
+ * 45's build): a yes is a no for an actor it pushed under 3 s before the poll (RAM_COOLDOWN). */
 #define RAM_HITS_KEPT 4
 #define RAM_SAMPLES 400
 #define RAM_POLL_AFTER_DECIDE 0.03f   /* CMB_RamScript's PollAfterDecide (test 43): the poll after an answer */
@@ -7653,6 +7805,13 @@ static bool g_ramSteppedIn;
 static int g_ramYesAsk[RAM_YESES_KEPT], g_ramYesWho[RAM_YESES_KEPT], g_ramYesNext;
 static float g_ramMinAfterAsk;                       /* the least input in the 0.45 s after the ride's first ask (test 42's AskFree) */
 static float g_ramMinBeforeHit;                      /* the least input from the ride's start to its first hit (test 44's PendingPass and FaceActors) */
+/* CMB_RamScript's Cooldown (review of test 45's build): a no to an actor it knocked over under 3 s
+ * before the poll that reads the ask, timed by the real clock (it runs between rides too) from its
+ * push's stamp, 0.2 s after the hit is told (the script's poll, the push's calls). */
+#define RAM_COOLDOWN 3.0f
+#define RAM_KNOCK_STAMP 0.2f
+static float g_ramReal, g_ramKnockedAt[2] = { -100.0f, -100.0f };
+static int g_ramCooldownNos;                         /* the asks said no to for it */
 static float RamGlobal(int i) { return *(float *)(g_ramGlobalsFake[i] + 0x30); }
 static float RamPlaneAhead(int i)   /* past the front wheel's edge (FrontAxle 99.6 + the radius 29.9) */
 {
@@ -7708,13 +7867,17 @@ static void FakeRamScript(float dt)
 		}
 	}
 	if (g_ramPendingN > 0 && g_ramClock - g_ramPendingAt[0] >= 0.15f) {
-		if (g_ramScript == 1 || g_ramScript == 3)
-			*(float *)(g_ramGlobalsFake[3] + 0x30) = g_ramScript == 1 ? (float)g_ramPending[0] : -(float)g_ramPending[0];
-		if (g_ramScript == 1) {   /* a yes remembered, with whom it was about */
-			int who = -1;
-			for (int i = 0; i < g_ramAsks && i < 16; i++)
-				if (g_ramAskNumber[i] == g_ramPending[0])
-					who = g_ramAskWho[i];
+		int who = -1, script = g_ramScript;
+		for (int i = 0; i < g_ramAsks && i < 16; i++)
+			if (g_ramAskNumber[i] == g_ramPending[0])
+				who = g_ramAskWho[i];
+		if (script == 1 && who >= 0 && g_ramReal - (g_ramClock - g_ramPendingAt[0]) - g_ramKnockedAt[who] < RAM_COOLDOWN) {
+			script = 3;   /* "knocked over less than 3 s ago" */
+			g_ramCooldownNos++;
+		}
+		if (script == 1 || script == 3)
+			*(float *)(g_ramGlobalsFake[3] + 0x30) = script == 1 ? (float)g_ramPending[0] : -(float)g_ramPending[0];
+		if (script == 1) {   /* a yes remembered, with whom it was about */
 			g_ramYesAsk[g_ramYesNext] = g_ramPending[0];
 			g_ramYesWho[g_ramYesNext] = who;
 			g_ramYesNext = (g_ramYesNext + 1) % RAM_YESES_KEPT;
@@ -7753,6 +7916,8 @@ static void FakeRamScript(float dt)
 				if (g_ramYesAsk[i] == hit && hit > 0)
 					h->who = g_ramYesWho[i];
 			h->speed = RamGlobal(4);
+			if (h->who >= 0)
+				g_ramKnockedAt[h->who] = g_ramReal + RAM_KNOCK_STAMP;
 			h->ahead = h->who >= 0 && g_ramPlanes[h->who] ? RamPlaneAhead(h->who) : 0.0f;
 			h->clock = g_ramClock;
 			h->pushIn = 0.08f;
@@ -7777,6 +7942,7 @@ static void FakeRamScript(float dt)
 }
 static void RamGameFrame(float dt)
 {
+	g_ramReal += dt;
 	if (g_ramScript)
 		FakeRamScript(dt);
 	FakeGameFrame(dt);
@@ -8090,29 +8256,51 @@ static void RamTests44(void)
 	}
 	*(uint8_t **)(g_ramActor + 0x418) = g_raceMedium;
 
-	/* FaceActors: hit at 1500 and pushed, then back 250 past the front wheel 2.7 s after the hit
-	 * (the entry the hit's till Pass + 3 s), inside the face rays' reach (275 at 900). */
-	for (int off = 0; off < 2; off++) {
-		RamKey(off ? "FaceActors=1" : "PendingPass=0", off ? "FaceActors=0" : "PendingPass=1");
-		printf("rams: FF004D69 (medium) hit at 1500 and pushed, then straight ahead again 250 past the front wheel 2.7 s after the hit%s:\n",
-		       off ? " (FaceActors=0 written: the old hit's entry, a wall ahead to the face rays, as in test 44's build)" : ": asked afresh, not braked as a wall, knocked over again");
+	/* FaceActors: hit at 1500 and pushed, then back 250 past the front wheel, inside the face rays'
+	 * reach (275 at 900), the entry the hit's till Pass + 3 s: 3.5 s after the hit, past the
+	 * script's Cooldown (3 s from its push; test 44's protectron came back 3.3 s and 3.9 s after
+	 * its hits), then 2.7 s after it, inside the Cooldown (the review of test 45's build: asked
+	 * afresh then, it was said no to, braked for and never kept to again). */
+	for (int run = 0; run < 3; run++) {
+		bool off = run == 2, soon = run > 0;
+		if (run != 1)
+			RamKey(off ? "FaceActors=1" : "PendingPass=0", off ? "FaceActors=0" : "PendingPass=1");
+		printf("rams: FF004D69 (medium) hit at 1500 and pushed, then straight ahead again 250 past the front wheel %s s after the hit%s:\n", soon ? "2.7" : "3.5",
+		       off    ? " (FaceActors=0 written: the old hit's entry, a wall ahead to the face rays, as in test 44's build)"
+		       : soon ? ", inside the script's 3 s cooldown: braked for as the hit's, not asked till the cooldown is over (no \"knocked over less than 3 s ago\"), then asked afresh and knocked over (SeenGrace)"
+		              : ": asked afresh, not braked as a wall, knocked over again");
 		RamUpToSpeed(1.0f);
-		int afreshBefore = LogLines("asked afresh (FaceActors)"), wallBefore = LogLines("(SkeletonExport, layer 30), the throttle eased to");
+		int afreshBefore = LogLines("asked afresh (FaceActors)"), waitBefore = LogLines("once the script's cooldown is over (FaceActors), braked for till then"),
+		    wallBefore = LogLines("(SkeletonExport, layer 30), the throttle eased to"), graceBefore = LogLines("knocked over all the same (SeenGrace)");
 		RamRide(1500.0f, 1.0f, 1, 1900);
 		int asks1 = g_ramAsks, hits1 = g_ramHits;
 		float hitClock = g_ramSeenHits[0].clock;
-		RunFrames(2300);
+		RunFrames(soon ? 2300 : 3050);
 		float in0 = MoveInput()[1], since = g_ramClock - hitClock;
+		int nosBefore = g_ramCooldownNos;
 		RamPlace(0, 99.6f + 29.9f + 250.0f);
 		g_ramPollAlign = 0.0f;
-		RamGo(1.0f, 1, 1000);
+		RamGo(1.0f, 1, soon && !off ? 1500 : 1000);
 		const RamHitSeen *h0 = &g_ramSeenHits[0];
-		CHECK(asks1 == 1 && hits1 == 1 && since > 2.4f && since < 3.0f, "the first approach: asked (%d), hit (%d); back %.2f s after the hit", asks1, hits1, since);
-		if (!off) {
-			CHECK(g_ramAsks == 1 && g_ramHits == 1 && h0->who == 0 && h0->speed > 0.95f * 900.0f * in0 && !g_ramPlanes[0]->on, "asked again (%d), hit again (%d) at %.0f, pushed off", g_ramAsks, g_ramHits, h0->speed);
+		CHECK(asks1 == 1 && hits1 == 1 && (soon ? since > 2.4f && since < 3.0f : since > 3.35f && since < 3.9f), "the first approach: asked (%d), hit (%d); back %.2f s after the hit", asks1, hits1, since);
+		if (!soon) {
+			CHECK(g_ramAsks == 1 && g_ramHits == 1 && h0->who == 0 && h0->speed > 0.95f * 900.0f * in0 && !g_ramPlanes[0]->on && g_ramCooldownNos == nosBefore,
+			      "asked again (%d), said yes (%d said no for the cooldown), hit again (%d) at %.0f, pushed off", g_ramAsks, g_ramCooldownNos - nosBefore, g_ramHits, h0->speed);
 			CHECK(g_ramMinBeforeHit >= 0.97f * in0 && LogLines("(SkeletonExport, layer 30), the throttle eased to") == wallBefore,
 			      "not braked as a wall: the least input %.3f (%.3f at its return), no \"rays: a wall ahead ... (SkeletonExport, layer 30)\" line", g_ramMinBeforeHit, in0);
 			CHECK(LogLines("asked afresh (FaceActors)") == afreshBefore + 1, "one \"rams: FF004D69 seen again N past the front wheel (the actor ray), N s after its hit, N s out of the rays: asked afresh (FaceActors)\" line");
+		} else if (!off) {
+			float askedAt = g_ramAsks ? g_ramAskTimes[0] - hitClock : 0.0f;
+			CHECK(g_ramCooldownNos == nosBefore && g_ramAsks == 1 && askedAt > RAM_COOLDOWN + RAM_KNOCK_STAMP,
+			      "no ask inside the script's cooldown (%d said no for it, as \"knocked over less than 3 s ago\"), asked afresh %.2f s after the hit (%d ask(s))", g_ramCooldownNos - nosBefore, askedAt,
+			      g_ramAsks);
+			CHECK(g_ramHits == 1 && h0->who == 0 && !g_ramPlanes[0]->on && LogLines("knocked over all the same (SeenGrace)") == graceBefore + 1,
+			      "said yes, hit again (%d) at %.0f, pushed off: \"... first seen N s ago at N: knocked over all the same (SeenGrace)\", the speed this approach first saw it at kept", g_ramHits,
+			      g_ramHits ? h0->speed : 0.0f);
+			CHECK(LogLines("(SkeletonExport, layer 30), the throttle eased to") > wallBefore && LogLines("once the script's cooldown is over (FaceActors), braked for till then") == waitBefore + 1 &&
+			          LogLines("asked afresh (FaceActors)") == afreshBefore + 1,
+			      "braked for as the hit's meanwhile (\"rays: a wall ahead ... (SkeletonExport, layer 30)\"); one \"rams: FF004D69 seen again ...: asked afresh 3.3 s after the hit, once the "
+			      "script's cooldown is over (FaceActors), braked for till then\" line, then one \"... the script's cooldown over: asked afresh (FaceActors)\"");
 		} else {
 			left = RamPlaneAhead(0);
 			CHECK(g_ramAsks == 0 && g_ramHits == 0 && LogLines("(SkeletonExport, layer 30), the throttle eased to") > wallBefore && left > -15.0f && left < 80.0f && LogLines("asked afresh (FaceActors)") == afreshBefore,
@@ -8200,7 +8388,7 @@ static void RamTests(void)
 	               "an ask of a small or medium race pending under 0.5 s keeping the throttle at speed; a yes kept 10 s out of sight; ") == 1,
 	      "test 42's keys on a line of their own: AskAnswered=1 AskFree=0.5 YesKeep=10 HitGrace=1 HighRay=96 SideRays=20 Robots=1");
 	CHECK(LogLines("  ram: PendingPass=1 FaceActors=1 SeenGrace=1.5: a small race whose ask is still pending at the front wheel passed, its hit told when the yes comes; "
-	               "an actor hit over Pass ago and seen again asked afresh, a CMB_RamRobots race kept to while its ask is pending (AskFree); "
+	               "an actor hit and seen again asked afresh once the script's cooldown is over, a CMB_RamRobots race kept to while its ask is pending (AskFree); "
 	               "CMB_RamMinSpeed judged by the speed an actor was first seen at for 1.5 s after") == 1,
 	      "test 44's keys on a third line: PendingPass=1 FaceActors=1 SeenGrace=1.5");
 	CHECK(LogLines("rams: CMB_RamRobots: 2 races pass the size and No Knockdowns gates: ProtectronTestRace (medium, flags 00400100, No Knockdowns), EyebotTestRace (small, flags 00400100, No Knockdowns)") == 1 &&
@@ -9206,6 +9394,95 @@ static void RoomFence(int i, const float p[2], float sx, float sy)
 	RoomWall(i, p[0] + 0.5f * d[0], p[1] + 0.5f * d[1], -d[0] / h, -d[1] / h);
 	g_planes[i].top = 90.0f;
 }
+/* Test 45's review ([Room] GroundSlope; mode 14): with GroundNear 25 of the player's ground every
+ * spot on an open slope was refused (the 300-ahead spots past 25 at 4.8 deg), and a call then took
+ * one whose box was never checked. A 15 deg plane through the player's feet rising ahead, then
+ * falling ahead: the script's spots 1 (220 ahead, 60 right), 6 (300 ahead, 60 left) and 7 (100
+ * ahead), asked at the player's height with the heading, have room by the slope. On flat ground a
+ * hedge (a disc 45 over it, 120 round, about the player and spot 3, 150 ahead and 60 right) is a
+ * step on the way and none, 45 being within the slope's allowance there (25 + 162 tan 25, 100).
+ * Then GroundSlope=0 and a ride (test 45's first build): downhill spot 1 is none by its ground
+ * below, its box checked at that ground (clear, then a wall 30 ahead of it: Clear 30, the box's);
+ * uphill none, -59, no box (a call doesn't take a ground above). */
+static void RoomSlopeTests(int n)
+{
+	char line[600];
+	RoomRide();   /* RoomLineTests' Line=50 and GroundNear=25 back, read on getting on */
+	CHECK(LogLines("  room: Line=50 GroundNear=25 GroundSlope=25: a clear line asked for from the player to the spot, that high over the ground under each (the player's by a ray down under them); "
+	               "the spot's ground within 25 of the player's, or by a slope of up to 25 deg to the spot, the ground along the line stepping by no more than 25 (read again on getting on)") == 1,
+	      "the settings line again, the defaults back");
+	float p[3] = { PlayerPos()[0], PlayerPos()[1], PlayerPos()[2] }, h = PlayerHeading(), deg = h * DEG, k = tanf(15.0f / DEG);
+	float fw[3] = { sinf(h), cosf(h), 0.0f }, rt[2] = { cosf(h), -sinf(h) };
+	static const float spots[3][2] = { { 220.0f, 60.0f }, { 300.0f, -60.0f }, { 100.0f, 0.0f } };
+	for (int up = 1; up >= 0; up--) {
+		float dir[3] = { up ? -fw[0] : fw[0], up ? -fw[1] : fw[1], 0.0f };
+		SetGroundTowards(dir, 15.0f);
+		printf("room: asks %d to %d on an open 15 deg slope, %s ahead: spots 1, 6 and 7 have room by the slope (test 45's first build: none, every one over 25 off):\n", n, n + 2,
+		       up ? "rising" : "falling");
+		for (int s = 0; s < 3; s++, n++) {
+			float sx = p[0] + spots[s][0] * fw[0] + spots[s][1] * rt[0], sy = p[1] + spots[s][0] * fw[1] + spots[s][1] * rt[1];
+			float rise = (up ? 1.0f : -1.0f) * spots[s][0] * k, flat = hypotf(sx - p[0], sy - p[1]);
+			RoomLineAsk(false, n, sx, sy, p[2], deg);
+			snprintf(line, sizeof(line), "room: ask %d at (%.0f, %.0f, %.0f), heading %.0f: room (the ground %.0f %s the spot); a clear line from the player (", n, sx, sy, p[2], deg, fabsf(rise),
+			         rise > 0.0f ? "above" : "below");
+			CHECK(RoomGlobal(4) == (float)n && fabsf(RoomGlobal(5) + rise) < 0.5f && LogLines(line) == 1, "spot %d: CMB_RoomAnswer %g (%d: room), CMB_RoomClear %g (%.1f), the line: \"%s\"",
+			      s == 0 ? 1 : s == 1 ? 6 : 7, RoomGlobal(4), n, RoomGlobal(5), -rise, line);
+			snprintf(line, sizeof(line), "the spot's ground %.0f %s the player's (over 25: within %.0f (25 and 25 deg over the %.0f to it), the ground followed every ", fabsf(rise),
+			         rise > 0.0f ? "above" : "below", 25.0f + flat * tanf(25.0f / DEG), flat);
+			CHECK(LogLines(line) == 1, "its word: \"%s\"", line);
+		}
+	}
+	FlatGround();
+	printf("room: ask %d, the player in a hedge (a disc 45 over flat ground, 120 round, its centre 80 ahead) and spot 3 (150 ahead, 60 right) on its top: none, a step of 45 up on the way:\n", n);
+	g_shelfHeight = 45.0f;
+	g_shelfRadius = 120.0f;
+	g_shelfAhead = 80.0f;
+	g_shelfOn = true;
+	float hx = p[0] + 150.0f * fw[0] + 60.0f * rt[0], hy = p[1] + 150.0f * fw[1] + 60.0f * rt[1];
+	RoomLineAsk(false, n, hx, hy, p[2], deg);
+	snprintf(line, sizeof(line), "room: ask %d at (%.0f, %.0f, %.0f), heading %.0f: none, the ground 45 above the player's (FakeShelf, layer 1), over 25; a clear line from the player; "
+	         "not a slope: a step of 45 up 23 along it (FakeShelf, layer 1), over 25", n, hx, hy, p[2], deg);
+	CHECK(RoomGlobal(4) == -(float)n && fabsf(RoomGlobal(5) + 45.0f) < 0.5f && LogLines(line) == 1, "CMB_RoomAnswer %g (-%d: none), CMB_RoomClear %g (-45), the line: \"%s\"", RoomGlobal(4), n,
+	      RoomGlobal(5), line);
+	char boxed[640];
+	snprintf(boxed, sizeof(boxed), "%s; checked", line);
+	CHECK(LogLines(boxed) == 0, "no box at a ground above (a call's most-room choice doesn't take it)");
+	g_shelfOn = false;
+	g_shelfHeight = 0.0f;
+	g_shelfRadius = 60.0f;
+	n++;
+
+	printf("room: GroundSlope=0 rewritten and a ride (test 45's first build): downhill spot 1 none by its ground 59 below, its box checked there (clear, then a wall 30 ahead: Clear 30); uphill none, -59:\n");
+	RewriteIni("GroundSlope=25", "GroundSlope=0");
+	RoomRide();
+	CHECK(LogLines("  room: Line=50 GroundNear=25 GroundSlope=0: a clear line asked for from the player to the spot, that high over the ground under each (the player's by a ray down under them); "
+	               "the spot's ground within 25 of the player's (GroundSlope=0: no slope allowed for, test 45's first build) (read again on getting on)") == 1, "the settings line, GroundSlope=0");
+	float sx = p[0] + 220.0f * fw[0] + 60.0f * rt[0], sy = p[1] + 220.0f * fw[1] + 60.0f * rt[1];
+	SetGroundTowards(fw, 15.0f);
+	RoomLineAsk(false, n, sx, sy, p[2], deg);
+	snprintf(line, sizeof(line), "room: ask %d at (%.0f, %.0f, %.0f), heading %.0f: none, the ground 59 below the player's (FakeGround, layer 13), over 25; a clear line from the player; checked at its ground: clear",
+	         n, sx, sy, p[2], deg);
+	CHECK(RoomGlobal(4) == -(float)n && fabsf(RoomGlobal(5) - 220.0f * k) < 0.5f && LogLines(line) == 1, "CMB_RoomAnswer %g (-%d: none), CMB_RoomClear %g (59: a call may take it), the line: \"%s\"",
+	      RoomGlobal(4), n, RoomGlobal(5), line);
+	n++;
+	RoomWall(0, sx + 30.0f * fw[0], sy + 30.0f * fw[1], -fw[0], -fw[1]);
+	RoomLineAsk(false, n, sx, sy, p[2], deg);
+	snprintf(line, sizeof(line), "room: ask %d at (%.0f, %.0f, %.0f), heading %.0f: none, the ground 59 below the player's (FakeGround, layer 13), over 25; a clear line from the player; "
+	         "checked at its ground: something 30 along fore (of 110: 30 on the bike's 110) (FakeWall, layer 1)", n, sx, sy, p[2], deg);
+	CHECK(RoomGlobal(4) == -(float)n && fabsf(RoomGlobal(5) - 30.0f) < 0.5f && LogLines(line) == 1, "a wall 30 ahead of it: CMB_RoomAnswer %g (-%d), CMB_RoomClear %g (30, the box's), the line: \"%s\"",
+	      RoomGlobal(4), n, RoomGlobal(5), line);
+	RoomWallsOff();
+	n++;
+	float back[3] = { -fw[0], -fw[1], 0.0f };
+	SetGroundTowards(back, 15.0f);
+	RoomLineAsk(false, n, sx, sy, p[2], deg);
+	snprintf(line, sizeof(line), "room: ask %d at (%.0f, %.0f, %.0f), heading %.0f: none, the ground 59 above the player's (FakeGround, layer 13), over 25; a clear line from the player", n, sx, sy, p[2], deg);
+	snprintf(boxed, sizeof(boxed), "%s; checked", line);
+	CHECK(RoomGlobal(4) == -(float)n && fabsf(RoomGlobal(5) + 220.0f * k) < 0.5f && LogLines(line) == 1 && LogLines(boxed) == 0, "uphill: CMB_RoomAnswer %g (-%d), CMB_RoomClear %g (-59), no box, the line: \"%s\"",
+	      RoomGlobal(4), n, RoomGlobal(5), line);
+	FlatGround();
+	RewriteIni("GroundSlope=0", "GroundSlope=25");
+}
 static void RoomLineTests(bool old, int n, float gz, float sx, float sy)
 {
 	char line[400], head[32] = "";
@@ -9214,9 +9491,9 @@ static void RoomLineTests(bool old, int n, float gz, float sx, float sy)
 	float flat = hypotf(sx - p[0], sy - p[1]);
 	if (!old)
 		snprintf(head, sizeof(head), ", heading %.0f", deg);
-	printf("room: test 44's [Room] keys (Line, GroundNear), and ask 1's line with the line's word:\n");
-	CHECK(LogLines("  room: Line=50 GroundNear=25: a clear line asked for from the player to the spot, that high over the ground under each (the player's by a ray down under them); "
-	               "the spot's ground within 25 of the player's") == 1, "the settings line, once");
+	printf("room: test 44's [Room] keys (Line, GroundNear) and test 45's GroundSlope, and ask 1's line with the line's word:\n");
+	CHECK(LogLines("  room: Line=50 GroundNear=25 GroundSlope=25: a clear line asked for from the player to the spot, that high over the ground under each (the player's by a ray down under them); "
+	               "the spot's ground within 25 of the player's, or by a slope of up to 25 deg to the spot, the ground along the line stepping by no more than 25") == 1, "the settings line, once");
 	snprintf(line, sizeof(line), "room: ask 1 at (%.0f, %.0f, %.0f): room (the ground 30 below the spot) (no heading given: the eight rays); a clear line from the player (%.0f long, 50 over each ground), "
 	         "the spot's ground 0 below the player's (within 25)", sx, sy, gz + 30.0f, hypotf(200.0f, 100.0f));   /* asked from where the player stood then */
 	CHECK(LogLines(line) == 1, "the line: \"%s\"", line);
@@ -9231,12 +9508,13 @@ static void RoomLineTests(bool old, int n, float gz, float sx, float sy)
 	RoomWallsOff();
 	n++;
 
-	printf("room: ask %d at the player's height on a floor 34 over the ground at the spot (the house's): none, the ground 34 above the player's, over 25:\n", n);
+	printf("room: ask %d at the player's height on a floor 34 over the ground at the spot (the house's): none, the ground 34 above the player's, over 25, a step on the way (test 45: within GroundSlope's allowance):\n", n);
 	g_shelfHeight = 34.0f;
 	g_shelfAhead = (sx - p[0]) * fw[0] + (sy - p[1]) * fw[1];   /* the disc's centre on the heading line, level with the spot: within its 60 */
 	g_shelfOn = true;
 	RoomLineAsk(old, n, sx, sy, gz, deg);
-	snprintf(line, sizeof(line), "room: ask %d at (%.0f, %.0f, %.0f)%s: none, the ground 34 above the player's (FakeShelf, layer 1), over 25; a clear line from the player", n, sx, sy, gz, head);
+	snprintf(line, sizeof(line), "room: ask %d at (%.0f, %.0f, %.0f)%s: none, the ground 34 above the player's (FakeShelf, layer 1), over 25; a clear line from the player; not a slope: a step of 34 up ",
+	         n, sx, sy, gz, head);
 	CHECK(RoomGlobal(4) == -(float)n && fabsf(RoomGlobal(5) + 34.0f) < 0.5f, "CMB_RoomAnswer %g (-%d: none), CMB_RoomClear %g (the floor 34 above)", RoomGlobal(4), n, RoomGlobal(5));
 	CHECK(LogLines(line) == 1, "the line: \"%s\"", line);
 	g_shelfOn = false;
@@ -9274,7 +9552,7 @@ static void RoomLineTests(bool old, int n, float gz, float sx, float sy)
 	RewriteIni("Line=50", "Line=0");
 	RewriteIni("GroundNear=25", "GroundNear=60");
 	RoomRide();
-	CHECK(LogLines("  room: Line=0 GroundNear=60: no line from the player (Line=0, test 44's build); the spot's ground within 60 of the asked height (Line=0) (read again on getting on)") == 1,
+	CHECK(LogLines("  room: Line=0 GroundNear=60 GroundSlope=25: no line from the player (Line=0, test 44's build); the spot's ground within 60 of the asked height (Line=0) (read again on getting on)") == 1,
 	      "the settings line again, Line=0 GroundNear=60");
 	char tail[440];
 	RoomFence(0, p, sx, sy);
@@ -9314,6 +9592,7 @@ static void RoomLineTests(bool old, int n, float gz, float sx, float sy)
 	      RoomGlobal(4), n, RoomGlobal(5), line);
 	RewriteIni("Line=0", "Line=50");
 	RewriteIni("GroundNear=60", "GroundNear=25");
+	RoomSlopeTests(n + 1);
 }
 
 static void RoomTests(bool old)
@@ -9395,6 +9674,10 @@ static void RoomTests(bool old)
 	snprintf(line, sizeof(line), "room: ask 5 at (%.0f, %.0f, %.0f): none, the ground 80 below the player's (FakeGround, layer 13), over 25; a clear line from the player", sx, sy, gz);
 	CHECK(RoomGlobal(4) == -5.0f && fabsf(RoomGlobal(5) - 80.0f) < 0.5f, "CMB_RoomAnswer %g (-5: none), CMB_RoomClear %g (the ground's 80)", RoomGlobal(4), RoomGlobal(5));
 	CHECK(LogLines(line) == 1, "the line: \"%s\"", line);
+	/* Test 45's review: within GroundSlope's allowance (25 + 224 tan 25), refused by the step on the
+	 * way; a call can take it (Clear over 0), so its box is checked at its ground: clear here. */
+	CHECK(LogLines("; a clear line from the player; not a slope: a step of 80 down ") == 1 && LogLines("over 25; checked at its ground: clear (no heading given: the eight rays)") == 1,
+	      "the step down on the way (the edge a quarter out), the eight rays at its ground clear");
 	g_dropOn = false;
 	g_dropDepth = 0.0f;
 
@@ -9518,7 +9801,8 @@ static void RoomTests(bool old)
 	g_shelfOn = true;
 	RoomAskHeading(15, sx, sy, gz, deg8);
 	RunFrames(100);
-	snprintf(line, sizeof(line), "room: ask 15 at (%.0f, %.0f, %.0f), heading %.0f: none, the ground 80 above the player's (FakeShelf, layer 1), over 25; a clear line from the player", sx, sy, gz, deg8);
+	snprintf(line, sizeof(line), "room: ask 15 at (%.0f, %.0f, %.0f), heading %.0f: none, the ground 80 above the player's (FakeShelf, layer 1), over 25; a clear line from the player; not a slope: a step of 80 up ",
+	         sx, sy, gz, deg8);
 	CHECK(RoomGlobal(4) == -15.0f && fabsf(RoomGlobal(5) + 80.0f) < 0.5f, "CMB_RoomAnswer %g (-15: none), CMB_RoomClear %g (the ground 80 above)", RoomGlobal(4), RoomGlobal(5));
 	CHECK(LogLines(line) == 1, "the line: \"%s\"", line);
 	g_shelfOn = false;
@@ -9585,7 +9869,10 @@ static void RoomTests(bool old)
  * 0.7 x (9.6 log2(1937/3000) + 5 x (0.45 - 1)) = -6.17 dB; at rest the idle at 0.7 x -17.2 =
  * -12.04 dB, the others silent. A 0.3 s tap at the cruise: no gear change (test 44's model: 4->3
  * at 813 u/s on the press again, back 0.7 s later); let go: in 4th till the coast's blip (4->3 at
- * 1667 rpm, 1.6 s on) and the clutch at the bike's 150 u/s (2202 rpm), none silent. The settings
+ * 1667 rpm, 1.6 s on) and the clutch at the bike's 150 u/s (2202 rpm), none silent. W held from
+ * rest with the fake no faster than 300, then 360 (g_topCap, test 45's review): no gear change, 1st
+ * at 2043 and 2193 rpm (the slip from 1293), the heard speed the bike's (9f61073: 1->2 and back
+ * every 2 s, the slip and HeardLead past ShiftLo with 2nd under DownRpm). The settings
  * of test 44 (HeardSpeed=0 and the rest) give test 44's numbers: 2nd at 556 u/s and 2365 rpm, 3rd
  * at 887 and 2918, 4th at 900 and 2344, the idle at 0.3 x -17.2 = -5.16 dB. The idle's first level comes over FirstFade's 400 ms (the script plays it
  * with no attenuation). The riding globals aren't asked (test 44's review: a rider with the MCM's
@@ -9860,6 +10147,28 @@ static void SoundTests(void)
 	      "%d gear lines, the last gear %d (1) with the clutch in (%d) at %.0f rpm (over 1600) and %.0f u/s (under 160); %d down-shifts without a blip (0)", ng - ng0,
 	      ng > 0 ? gears[ng - 1] : 0, ng > 0 ? (g_sndGearFlags[ng - 1] & 2) != 0 : 0, ng > 0 ? grpm[ng - 1] : 0.0f, ng > 0 ? gv[ng - 1] : 0.0f, silent);
 	CHECK(abs(g_sndAtt[0] - 1204) <= 30 && fabsf(g_sndFreq[0] - 1.0f) < 0.01f, "the idle at %d (1204, within LevelStep's 30), pitch %.4f (1, within 0.01)", g_sndAtt[0], g_sndFreq[0]);
+
+	printf("sound: test 45's review: W held 12 s from rest with the fake no faster than 300, then 360 u/s (the MCM's Speed slider at 100%% gives 360), each a new set: one gear "
+	       "after the first 5 s (9f61073: 2->1 and 1->2 every 2 s, the slip and HeardLead past ShiftLo with 2nd under DownRpm); the twin: no gear change at all, 1st at 2043 and 2193 rpm "
+	       "(the slip from 1293), the heard speed the bike's:\n");
+	static const float steadyV[2] = { 300.0f, 360.0f }, steadyRpm[2] = { 2043.0f, 2193.0f };
+	for (int r = 0; r < 2; r++) {
+		SndGetOff();
+		SndGetOn();
+		SndOffer();
+		gen = SndGen();
+		snprintf(line, sizeof(line), "sound: generation %g driven", gen);
+		g_topCap = steadyV[r];
+		SndFullThrottle(5000);
+		int n5 = SndGearLines(line, gears, gv, grpm, 8);
+		RunFrames(7000);
+		ng = SndGearLines(line, gears, gv, grpm, 8);
+		float g1 = LastLogNumber("| engine g"), rpm1 = LastLogNumber("| engine g1 "), heard = LastLogNumber(" heard ");
+		CHECK(SndDriven() == gen && ng == n5 && n5 == 0 && g1 == 1.0f && fabsf(rpm1 - steadyRpm[r]) < 40.0f && fabsf(heard - steadyV[r]) < 10.0f,
+		      "at %.0f u/s: %d gear lines in the first 5 s (0), %d after (0), the trace's last \"| engine g%.0f %.0f rpm ... heard %.0f\" (g1 %.0f rpm, heard %.0f)", steadyV[r], n5,
+		      ng - n5, g1, rpm1, heard, steadyRpm[r], steadyV[r]);
+		g_topCap = 0.0f;
+	}
 
 	printf("sound: Wander=0 (read on getting on, a new set): steady cruise calls only on a measured change (the fake's frame hitches move the speed read by up to 1%%):\n");
 	SndGetOff();

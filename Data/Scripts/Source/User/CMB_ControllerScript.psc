@@ -354,7 +354,10 @@ bool Property CallTakesBestSpot = true AutoReadOnly
 the one with the most room, the largest CMB_RoomClear among the spots refused for a hit along a
 ray (or the ground under 100 below, which SettleBike puts the bike on), rather than the first:
 outside Diamond City's gate the first is the fence. A bring still leaves the bike where it
-waited. False: the first spot, as before test 43.}
+waited. False: the first spot, as before test 43. Test 45's review: a spot refused for its ground
+below had no box checked, and on an open slope it was the one taken; the plugin (with [Room] Line)
+now checks the box at such a spot too, its CMB_RoomClear the box's nearest hit when that is less,
+so the spot taken here has always been looked at.}
 float Property FollowerScanRange = 4000.0 AutoReadOnly
 float Property MinSpeedPercent = 100.0 AutoReadOnly
 float Property MaxSpeedPercent = 500.0 AutoReadOnly
@@ -1386,7 +1389,9 @@ int Function PickBikeSpot(bool abFromDoor)
 		elseif room < 0 && CallTakesBestSpot && !abFromDoor && lastRoomClear > 0.0 && lastRoomClear <= 200.0 && lastRoomClear > bestClear
 			; Refused for a hit along a ray (a share of the plugin's Fore, which the INI allows up to
 			; 200) or the ground under 100 below: the most room so far. The ground above (minus),
-			; none within 100 (-1) and not checked (-2) don't count.
+			; none within 100 (-1) and not checked (-2) don't count. Test 45's review: the plugin
+			; checks the box at a spot refused for its ground below too (with [Room] Line), its
+			; Clear the box's nearest hit when that is less, so none taken here is unchecked.
 			bestSpot = spot
 			bestX = x
 			bestY = y

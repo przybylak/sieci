@@ -67,9 +67,15 @@ that speed swept 1st and 2nd in 2 s and fell to idle as the bike stopped. The en
   - With the throttle on it rises at most HeardRise u/s^2 (140: 1st's launch about 2.9 s, 2nd 1.3-1.5 s, the rpm
     climbing 470 rpm/s in 2nd, 360 in 3rd; replayed over test 44's ride, the up-shifts 1.25-1.85 s apart and the last
     6 s after the key; paris: first shift at a median 2.6 s, gaps 1.25-1.85 s, 2nd 200-500 rpm/s) toward
-    the bike's speed (in 1st toward it + HeardLead: the clutch slipping before the wheels go), and follows a lower
-    bike speed with the time constant HeardTau (the rpm dips with a 10 % dip, a few per cent). The rider's load is
-    full while the bike is HeardPull or more ahead of it, the cruise load once it has caught up.
+    the bike's speed (in 1st toward it + HeardLead: the clutch slipping before the wheels go, only in a launch, from
+    the clutch's last going in till the bike passes ClutchSpeed, or a real pull, the bike gaining faster than
+    HeardRise: at a steady speed the heard speed is the bike's), and follows a lower bike speed with the time constant
+    HeardTau (the rpm dips with a 10 % dip, a few per cent). The rider's load is full while the bike is HeardPull or
+    more ahead of it, the cruise load once it has caught up. An up-shift also needs the bike's own speed to land the
+    next gear LAND (3 %) over DownRpm, unless the bike gains faster than HeardRise: the slip and the lead don't shift
+    up at a steady speed (test 45's review: with the lead at a steady 215-445 u/s the slip passed ShiftLo, 2nd came
+    under DownRpm and the gear went 1 <-> 2 every 2-3 s; the 3 % keeps the measured speed's noise from doing the same
+    at 443 u/s, where 2nd's rpm meets DownRpm).
   - With it shut it falls CoastFall (BrakeFall braking) rpm a second in the gear (engine braking: paris -150 median),
     never under the bike's speed (the bike faster, it rises as with the throttle on); under CoastDown rpm a down-shift with a throttle blip (the rpm to Blip over the
     new gear's for BlipTime, time constant BlipTau, the rider's load full: paris +27 % peak in 0.3 s, +5 dB); the
@@ -176,7 +182,10 @@ DEFAULTS = dict(
     HeardRise=140.0,      # u/s^2 at most, the heard speed's rise (the game's own: 300; the tester: about 150)
     HeardTau=0.8,         # s: the throttle on, the heard speed follows a lower bike speed with this time constant
     HeardLead=150.0,      # u/s: in 1st the heard speed may run this far ahead of the bike's (the game's bike creeps
-                          # for its first 0.5-1.5 s: the launch's rpm rises from the press all the same)
+                          # for its first 0.5-1.5 s: the launch's rpm rises from the press all the same), only in a
+                          # launch (from the clutch's last going in till the bike passes ClutchSpeed) or a real pull
+                          # (the bike gaining faster than HeardRise); at a steady speed none (test 45's review: with it
+                          # 1st and 2nd hunted at a steady 215-445 u/s)
     HeardPull=60.0,       # u/s: the bike this far or more ahead of the heard speed = full load
     ClutchSpeed=150.0,    # u/s: the throttle shut and the bike itself under this, the clutch goes in (the heard
                           # speed then the bike's); the throttle on, 1st
@@ -195,6 +204,7 @@ DEFAULTS = dict(
                                    # median 2370); 0,0: ShiftRpm (every pull-away identical, as up to test 44)
 )
 EPS = 1e-4      # timer comparisons: float and double agree when a time is a whole number of frames
+LAND = 1.03     # the heard speed: an up-shift lands the next gear this much over DownRpm at the bike's own speed
 
 
 class Family:
@@ -271,6 +281,7 @@ class Engine:
         self.low_t = 0.0                       # the gear's rpm under DownRpm this long, the throttle on
         self.blip_left = 0.0                   # a coast down-shift's blip still to run
         self.held = False
+        self.launch = True                     # a launch: from the clutch's last going in till the bike passes ClutchSpeed
 
     def noise(self):
         """uniform in [-1, 1) from a 32-bit LCG (Numerical Recipes' constants): the C twin draws the same numbers."""
@@ -306,10 +317,12 @@ class Engine:
         self.was_on = on
         if self.blip_left > 0.0:
             self.blip_left -= dt
-        # the heard speed: up at most HeardRise toward the bike (in 1st with the throttle on, toward it + HeardLead);
-        # the throttle on, down after a slower bike over HeardTau; shut, down CoastFall (BrakeFall) rpm a second in
-        # the gear, never under the bike
-        lead = c["HeardLead"] if (on and self.gear == 0) else 0.0
+        # the heard speed: up at most HeardRise toward the bike (in 1st with the throttle on in a launch or a real pull,
+        # toward it + HeardLead); the throttle on, down after a slower bike over HeardTau; shut, down CoastFall
+        # (BrakeFall) rpm a second in the gear, never under the bike
+        if v >= c["ClutchSpeed"]:
+            self.launch = False
+        lead = c["HeardLead"] if (on and self.gear == 0 and (self.launch or self.acc_s > c["HeardRise"])) else 0.0
         if heard:
             if v + lead > self.vh:
                 self.vh = min(v + lead, self.vh + c["HeardRise"] * dt)
@@ -345,11 +358,13 @@ class Engine:
             self.clutch = (not throttle) and (v < c["ClutchSpeed"] or (self.gear == 0 and self.vh * k0 < c["ClutchIn"]))
             if self.clutch:
                 self.vh = v
+                self.launch = True
             elif throttle and v < c["ClutchSpeed"] and self.gear > 0:
                 self.gear = 0                  # a launch (or a wall): 1st, the heard speed within 1st's reach
                 self.shift_left = 0.0
                 in_shift = False
                 self.vh = min(self.vh, v + c["HeardLead"])
+                self.launch = True
         else:
             self.clutch = (not throttle) and v * k0 < c["ClutchIn"] and (
                 braking or self.acc_s < -c["ClutchDecel"] or v * k0 < c["IdleRpm"] + c["Launch"])
@@ -374,7 +389,9 @@ class Engine:
                 up_at = c["ShiftLo"] + (self.shift_at - c["ShiftLo"]) * pull
                 if (self.gear < top and vg * k > up_at and self.rpm > c["ShiftCatch"] * up_at
                         and vg * self.gear_k(self.gear + 1) > c["DownRpm"] and self.since_up >= c["MinShiftGap"] - EPS
-                        and self.since_shift >= c["DownGap"] - EPS):
+                        and self.since_shift >= c["DownGap"] - EPS
+                        and (not heard or self.acc_s > c["HeardRise"]       # the bike's own speed too, but in a real pull
+                             or v * self.gear_k(self.gear + 1) > c["DownRpm"] * LAND)):
                     if heard:
                         self.vh = vs = max(vs, vg)   # out of a slip: the heard speed is 1st's at the slip's rpm
                     self.gear += 1

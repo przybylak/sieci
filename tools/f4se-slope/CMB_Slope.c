@@ -26,8 +26,9 @@
  *   low face (a fallen trunk, a stump) is at the capsule with forward held, the limit goes to
  *   ClimbBoost for a moment, so the capsule climbs what its 47 deg would make a wall (test 40;
  *   ClimbRays); a sharp step no limit takes, the capsule still stuck at it, is stepped up onto
- *   (ClimbStepUp). A face over ClimbMaxTop with no ground at its height a wheelbase on (a rail,
- *   a beam: test 44) isn't climbed, and a bike hung up on one backs off a drop of up to
+ *   (ClimbStepUp). An upright, long face over ClimbMaxTop with no ground at its height a
+ *   wheelbase on (a rail, a beam: test 44), or a low face with a bar beyond it (a barrier),
+ *   isn't climbed; a log or a stump still is. A bike hung up on one backs off a drop of up to
  *   BackHungDrop (WayBackClear).
  *
  *   Camera: the game setting fVanityModeMaxDist:Camera (where the third-person camera
@@ -570,10 +571,14 @@ static int g_climbStep = 1;                 /* ClimbStep: 1 = a sharp step the b
 /* Test 44's rails (22:47:39 a wooden road barrier, 22:48:57 a guard rail round a brush pile: the
  * capsule went up a rail 25 to 30 high under the ClimbTop rule and sat astride it, the wheels
  * hanging either side). A face whose top is over ClimbMaxTop above the feet (a ray at that height
- * hits within 45 past it) is climbed only if the ground goes on at that height a wheelbase past
- * the face (a ray straight down there finds it ClimbMaxTop or more over the ground line the feet
- * and the rear wheel's ray make): a step up onto something, not a beam with a drop behind it
- * (CLIMB_BEAM). */
+ * hits within 45 past it) is climbed only if it is round (it recedes toward its foot: a log),
+ * narrow (a ray at that height two capsule radii to a side passes it: a stump), or a step up (a
+ * ray straight down a wheelbase past the face finds the ground ClimbMaxTop or more over the
+ * ground at the face's foot); else it is a rail or a beam with a drop behind it (CLIMB_BEAM). A
+ * low face with something 1.5 or 2 ClimbTops above the feet within 45 past it is a barrier's
+ * foot with its bar beyond (CLIMB_BAR). Test 45's review: the ground line was the rear wheel's
+ * ray's slope stretched 158 ahead, and a step onto level ground on a slope of a few degrees read
+ * as a beam. */
 static float g_climbMaxTop = 18.0f;         /* ClimbMaxTop: 0 = the ClimbTop rule alone (test 44's build) */
 /* ... and the state: */
 static bool g_climbOn;                      /* on: the slot holds g_climbValue */
@@ -644,7 +649,7 @@ static float g_ramHighRay = 96.0f;        /* HighRay: a second actor ray this hi
 static float g_ramSideRays = 20.0f;       /* SideRays: two more actor rays this far to each side at axle height (flankers) */
 static int g_ramRobotsOn = 1;             /* Robots: the races in CMB_RamRobots pass the size and No Knockdowns gates */
 static int g_ramPendingPass = 1;          /* PendingPass: a small race whose ask is still pending at the front wheel is passed, its hit told when the yes comes (test 44's dogs) */
-static int g_ramFaceActors = 1;           /* FaceActors: an actor hit over Pass ago and seen again asked afresh; a CMB_RamRobots race kept to while its ask is pending (AskFree) (test 44's protectron) */
+static int g_ramFaceActors = 1;           /* FaceActors: an actor hit and seen again asked afresh once the script's cooldown is over; a CMB_RamRobots race kept to while its ask is pending (AskFree) (test 44's protectron) */
 static float g_ramSeenGrace = 1.5f;       /* SeenGrace: this long after an actor is first seen at CMB_RamMinSpeed or faster, it is judged by that speed (test 44) */
 static int g_creep = 1;                   /* 1 = a side key from a stop creeps forward round a CreepRadius circle */
 static float g_creepStart = 0.1f;         /* the first forward input tried for the creep (then learnt) */
@@ -742,6 +747,14 @@ static int g_roomRaysRetry = 1;
  * 60 = test 44's ROOM_GROUND_NEAR. Read in ReadRoomSettings, again on getting on. */
 static float g_roomLine = 50.0f;
 static float g_roomGroundNear = 25.0f;
+/* Test 45's review (GroundSlope, with Line only): GroundNear alone refused every spot on an open
+ * slope (the 300-ahead spots' ground past 25 at 4.8 deg), and a call then took one whose box
+ * was never checked. A spot's ground up to GroundNear plus its distance times the tangent of
+ * this (degrees) off the player's has room when the ground followed along the line, a ray down
+ * every ROOM_PROFILE_STEP at most, steps by no more than GroundNear between two of them (a
+ * floor, a hedge's top or a ledge is a step; a slope isn't); 0 = within GroundNear, test 45's
+ * first build. Read in ReadRoomSettings, again on getting on. */
+static float g_roomGroundSlope = 25.0f;
 static uintptr_t g_lampRef;                 /* the light reference the script placed (CMB_HeadlampRefHi/Lo), looked up once per id */
 static uint32_t g_lampRefId;
 static uintptr_t g_lampRefOld;              /* the one before, kept lit at the lens until the new one's 3D is in (test 33: the beam flickered at every move) */
@@ -1309,10 +1322,12 @@ static void ReadLeanSettings(const char *ini, bool log)
 			         "and room for the capsule over it, the controller put up by the top + 1.5 and 4 on, twice an obstacle at most, 0.25 s apart");
 		else
 			snprintf(step, sizeof(step), "; sharp steps not stepped up onto (ClimbStep=0)");
-		char maxTop[200];
+		char maxTop[600];
 		if (g_climbMaxTop > 0.0f)
-			snprintf(maxTop, sizeof(maxTop), "; a face with something %g above the feet within 45 past it climbed only if a ray down a wheelbase past it finds the ground that high (ClimbMaxTop: a step up, not a beam with a drop behind it)",
-			         g_climbMaxTop);
+			snprintf(maxTop, sizeof(maxTop), "; a face with something %g above the feet within 45 past it climbed only if round (receding toward its foot), narrow (a ray at %g two capsule radii to a side passes it) "
+			         "or a step up (a ray down a wheelbase past it finds the ground that high over the ground at its foot) (ClimbMaxTop: a log, a stump or a step, not a rail or a beam with a drop behind it), "
+			         "and a low face with something 1.5 or 2 ClimbTops above the feet within 45 past it not climbed (a barrier's bar)",
+			         g_climbMaxTop, g_climbMaxTop);
 		else
 			snprintf(maxTop, sizeof(maxTop), "; any face under ClimbTop climbed, a beam with a drop behind it too (ClimbMaxTop=0, test 44's build)");
 		if (g_climb)
@@ -1406,7 +1421,7 @@ static void ReadRamSettings(const char *ini, bool log)
 	Log("  ram: PendingPass=%d FaceActors=%d SeenGrace=%g: %s; %s; %s%s", g_ramPendingPass, g_ramFaceActors, g_ramSeenGrace,
 	    g_ramPendingPass ? "a small race whose ask is still pending at the front wheel passed, its hit told when the yes comes"
 	                     : "an actor not yet answered at the front wheel braked for, as in test 44's build",
-	    g_ramFaceActors ? "an actor hit over Pass ago and seen again asked afresh, a CMB_RamRobots race kept to while its ask is pending (AskFree)"
+	    g_ramFaceActors ? "an actor hit and seen again asked afresh once the script's cooldown is over, a CMB_RamRobots race kept to while its ask is pending (AskFree)"
 	                    : "an actor hit braked for till 3 s past Pass, a large CMB_RamRobots race braked for while its ask is pending, as in test 44's build",
 	    seen, log ? "" : " (read again on getting on)");
 }
@@ -1416,13 +1431,14 @@ static void ReadRamSettings(const char *ini, bool log)
 static void ReadRoomSettings(const char *ini, bool log)
 {
 	float was[4] = { (float)g_roomBox, g_roomSide, g_roomFore, (float)g_roomRaysRetry };
-	float wasLine = g_roomLine, wasNear = g_roomGroundNear;
+	float wasLine = g_roomLine, wasNear = g_roomGroundNear, wasSlope = g_roomGroundSlope;
 	g_roomBox = (int)GetPrivateProfileIntA("Room", "Box", 1, ini) != 0;
 	g_roomSide = IniFloat(ini, "Room", "Side", 40.0f, 10.0f, 100.0f);
 	g_roomFore = IniFloat(ini, "Room", "Fore", 110.0f, 50.0f, 200.0f);
 	g_roomRaysRetry = (int)GetPrivateProfileIntA("Room", "RaysRetry", 1, ini) != 0;
 	g_roomLine = IniFloat(ini, "Room", "Line", 50.0f, 0.0f, 150.0f);
 	g_roomGroundNear = IniFloat(ini, "Room", "GroundNear", 25.0f, 5.0f, 100.0f);
+	g_roomGroundSlope = IniFloat(ini, "Room", "GroundSlope", 25.0f, 0.0f, 45.0f);
 	float now[4] = { (float)g_roomBox, g_roomSide, g_roomFore, (float)g_roomRaysRetry };
 	bool changed = false;
 	for (int i = 0; i < 4; i++)
@@ -1434,12 +1450,18 @@ static void ReadRoomSettings(const char *ini, bool log)
 		    g_roomRaysRetry ? "an ask while the rays aren't trusted casts the test ray again for it"
 		                    : "an ask while the rays aren't trusted answered not checked until the 3 s retry (RaysRetry=0, test 42's build)",
 		    log ? "" : " (read again on getting on)");
-	/* Test 44's two, on a line of their own (each line logged when its keys change). */
-	if (log || g_roomLine != wasLine || g_roomGroundNear != wasNear)
-		Log("  room: Line=%g GroundNear=%g: %s; the spot's ground within %g of %s%s", g_roomLine, g_roomGroundNear,
+	/* Test 44's two and test 45's GroundSlope, on a line of their own (each line logged when its keys change). */
+	if (log || g_roomLine != wasLine || g_roomGroundNear != wasNear || g_roomGroundSlope != wasSlope) {
+		char slope[160] = "";
+		if (g_roomLine > 0.0f && g_roomGroundSlope > 0.0f)
+			snprintf(slope, sizeof(slope), ", or by a slope of up to %g deg to the spot, the ground along the line stepping by no more than %g", g_roomGroundSlope, g_roomGroundNear);
+		else if (g_roomLine > 0.0f)
+			snprintf(slope, sizeof(slope), " (GroundSlope=0: no slope allowed for, test 45's first build)");
+		Log("  room: Line=%g GroundNear=%g GroundSlope=%g: %s; the spot's ground within %g of %s%s%s", g_roomLine, g_roomGroundNear, g_roomGroundSlope,
 		    g_roomLine > 0.0f ? "a clear line asked for from the player to the spot, that high over the ground under each (the player's by a ray down under them)"
 		                      : "no line from the player (Line=0, test 44's build)",
-		    g_roomGroundNear, g_roomLine > 0.0f ? "the player's" : "the asked height (Line=0)", log ? "" : " (read again on getting on)");
+		    g_roomGroundNear, g_roomLine > 0.0f ? "the player's" : "the asked height (Line=0)", slope, log ? "" : " (read again on getting on)");
+	}
 }
 
 /* Backing level or down a slope (test 40's finding 6: "backing up makes the camera shake a
@@ -6643,8 +6665,10 @@ typedef struct {
 	bool passing, passDone;    /* PendingPass (test 44): passed at the front wheel with its ask pending, the hit told when the yes comes; a pass over unanswered (one an approach) */
 	float passAt, passSpeed;   /* ... when, and the speed then (the hit's) */
 	float firstSeenAt, firstSeenSpeed;   /* SeenGrace (test 44): when this approach first saw it (after RAM_RESEEN out of the rays), and the speed then */
+	bool again;                /* FaceActors: hit, then seen again inside RAM_SCRIPT_COOLDOWN of it: asked afresh once that is over */
 } RamEntry;
 #define RAM_RESEEN 0.5f     /* seconds out of the rays after which a sighting is a new approach (SeenGrace's speed, FaceActors' ask afresh after a hit) */
+#define RAM_SCRIPT_COOLDOWN 3.3f   /* CMB_RamScript's Cooldown (3 s, timed from its push, 0.1-0.3 s after the hit is told: its poll, the push's calls): no ask afresh sooner after a hit (FaceActors) */
 static RamEntry g_rams[8];
 static int g_ramAskOpen;          /* AskAnswered: the last ask told, until its answer is read (0: answered, or none) */
 static uint32_t g_ramAskOpenId;   /* ... and whom it was about */
@@ -6998,11 +7022,32 @@ static void RamSeen(uintptr_t actor, float ahead, float v, const char *which)
 	 * the face rays called it "a wall ahead (skeleton.nif, layer 30)" and the bike stopped. Seen
 	 * again over Pass after its hit, RAM_RESEEN or more out of the rays, it is a new approach:
 	 * asked afresh (the script's yes went with the push). One still in the rays after Pass (it
-	 * stayed at the wheel) is braked for as before. */
-	if (g_ramFaceActors && e->state == RAM_HIT && !e->toTell && now - e->hitAt >= g_ramPass && gap >= RAM_RESEEN) {
-		Log("rams: %08X seen again %.0f past the front wheel (%s), %.1f s after its hit, %.1f s out of the rays: asked afresh (FaceActors)", id, ahead, which, now - e->hitAt, gap);
-		RamEntryInit(e, actor, id);
-		e->seenAt = now;
+	 * stayed at the wheel) is braked for as before. Review of test 45's build: the script says no
+	 * to an actor it knocked over under its Cooldown (3 s) ago, so an ask afresh 1-3 s after the
+	 * hit was "knocked over less than 3 s ago", braked for, and never kept to again (saidNo). Seen
+	 * again sooner than RAM_SCRIPT_COOLDOWN after the hit, it stays the hit's (braked for past
+	 * Pass, as before) and is asked afresh when next seen once that is over, the speed this
+	 * approach first saw it at kept for SeenGrace. */
+	if (g_ramFaceActors && e->state == RAM_HIT && !e->toTell && now - e->hitAt >= g_ramPass && (gap >= RAM_RESEEN || e->again)) {
+		if (now - e->hitAt < RAM_SCRIPT_COOLDOWN) {
+			if (!e->again)
+				Log("rams: %08X seen again %.0f past the front wheel (%s), %.1f s after its hit, %.1f s out of the rays: asked afresh %.1f s after the hit, once the script's "
+				    "cooldown is over (FaceActors), braked for till then", id, ahead, which, now - e->hitAt, gap, RAM_SCRIPT_COOLDOWN);
+			e->again = true;
+		} else {
+			bool again = e->again;
+			float firstAt = e->firstSeenAt, firstSpeed = e->firstSeenSpeed;
+			if (again)
+				Log("rams: %08X seen %.0f past the front wheel (%s), %.1f s after its hit, the script's cooldown over: asked afresh (FaceActors)", id, ahead, which, now - e->hitAt);
+			else
+				Log("rams: %08X seen again %.0f past the front wheel (%s), %.1f s after its hit, %.1f s out of the rays: asked afresh (FaceActors)", id, ahead, which, now - e->hitAt, gap);
+			RamEntryInit(e, actor, id);
+			e->seenAt = now;
+			if (again && gap < RAM_RESEEN) {   /* the approach that saw it inside the cooldown */
+				e->firstSeenAt = firstAt;
+				e->firstSeenSpeed = firstSpeed;
+			}
+		}
 	}
 	/* Test 44's SeenGrace: the speed this approach first saw it at (a sighting after RAM_RESEEN
 	 * out of the rays is a new one). */
@@ -7457,7 +7502,17 @@ static bool RamLetsBy(uintptr_t actor, float ahead, float v)
  * by a ray down from just over their feet, and a line from Line over it to Line over the spot's
  * ground must be clear (else none, CMB_RoomClear ROOM_NO_LINE, -3; checked before the ground's
  * offset); the spot's ground must be within GroundNear of the player's. Line=0: no line, the
- * ground judged from the asked height; GroundNear=60 with it gives test 44's build. */
+ * ground judged from the asked height; GroundNear=60 with it gives test 44's build.
+ *
+ * Test 45's review ([Room] GroundSlope, with Line): on an open slope every spot's ground is more
+ * than GroundNear off the player's (25 at 4.8 deg for the spots 300 ahead), so every spot was
+ * refused and a call took one whose box was never checked. The ground may be off by GroundNear
+ * plus the spot's distance times tan GroundSlope; past GroundNear it is followed along the line
+ * (a ray down from the line every ROOM_PROFILE_STEP at most) and no two neighbours may differ
+ * by more than GroundNear (or the slope's own rise between them, if more): a floor, a hedge's
+ * top or a ledge is a step, a slope isn't. And a spot refused for its ground below, which a
+ * call's most-room choice can take (CMB_RoomClear over 0), has its box checked too, its
+ * CMB_RoomClear the box's nearest hit when that is less. GroundSlope=0: test 45's first build. */
 #define ROOM_REACH        110.0f   /* the eight level rays without a heading: the parked bike's length 196 (the parts file's axles at 99.6 and -36.7 with the wheels' 29.9) halved, plus 12 */
 #define ROOM_EYE          50.0f    /* their height over the ground: over a curb or a rail of clutter, under a counter or a sign */
 #define ROOM_HEADROOM     120.0f   /* the ray up: the bike's and the rider's height over the ground */
@@ -7467,6 +7522,7 @@ static bool RamLetsBy(uintptr_t actor, float ahead, float v)
 #define ROOM_TIE          0.01f    /* a box ray's hit must be nearer than the one before by this to be named the nearest (on the bike's Fore) */
 #define ROOM_NO_LINE      -3.0f    /* CMB_RoomClear for a spot refused for the line from the player ([Room] Line, test 44): exact, as -1 and -2 (a ground refused is over GroundNear's 5 at least) */
 #define ROOM_UNDER_PLAYER 20.0f    /* the ray down under the player for their ground starts this over their feet (to ROOM_GROUND_REACH under them) */
+#define ROOM_PROFILE_STEP 25.0f    /* [Room] GroundSlope (test 45's review): the ground along the line followed at most this far apart (a 25 deg slope rises 12 in it, a floor's step is 34) */
 static int g_roomAskRead;   /* the CMB_RoomAsk answered already (CMB_RoomAnswer's, at the start and after a load: a save made between an ask and its answer gets the answer) */
 
 static void RoomReadAnswered(void)
@@ -7498,8 +7554,8 @@ static void RoomFrame(void)
 		snprintf(head, sizeof(head), ", heading %.0f", deg);
 	float clear = -2.0f;
 	bool room = false;
-	char why[320] = "the rays aren't working here (the test ray beside the player): not looked at";
-	char lineNote[200] = "";   /* test 44: with Line, the line's and the ground's word on a spot that passed them, ending the answer's line */
+	char why[640] = "the rays aren't working here (the test ray beside the player): not looked at";
+	char lineNote[360] = "";   /* test 44: with Line, the line's and the ground's word on a spot that passed them, ending the answer's line */
 	g_rayActorPassed = NULL;
 	float ago;
 	if (g_roomRaysRetry && RaysUntrustedRetry(&ago))
@@ -7522,12 +7578,14 @@ static void RoomFrame(void)
 			 * the way isn't a wall. Before the ground's test, so a spot refused for its ground (a
 			 * call can still take it, CallTakesBestSpot) has a clear line. An actor these pass
 			 * isn't the spot's: the line's "an actor there" stays the spot's rays'. */
-			float refZ = z, nearLimit = ROOM_GROUND_NEAR;
+			float refZ = z, nearLimit = ROOM_GROUND_NEAR, px = x, py = y, len = 0.0f;
 			bool lineBlocked = false, underPlayer = false;
 			if (g_roomLine > 0.0f) {
 				nearLimit = g_roomGroundNear;
 				const char *actorWas = g_rayActorPassed;
 				const float *pos = (const float *)(player + OFF_REFR_POS);
+				px = pos[0];
+				py = pos[1];
 				float pa[3] = { pos[0], pos[1], pos[2] + ROOM_UNDER_PLAYER }, pb[3] = { pos[0], pos[1], pos[2] - ROOM_GROUND_REACH };
 				float pf = CastRayGround(cell, pa, pb);
 				if (pf > 0.0f && pf < 1.0f) {
@@ -7536,31 +7594,95 @@ static void RoomFrame(void)
 				}
 				float la[3] = { pos[0], pos[1], refZ + g_roomLine }, lb[3] = { x, y, groundZ + g_roomLine };
 				float lf = CastRayGround(cell, la, lb);
-				float len = sqrtf((lb[0] - la[0]) * (lb[0] - la[0]) + (lb[1] - la[1]) * (lb[1] - la[1]) + (lb[2] - la[2]) * (lb[2] - la[2]));
+				len = sqrtf((lb[0] - la[0]) * (lb[0] - la[0]) + (lb[1] - la[1]) * (lb[1] - la[1]) + (lb[2] - la[2]) * (lb[2] - la[2]));
 				if (lf > 0.0f && lf < 1.0f) {
 					lineBlocked = true;
 					clear = ROOM_NO_LINE;
 					snprintf(why, sizeof(why), "no clear line from the player: something %.0f along the %.0f to the spot (%s, layer %u), %.0f over the ground under each (the player's %.0f%s, the spot's %.0f)",
 					         lf * len, len, g_rayWhat && *g_rayWhat ? g_rayWhat : "unnamed", g_rayLayer, g_roomLine, refZ,
 					         underPlayer ? "" : ", the asked height: none under them", groundZ);
-				} else
-					snprintf(lineNote, sizeof(lineNote), "; a clear line from the player (%.0f long, %.0f over each ground), the spot's ground %.0f %s %s (within %.0f)", len, g_roomLine,
-					         fabsf(refZ - groundZ), refZ - groundZ >= 0.0f ? "below" : "above", underPlayer ? "the player's" : "the asked height (none under the player)", nearLimit);
+				}
 				g_rayActorPassed = actorWas;
 			}
 			float off = refZ - groundZ;   /* + the spot's ground under the reference: the player's ground, or (Line=0) the asked height, as before */
-			if (lineBlocked) {
-				/* answered above: none, CMB_RoomClear ROOM_NO_LINE */
-			} else if (fabsf(off) > nearLimit) {
+			const char *refName = underPlayer ? "the player's" : "the asked height (none under the player)";
+			/* Test 45's review ([Room] GroundSlope, with Line): the ground may be off by GroundNear plus
+			 * the spot's distance times tan GroundSlope (an open slope); past GroundNear the ground is
+			 * followed along the line, a ray down from the line (clear: just cast) every
+			 * ROOM_PROFILE_STEP at most, and no two neighbours, the player's ground and the spot's at
+			 * the ends, may differ by more than GroundNear, or the slope's own rise between them if
+			 * more: a floor, a hedge's top or a ledge is a step, a slope isn't. Through actors, as the
+			 * line. GroundSlope=0: within GroundNear, test 45's first build; Line=0: test 44's. */
+			float flat = hypotf(x - px, y - py), slopeTan = 0.0f, allow = nearLimit, seg = 0.0f, stepAllow = 0.0f;
+			bool sloped = g_roomLine > 0.0f && g_roomGroundSlope > 0.0f;
+			char allowNote[80] = "", stepNote[200] = "";
+			if (sloped) {
+				slopeTan = tanf(g_roomGroundSlope * (3.14159265f / 180.0f));
+				allow = nearLimit + flat * slopeTan;
+				snprintf(allowNote, sizeof(allowNote), " (%.0f and %g deg over the %.0f to it)", nearLimit, g_roomGroundSlope, flat);
+			}
+			bool groundOk = !lineBlocked && fabsf(off) <= allow, byProfile = false, stepRefused = false;
+			if (groundOk && fabsf(off) > nearLimit) {   /* sloped only: else allow is nearLimit */
+				byProfile = true;
+				int steps = (int)ceilf(flat / ROOM_PROFILE_STEP);
+				if (steps < 1)
+					steps = 1;
+				seg = flat / (float)steps;
+				stepAllow = fmaxf(nearLimit, seg * slopeTan);
+				const char *actorWas = g_rayActorPassed;
+				float prevZ = refZ;
+				for (int i = 1; i <= steps; i++) {
+					float t = (float)i / (float)steps, zi = groundZ;
+					const char *what = groundWhat;
+					uint32_t layer = groundLayer;
+					if (i < steps) {
+						float base = refZ + (groundZ - refZ) * t;
+						float sa[3] = { px + (x - px) * t, py + (y - py) * t, base + g_roomLine }, sb[3] = { sa[0], sa[1], base - ROOM_GROUND_REACH };
+						float sf = CastRayGround(cell, sa, sb);
+						if (!(sf > 0.0f && sf < 1.0f)) {
+							stepRefused = true;
+							snprintf(stepNote, sizeof(stepNote), "; not a slope: no ground under it %.0f along", t * flat);
+							break;
+						}
+						zi = sa[2] + (sb[2] - sa[2]) * sf;
+						what = g_rayWhat && *g_rayWhat ? g_rayWhat : "unnamed";
+						layer = g_rayLayer;
+					}
+					float dz = zi - prevZ;
+					if (fabsf(dz) > stepAllow) {
+						stepRefused = true;
+						snprintf(stepNote, sizeof(stepNote), "; not a slope: a step of %.0f %s %.0f along it (%s, layer %u), over %.0f", fabsf(dz), dz > 0.0f ? "up" : "down", t * flat,
+						         what, layer, stepAllow);
+						break;
+					}
+					prevZ = zi;
+				}
+				g_rayActorPassed = actorWas;
+				groundOk = !stepRefused;
+			}
+			if (groundOk && g_roomLine > 0.0f) {
+				if (byProfile)
+					snprintf(lineNote, sizeof(lineNote), "; a clear line from the player (%.0f long, %.0f over each ground), the spot's ground %.0f %s %s (over %.0f: within %.0f%s, "
+					         "the ground followed every %.0f along it, no step over %.0f)", len, g_roomLine, fabsf(off), off >= 0.0f ? "below" : "above", refName, nearLimit, allow, allowNote,
+					         seg, stepAllow);
+				else
+					snprintf(lineNote, sizeof(lineNote), "; a clear line from the player (%.0f long, %.0f over each ground), the spot's ground %.0f %s %s (within %.0f)", len, g_roomLine,
+					         fabsf(off), off >= 0.0f ? "below" : "above", refName, nearLimit);
+			}
+			if (!lineBlocked && !groundOk) {
 				clear = off;
-				lineNote[0] = 0;
 				if (g_roomLine > 0.0f)
-					snprintf(why, sizeof(why), "the ground %.0f %s %s (%s, layer %u), over %.0f; a clear line from the player", fabsf(off), off > 0.0f ? "below" : "above",
-					         underPlayer ? "the player's" : "the asked height (none under the player)", groundWhat, groundLayer, nearLimit);
+					snprintf(why, sizeof(why), "the ground %.0f %s %s (%s, layer %u), over %.0f%s; a clear line from the player%s", fabsf(off), off > 0.0f ? "below" : "above",
+					         refName, groundWhat, groundLayer, stepRefused ? nearLimit : allow, stepRefused ? "" : allowNote, stepNote);
 				else
 					snprintf(why, sizeof(why), "the ground %.0f %s the spot (%s, layer %u), over %.0f", fabsf(below), below > 0.0f ? "below" : "above",
 					         groundWhat, groundLayer, ROOM_GROUND_NEAR);
-			} else {
+			}
+			/* The box: at a spot whose ground passed, and (test 45's review, with Line) at one refused
+			 * for its ground below, which a call's most-room choice can take (CMB_RoomClear over 0):
+			 * test 45's first build placed such a spot with nothing looked at there. */
+			bool boxed = groundOk || (g_roomLine > 0.0f && !lineBlocked && off > 0.0f);
+			if (boxed) {
 				static const float axes[8][2] = { { 1.0f, 0.0f }, { 0.0f, 1.0f }, { -1.0f, 0.0f }, { 0.0f, -1.0f },
 				                                  { 0.70710678f, 0.70710678f }, { -0.70710678f, 0.70710678f }, { -0.70710678f, -0.70710678f }, { 0.70710678f, -0.70710678f } };
 				static const char *const axisNames[9] = { "+x", "+y", "-x", "-y", "+x+y", "-x+y", "-x-y", "+x-y", "up" };
@@ -7615,16 +7737,26 @@ static void RoomFrame(void)
 						nearLayer = g_rayLayer;
 					}
 				}
-				if (nearest < 0.0f) {
+				char hit[240] = "";
+				if (nearest >= 0.0f) {
+					if (box && nearI < 8)
+						snprintf(hit, sizeof(hit), "something %.0f along %s (of %.0f: %.0f on the bike's %.0f) (%s, layer %u)", nearD, names[nearI], nearReach, nearest, g_roomFore,
+						         nearWhat, nearLayer);
+					else
+						snprintf(hit, sizeof(hit), "something %.0f along %s (%s, layer %u)", nearD, names[nearI], nearWhat, nearLayer);
+				}
+				if (!groundOk) {
+					/* Refused for its ground below: the box's word after the ground's, and the less of the two. */
+					size_t used = strlen(why);
+					snprintf(why + used, sizeof(why) - used, "; checked at its ground: %s", nearest < 0.0f ? "clear" : hit);
+					if (nearest >= 0.0f && nearest < clear)
+						clear = nearest;
+				} else if (nearest < 0.0f) {
 					room = true;
 					clear = below;
 				} else {
 					clear = nearest;
-					if (box && nearI < 8)
-						snprintf(why, sizeof(why), "something %.0f along %s (of %.0f: %.0f on the bike's %.0f) (%s, layer %u)", nearD, names[nearI], nearReach, nearest, g_roomFore,
-						         nearWhat, nearLayer);
-					else
-						snprintf(why, sizeof(why), "something %.0f along %s (%s, layer %u)", nearD, names[nearI], nearWhat, nearLayer);
+					snprintf(why, sizeof(why), "%s", hit);
 				}
 			}
 		}
@@ -8256,15 +8388,22 @@ static void FaceRays(uintptr_t player, bool onGround)
  * again till the bike has moved 60 along its heading or forward is pressed again. A sharp step
  * of 17 to 32 meets the capsule's upright side, which no limit climbs (f8's capsule model): stage
  * 2 steps up onto it (ClimbStepUp, with the reverse's controller functions; ClimbStep). */
-enum { CLIMB_OK, CLIMB_NONE, CLIMB_ACTOR, CLIMB_TALL, CLIMB_WALL, CLIMB_CUT, CLIMB_NOWORD, CLIMB_PITCH, CLIMB_COOL, CLIMB_ALONG, CLIMB_BEAM };
+enum { CLIMB_OK, CLIMB_NONE, CLIMB_ACTOR, CLIMB_TALL, CLIMB_WALL, CLIMB_CUT, CLIMB_NOWORD, CLIMB_PITCH, CLIMB_COOL, CLIMB_ALONG, CLIMB_BEAM, CLIMB_BAR };
+enum { MAXTOP_NONE, MAXTOP_ROUND, MAXTOP_NARROW, MAXTOP_STEP, MAXTOP_BEAM };   /* ClimbMaxTop's word on a face its ray met (ClimbBeam) */
 typedef struct ClimbLineS {
 	float side;                 /* across, + right */
 	float d4, d10, dTop, angle; /* the hits' distances along the rays (-1: none), the face's angle */
 	const char *what4, *whatTop;
 	uint32_t layer4, layerTop;
-	float dMax, farAt, farZ;    /* ClimbMaxTop's ray's hit (-1: none or not cast); the ray down a wheelbase past the face: how far ahead, the ground's height over the feet's ground line there (NAN: none) */
+	float dMax, farAt, farZ;    /* ClimbMaxTop's ray's hit (-1: none or not cast); the ray down a wheelbase past the face: how far ahead, the ground's height over the ground at the face's foot there (NAN: none) */
+	float farFrom;              /* that ray's start over the ground at the face's foot (it goes as far under it as ClimbTop + 8) */
 	const char *whatMax, *whatFar;
 	uint32_t layerMax, layerFar;
+	int maxWord;                /* MAXTOP_*: what ClimbMaxTop's judgement said (ClimbBeam) */
+	float narrowAt;             /* MAXTOP_NARROW: the side ray that passed it, across (+ right) */
+	float dBar, barH;           /* the bar rays (CLIMB_BAR): the hit (-1: none or not cast), and the ray's height above the feet */
+	const char *whatBar;
+	uint32_t layerBar;
 	bool grazed;                /* nothing at 10, and ground just under the hit at 4: a slope grazed, its angle at most this */
 	int why;                    /* CLIMB_*: what this line says */
 } ClimbLine;
@@ -8348,6 +8487,58 @@ static void ClimbCast(uintptr_t cell, const float o[3], const float up[3], const
 		*layer = *d >= 0.0f ? g_rayLayer : 0;
 }
 
+/* ClimbMaxTop's judgement of a face its ray met (L->dMax; test 44's rails, test 45's review),
+ * from the line's origin o (the feet, moved across): round, narrow, a step up, or a beam (true).
+ * - Round: it recedes toward its foot, the ray at 4 meeting it further on than the one at 10
+ *   (the face over 100 deg): a log lying on the ground. An upright rail reads 90.
+ * - Narrow: a ray at ClimbMaxTop two capsule radii to either side of the line passes it: a
+ *   stump. Each starts as far back and reaches three times that past the face, so a rail met at
+ *   up to about 58 deg off square still meets both.
+ * - A step up: a ray straight down a wheelbase past the face (the 4 ray's hit plus the axles'
+ *   136.3, along the heading, through actors) finds the ground ClimbMaxTop or more over the
+ *   ground at the face's foot (a ray down 2 short of the 4 ray's hit, from 2 over it to 38
+ *   under; the line under the hit along the bike's pitch if that finds nothing). It starts
+ *   ClimbTop + 8 over that foot plus ClimbMaxPitch's rise over the run (safely over a top under
+ *   ClimbTop, however the ground slopes) and ends ClimbTop + 8 under it. Test 45's review: the
+ *   ground line was the rear wheel's ray's slope stretched 158 ahead, so a step of 18 to 31.9
+ *   onto level ground read as a beam on a slope of a few degrees, and downhill the ray started
+ *   inside the step. */
+static bool ClimbBeam(uintptr_t cell, const float o[3], const float up[3], const float fwd[3], const float right[3], float sh, float ch, float cp, float sp, float top, ClimbLine *L)
+{
+	if (L->d10 >= 0.0f && L->angle > 100.0f) {
+		L->maxWord = MAXTOP_ROUND;
+		return false;
+	}
+	float off = 2.0f * g_capsuleRadius;
+	for (int k = 0; k < 2; k++) {
+		float across = k ? off : -off, a[3], d;
+		for (int j = 0; j < 3; j++)
+			a[j] = o[j] + right[j] * across - fwd[j] * off;
+		ClimbCast(cell, a, up, fwd, g_climbMaxTop, off + L->dMax + 2.0f * off, &d, NULL, NULL);
+		if (d < 0.0f) {
+			L->maxWord = MAXTOP_NARROW;
+			L->narrowAt = L->side + across;
+			return false;
+		}
+	}
+	float hx = L->d4 * cp - 4.0f * sp - 2.0f, hz = o[2] + 4.0f * cp + L->d4 * sp;   /* 2 short of the 4 ray's hit, level with it */
+	float a[3] = { o[0] + sh * hx, o[1] + ch * hx, hz + 2.0f }, b[3] = { a[0], a[1], hz - 38.0f };
+	float f = CastRayGround(cell, a, b);
+	float foot = f > 0.0f && f < 1.0f ? a[2] + (b[2] - a[2]) * f : hz - 4.0f * cp;
+	float h0 = top + 8.0f;
+	L->farAt = L->d4 * cp + (g_frontAxle[1] - g_rearAxle[1]);
+	L->farFrom = h0 + (L->farAt - hx) * tanf(g_climbMaxPitch / 57.29578f);
+	float c[3] = { o[0] + sh * L->farAt, o[1] + ch * L->farAt, foot + L->farFrom }, e[3] = { c[0], c[1], foot - h0 };
+	f = CastRayGround(cell, c, e);
+	if (f > 0.0f && f < 1.0f) {
+		L->farZ = c[2] + (e[2] - c[2]) * f - foot;
+		L->whatFar = g_rayWhat && *g_rayWhat ? g_rayWhat : "unnamed";
+		L->layerFar = g_rayLayer;
+	}
+	L->maxWord = L->farZ >= g_climbMaxTop ? MAXTOP_STEP : MAXTOP_BEAM;   /* NAN (no ground) is a beam too */
+	return L->maxWord == MAXTOP_BEAM;
+}
+
 /* What a line's word means, for the lines. */
 static void ClimbWhy(int why, const ClimbLine *L, float top, char *out, size_t size)
 {
@@ -8368,15 +8559,20 @@ static void ClimbWhy(int why, const ClimbLine *L, float top, char *out, size_t s
 		snprintf(out, size, "a face alongside, %.0f deg off the heading (%s, layer %u, the face rays' verdict)", g_faceAlongDeg, g_faceAlongWhat[0] ? g_faceAlongWhat : "unnamed", g_faceAlongLayer);
 		break;
 	case CLIMB_BEAM: {
-		char farText[120];
+		char farText[160];
 		if (L && isfinite(L->farZ))
-			snprintf(farText, sizeof(farText), "the ground %.1f over the feet's ground line (%s, layer %u)", L->farZ, L->whatFar, L->layerFar);
+			snprintf(farText, sizeof(farText), "the ground %.1f over the ground at its foot (%s, layer %u)", L->farZ, L->whatFar, L->layerFar);
 		else
-			snprintf(farText, sizeof(farText), "no ground within %.0f of the feet's ground line", top + 8.0f);
-		snprintf(out, size, "a beam with a drop behind it, not a step up: something at %g above the feet %.0f ahead (%s, layer %u; ClimbMaxTop), and a wheelbase on, %.0f ahead, %s",
-		         g_climbMaxTop, L ? L->dMax : 0.0f, L ? L->whatMax : "unnamed", L ? L->layerMax : 0, L ? L->farAt : 0.0f, farText);
+			snprintf(farText, sizeof(farText), "no ground from %.0f over the ground at its foot to %.0f under it", L ? L->farFrom : 0.0f, top + 8.0f);
+		snprintf(out, size, "a beam with a drop behind it, not a step up: something at %g above the feet %.0f ahead (%s, layer %u; ClimbMaxTop), not round (%.0f deg at its foot) and long "
+		         "(the rays %.0f to either side meet it too), and a wheelbase on, %.0f ahead, %s",
+		         g_climbMaxTop, L ? L->dMax : 0.0f, L ? L->whatMax : "unnamed", L ? L->layerMax : 0, L ? L->angle : 0.0f, 2.0f * g_capsuleRadius, L ? L->farAt : 0.0f, farText);
 		break;
 	}
+	case CLIMB_BAR:
+		snprintf(out, size, "a bar beyond the low face: something at %.0f above the feet %.0f ahead (%s, layer %u; ClimbMaxTop), where the capsule would hang on the face under it (a barrier)",
+		         L ? L->barH : 0.0f, L ? L->dBar : 0.0f, L ? L->whatBar : "unnamed", L ? L->layerBar : 0);
+		break;
 	case CLIMB_NOWORD:
 		snprintf(out, size, "the wheels' rays have had no word for half a second");
 		break;
@@ -8412,8 +8608,16 @@ static void ClimbOn(const ClimbLine *L, const float pos[3], float nz, float top)
 		snprintf(at10, sizeof(at10), "nothing");
 	if (L->side != 0.0f)
 		snprintf(side, sizeof(side), " (the line %.0f to the %s)", fabsf(L->side), L->side > 0.0f ? "right" : "left");
-	Log("climb: a low face at the capsule (%s, layer %u)%s: %.0f ahead at 4, %s at 10 (%.0f deg), nothing at %.1f within %.0f; the wheels' pitch %.1f, the ground normal %.1f, speed %.0f: the climb limit %.0f -> %.0f",
-	    L->what4, L->layer4, side, L->d4, at10, L->angle, top, L->d4 + 45.0f, g_wheelPitch, NormalDegrees(nz), g_speedAlong, ToDegrees(g_writtenValue), ToDegrees(g_climbValue));
+	char maxWord[160] = "";   /* what ClimbMaxTop said of a face its ray met (test 45's review: logs and stumps climbed, rails not) */
+	if (L->maxWord == MAXTOP_ROUND)
+		snprintf(maxWord, sizeof(maxWord), "; at %g %.0f ahead: round, receding toward its foot (ClimbMaxTop)", g_climbMaxTop, L->dMax);
+	else if (L->maxWord == MAXTOP_NARROW)
+		snprintf(maxWord, sizeof(maxWord), "; at %g %.0f ahead: narrow, the ray %.0f to the %s passes it (ClimbMaxTop)", g_climbMaxTop, L->dMax, fabsf(L->narrowAt - L->side),
+		         L->narrowAt > L->side ? "right" : "left");
+	else if (L->maxWord == MAXTOP_STEP)
+		snprintf(maxWord, sizeof(maxWord), "; at %g %.0f ahead: a step up, the ground %.1f over the ground at its foot %.0f ahead (ClimbMaxTop)", g_climbMaxTop, L->dMax, L->farZ, L->farAt);
+	Log("climb: a low face at the capsule (%s, layer %u)%s: %.0f ahead at 4, %s at 10 (%.0f deg), nothing at %.1f within %.0f%s; the wheels' pitch %.1f, the ground normal %.1f, speed %.0f: the climb limit %.0f -> %.0f",
+	    L->what4, L->layer4, side, L->d4, at10, L->angle, top, L->d4 + 45.0f, maxWord, g_wheelPitch, NormalDegrees(nz), g_speedAlong, ToDegrees(g_writtenValue), ToDegrees(g_climbValue));
 }
 
 /* ClimbHold since a low face was last seen: off, over it (the feet up or the bike on), or not. */
@@ -8442,7 +8646,7 @@ static void ClimbRefused(int why, const ClimbLine *line, int lines, int best, fl
 		return;
 	g_climbRefusedWhy = why;
 	g_climbRefusedAt = (float)g_clock;
-	char reason[320], rays[900] = "", part[300];
+	char reason[600], rays[900] = "", part[300];
 	ClimbWhy(why, best >= 0 ? &line[best] : NULL, top, reason, sizeof(reason));
 	for (int i = 0; i < lines; i++) {
 		const ClimbLine *L = &line[i];
@@ -8531,9 +8735,9 @@ static void ClimbRays(uintptr_t player, uintptr_t ctrl, bool onGround, float nz)
 		ClimbLine *L = &line[i];
 		memset(L, 0, sizeof(*L));
 		L->side = i == 0 ? 0.0f : i == 1 ? -12.0f : 12.0f;
-		L->d10 = L->dTop = L->dMax = -1.0f;
+		L->d10 = L->dTop = L->dMax = L->dBar = -1.0f;
 		L->farZ = NAN;
-		L->what4 = L->whatTop = L->whatMax = L->whatFar = "unnamed";
+		L->what4 = L->whatTop = L->whatMax = L->whatFar = L->whatBar = "unnamed";
 		L->why = CLIMB_NONE;
 		float o[3];
 		for (int k = 0; k < 3; k++)
@@ -8567,36 +8771,28 @@ static void ClimbRays(uintptr_t player, uintptr_t ctrl, bool onGround, float nz)
 			continue;
 		}
 		ClimbCast(cell, o, up, fwd, top, L->d4 + 45.0f, &L->dTop, &L->whatTop, &L->layerTop);
-		/* Test 44's rails: a top over ClimbMaxTop is climbed only onto ground that goes on at
-		 * about that height a wheelbase past the face: a ray straight down there, from ClimbTop +
-		 * 8 over the ground line to as far under it, passing through actors. The line runs from
-		 * the feet along the slope the rear wheel's ray gives (ClimbMaxPitch's at most; level
-		 * without its word), not the bike's pitch, which the front wheel on a step's top raises
-		 * (10 deg in the harness: along it the ray read the top 3 under the feet). Judged while
-		 * the boost is off only: the feet going up a face put the line wrong. */
-		bool beam = false;
-		if (!g_climbOn && L->dTop < 0.0f && g_climbMaxTop > 0.0f && g_climbMaxTop < top) {
-			ClimbCast(cell, o, up, fwd, g_climbMaxTop, L->d4 + 45.0f, &L->dMax, &L->whatMax, &L->layerMax);
-			if (L->dMax >= 0.0f) {
-				float most = tanf(g_climbMaxPitch / 57.29578f), ry = fabsf(g_rearAxle[1]);
-				float s = g_wheelZOk && ry > 1.0f ? -g_wheelZ[1] / ry : 0.0f;
-				s = s > most ? most : s < -most ? -most : s;
-				float h0 = top + 8.0f;
-				L->farAt = L->d4 * cp + (g_frontAxle[1] - g_rearAxle[1]);
-				float line = pos[2] + s * L->farAt;
-				float a[3] = { o[0] + sh * L->farAt, o[1] + ch * L->farAt, line + h0 }, b[3] = { a[0], a[1], line - h0 };
-				float f = CastRayGround(cell, a, b);
-				if (f > 0.0f && f < 1.0f) {
-					L->farZ = h0 - f * 2.0f * h0;
-					L->whatFar = g_rayWhat && *g_rayWhat ? g_rayWhat : "unnamed";
-					L->layerFar = g_rayLayer;
-				}
-				beam = !(L->farZ >= g_climbMaxTop);   /* NAN (no ground) is a beam too */
+		/* Test 44's rails (ClimbMaxTop), judged while the boost is off only (the feet going up
+		 * a face put the rays wrong). First a barrier's bar beyond a low face (22:47:39, the
+		 * front wheel's ray 65 up on it): a ray at 1.5 and at 2 ClimbTops above the feet, as far
+		 * as ClimbTop's, meeting something not an actor (CLIMB_BAR). Then a face with something
+		 * at ClimbMaxTop within 45 past it is climbed only if round, narrow or a step up
+		 * (ClimbBeam; else CLIMB_BEAM). */
+		bool beam = false, bar = false;
+		if (!g_climbOn && L->dTop < 0.0f && g_climbMaxTop > 0.0f) {
+			for (int k = 0; k < 2 && !bar; k++) {
+				L->barH = (k ? 2.0f : 1.5f) * top;
+				ClimbCast(cell, o, up, fwd, L->barH, L->d4 + 45.0f, &L->dBar, &L->whatBar, &L->layerBar);
+				bar = L->dBar >= 0.0f && L->layerBar != LAYER_CHAR_CONTROLLER && L->layerBar != LAYER_BIPED;
+			}
+			if (!bar && g_climbMaxTop < top) {
+				ClimbCast(cell, o, up, fwd, g_climbMaxTop, L->d4 + 45.0f, &L->dMax, &L->whatMax, &L->layerMax);
+				if (L->dMax >= 0.0f)
+					beam = ClimbBeam(cell, o, up, fwd, right, sh, ch, cp, sp, top, L);
 			}
 		}
 		/* A face alongside isn't climbed (test 42: 20:55:51.181, the boost put the capsule up a
 		 * rail's foot the bike was going along). */
-		L->why = L->dTop >= 0.0f ? CLIMB_TALL : beam ? CLIMB_BEAM : g_faceKind == 2 ? CLIMB_WALL : clock - g_faceAlongAt < 0.5f ? CLIMB_ALONG : clock - g_wallAheadAt < 0.25f ? CLIMB_CUT
+		L->why = L->dTop >= 0.0f ? CLIMB_TALL : bar ? CLIMB_BAR : beam ? CLIMB_BEAM : g_faceKind == 2 ? CLIMB_WALL : clock - g_faceAlongAt < 0.5f ? CLIMB_ALONG : clock - g_wallAheadAt < 0.25f ? CLIMB_CUT
 		       : !word ? CLIMB_NOWORD : g_wheelPitch > g_climbMaxPitch ? CLIMB_PITCH : g_climbCool ? CLIMB_COOL : CLIMB_OK;
 	}
 	for (int i = 0; i < lines; i++) {   /* the nearest that qualifies, else the nearest face at the capsule */
@@ -11302,20 +11498,26 @@ static void TraceControls(void)
  *
  * Test 45 (the tester: "not natural whatsoever"; the game's bike does everything 2-3x faster than
  * the reference rides): the gears and the rpm follow a heard speed (heardSpeed), not the bike's:
- * it rises at most heardRise u/s^2 toward the bike's (in 1st toward it + heardLead), follows a
- * slower bike over heardTau with the throttle on, and with it shut falls coastFall (brakeFall) rpm
+ * it rises at most heardRise u/s^2 toward the bike's (in 1st toward it + heardLead, only in a launch
+ * or a real pull: from the clutch's last going in till the bike passes clutchSpeed, or the bike
+ * gaining faster than heardRise), follows a slower bike over heardTau with the throttle on, and
+ * with it shut falls coastFall (brakeFall) rpm
  * a second in the gear, a down-shift with a blip under coastDown, the clutch once the bike itself
  * is under clutchSpeed. The launch's slip climbs from each pull's drawn start (launchDraw,
  * launchRise); each pull draws its up-shift point (shiftDraw); a down-shift with the throttle on
  * waits downHold under downRpm and never comes while the plugin holds its throttle for something
- * ahead (downHeld, the step's 'held'). Each one off is test 44's model (heardSpeed 0 and the old
- * values: [Sound] in the INI). */
+ * ahead (downHeld, the step's 'held'). With the heard speed an up-shift also needs the bike's own
+ * speed to land the next gear ENGINE_LAND over downRpm, unless the bike gains faster than heardRise
+ * (test 45's review: the slip and the lead shifted up at a steady 215-445 u/s, 2nd came under
+ * downRpm and the gear went 1<->2 every 2-3 s). Each one off is test 44's model (heardSpeed 0 and
+ * the old values: [Sound] in the INI). */
 #define ENGINE_MAX_GEARS 8
 #define ENGINE_MAX_LOOPS 16
 #define ENGINE_FAMILY_IDLE 1
 #define ENGINE_FAMILY_ON   2
 #define ENGINE_FAMILY_OFF  4
 #define ENGINE_EPS 1e-4f   /* timer comparisons: float and double agree when a time is a whole number of frames */
+#define ENGINE_LAND 1.03f  /* the heard speed: an up-shift lands the next gear this much over downRpm at the bike's own speed */
 
 typedef struct {
 	float idleRpm, launch, clutchIn, clutchFall, clutchDecel, accelTau;
@@ -11365,6 +11567,7 @@ typedef struct {
 	int wasOn, held;                  /* the throttle on last frame (a press draws the pull's points); this frame's hold */
 	float shiftAt, launchAt;          /* this pull's up-shift point and slip start */
 	float lowT, blipLeft;             /* the gear's rpm under downRpm this long, the throttle on; a coast down-shift's blip still to run */
+	int launch;                       /* a launch: from the clutch's last going in till the bike passes clutchSpeed (heardLead's) */
 } EngineState;
 
 typedef struct {
@@ -11415,6 +11618,7 @@ static void EngineReset(const EngineCfg *c, EngineState *s)
 	s->shiftAt = c->shiftDraw1 > 0.0f ? 0.5f * (c->shiftDraw0 + c->shiftDraw1) : c->shiftRpm;
 	s->launchAt = c->launchDraw1 > 0.0f ? 0.5f * (c->launchDraw0 + c->launchDraw1) : c->idleRpm + c->launch;
 	s->lowT = s->blipLeft = 0.0f;
+	s->launch = 1;
 }
 
 /* uniform in [-1, 1) from a 32-bit LCG (Numerical Recipes' constants; engine_model.py draws the same numbers) */
@@ -11529,10 +11733,12 @@ static void EngineStep(const EngineCfg *c, EngineState *s, const EngineLoop *loo
 	s->wasOn = on;
 	if (s->blipLeft > 0.0f)
 		s->blipLeft -= dt;
-	/* the heard speed: up at most heardRise toward the bike (in 1st with the throttle on, toward it + heardLead); the
-	 * throttle on, down after a slower bike over heardTau; shut, down coastFall (brakeFall) rpm a second in the gear,
-	 * never under the bike */
-	lead = on && s->gear == 0 ? c->heardLead : 0.0f;
+	/* the heard speed: up at most heardRise toward the bike (in 1st with the throttle on in a launch or a real pull,
+	 * toward it + heardLead); the throttle on, down after a slower bike over heardTau; shut, down coastFall (brakeFall)
+	 * rpm a second in the gear, never under the bike */
+	if (v >= c->clutchSpeed)
+		s->launch = 0;
+	lead = on && s->gear == 0 && (s->launch || s->accS > c->heardRise) ? c->heardLead : 0.0f;
 	if (c->heardSpeed) {
 		if (v + lead > s->vh) {
 			float up = s->vh + c->heardRise * dt;
@@ -11576,14 +11782,16 @@ static void EngineStep(const EngineCfg *c, EngineState *s, const EngineLoop *loo
 		/* the clutch: shut, and the bike itself nearly stopped (or 1st's heard rpm under clutchIn); the throttle on
 		 * with the bike nearly stopped: 1st (a launch, or a wall), the heard speed within 1st's reach */
 		s->clutch = !throttle && (v < c->clutchSpeed || (s->gear == 0 && s->vh * k0 < c->clutchIn));
-		if (s->clutch)
+		if (s->clutch) {
 			s->vh = v;
-		else if (throttle && v < c->clutchSpeed && s->gear > 0) {
+			s->launch = 1;
+		} else if (throttle && v < c->clutchSpeed && s->gear > 0) {
 			s->gear = 0;
 			s->shiftLeft = 0.0f;
 			inShift = 0;
 			if (s->vh > v + c->heardLead)
 				s->vh = v + c->heardLead;
+			s->launch = 1;
 		}
 	} else    /* the clutch goes in near the stop: shut, 1st gear under clutchIn, and braking, slowing hard or under the slip */
 		s->clutch = !throttle && v * k0 < c->clutchIn &&
@@ -11608,7 +11816,9 @@ static void EngineStep(const EngineCfg *c, EngineState *s, const EngineLoop *loo
 			float upAt = c->shiftLo + (s->shiftAt - c->shiftLo) * pull;
 			if (s->gear < top && vg * k > upAt && s->rpm > c->shiftCatch * upAt &&    /* the engine caught up with its gear */
 			    vg * EngineGearK(c, s->gear + 1) > c->downRpm && s->sinceUp >= c->minShiftGap - ENGINE_EPS &&
-			    s->sinceShift >= c->downGap - ENGINE_EPS) {
+			    s->sinceShift >= c->downGap - ENGINE_EPS &&
+			    (!c->heardSpeed || s->accS > c->heardRise ||    /* the bike's own speed too, but in a real pull */
+			     v * EngineGearK(c, s->gear + 1) > c->downRpm * ENGINE_LAND)) {
 				if (c->heardSpeed && vg > vs)
 					s->vh = vs = vg;    /* out of a slip: the heard speed is 1st's at the slip's rpm */
 				s->gear++;
