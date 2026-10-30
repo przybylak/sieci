@@ -14,6 +14,8 @@ bool Function IsInInterior() native
 WorldSpace Function GetWorldSpace() native
 Function MoveTo(ObjectReference akTarget, float afXOffset = 0.0, float afYOffset = 0.0, float afZOffset = 0.0, bool abMatchRotation = true) native
 float Function GetDistance(ObjectReference akOther) native
+float Function GetAngleX() native
+float Function GetAngleY() native
 float Function GetAngleZ() native
 float Function GetPositionX() native
 float Function GetPositionY() native

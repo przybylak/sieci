@@ -92,7 +92,7 @@ Group Optional
 	{Looping. The plugin's fourth (On2000): the package's CMB_EngineCruiseLP.wav is the on-load
 	2000 rpm loop since test 44.}
 	GlobalVariable Property CMB_EngineVolume Auto Const
-	{Engine volume, 0-100. Default 70.}
+	{Engine volume, 0-100. Default 90 (70 up to test 46).}
 	GlobalVariable Property CMB_RidingCameraDistance Auto Const
 	{How far back the third-person camera sits while riding, in game units (the game's own
 	is about 150). Needs F4SE and the CMB_Slope.dll plugin. 0 = leave the camera alone. Default 450.}
@@ -257,7 +257,26 @@ snap only if it lands within this of the checked spot's ground; farther, the sna
 bike is put back on the checked spot, level on its ground (the smaller change than trying the
 next spot, which would need a snap per spot; the spots after it were not the plugin's choice).
 Each such settle is logged ("The bike settled N from the checked spot"). 0: the snap taken as
-far as MaxSettleDistance, as in test 44's build.}
+far as MaxSettleDistance, as in test 44's build. Test 47: with the plugin's [Room] SnapNext
+(CMB_RoomOptions bit 8; test 46's calls onto a wrecked sedan and a truck, the snaps 89 and 207)
+a spot with room whose snap would go farther than this is not walkable, and the next spot is asked
+(PickBikeSpot, SnapOff): the putting back is left for when no other spot passes.}
+float Property ParkBackWithin = 136.0 AutoReadOnly
+{Test 47 (the plugin's [Room] ParkCheck, CMB_RoomOptions bit 4; test 46: got on facing a house's
+window at point blank and off 2 s later, and the bike went in beside the worn one, through the
+window): a ride that moved the player less than this from where they got on (about the bike's
+wheelbase, its axles 136.3 apart) puts the bike back where it stood before getting on, as it
+stood (ParkWhereItStood). Not with the player standing where it stood (ParkBackFore,
+ParkBackSide).}
+float Property ParkBackFore = 128.0 AutoReadOnly
+{Review of test 47's build (ParkWhereItStood): a short ride toward where the parked bike stood
+(got on from 100 beside it, 100 ridden its way) put it back on the player. It goes back only if
+the player is at least this far from where it stood along its heading (the plugin's [Room]
+Fore, 110, and the player's capsule radius, 18), or ParkBackSide across it, as the plugin's
+Slide keeps its box off the player; else its spot is asked about (ParkChecked).}
+float Property ParkBackSide = 58.0 AutoReadOnly
+{Across the bike's heading, as ParkBackFore along it (the plugin's [Room] Side, 40, and the
+capsule radius, 18).}
 float Property MaxGroundStep = 30.0 AutoReadOnly
 {The ground under the player, carried over to the bike beside them, may be this much
 higher or lower there; more and the bike is parked level at the player's height (one
@@ -546,6 +565,18 @@ bool spotTiltKnown = false
 ; Test 46: the last RollBikeUp found no spot and brought nothing (a call refused: the plugin's
 ; [Room] LineFallback=0).
 bool rollRefused = false
+; Test 47 (the plugin's [Room] ParkCheck): where the bike stood, and how, and where the player was
+; when they got on (Mount), for getting off after a ride that went nowhere (ParkWhereItStood).
+bool mountSpotKnown = false
+float mountBikeX
+float mountBikeY
+float mountBikeZ
+float mountBikeAX
+float mountBikeAY
+float mountBikeAZ
+float mountPlayerX
+float mountPlayerY
+float mountPlayerZ
 Actor[] stowedFollowers
 Actor[] boostedFollowers
 float[] boostedDeltas
@@ -594,6 +625,10 @@ Function OnGameReloaded()
 	endif
 	WatchSwimming()
 	WatchFalls()
+	; Test 47 (the build-27b check): the ram script's cooldown and refusal stamps are real seconds,
+	; which start again with each game launch: none from before a load means anything after it
+	; (DropStaleStamps only dropped those later than now). Before the ride's StartRide below.
+	CallRam("ClearStamps")
 	if bikeWaitsForShore && !swimming
 		StartTimer(ShoreDelay, TimerShore)
 	endif
@@ -1220,6 +1255,20 @@ Function Mount()
 		endif
 		Game.ForceThirdPerson()
 	endif
+	; Test 47 (the plugin's [Room] ParkCheck): where the bike stands and the player is now, for a
+	; getting off after a ride that went nowhere (ParkWhereItStood).
+	mountSpotKnown = !BikeRef.IsDisabled() && BikeRef.Is3DLoaded()
+	if mountSpotKnown
+		mountBikeX = BikeRef.GetPositionX()
+		mountBikeY = BikeRef.GetPositionY()
+		mountBikeZ = BikeRef.GetPositionZ()
+		mountBikeAX = BikeRef.GetAngleX()
+		mountBikeAY = BikeRef.GetAngleY()
+		mountBikeAZ = BikeRef.GetAngleZ()
+		mountPlayerX = PlayerRef.GetPositionX()
+		mountPlayerY = PlayerRef.GetPositionY()
+		mountPlayerZ = PlayerRef.GetPositionZ()
+	endif
 	BikeRef.Disable()
 	CallGearRestore("RememberSlot")
 	ApplyRiderPose()
@@ -1361,22 +1410,49 @@ bool Function RollBikeUp(bool abFromDoor = false)
 		BikeRef.Enable(false)
 		SettleBike()
 	else
-		; At the place the spot was checked at (spotX/Y/Angle), not where the player is by now: a
-		; player running out of a gate has moved a good way in the asks' half seconds, and the spot
-		; with room was the one asked about.
-		if spotKnown
-			BikeRef.MoveTo(PlayerRef, spotX - PlayerRef.GetPositionX(), spotY - PlayerRef.GetPositionY(), 0.0, false)
-			BikeRef.SetAngle(0.0, 0.0, spotAngle + ParkedModelYaw)
-		else
-			PlaceBike(SpotForward(spot), SpotRight(spot))
-		endif
-		BikeRef.Enable(true)
-		; Test 44: the snap measured against the checked spot (SpotSettleMax).
-		SettleBike(false, spotKnown && spotGroundKnown)
+		PlaceOnSpot(spot)
 	endif
 	bikeWaitsForShore = false
 	ForgetDoor()
 	return spot >= 0
+EndFunction
+
+; The bike at the spot PickBikeSpot chose: at the place the spot was checked at (spotX/Y/Angle), not
+; where the player is by now (a player running out of a gate has moved a good way in the asks' half
+; seconds, and the spot with room was the one asked about), at the player's height, shown, and
+; settled (test 44: the snap measured against the checked spot, SpotSettleMax). A call, a bring and
+; (test 47) a checked park.
+Function PlaceOnSpot(int aiSpot)
+	if spotKnown
+		BikeRef.MoveTo(PlayerRef, spotX - PlayerRef.GetPositionX(), spotY - PlayerRef.GetPositionY(), 0.0, false)
+		BikeRef.SetAngle(0.0, 0.0, spotAngle + ParkedModelYaw)
+	else
+		PlaceBike(SpotForward(aiSpot), SpotRight(aiSpot))
+	endif
+	BikeRef.Enable(true)
+	SettleBike(false, spotKnown && spotGroundKnown)
+EndFunction
+
+; Test 47 (the plugin's [Room] SnapNext; test 46's calls onto a wrecked sedan and onto the truck the
+; player stood on: the spot with room on the wreck, the navmesh snap 89 and 207 from it, the bike
+; put back there): how far the navmesh snap takes the bike put at (afX, afY) at the player's height,
+; as PlaceOnSpot puts it, from its checked spot (afX, afY, afGround), as SettleBike measures it;
+; abFlat (no ground known) along the ground only. GroundProbeRef stands in for the bike, which stays
+; where it is (disabled, during the asks). -1 without the probe.
+float Function SnapOff(float afX, float afY, float afGround, bool abFlat)
+	if !GroundProbeRef
+		return -1.0
+	endif
+	GroundProbeRef.MoveTo(PlayerRef, afX - PlayerRef.GetPositionX(), afY - PlayerRef.GetPositionY(), 0.0, false)
+	GroundProbeRef.MoveToNearestNavmeshLocation()
+	float sx = GroundProbeRef.GetPositionX() - afX
+	float sy = GroundProbeRef.GetPositionY() - afY
+	float sz = GroundProbeRef.GetPositionZ() - afGround
+	GroundProbeRef.MoveTo(HoldingMarkerRef)
+	if abFlat
+		sz = 0.0
+	endif
+	return Math.Sqrt(sx * sx + sy * sy + sz * sz)
 EndFunction
 
 ; Test 41: the first of the BikeSpots with room, by the plugin's word on each (RoomAt), or -1
@@ -1392,13 +1468,26 @@ EndFunction
 ; seven, each with its own heading (SpotTurn); a spot with room is taken where the plugin found it
 ; (slid or turned: RoomAt reads it back); and with its LineFallback=0 a call with no spot to take
 ; returns -2, refused (each spot that could be taken for the most room has a clear line; the first
-; spot was past the fence or inside the house). Every try is logged, and the choice.
-int Function PickBikeSpot(bool abFromDoor)
+; spot was past the fence or inside the house). Every try is logged, and the choice. Test 47: with
+; the plugin's [Room] SnapNext (CMB_RoomOptions bit 8; test 46's calls onto a wrecked sedan and a
+; truck) a spot with room whose navmesh snap goes past SpotSettleMax (SnapOff) is not walkable and
+; the next is asked; the first such is taken only when nothing else passes (a call's most-room
+; spot first if its own snap passes), and a bring takes it rather than where it waited. abPark
+; (getting off, the plugin's [Room] ParkCheck, ParkChecked): the AroundSpots only, beside and behind
+; the player, no most room; -1 with none of them to take (the bike parked as before).
+int Function PickBikeSpot(bool abFromDoor, bool abPark = false)
 	spotKnown = false
 	spotGroundKnown = false
 	spotTiltKnown = false
 	if !CheckBikeSpot
+		if abPark
+			return -1
+		endif
 		return 0
+	endif
+	string who = "The bike's spot: "
+	if abPark
+		who = "The parked bike's spot: "
 	endif
 	float angle = PlayerRef.GetAngleZ()
 	float px = PlayerRef.GetPositionX()
@@ -1415,8 +1504,23 @@ int Function PickBikeSpot(bool abFromDoor)
 	float bestPitch = 0.0
 	float bestRoll = 0.0
 	float bestGround = 0.0
+	; Test 47 (SnapNext): the first spot with room whose navmesh snap went too far, as it was read.
+	bool snapNext = RoomOption(8) && SpotSettleMax > 0.0
+	int farSpot = -1
+	float farX = 0.0
+	float farY = 0.0
+	float farAngle = 0.0
+	float farGround = 0.0
+	float farPitch = 0.0
+	float farRoll = 0.0
+	bool farTilted = false
+	bool unanswered = false
 	int spots = BikeSpots
 	int spot = 0
+	if abPark
+		spot = BikeSpots
+		spots = BikeSpots + AroundSpots
+	endif
 	while spot < spots
 		float forward = SpotForward(spot)
 		float right = SpotRight(spot)
@@ -1480,9 +1584,30 @@ int Function PickBikeSpot(bool abFromDoor)
 			if Math.Abs(lastRoomX - x) > 0.5 || Math.Abs(lastRoomY - y) > 0.5 || Math.Abs(turned) > 0.05
 				moved = ", where the plugin found room (" + Whole(Math.Sqrt((lastRoomX - x) * (lastRoomX - x) + (lastRoomY - y) * (lastRoomY - y))) + " from the asked spot, turned " + Whole(turned) + ")"
 			endif
-			Log("The bike's spot: " + (spot + 1) + " (" + SpotText(spot) + "), heading " + Whole(spotAngle) + moved + ".")
-			return spot
-		elseif room < 0 && CallTakesBestSpot && !abFromDoor && lastRoomClear > 0.0 && lastRoomClear <= 200.0 && lastRoomClear > bestClear
+			float snap = -1.0
+			if snapNext
+				snap = SnapOff(spotX, spotY, spotGround, false)
+			endif
+			if snap <= SpotSettleMax
+				Log(who + (spot + 1) + " (" + SpotText(spot) + "), heading " + Whole(spotAngle) + moved + ".")
+				return spot
+			endif
+			; Test 47 (SnapNext): off the navmesh (on a wreck, a truck's bed): the next spot.
+			Log("Bike's spot " + (spot + 1) + " (" + SpotText(spot) + "): its navmesh snap " + Whole(snap) + " from it, over " + Whole(SpotSettleMax) + ": not walkable, the next spot asked (the plugin's [Room] SnapNext).")
+			if farSpot < 0
+				farSpot = spot
+				farX = spotX
+				farY = spotY
+				farAngle = spotAngle
+				farGround = spotGround
+				farPitch = spotPitch
+				farRoll = spotRoll
+				farTilted = spotTiltKnown
+			endif
+			spotKnown = false
+			spotGroundKnown = false
+			spotTiltKnown = false
+		elseif room < 0 && CallTakesBestSpot && !abFromDoor && !abPark && lastRoomClear > 0.0 && lastRoomClear <= 200.0 && lastRoomClear > bestClear
 			; Refused for a hit along a ray (a share of the plugin's Fore, which the INI allows up to
 			; 200) or the ground under 100 below: the most room so far. The ground above (minus),
 			; none within 100 (-1), no clear line (-3) and not checked (-2) don't count. Test 45's
@@ -1499,21 +1624,59 @@ int Function PickBikeSpot(bool abFromDoor)
 			bestRoll = lastRoomRoll
 			bestGround = lastRoomGround
 		elseif room == 0
-			if abFromDoor && spot > 0
+			if farSpot >= 0
+				; Test 47: no answer after a spot with room whose snap went too far: that one (below).
+				unanswered = true
+				spot = spots
+			elseif abPark
+				Log(who + "as before (spot " + (spot + 1) + " not checked).")
+				return -1
+			elseif abFromDoor && spot > 0
 				Log("The bike's spot: where it waited (spot " + (spot + 1) + " not checked, the earlier ones without room).")
 				return -1
+			else
+				Log("The bike's spot: 1 (" + SpotText(0) + "), not checked, as before test 41.")
+				return 0
 			endif
-			Log("The bike's spot: 1 (" + SpotText(0) + "), not checked, as before test 41.")
-			return 0
 		endif
 		spot += 1
-		if spot == BikeSpots && RoomOption(1)
+		if spot == BikeSpots && RoomOption(1) && !abPark
 			; Test 46 (the plugin's [Room] Around): beside and behind the player too.
 			spots = BikeSpots + AroundSpots
 		endif
 	endwhile
+	if farSpot >= 0
+		; Test 47 (SnapNext): a call's most-room spot first, if its own snap passes (test 46's truck:
+		; the spots beside it refused for the ground below, a step down, the spots on it with room).
+		if bestSpot >= 0 && !unanswered
+			float bestSnap = SnapOff(bestX, bestY, bestGround, !bestTilted)
+			if bestSnap > SpotSettleMax
+				Log("Bike's spot " + (bestSpot + 1) + " (" + SpotText(bestSpot) + "), the most room: its navmesh snap " + Whole(bestSnap) + " from it, over " + Whole(SpotSettleMax) + ": not walkable either.")
+				bestSpot = -1
+			endif
+		else
+			bestSpot = -1
+		endif
+		if bestSpot < 0
+			spotX = farX
+			spotY = farY
+			spotAngle = farAngle
+			spotKnown = true
+			spotGround = farGround
+			spotGroundKnown = true
+			spotPitch = farPitch
+			spotRoll = farRoll
+			spotTiltKnown = farTilted
+			Log(who + (farSpot + 1) + " (" + SpotText(farSpot) + "), heading " + Whole(spotAngle) + ": the first with room, its navmesh snap too far, and no other spot passes (the plugin's [Room] SnapNext): taken as before.")
+			return farSpot
+		endif
+	endif
 	if abFromDoor
 		Log("The bike's spot: where it waited (none of the " + spots + " has room).")
+		return -1
+	endif
+	if abPark
+		Log(who + "as before (none of the " + AroundSpots + " beside and behind the player has room either).")
 		return -1
 	endif
 	if bestSpot >= 0
@@ -1563,9 +1726,13 @@ EndFunction
 ; inside its hold. Test 46: with room, lastRoomX/Y/Angle are where the plugin found it (read back
 ; from CMB_RoomAskX/Y/Angle: its [Room] Slide may have moved or turned the spot; as asked with an
 ; older plugin), and lastRoomPitch/Roll the ground's tilt under the wheels there (CMB_RoomPitch and
-; Roll, lastRoomTilted; -1000 none: its ParkTilt off, or an older plugin or ESP).
-int Function RoomAt(float afX, float afY, float afZ, int aiSpot, float afAngle, string asUnchecked = ".")
+; Roll, lastRoomTilted; -1000 none: its ParkTilt off, or an older plugin or ESP). Test 47: asSpot
+; names a spot that isn't one of the BikeSpots in its lines (ParkChecked's "The park spot (...)").
+int Function RoomAt(float afX, float afY, float afZ, int aiSpot, float afAngle, string asUnchecked = ".", string asSpot = "")
 	string try = "Bike's spot " + (aiSpot + 1) + " (" + SpotText(aiSpot) + "): "
+	if asSpot != ""
+		try = asSpot + ": "
+	endif
 	lastRoomClear = 0.0
 	lastRoomX = afX
 	lastRoomY = afY
@@ -2461,12 +2628,118 @@ bool Function LeaveBikeOutside(bool abAtDoor)
 EndFunction
 
 Function ParkBesidePlayer()
+	; Test 47 (the plugin's [Room] ParkCheck, CMB_RoomOptions bit 4; test 46's getting off nosed into a
+	; house's window, the bike through it): a ride that went nowhere puts the bike back where it
+	; stood; else its spot is asked about as a call's, and moved or replaced where the plugin says.
+	if riding && RoomOption(4)
+		if ParkWhereItStood() || ParkChecked()
+			return
+		endif
+	endif
 	if ParkOnTrack()
 		return
 	endif
 	PlaceBike(0.0, ParkSideOffset)
 	BikeRef.Enable()
 	SettleBike(true)
+EndFunction
+
+; Test 47 (the plugin's [Room] ParkCheck): a ride that moved the player less than ParkBackWithin
+; from where they got on puts the bike back where it stood then, as it stood (Mount kept both):
+; test 46's tester got on facing a house's window at point blank and got off 2 s later, and the
+; parked bike went in beside the worn one, through the window. False if it wasn't seen standing
+; at getting on, or the ride went farther, or (review of test 47's build) the player now stands
+; where it stood: within ParkBackFore of it along its heading and ParkBackSide across it.
+bool Function ParkWhereItStood()
+	if !mountSpotKnown
+		return false
+	endif
+	float dx = PlayerRef.GetPositionX() - mountPlayerX
+	float dy = PlayerRef.GetPositionY() - mountPlayerY
+	float dz = PlayerRef.GetPositionZ() - mountPlayerZ
+	float moved = Math.Sqrt(dx * dx + dy * dy + dz * dz)
+	if moved >= ParkBackWithin
+		return false
+	endif
+	float heading = mountBikeAZ - ParkedModelYaw
+	float bx = PlayerRef.GetPositionX() - mountBikeX
+	float by = PlayerRef.GetPositionY() - mountBikeY
+	float along = bx * Math.Sin(heading) + by * Math.Cos(heading)
+	float across = bx * Math.Cos(heading) - by * Math.Sin(heading)
+	if Math.Abs(along) < ParkBackFore && Math.Abs(across) < ParkBackSide
+		Log("Parked bike not put back where it stood: the ride moved the player " + Whole(moved) + ", under " + Whole(ParkBackWithin) + ", but they stand where it stood (" + Whole(along) + " along its heading, " + Whole(across) + " across it): its spot asked about instead (the plugin's [Room] ParkCheck).")
+		return false
+	endif
+	; MoveTo first: the bike may be in another cell (it waits in the holding cell).
+	BikeRef.MoveTo(PlayerRef, mountBikeX - PlayerRef.GetPositionX(), mountBikeY - PlayerRef.GetPositionY(), mountBikeZ - PlayerRef.GetPositionZ(), false)
+	BikeRef.SetAngle(mountBikeAX, mountBikeAY, mountBikeAZ)
+	BikeRef.Enable()
+	Log("Parked bike put back where it stood before getting on: the ride moved the player " + Whole(moved) + " from where they got on, under " + Whole(ParkBackWithin) + " (the plugin's [Room] ParkCheck).")
+	return true
+EndFunction
+
+; Test 47 (the plugin's [Room] ParkCheck): the parked bike's spot, the track just ridden's (as
+; ParkOnTrack takes it, heading the way it went) or beside the player (as PlaceBike puts it), asked
+; about as a call's spot is (RoomAt: the box along its heading; the plugin's Slide may move or turn
+; it). The bike is disabled while riding, so it isn't in its own way. Room as asked: false, and the
+; caller parks there as before. Room where the plugin moved or turned it: the bike there, settled as
+; a brought bike on its checked spot (PlaceOnSpot). None: the AroundSpots, beside and behind the
+; player (PickBikeSpot's park), the first with room taken. False with none of those either, or no
+; answer: parked as before. Test 46: getting off nosed into a house, the spot beside the worn bike
+; was through the window.
+bool Function ParkChecked()
+	float heading = PlayerRef.GetAngleZ()
+	float x = PlayerRef.GetPositionX() + OffsetX(heading, 0.0, ParkSideOffset)
+	float y = PlayerRef.GetPositionY() + OffsetY(heading, 0.0, ParkSideOffset)
+	float z = PlayerRef.GetPositionZ()
+	string what = "beside the player"
+	if CMB_ParkX && CMB_ParkY && CMB_ParkZ && CMB_ParkAngle && CMB_ParkUpZ && CMB_ParkUpZ.GetValue() >= 0.5
+		x = CMB_ParkX.GetValue()
+		y = CMB_ParkY.GetValue()
+		z = CMB_ParkZ.GetValue()
+		heading = CMB_ParkAngle.GetValue() - ParkedModelYaw
+		what = "the track just ridden"
+	endif
+	if heading < 0.0
+		heading += 360.0
+	endif
+	int room = RoomAt(x, y, z, -1, heading, ".", "The park spot (" + what + ")")
+	if room == 1
+		float turned = lastRoomAngle - heading
+		while turned > 180.0
+			turned -= 360.0
+		endwhile
+		while turned < -180.0
+			turned += 360.0
+		endwhile
+		float slid = Math.Sqrt((lastRoomX - x) * (lastRoomX - x) + (lastRoomY - y) * (lastRoomY - y))
+		if slid <= 0.5 && Math.Abs(turned) <= 0.05
+			Log("The parked bike's spot: " + what + ", as before (room there).")
+			return false
+		endif
+		spotX = lastRoomX
+		spotY = lastRoomY
+		spotAngle = lastRoomAngle
+		spotKnown = true
+		spotGround = z - lastRoomClear
+		spotGroundKnown = true
+		spotPitch = lastRoomPitch
+		spotRoll = lastRoomRoll
+		spotTiltKnown = lastRoomTilted
+		Log("The parked bike's spot: " + what + ", heading " + Whole(spotAngle) + ", where the plugin found room (" + Whole(slid) + " from the asked spot, turned " + Whole(turned) + ").")
+		PlaceOnSpot(-1)
+		return true
+	elseif room != -1
+		; Not checked (the plugin's rays, -2) or no answer (0): as before.
+		Log("The parked bike's spot: " + what + ", as before (not checked).")
+		return false
+	endif
+	int spot = PickBikeSpot(false, true)
+	if spot < 0
+		return false
+	endif
+	PlaceOnSpot(spot)
+	return true
 EndFunction
 
 ; With CMB_Slope.dll: on the ground just ridden, a bike length behind the player, facing
@@ -3427,7 +3700,7 @@ EndFunction
 
 float Function EngineVolume()
 	if !CMB_EngineVolume
-		return 0.7
+		return 0.9
 	endif
 	float volume = CMB_EngineVolume.GetValue() / 100.0
 	if volume < 0.0

@@ -400,7 +400,7 @@ public static class Program
         var sndStop = EngineSound(mod, "CMB_EngineStopSD", "CMB_EngineStop.wav", loop: false);
         var sndIdle = EngineSound(mod, "CMB_EngineIdleLPSD", "CMB_EngineIdleLP.wav", loop: true);
         var sndCruise = EngineSound(mod, "CMB_EngineCruiseLPSD", "CMB_EngineCruiseLP.wav", loop: true);
-        var gEngineVolume = Global(mod, "CMB_EngineVolume", 70);
+        var gEngineVolume = Global(mod, "CMB_EngineVolume", 90);   // test 47: the MCM's default 90 (70 up to test 46; test 46's tester settled at 90); a save keeps its own
         if (gEngineVolume.FormKey.ID != 0x81C)   // test 46: CMB_Slope.dll puts it on the engine's loops it drives, found by ID
             throw new InvalidOperationException($"CMB_EngineVolume must be 0x81C (CMB_Slope.dll looks for it), got {gEngineVolume.FormKey.ID:X}");
 
@@ -1002,19 +1002,21 @@ public static class Program
     // The engine's output model, since test 45's answer. Until then the engine played through the vanilla
     // SOMMono02000 (0x7E5DC): full level within 150 units, then a curve of 50/20/5/0 % out to 2000. The riding
     // camera sits about 450 out (fVanityModeMaxDist), and the listener is most likely the camera, so the engine
-    // lost a few dB to distance alone. This is that model with its distances scaled: full level out to 600 (past
-    // the camera), the same curve from there to 4000. The rest is what a mono sound placed in the world takes:
-    // Uses HRTF (a point source; the speaker grid below is only for Defined Speaker Output, and is the plain
-    // mono-to-front, left-to-left, right-to-right one), attenuated with distance, no Doppler or distance delay (the
-    // camera rides with the bike), the reverb send full, no static attenuation, no effect chain. Those fields
-    // weren't read from the game's own record (no Fallout4.esm here): compare with SOMMono02000 in xEdit if the
-    // engine is placed or reverberates differently from test 45. No INI can switch this off: the
-    // generator's output model is the only way back (CMB_SOMMonoEngine's distances 150 and 2000, or the
-    // descriptors on Vanilla.SOMMono02000).
+    // lost a few dB to distance alone. This is that model with its fade-out distances moved: full level out to
+    // 600 (past the camera; Bethesda's SOMMono01500Player3rd, which 101 of the player's own 3rd-person sounds use,
+    // is full out to 500), the same curve from there to 4000. Since test 47 everything else is SOMMono02000's own,
+    // as the 27b build check read it from the tester's Fallout4.esm: flags Attenuates With Distance, Uses HRTF, the
+    // reverb send 5 % (25 of the 26 plain SOMMonoNNNNN use 5, their _verb twins 40, the highest in Fallout4.esm 70;
+    // 27b's 100 made the engine far wetter than any world sound wherever the area has reverb), a static attenuation
+    // (VNAM) of 0, no output values (ONAM: none of the 220 vanilla Uses HRTF models has one), the fade-in curve
+    // 0/50/80/95 (unused with a 0-0 fade-in, as written by 207 vanilla models), no effect chain. No INI can switch
+    // this off: the generator's output model is the only way back (test 46's: reverb 100, no VNAM, the three ONAM
+    // rows 100,100 / 100,0 / 0,100, the fade-in curve 100/100/100/100; or the descriptors on Vanilla.SOMMono02000).
     public const string EngineModelId = "CMB_SOMMonoEngine";
     public const float EngineModelFullTo = 600, EngineModelSilentAt = 4000;
     static readonly byte[] EngineModelCurve = { 50, 20, 5, 0 };
-    const byte EngineModelReverbSend = 100;
+    static readonly byte[] EngineModelFadeIn = { 0, 50, 80, 95 };   // SOMMono02000's
+    const byte EngineModelReverbSend = 5;                            // SOMMono02000's (test 46: 100)
 
     static SoundOutputModel EngineOutputModel(Fallout4Mod mod)
     {
@@ -1026,19 +1028,15 @@ public static class Program
             ReverbSendPercent = new Percent(EngineModelReverbSend / 255.0),
         };
         model.Type = SoundOutputModel.TypeEnum.UsesHrtf;
-        model.OutputChannels = new SoundOutputChannels
-        {
-            Channel0 = new SoundOutputChannel { L = 100, R = 100 },
-            Channel1 = new SoundOutputChannel { L = 100 },
-            Channel2 = new SoundOutputChannel { R = 100 },
-        };
+        model.StaticAttenuation = 0;   // VNAM, present (all 311 vanilla models have it, 258 of them 0); no ONAM (OutputChannels left out)
         model.DynamicAttentuation = new DynamicAttentuationValues
         {
             FadeInDistanceStart = 0,
             FadeInDistanceEnd = 0,
             FadeOutDistanceStart = EngineModelFullTo,
             FadeOutDistanceEnd = EngineModelSilentAt,
-            FadeInCurveValue1 = 100, FadeInCurveValue2 = 100, FadeInCurveValue3 = 100, FadeInCurveValue4 = 100,
+            FadeInCurveValue1 = EngineModelFadeIn[0], FadeInCurveValue2 = EngineModelFadeIn[1],
+            FadeInCurveValue3 = EngineModelFadeIn[2], FadeInCurveValue4 = EngineModelFadeIn[3],
             FadeOutCurveValue1 = EngineModelCurve[0], FadeOutCurveValue2 = EngineModelCurve[1],
             FadeOutCurveValue3 = EngineModelCurve[2], FadeOutCurveValue4 = EngineModelCurve[3],
         };

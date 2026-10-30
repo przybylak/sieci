@@ -35,11 +35,11 @@ COMPATIBLE = {
     "float": {"Float"},
 }
 
-# The engine's output model (Program.cs, EngineOutputModel): SOMMono02000's distances scaled, full level out to 600
-# (past the riding camera) and its 50/20/5/0 curve from there out to 4000. The dump's "sopm" line for it must be this.
+# The engine's output model (Program.cs, EngineOutputModel): SOMMono02000 exactly (since test 47: the reverb send 5, the
+# static attenuation 0, no output values, the fade-in curve 0/50/80/95) but for the fade-out distances, full level out to
+# 600 (past the riding camera) and its 50/20/5/0 curve from there out to 4000. The dump's "sopm" line for it must be this.
 ENGINE_MODEL = "CMB_SOMMonoEngine"
-ENGINE_MODEL_FIELDS = ("flags AttenuatesWithDistance reverb 100 type UsesHrtf static none ch0 100,100,0,0,0,0,0,0 "
-                       "ch1 100,0,0,0,0,0,0,0 ch2 0,100,0,0,0,0,0,0 fade-in 0-0 [100,100,100,100] "
+ENGINE_MODEL_FIELDS = ("flags AttenuatesWithDistance reverb 5 type UsesHrtf static 0 channels none fade-in 0-0 [0,50,80,95] "
                        "fade-out 600-4000 [50,20,5,0] effect-chain none")
 ENGINE_SOUNDS = 13      # the start, the stop, the idle, the cruise and the nine more the plugin drives
 RECORD = re.compile(r"^  ([0-9A-F]{6}) (\S+)\s+(\S*)\s*$")

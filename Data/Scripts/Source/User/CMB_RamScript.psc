@@ -76,7 +76,8 @@ Actor[] okActors
 string[] okNames
 int okNext = 0
 ; The last few knocked over, for the cooldown (real seconds; cleared on getting on, and a stamp
-; later than now dropped as an earlier session's: test 46, DropStaleStamps).
+; later than now dropped as an earlier session's: test 46, DropStaleStamps; test 47: all cleared at
+; every load, ClearStamps).
 Actor[] knocked
 float[] knockedAt
 int knockedNext = 0
@@ -374,6 +375,47 @@ Function DropStaleStamps(float afNow)
 	endif
 	if n > 0
 		Log("Ram: " + n + " stale knock-over/refusal stamps from an earlier session cleared.")
+	endif
+EndFunction
+
+; Test 47 (the build-27b check): DropStaleStamps drops only the stamps later than now, so an
+; earlier session's stamp that happens to fall in this session's last Cooldown seconds still
+; counted. Utility.GetCurrentRealTime() starts again with each game launch, so no stamp from before
+; a load means anything after it: the controller's OnGameReloaded calls this at every load (before
+; a ride's StartRide), and all of them, the cooldown's, the refusals' log stamps and the pushes not
+; yet measured, are cleared. No switch: a plain bug fix, as DropStaleStamps.
+Function ClearStamps()
+	Remember()
+	int n = 0
+	int i = 0
+	while i < knocked.Length
+		if knocked[i]
+			n += 1
+		endif
+		knocked[i] = None
+		knockedAt[i] = 0.0
+		i += 1
+	endwhile
+	i = 0
+	while i < refusedKeys.Length
+		if refusedKeys[i] != ""
+			n += 1
+		endif
+		refusedKeys[i] = ""
+		refusedAt[i] = 0.0
+		i += 1
+	endwhile
+	i = 0
+	while i < pushed.Length
+		if pushed[i]
+			n += 1
+		endif
+		pushed[i] = None
+		pushedAt[i] = 0.0
+		i += 1
+	endwhile
+	if n > 0
+		Log("Ram: " + n + " knock-over/refusal stamps from before the load cleared.")
 	endif
 EndFunction
 

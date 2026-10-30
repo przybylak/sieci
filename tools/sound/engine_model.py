@@ -10,7 +10,9 @@ after measuring this model's first demo against the reference: the full-throttle
 u/s unchanged), MinShiftGap 1.25 s, the level law's own reference LevelRpm 3000, ShiftFamily 1; the rpm rises at most
 RiseRate in log rpm a second (the per-frame pitch step leaving idle); in 1st gear the raw demand switches the on family
 and below the idle's fade band the family weight jumps (no closed-throttle loop at a launch); a slow random wander of
-the family loops' pitch (Wander, WanderTau; an LCG the C twin reproduces).
+the family loops' pitch (Wander, WanderTau; an LCG the C twin reproduces). Test 47: the throttle hand (that wander
+larger, smoothed, the family loops' level moving with it, only while the throttle is steady: WanderLevel, WanderSteady,
+WanderSmooth) and a throttle-off dip at each up-shift (ShiftDip, ShiftDipTime); each 0 is test 46's model.
 
 Gearbox. Four gears with the measured steps 1.35 / 1.28 / 1.21; each gear's entry is its speed at ShiftRpm (2500).
 2nd reaches ShiftRpm at 750 u/s (3000 rpm at the top speed), 4th cruises at the top speed at 1937 rpm.
@@ -58,7 +60,7 @@ both (one voice: its gains add in power).
 Level (the law of the level-linear paris ride, scaled): in dB re full load at LevelRpm (3000),
   LevelScale * max(IdleDb, RpmDb * log2(rpm / LevelRpm) + LoadDb * (rider load - 1)) + LevelOffset,
 held at 0 dB (the game's volume tops out there; test 46) before the crossfades, so each loop's gain is 1 at most and a
-hand-over at the ceiling stays equal power (level_db() gives it before the ceiling).
+hand-over at the ceiling stays equal power (level_db() gives it before the ceiling, heard_db() after it, less ShiftDip).
 LevelScale 0.3 is what the daily and autumn cameras deliver (0.29-0.36 of paris's range): idle -5.2 dB, full load
 at 3000 rpm 0 dB. Test 45: 0.7 (the tester: the cameras' compression copied, not the bike; paris's pull is 11.6 dB over
 its idle): idle -12.0 dB. Test 46 (the tester: too quiet, not punchy; the game plays the loops faithfully, its volume
@@ -173,11 +175,39 @@ DEFAULTS = dict(
                           # daily -40 % at 0.12 s; with 0 the shift darkened -16 %, late, at 0.58 s); 0 = the family
                           # follows the rider
     # --- the heard rpm's slow wander: the family loops' pitch x (1 + w), w a slow random walk (Ornstein-Uhlenbeck, time
-    # constant WanderTau, sd Wander) from a 32-bit LCG (bit-identical in C); the gearbox never sees it
-    Wander=0.006, WanderTau=0.8,   # without it the cruise was dead flat (0.027 %); the daily's cruise track wanders
-                                   # 0.48-0.69 % over 2.4-5.8 s and 0.29-0.36 % around a 2 s moving mean; these give
-                                   # 0.45 % and 0.32 % measured the same way (39 seeds); autumn 0.41-0.73 %
+    # constant WanderTau, sd Wander) from a 32-bit LCG (bit-identical in C); the gearbox never sees it. Test 47, the
+    # throttle hand (the tester: "it doesn't fluctuate at all ... bike engine RPM always either rises or decreases"; test
+    # 46's note, 4 s windows of steady riding with the trend taken out: the real rides' rpm 0.9-2.3 %, their level
+    # 0.34-0.81 dB, the game's 0.4 % and 0.16 dB): larger and slower, smoothed (WanderSmooth), the level moving with the
+    # pitch (WanderLevel), only while the throttle is steady (WanderSteady). Measured the note's way on this model (900
+    # u/s in 4th with the key held, 4 s windows, 4 seeds, 392 windows): the heard rpm 1.02 % (median; mean 1.08), the
+    # level 0.30 dB (0.32), 0.30 dB per 1 %, the pitch moving 6.8 cents rms in 0.1 s; test 46's 0.006, 0.8 (and 0 for
+    # the three new): 0.39 % (0.41), the level flat, 5.1 cents; through a pull from rest the wander is 0
+    Wander=0.025, WanderTau=1.5,   # the autumn ride's 1.02 % (the note: 0.02-0.025 with 1.5-2, unsmoothed, gives 0.9-1.1 %);
+                                   # test 46's 0.006, 0.8 (the daily's cruise track 0.48-0.69 % over 2.4-5.8 s, 0.45 % by
+                                   # that measure)
     WanderSeed=12345,
+    WanderLevel=0.3,      # dB of level per 1 % of the wander, on the family loops (the idle's level and pitch never wander):
+                          # a rise louder and more loaded, a fall lighter (the rides: autumn 0.34 dB at 1.02 %, daily 0.43
+                          # at 1.41, paris 0.81 at 2.36: 0.30-0.34 dB per 1 %, the rpm's and the load's together); 0: the
+                          # level doesn't wander (test 46)
+    WanderSteady=0.25,    # s: the wander only while the throttle is steady (on, no up-shift's gap, the clutch out, over
+                          # the idle's band, the rider's load under WANDER_PULL of the way from the cruise's to full, the
+                          # plugin not holding the throttle); else it settles to 0 with this time constant (a pull, a
+                          # let-up, a shift, the idle) and grows again from 0 by its own walk; 0: everywhere (test 46)
+    WanderSmooth=0.2,     # s: the walk smoothed with this time constant before it is heard (the engine's inertia: the bare
+                          # walk at 0.025, 1.5 moves the pitch 15.7 cents rms in 0.1 s, 1.31 % in the 4 s windows); 0: the
+                          # bare walk (test 46)
+    # --- test 47: a throttle-off dip at each up-shift (paris, 55 shifts: about -5.5 dB, about 0.3 s under -3 dB; the
+    # game in test 46: -2.4 dB, the rpm's fall alone, a full-load pull held at the 0 dB ceiling). Measured on this model
+    # (a pull from rest at the game's 300 u/s^2, 4 seeds, the level against its mean 0.25-0.05 s before the clutch-in, the
+    # 0.6 s after): at the ceiling -4.0 dB at +0.07 s, 0.15 s under -3 dB; under it (the shift drawn lower) -4.7..-5.0
+    # with the rpm's fall, 0.17 s; the pull's last shift, into the cruise, -6.2 (at the floor; its load falling to the
+    # cruise's too); ShiftDip=0: -0.4..-2.0, none under -3 dB but that last (-3.7)
+    ShiftDip=4.0,         # dB at its deepest (0: none, test 46), from the up-shift's clutch-in, after the 0 dB ceiling (so it
+                          # is heard at the top of a pull), never taking the level more than DIP_FLOOR under where it was
+                          # at the clutch-in
+    ShiftDipTime=0.24,    # s: in over its first quarter, full depth, out over its last third (cosine ramps)
     # --- level, dB re full load at LevelRpm: LevelScale * max(IdleDb, RpmDb log2(rpm/LevelRpm) + LoadDb (load - 1))
     LevelScale=1.0,       # paris (linear): idle 11.6 dB under a pull, the throttle closing -4..-5 dB; 1.0 (test 46) is
                           # paris's own law: the idle 8.4 dB under the cruise, a full-load pull at the cruise's rpm 2.75
@@ -216,6 +246,8 @@ DEFAULTS = dict(
 )
 EPS = 1e-4      # timer comparisons: float and double agree when a time is a whole number of frames
 LAND = 1.03     # the heard speed: an up-shift lands the next gear this much over DownRpm at the bike's own speed
+WANDER_PULL = 0.25   # the throttle steady (WanderSteady): the rider's load under this share of the way from the cruise to full
+DIP_FLOOR = 6.0      # dB: ShiftDip takes the level at most this far under where it was at the clutch-in
 
 
 class Family:
@@ -282,6 +314,9 @@ class Engine:
         self.fam_w = 0.0                       # 0 = off load .. 1 = on load
         self.lowest = {self.on[0][0]} | ({self.off[0][0]} if self.off else set())
         self.wander = 0.0                      # the heard rpm's slow wander (a fraction)
+        self.wander_raw = 0.0                  # its random walk before WanderSmooth (test 47)
+        self.dip_ref = 0.0                     # the level (dB, at most 0) at the last up-shift's clutch-in (ShiftDip's floor)
+        self.steady = False                    # the throttle steady this frame (WanderSteady)
         self.lcg = int(self.c["WanderSeed"]) & 0xFFFFFFFF
         self.dlcg = (int(self.c["WanderSeed"]) ^ 0x9E3779B9) & 0xFFFFFFFF   # the pulls' draws
         self.vh = 0.0                          # the heard speed (the bike's own with HeardSpeed 0)
@@ -405,6 +440,7 @@ class Engine:
                              or v * self.gear_k(self.gear + 1) > c["DownRpm"] * LAND)):
                     if heard:
                         self.vh = vs = max(vs, vg)   # out of a slip: the heard speed is 1st's at the slip's rpm
+                    self.dip_ref = min(0.0, self.level_db())   # where ShiftDip starts from (its floor DIP_FLOOR under)
                     self.gear += 1
                     self.shift_left = c["ShiftTime"]
                     self.shift_rpm0 = self.rpm
@@ -475,9 +511,21 @@ class Engine:
         if new > top_rpm:
             new = top_rpm
         self.rpm = new
-        # the heard rpm's wander: dw = -w dt / tau + sd sqrt(2 dt / tau) n, n of unit variance (uniform x sqrt 3)
-        self.wander += (-self.wander * dt / c["WanderTau"]
-                        + c["Wander"] * math.sqrt(2.0 * dt / c["WanderTau"]) * 1.7320508 * self.noise())
+        # the heard rpm's wander: dw = -w dt / tau + sd sqrt(2 dt / tau) n, n of unit variance (uniform x sqrt 3); with
+        # WanderSteady (test 47) only while the throttle is steady, else settling to 0 (the number drawn all the same)
+        n = self.noise()
+        steady = (on and not in_shift and not self.clutch and not self.held and pull < WANDER_PULL
+                  and self.rpm > c["IdleRpm"] + c["IdleFade"][1])
+        if c["WanderSteady"] > 0.0 and not steady:
+            self.wander_raw -= self.wander_raw * (1.0 - math.exp(-dt / c["WanderSteady"]))
+        else:
+            self.wander_raw += (-self.wander_raw * dt / c["WanderTau"]
+                                + c["Wander"] * math.sqrt(2.0 * dt / c["WanderTau"]) * 1.7320508 * n)
+        if c["WanderSmooth"] > 0.0:            # test 47: the hand smooth (the engine's inertia), no frame-to-frame jitter
+            self.wander += (self.wander_raw - self.wander) * (1.0 - math.exp(-dt / c["WanderSmooth"]))
+        else:
+            self.wander = self.wander_raw
+        self.steady = steady
         # the family: on load once the rider's load is over OnAbove; off load once the rider's demand (the throttle,
         # unsmoothed) has stayed under OffBelow for OffHold s
         if self.on_sel:
@@ -528,14 +576,40 @@ class Engine:
                 n, b = fam.loops[i]
                 base[n] = b
                 p2[n] = p2.get(n, 0.0) + (w_run * w * g) ** 2
-        level = min(1.0, 10 ** (self.level_db() / 20))   # 0 dB at most (test 46), before the crossfades: equal power through them
+        level = 10 ** (self.heard_db() / 20)   # 0 dB at most (test 46), before the crossfades: equal power through them
+        hand = 10 ** (c["WanderLevel"] * 100.0 * self.wander / 20) if c["WanderLevel"] else 1.0   # test 47: the wander's level
         in_band = self.rpm < c["IdleRpm"] + c["IdleFade"][1]
         out = {}
         for n, q in p2.items():
             p = self.rpm / base[n]
+            g = level
             if n != self.idle[0]:
                 p *= 1.0 + self.wander
+                g *= hand
             if not (in_band and (n == self.idle[0] or n in self.lowest)):
                 p = min(c["MaxPitch"], max(c["MinPitch"], p))
-            out[n] = (min(1.0, math.sqrt(q) * level), p)   # (q is 1 at most: the level's ceiling holds each loop's)
+            out[n] = (min(1.0, math.sqrt(q) * g), p)   # (q is 1 at most: the level's ceiling holds each loop's)
         return out
+
+    def dip_shape(self):
+        """ShiftDip's share now, 0..1: from the last up-shift's clutch-in, in over ShiftDipTime's first quarter, out over
+        its last third (cosine ramps), full between."""
+        T, t = self.c["ShiftDipTime"], self.since_up
+        if T <= 0.0 or t <= 0.0 or t >= T:
+            return 0.0
+        a, r = 0.25 * T, T / 3.0
+        if t < a:
+            return 0.5 - 0.5 * math.cos(math.pi * t / a)
+        if t > T - r:
+            return 0.5 + 0.5 * math.cos(math.pi * (t - (T - r)) / r)
+        return 1.0
+
+    def heard_db(self):
+        """The level law held at 0 dB, less an up-shift's throttle-off dip (ShiftDip, test 47), at most DIP_FLOOR under
+        the level at its clutch-in (never under that, unless the law itself is)."""
+        db = min(0.0, self.level_db())
+        dip = self.c["ShiftDip"] * self.dip_shape() if self.c["ShiftDip"] > 0.0 else 0.0
+        if dip > 0.0:
+            floor = self.dip_ref - DIP_FLOOR
+            db = db - dip if db - dip >= floor else min(db, floor)
+        return db
