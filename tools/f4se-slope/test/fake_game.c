@@ -179,8 +179,66 @@ static uint8_t *g_collChar;    /* BGSCollisionLayer COLL 0008877F: what the char
 static bool g_collHidden;      /* one test: the form lookup finds no such record */
 static uint8_t *g_handsShape, *g_handsSkin, *g_handsData, *g_handsBones, *g_handsXf[5], g_handsBonesOriginal[5 * 0x50];
 static uint8_t *g_hatShape, *g_hatSkin, *g_hatData, *g_hatBones, *g_hatXf[3], g_hatBonesOriginal[3 * 0x50];   /* test 41's headwear: HEAD, a node-less Head_skin at HEAD's place, a node-less bone 10 above on no node */
-static uint8_t *g_partData[4], *g_partBones[4];   /* the Harley build's moving parts: front wheel, rear wheel, bar assembly, the lower fork (test 38) */
+static uint8_t *g_partData[4], *g_partBones[4];   /* the Sketchfab build's moving parts: front wheel, rear wheel, bar assembly, the lower fork (test 38) */
 static uint8_t g_partBonesOriginal[4][0x50];
+/* Mode 17 (the 2026-10-31a build's look): its own bike instead of the four parts, every shape with its own skin and
+ * bone data like them: the 2026-10-31a build's 28 labels (set 0), 27c's twelve (set 1, the tester's way back to
+ * 27c's look: its meshes copied over) and 21 more static ones (set 2, a 50-shape ride with set 0
+ * and the main shape). The culling spheres are the built nifs' (the bike's space: centre, radius;
+ * the needle's on NeedlePoint, as the mesh tool writes it); the role each should get by its name,
+ * and with [Parts] RolesByName=0 by its sphere (27c's rules). */
+typedef struct { const char *label; float c[3], r; const char *role, *role0; } LookPart;
+static const LookPart g_lookParts[] = {
+	{ "static_paint", { 0.63f, -5.38f, 69.33f }, 61.24f, "none", "none" },
+	{ "static_chrome", { 2.08f, -1.22f, 54.36f }, 65.73f, "none", "none" },
+	{ "static_exhaust", { 8.89f, -1.02f, 34.02f }, 60.32f, "none", "none" },
+	{ "static_engine", { 2.29f, 24.88f, 38.73f }, 39.30f, "none", "none" },
+	{ "static_black", { -3.62f, 5.44f, 56.49f }, 74.00f, "none", "none" },
+	{ "static_seat", { 0.25f, -15.81f, 62.81f }, 24.00f, "none", "none" },
+	{ "static_glass", { 0.28f, -47.90f, 54.59f }, 19.79f, "none", "none" },
+	{ "static_badge", { 0.62f, -8.69f, 70.92f }, 55.56f, "none", "none" },
+	{ "rear_tail", { 0.33f, -64.22f, 54.31f }, 4.11f, "tail", "none" },
+	{ "rear_brake", { 0.28f, -59.64f, 54.69f }, 19.78f, "brake", "none" },
+	{ "front_chrome", { 0.09f, 60.56f, 81.06f }, 34.37f, "front", "front" },
+	{ "front_black", { -0.30f, 57.42f, 71.84f }, 50.18f, "front", "front" },
+	{ "front_glass", { 0.47f, 64.94f, 85.25f }, 27.10f, "front", "front" },
+	{ "front_glow", { 0.30f, 73.00f, 81.88f }, 6.60f, "glow", "glow" },
+	{ "front_dial", { 0.38f, 65.34f, 98.84f }, 3.75f, "front", "front" },
+	{ "front_dialglow", { 0.38f, 65.14f, 99.00f }, 3.64f, "glow+backlight", "front" },
+	{ "front_needle", { 0.38f, 64.93f, 99.11f }, 3.98f, "needle", "front" },
+	{ "front_mirrorStock", { 1.05f, 45.62f, 105.41f }, 38.57f, "front+mirror1", "front" },
+	{ "front_mirrorUnderEgg", { 0.00f, 38.45f, 87.44f }, 40.48f, "front+mirror2", "front" },
+	{ "front_mirrorUnderD", { 0.00f, 38.67f, 87.16f }, 40.36f, "front+mirror3", "front" },
+	{ "fork_chrome", { 0.27f, 88.34f, 41.88f }, 20.36f, "fork", "fork" },
+	{ "fork_paint", { 0.35f, 83.28f, 46.24f }, 25.76f, "fork", "fork" },
+	{ "fork_black", { 0.43f, 85.31f, 47.77f }, 26.36f, "fork", "fork" },
+	{ "fork_glass", { 0.32f, 90.94f, 38.83f }, 12.53f, "fork", "fork" },
+	{ "wheelF_tyre", { 0.12f, 95.84f, 29.87f }, 29.93f, "wheelF", "wheelF" },
+	{ "wheelF_rim", { 0.39f, 95.84f, 29.87f }, 24.23f, "wheelF", "wheelF" },
+	{ "wheelR_tyre", { 0.32f, -40.45f, 29.94f }, 29.91f, "wheelR", "wheelR" },
+	{ "wheelR_rim", { 0.39f, -40.44f, 29.98f }, 22.05f, "wheelR", "wheelR" },
+	/* 27c's twelve, its spheres; the same role either way */
+	{ "metal", { -2.91f, 3.59f, 52.13f }, 72.65f, "none", "none" },
+	{ "matte", { -3.62f, 9.25f, 56.59f }, 77.30f, "none", "none" },
+	{ "glass", { 0.28f, -47.90f, 54.59f }, 19.79f, "none", "none" },
+	{ "front_metal", { 1.03f, 60.53f, 84.91f }, 48.90f, "front", "front" },
+	{ "front_matte", { 0.00f, 53.33f, 96.66f }, 41.83f, "front", "front" },
+	{ "front_glass", { 0.47f, 64.94f, 85.25f }, 27.10f, "front", "front" },
+	{ "front_glow", { 0.30f, 73.00f, 81.88f }, 6.60f, "glow", "glow" },
+	{ "fork_metal", { 0.27f, 83.28f, 43.89f }, 26.87f, "fork", "fork" },
+	{ "fork_matte", { 0.43f, 85.31f, 47.77f }, 26.36f, "fork", "fork" },
+	{ "fork_glass", { 0.32f, 90.94f, 38.83f }, 12.53f, "fork", "fork" },
+	{ "wheelF", { 0.12f, 95.84f, 29.87f }, 29.93f, "wheelF", "wheelF" },
+	{ "wheelR", { 0.32f, -40.45f, 29.94f }, 29.91f, "wheelR", "wheelR" },
+};
+#define LOOK_NEW 28
+#define LOOK_OLD 12
+#define LOOK_EXTRA 21
+#define LOOK_ALL (LOOK_NEW + LOOK_OLD + LOOK_EXTRA)
+static bool g_lookMode;
+static uint8_t *g_lookShape[LOOK_ALL], *g_lookData[LOOK_ALL], *g_lookBones[LOOK_ALL];
+static uint8_t g_lookOrig[LOOK_ALL][0x50];
+static char g_lookName[LOOK_ALL][48];
 static bool g_handRaised;         /* the left hand swung up about the elbow, 20% nearer the shoulder (a Pip-Boy raise: test 37's lean solved from it) */
 static float g_handReach;         /* 0: the hand where the clips pose it (98.5% of the arm's reach); else swung about the elbow, in the arm's plane, to this share of the reach (test 39: the lean's readings of 95% and 100%) */
 static bool g_handFar;            /* the arm raised up and back, straight (a menu or a load's pose: test 39's ride-end wrist line read 116% of the reach) */
@@ -1579,14 +1637,15 @@ static void BuildGame(void)
 	*(uint32_t *)(g_hatSkin + 0x30) = 3;
 	*(uint32_t *)(g_hatSkin + 0x38) = 3;
 
-	/* The moving parts of the Harley build: four more shapes under the bike's node, each
+	/* The moving parts of the Sketchfab build: four more shapes under the bike's node, each
 	 * with its own skin and bone data (the same bind; their culling spheres on the axles
 	 * and ahead of the steering head, which is how the plugin tells them apart; the lower
 	 * fork's sits low at the front too, and its name says what it is: test 38). */
 	static const char *partNames[4] = { "CMB_BikeWornRider_wheelF", "CMB_BikeWornRider_wheelR", "CMB_BikeWornRider_front_metal", "CMB_BikeWornRider_fork_metal" };
 	for (int i = 0; i < 4; i++) {
 		uint8_t *part = NewNode(vtTri, partNames[i], 0);
-		AddChild(g_bikeNode, part);
+		if (!g_lookMode)   /* mode 17 has its own bike, below */
+			AddChild(g_bikeNode, part);
 		*(uint8_t **)(part + 0x28) = g_bikeNode;
 		uint8_t *inst = (uint8_t *)NewObject(vtSkin, 0x100);
 		*(uint8_t **)(part + 0x140) = inst;
@@ -1601,6 +1660,35 @@ static void BuildGame(void)
 		*(uint8_t ***)(inst + 0x28) = comList;
 		*(uint32_t *)(inst + 0x30) = 1;
 		*(uint32_t *)(inst + 0x38) = 1;
+	}
+	/* Mode 17's bike (the 2026-10-31a build's look): the shapes of g_lookParts and the extras, made the parts' way;
+	 * which hang under the bike's node, LookAttach says (the 2026-10-31a build's 28 at the start). */
+	for (int i = 0; g_lookMode && i < LOOK_ALL; i++) {
+		if (i < LOOK_NEW + LOOK_OLD)
+			snprintf(g_lookName[i], sizeof(g_lookName[i]), "CMB_BikeWornRider_%s", g_lookParts[i].label);
+		else
+			snprintf(g_lookName[i], sizeof(g_lookName[i]), "CMB_BikeWornRider_static_extra%02d", i - LOOK_NEW - LOOK_OLD + 1);
+		uint8_t *part = NewNode(vtTri, g_lookName[i], 0);
+		g_lookShape[i] = part;
+		*(uint8_t **)(part + 0x28) = g_bikeNode;
+		uint8_t *inst = (uint8_t *)NewObject(vtSkin, 0x100);
+		*(uint8_t **)(part + 0x140) = inst;
+		g_lookData[i] = (uint8_t *)NewObject(vtBone, 0x100);
+		*(int32_t *)(g_lookData[i] + 0x08) = 2;
+		*(uint8_t **)(inst + 0x40) = g_lookData[i];
+		g_lookBones[i] = (uint8_t *)VirtualAlloc(NULL, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+		*(uint8_t **)(g_lookData[i] + 0x10) = g_lookBones[i];
+		*(uint32_t *)(g_lookData[i] + 0x18) = 1;
+		*(uint32_t *)(g_lookData[i] + 0x20) = 1;
+		*(int32_t *)(inst + 0x08) = 1;
+		*(uint8_t ***)(inst + 0x28) = comList;
+		*(uint32_t *)(inst + 0x30) = 1;
+		*(uint32_t *)(inst + 0x38) = 1;
+	}
+	if (g_lookMode) {
+		*(uint16_t *)(g_bikeNode + 0x130) = 80;   /* room for the main shape, the lamp's node and 50 more */
+		for (int i = 0; i < LOOK_NEW; i++)
+			AddChild(g_bikeNode, g_lookShape[i]);
 	}
 
 	/* LookupFormByID: a jump to ours at the game's address. */
@@ -1880,6 +1968,15 @@ static void SetLayouts(bool skinTransposed, bool rootTransposed)
 		StoreRotation(pb + 4, skinToBone, skinTransposed);
 		pb[16] = -74.17f; pb[17] = 0.0f; pb[18] = 0.0f; pb[19] = 1.0f;
 		memcpy(g_partBonesOriginal[i], g_partBones[i], sizeof(g_partBonesOriginal[i]));
+	}
+	for (int i = 0; g_lookMode && i < LOOK_ALL; i++) {   /* mode 17's: bone = (z - 74.17, y, -x) */
+		float *pb = (float *)g_lookBones[i];
+		const float extra[4] = { 0.0f, 0.0f, 50.0f, 30.0f };
+		const float *c = i < LOOK_NEW + LOOK_OLD ? g_lookParts[i].c : extra;
+		pb[0] = c[2] - 74.17f; pb[1] = c[1]; pb[2] = -c[0]; pb[3] = i < LOOK_NEW + LOOK_OLD ? g_lookParts[i].r : extra[3];
+		StoreRotation(pb + 4, skinToBone, skinTransposed);
+		pb[16] = -74.17f; pb[17] = 0.0f; pb[18] = 0.0f; pb[19] = 1.0f;
+		memcpy(g_lookOrig[i], g_lookBones[i], sizeof(g_lookOrig[i]));
 	}
 	/* The rider's body: its bones with binds of their own (the last two the skin helpers of test
 	 * 38's pose study); the Pip-Boy's shape's own transform. */
@@ -2967,7 +3064,7 @@ static void WatchDrops(float dt)
 	FakeGameFrame(dt);
 }
 
-/* The Harley build's moving parts ([Parts] in the INI for this run): the wheels spin with
+/* The Sketchfab build's moving parts ([Parts] in the INI for this run): the wheels spin with
  * the distance ridden and back when reversing, the bar assembly turns with the turning. */
 static void PartsTests(void)
 {
@@ -11456,10 +11553,13 @@ static void RoomTests(bool old)
  * with no attenuation). The riding globals aren't asked (test 44's review: a rider with the MCM's
  * three sliders at 0): the last rides drive a set with them all 0, the steering off, the plugin's
  * own speed and the throttle read from it. Test 47: the throttle hand (at the cruise On2000's pitch
- * and level wander together, the twin 1.02 % and 0.30 dB in 4 s windows with the trend taken out,
- * 0.30 dB per 1 %; none through a pull) and each up-shift's throttle-off dip (the twin: -4.0 dB at
- * the 0 dB ceiling, 0.15 s under -3 dB; the pull's last, into the cruise, -6.2 at the 6 dB floor);
- * the six keys at test 46's values give test 46's shifts and cruise. */
+ * and level wander together, 0.30 dB per 1 %; none through a pull; since the 2026-10-31a build larger and held
+ * softly under WanderMax: the twin, 32 s cruises over 150 seeds, the pitch's sd against its mean
+ * 3.0 % (2.3-3.7, 2nd to 98th percentile; 27c 2.2), 1.17 % (0.87-1.55; 27c 1.07) in 4 s windows with
+ * the trend taken out, the level 0.35 dB (0.26-0.47), the hand at most 5.6 % (4.8-5.9, never 6;
+ * 27c's up to 9.3)) and each up-shift's throttle-off dip (the twin: -4.0 dB at the 0 dB ceiling,
+ * 0.15 s under -3 dB; the pull's last, into the cruise, -6.2 at the 6 dB floor); the seven keys at
+ * test 46's values give test 46's shifts and cruise. */
 static float SndGlobal(int i) { return *(float *)(g_sndGlobalsFake[i] + 0x30); }
 static void SndSet(int i, float v) { *(float *)(g_sndGlobalsFake[i] + 0x30) = v; }
 static float SndGen(void) { return SndGlobal(11); }
@@ -11637,6 +11737,22 @@ static int SndWanderWindows(float *pitchSd, float *levelSd, float *slope)
 	*slope = den > 0.0 ? (float)(num / den) : 0.0f;
 	return windows;
 }
+/* the 2026-10-31a build: over the whole cruise watched, On2000's pitch against its own mean: the sd and the largest |deviation| (%). */
+static void SndWanderWhole(float *sd, float *most)
+{
+	double pm = 0.0, s2 = 0.0, m = 0.0;
+	for (int i = 0; i < g_sndWatchN; i++)
+		pm += g_sndWatchPitch[i];
+	pm = g_sndWatchN ? pm / g_sndWatchN : 1.0;
+	for (int i = 0; i < g_sndWatchN; i++) {
+		double d = 100.0 * (g_sndWatchPitch[i] / pm - 1.0);
+		s2 += d * d;
+		if (fabs(d) > m)
+			m = fabs(d);
+	}
+	*sd = g_sndWatchN ? (float)sqrt(s2 / g_sndWatchN) : 0.0f;
+	*most = (float)m;
+}
 /* Test 47: the trace lines' " hand " (the wander, %) after the log's last line holding marker, in gears up to maxGear:
  * the largest size, and how many such lines. */
 static float SndHandMax(const char *marker, int maxGear, int *lines)
@@ -11691,14 +11807,14 @@ static void SoundTests(void)
 	CHECK(LogLines("  sound: IdleRpm=860 Launch=640 ClutchIn=1900 ClutchFall=750 ClutchDecel=150 AccelTau=0.25 Gears=555.556,750,960,1161.6 ShiftRpm=2500 ShiftLo=2200 DownRpm=1475 "
 	               "MinShiftGap=1.25 DownGap=0.5 ShiftCatch=0.9 ShiftTime=0.35 FlareTime=0.08 Flare=0.05 FlareTau=0.04 ShiftFall=0.1 RpmUp=0.1 RpmDown=0.22 RiseRate=2.64 "
 	               "LoadRise=0.08 LoadFall=0.15 CruiseLoad=0.45 FullAccel=400 LashDip=0.032 LashTau=0.15 CoastFall=150 BrakeFall=300 IdleFade=150,330 MinPitch=0.75 "
-	               "MaxPitch=1.25 OnSplit=0.5 OffSplit=0.5 Hyst=0.02 XfadeTime=0.05 OnAbove=0.3 OffBelow=0.15 OffHold=0.05 FamilyTime=0.08 ShiftFamily=1 Wander=0.025 "
+	               "MaxPitch=1.25 OnSplit=0.5 OffSplit=0.5 Hyst=0.02 XfadeTime=0.05 OnAbove=0.3 OffBelow=0.15 OffHold=0.05 FamilyTime=0.08 ShiftFamily=1 Wander=0.055 "
 	               "WanderTau=1.5 WanderSeed=12345 LevelScale=1 LevelOffset=5 RpmDb=9.6 LoadDb=5 IdleDb=-17.2 LevelRpm=3000") == 1,
-	      "the model's line: every constant at its value (test 45: ClutchFall 750, DownRpm 1475, CoastFall 150; test 46: LevelScale 1, LevelOffset 5; test 47: Wander 0.025, "
-	      "WanderTau 1.5; the gears as given: FullSpeed 900)");
-	CHECK(LogLines("  sound: WanderLevel=0.3 WanderSteady=0.25 WanderSmooth=0.2 ShiftDip=4 ShiftDipTime=0.24: the wander (the throttle hand) only while the throttle is "
-	               "steady, settling to 0 in a pull, a let-up, a shift and the idle, smoothed, the family loops' level moving with it; a throttle-off dip at each up-shift's "
-	               "clutch-in, at most 6 dB under the level there") == 1,
-	      "test 47's line: the throttle hand's three and the up-shift's dip at their defaults, each named");
+	      "the model's line: every constant at its value (test 45: ClutchFall 750, DownRpm 1475, CoastFall 150; test 46: LevelScale 1, LevelOffset 5; test 47: WanderTau 1.5, "
+	      "since the 2026-10-31a build Wander 0.055 (27c's 0.025); the gears as given: FullSpeed 900)");
+	CHECK(LogLines("  sound: WanderLevel=0.3 WanderSteady=0.25 WanderSmooth=0.5 WanderMax=0.06 ShiftDip=4 ShiftDipTime=0.24: the wander (the throttle hand) only while the "
+	               "throttle is steady, settling to 0 in a pull, a let-up, a shift and the idle, smoothed, held softly under WanderMax, the family loops' level moving with it; "
+	               "a throttle-off dip at each up-shift's clutch-in, at most 6 dB under the level there") == 1,
+	      "test 47's line: the throttle hand's four (the 2026-10-31a build: WanderSmooth 0.5, 27c's 0.2, and WanderMax 0.06) and the up-shift's dip at their defaults, each named");
 	CHECK(LogLines("  sound: HeardSpeed=1 HeardRise=140 HeardTau=0.8 HeardLead=150 HeardPull=60 ClutchSpeed=150 CoastDown=1700 Blip=0.09 BlipTime=0.3 BlipTau=0.05 "
 	               "LaunchDraw=1250,1500 LaunchRise=350 ShiftDraw=2000,2900 DownHold=1 DownHeld=1: the engine follows a heard speed (up at most HeardRise, down with "
 	               "engine braking after a let-up); the launch's slip climbs from each pull's start; each pull's up-shift point drawn; a down-shift with the throttle on "
@@ -11876,8 +11992,9 @@ static void SoundTests(void)
 	/* the cruise: 9.6 log2(1937/3000) + 5 (0.45 - 1) = -8.81, + 5 = -3.81 dB (0.6449) x 0.7; test 47: x the hand's 0.3 dB per 1 % of the wander */
 	const float cruise70 = 0.7f * powf(10.0f, -3.81f / 20.0f);
 	float handPct = 100.0f * (g_sndFreq[3] / (1937.0f / 2000.0f) - 1.0f), handDb = 20.0f * log10f(SndVoiceVolume(3) / cruise70);
-	CHECK(fabsf(handPct) < 7.0f && fabsf(handDb - 0.3f * handPct) <= 0.35f && SndSilentOthers(3) == 10,
-	      "On2000 at pitch %.4f (1937/2000 = 0.9685 x the wander's 1 + w: %+.2f %%, under 7: its sd 2.5 %%) and %.4f (%.4f: -3.81 dB x 0.7, x test 47's 0.3 dB per 1 %%: "
+	CHECK(fabsf(handPct) < 6.5f && fabsf(handDb - 0.3f * handPct) <= 0.35f && SndSilentOthers(3) == 10,
+	      "On2000 at pitch %.4f (1937/2000 = 0.9685 x the wander's 1 + w: %+.2f %%, under 6.5: WanderMax 6 %% and the speed read's noise) and %.4f (%.4f: -3.81 dB x 0.7, "
+	      "x test 47's 0.3 dB per 1 %%: "
 	      "%+.2f dB for %+.2f expected, within 0.35), the other ten silent (%d)", g_sndFreq[3], handPct, SndVoiceVolume(3), cruise70, handDb, 0.3f * handPct, SndSilentOthers(3));
 	CHECK(holeFamily >= 4 && holeHand >= 2 && holeMin >= -1.0f && holeUnder1 == 0.0f && holeAsked <= -3.05f && holeAsked >= -3.3f,
 	      "test 46, W from rest by SetVolume: %d family switches (ShiftFamily=1: two at each up-shift) and %d hand-overs; the loops' power sum at least %.2f dB against the asked "
@@ -11919,20 +12036,24 @@ static void SoundTests(void)
 	      "%d calls in 2 s of %d frames: SetVolume %d (one a frame at most), SetFrequency %d (half the frames at most), %d on the silent ten (0), %d under the thresholds (0);%s",
 	      cruiseCalls, g_sndWatchN, g_sndVolCalls[3], g_sndFreqCalls[3], onOthers, g_sndSmallSteps, per);
 
-	printf("sound: test 47, the throttle hand at a steady cruise (32 s, 4 s windows with the trend taken out, the twin: the rpm 1.02 %%, the level 0.30 dB, 0.30 dB per 1 %%; "
-	       "test 46's 0.39 %% and flat; the real rides 0.9-2.3 %%, 0.34-0.81 dB):\n");
+	printf("sound: test 47, the throttle hand at a steady cruise (32 s; since the 2026-10-31a build larger, held softly under WanderMax; the twin's 32 s cruises: the pitch's sd against its "
+	       "mean 3.0 %% (2.3-3.7; 27c 2.2), in 4 s windows with the trend taken out 1.17 %% (0.87-1.55; 27c 1.07), the level 0.35 dB, 0.30 dB per 1 %%, the hand at most 5.6 %% "
+	       "(4.8-5.9, never 6; 27c up to 9.3); test 46's 0.39 %% in the windows and flat; the real rides 0.9-2.3 %%, 0.34-0.81 dB):\n");
 	g_sndWatchN = 0;
 	g_sndWatchClock = 0.0f;
 	g_sndWatch = true;
 	RunFrames(32500);
 	g_sndWatch = false;
-	float wanderPitch, wanderLevel, wanderSlope;
+	float wanderPitch, wanderLevel, wanderSlope, wholeSd, wholeMost;
 	int windows = SndWanderWindows(&wanderPitch, &wanderLevel, &wanderSlope);
+	SndWanderWhole(&wholeSd, &wholeMost);
 	float handCruise = SndHandMax(line, 4, &handLines);
-	CHECK(windows >= 7 && wanderPitch > 0.6f && wanderPitch < 1.6f && wanderLevel > 0.15f && wanderLevel < 0.6f && wanderSlope > 0.2f && wanderSlope < 0.45f,
-	      "%d windows: On2000's pitch %.2f %% (0.6-1.6), its level %.2f dB (0.15-0.6), moving together, %.2f dB per 1 %% (0.2-0.45; the speed read's noise moves the "
-	      "rider's load too)", windows, wanderPitch, wanderLevel, wanderSlope);
-	CHECK(handCruise > 0.5f, "the trace's \" hand \" up to %.2f %% at the cruise (over 0.5)", handCruise);
+	CHECK(windows >= 7 && wanderPitch > 0.8f && wanderPitch < 1.7f && wanderLevel > 0.2f && wanderLevel < 0.55f && wanderSlope > 0.2f && wanderSlope < 0.45f &&
+	          wholeSd > 2.2f && wholeSd < 4.0f && wholeMost < 7.5f,
+	      "%d windows: On2000's pitch %.2f %% (0.8-1.7), its level %.2f dB (0.2-0.55), moving together, %.2f dB per 1 %% (0.2-0.45; the speed read's noise moves the "
+	      "rider's load too); over the 32 s its pitch's sd against its mean %.2f %% (2.2-4.0), at most %.2f %% off it (under 7.5)", windows, wanderPitch, wanderLevel,
+	      wanderSlope, wholeSd, wholeMost);
+	CHECK(handCruise > 4.5f && handCruise <= 6.0f, "the trace's \" hand \" up to %.2f %% at the cruise (4.5 to 6: WanderMax holds it under 6 %%)", handCruise);
 
 	printf("sound: a 0.3 s tap of the key at the cruise (test 44: 4->3 on the press again, 3->4 0.5 s later): no gear change:\n");
 	int ng0 = SndGearLines(line, gears, gv, grpm, 8);
@@ -11978,10 +12099,11 @@ static void SoundTests(void)
 		g_topCap = 0.0f;
 	}
 
-	printf("sound: test 47's keys at test 46's values (Wander=0.006 WanderTau=0.8 WanderLevel=0 WanderSteady=0 WanderSmooth=0 ShiftDip=0, read on getting on, a new set): "
+	printf("sound: test 47's keys at test 46's values (Wander=0.006 WanderTau=0.8 WanderLevel=0 WanderSteady=0 WanderSmooth=0 WanderMax=0 ShiftDip=0, read on getting on, a new "
+	       "set): "
 	       "W from rest, the up-shifts without the dip (the rpm's fall alone; the twin -0.9, -0.4 and, into the cruise, -3.6 dB), then test 46's steady cruise:\n");
-	static const char *const old46[][2] = { { "Wander=0.025\n", "Wander=0.006\n" }, { "WanderTau=1.5\n", "WanderTau=0.8\n" }, { "WanderLevel=0.3\n", "WanderLevel=0\n" },
-		{ "WanderSteady=0.25\n", "WanderSteady=0\n" }, { "WanderSmooth=0.2\n", "WanderSmooth=0\n" }, { "ShiftDip=4\n", "ShiftDip=0\n" } };
+	static const char *const old46[][2] = { { "Wander=0.055\n", "Wander=0.006\n" }, { "WanderTau=1.5\n", "WanderTau=0.8\n" }, { "WanderLevel=0.3\n", "WanderLevel=0\n" },
+		{ "WanderSteady=0.25\n", "WanderSteady=0\n" }, { "WanderSmooth=0.5\n", "WanderSmooth=0\n" }, { "WanderMax=0.06\n", "WanderMax=0\n" }, { "ShiftDip=4\n", "ShiftDip=0\n" } };
 	SndGetOff();
 	for (int i = 0; i < (int)(sizeof(old46) / sizeof(old46[0])); i++)
 		RewriteIni(old46[i][0], old46[i][1]);
@@ -11989,9 +12111,9 @@ static void SoundTests(void)
 	SndOffer();
 	gen = SndGen();
 	CHECK(SndDriven() == gen && LogLines("ShiftFamily=1 Wander=0.006 WanderTau=0.8 WanderSeed=12345") == 1 &&
-	          LogLines("  sound: WanderLevel=0 WanderSteady=0 WanderSmooth=0 ShiftDip=0 ShiftDipTime=0.24: the wander everywhere (WanderSteady=0, as test 46), unsmoothed "
-	                   "(WanderSmooth=0, as test 46), the level not moving with it (WanderLevel=0, as test 46); no dip at an up-shift (ShiftDip=0, as test 46) (read again on "
-	                   "getting on)") == 1,
+	          LogLines("  sound: WanderLevel=0 WanderSteady=0 WanderSmooth=0 WanderMax=0 ShiftDip=0 ShiftDipTime=0.24: the wander everywhere (WanderSteady=0, as test 46), "
+	                   "unsmoothed (WanderSmooth=0, as test 46), unheld (WanderMax=0, as 27c), the level not moving with it (WanderLevel=0, as test 46); no dip at an up-shift "
+	                   "(ShiftDip=0, as test 46) (read again on getting on)") == 1,
 	      "taken (%g); the model's line with Wander=0.006 WanderTau=0.8, test 47's line with test 46's values, each named so", SndDriven());
 	SndHoleReset(true);
 	SndFullThrottle(8000);
@@ -12013,7 +12135,7 @@ static void SoundTests(void)
 
 	printf("sound: Wander=0 (read on getting on, a new set): steady cruise calls only on a measured change (the fake's frame hitches move the speed read by up to 1%%):\n");
 	SndGetOff();
-	RewriteIni("Wander=0.025\n", "Wander=0\n");
+	RewriteIni("Wander=0.055\n", "Wander=0\n");
 	SndGetOn();
 	SndOffer();
 	gen = SndGen();
@@ -12024,7 +12146,7 @@ static void SoundTests(void)
 	CHECK(SndCalls() < 10 && SndCalls() == g_sndFreqCalls[3] + g_sndFadeCalls[3] + g_sndVolCalls[3] && g_sndSmallSteps == 0,
 	      "%d calls in 2 s of steady cruise (under 5 a second), all on On2000 (%d), %d under the thresholds", SndCalls(), g_sndFreqCalls[3] + g_sndFadeCalls[3] + g_sndVolCalls[3],
 	      g_sndSmallSteps);
-	RewriteIni("Wander=0\n", "Wander=0.025\n");
+	RewriteIni("Wander=0\n", "Wander=0.055\n");
 
 	printf("sound: the ids to 0 (the script's StopEngineLoops): CMB_SndDriven 0 within two frames, no further call, the ride's summary:\n");
 	Keys(0.0f, 0.0f);
@@ -12132,13 +12254,14 @@ static void SoundTests(void)
 	RewriteIni("LevelOffset=0\n", "LevelOffset=5\n");
 
 	printf("sound: test 44's settings (HeardSpeed=0, CoastFall 70, DownRpm 1750, LevelScale 0.3, ClutchFall 900, LaunchDraw 0,0, LaunchRise 0, ShiftDraw 0,0, DownHold 0, "
-	       "DownHeld 0; test 46's SetVolume=0 and LevelOffset 0; test 47's Wander, WanderTau, WanderLevel, WanderSteady, WanderSmooth and ShiftDip at test 46's), read on getting on: test 44's model, its numbers (the idle at 516; W: 2nd at 556 u/s and 2365 rpm, 3rd at 887 "
+	       "DownHeld 0; test 46's SetVolume=0 and LevelOffset 0; test 47's Wander, WanderTau, WanderLevel, WanderSteady, WanderSmooth, WanderMax and ShiftDip at test 46's), read on getting on: test 44's model, its numbers (the idle at 516; W: 2nd at 556 u/s and 2365 rpm, 3rd at 887 "
 	       "and 2918, 4th at 900 and 2344):\n");
 	static const char *const old44[][2] = { { "HeardSpeed=1\n", "HeardSpeed=0\n" }, { "CoastFall=150\n", "CoastFall=70\n" }, { "DownRpm=1475\n", "DownRpm=1750\n" },
 		{ "LevelScale=1\n", "LevelScale=0.3\n" }, { "ClutchFall=750\n", "ClutchFall=900\n" }, { "LaunchDraw=1250,1500\n", "LaunchDraw=0,0\n" },
 		{ "LaunchRise=350\n", "LaunchRise=0\n" }, { "ShiftDraw=2000,2900\n", "ShiftDraw=0,0\n" }, { "DownHold=1\n", "DownHold=0\n" }, { "DownHeld=1\n", "DownHeld=0\n" },
-		{ "SetVolume=1\n", "SetVolume=0\n" }, { "LevelOffset=5\n", "LevelOffset=0\n" }, { "Wander=0.025\n", "Wander=0.006\n" }, { "WanderTau=1.5\n", "WanderTau=0.8\n" },
-		{ "WanderLevel=0.3\n", "WanderLevel=0\n" }, { "WanderSteady=0.25\n", "WanderSteady=0\n" }, { "WanderSmooth=0.2\n", "WanderSmooth=0\n" }, { "ShiftDip=4\n", "ShiftDip=0\n" } };
+		{ "SetVolume=1\n", "SetVolume=0\n" }, { "LevelOffset=5\n", "LevelOffset=0\n" }, { "Wander=0.055\n", "Wander=0.006\n" }, { "WanderTau=1.5\n", "WanderTau=0.8\n" },
+		{ "WanderLevel=0.3\n", "WanderLevel=0\n" }, { "WanderSteady=0.25\n", "WanderSteady=0\n" }, { "WanderSmooth=0.5\n", "WanderSmooth=0\n" }, { "WanderMax=0.06\n", "WanderMax=0\n" },
+		{ "ShiftDip=4\n", "ShiftDip=0\n" } };
 	for (int i = 0; i < (int)(sizeof(old44) / sizeof(old44[0])); i++)
 		RewriteIni(old44[i][0], old44[i][1]);
 	SndGetOn();
@@ -12265,11 +12388,548 @@ static void SoundTests(void)
 	CHECK(g_sndFirstCalls >= 11 * 8 && g_sndFirstLate == 0, "%d of the loops' %d first calls of a set made with CMB_SndDriven already the generation (0)", g_sndFirstLate, g_sndFirstCalls);
 }
 
+/* ---- Mode 17: the 2026-10-31a build's look ----------------------------------------------------------------------
+ * The 28 shapes of the 2026-10-31a build (their roles by the names' tags), the speedometer's needle (its
+ * angle against the speed, its sign, with the bars), the tail and brake lights (the brake rule
+ * with the input hook and without it), the dial's backlight with the headlamp, the mirrors'
+ * choice, every new key's off value, 27c's twelve names (the same roles with RolesByName 1 and 0)
+ * and a ride with more shapes than the plugin holds. */
+static float g_lookSpeed, g_lookTurn, g_lookDecel;   /* LookRide: units a second along the heading, radians a second of turning, units a second a second of slowing */
+static bool g_lookKeys;                              /* LookRide: the game's input frame first (the keys reach the input hook), then the ride's own place */
+static const float g_lookNeedlePoint[3] = { 0.38f, 64.93f, 99.11f }, g_lookNeedleAxis[3] = { 0.0f, -0.8346f, 0.5509f };   /* PARTSLOOK's */
+static const float g_lookSteerAxis[3] = { 0.0f, -0.4902f, 0.8716f };
+
+static void LookRide(float dt)
+{
+	float *head = (float *)(g_player + 0xC8);
+	if (g_lookKeys) {
+		float p[3] = { PlayerPos()[0], PlayerPos()[1], PlayerPos()[2] }, h = *head;
+		FakeGameFrame(dt);
+		PlayerPos()[0] = p[0];
+		PlayerPos()[1] = p[1];
+		PlayerPos()[2] = p[2];
+		*head = h;
+	}
+	if (g_lookDecel > 0.0f)
+		g_lookSpeed = g_lookSpeed > g_lookDecel * dt ? g_lookSpeed - g_lookDecel * dt : 0.0f;
+	*head = fmodf(*head + g_lookTurn * dt + 6.2831853f, 6.2831853f);
+	PlayerPos()[0] += sinf(*head) * g_lookSpeed * dt;
+	PlayerPos()[1] += cosf(*head) * g_lookSpeed * dt;
+}
+
+/* Which shapes hang under the bike's node: the main shape and the lamp's node, then n0 of mode 17's
+ * from i0 and n1 from i1. */
+static void LookAttach(int i0, int n0, int i1, int n1)
+{
+	*(uint16_t *)(g_bikeNode + 0x132) = 2;
+	for (int i = i0; i < i0 + n0; i++)
+		AddChild(g_bikeNode, g_lookShape[i]);
+	for (int i = i1; i < i1 + n1; i++)
+		AddChild(g_bikeNode, g_lookShape[i]);
+}
+
+static int LookAt(const char *label, bool old)   /* the index of a label in set 0 (the 2026-10-31a build's) or set 1 (27c's) */
+{
+	for (int i = old ? LOOK_NEW : 0; i < (old ? LOOK_NEW + LOOK_OLD : LOOK_NEW); i++)
+		if (strcmp(g_lookParts[i].label, label) == 0)
+			return i;
+	printf("  (no look part %s)\n", label);
+	return 0;
+}
+
+static void LookMap(int i, float M[9], float m[3]) { AppliedMapOf(g_lookOrig[i], g_lookBones[i], M, m); }
+static float LookScale(int i)   /* the size the plugin's map gives the shape: 1 shown, 0.001 a speck */
+{
+	float M[9], m[3];
+	LookMap(i, M, m);
+	return sqrtf(M[0] * M[0] + M[3] * M[3] + M[6] * M[6]);
+}
+static void LookWhere(int i, const float x[3], float out[3])   /* where the shape's map takes the bike-space point */
+{
+	float M[9], m[3];
+	LookMap(i, M, m);
+	Apply3(M, x, out);
+	for (int k = 0; k < 3; k++)
+		out[k] += m[k];
+}
+/* How far from where the reference shape's map (ref; -1: none, the point itself) takes the shape's
+ * own centre the shape's map takes it (a speck about its own centre: 0). */
+static float LookCentreOff(int i, int ref)
+{
+	float a[3], b[3];
+	LookWhere(i, g_lookParts[i < LOOK_NEW + LOOK_OLD ? i : 0].c, a);
+	if (ref >= 0)
+		LookWhere(ref, g_lookParts[i < LOOK_NEW + LOOK_OLD ? i : 0].c, b);
+	else
+		memcpy(b, g_lookParts[i < LOOK_NEW + LOOK_OLD ? i : 0].c, sizeof(b));
+	return Dist3(a, b);
+}
+static bool LookShown(int i) { return fabsf(LookScale(i) - 1.0f) < 0.01f; }
+static bool LookSpeck(int i) { return fabsf(LookScale(i) - 0.001f) < 0.0005f; }
+
+/* The needle against front_black (the bar assembly): N = F^T M, its angle clockwise as the rider
+ * sees it (degrees, 0 to 360 past -10), the cross product of the dial's up and its image with
+ * NeedleAxis (< 0: clockwise), how far N moves NeedleAxis (0: a turn about it) and the pivot
+ * from where front_black's map puts it. */
+static float LookNeedle(float *cross, float *axisOff, float *pivotOff)
+{
+	int iN = LookAt("front_needle", false), iF = LookAt("front_black", false);
+	float M[9], m[3], F[9], f[3], N[9];
+	LookMap(iN, M, m);
+	LookMap(iF, F, f);
+	for (int i = 0; i < 3; i++)
+		for (int j = 0; j < 3; j++)
+			N[i * 3 + j] = F[i] * M[j] + F[3 + i] * M[3 + j] + F[6 + i] * M[6 + j];
+	float s = sqrtf(N[0] * N[0] + N[3] * N[3] + N[6] * N[6]);   /* 1, or a speck's 0.001 */
+	const float *u = g_lookNeedleAxis;
+	float ul = sqrtf(u[0] * u[0] + u[1] * u[1] + u[2] * u[2]), un[3] = { u[0] / ul, u[1] / ul, u[2] / ul };
+	float up[3] = { 0.0f, 0.55f, 0.83f }, d = up[0] * un[0] + up[1] * un[1] + up[2] * un[2];
+	for (int k = 0; k < 3; k++)
+		up[k] -= d * un[k];
+	float l = sqrtf(up[0] * up[0] + up[1] * up[1] + up[2] * up[2]);
+	for (int k = 0; k < 3; k++)
+		up[k] /= l;
+	float v1[3], Nu[3];
+	Apply3(N, up, v1);
+	Apply3(N, un, Nu);
+	for (int k = 0; k < 3; k++) {
+		v1[k] /= s > 1e-6f ? s : 1.0f;
+		Nu[k] /= s > 1e-6f ? s : 1.0f;
+	}
+	float x[3] = { up[1] * v1[2] - up[2] * v1[1], up[2] * v1[0] - up[0] * v1[2], up[0] * v1[1] - up[1] * v1[0] };
+	*cross = x[0] * un[0] + x[1] * un[1] + x[2] * un[2];
+	*axisOff = sqrtf((Nu[0] - un[0]) * (Nu[0] - un[0]) + (Nu[1] - un[1]) * (Nu[1] - un[1]) + (Nu[2] - un[2]) * (Nu[2] - un[2]));
+	float a[3], b[3];
+	LookWhere(iN, g_lookNeedlePoint, a);
+	LookWhere(iF, g_lookNeedlePoint, b);
+	*pivotOff = Dist3(a, b);
+	float cw = -atan2f(*cross, up[0] * v1[0] + up[1] * v1[1] + up[2] * v1[2]) * DEG;
+	return cw < -10.0f ? cw + 360.0f : cw;
+}
+static float LookNeedleNow(void)
+{
+	float c, a, p;
+	return LookNeedle(&c, &a, &p);
+}
+static float LookExpected(float speed, float scale)   /* the needle's formula (DESIGN.md): NeedleZero + min(NeedleMax, NeedlePerMph x Scale x 0.0319563 x speed) */
+{
+	float deg = 3.0f * scale * 0.0319563f * speed;
+	return deg < 240.0f ? deg : 240.0f;
+}
+static float LookBars(void)   /* the bar assembly's turn about the steering axis (degrees, + left) */
+{
+	float F[9], f[3];
+	LookMap(LookAt("front_black", false), F, f);
+	float v[3] = { F[7] - F[5], F[2] - F[6], F[3] - F[1] };
+	return asinf((v[0] * g_lookSteerAxis[0] + v[1] * g_lookSteerAxis[1] + v[2] * g_lookSteerAxis[2]) * 0.5f) * DEG;
+}
+
+/* The last role word the log gave the shape ("front+mirror2" from "[front+mirror2, by its name]"). */
+static const char *LookRoleOf(const char *name)
+{
+	static char line[4096], word[64];
+	char key[96];
+	snprintf(key, sizeof(key), "tilt: %s is ", name);
+	word[0] = 0;
+	FILE *f = OpenLog();
+	if (!f)
+		return word;
+	while (fgets(line, sizeof(line), f)) {
+		const char *at = strstr(line, key);
+		if (!at)
+			continue;
+		const char *e = strstr(at, ", by its "), *b = e;
+		while (b && b > at && b[0] != '[')   /* the word's own bracket: the role's words may name keys in brackets too */
+			b--;
+		if (b && e && b > at && e - b - 1 < (long)sizeof(word)) {
+			b--;
+			memcpy(word, b + 2, (size_t)(e - b - 2));
+			word[e - b - 2] = 0;
+		}
+	}
+	fclose(f);
+	return word;
+}
+/* The shapes from i0 to i0 + n - 1 whose last role isn't the table's (role0: RolesByName=0's):
+ * how many, and the first few in `bad`. */
+static int LookRolesWrong(int i0, int n, bool zero, char *bad, size_t size)
+{
+	int wrong = 0;
+	bad[0] = 0;
+	for (int i = i0; i < i0 + n; i++) {
+		const char *want = zero ? g_lookParts[i].role0 : g_lookParts[i].role, *got = LookRoleOf(g_lookName[i]);
+		if (strcmp(want, got) != 0) {
+			size_t used = strlen(bad);
+			if (wrong < 4 && used + 80 < size)
+				snprintf(bad + used, size - used, "%s%s is '%s', not '%s'", used ? "; " : "", g_lookParts[i].label, got, want);
+			wrong++;
+		}
+	}
+	return wrong;
+}
+static int LookHeld(int i0, int n)   /* of these shapes, how many skins the plugin holds (a reference of its own: 3) */
+{
+	int held = 0;
+	for (int i = i0; i < i0 + n; i++)
+		held += *(int32_t *)(g_lookData[i] + 0x08) == 3;
+	return held;
+}
+static int LookLetGo(int i0, int n)   /* and how many it has let go (back to the game's 2) */
+{
+	int back = 0;
+	for (int i = i0; i < i0 + n; i++)
+		back += *(int32_t *)(g_lookData[i] + 0x08) == 2;
+	return back;
+}
+
+static double LookNow(void)
+{
+	LARGE_INTEGER now, frequency;
+	QueryPerformanceCounter(&now);
+	QueryPerformanceFrequency(&frequency);
+	return (double)now.QuadPart / (double)frequency.QuadPart;
+}
+/* Frames as RunFrames runs them, till the shape is shown (or a speck) or `most` seconds: the
+ * seconds it took (most if it never was). */
+static float LookUntil(int i, bool shown, float most)
+{
+	double t0 = LookNow();
+	LARGE_INTEGER frequency, last, now;
+	QueryPerformanceFrequency(&frequency);
+	QueryPerformanceCounter(&last);
+	while (LookNow() - t0 < most) {
+		QueryPerformanceCounter(&now);
+		float dt = (float)(now.QuadPart - last.QuadPart) / (float)frequency.QuadPart;
+		last = now;
+		if (g_onFrame)
+			g_onFrame(dt);
+		SyncFakeWorld();
+		((void (*)(Task *))g_task->vtbl[1])(g_task);
+		if (shown ? LookShown(i) : LookSpeck(i))
+			return (float)(LookNow() - t0);
+		Sleep(5);
+	}
+	return most;
+}
+static void LookGetOff(void)
+{
+	g_lookSpeed = 0.0f;
+	g_lookTurn = g_lookDecel = 0.0f;
+	Keys(0.0f, 0.0f);
+	SetLive(0.0f);
+	SetCamera(0.0f);
+	SetTilt(0.0f);
+	RunFrames(400);
+}
+static void LookGetOn(int ms)
+{
+	SetLive(60.0f);
+	SetCamera(300.0f);
+	SetTilt(30.0f);
+	RunFrames(ms);
+}
+static void LookAgain(const char *from, const char *to)   /* a key rewritten, off and on again (the look's keys are read on getting on) */
+{
+	LookGetOff();
+	if (from)
+		RewriteIni(from, to);
+	LookGetOn(1000);
+}
+
+static void LookTests(void)
+{
+	float *head = (float *)(g_player + 0xC8);
+	char bad[400];
+	const int iTail = LookAt("rear_tail", false), iBrake = LookAt("rear_brake", false), iGlow = LookAt("front_glow", false), iDialGlow = LookAt("front_dialglow", false);
+	const int iNeedle = LookAt("front_needle", false), iFront = LookAt("front_black", false), iStock = LookAt("front_mirrorStock", false);
+	const int iEgg = LookAt("front_mirrorUnderEgg", false), iD = LookAt("front_mirrorUnderD", false);
+	const int iOldGlow = LookAt("front_glow", true), iOldFront = LookAt("front_metal", true);
+	*(float *)(g_turnRadius + 0x30) = 300.0f;   /* steering on: the plugin measures the speed (and the input hook with it) */
+	*(float *)(g_turnSlow + 0x30) = 50.0f;
+	*(float *)(g_turnStand + 0x30) = 60.0f;
+	SetNormal(0.0f, 0.0f, 1.0f);
+	SetState(0);
+	FlatGround();
+	g_camYaw = *head;
+	g_handlerStyle = 2;
+	g_honour = 4;
+	Keys(0.0f, 0.0f);
+	g_lookSpeed = g_lookTurn = g_lookDecel = 0.0f;
+	g_lookKeys = false;
+	g_onFrame = LookRide;
+
+	printf("look (the 2026-10-31a build): the settings, then getting on with the 2026-10-31a build's 28 shapes (and the main shape):\n");
+	CHECK(LogLines("  look: RolesByName=1 [Speedo] Needle=1 Scale=1.75 Tau=0.3 Backlight=1 [Tail] Glow=1 Brake=1 BrakeHold=0.3 [Look] Mirrors=1 (the stock one)") == 1 && LogLines("  sound: Drive=0 ") == 1,
+	      "the look's line: RolesByName 1, Needle 1, Scale 1.75, Tau 0.3, Backlight 1, Glow 1, Brake 1, BrakeHold 0.3, Mirrors 1 (the stock one); the engine's sound off (Drive=0) all through");
+	CHECK(LogLines("the speedometer's needle about (0.38, 64.93, 99.11) along (0.000, -0.835, 0.551), 0 deg past its rest at a stop, 3 deg a mph, 240 at most") == 1,
+	      "the parts line: the needle about NeedlePoint along NeedleAxis, NeedleZero 0, NeedlePerMph 3, NeedleMax 240");
+	int refusedBefore = LogLines("not touching it"), overBefore = LogLines("this plugin holds, left where they are");
+	LookGetOn(1500);
+	int held = LookHeld(0, LOOK_NEW);
+	CHECK(held == LOOK_NEW && *BoneDataRefs() == 3 && LogLines("not touching it") == refusedBefore && LogLines("this plugin holds, left where they are") == overBefore,
+	      "every one of the 28 labels held (%d of 28, the main shape %s), none refused, no limit line", held, *BoneDataRefs() == 3 ? "too" : "not");
+	int wrong = LookRolesWrong(0, 8, false, bad, sizeof(bad));
+	CHECK(wrong == 0 && strcmp(LookRoleOf("CMB_BikeWornRider"), "none") == 0, "the eight static_ shapes fixed parts by their names, the main shape by its sphere%s%s", wrong ? ": " : "", bad);
+	wrong = LookRolesWrong(8, 2, false, bad, sizeof(bad));
+	CHECK(wrong == 0, "rear_tail the tail light, rear_brake the brake light, by their names%s%s", wrong ? ": " : "", bad);
+	wrong = LookRolesWrong(10, 10, false, bad, sizeof(bad));
+	CHECK(wrong == 0, "the bar assembly's ten by their names: front_glow the lamp's lit parts, front_dialglow its backlight, front_needle the needle, the three mirrors variants 1 to 3%s%s", wrong ? ": " : "", bad);
+	wrong = LookRolesWrong(20, 8, false, bad, sizeof(bad));
+	CHECK(wrong == 0, "the four fork_ shapes the lower fork, the tyres and rims the wheels, by their names%s%s", wrong ? ": " : "", bad);
+
+	printf("look: at a stop, the lamp off, Mirrors=1:\n");
+	CHECK(LookSpeck(iGlow) && LookCentreOff(iGlow, iFront) > 50.0f && LookSpeck(iDialGlow) && LookCentreOff(iDialGlow, iFront) < 0.05f,
+	      "the lamp off: front_glow a speck as 27c's (%.4f, about the bike's origin: its centre %.0f off), the dial's backlight a speck in the dial (%.4f, its centre %.3f off)",
+	      LookScale(iGlow), LookCentreOff(iGlow, iFront), LookScale(iDialGlow), LookCentreOff(iDialGlow, iFront));
+	CHECK(LookShown(iTail) && LookSpeck(iBrake) && LookCentreOff(iBrake, -1) < 0.05f,
+	      "the tail light's running light lit (%.3f), the brake light a speck in its lens at a stop (%.4f, its centre %.3f off)", LookScale(iTail), LookScale(iBrake), LookCentreOff(iBrake, -1));
+	CHECK(LookShown(iStock) && LookSpeck(iEgg) && LookSpeck(iD) && LookCentreOff(iEgg, iFront) < 0.05f,
+	      "Mirrors=1: the stock mirror shown (%.3f), the egg and the D specks (%.4f, %.4f) where they are (%.3f)", LookScale(iStock), LookScale(iEgg), LookScale(iD), LookCentreOff(iEgg, iFront));
+	SetHeadlamp(1.0f);
+	RunFrames(300);
+	CHECK(LookShown(iGlow) && LookShown(iDialGlow), "the lamp on (SetHeadlamp 1): front_glow (%.3f) and the dial's backlight (%.3f) shown", LookScale(iGlow), LookScale(iDialGlow));
+	SetHeadlamp(0.0f);
+	RunFrames(300);
+	CHECK(LookSpeck(iGlow) && LookSpeck(iDialGlow), "off again: both specks (%.4f, %.4f)", LookScale(iGlow), LookScale(iDialGlow));
+	float cross, axisOff, pivotOff, deg = LookNeedle(&cross, &axisOff, &pivotOff);
+	CHECK(fabsf(deg) < 0.1f && LookShown(iNeedle) && pivotOff < 0.01f, "the needle shown, at its rest (%.2f deg), on its pivot (%.4f)", deg, pivotOff);
+
+	printf("look: the needle at 90 and 900 a second (Scale 1.75: 5.0 and 50.3 dial mph), riding straight:\n");
+	g_lookSpeed = 90.0f;
+	RunFrames(3000);
+	deg = LookNeedle(&cross, &axisOff, &pivotOff);
+	float want = LookExpected(90.0f, 1.75f);
+	CHECK(fabsf(deg - want) < 1.0f && cross < 0.0f && axisOff < 0.001f && pivotOff < 0.01f,
+	      "at 90: %.2f deg (the formula's %.2f), clockwise as the rider sees it (the dial's up crossed with its turn, along NeedleAxis: %.3f), a turn about NeedleAxis (%.5f) on the pivot (%.4f)",
+	      deg, want, cross, axisOff, pivotOff);
+	g_lookSpeed = 900.0f;
+	RunFrames(3000);
+	deg = LookNeedle(&cross, &axisOff, &pivotOff);
+	want = LookExpected(900.0f, 1.75f);
+	CHECK(fabsf(deg - want) < 1.0f && cross < 0.0f && axisOff < 0.001f && pivotOff < 0.01f,
+	      "at 900: %.2f deg (the formula's %.2f), clockwise (%.3f), about NeedleAxis (%.5f) on the pivot (%.4f)", deg, want, cross, axisOff, pivotOff);
+	float traced = LastLogNumber("ndl=");
+	CHECK(fabsf(traced - deg) < 3.0f && LogLines(" | ndl=") > 0 && LogLines(" brk=0") > 0, "the trace's parts line says ndl=%.1f (the needle %.1f) and brk=0", traced, deg);
+	CHECK(LookSpeck(iBrake), "riding on at 900, no key: the brake light out (%.4f)", LookScale(iBrake));
+	int timeLines = LogLines(" for 29 shape(s), rider ");
+	const char *timeLine = LastLogLine(" for 29 shape(s), rider ");
+	printf("  %s", timeLine ? timeLine : "(no time line)\n");
+	CHECK(timeLines > 0, "the frame-time trace line gives the bike's part for 29 shapes (%d lines; the bike's average %.0f us a frame)", timeLines, LastLogNumber("(bike "));
+
+	printf("look: turning at 30 deg/s at 300 a second, the bars over:\n");
+	g_lookSpeed = 300.0f;
+	g_lookTurn = 30.0f / DEG;
+	RunFrames(2500);
+	float bars = LookBars();
+	deg = LookNeedle(&cross, &axisOff, &pivotOff);
+	want = LookExpected(300.0f, 1.75f);
+	CHECK(fabsf(bars) > 5.0f && fabsf(deg - want) < 1.0f && axisOff < 0.001f && pivotOff < 0.01f,
+	      "the bars %.1f deg: the needle against front_black still a turn about NeedleAxis alone (%.5f), on the pivot (%.4f), %.2f deg (the formula's %.2f)", bars, axisOff, pivotOff, deg, want);
+	g_lookTurn = 0.0f;
+	g_lookSpeed = 0.0f;
+	RunFrames(3000);
+	deg = LookNeedle(&cross, &axisOff, &pivotOff);
+	CHECK(fabsf(deg) < 0.5f, "stopped: the needle back at NeedleZero (%.2f deg)", deg);
+
+	printf("look: the brake light with the input hook, at 600 a second:\n");
+	g_lookKeys = true;
+	g_lookSpeed = 600.0f;
+	RunFrames(1500);
+	CHECK(LookSpeck(iBrake), "riding at 600, no key: out (%.4f)", LookScale(iBrake));
+	Keys(0.0f, -1.0f);   /* the back key: the brake at speed */
+	OneFrame();
+	CHECK(LookShown(iBrake) && LookCentreOff(iBrake, -1) < 0.01f, "the back key pressed: lit within one frame (%.3f)", LookScale(iBrake));
+	RunFrames(500);
+	bool still = LookShown(iBrake);
+	Keys(0.0f, 0.0f);
+	float off = LookUntil(iBrake, false, 2.0f);
+	CHECK(still && off > 0.3f && off < 1.0f, "held 0.5 s: lit all along (%s); let go: out %.2f s later (the key kept 0.2 s, read 0.1 s, then BrakeHold 0.3)", still ? "yes" : "no", off);
+	g_lookSpeed = 0.0f;
+	LookAgain("\nBrakeHold=0.3\n", "\nBrakeHold=0\n");
+	g_lookSpeed = 600.0f;
+	RunFrames(1500);
+	Keys(0.0f, -1.0f);
+	RunFrames(500);
+	still = LookShown(iBrake);
+	Keys(0.0f, 0.0f);
+	float off0 = LookUntil(iBrake, false, 2.0f);
+	/* Both waits are wall-clock frames (Sleep(5) under Wine), each with the input hook's read of the key in it: a hitch of a
+	 * few tens of ms in either moves the difference (the review of the 2026-10-31a build saw 0.37 once in three runs). The
+	 * hold's own 0.3 still stands out: none, or twice it, is off by 0.3. */
+	CHECK(still && off0 > 0.15f && off0 < 0.45f && fabsf(off - off0 - 0.3f) < 0.12f, "BrakeHold=0: out %.2f s after the key (%.2f s sooner: BrakeHold's 0.3)", off0, off - off0);
+	g_lookSpeed = 0.0f;
+	LookAgain("\nBrakeHold=0\n", "\nBrakeHold=0.3\n");
+	LookAgain("\nBrake=1\n", "\nBrake=0\n");
+	g_lookSpeed = 600.0f;
+	RunFrames(1500);
+	Keys(0.0f, -1.0f);
+	float lit = LookUntil(iBrake, true, 1.0f);
+	Keys(0.0f, 0.0f);
+	RunFrames(300);
+	CHECK(lit >= 1.0f && LookSpeck(iBrake), "Brake=0: the back key held a second at 600, never lit (%.4f)", LookScale(iBrake));
+	g_lookSpeed = 0.0f;
+	g_lookKeys = false;
+	RewriteIni("\nBrake=0\n", "\nBrake=1\n");
+
+	printf("look: the brake light without the input hook (the steering off, CMB_TurnRadius 0: the speed measured by the look itself), the engine's sound off ([Sound] Drive=0):\n");
+	*(float *)(g_turnRadius + 0x30) = 0.0f;
+	LookAgain(NULL, NULL);
+	g_lookSpeed = 600.0f;
+	RunFrames(2000);
+	deg = LookNeedleNow();
+	want = LookExpected(600.0f, 1.75f);
+	CHECK(LookSpeck(iBrake) && fabsf(deg - want) < 2.0f, "riding at 600: out (%.4f); the needle from the look's own speed %.1f deg (the formula's %.1f)", LookScale(iBrake), deg, want);
+	g_lookDecel = 450.0f;   /* the game's coast */
+	lit = LookUntil(iBrake, true, 1.0f);
+	CHECK(lit >= 1.0f, "coasting off at 450 a second a second for a second: never lit (%.4f)", LookScale(iBrake));
+	g_lookDecel = 0.0f;
+	g_lookSpeed = 900.0f;
+	RunFrames(2000);
+	g_lookDecel = 2250.0f;   /* the game's brake: 900 to a stop in 0.4 s */
+	lit = LookUntil(iBrake, true, 0.6f);
+	float litAt = g_lookSpeed;
+	RunFrames(500);
+	off = LookUntil(iBrake, false, 2.0f);
+	CHECK(lit < 0.45f && off < 2.0f, "braking at 2250 from 900: lit %.2f s in (at %.0f a second: the measured speed's 0.2 s and its rate's 0.25 s behind the brake), out again %.2f s after the stop",
+	      lit, litAt, 0.5f + lit - 0.4f + off);
+	g_lookDecel = 0.0f;
+	/* The review of the 2026-10-31a build: a door or a fast travel that arrives moving set the measured speed to 0 with its
+	 * rate run across the jump, which read as a hard brake. */
+	g_lookSpeed = 300.0f;
+	RunFrames(2000);
+	bool outBefore = LookSpeck(iBrake);
+	PlayerPos()[0] += 5000.0f;   /* 5000 units in one frame, still at 300 */
+	lit = LookUntil(iBrake, true, 1.5f);
+	CHECK(outBefore && lit >= 1.5f && LookSpeck(iBrake), "a jump of 5000 (a door, a fast travel) arriving at 300 a second: out before it (%s) and never lit in the 1.5 s after (%.4f)",
+	      outBefore ? "yes" : "no", LookScale(iBrake));
+	g_lookSpeed = 0.0f;
+	RunFrames(1500);
+	*(float *)(g_turnRadius + 0x30) = 300.0f;
+
+	printf("look: each key's off value:\n");
+	LookAgain("\nGlow=1\n", "\nGlow=0\n");
+	CHECK(LookSpeck(iTail) && LookCentreOff(iTail, -1) < 0.05f, "Glow=0: the running light a speck in the lens (%.4f, its centre %.3f off): the plain lens", LookScale(iTail), LookCentreOff(iTail, -1));
+	LookAgain("\nGlow=0\n", "\nGlow=1\n");
+	CHECK(LookShown(iTail), "Glow=1 again: lit (%.3f)", LookScale(iTail));
+	SetHeadlamp(1.0f);
+	LookAgain("\nBacklight=1\n", "\nBacklight=0\n");
+	CHECK(LookSpeck(iDialGlow) && LookShown(iGlow), "Backlight=0, the lamp on: the dial never lit (%.4f), the lamp's own lit parts shown (%.3f)", LookScale(iDialGlow), LookScale(iGlow));
+	LookAgain("\nBacklight=0\n", "\nBacklight=1\n");
+	SetHeadlamp(0.0f);
+	LookAgain("\nNeedle=1\n", "\nNeedle=0\n");
+	g_lookSpeed = 300.0f;
+	g_lookTurn = 30.0f / DEG;
+	RunFrames(2000);
+	deg = LookNeedle(&cross, &axisOff, &pivotOff);
+	CHECK(LookSpeck(iNeedle) && pivotOff < 0.01f && fabsf(LookBars()) > 5.0f, "Needle=0: the needle a speck at its pivot, riding and turning (%.4f, the pivot %.4f from front_black's, the bars %.1f)",
+	      LookScale(iNeedle), pivotOff, LookBars());
+	g_lookTurn = 0.0f;
+	g_lookSpeed = 0.0f;
+	RunFrames(1500);
+	LookAgain("\nNeedle=0\n", "\nNeedle=1\n");
+	LookAgain("\nMirrors=1\n", "\nMirrors=0\n");
+	CHECK(LookSpeck(iStock) && LookSpeck(iEgg) && LookSpeck(iD), "Mirrors=0: none (%.4f, %.4f, %.4f)", LookScale(iStock), LookScale(iEgg), LookScale(iD));
+	LookAgain("\nMirrors=0\n", "\nMirrors=2\n");
+	CHECK(LookSpeck(iStock) && LookShown(iEgg) && LookSpeck(iD), "Mirrors=2: the egg alone (%.4f, %.3f, %.4f)", LookScale(iStock), LookScale(iEgg), LookScale(iD));
+	LookAgain("\nMirrors=2\n", "\nMirrors=3\n");
+	CHECK(LookSpeck(iStock) && LookSpeck(iEgg) && LookShown(iD) && LookCentreOff(iStock, iFront) < 0.05f, "Mirrors=3: the D alone (%.4f, %.4f, %.3f)", LookScale(iStock), LookScale(iEgg), LookScale(iD));
+	LookAgain("\nMirrors=3\n", "\nMirrors=1\n");
+	CHECK(LookShown(iStock) && LookSpeck(iEgg) && LookSpeck(iD), "Mirrors=1 again: the stock one (%.3f, %.4f, %.4f)", LookScale(iStock), LookScale(iEgg), LookScale(iD));
+	LookAgain("\nScale=1.75\n", "\nScale=3\n");
+	g_lookSpeed = 900.0f;
+	RunFrames(3000);
+	deg = LookNeedle(&cross, &axisOff, &pivotOff);
+	CHECK(fabsf(deg - 240.0f) < 1.0f && pivotOff < 0.01f, "Scale=3 at 900 (86 dial mph): the needle at NeedleMax, %.2f deg clockwise", deg);
+	g_lookSpeed = 0.0f;
+	RunFrames(1500);
+	LookAgain("\nScale=3\n", "\nScale=1.75\n");
+
+	printf("look: every new key at its off value (Needle 0, Glow 0, Brake 0, Backlight 0, Mirrors 1), the lamp on: 27c's look:\n");
+	SetHeadlamp(1.0f);
+	LookGetOff();
+	RewriteIni("\nNeedle=1\n", "\nNeedle=0\n");
+	RewriteIni("\nBacklight=1\n", "\nBacklight=0\n");
+	RewriteIni("\nGlow=1\n", "\nGlow=0\n");
+	RewriteIni("\nBrake=1\n", "\nBrake=0\n");
+	LookGetOn(1000);
+	g_lookKeys = true;
+	g_lookSpeed = 600.0f;
+	RunFrames(1500);
+	Keys(0.0f, -1.0f);
+	RunFrames(300);
+	CHECK(LookSpeck(iNeedle) && LookSpeck(iTail) && LookSpeck(iBrake) && LookSpeck(iDialGlow) && LookShown(iStock) && LookSpeck(iEgg) && LookSpeck(iD) && LookShown(iGlow),
+	      "braking at 600: no needle, no lit tail, brake or dial (%.4f %.4f %.4f %.4f), the stock mirror (%.3f; the egg %.4f, the D %.4f), the lamp's lit parts with the lamp (%.3f)",
+	      LookScale(iNeedle), LookScale(iTail), LookScale(iBrake), LookScale(iDialGlow), LookScale(iStock), LookScale(iEgg), LookScale(iD), LookScale(iGlow));
+	Keys(0.0f, 0.0f);
+	g_lookSpeed = 0.0f;
+	g_lookKeys = false;
+	LookGetOff();
+	RewriteIni("\nNeedle=0\n", "\nNeedle=1\n");
+	RewriteIni("\nBacklight=0\n", "\nBacklight=1\n");
+	RewriteIni("\nGlow=0\n", "\nGlow=1\n");
+	RewriteIni("\nBrake=0\n", "\nBrake=1\n");
+	SetHeadlamp(0.0f);
+
+	printf("look: RolesByName=0 (27c's rules) with the 2026-10-31a build's 28:\n");
+	RewriteIni("RolesByName=1", "RolesByName=0");
+	LookGetOn(1000);
+	wrong = LookRolesWrong(0, LOOK_NEW, true, bad, sizeof(bad));
+	g_lookSpeed = 300.0f;
+	RunFrames(1500);
+	deg = LookNeedleNow();
+	CHECK(wrong == 0 && fabsf(deg) < 0.1f && LookShown(iBrake) && LookShown(iEgg) && LookShown(iDialGlow) && LookSpeck(iGlow),
+	      "every role by its sphere but the fork's by its name, as 27c's rules give them (the dial, its backlight and the needle the bar assembly's, the lights' shells fixed parts): the needle not turned at 300 (%.2f), "
+	      "the brake light (%.3f), the egg (%.3f) and the backlight (%.3f) shown, front_glow a speck with the lamp off%s%s", deg, LookScale(iBrake), LookScale(iEgg), LookScale(iDialGlow), wrong ? ": " : "", bad);
+	g_lookSpeed = 0.0f;
+	LookGetOff();
+
+	printf("look: 27c's twelve shapes copied back over (the tester's way to 27c's look), RolesByName 0 then 1:\n");
+	LookAttach(LOOK_NEW, LOOK_OLD, 0, 0);
+	LookGetOn(1500);
+	held = LookHeld(LOOK_NEW, LOOK_OLD);
+	wrong = LookRolesWrong(LOOK_NEW, LOOK_OLD, true, bad, sizeof(bad));
+	CHECK(held == LOOK_OLD && wrong == 0 && LookSpeck(iOldGlow) && LookCentreOff(iOldGlow, iOldFront) > 50.0f,
+	      "RolesByName=0: the twelve held (%d), 27c's roles (metal, matte, glass fixed; front_metal, front_matte, front_glass the bars; front_glow the lamp's lit parts, a speck as 27c's with the lamp off; "
+	      "fork_ the lower fork; wheelF, wheelR)%s%s", held, wrong ? ": " : "", bad);
+	LookGetOff();
+	RewriteIni("RolesByName=0", "RolesByName=1");
+	LookGetOn(1500);
+	held = LookHeld(LOOK_NEW, LOOK_OLD);
+	wrong = LookRolesWrong(LOOK_NEW, LOOK_OLD, false, bad, sizeof(bad));
+	CHECK(held == LOOK_OLD && wrong == 0 && LookSpeck(iOldGlow) && LookCentreOff(iOldGlow, iOldFront) > 50.0f,
+	      "RolesByName=1: the same twelve roles (%d held), front_glow the same speck%s%s", held, wrong ? ": " : "", bad);
+	SetHeadlamp(1.0f);
+	RunFrames(300);
+	CHECK(LookShown(iOldGlow), "the lamp on: 27c's front_glow shown (%.3f)", LookScale(iOldGlow));
+	SetHeadlamp(0.0f);
+	LookGetOff();
+
+	printf("look: 50 bike shapes (the 2026-10-31a build's 28, 21 more and the main shape), two past MAX_SKINS 48:\n");
+	LookAttach(0, LOOK_NEW, LOOK_NEW + LOOK_OLD, LOOK_EXTRA);
+	overBefore = LogLines("this plugin holds, left where they are");
+	LookGetOn(1500);
+	g_lookSpeed = 300.0f;
+	RunFrames(3000);
+	held = LookHeld(0, LOOK_NEW) + LookHeld(LOOK_NEW + LOOK_OLD, LOOK_EXTRA) + (*BoneDataRefs() == 3);
+	int overLines = LogLines("this plugin holds, left where they are") - overBefore;
+	const char *overLine = LastLogLine("this plugin holds, left where they are");
+	CHECK(held == 48 && overLines == 1 && overLine && strstr(overLine, "2 bike shape(s) past the 48") && strstr(overLine, "CMB_BikeWornRider_static_extra20, CMB_BikeWornRider_static_extra21"),
+	      "48 held (%d), one line in 3 s of riding (%d) naming the two left: %s", held, overLines, overLine ? overLine : "(none)\n");
+	CHECK(LogLines(" for 48 shape(s), rider ") > 0, "the frame-time line with 48 shapes (the bike's average %.0f us a frame)", LastLogNumber("(bike "));
+	g_lookSpeed = 0.0f;
+	LookGetOff();
+	int back = LookLetGo(0, LOOK_NEW) + LookLetGo(LOOK_NEW + LOOK_OLD, LOOK_EXTRA) + (*BoneDataRefs() == 2);
+	CHECK(back == 50, "getting off: all 50 let go (%d), no crash", back);
+	LookAttach(0, LOOK_NEW, 0, 0);
+	g_onFrame = NULL;
+}
+
 int main(int argc, char **argv)
 {
 	const char *dllPath = argc > 1 ? argv[1] : "CMB_Slope.dll";
 	int mode = argc > 2 ? atoi(argv[2]) : 0;   /* 0 = full test, 1 = probe only, 2 = wrong game version */
-	g_haveParts = mode == 0 || mode == 7 || mode == 8 || mode == 9 || mode == 10 || mode == 11 || mode == 12 || mode == 13;   /* run.sh gives those a [Parts] section (mode 12 since test 43: the rear's clearance from it) */
+	g_haveParts = mode == 0 || mode == 7 || mode == 8 || mode == 9 || mode == 10 || mode == 11 || mode == 12 || mode == 13 || mode == 17;   /* run.sh gives those a [Parts] section (mode 12 since test 43: the rear's clearance from it; mode 17, the 2026-10-31a build's look, the parts file of the 2026-10-31a build) */
+	g_lookMode = mode == 17;   /* The 2026-10-31a build's look: its own bike (BuildGame) */
 	g_base = (uintptr_t)GetModuleHandleA(NULL);
 	if ((uintptr_t)g_space > g_base + 0x00300000u || (uintptr_t)g_space + sizeof(g_space) < g_base + RVA_INI_SETTINGS + 8) {
 		printf("image layout doesn't cover the game addresses (g_space at +0x%llx)\n", (unsigned long long)((uintptr_t)g_space - g_base));
@@ -12344,6 +13004,13 @@ int main(int argc, char **argv)
 		Send(10, 1);   /* GameDataReady */
 		RunFrames(300);
 		RoomTests(mode == 15);
+		printf("%s\n", g_failures ? "FAILED" : "all ok");
+		return g_failures ? 1 : 0;
+	}
+	if (mode == 17) {   /* The 2026-10-31a build's look: the 28 shapes' roles, the needle, the lights, the mirrors, 27c's names, 50 shapes */
+		Send(10, 1);   /* GameDataReady */
+		RunFrames(300);
+		LookTests();
 		printf("%s\n", g_failures ? "FAILED" : "all ok");
 		return g_failures ? 1 : 0;
 	}

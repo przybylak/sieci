@@ -725,7 +725,7 @@ enum { PUSH_DELTA, PUSH_RAYSTEP, PUSH_MOD, PUSH_VELOCITY, PUSH_POSITION, PUSH_BR
 static int g_backPushFirst = PUSH_RAYSTEP;   /* BackPush: the method to start with */
 static bool g_backPushAuto = true;        /* BackPush=auto: steps after rays, else brake */
 /* BackClearance: this far behind the rider must be clear (test 16: the vanilla bike's rear is about
- * 130 back, 150 the number). Test 42 ("way too far"): with the Harley the bike stopped 56 short of
+ * 130 back, 150 the number). Test 42 ("way too far"): with the Sketchfab bike it stopped 56 short of
  * a rail behind the tyre (20:55:53.316) and about 86 on a 33 deg slope (20:59:43.090), the tyre's
  * back edge being 70.4 behind the rider by the parts file. So 0, the default since test 43: that
  * edge (|RearAxle y| + WheelRadius) plus BackMargin, 150 without a parts file; 80 to 500 as set,
@@ -750,7 +750,7 @@ static float g_backHungDrop = 40.0f;      /* BackHungDrop: 0 = BACK_DROP hung up
 static float g_hungAt = -100.0f, g_hungPos[2];   /* the last frame hung up, and where */
 static char g_hungWhy[160];                 /* ... and what said so, for the reverse's line */
 static float g_hungLoggedAt = -100.0f;      /* the reverse's "hung up" line, one a second */
-#define BACK_CLEAR_LEAST 60.0f            /* a clearance from the parts file never under this: the far ray stays beyond the one 55 back, the knee and chest rays running between them (never reached by a real bike: the Harley's 95, the harness's 92, 70 with BackMargin 0) */
+#define BACK_CLEAR_LEAST 60.0f            /* a clearance from the parts file never under this: the far ray stays beyond the one 55 back, the knee and chest rays running between them (never reached by a real bike: the Sketchfab bike's 95, the harness's 92, 70 with BackMargin 0) */
 static float g_backSink;                  /* BackSink: units the feet go below the hover when closing a gap (0: to the hover, BACK_HOVER over the ground) */
 #define BACK_HOVER 0.5f                   /* closing a gap under the feet, they go this far over the ground (test 39: backing with no step the controller's own hover read 0.0 to 0.2, and every gap closed onto the ground with the controller supported was followed by it in the air and the player through the road) */
 static float g_backFollow = 10.0f;        /* BackFollow: going back level or down, the step follows the ground's slope over this many units centred on the middle of the step, the controller supported or not (test 40's finding 6; 0: test 40's rule, the slope 55 back and the gap closed to the hover when unsupported) */
@@ -821,7 +821,7 @@ static float g_roomGroundSlope = 25.0f;
  * script's SetAngle takes them, and CMB_RoomGround), its roll held to ParkRoll. Each 0
  * (LineFallback 1) gives test 45's build. Read in ReadRoomSettings, again on getting on. */
 static int g_roomAround = 1, g_roomLineFallback = 0, g_roomSlide = 1, g_roomTilted = 1, g_roomParkTilt = 1;
-static float g_roomParkRoll = 20.0f;   /* ParkRoll: a Sportster on its side stand leans about 10 deg on the level; past about 20 across a slope it would tip off the stand (stand uphill) or onto it (downhill) */
+static float g_roomParkRoll = 20.0f;   /* ParkRoll: a cruiser on its side stand leans about 10 deg on the level; past about 20 across a slope it would tip off the stand (stand uphill) or onto it (downhill) */
 static uintptr_t g_roomMoreGlobals[ROOM_MORE_GLOBALS];   /* CMB_RoomOptions, CMB_RoomPitch, CMB_RoomRoll, CMB_RoomGround (we write them all): test 46, found apart from the seven, their absence costing only the above */
 /* Test 47 ([Room] ParkCheck and SnapNext; test 46: got off 2 s after getting on nosed into a house's
  * window, the bike was parked beside the worn one, through the window, the navmesh snap finding none
@@ -965,19 +965,26 @@ static uintptr_t g_stateCtrl;           /* the controller the state check below 
 static bool g_stateTrusted;
 static int g_lastState = -1, g_stateLogs;
 
-/* Tilt: the worn bike's skins we hold, and what they were. The Harley build has twelve
- * shapes since test 38: three static, four that turn with the bars, three of the lower fork
- * (with the bars and the front wheel's travel) and the two wheels. */
-#define MAX_SKINS 16
+/* Tilt: the worn bike's skins we hold, and what they were. The Sketchfab build had twelve
+ * shapes from test 38 to build 27c (three static, four that turn with the bars, three of the
+ * lower fork, with the bars and the front wheel's travel, and the two wheels); the 2026-10-31a build's has 28,
+ * one per material and moving part (eight static, the tail and brake lights' shells, ten of
+ * the bar assembly with the speedometer's dial, its backlight and needle and the three
+ * mirrors, four of the lower fork, a tyre and a rim per wheel). Up to 16 shapes were held
+ * till the 2026-10-31a build: the rest were silently left where they were (a frozen wheel or bar part). */
+#define MAX_SKINS 48
 #define MAX_BONES 4
-enum { ROLE_UNKNOWN = -1, ROLE_NONE, ROLE_WHEEL_F, ROLE_WHEEL_R, ROLE_FRONT, ROLE_GLOW, ROLE_FORK };   /* GLOW: the headlamp's lit parts, with the bar assembly; FORK: the lower fork legs, the front mudguard and the caliper, with the bars and the front wheel's travel */
+enum { ROLE_UNKNOWN = -1, ROLE_NONE, ROLE_WHEEL_F, ROLE_WHEEL_R, ROLE_FRONT, ROLE_GLOW, ROLE_FORK, ROLE_NEEDLE, ROLE_TAIL, ROLE_BRAKE };   /* GLOW: the headlamp's lit parts, with the bar assembly; FORK: the lower fork legs, the front mudguard and the caliper, with the bars and the front wheel's travel; NEEDLE (since the 2026-10-31a build): the speedometer's needle, turned by the speed about NeedleAxis, then with the bar assembly; TAIL, BRAKE (since the 2026-10-31a build): the tail light's lit shell and the brake light's, fixed parts */
 typedef struct {
 	uintptr_t boneData;                 /* BSSkin::BoneData, with a reference of ours */
 	uintptr_t bones;                    /* its BoneTransforms */
 	int count;
 	uint8_t original[MAX_BONES][BONE_SIZE];
-	char name[48];
-	int role;                           /* which moving part it is (ROLE_*), told by its culling sphere */
+	char name[64];
+	int role;                           /* which moving part it is (ROLE_*), told by its name (the 2026-10-31a build's tags, [Parts] RolesByName) or its culling sphere */
+	bool byName;                        /* the role came from the name's tag */
+	bool backlight;                     /* GLOW: the speedometer's backlight ("_front_dialglow"), off with [Speedo] Backlight=0 too */
+	int variant;                        /* a mirror ([Look] Mirrors' 1 stock, 2 under-bar egg, 3 under-bar D), 0 = not one: shown only when it is the one chosen */
 	float centre[3];                    /* its culling sphere's centre in the bike's own space */
 	uintptr_t skin;                     /* its BSSkin::Instance */
 	uintptr_t node;                     /* the bone it's bound to (COM), through the instance's bone list; 0 if not found */
@@ -1085,6 +1092,33 @@ static float g_frontAxle[3], g_rearAxle[3], g_wheelRadius, g_steerPoint[3], g_st
 static bool g_gripOk;                    /* Grip in the parts file: the +x grip's centre (the left is x mirrored), the wrist roll's pivot (test 38: without it the hand rolls about its own node, 6.5 units from the grip's centre, and the palm swings off the bar) */
 static float g_grip[3];
 static float g_barFullAt = 45.0f;        /* deg/s of turning at which the bars are fully over */
+/* The bike's look (since the 2026-10-31a build: "a working speedometer, mirrors and back light"). The speedometer's
+ * needle from the parts file (NeedlePoint: the hub at the needle's height, NeedleAxis: the
+ * dial's normal toward the rider, both in the worn bike's space; NeedleZero: degrees at a
+ * stop past the needle as modelled, NeedleMax: the sweep's end, NeedlePerMph: the dial's
+ * degrees a mph); without NeedlePoint and NeedleAxis the needle is never turned. */
+static bool g_needleOk;
+static float g_needlePoint[3], g_needleAxis[3], g_needleZero, g_needleMax = 240.0f, g_needlePerMph = 3.0f;
+#define MPH_PER_UNIT 0.0319563f          /* mph in a unit a second: 1 unit = 1.4286 cm */
+#define SPECK 0.001f                     /* a hidden part's scale: a speck inside where it is */
+static int g_rolesByName = 1;            /* [Parts] RolesByName: 1 = a shape's role from its name's tag first (the 2026-10-31a build's 28 shapes; 27c's names give the same roles either way), 0 = 27c's rules (only "_fork" by name, the rest by the culling sphere) */
+static int g_speedoNeedle = 1;           /* [Speedo] Needle: 0 = the needle a speck (27c had none) */
+static float g_speedoScale = 1.75f;      /* [Speedo] Scale: the dial reads the speed times this (1 = true; 1.75 puts the top speed's 900 u/s, 28.8 mph, at about 50) */
+static float g_speedoTau = 0.3f;         /* [Speedo] Tau: the needle follows the speed over this (s; 0 = at once) */
+static int g_speedoBacklight = 1;        /* [Speedo] Backlight: 1 = the dial lit with the headlamp, 0 = never */
+static int g_tailGlow = 1;               /* [Tail] Glow: 1 = the tail light's running light lit while riding, 0 = the plain lens (27c) */
+static int g_tailBrake = 1;              /* [Tail] Brake: 1 = the brake light lit while braking, 0 = never */
+static float g_tailBrakeHold = 0.3f;     /* [Tail] BrakeHold: and held this long after (s; 0 = none) */
+static int g_lookMirrors = 1;            /* [Look] Mirrors: which mirror the riding bike shows: 0 none, 1 the stock one (27c), 2 under-bar egg, 3 under-bar D */
+static float g_needleSpeed;              /* the speed the needle shows (|along the heading|, smoothed by Tau; u/s) */
+static float g_needleDeg;                /* this frame's needle angle past the modelled rest, degrees, clockwise as the rider sees it */
+static bool g_brakeOn;                   /* this frame: the brake light lit (the brake rule, held BrakeHold) */
+static float g_brakeRawAt = -100.0f;     /* when (g_clock) the brake rule last held */
+static float g_lookV, g_lookPrev, g_lookAccel;   /* the speed along the heading the look reads (the steering's, or its own from the position), last frame's, and its rate (u/s^2, 0.25 s) */
+static float g_lookOwnPos[2];
+static bool g_lookOwnHave, g_lookFromSteer;
+static bool g_steerRestarted;            /* this frame FrameSteer started its speed again from 0 (a ride's start, a door, a fast travel, a load): the look's rate starts afresh */
+static bool g_skinLimitSaid;             /* this ride: more bike shapes than MAX_SKINS said */
 static float g_wheelAngle;               /* the wheels' spin, radians */
 static float g_barNow, g_headingRate;    /* the bars' turn now (degrees, + left); the rider's turning (deg/s) */
 static float g_lastHeading;
@@ -1101,7 +1135,7 @@ static float g_clock, g_lastTrace;          /* seconds of frames */
 static float g_tiltNow, g_tiltMax;      /* degrees: this frame, most this ride */
 static LARGE_INTEGER g_qpcFrequency, g_lastFrameTime;
 static int g_walkBudget;
-static uintptr_t g_refused[8];          /* skins found unfit: not looked at again */
+static uintptr_t g_refused[MAX_SKINS];  /* skins found unfit: not looked at again (a ring of 8 till the 2026-10-31a build; as many as the bike's shapes held since) */
 static int g_emptySyncs;                /* checks in a row this ride that found no bike */
 static bool g_rideDiagnosed, g_rideRouteLogged;
 static int g_refusedCount;
@@ -1192,6 +1226,7 @@ static void OpenLog(void)
 
 static void ReadParts(const char *ini);
 static void ReadLampSettings(const char *ini);
+static void ReadLookSettings(const char *ini, bool log);   /* Since the 2026-10-31a build: the speedometer, the tail and brake lights, the mirrors */
 
 static float IniFloat(const char *ini, const char *section, const char *key, float fallback, float lo, float hi)
 {
@@ -1700,7 +1735,7 @@ static void ReadBackSettings(const char *ini, bool log)
 }
 
 /* The rear tyre's back edge behind the rider by the parts file (|RearAxle y| + WheelRadius: the
- * Harley's 70.4, the harness's 66.6). */
+ * Sketchfab bike's 70.4, the harness's 66.6). */
 static float BackTyreEdge(void)
 {
 	return fabsf(g_rearAxle[1]) + g_wheelRadius;
@@ -1908,6 +1943,7 @@ static void ReadSettings(void)
 	ReadDiagSettings(ini, true);
 	ReadRiderSwitches(true);
 	ReadParts(ini);
+	ReadLookSettings(ini, true);
 	BackClearanceLine();   /* the parts file read: the clearance it gives (test 42) */
 	ReadLampSettings(ini);
 }
@@ -1964,6 +2000,35 @@ static void ReadParts(const char *ini)
 		g_barAngle = 0.0f;
 	if (!(g_barFullAt >= 5.0f && g_barFullAt <= 720.0f))
 		g_barFullAt = 45.0f;
+	/* Since the 2026-10-31a build: the speedometer's needle. NeedleZero, NeedleMax and NeedlePerMph default to the
+	 * dial's 0 mark, its 240 deg sweep and 3 deg a mph (80 mph at the end); one out of range
+	 * leaves the needle unturned, and the line says which. */
+	char needle[200];
+	const char *needleWhy = NULL;
+	bool needleKeys = ReadVec(file, "NeedlePoint", g_needlePoint) && ReadVec(file, "NeedleAxis", g_needleAxis);
+	g_needleZero = ReadNum(file, "NeedleZero", 0.0f);
+	g_needleMax = ReadNum(file, "NeedleMax", 240.0f);
+	g_needlePerMph = ReadNum(file, "NeedlePerMph", 3.0f);
+	float nlen = sqrtf(g_needleAxis[0] * g_needleAxis[0] + g_needleAxis[1] * g_needleAxis[1] + g_needleAxis[2] * g_needleAxis[2]);
+	if (!needleKeys)
+		needleWhy = "no NeedlePoint and NeedleAxis";
+	else if (!(nlen > 0.5f && nlen < 2.0f))
+		needleWhy = "NeedleAxis isn't a direction";
+	else if (!(g_needleZero >= -360.0f && g_needleZero <= 360.0f))
+		needleWhy = "NeedleZero isn't within -360 to 360";
+	else if (!(g_needleMax >= 0.0f && g_needleMax <= 360.0f))
+		needleWhy = "NeedleMax isn't within 0 to 360";
+	else if (!(g_needlePerMph > 0.0f && g_needlePerMph <= 50.0f))
+		needleWhy = "NeedlePerMph isn't within 0 to 50";
+	g_needleOk = g_partsOk && !needleWhy;
+	if (g_needleOk) {
+		for (int i = 0; i < 3; i++)
+			g_needleAxis[i] /= nlen;
+		snprintf(needle, sizeof(needle), "the speedometer's needle about (%.2f, %.2f, %.2f) along (%.3f, %.3f, %.3f), %g deg past its rest at a stop, %g deg a mph, %g at most",
+		         g_needlePoint[0], g_needlePoint[1], g_needlePoint[2], g_needleAxis[0], g_needleAxis[1], g_needleAxis[2], g_needleZero, g_needlePerMph, g_needleMax);
+	} else {
+		snprintf(needle, sizeof(needle), "the speedometer's needle not turned (%s)", needleWhy ? needleWhy : "no parts");
+	}
 	if (g_partsOk) {
 		for (int i = 0; i < 3; i++)
 			g_steerAxis[i] /= len;
@@ -1973,15 +2038,41 @@ static void ReadParts(const char *ini)
 		else
 			snprintf(grip, sizeof(grip), "no Grip: the wrist rolls about the hand's node, as before test 38");
 		Log("  parts (%s): wheels of radius %.1f on axles at y %.1f and %.1f, the bar assembly beyond y %.1f turning up to %g deg "
-		    "about the axis through (%.1f, %.1f, %.1f) along (%.2f, %.2f, %.2f), fully over from %g deg/s of turning, %g of it at speed; %s",
+		    "about the axis through (%.1f, %.1f, %.1f) along (%.2f, %.2f, %.2f), fully over from %g deg/s of turning, %g of it at speed; %s; %s",
 		    file == ini ? "in the settings" : g_partsFile, g_wheelRadius, g_frontAxle[1], g_rearAxle[1], g_frontMinY, g_barAngle,
-		    g_steerPoint[0], g_steerPoint[1], g_steerPoint[2], g_steerAxis[0], g_steerAxis[1], g_steerAxis[2], g_barFullAt, g_barAtSpeed, grip);
+		    g_steerPoint[0], g_steerPoint[1], g_steerPoint[2], g_steerAxis[0], g_steerAxis[1], g_steerAxis[2], g_barFullAt, g_barAtSpeed, grip, needle);
 	} else {
 		Log("  parts: none (%s not found or incomplete): nothing on the bike moves", g_partsFile);
 	}
 	if (g_lampOk)
 		Log("  headlamp: the lens at (%.1f, %.1f, %.1f) in the bike's space, the beam along (%.2f, %.2f, %.2f)",
 		    g_lampPoint[0], g_lampPoint[1], g_lampPoint[2], g_lampAxis[0], g_lampAxis[1], g_lampAxis[2]);
+}
+
+/* The 2026-10-31a build's look ([Parts] RolesByName, [Speedo], [Tail], [Look]): read at the start and again on
+ * getting on, so an A/B needs no restart; each off value is build 27c's behaviour. */
+static void ReadLookSettings(const char *ini, bool log)
+{
+	int was[6] = { g_rolesByName, g_speedoNeedle, g_speedoBacklight, g_tailGlow, g_tailBrake, g_lookMirrors };
+	float wasF[3] = { g_speedoScale, g_speedoTau, g_tailBrakeHold };
+	g_rolesByName = (int)GetPrivateProfileIntA("Parts", "RolesByName", 1, ini) != 0;
+	g_speedoNeedle = (int)GetPrivateProfileIntA("Speedo", "Needle", 1, ini) != 0;
+	g_speedoScale = IniFloat(ini, "Speedo", "Scale", 1.75f, 0.05f, 10.0f);
+	g_speedoTau = IniFloat(ini, "Speedo", "Tau", 0.3f, 0.0f, 5.0f);
+	g_speedoBacklight = (int)GetPrivateProfileIntA("Speedo", "Backlight", 1, ini) != 0;
+	g_tailGlow = (int)GetPrivateProfileIntA("Tail", "Glow", 1, ini) != 0;
+	g_tailBrake = (int)GetPrivateProfileIntA("Tail", "Brake", 1, ini) != 0;
+	g_tailBrakeHold = IniFloat(ini, "Tail", "BrakeHold", 0.3f, 0.0f, 5.0f);
+	g_lookMirrors = (int)GetPrivateProfileIntA("Look", "Mirrors", 1, ini);
+	if (g_lookMirrors < 0 || g_lookMirrors > 3)
+		g_lookMirrors = 1;
+	bool changed = was[0] != g_rolesByName || was[1] != g_speedoNeedle || was[2] != g_speedoBacklight || was[3] != g_tailGlow || was[4] != g_tailBrake ||
+	               was[5] != g_lookMirrors || wasF[0] != g_speedoScale || wasF[1] != g_speedoTau || wasF[2] != g_tailBrakeHold;
+	static const char *mirrorNames[4] = { "none", "the stock one", "under the bars, egg", "under the bars, D" };
+	if (log || changed)
+		Log("  look: RolesByName=%d [Speedo] Needle=%d Scale=%g Tau=%g Backlight=%d [Tail] Glow=%d Brake=%d BrakeHold=%g [Look] Mirrors=%d (%s)%s", g_rolesByName,
+		    g_speedoNeedle, g_speedoScale, g_speedoTau, g_speedoBacklight, g_tailGlow, g_tailBrake, g_tailBrakeHold, g_lookMirrors, mirrorNames[g_lookMirrors],
+		    log ? "" : " (read again on getting on)");
 }
 
 static void ReadLampSettings(const char *ini)
@@ -3126,12 +3217,12 @@ static uintptr_t SkinBoneTransforms(uintptr_t skin, uint32_t count, uintptr_t no
 
 static void Refuse(uintptr_t data)
 {
-	g_refused[g_refusedCount++ % 8] = data;
+	g_refused[g_refusedCount++ % MAX_SKINS] = data;
 }
 
 static bool Refused(uintptr_t data)
 {
-	for (int i = 0; i < 8; i++)
+	for (int i = 0; i < MAX_SKINS; i++)
 		if (g_refused[i] == data)
 			return true;
 	return false;
@@ -3171,6 +3262,8 @@ static void HoldSkin(uintptr_t data, uintptr_t skin, const char *name)
 	h->bones = bones;
 	h->count = (int)count;
 	h->role = ROLE_UNKNOWN;
+	h->byName = h->backlight = false;
+	h->variant = 0;
 	h->skin = skin;
 	h->node = 0;
 	uintptr_t nodes = SkinBoneNodes(skin, count);
@@ -3385,20 +3478,98 @@ static void Turn(float *M, float *t, const float *u, const float *P, float radia
 		t[i] = t2[i] + P[i] - RP[i];
 }
 
-static const char *RoleName(int role)
+/* Shrink the map x -> M x + m to a speck (SPECK of its size) about where it takes c, the
+ * shape's culling sphere's centre in the bike's space: x -> SPECK M x + m + (1 - SPECK) M c.
+ * The centre lands where it would have, so the sphere and the shape's place in the bike stay
+ * as they are; the part is out of sight inside whatever covers it (since the 2026-10-31a build: the needle at its hub,
+ * the brake light's shell in the lens, a mirror at its own middle). The headlamp's lit parts
+ * keep 27c's speck, about the bike's origin. */
+static void Speck(float *M, float *m, const float *c)
 {
+	float Mc[3];
+	MulV(M, c, Mc);
+	for (int i = 0; i < 9; i++)
+		M[i] *= SPECK;
+	for (int i = 0; i < 3; i++)
+		m[i] += (1.0f - SPECK) * Mc[i];
+}
+
+static const char *RoleName(const HeldSkin *h)
+{
+	int role = h->role;
+	if (role == ROLE_FRONT && h->variant > 0 && h->variant < 4)
+		return h->variant == 1 ? "the bar assembly's stock mirror (shown with [Look] Mirrors=1)" : h->variant == 2 ? "the bar assembly's under-bar mirror, egg (shown with [Look] Mirrors=2)"
+		     : "the bar assembly's under-bar mirror, D (shown with [Look] Mirrors=3)";
+	if (role == ROLE_GLOW && h->backlight)
+		return "the speedometer's backlight (with the bar assembly; a speck while the lamp is off or with [Speedo] Backlight=0)";
 	return role == ROLE_WHEEL_F ? "the front wheel" : role == ROLE_WHEEL_R ? "the rear wheel" : role == ROLE_FRONT ? "the bar assembly"
 	     : role == ROLE_GLOW ? "the headlamp's lit parts (with the bar assembly; a speck while the lamp is off)"
-	     : role == ROLE_FORK ? "the lower fork (with the bars and the front wheel's travel)" : "a fixed part";
+	     : role == ROLE_FORK ? "the lower fork (with the bars and the front wheel's travel)"
+	     : role == ROLE_NEEDLE ? "the speedometer's needle (turned by the speed, then with the bar assembly; a speck with [Speedo] Needle=0)"
+	     : role == ROLE_TAIL ? "the tail light's lit shell (a fixed part; a speck with [Tail] Glow=0)"
+	     : role == ROLE_BRAKE ? "the brake light's lit shell (a fixed part; a speck but while braking)" : "a fixed part";
 }
+
+/* The role's word in the log's line ("[front+mirror2, by its name]"), for the harness and a reader. */
+static const char *SkinRoleWord(int role)
+{
+	return role == ROLE_WHEEL_F ? "wheelF" : role == ROLE_WHEEL_R ? "wheelR" : role == ROLE_FRONT ? "front" : role == ROLE_GLOW ? "glow"
+	     : role == ROLE_FORK ? "fork" : role == ROLE_NEEDLE ? "needle" : role == ROLE_TAIL ? "tail" : role == ROLE_BRAKE ? "brake" : "none";
+}
+
+/* The name ends with the tag (any case), or with the tag and a ":<digits>" the export may add. */
+static bool NameEnds(const char *name, const char *tag)
+{
+	size_t n = strlen(name), t = strlen(tag);
+	const char *colon = strrchr(name, ':');
+	if (colon) {
+		bool digits = colon[1] != 0;
+		for (const char *c = colon + 1; *c; c++)
+			digits &= *c >= '0' && *c <= '9';
+		if (digits)
+			n = (size_t)(colon - name);
+	}
+	if (n < t)
+		return false;
+	for (size_t i = 0; i < t; i++)
+		if ((name[n - t + i] | 0x20) != (tag[i] | 0x20))
+			return false;
+	return true;
+}
+
+/* The 2026-10-31a build's role tags in the shape names (the mesh tool's labels, <stem>_<label>), in the order
+ * they're tried: the first that fits gives the role. "moves": the role needs the parts file
+ * (without it nothing on the bike moves). Every one of 27c's names gives 27c's role: its
+ * "_front_metal", "_front_matte", "_front_glass" the bar assembly, "_front_glow" the lamp's
+ * lit parts, "_fork_*" the lower fork, "_wheelF" and "_wheelR" the wheels, and its static
+ * "_metal", "_matte" and "_glass" no tag, their spheres behind FrontMinY. */
+static const struct { const char *tag; bool atEnd; int role, variant; bool backlight, moves; } g_roleTags[] = {
+	{ "_front_needle", true, ROLE_NEEDLE, 0, false, true },
+	{ "_front_glow", true, ROLE_GLOW, 0, false, true },
+	{ "_front_dialglow", true, ROLE_GLOW, 0, true, true },
+	{ "_rear_tail", true, ROLE_TAIL, 0, false, false },
+	{ "_rear_brake", true, ROLE_BRAKE, 0, false, false },
+	{ "_fork", false, ROLE_FORK, 0, false, true },
+	{ "_wheelF", false, ROLE_WHEEL_F, 0, false, true },
+	{ "_wheelR", false, ROLE_WHEEL_R, 0, false, true },
+	{ "_front_mirrorStock", true, ROLE_FRONT, 1, false, true },
+	{ "_front_mirrorUnderEgg", true, ROLE_FRONT, 2, false, true },
+	{ "_front_mirrorUnderD", true, ROLE_FRONT, 3, false, true },
+	{ "_front_", false, ROLE_FRONT, 0, false, true },
+	{ "_static_", false, ROLE_NONE, 0, false, false },
+};
 
 /* Which moving part a held skin is: by where its culling sphere's centre lands in the
  * bike's own space (A^T (c - t), the bind undone), or, for the fork's lower end, by its name
  * ("_fork": the mesh tool names the lower fork legs, the front mudguard and the caliper so;
  * test 37: at +10 of travel the tyre went into the mudguard and the axle left the fork ends,
  * so they go with the front wheel's travel, and with the bars; its sphere sits ahead of the
- * steering head like the bar assembly's, so the name comes first). Needs the layout, so it's
- * done on the first tilt frame. */
+ * steering head like the bar assembly's, so the name comes first). Since the 2026-10-31a build, with [Parts]
+ * RolesByName=1, every role by its name's tag first (g_roleTags: the speedometer's dial,
+ * backlight and needle sit 20.1 to 20.6 from LampPoint, at the lamp rule's edge, and the
+ * needle and the lights' shells have roles no sphere could tell); a name without a tag (27c's
+ * static shapes, the main shape of a plain build, the vanilla bike's) by the rules before.
+ * Needs the layout, so it's done on the first tilt frame. */
 static void DetectRole(HeldSkin *h)
 {
 	const float *o = (const float *)(h->original[0] + OFF_BONE_ROT), *t = (const float *)(h->original[0] + OFF_BONE_POS);
@@ -3411,9 +3582,22 @@ static void DetectRole(HeldSkin *h)
 	for (int i = 0; i < 3; i++)
 		h->centre[i] = A[i] * d[0] + A[3 + i] * d[1] + A[6 + i] * d[2];
 	h->role = ROLE_NONE;
-	if (g_partsOk && h->count == 1 && NameHas(h->name, "_fork"))
+	h->byName = false;
+	h->backlight = false;
+	h->variant = 0;
+	if (g_rolesByName && h->count == 1)
+		for (size_t k = 0; k < sizeof(g_roleTags) / sizeof(g_roleTags[0]); k++) {
+			if (!(g_roleTags[k].atEnd ? NameEnds(h->name, g_roleTags[k].tag) : NameHas(h->name, g_roleTags[k].tag)))
+				continue;
+			h->byName = true;
+			h->role = g_roleTags[k].moves && !g_partsOk ? ROLE_NONE : g_roleTags[k].role;   /* without the parts file nothing moves */
+			h->variant = g_roleTags[k].variant;
+			h->backlight = g_roleTags[k].backlight;
+			break;
+		}
+	if (!h->byName && g_partsOk && h->count == 1 && NameHas(h->name, "_fork"))
 		h->role = ROLE_FORK;
-	if (h->role == ROLE_NONE && g_partsOk && h->count == 1 && radius < 1.6f * g_wheelRadius) {
+	if (!h->byName && h->role == ROLE_NONE && g_partsOk && h->count == 1 && radius < 1.6f * g_wheelRadius) {
 		float fx = h->centre[0] - g_frontAxle[0], fy = h->centre[1] - g_frontAxle[1], fz = h->centre[2] - g_frontAxle[2];
 		float rx = h->centre[0] - g_rearAxle[0], ry = h->centre[1] - g_rearAxle[1], rz = h->centre[2] - g_rearAxle[2];
 		if (fx * fx + fy * fy + fz * fz < 36.0f)
@@ -3421,15 +3605,18 @@ static void DetectRole(HeldSkin *h)
 		else if (rx * rx + ry * ry + rz * rz < 36.0f)
 			h->role = ROLE_WHEEL_R;
 	}
-	if (h->role == ROLE_NONE && g_partsOk && h->count == 1 && h->centre[1] > g_frontMinY)
+	if (!h->byName && h->role == ROLE_NONE && g_partsOk && h->count == 1 && h->centre[1] > g_frontMinY)
 		h->role = ROLE_FRONT;
-	if (h->role == ROLE_FRONT && g_lampOk && radius < 12.0f) {
+	if (!h->byName && h->role == ROLE_FRONT && g_lampOk && radius < 12.0f) {
 		float lx = h->centre[0] - g_lampPoint[0], ly = h->centre[1] - g_lampPoint[1], lz = h->centre[2] - g_lampPoint[2];
 		if (lx * lx + ly * ly + lz * lz < 400.0f)
 			h->role = ROLE_GLOW;   /* test 30: the lit ring and face shone with the lamp off */
 	}
-	Log("tilt: %s is %s (its culling sphere's centre (%.0f, %.0f, %.0f) in the bike's space, radius %.0f)", h->name,
-	    RoleName(h->role), h->centre[0], h->centre[1], h->centre[2], radius);
+	char word[48];
+	snprintf(word, sizeof(word), "%s%s%s", SkinRoleWord(h->role), h->backlight ? "+backlight" : "",
+	         h->variant == 1 ? "+mirror1" : h->variant == 2 ? "+mirror2" : h->variant == 3 ? "+mirror3" : "");
+	Log("tilt: %s is %s [%s, by its %s] (its culling sphere's centre (%.0f, %.0f, %.0f) in the bike's space, radius %.0f)", h->name,
+	    RoleName(h), word, h->byName ? "name" : "sphere", h->centre[0], h->centre[1], h->centre[2], radius);
 }
 
 static void LetGoAllRider(const char *why);
@@ -3461,6 +3648,9 @@ typedef struct {
 	const char *names[MAX_SKINS];
 	int count;
 	bool byBind[MAX_SKINS];
+	int over;                           /* bike shapes found past MAX_SKINS (since the 2026-10-31a build: one line a ride names them) */
+	uintptr_t overData[MAX_SKINS];      /* their bone data, each counted once (the 3D root's walk and the biped's both meet them) */
+	char overNames[200];
 	/* The rider's: every other skinned shape (with its instance and bone data) and the plain ones. */
 	uintptr_t riderShape[MAX_RIDER], riderSkin[MAX_RIDER], riderData[MAX_RIDER];
 	const char *riderName[MAX_RIDER];
@@ -3521,13 +3711,30 @@ static bool IsComBikeBind(const uint8_t *bone)
 	       fabsf(pos[1]) < 2.0f && fabsf(pos[2]) < 2.0f;
 }
 
+/* A bike shape past MAX_SKINS (since the 2026-10-31a build: till then the overflow was silent, the shape left where it
+ * was: a frozen wheel or bar part): counted, and named for the ride's one line. */
+static void SkinOver(SkinList *list, uintptr_t data, const char *name)
+{
+	for (int i = 0; i < list->over && i < MAX_SKINS; i++)
+		if (list->overData[i] == data)
+			return;
+	if (list->over < MAX_SKINS)
+		list->overData[list->over] = data;
+	size_t used = strlen(list->overNames);
+	if (used + 4 < sizeof(list->overNames))
+		snprintf(list->overNames + used, sizeof(list->overNames) - used, "%s%s", used ? ", " : "", name ? name : "(unnamed shape)");
+	list->over++;
+}
+
 static void AddSkin(SkinList *list, uintptr_t data, uintptr_t skin, const char *name, bool byBind)
 {
 	for (int i = 0; i < list->count; i++)
 		if (list->found[i] == data)
 			return;
-	if (list->count >= MAX_SKINS)
+	if (list->count >= MAX_SKINS) {
+		SkinOver(list, data, name);
 		return;
+	}
 	list->names[list->count] = name ? name : "(unnamed shape)";
 	list->byBind[list->count] = byBind;
 	list->skins[list->count] = skin;
@@ -6250,12 +6457,21 @@ static void SyncSkins(uintptr_t player, bool riderWanted)
 			ForgetRegions();   /* something of the 3D went */
 		}
 	}
-	for (int j = 0; j < list.count && g_skinCount < MAX_SKINS; j++) {
+	for (int j = 0; j < list.count; j++) {
 		bool held = false;
 		for (int i = 0; i < g_skinCount; i++)
 			held |= g_skins[i].boneData == list.found[j];
-		if (!held && !Refused(list.found[j]))
+		if (held || Refused(list.found[j]))
+			continue;
+		if (g_skinCount < MAX_SKINS)
 			HoldSkin(list.found[j], list.skins[j], list.names[j]);
+		else
+			SkinOver(&list, list.found[j], list.names[j]);
+	}
+	if (list.over && !g_skinLimitSaid) {
+		g_skinLimitSaid = true;
+		Log("tilt: %d bike shape(s) past the %d this plugin holds, left where they are (they don't move with the bike's parts nor hide): %s%s", list.over, MAX_SKINS,
+		    list.overNames, strlen(list.overNames) + 4 >= sizeof(list.overNames) ? "..." : "");
 	}
 	for (int i = 0; i < 2; i++) {
 		if (g_lamp[i].node && g_lamp[i].node != list.lamp[i])
@@ -6658,12 +6874,12 @@ static void FrameTilt(void)
 			    g_keys[0], g_keys[1], g_throttleWrote ? ", the game gets the throttle's" : "", g_throttleCapped ? ", held to the measured speed" : "", slide, land);
 		}
 		if (g_partsOk)
-			Log("parts: bars %+.1f deg (turning %+.0f deg/s), wheels at %.2f rad", g_barNow, g_headingRate, g_wheelAngle);
+			Log("parts: bars %+.1f deg (turning %+.0f deg/s), wheels at %.2f rad | ndl=%.1f brk=%d", g_barNow, g_headingRate, g_wheelAngle, g_needleDeg, g_brakeOn ? 1 : 0);
 		if (g_riderCount)
 			Log(g_riderApplied ? "rider: %d shape(s) tilted with the bike about (%.0f, %.0f, %.0f)" : "rider: %d shape(s) held, level",
 			    g_riderCount, g_riderPivot[0], g_riderPivot[1], g_riderPivot[2]);
-		Log("time: frame %.0f us avg, %.0f max, over %d (bike %.0f/%.0f, rider %.0f/%.0f); sync %.0f us avg, %.0f max, over %d, %.1f queries each (%d at most); %.2f memory queries a frame in all",
-		    TimeAvgUs(&g_tFrame), g_tFrame.max * 1e6, g_tFrame.n, TimeAvgUs(&g_tTilt), g_tTilt.max * 1e6, TimeAvgUs(&g_tRider), g_tRider.max * 1e6,
+		Log("time: frame %.0f us avg, %.0f max, over %d (bike %.0f/%.0f for %d shape(s), rider %.0f/%.0f); sync %.0f us avg, %.0f max, over %d, %.1f queries each (%d at most); %.2f memory queries a frame in all",
+		    TimeAvgUs(&g_tFrame), g_tFrame.max * 1e6, g_tFrame.n, TimeAvgUs(&g_tTilt), g_tTilt.max * 1e6, g_skinCount, TimeAvgUs(&g_tRider), g_tRider.max * 1e6,
 		    TimeAvgUs(&g_tSync), g_tSync.max * 1e6, g_tSync.n, g_tSync.n ? (double)g_syncQueries / g_tSync.n : 0.0, g_syncQueriesMax,
 		    g_queryFrames ? (double)g_queries / g_queryFrames : 0.0);
 		memset(&g_tFrame, 0, sizeof(g_tFrame));
@@ -6691,6 +6907,9 @@ static void FrameTilt(void)
 	float P[3] = { 0.0f, g_pivotForward, g_pivotHeight };
 	static const float xAxis[3] = { 1.0f, 0.0f, 0.0f }, zAxis[3] = { 0.0f, 0.0f, 1.0f };
 	bool lampLit = !g_lampEnabled || GlobalValue(g_headlampGlobal) > 0.5f;   /* the lit parts follow the lamp (always on with the lamp system off) */
+	/* Since the 2026-10-31a build: the speedometer's needle, NeedleZero past its rest at a stop and NeedlePerMph a
+	 * dial mph (the speed times [Speedo] Scale) on from there, NeedleMax at most. */
+	g_needleDeg = g_needleOk ? g_needleZero + fminf(g_needleMax, g_needlePerMph * g_speedoScale * MPH_PER_UNIT * g_needleSpeed) : 0.0f;
 	double tBike = Clock();
 	for (int k2 = 0; k2 < g_skinCount; k2++) {
 		HeldSkin *hs = &g_skins[k2];
@@ -6699,7 +6918,14 @@ static void FrameTilt(void)
 		float M[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, m[3] = { 0, 0, 0 };
 		if (hs->role == ROLE_WHEEL_F || hs->role == ROLE_WHEEL_R)
 			Turn(M, m, xAxis, hs->role == ROLE_WHEEL_F ? g_frontAxle : g_rearAxle, g_wheelAngle);
-		if (hs->role == ROLE_WHEEL_F || hs->role == ROLE_FRONT || hs->role == ROLE_GLOW || hs->role == ROLE_FORK)
+		/* The needle turns clockwise as the rider sees it as the speed rises. NeedleAxis points
+		 * from the dial toward the rider, and a turn by a positive angle about an axis is
+		 * anticlockwise seen from where the axis points (the right hand's rule): clockwise to
+		 * the rider is a negative turn about NeedleAxis. First, in the bar assembly's own
+		 * space; then with the bars and the tilt like the rest of it. */
+		if (hs->role == ROLE_NEEDLE && g_needleOk)
+			Turn(M, m, g_needleAxis, g_needlePoint, -g_needleDeg / 57.29578f);
+		if (hs->role == ROLE_WHEEL_F || hs->role == ROLE_FRONT || hs->role == ROLE_GLOW || hs->role == ROLE_FORK || hs->role == ROLE_NEEDLE)
 			Turn(M, m, g_steerAxis, g_steerPoint, g_barNow / 57.29578f);
 		if (hs->role == ROLE_WHEEL_R) {
 			m[2] += g_wheelOffset[1];
@@ -6722,9 +6948,16 @@ static void FrameTilt(void)
 				m[i] = m2[i] + P[i] - RP[i];
 			m[2] += g_liftApplied;   /* with a landing's sink (test 42) */
 		}
-		if (hs->role == ROLE_GLOW && !lampLit)
+		if (hs->role == ROLE_GLOW && !hs->backlight && !lampLit)
 			for (int i = 0; i < 9; i++)
 				M[i] *= 0.001f;   /* a speck inside the bucket: out of sight while the lamp is off */
+		/* The 2026-10-31a build's parts shown or hidden, each a speck where it is when hidden: the dial's backlight
+		 * with the lamp, the running light, the brake light while braking, the needle, the
+		 * mirror [Look] Mirrors picks. */
+		if ((hs->backlight && (!lampLit || !g_speedoBacklight)) || (hs->role == ROLE_TAIL && !g_tailGlow) ||
+		    (hs->role == ROLE_BRAKE && (!g_tailBrake || !g_brakeOn)) || (hs->role == ROLE_NEEDLE && !g_speedoNeedle) ||
+		    (hs->variant && hs->variant != g_lookMirrors))
+			Speck(M, m, hs->centre);
 		(void)zAxis;
 		for (int b = 0; b < hs->count; b++) {
 			const uint8_t *orig = hs->original[b];
@@ -12290,6 +12523,7 @@ static void FrameSteer(void)
 		g_steerHeading = *h;
 		g_steerHave = true;
 		g_speed = g_speedAlong = g_speedAlongFast = g_yawEased = 0.0f;
+		g_steerRestarted = true;
 		return;
 	}
 
@@ -12527,7 +12761,7 @@ static void TraceControls(void)
  * comments on engine_model.py's DEFAULTS). Called once a frame while driving: EngineStep, then
  * EngineMix.
  *
- * Calibrated to the Iron 883 reference rides. Four gears with the measured steps 1.35 / 1.28 /
+ * Calibrated to the reference rides. Four gears with the measured steps 1.35 / 1.28 /
  * 1.21 (4th cruises at 900 u/s at 1937 rpm); the full-throttle up-shift at 2500 and a steady key's
  * at 2200 (from the rider's load, made from the smoothed acceleration), at least minShiftGap between
  * up-shifts, the engine caught up with its gear, the next gear landing over downRpm; an up-shift is
@@ -12564,7 +12798,13 @@ static void TraceControls(void)
  * family loops' level with their pitch (wanderLevel dB per 1 %) and only while the throttle is steady
  * (wanderSteady: else it settles to 0); and a throttle-off dip at each up-shift (shiftDip dB over shiftDipTime
  * from the clutch-in, after the 0 dB ceiling, never more than ENGINE_DIP_FLOOR under the level at the
- * clutch-in). Test 46's: wander 0.006, wanderTau 0.8, wanderLevel 0, wanderSteady 0, wanderSmooth 0, shiftDip 0. */
+ * clutch-in). Test 46's: wander 0.006, wanderTau 0.8, wanderLevel 0, wanderSteady 0, wanderSmooth 0, shiftDip 0.
+ *
+ * The 2026-10-31a build (its tester on the "about 1 %" of 4 s windows with the trend out: "1% won't be really noticeable - 3-5%
+ * probably would be better"): the walk larger again (wander), held softly under wanderMax before the smoothing
+ * (wanderMax x tanh(walk / wanderMax): the swings' peaks typically 3-5 % off the cruise's mean, rarely past 6 %, the
+ * pitch factor within x 0.94-1.06) and smoothed longer (wanderSmooth). 27c's: wander 0.025, wanderSmooth 0.2,
+ * wanderMax 0. */
 #define ENGINE_MAX_GEARS 8
 #define ENGINE_MAX_LOOPS 16
 #define ENGINE_FAMILY_IDLE 1
@@ -12597,6 +12837,7 @@ typedef struct {
 	float levelOffset;                          /* test 46: dB on every level, each loop's gain then held at 1 (0 dB); 0: test 45's levels */
 	float wanderLevel, wanderSteady;            /* test 47: the family loops' level x 10^(wanderLevel x 100 w / 20); w only while the throttle is steady, else settling over wanderSteady s (0: everywhere) */
 	float wanderSmooth;                         /* test 47: s, the walk smoothed with this time constant before it is heard (0: the bare walk) */
+	float wanderMax;                            /* the 2026-10-31a build: the walk held softly under this before the smoothing, wanderMax x tanh(walk / wanderMax) (0: unheld) */
 	float shiftDip, shiftDipTime;               /* test 47: dB at each up-shift's clutch-in, over this many s (0: none) */
 	/* test 45: the heard speed and the pulls (engine_model.py's docstring); each one off restores test 44's model */
 	int heardSpeed;                             /* 1: the engine follows the heard speed; 0: the bike's own */
@@ -12656,7 +12897,8 @@ static void EngineDefaults(EngineCfg *c)
 	c->minPitch = 0.75f; c->maxPitch = 1.25f;
 	c->onSplit = 0.5f; c->offSplit = 0.5f; c->hyst = 0.02f; c->xfadeTime = 0.05f;
 	c->onAbove = 0.30f; c->offBelow = 0.15f; c->offHold = 0.05f; c->familyTime = 0.08f; c->shiftFamily = 1;
-	c->wander = 0.025f; c->wanderTau = 1.5f; c->wanderSeed = 12345u; c->wanderLevel = 0.3f; c->wanderSteady = 0.25f; c->wanderSmooth = 0.2f;   /* test 47; test 46's 0.006, 0.8, 0, 0, 0 */
+	c->wander = 0.055f; c->wanderTau = 1.5f; c->wanderSeed = 12345u; c->wanderLevel = 0.3f; c->wanderSteady = 0.25f; c->wanderSmooth = 0.5f;   /* test 47; test 46's 0.006, 0.8, 0, 0, 0 */
+	c->wanderMax = 0.06f;   /* the 2026-10-31a build, with wander 0.055 (27c's 0.025) and wanderSmooth 0.5 (0.2); 0: 27c's */
 	c->shiftDip = 4.0f; c->shiftDipTime = 0.24f;   /* test 47; 0: test 46's */
 	c->levelScale = 1.0f; c->rpmDb = 9.6f; c->loadDb = 5.0f; c->idleDb = -17.2f; c->levelRpm = 3000.0f; c->levelOffset = 5.0f;
 	c->heardSpeed = 1; c->heardRise = 140.0f; c->heardTau = 0.8f; c->heardLead = 150.0f; c->heardPull = 60.0f;
@@ -13000,10 +13242,11 @@ static void EngineStep(const EngineCfg *c, EngineState *s, const EngineLoop *loo
 			s->wanderRaw -= s->wanderRaw * (1.0f - expf(-dt / c->wanderSteady));
 		else
 			s->wanderRaw += -s->wanderRaw * dt / c->wanderTau + c->wander * sqrtf(2.0f * dt / c->wanderTau) * 1.7320508f * nz;
+		float heard = c->wanderMax > 0.0f ? c->wanderMax * tanhf(s->wanderRaw / c->wanderMax) : s->wanderRaw;   /* the 2026-10-31a build: held softly */
 		if (c->wanderSmooth > 0.0f)    /* test 47: the hand smooth (the engine's inertia), no frame-to-frame jitter */
-			s->wander += (s->wanderRaw - s->wander) * (1.0f - expf(-dt / c->wanderSmooth));
+			s->wander += (heard - s->wander) * (1.0f - expf(-dt / c->wanderSmooth));
 		else
-			s->wander = s->wanderRaw;
+			s->wander = heard;
 	}
 	/* the family: on load once the rider's load passes onAbove; off load after offHold s of the throttle under offBelow */
 	if (s->onLoad) {
@@ -13289,6 +13532,7 @@ static void ReadSoundSettings(const char *ini, bool log)
 	c->wanderLevel = IniFloat(ini, "Sound", "WanderLevel", c->wanderLevel, 0.0f, 3.0f);      /* test 47 */
 	c->wanderSteady = IniFloat(ini, "Sound", "WanderSteady", c->wanderSteady, 0.0f, 10.0f);
 	c->wanderSmooth = IniFloat(ini, "Sound", "WanderSmooth", c->wanderSmooth, 0.0f, 10.0f);
+	c->wanderMax = IniFloat(ini, "Sound", "WanderMax", c->wanderMax, 0.0f, 0.2f);         /* the 2026-10-31a build */
 	c->shiftDip = IniFloat(ini, "Sound", "ShiftDip", c->shiftDip, 0.0f, 20.0f);
 	c->shiftDipTime = IniFloat(ini, "Sound", "ShiftDipTime", c->shiftDipTime, 0.0f, 2.0f);
 	c->levelScale = IniFloat(ini, "Sound", "LevelScale", c->levelScale, 0.0f, 4.0f);
@@ -13379,11 +13623,12 @@ static void ReadSoundSettings(const char *ini, bool log)
 	    c->downHold > 0.0f || c->downHeld ? "a down-shift with the throttle on after DownHold under DownRpm, none while the throttle is held for something ahead"
 	                                      : "a down-shift with the throttle on at once under DownRpm",
 	    log ? "" : " (read again on getting on)");
-	Log("  sound: WanderLevel=%g WanderSteady=%g WanderSmooth=%g ShiftDip=%g ShiftDipTime=%g: %s, %s, %s; %s%s", (double)c->wanderLevel,
-	    (double)c->wanderSteady, (double)c->wanderSmooth, (double)c->shiftDip, (double)c->shiftDipTime,
+	Log("  sound: WanderLevel=%g WanderSteady=%g WanderSmooth=%g WanderMax=%g ShiftDip=%g ShiftDipTime=%g: %s, %s, %s, %s; %s%s", (double)c->wanderLevel,
+	    (double)c->wanderSteady, (double)c->wanderSmooth, (double)c->wanderMax, (double)c->shiftDip, (double)c->shiftDipTime,
 	    c->wanderSteady > 0.0f ? "the wander (the throttle hand) only while the throttle is steady, settling to 0 in a pull, a let-up, a shift and the idle"
 	                           : "the wander everywhere (WanderSteady=0, as test 46)",
 	    c->wanderSmooth > 0.0f ? "smoothed" : "unsmoothed (WanderSmooth=0, as test 46)",
+	    c->wanderMax > 0.0f ? "held softly under WanderMax" : "unheld (WanderMax=0, as 27c)",
 	    c->wanderLevel != 0.0f ? "the family loops' level moving with it" : "the level not moving with it (WanderLevel=0, as test 46)",
 	    c->shiftDip > 0.0f && c->shiftDipTime > 0.0f ? "a throttle-off dip at each up-shift's clutch-in, at most 6 dB under the level there"
 	                                                : "no dip at an up-shift (ShiftDip=0, as test 46)",
@@ -13585,6 +13830,78 @@ static bool g_sndOwnHave;
 static float g_sndOwnAccel, g_sndOwnPrev;     /* and its acceleration, for the keys from the speed */
 static bool g_sndKeysFromSpeed;               /* this drive: the input hook off, the throttle read from the speed */
 
+/* Braking (the engine's model since test 44, the brake light since the 2026-10-31a build): with the input hook, the
+ * back key read within the last 0.1 s while going forward faster than 10 units a second; without
+ * it, faster than 10 and losing speed faster than 1000 units a second a second (the game's coast
+ * loses 450 a second, its brake 2250). */
+static bool BrakeRule(bool hook, double now, float v, float accel)
+{
+	if (hook)
+		return now - g_backAt < 0.1 && v > 10.0f;
+	return v > 10.0f && accel < -1000.0f;
+}
+
+/* The 2026-10-31a build's look, once a frame whatever the sound does: the speed along the heading (the
+ * steering's, or measured here from the player's place as the sound's model does with the
+ * steering off) and its rate, the brake light's flag from BrakeRule, held [Tail] BrakeHold
+ * past it, and the needle's speed, |the speed| over [Speedo] Tau. */
+static void LookFrame(void)
+{
+	float dt = g_frameDt;
+	bool restarted = g_steerRestarted;
+	g_steerRestarted = false;
+	if (!g_riding) {
+		g_lookOwnHave = false;
+		g_lookV = g_lookPrev = g_lookAccel = g_needleSpeed = 0.0f;
+		g_brakeOn = false;
+		g_brakeRawAt = -100.0f;
+		return;
+	}
+	float v = g_speedAlong;
+	bool fromSteer = g_steerHave, jumped = fromSteer && restarted;   /* the steering's speed set to 0 this frame */
+	if (!fromSteer) {
+		uintptr_t player = Player();
+		if (player && Accessible(player + OFF_REFR_POS, 12, false) && Accessible(player + OFF_REFR_HEADING, 4, false)) {
+			const float *pos = (const float *)(player + OFF_REFR_POS);
+			float h = *(const float *)(player + OFF_REFR_HEADING);
+			if (g_lookOwnHave && dt > 0.0f && isfinite(h)) {
+				float dx = pos[0] - g_lookOwnPos[0], dy = pos[1] - g_lookOwnPos[1];
+				if (hypotf(dx, dy) > 300.0f) {
+					g_lookV = 0.0f;   /* a door, a fast travel */
+					jumped = true;
+				} else
+					g_lookV += ((dx * sinf(h) + dy * cosf(h)) / dt - g_lookV) * (1.0f - expf(-dt / 0.2f));
+			}
+			g_lookOwnPos[0] = pos[0];
+			g_lookOwnPos[1] = pos[1];
+			g_lookOwnHave = true;
+		}
+		v = g_lookV;
+	} else {
+		g_lookOwnHave = false;
+	}
+	if (!isfinite(v))
+		v = 0.0f;
+	/* Another measure, or the speed started again from 0 (a door or a fast travel arriving moving: the review of the
+	 * 2026-10-31a build saw the drop to 0 read as a hard brake without the input hook): no rate across it. */
+	if (fromSteer != g_lookFromSteer || jumped) {
+		g_lookFromSteer = fromSteer;
+		g_lookPrev = v;
+		g_lookAccel = 0.0f;
+	}
+	if (dt > 0.0f)
+		g_lookAccel += ((v - g_lookPrev) / dt - g_lookAccel) * (1.0f - expf(-dt / 0.25f));
+	g_lookPrev = v;
+	if (BrakeRule(g_inputActive, SecondsNow(), v, g_lookAccel))
+		g_brakeRawAt = g_clock;
+	g_brakeOn = g_clock - g_brakeRawAt <= g_tailBrakeHold + 1e-4f;   /* BrakeHold 0: just the frames the rule holds */
+	float speed = fabsf(v);
+	if (!(g_speedoTau > 0.0f))
+		g_needleSpeed = speed;
+	else if (dt > 0.0f)
+		g_needleSpeed += (speed - g_needleSpeed) * (1.0f - expf(-dt / g_speedoTau));
+}
+
 /* The model's inputs: the speed along the heading, as a size (the steering's g_speedAlong, smoothed
  * over 0.2 s; with the steering off, measured here the same way; backing up, its size: the engine
  * idles, the clutch in), the forward key (0 or 1) and braking (the back key while moving forward),
@@ -13623,13 +13940,13 @@ static void SoundInputs(float *speed, float *forward, int *braking, int *held)
 		double now = SecondsNow();
 		bool back = now - g_backAt < 0.1, fwd = !back && now - g_forwardAt < 0.1;
 		*forward = fwd ? 1.0f : 0.0f;
-		*braking = back && v > 10.0f;
+		*braking = BrakeRule(true, now, v, 0.0f);
 		g_sndKeysFromSpeed = false;
 	} else {
 		if (dt > 0.0f)
 			g_sndOwnAccel += ((v - g_sndOwnPrev) / dt - g_sndOwnAccel) * (1.0f - expf(-dt / 0.25f));
 		*forward = v > 30.0f && g_sndOwnAccel > -100.0f ? 1.0f : 0.0f;   /* the game's coast loses 450 u/s a second */
-		*braking = v > 10.0f && g_sndOwnAccel < -1000.0f;               /* its brake 2250 */
+		*braking = BrakeRule(false, 0.0, v, g_sndOwnAccel);             /* its brake 2250 */
 		g_sndKeysFromSpeed = true;
 	}
 	g_sndOwnPrev = v;
@@ -14442,6 +14759,7 @@ static void Tick(DWORD now)
 		ReadBackSettings(g_iniPath, false);
 		ReadRoomSettings(g_iniPath, false);
 		ReadSoundSettings(g_iniPath, false);   /* the engine sound's keys and its loop table: an A/B needs no restart (the next hand-over uses them) */
+		ReadLookSettings(g_iniPath, false);    /* Since the 2026-10-31a build: the needle, the lights and the mirrors likewise (each skin's role is told afresh as it's held) */
 		/* Test 27: the block of a ride carried into the next one when nothing was held at the
 		 * dismount (the bike's skins had gone first): a ride starts afresh. */
 		g_riderBlocked = false;
@@ -14473,6 +14791,7 @@ static void Tick(DWORD now)
 			ResetTilt();
 		g_emptySyncs = 0;   /* the next ride looks (and reports) afresh */
 		g_rideDiagnosed = g_rideRouteLogged = false;
+		g_skinLimitSaid = false;   /* Since the 2026-10-31a build: and says again if it finds more shapes than it holds */
 	}
 
 	if (g_probe && ctrl) {
@@ -14536,6 +14855,7 @@ static void Frame(void)
 		if (target && target == g_appliedTarget)
 			ApplySlope(target, degrees);
 	}
+	LookFrame();   /* Since the 2026-10-31a build: the brake light's flag and the needle's speed, with or without the sound */
 	FrameTilt();
 	TimeAdd(&g_tFrame, t0);
 	g_queryFrames++;
@@ -14626,6 +14946,8 @@ static void OnF4SEMessage(F4SEMessage *msg)
 		g_solidMaskRead = false;                /* and the collision layer record read again with it */
 		RoomReadAnswered();                     /* the loaded save's last room answer is the one given (test 41) */
 		SoundLoadReset();                       /* the engine's loops don't survive a load: let go, the generation forgotten */
+		g_lookOwnHave = false;                  /* the look's own speed measured afresh in the loaded world, as the sound's (SoundLoadReset) */
+		g_lookV = g_lookPrev = g_lookAccel = 0.0f;
 		g_pushProven = false;
 		g_pushRetryAt = 0.0f;
 		memset(g_refused, 0, sizeof(g_refused));

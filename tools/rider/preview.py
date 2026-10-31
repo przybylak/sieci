@@ -3,7 +3,14 @@
 
   python preview.py --pynifly <io_scene_nifly> --vanilla <...>/meshes/actors/character \
       --bike <Data>/Meshes/CMB/CMB_BikeWorn.nif --body <...>/malebody.nif --out preview.png \
-      [--fit <Data>/Meshes/CMB/CMB_BikeFit.json]
+      [--fit <Data>/Meshes/CMB/CMB_BikeFit.json] [--mirrors 1] [--lit] [--no-body] [--crop x0,x1,y0,y1,z0,z1]
+
+The bike's shapes are shaded by the words in their names (SHADES: the 28 shapes since the 2026-10-31a build, the 12 of 27c), and
+the ones the plugin turns with the bars ("_front", "_fork", "_wheelF" in the name) turn with the pose's steering.
+--mirrors picks the mirror variant shown as [Look] Mirrors does in game (0 none, 1 stock, 2 under-bar egg, 3 under-
+bar D), --lit adds the lit overlays (the dial's backlight, the brake light; the plugin hides them in game while
+off), --no-body leaves the rider out, --crop draws only the triangles in a box of the bike's own space (+Y forward)
+and fits the view to them (for close-ups, e.g. the bars: -45,45,25,80,75,115 with --views behind).
 """
 
 import argparse
@@ -35,7 +42,7 @@ def draw(ax, meshes, view, title):
     order = np.argsort(depths)[::-1]
     pc = PolyCollection([polys[i] for i in order], facecolors=[shades[i] for i in order], edgecolors="none")
     ax.add_collection(pc)
-    allv = np.concatenate([m[0] @ view.T for m in meshes])
+    allv = np.concatenate([m[0][np.unique(m[1])] @ view.T for m in meshes if len(m[1])])
     ax.set_xlim(allv[:, 0].min() - 5, allv[:, 0].max() + 5)
     ax.set_ylim(allv[:, 2].min() - 5, allv[:, 2].max() + 5)
     ax.set_aspect("equal")
@@ -43,11 +50,21 @@ def draw(ax, meshes, view, title):
     ax.axis("off")
 
 
+# Shading by the words in a shape's name, the first that matches: grey tones or RGB.
+SHADES = (("dialglow", (0.95, 0.85, 0.6)), ("_front_glow", (1.0, 1.0, 0.95)), ("_rear_brake", (1.0, 0.15, 0.1)),
+          ("_rear_tail", (0.75, 0.08, 0.06)), ("_front_needle", (0.95, 0.4, 0.1)), ("_front_dial", (0.1, 0.1, 0.1)),
+          ("_paint", (0.48, 0.07, 0.09)), ("glass", 0.9), ("mirror", 0.7), ("chrome", 0.75), ("exhaust", 0.72),
+          ("metal", 0.75), ("badge", 0.6), ("seat", (0.27, 0.21, 0.17)), ("engine", 0.33), ("tyre", 0.2), ("rim", 0.28),
+          ("black", 0.3), ("matte", 0.3))
+MIRRORS = {"_front_mirrorstock": 1, "_front_mirrorunderegg": 2, "_front_mirrorunderd": 3}
+LIT = ("_front_dialglow", "_rear_brake")   # overlays the plugin shows only while lit
+
 VIEWS = {
     "side": rot_z(90),                        # camera on the rider's right
     "front 3/4": rot_x(-12) @ rot_z(150),
     "rear 3/4": rot_x(-15) @ rot_z(-35),
     "front": rot_z(180),
+    "behind": rot_x(-35),                     # from behind and above the rider (the bars, the dial, the mirrors)
 }
 
 
@@ -59,10 +76,16 @@ def main() -> int:
     ap.add_argument("--body", type=Path, required=True)
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--poses", default="cruise,run,leanleft,idle")
-    ap.add_argument("--views", default=",".join(VIEWS))
+    ap.add_argument("--views", default="side,front 3/4,rear 3/4,front", help=f"of {', '.join(VIEWS)}")
     ap.add_argument("--size", type=float, default=4.2)
     ap.add_argument("--fit", type=Path, help="bike-fit file (CMB_BikeFit.json), as for riding_anims.py")
+    ap.add_argument("--mirrors", type=int, default=1, choices=(0, 1, 2, 3),
+                    help="the mirror variant shown: 0 none, 1 stock, 2 under-bar egg, 3 under-bar D")
+    ap.add_argument("--lit", action="store_true", help="show the lit overlays (the dial's backlight, the brake light)")
+    ap.add_argument("--no-body", action="store_true", help="leave the rider out")
+    ap.add_argument("--crop", help="x0,x1,y0,y1,z0,z1: only the bike's triangles in this box (its own space)")
     args = ap.parse_args()
+    crop = np.array([float(t) for t in args.crop.split(",")]).reshape(3, 2) if args.crop else None
     if args.fit:
         R.apply_fit(args.fit)
 
@@ -76,17 +99,27 @@ def main() -> int:
     rig = Rig.from_hkx(A.load_fo4_skeleton(str(args.vanilla / "characterassets" / "skeleton.hkx")))
     followers = nif_followers(NifFile(str(args.vanilla / "characterassets" / "skeleton.nif")), rig)
     body = SkinnedMesh(NifFile(str(args.body)).shapes[0], rig, followers)
-    # Every visible shape of the bike nif (the Harley build has three: metal, matte, glass).
+    # Every visible shape of the bike nif, but the mirror variants not chosen and the lit overlays unless --lit.
     bike_parts = []
     for shape in NifFile(str(args.bike)).shapes:
+        name = shape.name.lower()
         if shape.flags & 1:
             continue
-        tone = 0.55
-        for word, t in (("metal", 0.75), ("matte", 0.3), ("glass", 0.9)):
-            if word in shape.name.lower():
-                tone = t
-        steers = "front" in shape.name.lower() or "wheelf" in shape.name.lower()   # turns with the bars
-        bike_parts.append((np.array(shape.verts), np.array(shape.tris), np.array([tone, tone, tone + 0.05]), steers))
+        variant = next((v for k, v in MIRRORS.items() if name.endswith(k)), None)
+        if variant is not None and variant != args.mirrors:
+            continue
+        if name.endswith(LIT) and not args.lit:
+            continue
+        shade = next((s for word, s in SHADES if word in name), 0.55)
+        colour = np.array(shade if isinstance(shade, tuple) else (shade, shade, shade + 0.05))
+        steers = any(w in name for w in ("front", "_fork", "wheelf"))   # turns with the bars
+        verts, tris = np.array(shape.verts), np.array(shape.tris)
+        if crop is not None:
+            inside = np.all((verts >= crop[:, 0]) & (verts <= crop[:, 1]), axis=1)
+            tris = tris[inside[tris].all(axis=1)]
+            if not len(tris):
+                continue
+        bike_parts.append((verts, tris, colour, steers))
 
     rider = R.Rider(rig)
 
@@ -116,7 +149,8 @@ def main() -> int:
             if steers and params.steer and R.STEER_AXIS is not None:
                 v = (v - R.STEER_POINT) @ R.rot_about(R.STEER_AXIS, params.steer).T + R.STEER_POINT
             meshes.append(((np.c_[v, np.ones(len(v))] @ g[rig.index("AnimObjectA")].T)[:, :3], t, c))
-        meshes.append((body_v, body.tris, np.array([0.93, 0.76, 0.62])))
+        if not args.no_body:
+            meshes.append((body_v, body.tris, np.array([0.93, 0.76, 0.62])))
         for ax, (vname, view) in zip(row, views.items()):
             draw(ax, meshes, view, f"{name} - {vname}")
     fig.tight_layout()

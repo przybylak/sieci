@@ -16,9 +16,11 @@ What it writes (the same four files build_bike_meshes.py does, see there for why
                           character's origin)
   CMB_BikeWornRider.nif   the same hanging off the rider's COM (with --seat; F for the female
   CMB_BikeWornRiderF.nif  rider)
-  Textures/CMB/CMB_Harley_d/_n/_s.dds   palette textures: each material is one block of a
-                          128x8 strip (no mipmaps, so blocks never blend at a distance), and
-                          every vertex's UV points at its material's block
+  Textures/CMB/CMB_Bike_d/_n/_s.dds     with --uvs none only (the fallback build): palette
+                          textures, each material one block of a 256x8 strip (no mipmaps, so
+                          blocks never blend at a distance), every vertex's UV at its
+                          material's block; the textured build's textures and materials
+                          (Textures/CMB/Bike, Materials/CMB/Bike) come from bike_textures.py
   CMB_BikeFit.json        where this model's seat, grips and pegs are, for riding_anims.py --fit:
                           the riding clips are posed to the bike (hips on the seat, hands on the
                           grips, feet on the pegs), so they're rebuilt for this model, and then
@@ -31,7 +33,9 @@ What it writes (the same four files build_bike_meshes.py does, see there for why
                           lens and its axis (LampPoint, LampAxis), and Grip, the +X grip's centre,
                           the very point the fit file's grip_r holds and the clips put the palm on:
                           the plugin rolls the hand round the grip about it (test 38: it rolled about
-                          the wrist node, 6.5 units from the grip, so the palm left the bar)
+                          the wrist node, 6.5 units from the grip, so the palm left the bar), and
+                          the speedometer needle's pivot and scale (NeedlePoint, NeedleAxis,
+                          NeedleZero, NeedleMax, NeedlePerMph)
 
 The geometry: each material's meshes are merged, welded and split into connected pieces, and
 each piece is cut down with quadric edge collapse (fast_simplification) towards its share of
@@ -43,26 +47,45 @@ are kept whole, and only the specks under SPECK_AREA are dropped). Each corner's
 is the glTF's own (at the closest point of its piece's surface where the piece was cut down),
 a vertex split in two or more where its corners' normals part, so the model's hard edges stay
 hard and its curves round (gltf_normals; the wheels' brake discs keep the averaged normals).
-The parts go into shapes by shading: the metal (environment-mapped: chrome, silver, the body
-colour), the matte (black metal, rubber, leather) and the glass (translucent); a few, not
-twelve, because the F4SE plugin holds at most a dozen skins and the game shows at most 65535
-vertices per shape. Colours, specular and gloss come from the material names (MATERIALS
-below); the body colour is --body.
-
-And by what moves (ROLES, role_of): the fixed bike; the bar assembly ("front": the bars,
-grips, levers, mirrors, the fork tubes, the triple clamps and the headlamp, which the plugin
-turns about the steering axis with the rider's steering); the fork's lower end ("fork": the
-sliders, the front mudguard, the brake caliper, the axle and its hardware, which turn with the
-bars and also ride up and down with the front wheel's suspension travel, so the mudguard
-stays over the tyre and the axle in the fork ends); and the two wheels, which spin. The shapes
-are named for it (<stem>_front_metal, <stem>_fork_matte, <stem>_wheelF, ...) and the plugin
-tells them apart by their names and their culling spheres (CMB_BikeParts.ini).
+The parts go into 28 shapes (LABELS), by what moves them (role_of: the fixed bike; the bar
+assembly, "front": the bars, grips, levers, mirrors, the fork tubes, both triple clamps, the
+speedometer and the headlamp, which the plugin turns about the steering axis with the rider's
+steering; the fork's lower end, "fork": the sliders, the front mudguard, the brake caliper, the
+axle and its hardware, which turn with the bars and also ride up and down with the front
+wheel's suspension travel, so the mudguard stays over the tyre and the axle in the fork ends;
+and the two wheels, which spin) and then by what they are (label_of, by the glTF mesh a piece
+came from, else its material): one shape per surface that wants its own shader and texture set
+(the paint, chrome, exhaust, engine, black, seat, glass and badge of the fixed bike; chrome,
+black, glass and the lamp's lit parts at the bars; the tyre with its disc and the rim of each
+wheel) and one per thing the plugin moves or lights on its own (the speedometer needle, the
+dial's backlight, the tail and brake light shells over the red lens, each mirror variant).
+A shape's name is <stem>_<label> and says its role (static_, rear_, front_, fork_, wheelF_,
+wheelR_; the plugin reads the role from the name first and from the culling sphere
+otherwise, CMB_BikeParts.ini), so it can be told apart however many there are (the plugin
+holds up to 48 since the 2026-10-31a build; before, at most 16, which is why 27c had twelve), and the game
+shows at most 65535 vertices per shape (MAX_VERTS keeps a margin for the UV seams). The
+fallback build (--uvs none) shades them from palette textures as 27c did (MATERIALS below;
+the body colour is --body); the textured build (--stage) names a materials file per shape
+and takes each shape's shader values from bike_materials.json (see BUILD STAGES).
 
   python harley_meshes.py --pynifly <io_scene_nifly> --gltf <...>/scene.gltf \
       --vanilla <...>/meshes/setdressing/vehicles/motorcycle/motorcycle_clean.nif \
       --out <Data>/Meshes/CMB --textures <Data>/Textures/CMB \
       [--seat <Data>/Meshes/Actors/Character/Animations/MT/CMB_Rider] [--tris 90000] [--body 7a1118]
       [--sit 0.27] [--grip 29.4,-10.7,96] [--peg 19,6,27]
+      [--stage export|build --stage-dir S] [--materials bike_materials.json] [--uvs none|stage] [--bgsm 0|1]
+
+BUILD STAGES (build_bike.sh runs them): with no --stage, the fallback build (--uvs none): palette
+textures, no materials files (the 27c way). The textured build is three steps: --stage export
+writes the finished shapes (S/manifest.json and S/shapes/<label>.npz, in the parked frame: the
+positions after the normal split, the triangles as written, each triangle's material, glTF mesh
+and piece, and the fixed UVs of the dial, needle, badge and light shells); bike_textures.py
+unwraps them and bakes their textures and materials, returning S/uv/<label>.npz (a UV per
+triangle corner); --stage build makes the same shapes again (they must match the export), splits
+each vertex where its corners' UVs differ (the seams) and writes the nifs naming
+Materials\\CMB\\Bike\\<mat>_worn.bgsm (worn) and <mat>.bgsm (parked), with the same values and
+textures in the nif's own shader block (so the bike looks the same if the materials are
+missing). --bgsm 0 writes empty material names (the shader block alone, as 27c).
 
 The rider sits --sit of the way along the seat from its front edge (0.27: snug behind the
 tank, as on the real thing, which keeps the long reach to the bars within arm's length even
@@ -75,7 +98,7 @@ parallel, thinner (radius 1, tapering to a ball end), and the earlier grip point
 x 24.5 was the lever clamp; a fit of the vertices with |x| 27-39 gives the lever) put the
 hands on the lever perches and switch housings. The model is scaled to the
 vanilla bike's length, so the collision and the plugin's clearances still fit; that makes it
-about a quarter bigger than a real Iron 883 next to the character, like the vanilla bike.
+about a quarter bigger than the real bike next to the character, like the vanilla bike.
 
 The output mixes the model (CC-BY-4.0: credit Nieve5677 wherever it's shared) with the
 vanilla nif's collision (Bethesda's), so it isn't committed to the repository.
@@ -101,8 +124,8 @@ HIPS_Y_WORN = -5.0       # the middle of the buttocks zone riding_anims.py seats
 GROUND_FOOT_L = [-30.0, 6.0, 0.0]   # the left foot at a stop, as for the vanilla bike (this one is as wide)
 MODEL_NAME = "Harley Davidson Iron 883 2015 by Nieve5677 (CC-BY-4.0)"
 BIKE_BONE = "AnimObjectA"
-PALETTE_W, PALETTE_H, BLOCK = 128, 8, 8   # 16 blocks of 8x8
-CUBEMAP = "textures\\shared\\cubemaps\\mipblur_defaultoutside1.dds"
+PALETTE_W, PALETTE_H, BLOCK = 256, 8, 8   # 32 blocks of 8x8 (19 used)
+PALETTE = "CMB_Bike"   # textures\CMB\CMB_Bike_d/_n/_s.dds: the fallback build's (27c's had another stem)
 
 # name: (rgb, alpha, specular 0-255, gloss 0-255, env mask 0-255, shape)
 MATERIALS = {
@@ -120,13 +143,21 @@ MATERIALS = {
     "r_glass":     ((196, 24, 24), 150, 150, 230, 90, "glass"),       # the tail light
     "lamp_black":  ((18, 18, 20), 255, 120, 235, 110, "metal"),       # our headlamp's bucket and projector: gloss black
     "lamp_led":    ((236, 242, 255), 255, 40, 60, 0, "glow"),         # its running-light ring and projector face: lit
+    # Ours (bike_pieces.py): the mirror glass, the speedometer's dial and needle, the tail and brake light shells.
+    "mirror":      ((70, 72, 76), 255, 200, 250, 230, "metal"),
+    "dial":        ((14, 14, 15), 255, 60, 120, 0, "matte"),
+    "needle":      ((235, 92, 24), 255, 90, 160, 0, "matte"),
+    "tail_led":    ((150, 12, 10), 255, 40, 60, 0, "glow"),
+    "brake_led":   ((255, 36, 24), 255, 40, 60, 0, "glow"),
 }
+# The materials by the names the texture stage knows them by (the manifest's "materials"): the glTF's "material" is the rubber
+# ("gum") and "logo_decals" the badges.
+STAGE_NAME = {"material": "gum", "logo_decals": "logo"}
 # Test 20: with the first palette (chrome 176 grey, specular 255, mask 255) the forks, exhausts
 # and the headlight face rendered flat white in the sun, and the tan tank badge showed as a
 # patch; so chrome is a mid grey with the reflection at 60%, the lens darker and duller, the
 # badge satin black.
 
-KINDS = ("metal", "matte", "glass", "glow")   # glow: lit (emissive), no reflection
 ROLES = ("", "front", "fork", "wheelF", "wheelR")   # static; turns with the bars; turns and rides with the front wheel; spins; spins
 BAR_HEIGHT = 85.0   # above this (parked frame) and ahead of the seat it's the bar assembly
 # A piece of the bar assembly whose centre is below this (parked frame, z up, the ground at 0)
@@ -138,6 +169,51 @@ BAR_HEIGHT = 85.0   # above this (parked frame) and ahead of the seat it's the b
 # reach z 80, a unit under the clamp. (Test 37: the fork legs and the mudguard didn't take the
 # wheel's offset, so at +10 the tyre went into the mudguard and the axle left the fork ends.)
 FORK_SPLIT_Z = 66.0
+RAKED_BEHIND = 8.0   # role_of: the lower clamp's centre is 2.5 behind the raked axis, its bolts 3.5, the stem nut 6.5
+
+# The shapes (the 2026-10-31a build), in the order they're made (the culling spheres are written in that order), each
+# with the role that moves it. The plugin tells the role from the name: "_static_" fixed, "_rear_tail" the running
+# light and "_rear_brake" the brake light (fixed, lit or specked), "_front_" the bar assembly ("_front_glow" and
+# "_front_dialglow" lit with the headlamp, "_front_needle" the speedometer needle, "_front_mirror*" the mirror
+# variants), "_fork" the fork's lower end, "_wheelF" and "_wheelR" the wheels.
+LABELS = (
+    ("static_paint", ""), ("static_chrome", ""), ("static_exhaust", ""), ("static_engine", ""), ("static_black", ""),
+    ("static_seat", ""), ("static_glass", ""), ("static_badge", ""), ("rear_tail", ""), ("rear_brake", ""),
+    ("front_chrome", "front"), ("front_black", "front"), ("front_glass", "front"), ("front_glow", "front"),
+    ("front_dial", "front"), ("front_dialglow", "front"), ("front_needle", "front"),
+    ("front_mirrorStock", "front"), ("front_mirrorUnderEgg", "front"), ("front_mirrorUnderD", "front"),
+    ("fork_chrome", "fork"), ("fork_paint", "fork"), ("fork_black", "fork"), ("fork_glass", "fork"),
+    ("wheelF_tyre", "wheelF"), ("wheelF_rim", "wheelF"), ("wheelR_tyre", "wheelR"), ("wheelR_rim", "wheelR"),
+)
+ROLE_OF_LABEL = dict(LABELS)
+FIXED_UV = ("static_badge", "rear_tail", "rear_brake", "front_dial", "front_dialglow", "front_needle")   # our art's layout
+WORN_ONLY = ("rear_tail", "rear_brake", "front_dialglow")   # lit overlays: the parked bike shows the plain lens and dial
+PARKED_HIDDEN = ("front_mirrorUnderEgg", "front_mirrorUnderD")   # variants: in the parked nif, hidden by the node flag
+MIRROR_VARIANTS = ("front_mirrorStock", "front_mirrorUnderEgg", "front_mirrorUnderD")
+MAX_VERTS = 60000   # per shape, after the UV seams (the game's limit is 65535)
+# Routing (label_of): the glTF meshes that go somewhere their material alone wouldn't send them.
+DROP_MESHES = {9: "the speedometer's dial face (ours replaces it)"}
+MIRROR_MESHES = (58, 59)            # the stock mirrors: housings and stems, glass
+MIRROR_GLASS_MESH = 59
+EXHAUST_MESHES = (101,)             # both pipes and the mufflers
+PLATE_MESHES = (24,)                # the number plate (dark metal like the air cleaner cover, but not engine)
+RIM_MESHES = (30, 31, 106, 107, 108, 109, 110, 111, 32, 98)   # the cast rims and their spoke trims
+ENGINE_MESHES = (97, 103, 40, 16, 45, 85, 3)   # crankcase, cylinders, heads (rubber in the glTF), air cleaner, side
+#                                     cover, the crankcase's round covers, the oil filter, the starter behind it
+DIAL_MESH = 9
+TAIL_LENS_MESH, SIGNAL_LENS_MESH = 95, 34   # r_glass: the tail lens (its rearmost piece), the rear signals' lenses
+TANK_MESH = 13
+# Where an under-bar mirror's stalk starts (worn, +X side): None leaves it to bike_pieces, which measured it under
+# the switch housing on this model, (23.0, 41.0, 94.1); a first estimate from the videos was (23, 37.5, 97.5).
+MIRROR_CLAMP = None
+GRIP_RADIUS = 2.3                   # the grip sleeve's radius (see --grip)
+MIRROR_CLEARANCE = 1.5              # least gap from a mirror to the tank with the bars at full lock
+CONVEX_RADIUS = 35.0                # the stock mirror glass's normals: a sphere this far behind the glass (or
+#                                     bike_pieces.MIRROR_CONVEX_R, the under-bar mirrors', if it has one)
+#                                     (bike_pieces.MIRROR_CONVEX_R if it has one, so all the mirrors match)
+OVERLAY_MIN = (("front_dialglow", "dial face", 0.25), ("front_needle", "dial face", 0.5),
+               ("front_needle", "front_dialglow", 0.25), ("rear_tail", "tail lens", 0.25),
+               ("rear_brake", "tail and signal lenses", 0.5), ("rear_brake", "rear_tail", 0.25))
 
 # The decimation (decimate()). Test 40: the simplifier (Sp4cerat's quadric edge collapse in
 # fast_simplification) collapses an edge while its error is under 1e-9 * (iteration + 3) ** agg,
@@ -210,13 +286,15 @@ NORMAL_NUDGE = 0.25
 NORMAL_GUARD_DEG = 45.0
 SPLIT_DEG = 30.0
 
-# BSLightingShaderProperty flags (nif.xml's SkyrimShaderPropertyFlags, as Fallout 4 still uses them)
-SF1_SPECULAR, SF1_SKINNED, SF1_ENV_MAP, SF1_RECEIVE_SHADOWS, SF1_CAST_SHADOWS = 0x1, 0x2, 0x80, 0x100, 0x200
+# BSLightingShaderProperty flags, Fallout 4's bits (nif.xml's Fallout4ShaderPropertyFlags1/2). Until the 2026-10-31a build the converter
+# also set 0x100 and 0x8000, Skyrim's Receive_Shadows and EnvMap_Light_Fade, which in Fallout 4 are RGB_Falloff and
+# Dismemberment; no vanilla static or vehicle shape sets either.
+SF1_SPECULAR, SF1_SKINNED, SF1_ENV_MAP, SF1_CAST_SHADOWS = 0x1, 0x2, 0x80, 0x200
 SF1_ZBUFFER_TEST = 0x80000000
-SF1_OWN_EMIT = 0x400000   # the shape glows by its emissive colour
+SF1_OWN_EMIT = 0x400000   # set on every shape, as vanilla does; it glows by its emissive colour (black unless lit)
 
 # Our headlamp (the model's own, a plain can, sat still while the forks turned: its centre is
-# 20 units behind the steering head, past role_of's 16): a 5.75" Harley LED unit, 15 across,
+# 20 units behind the steering head, past role_of's 16): a 5.75" LED unit, 15 across,
 # on the fork bracket where the model's was, in the worn bike's space (+Y forward, Z up).
 LAMP_X, LAMP_Z = 0.3, 81.9          # the lamp's axis
 LAMP_FACE_Y, LAMP_R = 75.0, 7.5     # the lens sits here; the bucket runs 13 back from it
@@ -224,18 +302,45 @@ LAMP_LENS = (LAMP_X, LAMP_FACE_Y + 1.3, LAMP_Z)   # the lens's centre: where the
 # The headlamp's light is a reference the controller script places at the lens (LampPoint in
 # CMB_BikeParts.ini, kept there by the plugin); the lamp piece nifs of tests 32-35 (the light's
 # add-on nodes in an unskinned armor addon of their own) never reached the player's 3D.
-SF2_ZBUFFER_WRITE, SF2_DOUBLE_SIDED, SF2_ENVMAP_LIGHT_FADE = 0x1, 0x10, 0x8000
-SHADER_DEFAULT, SHADER_ENV_MAP = 0, 1
+SF2_ZBUFFER_WRITE, SF2_DOUBLE_SIDED, SF2_GLOW_MAP = 0x1, 0x10, 0x40
+SHADER_TYPES = {"default": 0, "env": 1, "glow": 2}   # Default, Environment_Map, Glow_Shader
 ALPHA_BLEND_FLAGS = 4845   # blend src alpha / inv src alpha, test greater
+
+# Each shape's shader (tools/rider/bike_materials.json overrides these per material; a material is
+# one shape's, <mat> = its label: since the 2026-10-31a build the needle has its own, the dial's art with a glow map
+# lighting its blade, so it reads at night). The cube maps are vanilla's but for the mirrors' (ours, a sharp sky and
+# ground the texture stage writes).
+CUBES = {"CH": "Shared\\Cubemaps\\MetalChrome01Cube_e.dds", "DI": "Shared\\Cubemaps\\mipblur_DefaultOutside1_dielectric.dds",
+         "GL": "Shared\\Cubemaps\\shinyglass_e.dds", "MR": "CMB\\Bike\\mirror_cube_e.dds"}
+SHAPE_MAT = {}   # label -> material where a material serves more than one shape (none now)
+_ENV = lambda cube, scale: dict(shader="env", cube=cube, env_scale=scale)   # noqa: E731
+_GLOW = lambda rgb, mult, glow_map=True: dict(shader="glow", emit=dict(colour=rgb, mult=mult, glow_map=glow_map))   # noqa: E731
+_GLASS = dict(alpha=dict(mode="blend", flags=ALPHA_BLEND_FLAGS, threshold=0))
+DEFAULT_SHADERS = {
+    "static_paint": _ENV("DI", 0.5), "static_chrome": _ENV("CH", 1.0), "static_exhaust": _ENV("CH", 1.0),
+    "static_engine": _ENV("DI", 0.3), "static_black": {}, "static_seat": {}, "static_glass": {**_ENV("GL", 1.0), **_GLASS},
+    "static_badge": _ENV("CH", 0.8),
+    "rear_tail": _GLOW((1.0, 0.012, 0.006), 2.5), "rear_brake": _GLOW((1.0, 0.005, 0.0025), 8.0),   # deep red, brake brighter
+    "front_chrome": _ENV("CH", 1.0), "front_black": {}, "front_glass": {**_ENV("GL", 1.0), **_GLASS},
+    "front_glow": _GLOW((1.0, 0.95, 0.9), 6.0, False), "front_dial": {}, "front_needle": _GLOW((1.0, 0.12, 0.03), 1.5),
+    "front_dialglow": _GLOW((1.0, 0.86, 0.66), 1.5),
+    "front_mirrorStock": _ENV("MR", 1.5), "front_mirrorUnderEgg": _ENV("MR", 1.5), "front_mirrorUnderD": _ENV("MR", 1.5),
+    "fork_chrome": _ENV("CH", 1.0), "fork_paint": _ENV("DI", 0.5), "fork_black": {}, "fork_glass": {**_ENV("GL", 1.0), **_GLASS},
+    "wheelF_tyre": _ENV("DI", 0.25), "wheelR_tyre": _ENV("DI", 0.25), "wheelF_rim": _ENV("DI", 0.4), "wheelR_rim": _ENV("DI", 0.4),
+}
+SHADER_BASE = dict(shader="default", cube=None, env_scale=1.0, smoothness=1.0, spec_colour=(1.0, 1.0, 1.0), spec_mult=1.0,
+                   emit=None, alpha=None, two_sided=True)
 
 
 # --- glTF --------------------------------------------------------------------------------
 
-def load_gltf(path: Path, normals=None):
+def load_gltf(path: Path, normals=None, sources=None):
     """Each material's vertices and triangles, merged: {name: (V (n,3) float64, F (m,3) int64)}.
     With normals (a dict), each material's glTF normals at the corners of those triangles go
     into it too, (m, 3, 3): the weld makes one vertex of a hard edge's two, and the corners keep
-    the export's own normals for gltf_normals() (the faces' own where a primitive has none)."""
+    the export's own normals for gltf_normals() (the faces' own where a primitive has none).
+    With sources (a dict), each triangle's glTF mesh index, (m,): the merge by material loses
+    which mesh a triangle came from, and the shapes are routed by it (label_of)."""
     d = json.loads(path.read_text())
     bufs = [(path.parent / b["uri"]).read_bytes() for b in d["buffers"]]
     types = {5120: np.int8, 5121: np.uint8, 5122: np.int16, 5123: np.uint16, 5125: np.uint32, 5126: np.float32}
@@ -256,7 +361,7 @@ def load_gltf(path: Path, normals=None):
         if any(k in node for k in ("matrix", "translation", "rotation", "scale")) and "mesh" in node:
             raise ValueError("a mesh node with its own transform: not handled (this model has none)")
     groups = {}
-    for m in d["meshes"]:
+    for mesh_index, m in enumerate(d["meshes"]):
         for p in m["primitives"]:
             name = d["materials"][p["material"]]["name"]
             v = accessor(p["attributes"]["POSITION"]).astype(np.float64)
@@ -265,20 +370,62 @@ def load_gltf(path: Path, normals=None):
                 n = np.nan_to_num(accessor(p["attributes"]["NORMAL"]).astype(np.float64))[f]
             else:
                 n = np.repeat(unit(face_normals(v, f))[:, None, :], 3, axis=1)
-            groups.setdefault(name, []).append((v, f, n))
+            groups.setdefault(name, []).append((v, f, n, np.full(len(f), mesh_index, np.int64)))
     merged = {}
     for name, parts in groups.items():
-        vs, fs, ns, off = [], [], [], 0
-        for v, f, n in parts:
+        vs, fs, ns, ss, off = [], [], [], [], 0
+        for v, f, n, s in parts:
             vs.append(v)
             fs.append(f + off)
             ns.append(n)
+            ss.append(s)
             off += len(v)
         v, f, keep = weld(np.vstack(vs), np.vstack(fs))   # the parts of a material together: a tyre's halves share their seam
         merged[name] = (v, f)
         if normals is not None:
             normals[name] = np.vstack(ns)[keep]
+        if sources is not None:
+            sources[name] = np.concatenate(ss)[keep]
     return merged
+
+
+def gltf_scene_matrix(path: Path):
+    """The 4x4 that takes the raw POSITION accessors (what load_gltf reads: the node transforms
+    are ignored) to the glTF scene's frame (every mesh node's ancestors' matrices; None if the
+    meshes' differ). A Blender import then turns the scene from Y up to Z up, (x, -z, y)."""
+    d = json.loads(path.read_text())
+    nodes = d["nodes"]
+
+    def local(n):
+        if "matrix" in n:
+            return np.array(n["matrix"], dtype=np.float64).reshape(4, 4).T   # column-major
+        m = np.eye(4)
+        if "scale" in n:
+            m = np.diag([*n["scale"], 1.0]) @ m
+        if "rotation" in n:
+            x, y, z, w = n["rotation"]
+            r = np.array([[1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+                          [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+                          [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]])
+            m[:3, :3] = r @ m[:3, :3]
+        if "translation" in n:
+            m[:3, 3] += n["translation"]
+        return m
+
+    found = []
+
+    def walk(i, parent):
+        world = parent @ local(nodes[i])
+        if "mesh" in nodes[i]:
+            found.append(world)
+        for c in nodes[i].get("children", []):
+            walk(c, world)
+
+    for root in d["scenes"][d.get("scene", 0)]["nodes"]:
+        walk(root, np.eye(4))
+    if not found or any(not np.allclose(m, found[0], atol=1e-9) for m in found):
+        return None
+    return found[0]
 
 
 def weld(v, f, tol=1e-3):
@@ -316,7 +463,8 @@ def components(n, f):
     return len(uniq), inv
 
 
-def decimate(groups, normals, total_target, speck_area=SPECK_AREA, small_area=SMALL_AREA, min_tris=8, weight=None, role=None):
+def decimate(groups, normals, total_target, speck_area=SPECK_AREA, small_area=SMALL_AREA, min_tris=8, weight=None, role=None,
+             sources=None):
     """Cut the model down, each connected piece towards its share of total_target triangles by
     surface area: so a tyre keeps its shape while a bolt gets a few triangles, instead of the
     thousands of small pieces of one material (tread blocks, bolts, cables) starving the big
@@ -329,11 +477,12 @@ def decimate(groups, normals, total_target, speck_area=SPECK_AREA, small_area=SM
     are cut at FINE_AGG whatever they're made of (role(verts) says which part a piece moves
     with, by role_of's names). Pieces of under speck_area (game units squared) are dropped.
     Coordinates must be scaled to game units already; normals is what load_gltf filled.
-    Returns (material, verts, tris, small, source) per piece: small if it's under small_area,
+    Returns (material, verts, tris, small, source, mesh) per piece: small if it's under small_area,
     source the piece as it was with its glTF corner normals (verts, tris, normals), for
-    gltf_normals()."""
+    gltf_normals(), mesh the glTF mesh most of its triangles came from (with sources, what
+    load_gltf filled; else -1)."""
     import fast_simplification as fs
-    pieces = []   # (material, verts, tris, area, corner normals)
+    pieces = []   # (material, verts, tris, area, corner normals, glTF mesh)
     dropped = dropped_area = 0
     for name, (v, f) in groups.items():
         k, lab = components(len(v), f)
@@ -350,7 +499,8 @@ def decimate(groups, normals, total_target, speck_area=SPECK_AREA, small_area=SM
                 dropped_area += piece_area[c]
                 continue
             used, inv = np.unique(f[sel], return_inverse=True)
-            pieces.append((name, v[used], inv.reshape(-1, 3), float(piece_area[c]), normals[name][sel]))
+            mesh = int(np.bincount(sources[name][sel]).argmax()) if sources is not None else -1
+            pieces.append((name, v[used], inv.reshape(-1, 3), float(piece_area[c]), normals[name][sel], mesh))
     total_area = sum(p[3] for p in pieces)
     counts = np.array([len(p[2]) for p in pieces])
     areas = np.array([p[3] * (weight(p[1]) if weight else 1.0) for p in pieces])
@@ -369,7 +519,7 @@ def decimate(groups, normals, total_target, speck_area=SPECK_AREA, small_area=SM
     budget = np.maximum(np.minimum(budget, counts), np.minimum(min_tris, counts)).astype(int)
     result = []
     kept = held = over = painted = bright = fine = 0
-    for (name, v, f, area, n0), b in zip(pieces, budget):
+    for (name, v, f, area, n0, mesh), b in zip(pieces, budget):
         v0, f0 = v, f
         kind = MATERIALS[name][5]
         part = role(v) if role else ""
@@ -392,14 +542,14 @@ def decimate(groups, normals, total_target, speck_area=SPECK_AREA, small_area=SM
             if len(f) > b * 1.05:
                 held += 1
                 over += len(f) - b
-        result.append((name, v, f, area < small_area, (v0, f0, n0)))
+        result.append((name, v, f, area < small_area, (v0, f0, n0), mesh))
     got = sum(len(r[2]) for r in result)
     print(f"  {len(pieces)} pieces kept ({sum(p[3] < small_area for p in pieces)} of them under {small_area:g} units²), "
           f"{dropped} specks dropped ({dropped_area:.0f} units² of {total_area:.0f}); budget {int(budget.sum())} triangles, "
           f"got {got}: {kept} pieces whole ({painted} painted, {bright} small chrome or silver), {held} held over their "
           f"share by the error cap ({over} triangles), {fine} cut finer than their material's cap (FINE_AGG)")
     per = {}
-    for name, _, f, _, _ in result:
+    for name, _, f, _, _, _ in result:
         per[name] = per.get(name, 0) + len(f)
     for name, (v, f) in groups.items():
         if name in per:
@@ -557,18 +707,29 @@ def seat_tyre(v, parts, role):
     return out
 
 
-def role_of(v, parts):
+def role_of(v, parts, raked=True):
     """Which moving part a piece belongs to: a wheel (wheel_of), else the steering assembly
     if its centre is ahead of the steering head (forks, fender, headlight) or up at the bars
     (bars, grips, levers, mirrors), and of that the fork's lower end if its centre is below
-    FORK_SPLIT_Z (sliders, mudguard, caliper, axle), else fixed."""
+    FORK_SPLIT_Z (sliders, mudguard, caliper, axle), else fixed. And (raked, since the 2026-10-31a build) the bar
+    assembly also takes what sits within RAKED_BEHIND behind the steering axis at its own
+    height above SteerPoint: the axis rakes back 29 degrees, so "16 behind the steering head"
+    at SteerPoint's height is already 15.6 ahead of the axis at the lower triple clamp's (z
+    68.5), which stood still while the fork tubes turned through it (27c, raked=False, still
+    the decimation's choice so the triangles stay 27c's). Only adds: every piece 27c moved
+    keeps its role (16 behind the raked axis would also have taken the coil, wiring and bolts
+    under the tank's nose, 10-16 behind it, which are the frame's)."""
     wheel = wheel_of(v, parts)
     if wheel:
         return wheel
     cx, cy, cz = v.mean(axis=0)
     sp = parts["steer_point"]
-    if cy < sp[1] + 16 and cz < FORK_SPLIT_Z:
-        return "fork"
+    if cy < sp[1] + 16:
+        return "fork" if cz < FORK_SPLIT_Z else "front"
+    if raked and cz > sp[2]:
+        ax = parts["steer_axis"]
+        if cy < sp[1] + (cz - sp[2]) * ax[1] / ax[2] + RAKED_BEHIND:   # parked: +y is back, and so is the axis going up
+            return "front"   # the lower clamp, its pinch bolts and the stem nut under it: with the bars, not the fork's travel
     # Up at bar height: within 45 of the steering head anything (the risers, the clamp, the
     # speedo, the mirrors that reach back over the tank), and out to 65 only what sits off the
     # centre line: the grips, levers, switch housings and the left mirror sit 45-57 behind the
@@ -576,9 +737,43 @@ def role_of(v, parts):
     # frame while the bars turned (test 35: 590 vertices of bar end in the fixed shapes); but
     # the tank's chrome filler cap, on the centre line 55 behind the head, has its centre just
     # above BAR_HEIGHT too, and a plain 65 would have turned it with the bars.
-    if cy < sp[1] + 16 or (cz > BAR_HEIGHT and (cy < sp[1] + 45 or (abs(cx) > 12 and cy < sp[1] + 65))):
+    if cz > BAR_HEIGHT and (cy < sp[1] + 45 or (abs(cx) > 12 and cy < sp[1] + 65)):
         return "front"
     return ""
+
+
+def label_of(role, material, mesh):
+    """Which shape (LABELS) a piece of the model goes into: by the part it moves with (role_of)
+    and what it is, its glTF mesh where its material alone would send it elsewhere, else its
+    material. None for a piece that's dropped (DROP_MESHES)."""
+    if mesh in DROP_MESHES:
+        return None
+    kind = MATERIALS[material][5]
+    if role in ("wheelF", "wheelR"):   # the rim (and its trims) apart from the tyre, disc and hub, for rim styles
+        return f"{role}_rim" if mesh in RIM_MESHES else f"{role}_tyre"
+    if role == "fork":
+        return ("fork_paint" if material == "body" else "fork_glass" if kind == "glass"
+                else "fork_chrome" if material in BRIGHT else "fork_black")
+    if role == "front":
+        if mesh in MIRROR_MESHES:
+            return "front_mirrorStock"
+        return ("front_glow" if kind == "glow" else "front_glass" if kind == "glass"
+                else "front_chrome" if material in BRIGHT else "front_black")
+    if material == "body":
+        return "static_paint"
+    if material == "logo_decals":
+        return "static_badge"
+    if mesh in EXHAUST_MESHES:
+        return "static_exhaust"
+    if material in BRIGHT:
+        return "static_chrome"
+    if kind == "glass":
+        return "static_glass"
+    if material == "leather":
+        return "static_seat"
+    if mesh in ENGINE_MESHES or (material == "tex2" and mesh not in PLATE_MESHES):
+        return "static_engine"
+    return "static_black"
 
 
 def lathe(profile, segments=32, inside=False):
@@ -774,7 +969,8 @@ def split_corners(v, f, cn, deg):
     return v[copies], newidx.reshape(-1, 3), unit(nn)
 
 
-# --- textures ----------------------------------------------------------------------------
+
+# --- textures and materials --------------------------------------------------------------
 
 def write_dds(path: Path, rgba: np.ndarray):
     """An uncompressed RGBA8 DDS with one mip level (the palette must never blend)."""
@@ -790,7 +986,8 @@ def write_dds(path: Path, rgba: np.ndarray):
 
 
 def write_palette(folder: Path, order, body):
-    """The three palette textures; returns each material's UV."""
+    """The fallback build's three palette textures (textures\\CMB\\CMB_Bike_d/_n/_s.dds); returns
+    each material's UV."""
     folder.mkdir(parents=True, exist_ok=True)
     d = np.zeros((PALETTE_H, PALETTE_W, 4), np.uint8)
     n = np.zeros_like(d)
@@ -804,65 +1001,129 @@ def write_palette(folder: Path, order, body):
         d[:, i * BLOCK:(i + 1) * BLOCK] = (*rgb, alpha)
         s[:, i * BLOCK:(i + 1) * BLOCK] = (spec, gloss, env, 255)
         uvs[name] = ((i * BLOCK + BLOCK / 2) / PALETTE_W, 0.5)
-    write_dds(folder / "CMB_Harley_d.dds", d)
-    write_dds(folder / "CMB_Harley_n.dds", n)
-    write_dds(folder / "CMB_Harley_s.dds", s)
+    for suffix, image in (("d", d), ("n", n), ("s", s)):
+        write_dds(folder / f"{PALETTE}_{suffix}.dds", image)
     return uvs
+
+
+SHADER_KEYS = ("shader", "cube", "env_scale", "smoothness", "spec_colour", "spec_mult", "emit", "alpha", "two_sided",
+               "cast_shadows_worn", "cast_shadows_parked")
+
+
+def cube_path(cube):
+    """A cube map as bike_materials.json names it (a CUBES shorthand, or a path under Textures)
+    as the nif does."""
+    path = CUBES.get(cube, cube).replace("/", "\\")
+    return path if path.lower().startswith("textures\\") else "textures\\" + path
+
+
+def load_shaders(path):
+    """Each shape's shader settings and material stem: SHADER_BASE, DEFAULT_SHADERS over it, and
+    the shape's material in bike_materials.json over those ({"materials": {<mat>:
+    {"labels": [...], and any of SHADER_KEYS}}}). The riding bike's front end never casts a
+    shadow (test 34: the bars, fork and front wheel shadowed the headlamp's beam)."""
+    mats = {label: SHAPE_MAT.get(label, label) for label, _ in LABELS}
+    spec = {}
+    for label, role in LABELS:
+        spec[label] = {**SHADER_BASE, **DEFAULT_SHADERS[label],
+                       "cast_shadows_worn": role in ("", "wheelR") and label not in ("rear_tail", "rear_brake"),
+                       "cast_shadows_parked": True}
+    if path:
+        data = json.loads(Path(path).read_text())
+        for mat, m in data.get("materials", {}).items():
+            for label in m.get("labels", []):
+                if label not in spec:
+                    raise ValueError(f"{path}: material {mat} names {label!r}, which isn't one of the shapes (LABELS)")
+                mats[label] = mat
+                spec[label].update({k: m[k] for k in SHADER_KEYS if k in m})
+    for label, role in LABELS:
+        s = spec[label]
+        if s["shader"] not in SHADER_TYPES:
+            raise ValueError(f"{label}: shader {s['shader']!r} isn't one of {list(SHADER_TYPES)}")
+        if s["shader"] == "env" and not s.get("cube"):
+            raise ValueError(f"{label}: an environment-mapped shader needs a cube map")
+        if role in ("front", "fork", "wheelF") and s["cast_shadows_worn"]:
+            print(f"{label}: cast_shadows_worn ignored (the riding bike's front end must not shadow the headlamp)", file=sys.stderr)
+            s["cast_shadows_worn"] = False
+    return spec, mats
+
+
+def texture_paths(spec, mat, worn, palette):
+    """A shape's texture set: its material's own (textures\\CMB\\Bike\\<mat>_d/_n/_s, _g when it
+    glows by a glow map on the riding bike) or the fallback build's palette, and its cube map."""
+    base = f"textures\\CMB\\{PALETTE}" if palette else f"textures\\CMB\\Bike\\{mat}"
+    t = {"Diffuse": f"{base}_d.dds", "Normal": f"{base}_n.dds", "Specular": f"{base}_s.dds"}
+    if worn and not palette and spec["shader"] == "glow" and spec["emit"] and spec["emit"].get("glow_map"):
+        t["Glow"] = f"{base}_g.dds"
+    if spec["shader"] == "env":
+        cube = cube_path(spec["cube"])
+        if palette and not cube.lower().startswith("textures\\shared\\"):
+            cube = cube_path("CH")   # the fallback build has no texture stage to write our mirror's cube: vanilla chrome's
+        t["EnvMap"] = cube
+    return t
 
 
 # --- nif ---------------------------------------------------------------------------------
 
-def shader_setup(shape, base_props, kind, skinned, textures, casts=True):
-    """Our own textures and settings on the shape (no materials file, so the nif's count)."""
+def shader_setup(shape, base_props, spec, skinned, worn, textures, material=""):
+    """The shape's BSLightingShaderProperty: the materials file it names (material: "" with
+    --bgsm 0, as 27c) and the same values and textures in the block itself, so a missing file
+    looks the same (and the bits no materials file carries, Skinned, are right)."""
     props = base_props.copy()
     props.nameID = props.controllerID = -1
-    sf1 = SF1_SPECULAR | SF1_RECEIVE_SHADOWS | SF1_ZBUFFER_TEST
-    if casts:
-        sf1 |= SF1_CAST_SHADOWS
-    sf2 = SF2_ZBUFFER_WRITE
+    props.rootMaterialNameID = -1   # copied from the vanilla block it named an unrelated string of ours (27c)
+    kind = spec["shader"]
+    emit = spec["emit"] if worn else None   # parked, nothing is lit
+    if kind == "glow" and not (emit and "Glow" in textures):
+        kind = "default"   # lit by the emissive colour alone (27c's headlamp ring, proven in test 30), or not at all
+    sf1 = SF1_SPECULAR | SF1_OWN_EMIT | SF1_ZBUFFER_TEST
     if skinned:
         sf1 |= SF1_SKINNED
-    props.Shader_Type = SHADER_DEFAULT
+    if spec["cast_shadows_worn" if worn else "cast_shadows_parked"]:
+        sf1 |= SF1_CAST_SHADOWS
+    sf2 = SF2_ZBUFFER_WRITE
+    if spec["two_sided"]:   # the model has single-plane bits (rim lips, fender undersides) that vanish from one side otherwise
+        sf2 |= SF2_DOUBLE_SIDED
+    props.Shader_Type = SHADER_TYPES[kind]
     props.Env_Map_Scale = 0.0
-    if kind == "metal":
-        props.Shader_Type = SHADER_ENV_MAP
-        props.Env_Map_Scale = 1.0
+    if kind == "env":
         sf1 |= SF1_ENV_MAP
-        sf2 |= SF2_ENVMAP_LIGHT_FADE
-    sf2 |= SF2_DOUBLE_SIDED   # the model has single-plane bits (rim lips, fender undersides) that vanish from one side otherwise
-    props.Shader_Flags_2 = sf2
-    if kind == "glow":   # lit by itself: the headlamp's running light and projector face
-        sf1 |= SF1_OWN_EMIT
-        for i in range(4):
-            props.Emissive_Color[i] = 1.0
+        props.Env_Map_Scale = float(spec["env_scale"])
+    if emit:
+        for i in range(3):
+            props.Emissive_Color[i] = float(emit["colour"][i])
+        props.Emissive_Color[3] = 1.0
+        props.Emissive_Mult = float(emit["mult"])
+        if "Glow" in textures:
+            sf2 |= SF2_GLOW_MAP
+    else:
+        for i in range(3):
+            props.Emissive_Color[i] = 0.0
+        props.Emissive_Mult = 1.0
     props.Shader_Flags_1 = sf1
-    props.Glossiness = {"metal": 90.0, "matte": 30.0, "glass": 110.0, "glow": 30.0}[kind]
-    props.Spec_Str = 1.0
-    props.Spec_Color[0] = props.Spec_Color[1] = props.Spec_Color[2] = 1.0
+    props.Shader_Flags_2 = sf2
+    props.Glossiness = float(spec["smoothness"])   # Fallout 4's smoothness, 0..1 (27c wrote Skyrim's 90/30/110/30)
+    props.Spec_Str = float(spec["spec_mult"])
+    for i in range(3):
+        props.Spec_Color[i] = float(spec["spec_colour"][i])
     props.Alpha = 1.0
-    props.Emissive_Mult = 6.0 if kind == "glow" else 1.0
-    shape.shader.name = ""
+    shape.shader.name = material
     shape.shader._properties = props
+    shape.shader._checked_for_materials = True   # PyNifly would read the materials file into these if it found one
     shape.save_shader_attributes()
     for slot, path in textures.items():
         shape.shader.set_texture(slot, path)   # the shader block exists now, so this writes to it
-    if kind == "glass":
+    if spec["alpha"]:
+        a = spec["alpha"]
+        blend = a.get("mode", "blend") == "blend"
         shape.has_alpha_property = True
-        shape.alpha_property.properties.flags = ALPHA_BLEND_FLAGS
-        shape.alpha_property.properties.threshold = 0
+        shape.alpha_property.properties.flags = int(a.get("flags") or (ALPHA_BLEND_FLAGS if blend else 0x12EC))
+        shape.alpha_property.properties.threshold = int(a.get("threshold", 0 if blend else 127))
         shape.save_alpha_property()
 
 
-def texture_paths(kind):
-    t = {"Diffuse": "textures\\CMB\\CMB_Harley_d.dds", "Normal": "textures\\CMB\\CMB_Harley_n.dds",
-         "Specular": "textures\\CMB\\CMB_Harley_s.dds"}
-    if kind == "metal":
-        t["EnvMap"] = CUBEMAP
-        t["EnvMask"] = "textures\\CMB\\CMB_Harley_s.dds"
-    return t
-
-
-def add_shape(nif, name, verts, tris, uvs, normals, base_props, use_type, kind, skinned, bone=None, bind=None, TransformBuf=None, casts=True):
+def add_shape(nif, name, verts, tris, uvs, normals, base_props, use_type, spec, skinned, worn, textures, material="",
+              bone=None, bind=None, TransformBuf=None):
     props = base_props.copy()
     props.nameID = props.controllerID = props.collisionID = -1
     props.skinInstanceID = props.shaderPropertyID = props.alphaPropertyID = -1
@@ -884,7 +1145,7 @@ def add_shape(nif, name, verts, tris, uvs, normals, base_props, use_type, kind, 
         new.add_bone(bone, buf(bind) if bind else identity)
         new.set_skin_to_bone_xform(bone, buf(rigid_inverse(bind)) if bind else identity)
         new.setShapeWeights(bone, [(i, 1.0) for i in range(len(verts))])
-    shader_setup(new, base_props.shader_props, kind, skinned, texture_paths(kind), casts=casts)
+    shader_setup(new, base_props.shader_props, spec, skinned, worn, textures, material)
     return new
 
 
@@ -922,19 +1183,113 @@ class Base:
         return self.props.copy()
 
 
+# --- the shapes --------------------------------------------------------------------------
+
+def to_worn_frame(v):
+    """Parked model frame -> the worn bike's (a half turn about z: the winding holds); seat_at apart."""
+    return np.column_stack([-v[:, 0], -v[:, 1], v[:, 2]])
+
+
+def corner_normals_split(v, f):
+    """Shading normals for a piece of ours given without: each corner its face's, and a vertex
+    split where they part by more than SPLIT_DEG (hard edges stay hard, curves round)."""
+    cn = np.repeat(unit(face_normals(v, f)), 3, axis=0)
+    return split_corners(v, f, cn, SPLIT_DEG)
+
+
+def seam_split(v, f, n, uv):
+    """One vertex per (vertex, UV) pair its corners use (the seam rule, which bike_textures.py
+    counts the same way: corners share a vertex iff the same exported vertex and the same UV
+    quantised to 1/32768). uv is per corner, (T, 3, 2). Returns (verts, tris, normals, uvs)."""
+    q = np.round(np.asarray(uv, dtype=np.float64).reshape(-1, 2) * 32768.0).astype(np.int64)
+    key = np.column_stack([f.reshape(-1), q])
+    uniq, inv = np.unique(key, axis=0, return_inverse=True)
+    inv = inv.reshape(-1)
+    return v[uniq[:, 0]], inv.reshape(-1, 3), n[uniq[:, 0]], uniq[:, 1:] / 32768.0
+
+
+def overlay_gaps(pairs):
+    """The least gap from each overlay to the surface under it, as built and in the worn nifs'
+    half floats (worn coordinates up to 128 sit on a 1/16 grid, so an overlay within
+    a step or two of what it covers can sink into it in places and z-fight). pairs: (overlay,
+    base, verts (n,3) worn, tris (m,3,3) worn, nominal). Returns [(overlay, base, nominal, gap,
+    gap in half floats)]; raises if a gap as built is under 0.9 of its nominal (the pieces'
+    offsets) or in half floats under 0.4 of it (0.1 for 0.25: more than a step of the grid; the
+    rounding of both surfaces can take up to 0.09 off a 0.25 gap along the dial's normal)."""
+    out = []
+    for name, base, verts, tris, nominal in pairs:
+        if not len(verts) or not len(tris):
+            raise ValueError(f"overlay check: no geometry for {name} over {base}")
+        size = float(np.median(np.ptp(tris, axis=1).max(axis=1)))
+        exact = TriangleGrid(tris, max(size, 0.5)).closest(verts, reach=1.0)[2].min()
+        h = lambda a: np.asarray(a, dtype=np.float16).astype(np.float64)   # noqa: E731
+        half = TriangleGrid(h(tris), max(size, 0.5)).closest(h(verts), reach=1.0)[2].min()
+        out.append((name, base, nominal, float(exact), float(half)))
+        if exact < 0.9 * nominal or half < 0.4 * nominal:
+            raise ValueError(f"{name} is {exact:.3f} off {base} as built, {half:.3f} in half floats, for a nominal "
+                             f"{nominal} (at least 0.9 of it as built and 0.4 in half floats)")
+    return out
+
+
+def axis_rotation(axis, deg):
+    """The rotation by deg about a unit axis (Rodrigues; right-handed, as the plugin's AxisRotation)."""
+    a = unit(np.asarray(axis, dtype=np.float64))
+    t = math.radians(deg)
+    k = np.array([[0.0, -a[2], a[1]], [a[2], 0.0, -a[0]], [-a[1], a[0], 0.0]])
+    return np.eye(3) + math.sin(t) * k + (1.0 - math.cos(t)) * k @ k
+
+
+def turning_clearance(verts, tris, steer_point, steer_axis, bar_angle, step=1.0):
+    """The least distance from a part that turns with the bars (its vertices, worn) to a fixed
+    surface (triangles (m,3,3), worn) with the bars anywhere from -bar_angle to +bar_angle (every
+    step degrees), turned about steer_axis through steer_point as the plugin turns them. Returns
+    (gap, angle). The vertices against the surface: a mirror's corners and the tank's are what
+    come close, so it reads a few hundredths short of a surface-to-surface gap at most. Only the
+    vertices within 6 of the surface's box are searched (a far one costs a search of the whole
+    surface), so a gap over 6 reads as the distance to the box."""
+    lo, hi = tris.min(axis=(0, 1)), tris.max(axis=(0, 1))
+    sp = np.asarray(steer_point, dtype=np.float64)
+    grid = TriangleGrid(tris, 2.0)
+    limit = abs(bar_angle)
+
+    def least(angles):
+        moved = np.stack([(verts - sp) @ axis_rotation(steer_axis, deg).T + sp for deg in angles])   # (angles, n, 3)
+        gaps = np.linalg.norm(np.maximum(0.0, np.maximum(lo - moved, moved - hi)), axis=2)   # to the box: a lower bound
+        near = gaps < 6.0
+        if near.any():   # every angle's near vertices in one search
+            gaps[near] = grid.closest(moved[near], reach=1.0)[2]
+        per_angle = gaps.min(axis=1)
+        i = int(np.argmin(per_angle))
+        return float(per_angle[i]), float(angles[i])
+
+    # Every 4 degrees, then every `step` within 4 of the closest (the gap changes smoothly with the angle).
+    coarse = least(np.unique(np.r_[np.arange(-limit, limit, 4.0), limit]))
+    fine = np.arange(max(-limit, coarse[1] - 4.0), min(limit, coarse[1] + 4.0) + 1e-9, step)
+    return min(coarse, least(fine))
+
+
+def fmt_value(value, digits):
+    """A number or a point for CMB_BikeParts.ini (as given if it's a string already)."""
+    if isinstance(value, str):
+        return value
+    if np.ndim(value):
+        return ",".join(fmt_value(x, digits) for x in value)
+    return f"{round(float(value), digits) + 0.0:g}"
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--pynifly", type=Path, required=True, help="PyNifly's io_scene_nifly folder")
     ap.add_argument("--gltf", type=Path, required=True, help="the model's scene.gltf")
     ap.add_argument("--vanilla", type=Path, required=True, help="vanilla motorcycle_clean.nif (its collision is kept)")
     ap.add_argument("--out", type=Path, required=True, help="output folder, normally <Data>/Meshes/CMB")
-    ap.add_argument("--textures", type=Path, required=True, help="normally <Data>/Textures/CMB")
+    ap.add_argument("--textures", type=Path, required=True, help="normally <Data>/Textures/CMB (the palette goes there with --uvs none)")
     ap.add_argument("--seat", type=Path, help="the riding clips folder (MT\\CMB_Rider, with CMB_RiderSeat.json)")
     ap.add_argument("--tris", type=int, default=90000,
                     help="the triangle budget the pieces' shares are cut from (each piece's by its area is the "
                          "simplifier's target); the error cap stops the pieces that can't reach theirs without losing "
                          "their shape, so 90000 comes out at about 225k triangles")
-    ap.add_argument("--body", default="7a1118", help="the tank and fenders' colour, hex rgb")
+    ap.add_argument("--body", default="7a1118", help="the tank and fenders' colour, hex rgb (the palette's)")
     ap.add_argument("--sit", type=float, default=0.27,
                     help="the hips go this far along the seat from its front edge (0..1); 0.27 is snug behind the "
                          "tank, where the arms, nearly straight on this bike, still reach the grips with the bars turned")
@@ -943,18 +1298,52 @@ def main() -> int:
                     help="the grip's centre on the +X side, parked model x,y,z (the rubber sleeve's, see above)")
     ap.add_argument("--peg", default="19,6,27", help="the foot peg's top on the +X side, parked model x,y,z")
     ap.add_argument("--steer", help="the steering axis if it isn't found: x,y,z of a point on it (parked model) and the rake in degrees")
-    ap.add_argument("--bar-angle", type=float, default=20.0, help="how far the bars turn, degrees (0: nothing moves)")
+    ap.add_argument("--bar-angle", type=float, default=20.0, help="how far the bars turn, degrees (0: nothing turns)")
+    ap.add_argument("--stage", choices=("export", "build"),
+                    help="export: write the shapes to --stage-dir for the texture stage and stop; build: make the nifs "
+                         "with the texture stage's UVs from --stage-dir (see BUILD STAGES)")
+    ap.add_argument("--stage-dir", type=Path, help="the stage folder (manifest.json, shapes/, uv/)")
+    ap.add_argument("--materials", type=Path,
+                    help="bike_materials.json, each material's shader values (default: the one next to this script, "
+                         "else built-in values)")
+    ap.add_argument("--uvs", choices=("none", "stage"),
+                    help="none: palette UVs and textures, the fallback build (the default without --stage); "
+                         "stage: the texture stage's (--stage build)")
+    ap.add_argument("--bgsm", type=int, choices=(0, 1),
+                    help="1: each shape names its materials file (the default with --uvs stage); 0: empty names, the "
+                         "nif's own shader block alone (27c's way; the default with --uvs none)")
     args = ap.parse_args()
     grip = np.array([float(t) for t in args.grip.split(",")])
     peg = np.array([float(t) for t in args.peg.split(",")])
+    uvs_mode = args.uvs or ("stage" if args.stage == "build" else "none")
+    if args.stage and not args.stage_dir:
+        ap.error("--stage needs --stage-dir")
+    if uvs_mode == "stage" and args.stage != "build":
+        ap.error("--uvs stage is the texture stage's UVs: use it with --stage build")
+    if args.stage == "build" and uvs_mode != "stage":
+        ap.error("--stage build takes its UVs from the stage folder (--uvs stage)")
+    palette = uvs_mode == "none"
+    use_bgsm = args.bgsm if args.bgsm is not None else int(not palette)
+    if use_bgsm and palette:
+        ap.error("--bgsm 1 names materials files that point at the texture stage's textures: not with --uvs none")
+    materials_path = args.materials
+    if materials_path is None and (Path(__file__).resolve().parent / "bike_materials.json").exists():
+        materials_path = Path(__file__).resolve().parent / "bike_materials.json"
+    shaders, mat_of = load_shaders(materials_path)
+    exporting = args.stage == "export"
 
     sys.path.insert(0, str(args.pynifly))
     from pyn.pynifly import NifFile, TransformBuf  # noqa: E402
+    try:
+        import bike_pieces as BP   # the speedometer, the light shells, the under-bar mirrors (the mod's own parts)
+    except ImportError as e:
+        print(f"bike_pieces.py (next to this script) is needed for the speedometer, lights and mirrors: {e}", file=sys.stderr)
+        return 1
 
     body = tuple(int(args.body[i:i + 2], 16) for i in (0, 2, 4))
     print(f"loading {args.gltf}")
-    corner_normals = {}
-    groups = load_gltf(args.gltf, corner_normals)
+    corner_normals, sources = {}, {}
+    groups = load_gltf(args.gltf, corner_normals, sources)
     unknown = sorted(set(groups) - set(MATERIALS))
     if unknown:
         print(f"materials with no entry in MATERIALS: {unknown}", file=sys.stderr)
@@ -975,7 +1364,7 @@ def main() -> int:
           + (f" (from {parts['tubes']} fork tubes)" if "tubes" in parts else " (--steer)"))
     print(f"decimating: shares of {args.tris} triangles by area (the wheels' pieces at 2.5 times theirs), the error capped:")
     pieces = decimate(groups, corner_normals, args.tris, weight=lambda v: 2.5 if wheel_of(v, parts) else 1.0,
-                      role=lambda v: role_of(v, parts))
+                      role=lambda v: role_of(v, parts, raked=False), sources=sources)
     seat_front, seat_back = float(seat_v[:, 1].min()), float(seat_v[:, 1].max())
     hips_y = args.seat_at if args.seat_at is not None else seat_front + args.sit * (seat_back - seat_front)
     # The worn bike is turned round and shifted so the hips' spot lands at HIPS_Y_WORN.
@@ -991,16 +1380,20 @@ def main() -> int:
     def to_worn(p):
         return [round(float(-p[0]), 2), round(float(-p[1] + seat_at), 2), round(float(p[2]), 2)]
 
+    def worn_v(v):   # parked -> worn, arrays
+        return np.column_stack([-v[:, 0], seat_at - v[:, 1], v[:, 2]])
+
     steer_axis_worn = [0.0, round(float(-parts["steer_axis"][1]), 4), round(float(parts["steer_axis"][2]), 4)]
     fit = dict(model=MODEL_NAME, seat_top_z=round(seat_top_z, 2),
                grip_r=to_worn([-abs(grip[0]), grip[1], grip[2]]), grip_l=to_worn([abs(grip[0]), grip[1], grip[2]]),
                peg_r=to_worn([-abs(peg[0]), peg[1], peg[2]]), peg_l=to_worn([abs(peg[0]), peg[1], peg[2]]),
                ground_foot_l=GROUND_FOOT_L, seat_at=round(seat_at, 2), hips_y=round(hips_y, 2),
                steer_point=to_worn(parts["steer_point"]), steer_axis=steer_axis_worn, bar_angle=args.bar_angle)
-    args.out.mkdir(parents=True, exist_ok=True)
-    (args.out / "CMB_BikeFit.json").write_text(json.dumps(fit, indent=1) + "\n")
-    print(f"wrote {args.out / 'CMB_BikeFit.json'}: seat top {fit['seat_top_z']}, right grip {fit['grip_r']}, "
-          f"right peg {fit['peg_r']} (worn space; rebuild the clips with riding_anims.py --fit)")
+    if not exporting:
+        args.out.mkdir(parents=True, exist_ok=True)
+        (args.out / "CMB_BikeFit.json").write_text(json.dumps(fit, indent=1) + "\n")
+        print(f"wrote {args.out / 'CMB_BikeFit.json'}: seat top {fit['seat_top_z']}, right grip {fit['grip_r']}, "
+              f"right peg {fit['peg_r']} (worn space; rebuild the clips with riding_anims.py --fit)")
 
     # The vanilla's winding, so ours matches (a wrong one shows the bike inside out).
     src = NifFile(str(args.vanilla))
@@ -1015,13 +1408,15 @@ def main() -> int:
     print(f"the vanilla's triangles wind {'with' if not flip else 'against'} their normals ({agree:+.2f}); "
           f"{'flipping ours' if flip else 'keeping the glTF winding'}")
 
-    order = [m for m in MATERIALS if m in groups or m in ("lamp_black", "lamp_led")]   # ours too: the headlamp's
-    uv_of = write_palette(args.textures, order, body)
-    print(f"wrote the palette textures to {args.textures}")
+    order = list(MATERIALS)   # the palette's blocks, and the texture stage's material ids (STAGE_NAME)
+    stage_materials = [STAGE_NAME.get(m, m) for m in order]
+    if palette and not exporting:
+        uv_of = write_palette(args.textures, order, body)
+        print(f"wrote the palette textures to {args.textures} ({PALETTE}_d/_n/_s.dds)")
 
-    # The shapes: by what moves (ROLES) and how it's shaded (KINDS); a wheel is one matte
-    # shape whatever its pieces are made of (black rims, as on the real thing).
-    roles = [role_of(v, parts) if args.bar_angle > 0 else "" for _, v, _, _, _ in pieces]
+    # The pieces' roles (role_of: what moves them) and shapes (label_of: what they are).
+    roles = [role_of(v, parts) for _, v, _, _, _, _ in pieces]
+    roles27 = [role_of(v, parts, raked=False) for _, v, _, _, _, _ in pieces]
     # What a bolt is on: the ordinary piece with the source vertex nearest its centre. The
     # source's, not the cut-down piece's (test 41: a brake disc cut from 8,336 triangles to
     # 1,434 has few vertices left near its bolts, and the silver ring beside them won, so 9 of
@@ -1030,20 +1425,31 @@ def main() -> int:
     ordinary = [i for i, p in enumerate(pieces) if not p[3]] or list(range(len(pieces)))
     ordinary_v = np.vstack([pieces[i][4][0] for i in ordinary])
     ordinary_of = np.concatenate([np.full(len(pieces[i][4][0]), i) for i in ordinary])
-    specks = [i for i, p in enumerate(pieces) if p[3]] if args.bar_angle > 0 else []
+    specks = [i for i, p in enumerate(pieces) if p[3]]
     if specks:
         nearest = nearest_vertex(ordinary_v, np.array([pieces[i][1].mean(axis=0) for i in specks]))
         for i, at in zip(specks, nearest):   # a bolt spins with a wheel if what it's on does (SMALL_AREA)
             if roles[ordinary_of[at]].startswith("wheel"):
-                roles[i] = roles[ordinary_of[at]]
+                roles[i] = roles27[i] = roles[ordinary_of[at]]
     started = time.time()
-    buckets = {}
-    dropped = guarded = averaged = corners = 0
-    for (name, v, f, small, source), role in zip(pieces, roles):
+    collected = {label: [] for label, _ in LABELS}   # (material, verts, tris, normals or None, UVs per vertex or None, glTF mesh, piece)
+    dropped = dropped_ours = guarded = averaged = corners = 0
+    dropped_meshes = {}
+    raked = []
+    dial_tris, tail_lens, signal_lenses, tank_v = [], [], [], []
+    for pid, ((name, v, f, small, source, mesh), role, role27) in enumerate(zip(pieces, roles, roles27)):
         if old_headlamp(v, seat_at):
             dropped += 1
             continue
-        kind = "matte" if role.startswith("wheel") else MATERIALS[name][5]
+        if mesh == DIAL_MESH:
+            dial_tris.append(worn_v(v)[f])
+        label = label_of(role, name, mesh)
+        if label is None:
+            dropped_meshes[mesh] = dropped_meshes.get(mesh, 0) + len(f)
+            dropped_ours += 1
+            continue
+        if role != role27:
+            raked.append((label, mesh, worn_v(v).mean(axis=0)))
         if role.startswith("wheel") and name == "silver" and not small:
             # Test 40: the wheels' silver (the brake discs) shades by the averaged normals:
             # the discs are dented in the source, and its normals read as mottled grey under
@@ -1057,83 +1463,293 @@ def main() -> int:
             corners += 3 * len(f)
         if role.startswith("wheel") and name == "material":
             v = seat_tyre(v, parts, role)
-        buckets.setdefault((role, kind), []).append((name, v, f, n))
-    print(f"the glTF's normals on {len(pieces) - dropped - averaged} pieces, the averaged on the wheels' {averaged} silver ones; "
+        if mesh == MIRROR_GLASS_MESH:   # convex: the cube map shades across the glass instead of one flat colour
+            fsum = face_normals(v, f).sum(axis=0)
+            glass_n = unit(fsum if fsum[1] > 0 else -fsum)   # toward the rider (parked +y)
+            facing = n @ glass_n > 0.5
+            n = n.copy()
+            radius = getattr(BP, "MIRROR_CONVEX_R", CONVEX_RADIUS)   # as the under-bar mirrors' glass
+            n[facing] = unit(np.asarray(BP.bend_convex(v[facing], n[facing], v.mean(axis=0), glass_n, radius)))
+        if mesh == TAIL_LENS_MESH and worn_v(v)[:, 1].mean() < -55.0:   # the tail lens (95's other pieces: the side reflectors)
+            tail_lens.append(worn_v(v)[f])
+        if mesh == SIGNAL_LENS_MESH:
+            signal_lenses.append(worn_v(v)[f])
+        if mesh == TANK_MESH:
+            tank_v.append((worn_v(v), f))
+        collected[label].append((name, v, f, n, None, mesh, pid))
+    print(f"the glTF's normals on {len(pieces) - dropped - dropped_ours - averaged} pieces, the averaged on the wheels' {averaged} silver ones; "
           f"{guarded} of {corners} corners took the averaged normal (sampled over {NORMAL_GUARD_DEG:g} degrees off their own "
           f"triangle, or none in the file) ({time.time() - started:.0f} s)")
+    for mesh, n_tris in sorted(dropped_meshes.items()):
+        print(f"dropped glTF mesh {mesh} ({n_tris} triangles): {DROP_MESHES[mesh]}")
+    for label, mesh, c in raked:
+        print(f"  with the bars by the raked axis (27c: fixed): glTF mesh {mesh} at worn ({c[0]:.1f}, {c[1]:.1f}, {c[2]:.1f}) -> {label}")
     lamp = headlamp_pieces(seat_at, flip)
     for name, v, f in lamp:
-        buckets.setdefault(("front" if args.bar_angle > 0 else "", MATERIALS[name][5]), []).append((name, v, f, None))
+        collected[label_of("front", name, -1)].append((name, v, f, None, None, -1, -1))
     print(f"the headlamp: {len(lamp)} pieces of our own on the fork bracket, turning with the bars; "
           f"{dropped} piece(s) of the model's own lamp dropped")
-    shapes = {}   # name -> (verts, tris, uvs, normals, kind, role), in the order they're made
-    for role in ROLES:
-        for kind in KINDS:
-            if (role, kind) not in buckets:
-                continue
-            vs, fs, us, ns, off = [], [], [], [], 0
-            for name, v, f, n in buckets[(role, kind)]:
-                if flip:
-                    f = f[:, [0, 2, 1]]
-                vs.append(v)
-                fs.append(f + off)
-                us.append(np.tile(np.array(uv_of[name]), (len(v), 1)))
-                ns.append(n if n is not None else vertex_normals(v, f))   # our headlamp: its own
-                off += len(v)
-            v = np.vstack(vs)
-            f = np.vstack(fs)
-            label = role if role.startswith("wheel") else f"{role}_{kind}" if role else kind
-            if len(v) > 65535:
-                print(f"the {label} shape has {len(v)} vertices, over the 65535 a shape may have. Lower --tris if it was "
-                      f"raised; but --tris only sets the pieces' shares, and the error caps (AGG_CAP, FINE_AGG) and the pieces "
-                      f"kept whole (KEEP_TRIS, PAINTED, BRIGHT) set a floor it can't go below: past that, loosen the caps or "
-                      f"keep fewer pieces whole", file=sys.stderr)
-                return 1
-            shapes[label] = (v, f, np.vstack(us), np.vstack(ns), kind, role)
-            print(f"  {label}: {len(v)} vertices, {len(f)} triangles ({len(buckets[(role, kind)])} pieces)")
 
-    base = Base(vshape)
+    # Ours (bike_pieces.py): the speedometer over the model's dial, the light shells over its tail and rear signal
+    # lenses, the under-bar mirrors. Worn-frame inputs, parked-frame pieces.
+    if not dial_tris or not tail_lens or not signal_lenses:
+        print("the dial face, the tail lens or the rear signal lenses weren't found (glTF meshes "
+              f"{DIAL_MESH}, {TAIL_LENS_MESH}, {SIGNAL_LENS_MESH})", file=sys.stderr)
+        return 1
+    started = time.time()
+    ours, needle_keys = BP.speedo_pieces(np.concatenate(dial_tris), seat_at, flip)
+    ours = list(ours)
+    ours += list(BP.lamp_shells(np.concatenate(tail_lens), np.concatenate(signal_lenses), seat_at, flip))
+    for style in ("egg", "D"):   # [Look] Mirrors 2 and 3
+        ours += list(BP.mirror_under_pieces(style, fit["grip_r"], GRIP_RADIUS, MIRROR_CLAMP, seat_at, flip))
+    made = time.time() - started
+    next_piece = len(pieces)
+    for material, label, v, f, n, uv in ours:
+        if label not in collected:
+            raise ValueError(f"bike_pieces gave a piece for {label!r}, which isn't a shape (LABELS)")
+        if material not in MATERIALS:
+            raise ValueError(f"bike_pieces gave a {material!r} piece, which isn't a material (MATERIALS)")
+        v = np.asarray(v, dtype=np.float64)
+        f = np.asarray(f, dtype=np.int64)
+        if uv is not None:   # per vertex (V, 2) or per corner (T, 3, 2): per corner from here
+            uv = np.asarray(uv, dtype=np.float64)
+            if uv.shape == (len(v), 2) and uv.shape != (len(f), 3, 2):
+                uv = uv[f]
+            if uv.shape != (len(f), 3, 2):
+                raise ValueError(f"bike_pieces: {label} UVs {uv.shape} for {len(v)} vertices, {len(f)} triangles")
+        if n is None:   # each corner its face's normal, split at hard edges (the corners keep their order)
+            v, f, n = corner_normals_split(v, f)
+        else:
+            n = unit(np.asarray(n, dtype=np.float64))
+        collected[label].append((material, v, f, n, uv, -1, next_piece))
+        next_piece += 1
+    print(f"ours: {len(ours)} pieces (the speedometer's dial, backlight, needle and hub; the tail and brake light shells; "
+          f"the under-bar mirrors, egg and D) ({made:.0f} s)")
 
-    # Parked: the vanilla nif, its shape hidden, ours added.
-    parked = args.out / "CMB_BikeParked.nif"
-    parked.write_bytes(args.vanilla.read_bytes())
-    nif = NifFile(str(parked))
-    old = nif.shapes[0]
-    old.flags = old.flags | 1   # hidden
-    for label, (v, f, u, n, kind, _) in shapes.items():
-        # Parked, nothing is lit: the lamp's lit parts are plain white there.
-        add_shape(nif, f"CMB_Harley_{label}", rows(v), rows(f), rows(u), rows(n), base, base.use_type, "matte" if kind == "glow" else kind, False)
-    nif.save()
-    check = NifFile(str(parked))
-    names = [s.name for s in check.shapes]
-    hidden = [s.name for s in check.shapes if s.flags & 1]
-    blocks = [name for _, name in _block_offsets(parked.read_bytes())]
-    print(f"wrote {parked}: shapes {names}, hidden {hidden}, "
-          f"collision {'kept' if any(b.startswith('bhk') for b in blocks) else 'NOT FOUND'} ({len(blocks)} blocks)")
+    # The shapes, each its pieces together (the vanilla's winding).
+    shapes = {}   # label -> dict(v, f, n, mat, src, piece, uvc (fixed UVs per corner or None), role)
+    for label, role in LABELS:
+        if not collected[label]:
+            print(f"the {label} shape has no pieces", file=sys.stderr)
+            return 1
+        vs, fs, ns, mats, srcs, pids, uvcs, off = [], [], [], [], [], [], [], 0
+        for name, v, f, n, uvc, mesh, pid in collected[label]:
+            if flip:
+                f = f[:, [0, 2, 1]]
+                if uvc is not None:
+                    uvc = uvc[:, [0, 2, 1]]
+            vs.append(v)
+            fs.append(f + off)
+            ns.append(n if n is not None else vertex_normals(v, f))   # our headlamp: its own
+            mats += [order.index(name)] * len(f)
+            srcs += [mesh] * len(f)
+            pids += [pid] * len(f)
+            uvcs.append(uvc)
+            off += len(v)
+        v, f, n = np.vstack(vs), np.vstack(fs), np.vstack(ns)
+        uvc = None
+        if label in FIXED_UV and label != "static_badge":
+            if any(u is None for u in uvcs):
+                raise ValueError(f"{label}: a piece of bike_pieces' without the fixed UVs this shape needs")
+            uvc = np.vstack(uvcs)
+        elif label == "static_badge":   # the badges' own layout, over our emblem
+            buv = np.asarray(BP.badge_uvs(worn_v(v), f), dtype=np.float64)
+            uvc = buv[f] if buv.shape == (len(v), 2) else buv.reshape(len(f), 3, 2)
+        if len(v) > MAX_VERTS:
+            print(f"the {label} shape has {len(v)} vertices, over the {MAX_VERTS} a shape may have with room for its UV "
+                  f"seams. Lower --tris if it was raised; but --tris only sets the pieces' shares, and the error caps "
+                  f"(AGG_CAP, FINE_AGG) and the pieces kept whole (KEEP_TRIS, PAINTED, BRIGHT) set a floor it can't go "
+                  f"below: past that, loosen the caps or keep fewer pieces whole", file=sys.stderr)
+            return 1
+        shapes[label] = dict(v=v, f=f, n=unit(n), mat=np.array(mats, np.int16), src=np.array(srcs, np.int16),
+                             piece=np.array(pids, np.int32), uvc=uvc, role=role)
+
+    # Checks: the overlays clear of what they cover in half floats; every mirror clear of the tank at full lock.
+    def worn_tris(s, sel=None):
+        t = worn_v(s["v"])[s["f"]]
+        return t if sel is None else t[sel]
+
+    dial = shapes["front_dial"]
+    # The dial's face: front_dial's biggest piece (the hub cap over the needle is its other).
+    tri_area = np.linalg.norm(face_normals(dial["v"], dial["f"]), axis=1)
+    face_piece = max(set(dial["piece"].tolist()), key=lambda p: tri_area[dial["piece"] == p].sum())
+    lens_all = np.concatenate([np.concatenate(tail_lens), np.concatenate(signal_lenses)])
+    bases = {"dial face": worn_tris(dial, dial["piece"] == face_piece), "tail lens": np.concatenate(tail_lens),
+             "tail and signal lenses": lens_all, "front_dialglow": worn_tris(shapes["front_dialglow"]),
+             "rear_tail": worn_tris(shapes["rear_tail"])}
+    started = time.time()
+    gaps = overlay_gaps([(name, base, worn_v(shapes[name]["v"]), bases[base], nominal) for name, base, nominal in OVERLAY_MIN])
+    for name, base, nominal, exact, half in gaps:
+        print(f"  overlay {name} over {base}: {exact:.3f} off ({half:.3f} in half floats; nominal {nominal})")
+    sp_w, ax_w = np.array(to_worn(parts["steer_point"])), np.array(steer_axis_worn)
+    tank = np.concatenate([tv[tf] for tv, tf in tank_v])   # (m, 3, 3) worn
+    print(f"  ({time.time() - started:.0f} s)")
+    started = time.time()
+    for label in MIRROR_VARIANTS:
+        gap, deg = turning_clearance(worn_v(shapes[label]["v"]), tank, sp_w, ax_w, args.bar_angle)
+        print(f"  {label}: {gap:.2f}{' or more' if gap >= 6.0 else ''} clear of the tank with the bars anywhere within "
+              f"{args.bar_angle:g} degrees (closest at {deg:+.0f})")
+        if gap < MIRROR_CLEARANCE:
+            print(f"{label} comes within {gap:.2f} of the tank with the bars at {deg:+.0f} degrees (at least "
+                  f"{MIRROR_CLEARANCE} wanted)", file=sys.stderr)
+            return 1
+    print(f"  ({time.time() - started:.0f} s)")
 
     # Worn: turned round to face +Y like a character, the seat over the origin, on one bone.
     def turned(v):
         return np.column_stack([-v[:, 0], -v[:, 1] + seat_at, v[:, 2]])
 
-    spheres = {label: sphere_of(turned(v)) for label, (v, *_) in shapes.items()}
+    spheres = {label: sphere_of(turned(s["v"])) for label, s in shapes.items()}
+    pivot = np.array([float(x) for x in (needle_keys["NeedlePoint"].split(",") if isinstance(needle_keys["NeedlePoint"], str)
+                                         else needle_keys["NeedlePoint"])])
+    # The needle turns about its pivot: its sphere there, as long as the needle, so the sweep never leaves it.
+    spheres["front_needle"] = (pivot, float(np.linalg.norm(turned(shapes["front_needle"]["v"]) - pivot, axis=1).max()) + 1.0)
+    static_y = [c[1] for label, (c, _) in spheres.items() if not ROLE_OF_LABEL[label]]
+    front_y = [c[1] for label, (c, _) in spheres.items() if ROLE_OF_LABEL[label] in ("front", "fork")]
+    front_min_y = (max(static_y) + min(front_y)) / 2 if front_y else to_worn(parts["front_axle"])[1]
+    print(f"{len(shapes)} shapes:")
+    for label, s in shapes.items():
+        c, r = spheres[label]
+        srcs = sorted(set(int(x) for x in s["src"]) - {-1})
+        print(f"  {label}: {len(s['v'])} vertices, {len(s['f'])} triangles, sphere ({c[0]:.1f}, {c[1]:.1f}, {c[2]:.1f}) r {r:.1f}"
+              f"{', glTF meshes ' + ','.join(map(str, srcs)) if srcs else ''}{' + ours' if (s['src'] == -1).any() else ''}")
+    print(f"FrontMinY {front_min_y:.1f}: the fixed shapes' spheres up to y {max(static_y):.1f}, the bars' and fork's from "
+          f"{min(front_y):.1f}")
+
+    if args.stage_dir:
+        stage = args.stage_dir
+        to_parked = np.array([[scale, 0, 0, scale * shift[0]], [0, scale, 0, scale * shift[1]],
+                              [0, 0, scale, scale * shift[2]], [0, 0, 0, 1]])
+        scene = gltf_scene_matrix(args.gltf)
+        y_up_to_z_up = np.array([[1, 0, 0, 0], [0, 0, -1, 0], [0, 1, 0, 0], [0, 0, 0, 1]], dtype=np.float64)
+        manifest = dict(version=1, frame="parked", seat_at=round(seat_at, 4),
+                        gltf_to_parked=to_parked.tolist(),
+                        gltf_to_parked_applies_to="the raw POSITION accessors (the glTF's node matrices ignored)",
+                        blender_to_parked=None if scene is None else (to_parked @ np.linalg.inv(y_up_to_z_up @ scene)).tolist(),
+                        blender_to_parked_applies_to="a default Blender glTF import's world coordinates (node matrices "
+                                                     "and the Y-up to Z-up turn applied)",
+                        parked_to_worn="(-x, seat_at - y, z)", materials=stage_materials,
+                        steer_point=[float(x) for x in parts["steer_point"]], steer_axis=[float(x) for x in parts["steer_axis"]],
+                        steer_point_worn=to_worn(parts["steer_point"]), steer_axis_worn=steer_axis_worn,
+                        bar_angle=args.bar_angle, max_verts=MAX_VERTS, labels={})
+        for label, s in shapes.items():
+            manifest["labels"][label] = dict(
+                role=s["role"], mat=mat_of[label], verts=len(s["v"]), tris=len(s["f"]),
+                uv="fixed" if label in FIXED_UV else "unwrap", max_verts=MAX_VERTS,
+                sources=sorted(set(int(x) for x in s["src"]) - {-1}), ours=bool((s["src"] == -1).any()),
+                parked=label not in WORN_ONLY, parked_hidden=label in PARKED_HIDDEN)
+        if exporting:
+            (stage / "shapes").mkdir(parents=True, exist_ok=True)
+            for label, s in shapes.items():
+                arrays = dict(pos=s["v"].astype(np.float64), nrm=s["n"].astype(np.float32), tri=s["f"].astype(np.int32),
+                              mat=s["mat"], src=s["src"], piece=s["piece"])
+                if s["uvc"] is not None:
+                    arrays["uv_fixed"] = s["uvc"].astype(np.float32)
+                np.savez_compressed(stage / "shapes" / f"{label}.npz", **arrays)
+            (stage / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n")
+            print(f"wrote the stage export to {stage}: manifest.json and {len(shapes)} shapes")
+            return 0
+        # The build: the same shapes as the export, or the texture stage's UVs belong to something else.
+        exported = json.loads((stage / "manifest.json").read_text())
+        for label, s in shapes.items():
+            with np.load(stage / "shapes" / f"{label}.npz") as e:
+                same = (np.array_equal(e["pos"], s["v"]) and np.array_equal(e["tri"], s["f"]) and np.array_equal(e["mat"], s["mat"]))
+            if not same or exported["labels"].get(label, {}).get("tris") != len(s["f"]):
+                print(f"{stage}: the exported {label} isn't the shape this build makes: export again (--stage export) "
+                      f"and rerun the texture stage", file=sys.stderr)
+                return 1
+
+    # The UVs, per triangle corner, and the vertices split along their seams.
+    final = {}
+    for label, s in shapes.items():
+        if palette:
+            per_mat = np.array([uv_of[m] for m in order])
+            uvc = np.repeat(per_mat[s["mat"]][:, None, :], 3, axis=1)
+            mat = mat_of[label]
+        else:
+            uv_file = args.stage_dir / "uv" / f"{label}.npz"
+            info_file = args.stage_dir / "uv" / f"{label}.json"
+            if uv_file.exists():
+                with np.load(uv_file) as e:
+                    uvc = np.asarray(e["uv"], dtype=np.float64)
+                if uvc.shape != (len(s["f"]), 3, 2):
+                    print(f"{uv_file}: UVs {uvc.shape} for {len(s['f'])} triangles", file=sys.stderr)
+                    return 1
+                if s["uvc"] is not None and np.abs(uvc - s["uvc"]).max() > 1e-3:
+                    print(f"  {label}: the texture stage's UVs differ from the fixed ones by up to "
+                          f"{np.abs(uvc - s['uvc']).max():.4f} (the stage's are used)")
+            elif s["uvc"] is not None:
+                uvc = s["uvc"]
+            else:
+                print(f"{uv_file} is missing: run the texture stage (bike_textures.py) on {args.stage_dir}", file=sys.stderr)
+                return 1
+            info = json.loads(info_file.read_text()) if info_file.exists() else {}
+            mat = info.get("mat", mat_of[label])
+            if mat != mat_of[label]:
+                print(f"  {label}: material {mat} (the texture stage's), not {mat_of[label]}")
+        if not np.isfinite(uvc).all():
+            print(f"{label}: UVs that aren't numbers", file=sys.stderr)
+            return 1
+        v, f, n, uv = seam_split(s["v"], s["f"], s["n"], uvc)
+        if not palette and "verts_after_seams" in info and info["verts_after_seams"] != len(v):
+            print(f"{label}: {len(v)} vertices after the seams here, {info['verts_after_seams']} by the texture stage's "
+                  f"count: the seam rule differs", file=sys.stderr)
+            return 1
+        if len(v) > MAX_VERTS:
+            print(f"{label}: {len(v)} vertices with its UV seams, over {MAX_VERTS}: unwrap it with fewer seams or split it",
+                  file=sys.stderr)
+            return 1
+        outside = int(((uv < -1e-6) | (uv > 1 + 1e-6)).any(axis=1).sum())
+        if outside:
+            print(f"  {label}: {outside} vertices with UVs outside 0..1")
+        final[label] = dict(v=v, f=f, n=n, uv=uv, mat=mat, role=s["role"])
+    if not palette:
+        print("the UV seams: " + ", ".join(f"{label} {len(shapes[label]['v'])}->{len(x['v'])}" for label, x in final.items()))
+
+    def material_name(label, worn):
+        if not use_bgsm:
+            return ""
+        return f"Materials\\CMB\\Bike\\{final[label]['mat']}{'_worn' if worn else ''}.bgsm"
+
+    base = Base(vshape)
+
+    # Parked: the vanilla nif, its shape hidden, ours added: not the lit overlays (the plain lens and dial show), the
+    # under-bar mirrors hidden by the node flag (there for a preview and a later swap; the stock mirror shows).
+    parked = args.out / "CMB_BikeParked.nif"
+    parked.write_bytes(args.vanilla.read_bytes())
+    nif = NifFile(str(parked))
+    old = nif.shapes[0]
+    old.flags = old.flags | 1   # hidden
+    for label, x in final.items():
+        if label in WORN_ONLY:
+            continue
+        new = add_shape(nif, f"CMB_Bike_{label}", rows(x["v"]), rows(x["f"]), rows(x["uv"]), rows(x["n"]), base, base.use_type,
+                        shaders[label], False, False, texture_paths(shaders[label], x["mat"], False, palette),
+                        material_name(label, False))
+        if label in PARKED_HIDDEN:
+            new.flags = new.flags | 1
+    nif.save()
+    check = NifFile(str(parked))
+    names = [s.name for s in check.shapes]
+    hidden = [s.name for s in check.shapes if s.flags & 1]
+    blocks = [name for _, name in _block_offsets(parked.read_bytes())]
+    print(f"wrote {parked}: {len(names)} shapes {names}, hidden {hidden}, "
+          f"collision {'kept' if any(b.startswith('bhk') for b in blocks) else 'NOT FOUND'} ({len(blocks)} blocks)")
 
     def worn(path: Path, bone, bind):
         out = NifFile()
         out.initialize("FO4", str(path), "NiNode", path.stem)
         allverts = []
-        for label, (v, f, u, n, kind, role) in shapes.items():
-            tv = turned(v)
-            tn = np.column_stack([-n[:, 0], -n[:, 1], n[:, 2]])
+        for label, x in final.items():
+            tv = turned(x["v"])
+            tn = to_worn_frame(x["n"])
             allverts.append(tv)
-            # The bar assembly, the fork's lower end and the front wheel cast no shadow: the
-            # bike's front end must not shadow the headlamp's beam (test 34). The worn bike's
-            # only: the parked bike has no beam and keeps its sun shadow whole (test 35's
-            # cleared them by name in every output).
-            add_shape(out, f"{path.stem}_{label}", rows(tv), rows(f), rows(u), rows(tn), base, base.use_type, kind,
-                      True, bone, bind, TransformBuf, casts=role not in ("front", "fork", "wheelF"))
+            add_shape(out, f"{path.stem}_{label}", rows(tv), rows(x["f"]), rows(x["uv"]), rows(tn), base, base.use_type,
+                      shaders[label], True, True, texture_paths(shaders[label], x["mat"], True, palette),
+                      material_name(label, True), bone, bind, TransformBuf)
         out.save()
         allverts = np.vstack(allverts)
-        fix_all_bone_bounds(path, list(spheres.values()), rigid_inverse(bind) if bind else None)
+        fix_all_bone_bounds(path, [spheres[label] for label in final], rigid_inverse(bind) if bind else None)
         check = NifFile(str(path))
         lo, hi = allverts.min(axis=0), allverts.max(axis=0)
         node_names = []
@@ -1141,7 +1757,7 @@ def main() -> int:
             node_names = [n.name for n in check.nodes.values()] if isinstance(check.nodes, dict) else [n.name for n in check.nodes]
         except Exception as e:   # noqa: BLE001
             node_names = [f"(nodes unreadable: {e})"]
-        print(f"wrote {path}: {len(check.shapes)} shapes on {bone}; nodes {node_names}")
+        print(f"wrote {path}: {len(check.shapes)} shapes on {bone}; nodes {len(node_names)}")
         print(f"  bounds x[{lo[0]:.1f},{hi[0]:.1f}] y[{lo[1]:.1f},{hi[1]:.1f}] z[{lo[2]:.1f},{hi[2]:.1f}]")
         for s in check.shapes:
             if bind:
@@ -1164,15 +1780,14 @@ def main() -> int:
     # holds (so the clips' palm sits on it; the other grip mirrors it in x): the pivot
     # of the plugin's wrist roll. Test 38: the plugin rolled the hand about the wrist
     # node, which the clips put 6.5 units from the grip (6 along the fingers' axis, 2.5
-    # across), so the palm swung off the bar as the forearm twisted.
+    # across), so the palm swung off the bar as the forearm twisted. The needle (since the 2026-10-31a build)
+    # turns about NeedleAxis through NeedlePoint, NeedleZero + NeedlePerMph a mph degrees,
+    # NeedleMax at most; without those keys it stays at its rest.
     fa, ra, sp = to_worn(parts["front_axle"]), to_worn(parts["rear_axle"]), to_worn(parts["steer_point"])
     gr = fit["grip_r"]
-    static_y = [c[1] for label, (c, _) in spheres.items() if not shapes[label][5]]
-    front_y = [c[1] for label, (c, _) in spheres.items() if shapes[label][5] in ("front", "fork")]
-    front_min_y = (max(static_y) + min(front_y)) / 2 if front_y else fa[1]
     partsfile = args.out / "CMB_BikeParts.ini"
     partsfile.write_text(
-        "; Written by harley_meshes.py for CMB_Slope.dll: the worn bike's moving parts, in its mesh space\n"
+        "; Written by the bike's mesh build (tools/rider) for CMB_Slope.dll: the worn bike's moving parts, in its mesh space\n"
         "; (+Y forward, Z up, the ground at z 0). Delete this file and nothing moves.\n"
         "[Parts]\n"
         f"FrontAxle={fa[0]},{fa[1]},{fa[2]}\n"
@@ -1184,10 +1799,16 @@ def main() -> int:
         f"FrontMinY={front_min_y:.1f}\n"
         f"BarAngle={args.bar_angle:g}\n"
         f"LampPoint={LAMP_LENS[0]},{LAMP_LENS[1]},{LAMP_LENS[2]}\n"
-        "LampAxis=0,1,0\n")
+        "LampAxis=0,1,0\n"
+        f"NeedlePoint={fmt_value(needle_keys['NeedlePoint'], 2)}\n"
+        f"NeedleAxis={fmt_value(needle_keys['NeedleAxis'], 4)}\n"
+        f"NeedleZero={fmt_value(needle_keys['NeedleZero'], 3)}\n"
+        f"NeedleMax={fmt_value(needle_keys['NeedleMax'], 3)}\n"
+        f"NeedlePerMph={fmt_value(needle_keys['NeedlePerMph'], 4)}\n")
     print(f"wrote {partsfile}: front axle {fa}, rear axle {ra}, radius {parts['wheel_radius']:.1f}, "
           f"steering axis through {sp} along {steer_axis_worn}, the +X grip at {gr} (the wrist roll's pivot), "
-          f"the bar assembly's spheres beyond y {front_min_y:.1f}")
+          f"the bar assembly's spheres beyond y {front_min_y:.1f}, the needle about {fmt_value(needle_keys['NeedleAxis'], 4)} "
+          f"through {fmt_value(needle_keys['NeedlePoint'], 2)}")
 
     worn(args.out / "CMB_BikeWorn.nif", BIKE_BONE, None)
     if args.seat:

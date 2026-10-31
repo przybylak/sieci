@@ -8,12 +8,13 @@ from your own copy of the game and the downloaded model:
 
 | File (under `Data\`) | Built by | What it is |
 |---|---|---|
-| `Meshes\CMB\CMB_BikeParked.nif` | `harley_meshes.py` (`build_bike_meshes.py` for the vanilla bike) | the vanilla motorcycle nif with its own shape hidden and the Harley's twelve shapes added (nine before test 38) (the headlamp's lit parts among them), so its collision is kept; it keeps its sun shadow whole (the no-shadow flag below is the worn nifs' alone: test 35 found the parked bike's front end shadowless too) |
+| `Meshes\CMB\CMB_BikeParked.nif` | `harley_meshes.py` (`build_bike_meshes.py` for the vanilla bike) | the vanilla motorcycle nif with its own shape hidden and the model's 25 shapes added, `CMB_Bike_<label>` (twelve from test 38 to 27c, nine before; the two under-bar mirror styles among them hidden by their node flag; not the tail and brake lights' shells nor the dial's backlight, which only light on the riding bike), so its collision is kept; it keeps its sun shadow whole (the no-shadow flag below is the worn nifs' alone: test 35 found the parked bike's front end shadowless too) |
 | `Meshes\CMB\CMB_BikeWornRider.nif`, `CMB_BikeWornRiderF.nif` | `harley_meshes.py --seat` | the same model as wearable armor: faces forward, seat over the origin, hanging off the rider's `COM` bone (male and female seat heights); no light nodes since test 32 (the game keeps only a skinned nif's shapes; the beam is a light the controller places, kept at the lens by `CMB_Slope.dll`); the bar assembly's, the lower fork's and front wheel's shapes cast no shadow (test 34: the bike shadowed its own headlamp; the worn nifs only), the lower fork (the sliders, front mudguard, caliper, axle and boots: three `_fork` shapes) rides with the front wheel's suspension travel since test 38, and the bar assembly takes the grips, levers, switch housings and the left mirror since test 35 (they sit 45 to 57 behind the steering head and stayed with the frame while the bars turned) |
 | `Meshes\CMB\CMB_BikeWorn.nif` | `harley_meshes.py` | the same again (shapes, shadow flag and bar assembly), skinned to the `AnimObjectA` bone on the ground: used when the rider isn't seated |
-| `Meshes\CMB\CMB_BikeFit.json` | `harley_meshes.py` | where the Harley's seat, grips, pegs and steering axis are, for the riding clips (`riding_anims.py --fit`); the grip centre at (29.4, -10.7, 96) since test 38 (`--grip 29.4,-10.7,96`, the rubber sleeve's centre by a fit of its vertices; test 34's 24.5,-15,98 put the hands on the lever perches, and 20 on the lever clamps) |
-| `Meshes\CMB\CMB_BikeParts.ini` | `harley_meshes.py` | the axles, wheel radius, steering axis, `FrontMinY` (the line between the fixed shapes' culling spheres and the bar assembly's and lower fork's, halfway between the nearest two, 31.3 since test 38; it comes out of each build's shapes, so the grips joining the assembly in test 35 needed nothing of the plugin), `Grip` (the +x grip's centre in the worn bike's space, the fit's grip_r, 29.4, 38.39, 96.0: the wrist roll's pivot since test 39) and the headlamp's lens for `CMB_Slope.dll`, which spins the wheels, turns the bars and places the lamp's light (install it with the meshes) |
-| `Textures\CMB\CMB_Harley_d.dds`, `_n.dds`, `_s.dds` | `harley_meshes.py` | the Harley's textures: one colour block per part (the download has none) |
+| `Meshes\CMB\CMB_BikeFit.json` | `harley_meshes.py` | where the bike's seat, grips, pegs and steering axis are, for the riding clips (`riding_anims.py --fit`); the grip centre at (29.4, -10.7, 96) since test 38 (`--grip 29.4,-10.7,96`, the rubber sleeve's centre by a fit of its vertices; test 34's 24.5,-15,98 put the hands on the lever perches, and 20 on the lever clamps) |
+| `Meshes\CMB\CMB_BikeParts.ini` | `harley_meshes.py` | the axles, wheel radius, steering axis, `FrontMinY` (the line between the fixed shapes' culling spheres and the bar assembly's and lower fork's, halfway between the nearest two, 31.3 since test 38; it comes out of each build's shapes, so the grips joining the assembly in test 35 needed nothing of the plugin), `Grip` (the +x grip's centre in the worn bike's space, the fit's grip_r, 29.4, 38.39, 96.0: the wrist roll's pivot since test 39) and the headlamp's lens for `CMB_Slope.dll`, which spins the wheels, turns the bars and places the lamp's light (install it with the meshes); since the 2026-10-31a build also the speedometer's needle (`NeedlePoint`, `NeedleAxis`, `NeedleZero`, `NeedleMax`, `NeedlePerMph`: without them the needle is never turned), and `FrontMinY` 31.7 (31.3 in 27c); every other key as 27c's |
+| `Textures\CMB\Bike\<mat>_d.dds`, `_n.dds`, `_s.dds`, `_g.dds`; `mirror_cube_e.dds`, `mirror_cube_zup_e.dds` | `bike_textures.py` (`build_bike.sh`'s `textures` stage) | since the 2026-10-31a build: one texture set per material on the shape's own UV atlas, baked from the full model and authored procedurally (DESIGN.md, *The bike's look*); the mirrors' sky (the zup file the same sky with +Z up, a one-file swap if the game shows it sideways; both ship). 90 files, 85.3 MB: 28 materials, the needle's its own (the dial's art and a glow map on the blade). 27c's three palette textures directly in `Textures\CMB` (`*_d.dds`, `_n`, `_s`: one colour block per part) are no longer used; `--uvs none` (the emergency build) writes that palette again as `Textures\CMB\CMB_Bike_d.dds`, `_n`, `_s` |
+| `Materials\CMB\Bike\<mat>_worn.bgsm`, `<mat>.bgsm` | `bike_textures.py` (with `bgsm.py`) | since the 2026-10-31a build: a material file per material, the riding bike's (`_worn`: lit parts lit, no shadow from the bar assembly, lower fork and front wheel) and the parked bike's (shadows on, nothing lit; none for the two lights' shells and the dial's backlight, which the parked nif leaves out): 53 files; each nif's block carries the same values, so the bike looks the same without them |
 | `Meshes\Actors\Character\Animations\MT\CMB_Rider\*.hkx` and `...\CMB_Rider\Female\*.hkx` | `riding_anims.py` | seated riding versions of the holstered walk/run/turn/start/stop/idle clips (the arms' IK pole mostly down since test 39, (0.35, -0.3, -1.0) in the rig's root space, the left mirrored in x; before, (1, -0.6, -0.7), mostly sideways, which put the elbows out at shoulder height; the hand's frame from the forearm since test 40, its long axis along it seen along the grip, `HAND_PITCH` degrees above it, 0: before, a fixed frame, the wrists bent down 30 degrees in the cruise pose, test 39's "cat paw"), and of the jump/fall/land clips when those were extracted |
 | `...\CMB_Rider\CMB_RiderClips.json` (and `Female\`) | `riding_anims.py` | each clip's root motion and events, for the step below |
 | `...\CMB_Rider\CMB_RiderSeat.json` (and `Female\`) | `riding_anims.py` | where the seated rider's `COM` bone sits, for the bike that hangs off it |
@@ -32,6 +33,13 @@ If someone already handed you the meshes and the `CMB_Rider` folder, skip to
   library (`NiflyDLL.dll` ships in the zip) and its Fallout 4 HKX reader/writer directly.
 - **Bethesda Archive Extractor** (or Archive2, which comes with the Creation Kit) to pull files out of the game's
   `.ba2` archives.
+- For the textured build (since the 2026-10-31a build): **Blender as a Python module** (`pip install bpy` into its own Python:
+  this build's came from bpy 5.1 on Python 3.13) for the texture stage, a Python with **numpy, quicktex and etcpak** for the DDS
+  encoder (`write_dds.py`; Pillow too, and `texture2ddecoder` for `bike_textures.py --sheet`), `texture2ddecoder` in Blender's Python for the previews
+  (`look_render.py`), and a bash shell for `build_bike.sh` (Git Bash or WSL on Windows). Its other stages run `python3`, or the Python
+  `PYTHON` names (`PYTHON=python` or `PYTHON="py -3"` in Git Bash, where a python.org install has no `python3`), with
+  `-I`, which leaves out the user's site-packages: numpy and fast_simplification must be in that Python itself, not
+  installed with `pip install --user`.
 
 ## 2. Extract the game files
 
@@ -51,7 +59,7 @@ Arms' `skeleton.hkx`, which only adds weapon bones) are fine.
 
 And the bike model: download ["Harley Davidson Iron 883 2015"](https://sketchfab.com/3d-models/harley-davidson-iron-883-2015-612071b783f14a7288df2d361be9a244)
 by Nieve5677 from Sketchfab in its glTF form (the zip holds `scene.gltf`, `scene.bin` and the licence) and unzip it
-to, say, `C:\CMBwork\harley`. It's CC-BY-4.0: the credit in the README goes with anything you share.
+to, say, `C:\CMBwork\model`. It's CC-BY-4.0: the credit in the README goes with anything you share.
 
 ## 3. Meshes and clips
 
@@ -60,17 +68,17 @@ set PYN=C:\Tools\PyNifly\io_scene_nifly
 set W=C:\CMBwork\meshes\actors\character
 set OUT=<repository>\Data\Meshes
 set TEX=<repository>\Data\Textures
-set HARLEY=python tools\rider\harley_meshes.py --pynifly %PYN% --gltf C:\CMBwork\harley\scene.gltf ^
+set BIKE=python tools\rider\harley_meshes.py --pynifly %PYN% --gltf C:\CMBwork\model\scene.gltf ^
     --vanilla C:\CMBwork\meshes\setdressing\vehicles\motorcycle\motorcycle_clean.nif ^
     --out %OUT%\CMB --textures %TEX%\CMB
 
-%HARLEY%
+%BIKE%
 
 python tools\rider\riding_anims.py --pynifly %PYN% --vanilla %W% ^
     --body %W%\characterassets\malebody.nif --female-body %W%\characterassets\femalebody.nif ^
     --out %OUT%\Actors\Character\Animations\MT\CMB_Rider --fit %OUT%\CMB\CMB_BikeFit.json
 
-%HARLEY% --seat %OUT%\Actors\Character\Animations\MT\CMB_Rider
+%BIKE% --seat %OUT%\Actors\Character\Animations\MT\CMB_Rider
 
 python tools\rider\verify_clips.py --pynifly %PYN% --vanilla %W% --clips %OUT%\Actors\Character\Animations\MT\CMB_Rider
 python tools\rider\verify_clips.py --pynifly %PYN% --vanilla %W% --clips %OUT%\Actors\Character\Animations\MT\CMB_Rider\Female --female
@@ -81,15 +89,17 @@ Three steps because each needs the one before: the first `harley_meshes.py` run 
 that hang off the seated rider, which need the seat height the clips settled on (`CMB_RiderSeat.json`). Generating
 the clips takes a while (around 25 minutes for both sets).
 
-`harley_meshes.py` takes `--body <hex>` for the tank and fenders' colour (default a deep red, `7a1118`), `--tris`
+`harley_meshes.py` takes `--body <hex>` for the tank and fenders' colour in the palette build (default a deep red,
+`7a1118`; the textured build's paint is the `paint` surface's `colour` in `tools/rider/bike_materials.json`), `--tris`
 for the triangle budget the pieces' shares are cut from (default 90000; each piece's share by its area is the
 simplifier's target, and a piece that can't reach it without losing its shape keeps more, so the bike comes out at
 about 225,000 triangles), `--sit` for how far back on the seat the rider sits (0.27 of the seat's length from its
 front: snug behind the tank, where the arms still reach the turned bars) and `--bar-angle` for how far the bars turn
-(20 degrees; 0 builds one static set of shapes). The model comes out as twelve shapes: three fixed, four that turn
+(20 degrees; 0 writes `BarAngle=0`, and the plugin turns nothing). Since the 2026-10-31a build the model comes out as 28 shapes
+named by what they are and where they move (DESIGN.md, *The bike's look*); up to 27c it came out as twelve: three fixed, four that turn
 with the bars (metal, matte, glass and the headlamp's lit parts: the model's own lamp is dropped and a 5.75" LED unit lathed in its place), three of the fork's lower end (`_fork`: the sliders, front mudguard, caliper, axle and boots, which turn with the bars and ride with the front wheel's suspension travel; `FORK_SPLIT_Z`, 66 on the parked model, divides them from the tubes and clamps) and the two wheels, which the F4SE plugin moves (DESIGN.md); the plugin turns the rider's hands with the bars. The model is scaled to the vanilla bike's
 length so the collision and the F4SE plugin's clearances still fit, which makes it about a quarter bigger than a
-real Iron 883 next to the character, as the vanilla bike is.
+real bike next to the character, as the vanilla bike is.
 
 The geometry since test 40: each connected piece of the model is cut down in one call of the simplifier with its
 error capped (before, every piece was forced down to its share, which crushed the grips, speedo, switch housings,
@@ -104,6 +114,41 @@ normals smeared both, and cancelled to nothing where opposite faces were welded)
 the model) keep the averaged normals. The parked nif's positions are full precision; the worn nifs keep the vanilla
 shape's half floats until one is tried in game. Each run takes about 40 s (the normals about 15 s of it), and the
 largest shape, the fixed matte one, has about 48,600 of the 65,535 vertices a shape may have.
+
+**The textured build (since the 2026-10-31a build).** The runs above (with no `--stage`) make the palette build, 27c's way, which
+is all the clips need (`CMB_BikeFit.json`). The shipped bike then comes from `tools/rider/build_bike.sh`, in stages,
+from a bash shell, its inputs in the environment:
+
+```
+PYNIFLY=C:/Tools/PyNifly/io_scene_nifly GLTF=C:/CMBwork/model/scene.gltf \
+VANILLA=C:/CMBwork/meshes/setdressing/vehicles/motorcycle/motorcycle_clean.nif \
+SEAT=<repository>/Data/Meshes/Actors/Character/Animations/MT/CMB_Rider DATA=<repository>/Data \
+STAGE=C:/CMBwork/bike_stage BLENDER_PY=<a Python with bpy> DDS_PY=<a Python with quicktex and etcpak> \
+REFERENCE=<a previous build's Meshes/CMB, optional> \
+PYTHON=<a Python with numpy and fast_simplification, default python3> \
+  bash tools/rider/build_bike.sh                       # = export art textures build check
+```
+
+`export` writes the finished shapes into the stage folder (`harley_meshes.py --stage export`, about a minute), `art`
+our own art (the dial, the badge, the lens patterns, the mirrors' sky: `bike_art.py`, about 25 s), `textures` each
+shape's UV atlas, the bakes from the full model, the DDS files and both material files per material (`bike_textures.py`
+in Blender, about 28 minutes from scratch on four cores, seconds to minutes after a change; a per-label cache keeps what's done, and `ONLY=static_paint,static_chrome` does just those),
+`build` the four nifs with those UVs and the materials named, `CMB_BikeParts.ini` and `CMB_BikeFit.json`
+(`harley_meshes.py --stage build`, about a minute; it refuses a stage made from different shapes), `check` reads
+everything back (`check_bike_meshes.py`, about 10 s: exit 1 on any fault; with `REFERENCE` it also compares the
+parts file's keys and the fit). `bash tools/rider/build_bike.sh fallback check` is the emergency build: the palette
+textures (`Textures\CMB\CMB_Bike_*.dds`) and no material files, as 27c shipped. `MESH_ARGS` passes more arguments to
+`harley_meshes.py` (`--tris`, `--bar-angle`, ...), `MATERIALS` another materials table (the default
+`tools/rider/bike_materials.json` holds every surface's look and every shader value).
+
+To look before going in game, `tools/rider/look_render.py` renders the built bike as the game shades it (DESIGN.md,
+*The bike's look*), in Blender's Python:
+
+```
+<a Python with bpy> -I tools/rider/look_render.py --pynifly C:/Tools/PyNifly/io_scene_nifly --data <repository>/Data \
+    --out C:/CMBwork/renders --prefix after_ --views all           # or day, night, mirrors, close, lock, or names
+<a Python with bpy> -I tools/rider/look_render.py --compare C:/CMBwork/renders before_ after_ C:/CMBwork/renders/compare.png
+```
 
 **The vanilla motorcycle instead:** `build_bike_meshes.py` makes the same four nifs from it, and the clips are built
 without `--fit`:
@@ -249,6 +294,9 @@ riding (the seated version, `CMB_BikeRiderArmor`, only lines up when seated); `p
 | bike sunk into the ground or floating while seated | the `CMB_BikeWornRider` meshes were built from an older clip set: build the clips, then the meshes with `--seat` |
 | pink / white bike | the vanilla motorcycle textures/materials aren't loading (they come from the base game archives) |
 | bike pops out at screen edges | an old `CMB_BikeWorn.nif` with a small culling sphere; rebuild it |
+| the old flat colours, no needle, no lit tail light, no mirror styles | an older `Meshes\CMB` wins (another mod folder, or 27c's files left in a later-loading one) |
+| the bike blotchy or its colours on the wrong parts | `Textures\CMB\Bike` from another build than the meshes (their UV atlases belong together: build and install both) |
+| riding: three mirrors at once, the brake light always lit, the needle at rest | no F4SE or no `CMB_Slope.dll`, or the log's role lines say "by its sphere" for the bike's shapes (their names didn't reach the plugin) |
 | standing rider over the bike while riding | rider pose off, `CMB_RiderPose.esp` not active, or its AnimTextData missing (the mod folder from `make_rider_pose.bat` not enabled) |
 | standing poses only with a crippled limb | an animation mod added player entries after the plugin was built: run `make_rider_pose.bat` again |
 | rider seated but slides / clips misbehave | `AnimTextData` outdated: run `make_rider_pose.bat` again after rebuilding clips |

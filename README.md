@@ -8,9 +8,10 @@ A rideable motorbike for Fallout 4:
 - **side bag**: small storage, size adjustable from the console
 - **park it, call it, ride it**: activate the bike or use its keys (favorite them to a hotkey); optional F4SE hotkey
 - **seated riding animations** with lean in turns and ridden U-turns; the bike turns with you on the spot and in conversations
-- **an engine sound from a real Harley Sportster** (demodave's recording, CC0): with F4SE (since test 44's build) the plugin runs a model of a four-speed gearbox and pitches and fades eleven loops every frame with your speed and throttle, shifting up as you pull away and falling off as you let go; since test 45's build the engine keeps a real ride's pace rather than the game's quick bike, so a pull-away climbs from the moment you press forward, each one shifting a little differently, the cruise holds steady and a roll-off falls slowly in gear; since test 46's build each loop's level is set at once rather than faded, so a gear change no longer cuts out, and the engine is louder and punchier, with hotter recordings, more between the cruise and a full-throttle pull and its full volume out past the riding camera (test 45's build needed the MCM's engine volume at 100); since test 47's a steady cruise wanders a little in pitch and level, like a hand on a real throttle, each up-shift dips briefly as the throttle closes, the engine reverberates as the game's other sounds do, and the MCM's engine volume starts at 90 in a new save; without F4SE, an idle and a cruise loop crossfaded by speed
-- **a Harley-Davidson Iron 883** as the bike (Nieve5677's Sketchfab model, CC-BY), on the vanilla motorcycle's collision; with F4SE its wheels spin with the distance ridden and the bars turn with you (the hands go with them); the vanilla bike can be built instead
-- **a headlamp** (the Harley build, F4SE): a round LED lamp on the fork bracket with its running light lit, and a real spot beam (like the power armor's, a light the mod places at the lamp) that turns with the bars and tilts with the bike; MCM: off, on, or on at night, and a hotkey
+- **an engine sound from a real V-twin** (demodave's recording, CC0): with F4SE (since test 44's build) the plugin runs a model of a four-speed gearbox and pitches and fades eleven loops every frame with your speed and throttle, shifting up as you pull away and falling off as you let go; since test 45's build the engine keeps a real ride's pace rather than the game's quick bike, so a pull-away climbs from the moment you press forward, each one shifting a little differently, the cruise holds steady and a roll-off falls slowly in gear; since test 46's build each loop's level is set at once rather than faded, so a gear change no longer cuts out, and the engine is louder and punchier, with hotter recordings, more between the cruise and a full-throttle pull and its full volume out past the riding camera (test 45's build needed the MCM's engine volume at 100); since test 47's a steady cruise wanders in pitch and level like a hand on a real throttle (since the 2026-10-31a build more, in slow swings of a second or two that peak 3 to 5% off the cruise's rpm, never past about 6%, and about 1 to 1.5 dB in level), each up-shift dips briefly as the throttle closes, the engine reverberates as the game's other sounds do, and the MCM's engine volume starts at 90 in a new save; without F4SE, an idle and a cruise loop crossfaded by speed
+- **a V-twin cruiser** as the bike (Nieve5677's Sketchfab model, CC-BY: see the credits), on the vanilla motorcycle's collision; with F4SE its wheels spin with the distance ridden and the bars turn with you (the hands go with them, and since the 2026-10-31a build the lower triple clamp too); the vanilla bike can be built instead
+- **its look** (since the 2026-10-31a build): textured all over, with procedural textures baked from the 1.3-million-triangle model onto the game's mesh (the download has no textures): an oxblood tank and fenders with a clear coat and a cream double coachline, our own winged-wheel badge, dark mirror-like chrome, a black wrinkle-finish engine with bright fin edges, a leather-grained seat, tyres with their tread; a material file for every surface (the hook for paint and parts at a workbench later); with F4SE **a working speedometer** (its needle follows your speed, about 50 on the dial at full speed by default, and its numerals light up with the headlamp), **a tail light** lit while you ride that brightens with both rear signals when you brake, and **mirrors** that show a sky (Fallout 4 can't show real reflections), in the stock style or either of two styles hung under the bar ends (`[Look] Mirrors` in `CMB_Slope.ini`; the parked bike keeps the stock ones for now). Every new behaviour of the plugin has a key in `CMB_Slope.ini` whose off value gives the previous build's back; the textures and the lower triple clamp turning with the bars come with the meshes (the previous build's meshes copied back give its look)
+- **a headlamp** (the Sketchfab build, F4SE): a round LED lamp on the fork bracket with its running light lit, and a real spot beam (like the power armor's, a light the mod places at the lamp) that turns with the bars and tilts with the bike; MCM: off, on, or on at night, and a hotkey
 - **rides like a vehicle, not a person**: 75% less fall damage while riding (adjustable), deep water ends the ride and leaves the bike on the bank, and an enemy's hit knocks you off (optional); with F4SE, hostile people, creatures and smaller robots (since test 43 by a list of their own, `CMB_RamRobots`) the bike hits at speed are knocked over and take a little damage, the bike losing some speed at each (since test 45's build a dog the mod's script hasn't answered for by the time you reach it is ridden through rather than braked for, and knocked over when the answer comes, and a robot ridden at again after a hit is knocked over again; since test 46's an old save's knock-overs no longer make it brake for those same animals; MCM "Knock enemies over"; never companions, essential characters, anyone in power armor or the big ones: super mutants, behemoths, deathclaws, sentry bots and the like)
 - **follows the ground**: the parked bike stands on the ground, tilted to match the slope (with F4SE, on the ground you just rode over, and since test 46's build a called bike on the ground under its wheels, leaning up to 20° across a slope; since test 47's getting off where you got on puts the bike back where it stood, the parked spot is checked for room as a call's is, and a bike called while you stand on a car comes to the ground beside it); with F4SE, the bike also pitches with the ground while you ride, leans into turns at speed (the rider with it, head level), stops short of boulder faces but slides along a railing beside it, climbs over low fallen trunks and stumps and up a step, but since test 45's build not onto a rail, a barrier or a log with a drop behind it (since test 46's not onto a rail lying on the ground or met at an angle nor along a fence either, and at full speed it stops short of a rail rather than with its front wheel in it; since test 47's it eases off only for what stays in its way, not for things you steer past, looks along its turn, stops about a wheel's radius short of a rail, isn't climbed onto a rail met at a shallow angle and doesn't ride on along one its front wheel is in), keeps its tyres on top of small bumps, takes a landing on its suspension and keeps going, backs up to a rail or a ledge's lip with its rear tyre just short of it and down off something it hangs on, turns in a circle rather than on the spot, climbs slopes too steep to walk up, and the camera sits farther back
 - **MCM menu** for every setting (with MCM installed); with F4SE, gear in the bike's slot goes back on after a ride
@@ -59,8 +60,9 @@ Getting off reverses all of that and parks the bike next to you. Indoors (dungeo
 | Fallout 4 on PC, any version from 1.10 (2017) on | the plugin is light (ESL) and edits no vanilla records |
 | **Python 3** | `make_rider_pose.bat` builds `CMB_RiderPose.esp` and its animation data from your load order and game files |
 | Python + [PyNifly](https://github.com/BadDogSkyrim/PyNifly), Bethesda Archive Extractor | only to build the bike meshes and riding clips yourself (the meshes put the Sketchfab model on the vanilla bike's collision and the clips are derived from the game's files, so none of it is in the repository) |
+| Blender as a Python module (`bpy`), and the DDS encoders `quicktex` and `etcpak` | only to build the bike's textures and material files yourself (`tools/rider/build_bike.sh`, [ASSETS.md](docs/ASSETS.md)); a bash shell runs the build |
 | Creation Kit (optional) | not needed: the scripts can be compiled with Caprica (`tools/syntax-check`); `compile_scripts.bat` uses the Creation Kit's compiler if you have it |
-| F4SE (optional) | dedicated hotkey, weight-based side bag, slot-57 gear put back on after a ride, steeper slopes, a camera farther back, the bike tilting with the ground and knocking enemies over while riding, the bike brought from a door put on a spot with room, the parked bike laid on the ground under you, and the engine sound's gears and pitch (the `CMB_Slope.dll` plugin, Fallout 4 1.11.240 only; the rays and the engine sound also need the Address Library), MCM menu; without it you favorite the keys for a hotkey and the bag counts items |
+| F4SE (optional) | dedicated hotkey, weight-based side bag, slot-57 gear put back on after a ride, steeper slopes, a camera farther back, the bike tilting with the ground and knocking enemies over while riding, the bike brought from a door put on a spot with room, the parked bike laid on the ground under you, the engine sound's gears and pitch, and the speedometer's needle, the tail and brake light and the choice of mirrors (the `CMB_Slope.dll` plugin, Fallout 4 1.11.240 only; the rays and the engine sound also need the Address Library), MCM menu; without it you favorite the keys for a hotkey and the bag counts items |
 | Testing in game + Papyrus log | I can't run the game; the logs and screenshots are how fixes happen (with F4SE the plugin's `CMB_Slope.log` too; since test 41 the session before's is kept beside it as `CMB_Slope_prev.log`, so a crash and a restart don't lose it) |
 
 ## Getting started
@@ -99,7 +101,7 @@ Don't favorite the keys to the F4SE hotkey's own key: one press then fires both,
 | `set CMB_UseRiderPose to <0/1>` (seated riding animations, needs `CMB_RiderPose.esp`) | 1 |
 | `set CMB_EngineVolume to <0–100>` | 90 (70 up to test 46's build; a save keeps its own) |
 | `set CMB_MaxTilt to <0–50>` (how far the bike and the rider pitch with the ground while riding, F4SE plugin; 0 = always level, parked too) | 45 |
-| `set CMB_HeadlampMode to <0/1/2>` (the headlamp: off, on while riding, on at night; F4SE plugin and the Harley build; the MCM hotkey switches it for the ride without changing this) | 2 |
+| `set CMB_HeadlampMode to <0/1/2>` (the headlamp: off, on while riding, on at night; F4SE plugin and the Sketchfab build; the MCM hotkey switches it for the ride without changing this) | 2 |
 | `set CMB_RidingCameraDistance to <units>` (F4SE plugin; the game's own is about 150) | 450 |
 | `set CMB_MaxSlope to <degrees>` (steepest slope while riding, F4SE plugin; on foot the game allows 47) | 45 |
 | `set CMB_TurnRadius to <units>` (tightest turn at riding speed, F4SE plugin; 0 = turn like on foot) | 180 |
@@ -133,20 +135,26 @@ Data/                         mirrors the game's Data folder
     CMB_HotkeyF4SE            optional F4SE hotkey
     CMB_GearRestoreF4SE       optional (F4SE): puts slot-57 gear back on after a ride
     CMB_RamScript             knocks enemies over (does anything only with F4SE and CMB_Slope.dll, whose rays see them)
-  Meshes/CMB/, Textures/CMB/  the bike meshes and their textures go here (built by tools/rider)
+  Meshes/CMB/                 the bike meshes and CMB_BikeParts.ini go here (built by tools/rider)
+  Textures/CMB/Bike/          the bike's textures (built by tools/rider); the three palette textures earlier builds
+                              put directly in Textures/CMB are no longer used and can be deleted
+  Materials/CMB/Bike/         the bike's material files, one for the riding bike and one for the parked bike per
+                              surface (built by tools/rider)
   Sound/FX/CMB/               engine sounds: here only the synthesised fallback four (the idle, cruise, start and stop
                               of the script's crossfade); the package's 13, built by tools/sound from demodave's
                               recording, replace them and add the nine loops the plugin drives
   MCM/Config/                 MCM menu and hotkey (written by the generator)
-  F4SE/Plugins/CMB_Slope.dll  optional F4SE plugin: steeper slopes, farther camera, bike tilt (tools/f4se-slope)
+  F4SE/Plugins/CMB_Slope.dll  optional F4SE plugin: steeper slopes, farther camera, bike tilt, the bike's moving parts,
+                              speedometer, lights and mirrors (tools/f4se-slope); its settings in CMB_Slope.ini
 compile_scripts.bat           compiles the scripts with the Creation Kit's compiler
 make_rider_pose.bat           builds CMB_RiderPose.esp + its AnimTextData from your load order
 docs/                         install, assets, testing and design notes
 tools/build.sh                regenerates the plugin and runs all offline checks
 tools/esp-generator/          C# (Mutagen) plugin generator + plugin/script cross-check
 tools/syntax-check/           compile-checks the scripts on Linux without the CK
-tools/rider/                  bike meshes (from the Sketchfab model or the vanilla bike), riding clips (Python + PyNifly),
-                              rider-pose plugin and AnimTextData (Python)
+tools/rider/                  bike meshes (from the Sketchfab model or the vanilla bike), their textures and material
+                              files (Blender), previews of the bike as the game shades it, riding clips (Python +
+                              PyNifly), rider-pose plugin and AnimTextData (Python)
 tools/sound/                  engine sound: the loops built from the recording, the engine model, a ride renderer,
                               the old synthesiser (Python + numpy)
 ```
@@ -156,7 +164,8 @@ tools/sound/                  engine sound: the loops built from the recording, 
 1. **Done, in testing in game:** ride / park / call / side bag / companions / fuel, worn and parked bike meshes,
    seated riding animations with lean, MCM menu, engine sound and gear restore.
 2. **Next:** the next rounds of in-game testing; the remaining vanilla-timed stop and idle clips. Wheel spin and
-   the bars' turn come with the Harley build and F4SE (see DESIGN.md).
+   the bars' turn come with the Sketchfab build and F4SE (see DESIGN.md); the workbench's colours and parts for the
+   bike (its material files and mirror styles are the first step).
 3. **Later:** a visible pillion passenger, mount/dismount animations. Possibly a v2 built on the engine's mount
    system instead ([DESIGN.md](docs/DESIGN.md)).
 
@@ -164,12 +173,16 @@ tools/sound/                  engine sound: the loops built from the recording, 
 
 - Bike model: ["Harley Davidson Iron 883 2015"](https://sketchfab.com/3d-models/harley-davidson-iron-883-2015-612071b783f14a7288df2d361be9a244)
   by [Nieve5677](https://sketchfab.com/niev), licensed under [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/).
-  Converted for the game by `tools/rider/harley_meshes.py`: cut down from 1.3 million triangles to about 225,000,
-  coloured by part name (the download has no textures), scaled to the vanilla bike's length and put on the vanilla
-  motorcycle's collision. The converted meshes aren't in this repository; anyone sharing them keeps this credit.
+  Converted for the game by the mesh tools in `tools/rider` (`build_bike.sh`): cut down from 1.3 million triangles to
+  about 230,000 (230,815 with the mod's own parts), given UV maps and procedural textures baked from the full model by
+  `tools/rider/bike_textures.py` (the download has no textures), scaled to the vanilla bike's length and put on the
+  vanilla motorcycle's collision; the speedometer's dial and needle, the lights' shells, the under-bar mirrors and the
+  badges are the mod's own. The converted meshes and their textures aren't in this repository; anyone sharing them
+  keeps this credit.
 - Engine sound: ["Harley Davidson Sportster - Idling with Engine Revs"](https://freesound.org/s/502690/) by demodave
   (Freesound), released under [Creative Commons 0](https://creativecommons.org/publicdomain/zero/1.0/); CC0 asks for
   no credit, so this one is a courtesy. `tools/sound` makes every file of the engine sound from its right channel: the
   start, the stop and the idle cut from it, the ten riding loops made from its own firing pulses and falls. Neither
   the recording nor the files are in this repository (`tools/sound/README.md`). Their tone was matched to three
-  on-board videos of an Iron 883, someone else's, which were only measured: nothing of their audio is in the mod.
+  on-board videos of the same model of bike, someone else's, which were only measured: nothing of their audio is in
+  the mod. The under-bar mirrors' shapes were measured off frames of them the same way.

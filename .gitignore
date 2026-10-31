@@ -7,7 +7,11 @@ __pycache__/
 Data/CMB_RiderPose.esp
 Data/Meshes/CMB/*.nif
 Data/Meshes/CMB/CMB_BikeFit.json
+Data/Meshes/CMB/CMB_BikeParts.ini
 Data/Textures/CMB/
+Data/Materials/CMB/
+# tools/rider/build_bike.sh's stage folder when STAGE isn't given and DATA is this Data (the model's shapes, art and bakes)
+/bike_stage/
 Data/Meshes/Actors/
 Data/Meshes/AnimTextData/
 tools/f4se-slope/test/last_*.log

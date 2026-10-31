@@ -3,7 +3,7 @@
 This is the reference the plugin's C port follows (tools/f4se-slope: the same constants, the same order of operations,
 one call per frame). Speeds are game units per second (900 u/s = the bike's top speed, about 46 km/h).
 
-The constants are calibrated to an Iron 883 on the road (the reference rides: "daily", the ride the user pointed to as
+The constants are calibrated to a V-twin cruiser on the road (the reference rides: "daily", the ride the user pointed to as
 the right sound, whose three example stretches ride at median 1800-2060 rpm; "autumn" and "paris", two more; measured
 only, nothing of them is in a loop). Every constant's measured basis is in the comments on DEFAULTS below. Revised
 after measuring this model's first demo against the reference: the full-throttle up-shift at 2500 rpm with the gears scaled by 2500/3000 (each gear's rpm per
@@ -12,7 +12,9 @@ RiseRate in log rpm a second (the per-frame pitch step leaving idle); in 1st gea
 and below the idle's fade band the family weight jumps (no closed-throttle loop at a launch); a slow random wander of
 the family loops' pitch (Wander, WanderTau; an LCG the C twin reproduces). Test 47: the throttle hand (that wander
 larger, smoothed, the family loops' level moving with it, only while the throttle is steady: WanderLevel, WanderSteady,
-WanderSmooth) and a throttle-off dip at each up-shift (ShiftDip, ShiftDipTime); each 0 is test 46's model.
+WanderSmooth) and a throttle-off dip at each up-shift (ShiftDip, ShiftDipTime); each 0 is test 46's model. The 2026-10-31a build
+(3-5 % for the hand): that walk larger again, held softly under WanderMax before the smoothing, smoothed longer;
+WanderMax 0 with 27c's Wander, WanderSmooth is 27c's model.
 
 Gearbox. Four gears with the measured steps 1.35 / 1.28 / 1.21; each gear's entry is its speed at ShiftRpm (2500).
 2nd reaches ShiftRpm at 750 u/s (3000 rpm at the top speed), 4th cruises at the top speed at 1937 rpm.
@@ -179,25 +181,44 @@ DEFAULTS = dict(
     # throttle hand (the tester: "it doesn't fluctuate at all ... bike engine RPM always either rises or decreases"; test
     # 46's note, 4 s windows of steady riding with the trend taken out: the real rides' rpm 0.9-2.3 %, their level
     # 0.34-0.81 dB, the game's 0.4 % and 0.16 dB): larger and slower, smoothed (WanderSmooth), the level moving with the
-    # pitch (WanderLevel), only while the throttle is steady (WanderSteady). Measured the note's way on this model (900
-    # u/s in 4th with the key held, 4 s windows, 4 seeds, 392 windows): the heard rpm 1.02 % (median; mean 1.08), the
-    # level 0.30 dB (0.32), 0.30 dB per 1 %, the pitch moving 6.8 cents rms in 0.1 s; test 46's 0.006, 0.8 (and 0 for
-    # the three new): 0.39 % (0.41), the level flat, 5.1 cents; through a pull from rest the wander is 0
-    Wander=0.025, WanderTau=1.5,   # the autumn ride's 1.02 % (the note: 0.02-0.025 with 1.5-2, unsmoothed, gives 0.9-1.1 %);
-                                   # test 46's 0.006, 0.8 (the daily's cruise track 0.48-0.69 % over 2.4-5.8 s, 0.45 % by
-                                   # that measure)
+    # pitch (WanderLevel), only while the throttle is steady (WanderSteady). 27c (0.025, 1.5, smoothed over 0.2 s) gave,
+    # the note's way (4 s windows with the trend out), the heard rpm 1.02 % and the level 0.31 dB, the autumn ride's; its
+    # tester on that "about 1 %": "1% won't be really noticeable - 3-5% probably would be better". The windows take out
+    # most of a swing this slow: against the cruise's own mean 27c's heard rpm already had an sd of 2.4 %, its swings
+    # peaking 2.5 % off (median; IQR 1.5-3.9, p90 5.0, 1 swing in 17 past 6 %, 8.3 at most). Now (the 2026-10-31a build) the walk is
+    # larger, held softly under WanderMax before the smoothing and smoothed longer: measured on this model (900 u/s in 4th
+    # with the key held, 5 seeds of 392 s, against the cruise's mean; a swing's peak: an excursion's largest |deviation|, a
+    # new one once past the other side by 0.5 %) the heard rpm's sd 3.1 %, its swings peaking 3.4 % off (median; IQR
+    # 2.0-4.7, p90 5.35, 1 in 43 past 6 %, 6.3 at most: the hand itself never 6), a swing's rise or fall 2.1 % on each
+    # side of its middle (median, between turns of 1 %; 27c 1.55) over 1.6 s (1.1); the pitch moving 6.2 cents rms in
+    # 0.1 s (p99 16.6; 27c 6.8, 17.5); the level's sd 0.93 dB, its swings 1.0 dB (median; p90 1.6), 1.9 at most (27c
+    # 0.71, 0.74, 1.5, 2.5); the note's windows 1.16 % and 0.35 dB, 0.30 dB per 1 %. Test 46's 0.006, 0.8 (and 0 for the
+    # four since): 0.39 % in the windows, the level flat, 5.1 cents. Through a pull from rest the wander is 0
+    Wander=0.055, WanderTau=1.5,   # the walk's sd before WanderMax and the smoothing (heard 3.1 %); 27c's 0.025, 1.5 (the
+                                   # autumn ride's 1.02 % in the windows; the note: 0.02-0.025 with 1.5-2, unsmoothed, gives
+                                   # 0.9-1.1 %); test 46's 0.006, 0.8 (the daily's cruise track 0.48-0.69 % over 2.4-5.8 s,
+                                   # 0.45 % by that measure)
     WanderSeed=12345,
     WanderLevel=0.3,      # dB of level per 1 % of the wander, on the family loops (the idle's level and pitch never wander):
                           # a rise louder and more loaded, a fall lighter (the rides: autumn 0.34 dB at 1.02 %, daily 0.43
-                          # at 1.41, paris 0.81 at 2.36: 0.30-0.34 dB per 1 %, the rpm's and the load's together); 0: the
-                          # level doesn't wander (test 46)
+                          # at 1.41, paris 0.81 at 2.36: 0.30-0.34 dB per 1 %, the rpm's and the load's together; kept for
+                          # the 2026-10-31a build: the swing larger, the ratio the rides', WanderMax holding the level within 1.8 dB);
+                          # 0: the level doesn't wander (test 46)
     WanderSteady=0.25,    # s: the wander only while the throttle is steady (on, no up-shift's gap, the clutch out, over
                           # the idle's band, the rider's load under WANDER_PULL of the way from the cruise's to full, the
                           # plugin not holding the throttle); else it settles to 0 with this time constant (a pull, a
                           # let-up, a shift, the idle) and grows again from 0 by its own walk; 0: everywhere (test 46)
-    WanderSmooth=0.2,     # s: the walk smoothed with this time constant before it is heard (the engine's inertia: the bare
-                          # walk at 0.025, 1.5 moves the pitch 15.7 cents rms in 0.1 s, 1.31 % in the 4 s windows); 0: the
-                          # bare walk (test 46)
+    WanderSmooth=0.5,     # s: the walk smoothed with this time constant before it is heard (the hand's and the engine's
+                          # inertia: the bare walk moves the pitch 24 cents rms in 0.1 s, 27c's 15.6); after a let-up at
+                          # 900 u/s the hand goes back at 3.9 %/s at its fastest (median of 200; 10.6 the fastest), under
+                          # the coast's fall: the heard rpm never rose with the throttle shut in its gear (27c: in 2 of
+                          # 200, +1.7 %/s); 27c's 0.2; 0: the bare walk (test 46)
+    WanderMax=0.06,       # the walk held softly under this before the smoothing (WanderMax x tanh(walk / WanderMax)), 27c's
+                          # reply: the swings' peaks rarely past 6 % where a walk of the same typical swing unheld passes
+                          # 6 % in 1 swing of 9 and reaches 10 % (0.035, 1.0, 0.5: peaks 3.1 % median, p90 6.4); the
+                          # family loops' pitch then within x 0.94-1.06 of the rpm's (in a steady cruise at any speed the
+                          # heard loops' 0.86-1.16, inside MinPitch..MaxPitch; their gain at the 0 dB ceiling only at
+                          # 2200-2600 rpm, its rise flattened); 0: unheld (27c)
     # --- test 47: a throttle-off dip at each up-shift (paris, 55 shifts: about -5.5 dB, about 0.3 s under -3 dB; the
     # game in test 46: -2.4 dB, the rpm's fall alone, a full-load pull held at the 0 dB ceiling). Measured on this model
     # (a pull from rest at the game's 300 u/s^2, 4 seeds, the level against its mean 0.25-0.05 s before the clutch-in, the
@@ -521,10 +542,12 @@ class Engine:
         else:
             self.wander_raw += (-self.wander_raw * dt / c["WanderTau"]
                                 + c["Wander"] * math.sqrt(2.0 * dt / c["WanderTau"]) * 1.7320508 * n)
+        lim = c["WanderMax"]                   # the 2026-10-31a build: the walk held softly under WanderMax before the smoothing
+        heard = lim * math.tanh(self.wander_raw / lim) if lim > 0.0 else self.wander_raw
         if c["WanderSmooth"] > 0.0:            # test 47: the hand smooth (the engine's inertia), no frame-to-frame jitter
-            self.wander += (self.wander_raw - self.wander) * (1.0 - math.exp(-dt / c["WanderSmooth"]))
+            self.wander += (heard - self.wander) * (1.0 - math.exp(-dt / c["WanderSmooth"]))
         else:
-            self.wander = self.wander_raw
+            self.wander = heard
         self.steady = steady
         # the family: on load once the rider's load is over OnAbove; off load once the rider's demand (the throttle,
         # unsmoothed) has stayed under OffBelow for OffHold s
