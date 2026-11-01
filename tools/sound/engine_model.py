@@ -14,7 +14,10 @@ the family loops' pitch (Wander, WanderTau; an LCG the C twin reproduces). Test 
 larger, smoothed, the family loops' level moving with it, only while the throttle is steady: WanderLevel, WanderSteady,
 WanderSmooth) and a throttle-off dip at each up-shift (ShiftDip, ShiftDipTime); each 0 is test 46's model. The 2026-10-31a build
 (3-5 % for the hand): that walk larger again, held softly under WanderMax before the smoothing, smoothed longer;
-WanderMax 0 with 27c's Wander, WanderSmooth is 27c's model.
+WanderMax 0 with 27c's Wander, WanderSmooth is 27c's model. The 2026-11-01a build (test 47: "rpm could be slightly higher
+the closer it is to shifting gear", "the sound could indicate that gears are shifted down"): each pull's up-shift drawn
+from ShiftDraw 2300-3000 (2000-2900 before), and a stop's down-shifts each blipped (StopShift and the five keys after it,
+below); StopShift=0 with ShiftDraw (2000, 2900) is the 2026-10-31a build's model exactly (--check-off).
 
 Gearbox. Four gears with the measured steps 1.35 / 1.28 / 1.21; each gear's entry is its speed at ShiftRpm (2500).
 2nd reaches ShiftRpm at 750 u/s (3000 rpm at the top speed), 4th cruises at the top speed at 1937 rpm.
@@ -94,6 +97,11 @@ that speed swept 1st and 2nd in 2 s and fell to idle as the bike stopped. The en
     clutch goes in once the bike itself is under ClutchSpeed (or 1st's heard rpm under ClutchIn), the heard speed
     then the bike's.
   - The throttle on with the bike under ClutchSpeed: 1st (a launch; a wall).
+  - A stop (StopShift, the 2026-11-01a build; needs the heard speed): with the throttle shut StopAfter s (braking at
+    once) the heard speed falls toward a slower bike at least HeardStop (HeardBrake braking) u/s^2, so the gears come
+    down through CoastDown one at a time, each with its blip, StopGap apart; the clutch waits up to StopHold after the
+    bike itself went under ClutchSpeed, for the heard speed to get there too or a running blip to end, and a blip that
+    would end past StopHold isn't started. The throttle on, nothing changes.
 The launch (any mode): the clutch slips from LaunchDraw's start (drawn per pull; 0,0: IdleRpm + Launch x the key),
 rising LaunchRise rpm a second at the heard speed's fastest rise (LaunchRise x heard speed / HeardRise) until 1st's
 rpm takes over; an up-shift out of the slip takes the heard speed to the slip's rpm in 1st (the step to 2nd is the
@@ -103,7 +111,10 @@ launch from LaunchDraw, from the wander's LCG in a stream of their own (paris: s
 on, a down-shift only after the gear's rpm (the heard speed's) has stayed under DownRpm for DownHold seconds (0: at
 once), and not while the plugin holds or eases its throttle for something ahead (DownHeld: the face rays, a wall,
 a ram's hit, the climb's boost: the 'held' input)."""
+import json
 import math
+import os
+import sys
 
 DEFAULTS = dict(
     # --- the engine at rest and pulling away
@@ -262,8 +273,34 @@ DEFAULTS = dict(
                                    # Launch x the key (1500, as up to test 44)
     LaunchRise=350.0,     # rpm/s the slip climbs at the heard speed's fastest rise (paris 370, IQR 250-540; daily 270,
                           # autumn 310); 0: a flat slip (as up to test 44: 1.5-2 s at 1500, then a sprint)
-    ShiftDraw=(2000.0, 2900.0),    # rpm: each pull's full-throttle up-shift, drawn (paris first shifts 2000-2900,
-                                   # median 2370); 0,0: ShiftRpm (every pull-away identical, as up to test 44)
+    ShiftDraw=(2300.0, 3000.0),    # rpm: each pull's full-throttle up-shift, drawn (paris first shifts 2000-2900,
+                                   # median 2370); 0,0: ShiftRpm (every pull-away identical, as up to test 44). The
+                                   # 2026-11-01a build (test 47: "rpm could be slightly higher the closer it is to
+                                   # shifting gear"; its 1->2 at a median 2355, 2->3 2347, 3->4 2289): 2300-3000, 1->2
+                                   # and 2->3 at a median 2607 and 2596 (p10-p90 2356-2929) over 40 pulls of the
+                                   # harness's game, +250 (about 10 %); 3->4 stays at 2343, all 3rd has at the top
+                                   # speed; 2000,2900: the 2026-10-31a build's
+    # --- the 2026-11-01a build: a stop's down-shifts (test 47: "the sound could indicate that gears are shifted down"; its
+    # roll to a stop gave one blip at most, 19:40:33.106 "gear 3 at 224 u/s, 1668 rpm, heard 790 u/s, a blip", and a
+    # braked stop the clutch straight from 4th, 19:41:23.609 "gear 1 at 145 u/s, 1738 rpm, heard 145 u/s (clutch in)": with
+    # the throttle shut the heard speed fell only CoastFall in the gear, 70 u/s^2 in 4th, where the game's bike loses 450
+    # coasting and 2250 braking, so it never got through CoastDown's bands before the clutch). With StopShift the heard
+    # speed falls toward a slower bike at least HeardStop (HeardBrake braking) u/s^2, so the bands come about 0.46 s apart
+    # (4->3 at about 40 km/h, 3->2 at 33, 2->1 at 26), each down-shift CoastDown's blip, StopGap apart, the clutch waiting
+    # up to StopHold after the bike's ClutchSpeed for the last blip. The harness's game: let go at the cruise, blips 4->3,
+    # 3->2 and 2->1 at +0.60, +1.06 and +1.53 s (1730, 1812 and 1835 rpm), the clutch at +1.83 (2134); braking, blips at
+    # +0.22 and +0.62 (1790, 1631), the clutch from 2nd at +0.98; a 0.5 s let-off and a 0.15 s tap of the brake: no shift
+    StopShift=1,          # 1: a stop's down-shifts each blipped (needs HeardSpeed); 0: the 2026-10-31a build's stop (the heard
+                          # speed falls CoastFall, BrakeFall braking, rpm a second in the gear: a gear, then the clutch)
+    HeardStop=300.0,      # u/s^2, about 4.3 m/s^2: the throttle shut StopAfter s, coasting (the game's coast 450, 6.4 m/s^2,
+                          # a firm real stop)
+    HeardBrake=600.0,     # u/s^2, about 8.6 m/s^2: braking, at once (the game's brake 2250): two blips, then the clutch
+    StopGap=0.4,          # s between a stop's down-shifts (DownGap 0.5 for the rest): paris's blip, 0.3 s (n 21), and a pull
+                          # of the lever (a judgement: the rides' down-shift spacing isn't among the numbers kept)
+    StopHold=0.4,         # s the clutch may wait after the bike itself went under ClutchSpeed, for the heard speed or a
+                          # running blip; a blip that would end later isn't started (0: the clutch at the bike's 150)
+    StopAfter=0.3,        # s: a coast's faster fall begins only once the throttle has been shut this long, so a quick
+                          # roll-off sounds as before (session 1: 12 let-offs of about 0.25 s); braking begins at once
 )
 EPS = 1e-4      # timer comparisons: float and double agree when a time is a whole number of frames
 LAND = 1.03     # the heard speed: an up-shift lands the next gear this much over DownRpm at the bike's own speed
@@ -349,6 +386,8 @@ class Engine:
         self.blip_left = 0.0                   # a coast down-shift's blip still to run
         self.held = False
         self.launch = True                     # a launch: from the clutch's last going in till the bike passes ClutchSpeed
+        self.shut_t = 0.0                      # StopShift: the throttle shut this long (coasting)
+        self.stop_t = 0.0                      # StopShift: the bike under ClutchSpeed with the throttle shut this long
 
     def noise(self):
         """uniform in [-1, 1) from a 32-bit LCG (Numerical Recipes' constants): the C twin draws the same numbers."""
@@ -384,6 +423,7 @@ class Engine:
         self.was_on = on
         if self.blip_left > 0.0:
             self.blip_left -= dt
+        self.shut_t = 0.0 if on else self.shut_t + dt
         # the heard speed: up at most HeardRise toward the bike (in 1st with the throttle on in a launch or a real pull,
         # toward it + HeardLead); the throttle on, down after a slower bike over HeardTau; shut, down CoastFall
         # (BrakeFall) rpm a second in the gear, never under the bike
@@ -396,7 +436,10 @@ class Engine:
             elif on:
                 self.vh += (v + lead - self.vh) * (1.0 - math.exp(-dt / c["HeardTau"]))
             else:
-                self.vh = max(v, self.vh - (c["BrakeFall"] if braking else c["CoastFall"]) / self.gear_k(self.gear) * dt)
+                fall = (c["BrakeFall"] if braking else c["CoastFall"]) / self.gear_k(self.gear)
+                if c["StopShift"] and (braking or self.shut_t >= c["StopAfter"] - EPS):
+                    fall = max(fall, c["HeardBrake"] if braking else c["HeardStop"])
+                self.vh = max(v, self.vh - fall * dt)
         else:
             self.vh = v
         # the rider's demand: forward held and gaining speed = full; held at a steady speed = cruise; off = closed
@@ -422,7 +465,12 @@ class Engine:
         top = len(c["Gears"]) - 1
         k0 = self.gear_k(0)
         if heard:
-            self.clutch = (not throttle) and (v < c["ClutchSpeed"] or (self.gear == 0 and self.vh * k0 < c["ClutchIn"]))
+            self.stop_t = self.stop_t + dt if (not throttle and v < c["ClutchSpeed"]) else 0.0
+            bike_in = v < c["ClutchSpeed"] and (not c["StopShift"] or self.stop_t >= c["StopHold"] - EPS
+                                                 or self.vh < c["ClutchSpeed"])
+            self.clutch = (not throttle) and (bike_in or (self.gear == 0 and self.vh * k0 < c["ClutchIn"]))
+            if c["StopShift"] and self.clutch and self.blip_left > EPS:
+                self.clutch = False            # a stop's down-shift: its blip ends before the clutch goes in
             if self.clutch:
                 self.vh = v
                 self.launch = True
@@ -481,7 +529,9 @@ class Engine:
                 self.low_t = 0.0
                 if heard:
                     if (c["CoastDown"] > 0.0 and self.gear > 0 and vs * k < c["CoastDown"]
-                            and self.since_shift >= c["DownGap"] - EPS):
+                            and self.since_shift >= (c["StopGap"] if c["StopShift"] else c["DownGap"]) - EPS
+                            and not (c["StopShift"] and v < c["ClutchSpeed"]
+                                     and self.stop_t + c["BlipTime"] > c["StopHold"] + EPS)):
                         self.gear -= 1             # a down-shift with a blip
                         self.since_shift = 0.0
                         self.blip_left = c["BlipTime"]
@@ -636,3 +686,178 @@ class Engine:
             floor = self.dip_ref - DIP_FLOOR
             db = db - dip if db - dip >= floor else min(db, floor)
         return db
+
+
+# --- The off values' check (the 2026-11-01a build): StopShift=0 with ShiftDraw (2000, 2900) is the 2026-10-31a build's model,
+# frame for frame, over the demo ride, a random ride in the harness's game and five stops. check_off_2026-10-31a.txt holds the
+# 2026-10-31a model's frames (0c3df02's engine_model.py, by --write-expected) as hashes of 500 frames each.
+OFF_31A = {"StopShift": 0, "ShiftDraw": [2000.0, 2900.0]}
+CHECK_ON = [("On1400", 1400.0), ("On1700", 1700.0), ("On2000", 2000.0), ("On2400", 2400.0), ("On2800", 2800.0), ("On3300", 3300.0)]
+CHECK_OFF = [("Off1400", 1400.0), ("Off1800", 1800.0), ("Off2300", 2300.0), ("Off2800", 2800.0)]
+CHECK_IDLE = ("Idle", 860.0)
+CHECK_BLOCK = 500
+CHECK_STOPS = {   # the harness's game: (seconds, key) with W forward, S back (braking), - nothing
+    "coast": [(12, "W"), (5, "-")],
+    "brake": [(12, "W"), (0.6, "S"), (4.4, "-")],
+    "letoff": [(12, "W"), (0.5, "-"), (6, "W"), (0.3, "-"), (6, "W")],
+    "brake_tap": [(12, "W"), (0.15, "S"), (6, "W")],
+    "coast_brake": [(12, "W"), (0.7, "-"), (0.5, "S"), (3.8, "-")],
+}
+
+
+def _demo_ride():
+    """The demo ride (render.py's, 31 s at 60 fps): (dt, speed, forward, braking) a frame."""
+    out = []
+    for f in range(31 * 60):
+        t = f / 60.0
+        if t < 6.0:
+            v, fwd, brk = 0.0, 0.0, False
+        elif t < 16.0:
+            v, fwd, brk = 900.0 * min(1.0, max(0.0, (t - 6.15) / 3.2)) ** 1.15, 1.0, False
+        elif t < 19.0:
+            v, fwd, brk = 350.0 + 550.0 * math.exp(-(t - 16.0) / 1.2), 0.0, False
+        elif t < 22.0:
+            v0 = 350.0 + 550.0 * math.exp(-3.0 / 1.2)
+            v, fwd, brk = v0 + (900.0 - v0) * min(1.0, (t - 19.0) / 2.6) ** 1.1, 1.0, False
+        elif t < 25.0:
+            v, fwd, brk = max(0.0, 900.0 * (1.0 - (t - 22.0) / 2.4)), 0.0, True
+        else:
+            v, fwd, brk = 0.0, 0.0, False
+        out.append((1.0 / 60.0, v, fwd, brk))
+    return out
+
+
+def _game_ride(script, dt=0.006):
+    """The harness's game (fake_game.c's g_gameCurve): the plugin's throttle from a tenth, +dt/3 on W, at most Lead 0.2 over
+    the measured speed, -dt/2 off the key, -dt/0.4 braking; the bike 900 x it; the speed the plugin reads lags it by 0.2 s."""
+    out, T, vp = [], 0.0, 0.0
+    for dur, key in script:
+        for _ in range(int(round(dur / dt))):
+            fwd, brk = key == "W", key == "S"
+            if fwd:
+                T = min(max(T, 0.1) + dt / 3.0, vp / 900.0 + 0.2, 1.0)
+            elif brk:
+                T = max(0.0, T - dt / 0.4)
+            else:
+                T = max(0.0, T - dt / 2.0)
+            vp += (900.0 * T - vp) * (1.0 - math.exp(-dt / 0.2))
+            out.append((dt, vp, 1.0 if fwd else 0.0, brk and vp > 10.0))
+    return out
+
+
+def check_rides():
+    """{name: [(dt, speed, forward, braking)]}: the demo ride, a random ride (60 segments of 0.1-6 s, W three times in five,
+    seed 7) and the five stops, the last six in the harness's game."""
+    import random
+    rnd = random.Random(7)
+    script = [(rnd.uniform(0.1, 6), rnd.choice("WWW-S")) for _ in range(60)]
+    rides = {"demo": _demo_ride(), "random": _game_ride(script)}
+    rides.update({name: _game_ride(s) for name, s in CHECK_STOPS.items()})
+    return rides
+
+
+def check_frames(engine_cls, cfg, ride):
+    """Each frame of the ride as text (the gear, rpm, clutch, heard level, every loop's gain and pitch, exactly), and the
+    gear changes [(frame, from, to, rpm, blip, clutch)]."""
+    e = engine_cls(CHECK_ON, CHECK_OFF, CHECK_IDLE, cfg)
+    frames, changes, gear = [], [], e.gear
+    for i, (dt, v, fwd, brk) in enumerate(ride):
+        rpm0 = e.rpm
+        mix = e.step(dt, v, fwd, brk, False)
+        frames.append("%d %r %d %r %s" % (e.gear, e.rpm, e.clutch, e.heard_db(),
+                                          " ".join("%s:%r,%r" % (n, g, p) for n, (g, p) in sorted(mix.items()))))
+        if e.gear != gear:
+            changes.append((i, gear + 1, e.gear + 1, round(rpm0), e.blip_left > EPS, bool(e.clutch)))
+        gear = e.gear
+    return frames, changes
+
+
+def _blocks(frames):
+    import hashlib
+    return [hashlib.sha256("\n".join(frames[i:i + CHECK_BLOCK]).encode()).hexdigest()[:16] for i in range(0, len(frames), CHECK_BLOCK)]
+
+
+def _load_model(path):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("engine_model_other", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.Engine
+
+
+def write_expected(model_path, out_path):
+    """The expected file from another model (0c3df02's engine_model.py: the 2026-10-31a build's), run with OFF_31A."""
+    engine_cls = _load_model(model_path)
+    lines = ["# engine_model.py --check-off: the 2026-10-31a build's model (0c3df02's tools/sound/engine_model.py) over these rides,",
+             "# run with %s; each frame as check_frames() writes it, %d frames a hash (sha256's first 16)." % (json.dumps(OFF_31A), CHECK_BLOCK)]
+    for name, ride in check_rides().items():
+        frames, changes = check_frames(engine_cls, OFF_31A, ride)
+        lines.append("ride %s frames %d changes %d" % (name, len(frames), len(changes)))
+        lines.append("blocks %s %s" % (name, " ".join(_blocks(frames))))
+        for c in changes:
+            lines.append("change %s %d %d->%d %d%s%s" % (name, c[0], c[1], c[2], c[3], " blip" if c[4] else "", " clutch" if c[5] else ""))
+    with open(out_path, "w") as fh:
+        fh.write("\n".join(lines) + "\n")
+    return 0
+
+
+def check_off(path=None, against=None):
+    """0 if StopShift=0 with ShiftDraw (2000, 2900) gives the 2026-10-31a model's frames on every ride: against the expected
+    file (block hashes, the gear changes) or, with against, another model file frame by frame."""
+    bad = 0
+    if against:
+        other = _load_model(against)
+        for name, ride in check_rides().items():
+            a, _ = check_frames(Engine, OFF_31A, ride)
+            b, _ = check_frames(other, OFF_31A, ride)
+            diff = sum(1 for x, y in zip(a, b) if x != y) + abs(len(a) - len(b))
+            print("%s: %d frames, %d differing" % (name, len(a), diff))
+            bad += diff
+        print("check-off against %s: %s" % (against, "the same, frame for frame" if not bad else "%d frames differ" % bad))
+        return 1 if bad else 0
+    want, changes = {}, {}
+    with open(path or os.path.join(os.path.dirname(os.path.abspath(__file__)), "check_off_2026-10-31a.txt")) as fh:
+        for ln in fh:
+            w = ln.split()
+            if not w or w[0].startswith("#"):
+                continue
+            if w[0] == "ride":
+                want[w[1]] = {"frames": int(w[3])}
+                changes[w[1]] = []
+            elif w[0] == "blocks":
+                want[w[1]]["blocks"] = w[2:]
+            elif w[0] == "change":
+                changes[w[1]].append(" ".join(w[2:]))
+    total = 0
+    for name, ride in check_rides().items():
+        frames, ch = check_frames(Engine, OFF_31A, ride)
+        got = _blocks(frames)
+        exp = want.get(name, {"frames": -1, "blocks": []})
+        nb = sum(1 for x, y in zip(got, exp["blocks"]) if x != y) + abs(len(got) - len(exp["blocks"]))
+        mine = ["%d %d->%d %d%s%s" % (c[0], c[1], c[2], c[3], " blip" if c[4] else "", " clutch" if c[5] else "") for c in ch]
+        same = mine == changes.get(name)
+        total += len(frames)
+        print("%s: %d frames (%d expected), %d of %d blocks of %d differing, %d gear changes %s" % (
+            name, len(frames), exp["frames"], nb, len(exp["blocks"]), CHECK_BLOCK, len(ch), "as expected" if same else "NOT as expected"))
+        bad += nb + (len(frames) != exp["frames"]) + (not same)
+    print("check-off: %s over %d frames (StopShift=0, ShiftDraw=2000,2900 against the 2026-10-31a build's model)" % (
+        "the same, frame for frame" if not bad else "DIFFERENT", total))
+    return 1 if bad else 0
+
+
+if __name__ == "__main__":
+    import argparse
+    ap = argparse.ArgumentParser(description="The engine model (the plugin's C twin follows it). --check-off: StopShift=0 with "
+                                 "ShiftDraw 2000,2900 against the 2026-10-31a build's frames.")
+    ap.add_argument("--check-off", action="store_true", help="the off values against check_off_2026-10-31a.txt (exit 1 if any frame differs)")
+    ap.add_argument("--against", metavar="MODEL", help="with --check-off: compare frame by frame with another engine_model.py instead")
+    ap.add_argument("--expected", metavar="FILE", help="with --check-off: the expected file (default: check_off_2026-10-31a.txt here)")
+    ap.add_argument("--write-expected", metavar="MODEL", help="write the expected file from another engine_model.py (0c3df02's)")
+    ap.add_argument("--out", metavar="FILE", help="with --write-expected: where (default: check_off_2026-10-31a.txt here)")
+    a = ap.parse_args()
+    here = os.path.join(os.path.dirname(os.path.abspath(__file__)), "check_off_2026-10-31a.txt")
+    if a.write_expected:
+        sys.exit(write_expected(a.write_expected, a.out or here))
+    if a.check_off:
+        sys.exit(check_off(a.expected, a.against))
+    ap.print_help()

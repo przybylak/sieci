@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # Builds the bike's meshes, textures and materials into a Data tree, in stages:
-#   export    harley_meshes.py --stage export: the finished shapes into the stage folder ($STAGE)
-#   art       bike_art.py: our own art (the dial, the badge, the lens patterns, the mirror's cube faces)
+#   export    harley_meshes.py --stage export: the finished shapes into the stage folder ($STAGE; a shape's file is
+#             rewritten only when it changed, so the texture stage's caches keep the rest)
+#   art       bike_art.py: our own art (the dial, the badge, the lens patterns, the brake discs, the mirror's cube faces)
 #   textures  bike_textures.py (Blender): each shape's UVs, the bakes from the full model, the DDS textures and
 #             both materials files per material (Textures/CMB/Bike, Materials/CMB/Bike); ONLY=<labels> does part
 #             of it (each call well under 10 minutes; a per-label cache keeps what's done), QUICK=1 small bakes
-#   build     harley_meshes.py --stage build: the four nifs with the stage's UVs and the materials named,
+#   build     harley_meshes.py --stage build: the nifs with the stage's UVs and the materials named (the parked
+#             and the three worn ones, and since the 2026-11-01a build CMB_BikeView.nif, the bike in first person),
 #             CMB_BikeParts.ini and CMB_BikeFit.json
 #   check     check_bike_meshes.py over the Data tree (and against $REFERENCE if given)
 #   fallback  harley_meshes.py --uvs none instead of export..build: palette textures, no materials files

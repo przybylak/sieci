@@ -29,6 +29,9 @@ public static class Vanilla
     public static readonly FormKey CarryWeight = Fo4(0x0002DC);
     public static readonly FormKey FallingDamageMod = Fo4(0x0BA43D);
     public static readonly FormKey Health = Fo4(0x0002D4);
+    // Test 47's knock-over kills (CMB_RamScript logs the player's experience around a kill; Mutagen's Fallout4
+    // FormKeys: Experience 0002C9).
+    public static readonly FormKey Experience = Fo4(0x0002C9);
     // Test 46's AP watch (CMB_ControllerScript logs AP, its rate and the rate's mult; Mutagen's
     // Fallout4 FormKeys: ActionPoints 0002D5, ActionPointsRate 0002D8, ActionPointsRateMult 000359).
     public static readonly FormKey ActionPoints = Fo4(0x0002D5);
@@ -40,6 +43,30 @@ public static class Vanilla
     public static readonly FormKey AmmoFlamerFuel = Fo4(0x0CAC78);
     public static readonly FormKey AudioCategorySFX = Fo4(0x0172A1);
     public static readonly FormKey SOMMono02000 = Fo4(0x07E5DC);
+    // 2026-11-01a, the bike's own sounds besides the engine (test 47: "currently the sound used is default character
+    // jump effect"; "sound when bike is crossing a water"). Borrowed from the game by reference, not copied (ASSETS.md
+    // "Borrowed from the game"), each checked against Mutagen's Fallout4 FormKeys. The player's own footsteps, jumps and
+    // landings: CMB_ControllerScript mutes the category while riding (MCM "Mute the rider's own jump and landing sounds").
+    public static readonly FormKey AudioCategoryFSTplayer = Fo4(0x0F5FFC);
+    // CMB_FxLandSounds: 0 light (PHYRubberTireL 1D3313), 1 heavy (PHYRubberTireH 1D3312), 2 the clunk on a big drop
+    // (PHYMetalAutoMediumH 05BAD7), 3 into water (FSTnpcWaterJumpDown 03C7A9), 4 into water, heavy (PHYWaterSplash 0452CE).
+    public static readonly FormKey[] FxLandSounds =
+    {
+        Fo4(0x1D3313), Fo4(0x1D3312), Fo4(0x05BAD7), Fo4(0x03C7A9), Fo4(0x0452CE),
+    };
+    // CMB_FxLandSoundsAlt (console: set CMB_FxLandPick to 1): 0 light (PHYRubberTireL 1D3313), 1 heavy
+    // (FSTArmorPowerHardLandingImpactDirt 20A0B9), 2 the clunk (PHYMetalBarrelH 1A8550), 3 into water (CWaterMedium
+    // 089380), 4 into water, heavy (FSTArmorPowerHardLandingImpactWater 20A0B8).
+    public static readonly FormKey[] FxLandSoundsAlt =
+    {
+        Fo4(0x1D3313), Fo4(0x20A0B9), Fo4(0x1A8550), Fo4(0x089380), Fo4(0x20A0B8),
+    };
+    // CMB_FxWaterLoops (console: set CMB_FxWaterPick to 0-3): AMBWaterfallSplatterSmallLP 1E4F2D,
+    // AMBWaterfallSplatterLargeLP 1E4F2C, AMBWaterStream01LPSD 03D0A7, AMBWaterfallChurn 1E4F1B.
+    public static readonly FormKey[] FxWaterLoops =
+    {
+        Fo4(0x1E4F2D), Fo4(0x1E4F2C), Fo4(0x03D0A7), Fo4(0x1E4F1B),
+    };
     public static readonly FormKey CurrentCompanionFaction = Fo4(0x023C01);
     // Races never knocked over by the bike (CMB_RamTooBig; Mutagen's Fallout4 FormKeys): super
     // mutants (SuperMutantRace 01A009) and behemoths (SupermutantBehemothRace 0BB7D9), deathclaws,
@@ -69,12 +96,13 @@ public static class Vanilla
         key == PlayerRef ? "PlacedNpc"
         : key == XMarker ? "Static"
         : key == HumanRace || TooBigToKnockOver.Contains(key) || Robots.Contains(key) ? "Race"
-        : key == SpeedMult || key == CarryWeight || key == FallingDamageMod || key == Health
+        : key == SpeedMult || key == CarryWeight || key == FallingDamageMod || key == Health || key == Experience
             || key == ActionPoints || key == ActionPointsRate || key == ActionPointsRateMult ? "ActorValueInformation"
         : key == Pipboy ? "Armor"
         : key == AnimArchetypePlayer ? "Keyword"
         : key == AmmoFlamerFuel ? "Ammunition"
-        : key == AudioCategorySFX ? "SoundCategory"
+        : key == AudioCategorySFX || key == AudioCategoryFSTplayer ? "SoundCategory"
+        : FxLandSounds.Contains(key) || FxLandSoundsAlt.Contains(key) || FxWaterLoops.Contains(key) ? "SoundDescriptor"
         : key == SOMMono02000 ? "SoundOutputModel"
         : key == CurrentCompanionFaction ? "Faction"
         : "unknown";
@@ -93,6 +121,8 @@ public static class Program
     public const string RiderBikeModel = @"CMB\CMB_BikeWornRider.nif";
     public const string RiderBikeModelFemale = @"CMB\CMB_BikeWornRiderF.nif";
     public const string KeysModel = @"CMB\CMB_Keys.nif";
+    // The first-person bike (2026-11-01a): an unskinned copy of the riding bike, shown in first person only.
+    public const string BikeViewModel = @"CMB\CMB_BikeView.nif";
 
     // Biped slot the worn bike occupies; whatever else uses it gets unequipped
     // while riding. 58 clashed with Eli's Armour Compendium bags. 57 is an
@@ -223,14 +253,19 @@ public static class Program
                 Slider("Bike tilts with the ground (max degrees)", "While riding, the bike and the rider pitch with the ground by at most this much (needs F4SE and the CMB_Slope.dll plugin; 45 follows any slope you can climb). Takes effect the next time you get on.",
                     "CMB_MaxTilt", 0, 50, 1),
                 Switcher("Allow combat while riding", "Weapons and VATS stay usable while riding. Takes effect the next time you get on.", "CMB_AllowCombat"),
+                Switcher("Bike in first person", "Shows the bike under you in first person (needs F4SE and CMB_Slope.dll). Takes effect the next time you get on.", "CMB_FirstPersonBike"),
                 Switcher("Thrown off when hit", "A big hit from an enemy knocks you off the bike, so you can fight back. Off: you keep riding; a hint says how to get off when a fight starts.", "CMB_DismountOnHit"),
+                Switcher("Steady in the saddle", "Hits don't stagger you while riding (a stagger plays the standing animation, and the bike hangs round your hips). Power attacks and explosions still knock you off with \"Thrown off when hit\" on. Off: staggered as on foot.", "CMB_RiderSteady"),
+                Slider("Pose re-check pause after a hit (s)", "A hit, a stagger or an item used while riding can play a standing animation for a moment: that is a reaction, not the seated pose lost, so the pose isn't applied again for this long after one. 0 = applied again at any standing footstep, as before.",
+                    "CMB_PoseReactionWindow", 0, 5, 0.5f),
                 Slider("Big hit (% of max health)", "How much of your max health a hit (or several within about a second) must take to knock you off. Power attacks and explosions always do. 0 = any hit. Not in the first 3 seconds after getting on.",
                     "CMB_KnockOffDamage", 0, 50, 5),
                 Switcher("Knock enemies over", "Hostile people, creatures and smaller robots the bike hits at speed are knocked over and take a little damage, and the bike loses some speed at each (needs F4SE and the CMB_Slope.dll plugin). Never companions, essential characters, anyone in power armor or the big ones (super mutants, behemoths, deathclaws, sentry bots, ...). Off: the bike brakes for them as for anyone.", "CMB_RamEnemies"),
                 Slider("Knock over from (speed)", "How fast the bike must be going, in game units a second (riding speed is about 900 at Speed 250%). Slower, it brakes for them.",
                     "CMB_RamMinSpeed", 100, 1500, 50),
-                Slider("Knock-over damage (% of their health)", "At riding speed; half that at the slowest, up to one and a half times faster. It never kills. 0 = none.",
+                Slider("Knock-over damage (% of their health)", "At riding speed; half that at the slowest, up to one and a half times faster. It takes their last point of health only with the setting below. 0 = none.",
                     "CMB_RamDamage", 0, 50, 5),
+                Switcher("Knock-overs can kill", "A knock-over that takes an enemy's last health kills it, and the kill is yours: experience, quests and the rest as if you had shot it. Never companions or essential characters (they aren't knocked over at all). Off: the bike leaves them at their last point of health.", "CMB_RamKills"),
                 Slider("Less fall damage (%)", "How much less fall damage you take while riding. 100 = none. Takes effect the next time you get on.",
                     "CMB_FallDamageCut", 0, 100, 5),
                 Slider("Free small falls (% of max health)", "Falls while riding that would cost less than this much of your max health cost nothing. Bigger falls still hurt (less, by the setting above). 0 = off. Every fall while riding is logged.",
@@ -253,6 +288,11 @@ public static class Program
                 Slider("Side bag capacity", "Pounds with F4SE (items without it). 0 = unlimited.", "CMB_BagCapacity", 0, 500, 10),
                 Section("Sound"),
                 Slider("Engine volume", "0 = silent. The engine follows it as you ride.", "CMB_EngineVolume", 0, 100, 5),
+                Slider("Bike effects volume", "Landings and riding through water (the game's own sounds for now). 0 = none. The water follows it at once, a landing at the next one.",
+                    "CMB_FxVolume", 0, 100, 5),
+                Switcher("Landing sound", "A tyre thump when the bike lands, louder the higher the drop, a clunk on big ones, a splash into water. Without F4SE one level.", "CMB_FxLandOn"),
+                Switcher("Water sound", "Spray while riding through shallow water, by speed and depth (needs F4SE and the CMB_Slope.dll plugin). Takes effect the next time you get on.", "CMB_FxWaterOn"),
+                Switcher("Mute the rider's own jump and landing sounds", "While riding, your character's own footstep, jump and landing sounds are silent (the bike's take their place). Takes effect the next time you get on.", "CMB_FxMuteRider"),
                 Section("Headlamp"),
                 new
                 {
@@ -262,10 +302,13 @@ public static class Program
                 },
                 new { type = "hotkey", id = "ToggleHeadlamp", text = "Headlamp on / off", help = "Switches the headlamp while riding, until you get off or the next dusk or dawn; the setting above stays as it is." },
                 Switcher("Headlamp casts shadows", "The beam casts shadows (costlier: the game runs only a few shadow lights at once). Takes effect the next time you get on.", "CMB_HeadlampShadows"),
+                Switcher("Tail lamp lights the road", "The tail lamp casts a small red light behind the bike, brighter while you brake (needs F4SE and CMB_Slope.dll). Takes effect the next time you get on.", "CMB_TailLightMode"),
                 Section("Hotkeys"),
                 new { type = "hotkey", id = "ToggleRide", text = "Get on / off / call the bike", help = "If you use this, set the built-in hotkey below to 0 so the key doesn't fire twice." },
                 Slider("Built-in hotkey (scan code)", "The F4SE hotkey that works without MCM. 48 = B, 34 = G, 47 = V, 0 = off. Press Apply after changing it.",
                     "CMB_HotkeyCode", 0, 211, 1),
+                Slider("Brake key (scan code)", "Brakes while riding, as S does, and holds the bike still once stopped (S still backs up). 57 = Space, 42 = Left Shift, 29 = Left Ctrl, 45 = X, 0 = none (only S brakes). Takes effect the next time you get on.",
+                    "CMB_BrakeKey", 0, 211, 1),
                 Button("Apply built-in hotkey", "Re-registers the built-in hotkey after changing it.", "RefreshHotkey"),
                 Section("Troubleshooting"),
                 Button("Give me the keys", "For alternative starts that skip the Pip-Boy: hands over the Motorbike Keys now.", "ForceGiveKeys"),
@@ -610,6 +653,133 @@ public static class Program
         if (mod.SoundDescriptors.FirstOrDefault(s => s.OutputModel.FormKey != engineModel.FormKey) is { } missed)
             throw new InvalidOperationException($"{missed.EditorID} doesn't play through {engineModel.EditorID}: give it that output model");
 
+        // --- 2026-11-01a (test 47's answer): the round's fixed IDs, 0x872-0x878, right after the engine's output model
+        // (0x871) so no ID above moves; CMB_Slope.dll finds each by ID (its #defines and the harness's FORMIDs use these
+        // numbers: renumber all three together). Floats, 0 but the brake key. The controller's properties for them aren't
+        // Mandatory: an older ESP leaves them None, and each unit's change stays off (2026-10-31a).
+        // TailRefHi/Lo: the tail lamp's light reference (CMB_TailLight, placed by the controller), its form id's high and
+        // low 16 bits for the plugin, which keeps it at the lens (as CMB_HeadlampRefHi/Lo; both 0: none).
+        var gTailRefHi = Global(mod, "CMB_TailRefHi", 0);
+        var gTailRefLo = Global(mod, "CMB_TailRefLo", 0);
+        // ViewRefHi/Lo: the first-person bike's reference (CMB_BikeView), the same way: the plugin shows it in first
+        // person only and places it every frame.
+        var gViewRefHi = Global(mod, "CMB_ViewRefHi", 0);
+        var gViewRefLo = Global(mod, "CMB_ViewRefLo", 0);
+        // RoomAskKind: what the controller's room ask is, written before the ask's number on every ask (0 a spot, as
+        // before; 1 the navmesh point a call's snap found, asked about as a navmesh point: [Room] SnapSpot).
+        var gRoomAskKind = Global(mod, "CMB_RoomAskKind", 0);
+        // RiderPoseOff: the plugin writes it, the controller reads it ([Tilt] PoseCheck): the raw seconds the rider's
+        // clips have been off the seat (0 while seated, and at a ride's start and end); the script compares it with
+        // CMB_PoseOffAfter (3.0, below) before it applies the rider pose again.
+        var gRiderPoseOff = Global(mod, "CMB_RiderPoseOff", 0);
+        // BrakeKey: the MCM's "Brake key", a DirectInput scan code (57 = Space; 0 none, only S brakes), read by the
+        // plugin at each ride's start ([Steer] BrakeKey=-1).
+        var gBrakeKey = Global(mod, "CMB_BrakeKey", 57);
+        var fixed49 = new[] { gTailRefHi, gTailRefLo, gViewRefHi, gViewRefLo, gRoomAskKind, gRiderPoseOff, gBrakeKey };
+        for (int i = 0; i < fixed49.Length; i++)
+            if (fixed49[i].FormKey.ID != 0x872 + i)
+                throw new InvalidOperationException($"{fixed49[i].EditorID} must be 0x{0x872 + i:X} (CMB_TailRefHi, CMB_TailRefLo, CMB_ViewRefHi, CMB_ViewRefLo, CMB_RoomAskKind, CMB_RiderPoseOff, CMB_BrakeKey 0x872-0x878, CMB_Slope.dll looks for them), got {fixed49[i].FormKey.ID:X}");
+
+        // --- 2026-11-01a's script-only forms, after the fixed IDs (only the scripts' properties find them, so their
+        // IDs fall where they do). The MCM's switches, 1 by default, 0 = 2026-10-31a: a knock-over can take an enemy's
+        // last health (CMB_RamScript), the tail lamp's light is placed, the first-person bike is placed.
+        var gRamKills = Global(mod, "CMB_RamKills", 1);
+        var gTailLightMode = Global(mod, "CMB_TailLightMode", 1);
+        var gFirstPersonBike = Global(mod, "CMB_FirstPersonBike", 1);
+        var tailLight = TailLight(mod);
+        // The first-person bike: an unskinned copy of the riding bike (CMB_BikeView.nif), placed by the controller and
+        // shown and placed by the plugin in first person only.
+        var bikeView = mod.MovableStatics.AddNew("CMB_BikeView");
+        bikeView.Model = new Model { File = BikeViewModel };
+        bikeView.ObjectBounds = new ObjectBounds { First = new P3Int16(-45, -75, 0), Second = new P3Int16(45, 130, 115) };
+        // "Steady in the saddle" (test 47: hits and staggers on the bike play standing clips, and the bike hangs round
+        // the rider's hips): the MCM's switch (1, 0 = staggered as in 2026-10-31a) and the hidden perk the controller
+        // gives the rider while riding, Mod Incoming Stagger x0 (Bethesda's mod_armor_LessStagger, 245AFE, is the same
+        // entry point). No conditions: the script adds and removes it. Three condition tabs, as Mod Incoming Damage:
+        // the perk owner, the attacker, the attacker's weapon.
+        var gRiderSteady = Global(mod, "CMB_RiderSteady", 1);
+        var steadyPerk = mod.Perks.AddNew("CMB_RiderSteadyPerk");
+        steadyPerk.Name = "Steady in the saddle";
+        steadyPerk.Playable = false;
+        steadyPerk.Hidden = true;
+        steadyPerk.NumRanks = 1;
+        steadyPerk.Level = 0;
+        steadyPerk.Trait = false;
+        steadyPerk.Effects.Add(new PerkEntryPointModifyValue
+        {
+            Rank = 0,
+            Priority = 0,
+            EntryPoint = APerkEntryPointEffect.EntryType.ModIncomingStagger,
+            PerkConditionTabCount = 3,
+            Modification = PerkEntryPointModifyValue.ModificationType.Multiply,
+            Value = 0f,
+        });
+        // The pose check's two numbers for the controller: no standing footstep or pose reading acted on within this
+        // long (s) of a hit, an item used or a stagger (the MCM's "Pose re-check pause after a hit", 0 = as 2026-10-31a),
+        // and the seconds off the seat (CMB_RiderPoseOff) at which the pose is applied again, longer than any stagger.
+        var gPoseReactionWindow = Global(mod, "CMB_PoseReactionWindow", 3);
+        var gPoseOffAfter = Global(mod, "CMB_PoseOffAfter", 3);
+        // The stagger watch: a hidden ability whose effect runs while the player is staggered (IsStaggered), the swim
+        // watch's way; its effect script tells the controller (NoteStagger). Given on getting on, taken on getting off.
+        var staggerEffect = WatchEffect(mod, "CMB_StaggerWatchEffect", "Motorbike stagger watch", quest, wading: false, script: "CMB_StaggerWatchEffectScript");
+        var staggerAbility = mod.Spells.AddNew("CMB_StaggerWatchAbility");
+        staggerAbility.Name = "Motorbike stagger watch";
+        staggerAbility.ObjectBounds = new ObjectBounds();
+        staggerAbility.Type = SpellType.Ability;
+        staggerAbility.CastType = CastType.ConstantEffect;
+        staggerAbility.TargetType = TargetType.Self;
+        staggerAbility.Flags = SpellDataFlag.ManualCostCalc;
+        staggerAbility.Effects.Add(WatchEntry(staggerEffect, Condition.Function.IsStaggered));
+        // --- 2026-11-01a, the bike's own sounds besides the engine (fxsound: a landing sound, a water loop, the rider's
+        // own jump and landing sounds muted): the plugin's seven, fixed IDs 0x884-0x88A, right after the forms above so
+        // no ID above moves; CMB_Slope.dll finds them by ID, all seven or none (its FX_GLOBAL_ID and the harness's
+        // FX_FORMID use these numbers: renumber all three together). The controller's properties aren't Mandatory: an
+        // older ESP leaves them None, and nothing plays (2026-10-31a).
+        // FxVolume: the MCM's "Bike effects volume", 0-100 (90; 0 none): the plugin reads it every frame for the water
+        // loop, the script at each landing.
+        var gFxVolume = Global(mod, "CMB_FxVolume", 90);
+        // FxWaterId: the water loop's instance id, written by the script on getting on (played at no volume), 0 none.
+        var gFxWaterId = Global(mod, "CMB_FxWaterId", 0);
+        // FxDriven: the plugin's answer: the id when it drives that loop, minus it when it declines (its log says why).
+        var gFxDriven = Global(mod, "CMB_FxDriven", 0);
+        // FxAir: the plugin's flight state: 0 on the ground, 1 once the bike has been [Fx] AirMin (0.35 s) in the air,
+        // 2 for AirHold (0.3 s) after that flight's landing.
+        var gFxAir = Global(mod, "CMB_FxAir", 0);
+        // FxLandSeq: one more at each take-off past AirMin (a flight's number), the plugin's; it starts each ride from
+        // the global's own value, so a save's number never repeats.
+        var gFxLandSeq = Global(mod, "CMB_FxLandSeq", 0);
+        // FxLandLevel: the landing's level 0-1 from the fall's speed, the plugin's, written through the flight and at the
+        // landing, +2 into water; -1 (the ESP's, and [Fx] Land=0): no cue, the script's own level.
+        var gFxLandLevel = Global(mod, "CMB_FxLandLevel", -1);
+        // FxLandPlayed: the flight whose landing sound the script played last, written by the script; the plugin logs
+        // how long after the landing that came.
+        var gFxLandPlayed = Global(mod, "CMB_FxLandPlayed", 0);
+        var fixedFx = new[] { gFxVolume, gFxWaterId, gFxDriven, gFxAir, gFxLandSeq, gFxLandLevel, gFxLandPlayed };
+        for (int i = 0; i < fixedFx.Length; i++)
+            if (fixedFx[i].FormKey.ID != 0x884 + i)
+                throw new InvalidOperationException($"{fixedFx[i].EditorID} must be 0x{0x884 + i:X} (CMB_FxVolume, CMB_FxWaterId, CMB_FxDriven, CMB_FxAir, CMB_FxLandSeq, CMB_FxLandLevel, CMB_FxLandPlayed 0x884-0x88A, CMB_Slope.dll looks for them), got {fixedFx[i].FormKey.ID:X}");
+        // The bike sounds' script-only forms, after the seven (only the controller's properties find them). The MCM's
+        // switches, 1 by default, 0 = 2026-10-31a: the rider's own footstep sounds muted while riding, the landing sound,
+        // the water loop. The picks, for the console: CMB_FxLandPick 1 = the second landing set, CMB_FxWaterPick the
+        // water loop's index (read on getting on).
+        var gFxMuteRider = Global(mod, "CMB_FxMuteRider", 1);
+        var gFxLandOn = Global(mod, "CMB_FxLandOn", 1);
+        var gFxWaterOn = Global(mod, "CMB_FxWaterOn", 1);
+        var gFxLandPick = Global(mod, "CMB_FxLandPick", 0);
+        var gFxWaterPick = Global(mod, "CMB_FxWaterPick", 0);
+        // The game's own sound descriptors by FormID (Vanilla.FxLandSounds, FxLandSoundsAlt, FxWaterLoops), in lists so
+        // our own can take their places later: nothing else names them. No new SoundDescriptor (the engine's 13 stay).
+        var fxLandSounds = mod.FormLists.AddNew("CMB_FxLandSounds");
+        foreach (var s in Vanilla.FxLandSounds)
+            fxLandSounds.Items.Add(new FormLink<IFallout4MajorRecordGetter>(s));
+        var fxLandSoundsAlt = mod.FormLists.AddNew("CMB_FxLandSoundsAlt");
+        foreach (var s in Vanilla.FxLandSoundsAlt)
+            fxLandSoundsAlt.Items.Add(new FormLink<IFallout4MajorRecordGetter>(s));
+        var fxWaterLoops = mod.FormLists.AddNew("CMB_FxWaterLoops");
+        foreach (var s in Vanilla.FxWaterLoops)
+            fxWaterLoops.Items.Add(new FormLink<IFallout4MajorRecordGetter>(s));
+        // The next fixed-ID form comes after these.
+
         // --- Controller quest ---
         quest.Name = "Commonwealth Motorbike";
         quest.Data = new QuestData
@@ -702,6 +872,37 @@ public static class Program
             Obj("CMB_RoomPitch", gRoomPitch),
             Obj("CMB_RoomRoll", gRoomRoll),
             Obj("CMB_RoomGround", gRoomGround),
+            Obj("CMB_RoomAskKind", gRoomAskKind),
+            Obj("CMB_RiderPoseOff", gRiderPoseOff),
+            Obj("CMB_TailLight", tailLight),
+            Obj("CMB_TailRefHi", gTailRefHi),
+            Obj("CMB_TailRefLo", gTailRefLo),
+            Obj("CMB_TailLightMode", gTailLightMode),
+            Obj("CMB_BikeView", bikeView),
+            Obj("CMB_ViewRefHi", gViewRefHi),
+            Obj("CMB_ViewRefLo", gViewRefLo),
+            Obj("CMB_FirstPersonBike", gFirstPersonBike),
+            Obj("CMB_RiderSteadyPerk", steadyPerk),
+            Obj("CMB_RiderSteady", gRiderSteady),
+            Obj("CMB_PoseReactionWindow", gPoseReactionWindow),
+            Obj("CMB_PoseOffAfter", gPoseOffAfter),
+            Obj("CMB_StaggerWatchAbility", staggerAbility),
+            Obj("CMB_FxVolume", gFxVolume),
+            Obj("CMB_FxMuteRider", gFxMuteRider),
+            Obj("CMB_FxLandOn", gFxLandOn),
+            Obj("CMB_FxWaterOn", gFxWaterOn),
+            Obj("AudioCategoryFSTplayer", Vanilla.AudioCategoryFSTplayer),
+            Obj("CMB_FxLandSounds", fxLandSounds),
+            Obj("CMB_FxLandSoundsAlt", fxLandSoundsAlt),
+            Obj("CMB_FxWaterLoops", fxWaterLoops),
+            Obj("CMB_FxLandPick", gFxLandPick),
+            Obj("CMB_FxWaterPick", gFxWaterPick),
+            Obj("CMB_FxWaterId", gFxWaterId),
+            Obj("CMB_FxDriven", gFxDriven),
+            Obj("CMB_FxAir", gFxAir),
+            Obj("CMB_FxLandSeq", gFxLandSeq),
+            Obj("CMB_FxLandLevel", gFxLandLevel),
+            Obj("CMB_FxLandPlayed", gFxLandPlayed),
             Obj("CMB_EngineOn1400Sound", sndOn1400),
             Obj("CMB_EngineOn1700Sound", sndOn1700),
             Obj("CMB_EngineOn2400Sound", sndOn2400),
@@ -739,7 +940,9 @@ public static class Program
             Obj("CMB_RamSeen", gRam[2]),
             Obj("CMB_RamOk", gRam[3]),
             Obj("CMB_RamHitSpeed", gRam[4]),
-            Obj("CMB_RamHit", gRam[5]));
+            Obj("CMB_RamHit", gRam[5]),
+            Obj("CMB_RamKills", gRamKills),
+            Obj("Experience", Vanilla.Experience));
         // Optional: only does anything with F4SE and the compiled CMB_HotkeyF4SE.pex.
         var hotkey = Script("CMB_HotkeyF4SE",
             Obj("Controller", quest),
@@ -792,8 +995,10 @@ public static class Program
         return global;
     }
 
-    // A hidden constant script effect for CMB_SwimWatchAbility (CMB_SwimWatchEffectScript).
-    static MagicEffect WatchEffect(Fallout4Mod mod, string editorId, string name, Quest quest, bool wading)
+    // A hidden constant script effect for CMB_SwimWatchAbility (CMB_SwimWatchEffectScript), or with another
+    // script for another watch (2026-11-01a: CMB_StaggerWatchAbility, CMB_StaggerWatchEffectScript).
+    static MagicEffect WatchEffect(Fallout4Mod mod, string editorId, string name, Quest quest, bool wading,
+                                   string script = "CMB_SwimWatchEffectScript")
     {
         var effect = mod.MagicEffects.AddNew(editorId);
         effect.Name = name;
@@ -805,8 +1010,8 @@ public static class Program
         effect.CastingSoundLevel = SoundLevel.Silent;
         effect.DualCastScale = 1;
         effect.VirtualMachineAdapter = wading
-            ? Vmad(Script("CMB_SwimWatchEffectScript", Obj("Controller", quest), Bool("Wading", true)))
-            : Vmad(Script("CMB_SwimWatchEffectScript", Obj("Controller", quest)));
+            ? Vmad(Script(script, Obj("Controller", quest), Bool("Wading", true)))
+            : Vmad(Script(script, Obj("Controller", quest)));
         return effect;
     }
 
@@ -878,6 +1083,27 @@ public static class Program
         light.Value = 0;
         light.Weight = 0.0f;
         light.FadeValue = 2.4f;
+        return light;
+    }
+
+    // The tail lamp's light (test 47: "it's on, but it's not producing light"): a shadowless red spot at the lamp,
+    // aimed back and 30 degrees down so it lights the road behind and not the rider's back; the plugin keeps it at the
+    // lens and multiplies its colour by [TailLight] BrakeGain while braking.
+    static Light TailLight(Fallout4Mod mod)
+    {
+        var light = mod.Lights.AddNew("CMB_TailLight");
+        light.ObjectBounds = new ObjectBounds();
+        light.Time = -1;
+        light.Radius = 220;                                         // about 3 m: the road behind, the plate, the fender's tip
+        light.Color = System.Drawing.Color.FromArgb(0, 255, 24, 10); // the shell's deep red
+        light.Flags = (Light.Flag)1 | Light.Flag.NonShadowSpotlight; // Dynamic; no shadow (cheap, as the headlamp's plain one)
+        light.FalloffExponent = 1.0f;
+        light.FOV = 120.0f;
+        light.NearClip = 5.0f;
+        light.Constant = 0.0f; light.Scalar = 1.0f; light.Exponent = 2.0f;   // the game's own attenuation (test 31)
+        light.FlickerPeriod = 0; light.FlickerIntensityAmplitude = 0; light.FlickerMovementAmplitude = 0;
+        light.GodRaysNearClip = 0; light.Value = 0; light.Weight = 0;
+        light.FadeValue = 0.75f;                                    // running; x3 braking = 2.25, as the shells' x2.5 / x8
         return light;
     }
 
@@ -1127,6 +1353,15 @@ public static class Program
                     Console.WriteLine($"      subgraph {sg.Role} {sg.Perspective} [{string.Join(", ", sg.ActorKeywords.Select(k => k.FormKey))}] " +
                                       $"targets [{string.Join(", ", sg.TargetKeywords.Select(k => k.FormKey))}] " +
                                       $"{sg.BehaviorGraph} paths [{string.Join(", ", sg.AnimationPaths)}]");
+            }
+            // The perks' flags and entry points (2026-11-01a: CMB_RiderSteadyPerk reads "ModIncomingStagger Multiply 0 tabs 3").
+            if (rec is IPerkGetter perk)
+            {
+                Console.WriteLine($"      perk playable {perk.Playable} hidden {perk.Hidden} ranks {perk.NumRanks}");
+                foreach (var e in perk.Effects)
+                    Console.WriteLine(e is IPerkEntryPointModifyValueGetter v
+                        ? $"      entry {v.EntryPoint} {v.Modification} {v.Value} tabs {v.PerkConditionTabCount} conditions {v.Conditions.Count}"
+                        : $"      effect {e.GetType().Name}");
             }
             // The lists' entries (CMB_RamTooBig's races, CMB_FuelItems), one a line.
             if (rec is IFormListGetter list)

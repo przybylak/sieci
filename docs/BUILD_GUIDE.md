@@ -52,7 +52,7 @@ The scripts need to be compiled to `Data\Scripts\*.pex`. Two ways:
   F4SE 0.7.9's own `Actor.psc`). Prebuilt `.pex` files made this way may come with the meshes and clips.
 - **With the Creation Kit:** double-click **`compile_scripts.bat`**. It finds Fallout 4 through the registry
   (or `set FO4=D:\path\to\Fallout 4` first), unzips the vanilla script sources the first time, and compiles the
-  eight core scripts. If F4SE's script sources are installed (in `Data\Scripts\Source`, `Source\F4SE` or
+  nine core scripts (`CMB_StaggerWatchEffectScript` since 2026-11-01a). If F4SE's script sources are installed (in `Data\Scripts\Source`, `Source\F4SE` or
   `Source\User`; with MO2 run it from MO2 so it sees them), it also compiles the two optional F4SE scripts
   (hotkey, gear restore); otherwise it skips them, and the mod works without them.
 
@@ -127,6 +127,15 @@ You only need this if the generated plugin turns out to have a problem and you'd
 
 1. **Globals** (Float): `CMB_SpeedPercent` 250, `CMB_CompanionMode` 0, `CMB_AllowCombat` 0, `CMB_ForceThirdPerson` 1, `CMB_UseRiderPose` 1, `CMB_CatchUpDistance` 2500, `CMB_BagCapacity` 60, `CMB_HotkeyCode` 48, `CMB_UseFuel` 1, `CMB_FuelDistance` 21000, `CMB_EngineVolume` 90, `CMB_FallDamageCut` 75, `CMB_DismountOnHit` 1, `CMB_BikeFollowsRider` 1, `CMB_KnockOffDamage` 10, `CMB_FreeFallDamage` 20, `CMB_RidingCameraDistance` 450, `CMB_MaxSlope` 45, `CMB_SlopeLive` 0 (must be 0x82A), `CMB_CameraLive` 0 (must be 0x82B), `CMB_TiltLive` 0 (must be 0x82C), `CMB_GroundNormalX`, `CMB_GroundNormalY`, `CMB_GroundNormalZ` 0 (must be 0x82D, 0x82E, 0x82F), `CMB_MaxTilt` 45, `CMB_ParkX`, `CMB_ParkY`, `CMB_ParkZ`, `CMB_ParkAngle`, `CMB_ParkUpX`, `CMB_ParkUpY`, `CMB_ParkUpZ` 0 (must be 0x831-0x837), `CMB_TrackSlope` 0 (must be 0x838), `CMB_TurnRadius` 180, `CMB_StandTurnRate` 60, `CMB_TurnRadiusSlow` 50 (must be 0x839, 0x83A, 0x83B). The fixed form IDs are where `CMB_Slope.dll` looks for them.
    **FormList** `CMB_FuelItems` containing Flamer Fuel (`AmmoFlamerFuel`, 000CAC78).
+   Since 2026-11-01a (the generator lists every later form; these are this round's): `CMB_TailRefHi`, `CMB_TailRefLo`,
+   `CMB_ViewRefHi`, `CMB_ViewRefLo`, `CMB_RoomAskKind`, `CMB_RiderPoseOff` 0 and `CMB_BrakeKey` 57 (must be 0x872-0x878);
+   `CMB_RamKills` 1, `CMB_TailLightMode` 1, `CMB_FirstPersonBike` 1, `CMB_RiderSteady` 1, `CMB_PoseReactionWindow` 3,
+   `CMB_PoseOffAfter` 3; `CMB_FxVolume` 90, `CMB_FxWaterId`, `CMB_FxDriven`, `CMB_FxAir`, `CMB_FxLandSeq` 0,
+   `CMB_FxLandLevel` -1, `CMB_FxLandPlayed` 0 (must be 0x884-0x88A); `CMB_FxMuteRider`, `CMB_FxLandOn`, `CMB_FxWaterOn` 1,
+   `CMB_FxLandPick`, `CMB_FxWaterPick` 0. **FormLists** of the game's own sound descriptors: `CMB_FxLandSounds` (1D3313,
+   1D3312, 05BAD7, 03C7A9, 0452CE), `CMB_FxLandSoundsAlt` (1D3313, 20A0B9, 1A8550, 089380, 20A0B8), `CMB_FxWaterLoops`
+   (1E4F2D, 1E4F2C, 03D0A7, 1E4F1B). **Light** `CMB_TailLight` (radius 220, colour 255/24/10, Dynamic and Non-Shadow
+   Spotlight, FOV 120, fade 0.75) and **Movable Static** `CMB_BikeView` (model `CMB\CMB_BikeView.nif`).
 2. *(no keyword: `CMB_AnimFlavorRider` lives in `CMB_RiderPose.esp`)*
 3. **Messages** (tick *Message Box*; button order matters):
    `CMB_ParkedMenu` "Motorbike" / "What do you want to do?" with buttons `Ride`, `Open side bag`, `Cancel`.
@@ -140,6 +149,8 @@ You only need this if the generated plugin turns out to have a problem and you'd
    **Magic Effect** `CMB_SwimWatchEffect`: archetype Script, Constant Effect, Self, casting sound level Silent, the same flags plus No Hit Event. Script: `CMB_SwimWatchEffectScript`.
    **Magic Effect** `CMB_WadeWatchEffect`: the same, with the script's `Wading` property ticked.
    **Spell** `CMB_SwimWatchAbility`: type Ability, Constant Effect, Self, two effects (0/0/0): `CMB_SwimWatchEffect` with the condition `IsSwimming == 1` and `CMB_WadeWatchEffect` with `IsInWater == 1` (both Subject).
+   **Magic Effect** `CMB_StaggerWatchEffect` (since 2026-11-01a): as `CMB_SwimWatchEffect`, script `CMB_StaggerWatchEffectScript`; **Spell** `CMB_StaggerWatchAbility`: Ability, Constant Effect, Self, that effect with `IsStaggered == 1` (Subject).
+   **Perk** `CMB_RiderSteadyPerk` "Steady in the saddle": not playable, hidden, one rank; one entry point Mod Incoming Stagger, Multiply 0, no conditions (the controller adds and removes it).
 6. **Activator** `CMB_BikeActivator`: name "Motorbike", activate text "Use", model `CMB\CMB_BikeParked.nif`, script `CMB_BikeActivatorScript`.
    **Container** `CMB_SideBagContainer`: name "Side Bag", model `CMB\CMB_BikeParked.nif`, script `CMB_SideBagScript`.
 7. **Interior cell** `CMB_HoldingCell` holding four *persistent* references: `CMB_BikeRef` (the activator), `CMB_SideBagRef` (the container), `CMB_HoldingMarkerRef` (an XMarker) and `CMB_GroundProbeRef` (an XMarker that feels for the navmesh around the parked bike; once the unused `CMB_DrySpotMarkerRef`, same record).

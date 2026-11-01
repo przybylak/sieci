@@ -6,13 +6,16 @@ lighting shader does, as far as is cheap:
 
 - the nifs through PyNifly; a shape whose shader name is a material file found under --data takes the material's
   values and textures (the game ignores the nif block then), any other the nif block's (an empty name, or a
-  material file that isn't there: the `Materials\\CMB` A/B);
+  material file that isn't there; in the game a missing material file shows magenta, test 47: --bgsm 0 renders the
+  nif blocks' own values, as a build with harley_meshes.py --bgsm 0 would look);
 - the DDS decoded here (texture2ddecoder): base colour = `_d` (its alpha for blend/test), the normal = `_n`
   (DirectX green, BC5's blue rebuilt), specular = `_s` R x specular colour x mult, smoothness = `_s` G x the
   material's (clamped to 0..1, as 27c's 90/30/110/30 must be), a GGX highlight from the sun only;
-- environment-mapped shapes lit from a cube lookup on the reflection vector, `_s` R x env scale (Fresnel-weighted
-  on the dielectric cube): no ray-traced reflection of the scene, as in the game (FO4 cannot show real
-  reflections); our own cube (`Textures\\CMB\\Bike\\mirror_cube_e.dds`) decoded from its DDS, the vanilla cubes
+- environment-mapped shapes lit from a cube lookup on the reflection vector: the cube's lookup x `_d` x `_s` R x env
+  scale (Fresnel-weighted on the dielectric cube; --env-albedo 1, the default since the 2026-11-01a build: test 47
+  showed the game tints the cube by the colour map, a dark map gave a black mirror; 0 adds the lookup untinted, as
+  the 2026-10-31a previews did, which showed that glass as a sky): no ray-traced reflection of the scene, as in the
+  game (FO4 cannot show real reflections); our own cube (`Textures\\CMB\\Bike\\mirror_cube_e.dds`) decoded from its DDS, the vanilla cubes
   (in the game's archives, not read here) by procedural stand-ins written to --env;
 - emissive = `_g` x colour x mult (colour x mult without a glow map), lit whatever the light;
 - what the F4SE plugin does on the riding bike: the shapes' roles told by their names (the plugin's table), the
@@ -79,6 +82,27 @@ VIEWS = {
     "fulllock_pos": dict(cam=(0, 12, 265), at=(0, 40, 92), lens=42, bar=+1),
     "fulllock_neg": dict(cam=(0, 12, 265), at=(0, 40, 92), lens=42, bar=-1),
     "parked34": dict(cam=(195, 280, 122), at=(0, 30, 50), lens=50, parked=True),
+    # close-ups of test 47's complaints (the 2026-11-01a build; worn frame: x the bike's right, +y forward): the tank's
+    # coachline (both sides, its rear turn from the tester's side, the bottom run at 110 mm), the seat, the discs, the
+    # mirrors from the rider's eye and outside, by day and at night
+    "t49_tank_l": dict(cam=(-78, 22, 92), at=(-9, 22, 76), lens=55),
+    "t49_tank_r": dict(cam=(78, 22, 92), at=(9, 22, 76), lens=55),
+    "t49_tip_l": dict(cam=(-42, 0, 80), at=(-8, 12, 67), lens=85),
+    "t49_tip_r": dict(cam=(42, 0, 80), at=(8, 12, 67), lens=85),
+    "t49_line_l": dict(cam=(-40, 30, 74), at=(-9, 30, 69), lens=110),
+    "t49_seat_l": dict(cam=(-52, -6, 84), at=(-7, -8, 63), lens=55),
+    "t49_seat_r": dict(cam=(52, -6, 84), at=(7, -8, 63), lens=55),
+    "t49_seatseam_l": dict(cam=(-34, -2, 76), at=(-8, -4, 63), lens=110),
+    # the discs are on the bike's left (worn x -6 front, -7 rear): the rear (r) and front (F) from that side
+    "t49_disc_r": dict(cam=(-60, -50, 40), at=(-7, -40.4, 30), lens=55),
+    "t49_discF_l": dict(cam=(-60, 105, 40), at=(-6, 96, 30), lens=55),
+    "t49_discR_close": dict(cam=(-34, -46, 36), at=(-7, -40.4, 30), lens=50),
+    "t49_discF_close": dict(cam=(-32, 102, 36), at=(-6, 95.8, 30), lens=50),
+    "t49_mirror_eye": dict(cam=EYE, at=(30, 40, 94), lens=50, mirrors=1),
+    "t49_mirror_egg": dict(cam=EYE, at=(30, 40, 92), lens=50, mirrors=2),
+    "t49_mirror_out": dict(cam=(70, 10, 110), at=(30, 38, 90), lens=60, mirrors=1),
+    "t49_night_mirror": dict(cam=EYE, at=(30, 40, 94), lens=50, mirrors=1, preset=NIGHT),
+    "t49_night_mirror_out": dict(cam=(70, 10, 110), at=(30, 38, 90), lens=60, mirrors=1, preset=NIGHT),
 }
 SETS = {
     "day": ["front34", "rear34", "side_r", "side_l", "cockpit_0", "cockpit_50", "tail_off", "tail_on"],
@@ -88,6 +112,11 @@ SETS = {
     "lock": ["fulllock_pos", "fulllock_neg", "parked34", "dial_50"],
 }
 SETS["all"] = [v for k in ("day", "night", "mirrors", "close", "lock") for v in SETS[k]]
+SETS["t49tank"] = ["t49_tank_l", "t49_tank_r", "t49_tip_l", "t49_tip_r", "t49_line_l"]
+SETS["t49seat"] = ["t49_seat_l", "t49_seat_r", "t49_seatseam_l"]
+SETS["t49disc"] = ["t49_disc_r", "t49_discF_l", "t49_discR_close", "t49_discF_close", "close_wheel"]
+SETS["t49mirror"] = ["t49_mirror_eye", "t49_mirror_egg", "t49_mirror_out", "t49_night_mirror", "t49_night_mirror_out"]
+SETS["t49"] = [v for k in ("t49tank", "t49seat", "t49disc", "t49mirror") for v in SETS[k]]
 SHEETS = {"closeups": SETS["close"]}
 
 # the plugin's roles by name (CMB_Slope.c g_roleTags, first fit wins); 27c's names give 27c's roles with it
@@ -687,13 +716,22 @@ class Scene:
             kv.outputs[0].default_value = sh["env_scale"]
             self.env_values.append((kv, sh["env_scale"]))
             strength = math("MULTIPLY", spec_r, kv.outputs[0]) if spec_r is not None else kv.outputs[0]
+            env_col = et.outputs["Color"]
+            if getattr(self.args, "env_albedo", 1) and base is not None:   # the game tints the cube by _d (test 47)
+                mixa = N_("ShaderNodeMix")
+                mixa.data_type = "RGBA"
+                mixa.blend_type = "MULTIPLY"
+                mixa.inputs["Factor"].default_value = 1.0
+                L_(et.outputs["Color"], mixa.inputs[6])
+                L_(base, mixa.inputs[7])
+                env_col = mixa.outputs[2]
             if "dielectric" in sh["tex"]["cube"].lower():
                 fr = N_("ShaderNodeFresnel")
                 fr.inputs["IOR"].default_value = 1.5
                 L_(normal, fr.inputs["Normal"])
                 strength = math("MULTIPLY", strength, math("MULTIPLY_ADD", fr.outputs[0], 0.65, 0.35))
             em = N_("ShaderNodeEmission")
-            L_(et.outputs["Color"], em.inputs["Color"])
+            L_(env_col, em.inputs["Color"])
             L_(strength, em.inputs["Strength"])
             shader = add(shader, em.outputs["Emission"])
         if sh["emit_on"]:
@@ -974,7 +1012,9 @@ def main():
     ap.add_argument("--threads", type=int, default=4)
     ap.add_argument("--env", type=Path, help="where the vanilla cubes' stand-ins are kept (default <out>/env)")
     ap.add_argument("--cube-up", choices=("y", "z"), default="y", help="our cube's up face (D3D +Y; z = the zup file)")
-    ap.add_argument("--bgsm", type=int, default=1, help="0: ignore material files (the Materials\\CMB rename A/B)")
+    ap.add_argument("--bgsm", type=int, default=1,
+                    help="0: ignore material files: the nif blocks' own values, as a build with harley_meshes.py --bgsm 0 "
+                         "would look (in game a missing material file shows magenta, test 47)")
     ap.add_argument("--sun", type=float, default=3.2)
     ap.add_argument("--sky", type=float, default=0.12)
     ap.add_argument("--exposure", type=float, default=0.0)
@@ -982,6 +1022,10 @@ def main():
                     help="Blender's view transform: AgX (default) desaturates very bright colours toward white, so a"
                          " strong red emissive reads pink; Standard clips each channel, nearer the game's per-channel"
                          " tone curve for judging a light's hue")
+    ap.add_argument("--env-albedo", type=int, default=1,
+                    help="1 (the default since the 2026-11-01a build): the cube's reflection x the base colour (_d), as "
+                         "the game shades it (test 47: the near-black mirror glass showed black); 0: added untinted, the "
+                         "2026-10-31a previews' way")
     ap.add_argument("--night-exposure", type=float, default=1.6)
     ap.add_argument("--night-env", type=float, default=0.3, help="cube reflections' share at night (untested in game)")
     ap.add_argument("--lamp-power", type=float, default=1.0e6)
@@ -1013,6 +1057,7 @@ def main():
     names = []
     for part in args.views.split(","):
         names += SETS.get(part, [part])
+    names = list(dict.fromkeys(names))   # a view in two of the sets given renders once
     for n in names:
         if n not in VIEWS:
             ap.error(f"no view {n!r} (--list-views)")

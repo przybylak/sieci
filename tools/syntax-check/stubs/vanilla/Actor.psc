@@ -19,9 +19,17 @@ bool Function IsHostileToActor(Actor akActor) native
 bool Function IsWeaponDrawn() native
 bool Function AddSpell(Spell akSpell, bool abVerbose = true) native
 bool Function RemoveSpell(Spell akSpell) native
+Function AddPerk(Perk akPerk, bool abNotify = false) native
+Function RemovePerk(Perk akPerk) native
+bool Function HasPerk(Perk akPerk) native
 Event OnPlayerFallLongDistance(float afDamage)
+EndEvent
+Event OnItemEquipped(Form akBaseObject, ObjectReference akReference)
 EndEvent
 bool Function IsEssential() native
 bool Function IsInFaction(Faction akFaction) native
 Race Function GetRace() native
 bool Function IsChild() native
+Function Kill(Actor akKiller = None) native
+Actor Function GetKiller() native
+ActorBase Function GetLeveledActorBase() native

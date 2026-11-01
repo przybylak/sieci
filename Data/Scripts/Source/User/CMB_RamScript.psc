@@ -6,7 +6,11 @@ CMB_RamSeen, the ask's number), this script answers in CMB_RamOk (the number: ye
 number: no), and the plugin keeps the throttle open only for a yes. When the bike is about to
 hit that actor at CMB_RamMinSpeed or faster, the plugin says so (CMB_RamHitSpeed, then
 CMB_RamHit = the ask's number) and this script pushes it away from the rider. Without the
-plugin the globals never change and nothing happens.
+plugin the globals never change and nothing happens. Since 2026-11-01a (test 47: "you can't kill
+an enemy while on the bike, just take them down to the last bit of health"), with the MCM's
+"Knock-overs can kill" (CMB_RamKills, on by default) a knock-over whose damage takes the last of
+an actor's health kills it, the player the killer (Kill(PlayerRef)); off, never the last point of
+health, as in build 2026-10-31a.
 Attach to CMB_ControllerQuest; the controller calls StartRide and EndRide (through CastAs, so
 without this script nothing is called). It is a script of its own so that its 0.1 s poll and
 the controller's work never wait on each other's lock.
@@ -26,13 +30,23 @@ GlobalVariable Property CMB_RamMinSpeed Auto Const Mandatory
 {MCM: only this fast or faster, game units a second (riding speed is about 900). Default 450.}
 GlobalVariable Property CMB_RamDamage Auto Const Mandatory
 {MCM: the damage at riding speed, percent of the actor's max health (half of it at the
-slowest, up to one and a half times faster). It never kills. Default 10 (test 40: fine).}
+slowest, up to one and a half times faster). It takes the last of an actor's health only with
+CMB_RamKills on (then a kill, the player's); off, never. Default 10 (test 40: fine).}
 GlobalVariable Property CMB_RamSeenHi Auto Const Mandatory
 GlobalVariable Property CMB_RamSeenLo Auto Const Mandatory
 GlobalVariable Property CMB_RamSeen Auto Const Mandatory
 GlobalVariable Property CMB_RamOk Auto Const Mandatory
 GlobalVariable Property CMB_RamHitSpeed Auto Const Mandatory
 GlobalVariable Property CMB_RamHit Auto Const Mandatory
+GlobalVariable Property CMB_RamKills Auto Const
+{MCM "Knock-overs can kill" (test 47): 1 = a knock-over whose damage reaches the last of an
+actor's health kills it, the player the killer (Kill(PlayerRef): experience, quests and crime as
+for a kill of the player's own; protected actors die to it as to the player's own blows, essential
+ones are never knocked over). 0 = never the last point of health, as in build 2026-10-31a. Not
+Mandatory: an older ESP leaves it None, read as 0. Default 1.}
+ActorValue Property Experience Auto Const
+{Vanilla (000002C9), for the log only: the player's experience before a kill and 0.5 s after it.
+None: not logged.}
 
 int Property TimerPoll = 1 AutoReadOnly
 float Property PollInterval = 0.1 AutoReadOnly
@@ -57,6 +71,9 @@ float Property MaxForce = 10.0 AutoReadOnly
 float Property Cooldown = 3.0 AutoReadOnly
 {Seconds before the same actor can be knocked over again: one that is still down in the
 bike's path gets a no, and the bike brakes for it.}
+float Property KillBelow = 1.0 AutoReadOnly
+{Test 47: with CMB_RamKills on, a hit that would leave less than this much health kills (the
+2026-10-31a floor, so every hit the floor held at 1.0 kills instead).}
 float Property RefusalLogEvery = 10.0 AutoReadOnly
 {The plugin asks again a second after a no: one line per actor and reason this often.}
 
@@ -94,6 +111,8 @@ float[] pushedX
 float[] pushedY
 float[] pushedZ
 float[] pushedAt
+bool[] pushedKill
+float[] pushedXp
 int pushedNext = 0
 
 Function Remember()
@@ -112,13 +131,15 @@ Function Remember()
 		refusedKeys = new string[4]
 		refusedAt = new float[4]
 	endif
-	if !pushed || pushed.Length != 4
+	if !pushed || pushed.Length != 4 || !pushedKill
 		pushed = new Actor[4]
 		pushedNames = new string[4]
 		pushedX = new float[4]
 		pushedY = new float[4]
 		pushedZ = new float[4]
 		pushedAt = new float[4]
+		pushedKill = new bool[4]
+		pushedXp = new float[4]
 		pushedNext = 0
 	endif
 EndFunction
@@ -158,7 +179,7 @@ Function StartRide()
 	lastHit = CMB_RamHit.GetValue() as int
 	CMB_RamOk.SetValue(0.0)
 	if CMB_RamEnemies.GetValue() > 0.0
-		Log("Ram: on from " + ((CMB_RamMinSpeed.GetValue() + 0.5) as int) + " a second, " + ((CMB_RamDamage.GetValue() + 0.5) as int) + "% of their health.")
+		Log("Ram: on from " + ((CMB_RamMinSpeed.GetValue() + 0.5) as int) + " a second, " + ((CMB_RamDamage.GetValue() + 0.5) as int) + "% of their health, " + Ternary(Kills(), "the last of it a kill (the player's)", "never the last of it") + ".")
 	else
 		Log("Ram: off (the MCM).")
 	endif
@@ -420,8 +441,10 @@ Function ClearStamps()
 EndFunction
 
 ; The push first (it can't wait), away from the rider: harder the faster the bike, force 3 at
-; CMB_RamMinSpeed rising to 8 at 900, never over 10. Then a little damage, never the last of
-; its health. (Test 40: the bike losing speed at the hit is the plugin's.)
+; CMB_RamMinSpeed rising to 8 at 900, never over 10. Then a little damage: never the last of
+; its health with CMB_RamKills off (2026-10-31a); with it on (the default), a hit that would leave
+; under KillBelow kills it, the player the killer (test 47). (Test 40: the bike losing speed at the
+; hit is the plugin's.)
 Function KnockOver(int aiAsk)
 	Actor target = None
 	string name = ""
@@ -455,23 +478,31 @@ Function KnockOver(int aiAsk)
 	if force > MaxForce
 		force = MaxForce
 	endif
+	int slot = -1
 	if PushMeasureAfter > 0.0
 		; Test 43: where it stood, for the measurement (MeasurePushes).
-		pushed[pushedNext] = target
-		pushedNames[pushedNext] = name
-		pushedX[pushedNext] = target.GetPositionX()
-		pushedY[pushedNext] = target.GetPositionY()
-		pushedZ[pushedNext] = target.GetPositionZ()
-		pushedAt[pushedNext] = Utility.GetCurrentRealTime()
+		slot = pushedNext
+		pushed[slot] = target
+		pushedNames[slot] = name
+		pushedX[slot] = target.GetPositionX()
+		pushedY[slot] = target.GetPositionY()
+		pushedZ[slot] = target.GetPositionZ()
+		pushedAt[slot] = Utility.GetCurrentRealTime()
+		pushedKill[slot] = false
+		pushedXp[slot] = -1.0
 		pushedNext = (pushedNext + 1) % pushed.Length
 	endif
 	PlayerRef.PushActorAway(target, force)
 	; The damage: CMB_RamDamage percent of its max health at 900, times speed / 900 held to
-	; 0.5-1.5, so 5% at the slowest and 15% at 1350 or faster with the default 10.
+	; 0.5-1.5, so 5% at the slowest and 15% at 1350 or faster with the default 10. Test 47: with
+	; CMB_RamKills on, a hit that would leave under KillBelow kills it, the player the killer;
+	; off, never the last of its health (2026-10-31a).
 	float hp = target.GetValue(Health)
 	float fraction = target.GetValuePercentage(Health)
 	float damage = 0.0
-	if fraction > 0.0 && hp > 1.0
+	bool kill = false
+	bool kills = Kills()
+	if fraction > 0.0 && (hp > 1.0 || (kills && hp > 0.0))
 		float share = speed / FullSpeed
 		if share < 0.5
 			share = 0.5
@@ -479,10 +510,22 @@ Function KnockOver(int aiAsk)
 			share = 1.5
 		endif
 		damage = hp / fraction * CMB_RamDamage.GetValue() / 100.0 * share
-		if damage > hp - 1.0
+		if kills && damage > 0.0 && hp - damage < KillBelow
+			kill = true
+		elseif damage > hp - 1.0
 			damage = hp - 1.0
 		endif
-		if damage > 0.0
+		if kill
+			float xp = -1.0
+			if Experience
+				xp = PlayerRef.GetValue(Experience)
+			endif
+			target.Kill(PlayerRef)
+			if slot >= 0
+				pushedKill[slot] = true
+				pushedXp[slot] = xp
+			endif
+		elseif damage > 0.0
 			target.DamageValue(Health, damage)
 		else
 			damage = 0.0
@@ -491,7 +534,32 @@ Function KnockOver(int aiAsk)
 	knocked[knockedNext] = target
 	knockedAt[knockedNext] = Utility.GetCurrentRealTime()
 	knockedNext = (knockedNext + 1) % knocked.Length
-	Log("Ram: " + name + " knocked over at " + ((speed + 0.5) as int) + " a second (ask " + aiAsk + "): force " + Tenths(force) + ", " + Tenths(damage) + " damage, health " + Tenths(hp) + " -> " + Tenths(hp - damage) + ".")
+	if kill
+		Log("Ram: " + name + " knocked over at " + ((speed + 0.5) as int) + " a second (ask " + aiAsk + "): force " + Tenths(force) + ", the hit's " + Tenths(damage) + " damage takes the last of its health (" + Tenths(hp) + "): killed, the player the killer" + ProtectedNote(target) + ".")
+	else
+		Log("Ram: " + name + " knocked over at " + ((speed + 0.5) as int) + " a second (ask " + aiAsk + "): force " + Tenths(force) + ", " + Tenths(damage) + " damage, health " + Tenths(hp) + " -> " + Tenths(hp - damage) + ".")
+	endif
+EndFunction
+
+; Test 47: the MCM's "Knock-overs can kill" (an older ESP: off).
+bool Function Kills()
+	return CMB_RamKills && CMB_RamKills.GetValue() > 0.0
+EndFunction
+
+; Test 47: a protected actor dies to the player's own blows, so to this kill too (the log says so).
+string Function ProtectedNote(Actor akTarget)
+	ActorBase base = akTarget.GetLeveledActorBase()
+	if base && base.IsProtected()
+		return " (protected: the game lets the player kill it)"
+	endif
+	return ""
+EndFunction
+
+string Function Ternary(bool abCondition, string asYes, string asNo)
+	if abCondition
+		return asYes
+	endif
+	return asNo
 EndFunction
 
 ; Test 43: each push PushMeasureAfter old or more (abNow: every one still waiting, at the ride's
@@ -511,10 +579,34 @@ Function MeasurePushes(bool abNow)
 			float dy = target.GetPositionY() - pushedY[i]
 			float dz = target.GetPositionZ() - pushedZ[i]
 			float moved = Math.Sqrt(dx * dx + dy * dy + dz * dz)
-			Log("Ram: " + pushedNames[i] + " " + Tenths(now - pushedAt[i]) + " s after the push: moved " + ((moved + 0.5) as int) + " units.")
+			Log("Ram: " + pushedNames[i] + " " + Tenths(now - pushedAt[i]) + " s after the push: moved " + ((moved + 0.5) as int) + " units" + DeathNote(target, pushedKill[i], pushedXp[i]) + ".")
 		endif
 		i += 1
 	endwhile
+EndFunction
+
+; Test 47: whether the pushed actor is dead now, and who killed it (the dogs of test 47 "seemed to
+; work": nothing logged whether the bike or a shot did it); after the bike's kill, the player's
+; experience then and now (-1: Experience not filled).
+string Function DeathNote(Actor akTarget, bool abKilled, float afXpBefore)
+	if !akTarget.IsDead()
+		if abKilled
+			return "; NOT dead after Kill (health " + Tenths(akTarget.GetValue(Health)) + ")"
+		endif
+		return ""
+	endif
+	string who = "nobody"
+	Actor killer = akTarget.GetKiller()
+	if killer == PlayerRef
+		who = "the player"
+	elseif killer
+		who = "someone else"
+	endif
+	string note = "; dead, the killer " + who
+	if abKilled && afXpBefore >= 0.0 && Experience
+		note += ", the player's experience " + Tenths(afXpBefore) + " -> " + Tenths(PlayerRef.GetValue(Experience))
+	endif
+	return note
 EndFunction
 
 ; A value of 0 or more to one decimal ("12.5"): Papyrus prints floats with six decimals.

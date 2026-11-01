@@ -1,6 +1,6 @@
 {
  "version": 1,
- "about": "The bike's materials (since the 2026-10-31a build; one per shape, the needle's too since its blade glows). harley_meshes.py reads each material's labels and shader keys (shader, cube, env_scale, smoothness, spec_colour, spec_mult, emit, alpha, two_sided, cast_shadows_worn, cast_shadows_parked) into the nifs' shader blocks; bike_textures.py reads the rest: texture sizes, which surface each piece material (and glTF mesh, surface_overrides) gets, the surfaces' looks (surface_types: colours sRGB hex, spec = _s red, smooth = _s green, both 0..1) and the art files of the fixed-UV labels, and writes Textures/CMB/Bike/<mat>_{d,n,s[,g]}.dds and Materials/CMB/Bike/<mat>.bgsm (parked; none for the lit overlays the parked nif leaves out) and <mat>_worn.bgsm. Cubes: CH MetalChrome01Cube_e, DI mipblur_DefaultOutside1_dielectric, GL shinyglass_e (vanilla), MR our mirror_cube_e.",
+ "about": "The bike's materials (since the 2026-10-31a build; one per shape, the needle's too since its blade glows). harley_meshes.py reads each material's labels and shader keys (shader, cube, env_scale, smoothness, spec_colour, spec_mult, emit, alpha, two_sided, cast_shadows_worn, cast_shadows_parked, textures_of) into the nifs' shader blocks; bike_textures.py reads the rest: texture sizes, which surface each piece material (and glTF mesh, surface_overrides) gets, the surfaces' looks (surface_types: colours sRGB hex, spec = _s red, smooth = _s green, both 0..1) and the art files of the fixed-UV labels (\"textures_of\": another material's texture set, as the rear brake disc names the front's; since the 2026-11-01a build), and writes Textures/CMB/Bike/<mat>_{d,n,s[,g]}.dds and Materials/CMB/Bike/<mat>.bgsm (parked; none for the lit overlays the parked nif leaves out) and <mat>_worn.bgsm. Cubes: CH MetalChrome01Cube_e, DI mipblur_DefaultOutside1_dielectric, GL shinyglass_e (vanilla), MR our mirror_cube_e.",
  "materials": {
   "static_paint": {"labels": ["static_paint"], "shader": "env", "size": 2048, "s_size": 1024, "cube": "DI", "env_scale": 0.5,
    "smoothness": 1.0, "spec_colour": [1.0, 1.0, 1.0], "spec_mult": 1.0, "emit": null, "alpha": null, "two_sided": true,
@@ -70,16 +70,16 @@
    "emit": {"colour": [1.0, 0.86, 0.66], "mult": 1.5, "glow_map": true}, "alpha": null, "two_sided": true,
    "cast_shadows_worn": false, "cast_shadows_parked": true,
    "art": {"d": "front_dial_d.png", "n": "front_dial_n.png", "s": "front_dial_s.png", "g": "front_dialglow_g.png"}},
-  "front_mirrorStock": {"labels": ["front_mirrorStock"], "shader": "env", "size": 512, "s_size": 512, "cube": "MR", "env_scale": 1.5,
+  "front_mirrorStock": {"labels": ["front_mirrorStock"], "shader": "env", "size": 512, "s_size": 512, "cube": "MR", "env_scale": 2.0,
    "smoothness": 1.0, "spec_colour": [1.0, 1.0, 1.0], "spec_mult": 1.0, "emit": null, "alpha": null, "two_sided": true,
    "cast_shadows_worn": false, "cast_shadows_parked": true, "surfaces": {"black_m": "mirror_housing", "gum": "mirror_housing",
    "chrome": "mirror_glass", "mirror": "mirror_glass"}},
   "front_mirrorUnderEgg": {"labels": ["front_mirrorUnderEgg"], "shader": "env", "size": 512, "s_size": 512, "cube": "MR",
-   "env_scale": 1.5, "smoothness": 1.0, "spec_colour": [1.0, 1.0, 1.0], "spec_mult": 1.0, "emit": null, "alpha": null,
+   "env_scale": 2.0, "smoothness": 1.0, "spec_colour": [1.0, 1.0, 1.0], "spec_mult": 1.0, "emit": null, "alpha": null,
    "two_sided": true, "cast_shadows_worn": false, "cast_shadows_parked": true,
    "surfaces": {"black_m": "mirror_housing", "mirror": "mirror_glass"}},
   "front_mirrorUnderD": {"labels": ["front_mirrorUnderD"], "shader": "env", "size": 512, "s_size": 512, "cube": "MR",
-   "env_scale": 1.5, "smoothness": 1.0, "spec_colour": [1.0, 1.0, 1.0], "spec_mult": 1.0, "emit": null, "alpha": null,
+   "env_scale": 2.0, "smoothness": 1.0, "spec_colour": [1.0, 1.0, 1.0], "spec_mult": 1.0, "emit": null, "alpha": null,
    "two_sided": true, "cast_shadows_worn": false, "cast_shadows_parked": true,
    "surfaces": {"black_m": "mirror_housing", "mirror": "mirror_glass"}},
   "fork_chrome": {"labels": ["fork_chrome"], "shader": "env", "size": 1024, "s_size": 1024, "cube": "CH", "env_scale": 1.0,
@@ -109,7 +109,15 @@
    "cast_shadows_worn": false, "cast_shadows_parked": true, "surfaces": {"black_m": "rim", "chrome": "chrome"}},
   "wheelR_rim": {"labels": ["wheelR_rim"], "shader": "env", "size": 1024, "s_size": 1024, "cube": "DI", "env_scale": 0.4,
    "smoothness": 1.0, "spec_colour": [1.0, 1.0, 1.0], "spec_mult": 1.0, "emit": null, "alpha": null, "two_sided": true,
-   "cast_shadows_worn": true, "cast_shadows_parked": true, "surfaces": {"black_m": "rim", "chrome": "chrome"}}
+   "cast_shadows_worn": true, "cast_shadows_parked": true, "surfaces": {"black_m": "rim", "chrome": "chrome"}},
+  "wheelF_disc": {"labels": ["wheelF_disc"], "shader": "env", "size": 1024, "s_size": 1024, "cube": "DI", "env_scale": 0.4,
+   "smoothness": 1.0, "spec_colour": [1.0, 1.0, 1.0], "spec_mult": 1.0, "emit": null, "alpha": null, "two_sided": false,
+   "cast_shadows_worn": false, "cast_shadows_parked": true,
+   "art": {"d": "wheel_disc_d.png", "n": "wheel_disc_n.png", "s": "wheel_disc_s.png"}},
+  "wheelR_disc": {"labels": ["wheelR_disc"], "shader": "env", "size": 1024, "s_size": 1024, "cube": "DI", "env_scale": 0.4,
+   "smoothness": 1.0, "spec_colour": [1.0, 1.0, 1.0], "spec_mult": 1.0, "emit": null, "alpha": null, "two_sided": false,
+   "cast_shadows_worn": true, "cast_shadows_parked": true, "textures_of": "wheelF_disc",
+   "art": {"d": "wheel_disc_d.png", "n": "wheel_disc_n.png", "s": "wheel_disc_s.png"}}
  },
  "surface_overrides": {
   "97": "engine", "103": "engine", "45": "engine", "85": "powder_black", "3": "engine", "40": "engine_cover", "16": "engine_cover",
@@ -120,7 +128,7 @@
  "surface_types": {
   "paint": {"kind": "paint", "colour": "7a1118", "spec": 0.5, "smooth": 0.88, "ao": 0.85, "dust": 0.03, "vary": 0.012,
    "flake": 0.03, "detail": {"type": "noise", "scale": 2.5, "amp": 0.012},
-   "pinstripe": {"colour": "c8a860", "width": 0.16, "inset": 2.6, "gap": 0.55, "spec": 0.45, "smooth": 0.86, "meshes": [13]}},
+   "pinstripe": {"colour": "c8a860", "width": 0.26, "inset": 2.6, "gap": 0.55, "radius": 1.0, "spec": 0.45, "smooth": 0.86, "meshes": [13]}},
   "chrome": {"kind": "chrome", "colour": "3a3c40", "spec": 0.96, "smooth": 0.93, "ao": 0.7, "ao_spec": 0.6, "dust": 0.03,
    "vary": 0.01, "detail": {"type": "noise", "scale": 0.6, "amp": 0.006}},
   "exhaust": {"kind": "chrome", "colour": "3a3c40", "spec": 0.96, "smooth": 0.92, "ao": 0.7, "ao_spec": 0.6, "dust": 0.03,
@@ -181,7 +189,7 @@
    "vary": 0.0, "detail": {"type": "none"}},
   "led": {"kind": "satin", "colour": "eef3ff", "spec": 0.4, "smooth": 0.9, "ao": 0.3, "ao_spec": 0.3, "dust": 0.0,
    "vary": 0.0, "detail": {"type": "none"}},
-  "mirror_glass": {"kind": "mirror", "colour": "08090a", "spec": 1.0, "smooth": 1.0, "bake_normals": false, "ao": 0.0, "ao_spec": 0.0, "dust": 0.0,
+  "mirror_glass": {"kind": "mirror", "colour": "6e7276", "spec": 1.0, "smooth": 1.0, "bake_normals": false, "ao": 0.0, "ao_spec": 0.0, "dust": 0.0,
    "vary": 0.0, "density": 2.0, "detail": {"type": "none"}},
   "mirror_housing": {"kind": "satin", "colour": "141416", "spec": 0.06, "smooth": 0.72, "ao": 0.8, "ao_spec": 0.6,
    "dust": 0.02, "vary": 0.01, "detail": {"type": "noise", "scale": 0.08, "amp": 0.02}}

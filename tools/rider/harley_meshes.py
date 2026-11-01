@@ -16,6 +16,10 @@ What it writes (the same four files build_bike_meshes.py does, see there for why
                           character's origin)
   CMB_BikeWornRider.nif   the same hanging off the rider's COM (with --seat; F for the female
   CMB_BikeWornRiderF.nif  rider)
+  CMB_BikeView.nif        (since the 2026-11-01a build; --view 0 leaves it out) the bike in first
+                          person: the worn nif's shapes unskinned, in full precision, under a hidden
+                          NiNode CMB_BikeView, no collision; the plugin shows and places a
+                          script-placed copy of it in first person, where the game hides the worn one
   Textures/CMB/CMB_Bike_d/_n/_s.dds     with --uvs none only (the fallback build): palette
                           textures, each material one block of a 256x8 strip (no mipmaps, so
                           blocks never blend at a distance), every vertex's UV at its
@@ -46,8 +50,12 @@ there within the cap keeps more, so the default 90000 comes out at about 225k tr
 are kept whole, and only the specks under SPECK_AREA are dropped). Each corner's shading normal
 is the glTF's own (at the closest point of its piece's surface where the piece was cut down),
 a vertex split in two or more where its corners' normals part, so the model's hard edges stay
-hard and its curves round (gltf_normals; the wheels' brake discs keep the averaged normals).
-The parts go into 28 shapes (LABELS), by what moves them (role_of: the fixed bike; the bar
+hard and its curves round (gltf_normals). Since the 2026-11-01a build a closed piece the cut
+crushed (under 0.6 of its volume kept: the seat's piping cord) is cut again at twice its share
+till it keeps 0.8 (the volume guard, --volume-guard 0 for 2026-10-31a's cut), and the brake
+discs are the mod's own drilled discs (bike_pieces.disc_pieces, --disc model for the model's,
+whose dented plates shade by the averaged normals).
+The parts go into 30 shapes (LABELS; 28 with --disc model), by what moves them (role_of: the fixed bike; the bar
 assembly, "front": the bars, grips, levers, mirrors, the fork tubes, both triple clamps, the
 speedometer and the headlamp, which the plugin turns about the steering axis with the rider's
 steering; the fork's lower end, "fork": the sliders, the front mudguard, the brake caliper, the
@@ -56,8 +64,8 @@ wheel's suspension travel, so the mudguard stays over the tyre and the axle in t
 and the two wheels, which spin) and then by what they are (label_of, by the glTF mesh a piece
 came from, else its material): one shape per surface that wants its own shader and texture set
 (the paint, chrome, exhaust, engine, black, seat, glass and badge of the fixed bike; chrome,
-black, glass and the lamp's lit parts at the bars; the tyre with its disc and the rim of each
-wheel) and one per thing the plugin moves or lights on its own (the speedometer needle, the
+black, glass and the lamp's lit parts at the bars; the tyre with its hub, the rim and the brake
+disc of each wheel) and one per thing the plugin moves or lights on its own (the speedometer needle, the
 dial's backlight, the tail and brake light shells over the red lens, each mirror variant).
 A shape's name is <stem>_<label> and says its role (static_, rear_, front_, fork_, wheelF_,
 wheelR_; the plugin reads the role from the name first and from the culling sphere
@@ -74,18 +82,22 @@ and takes each shape's shader values from bike_materials.json (see BUILD STAGES)
       [--seat <Data>/Meshes/Actors/Character/Animations/MT/CMB_Rider] [--tris 90000] [--body 7a1118]
       [--sit 0.27] [--grip 29.4,-10.7,96] [--peg 19,6,27]
       [--stage export|build --stage-dir S] [--materials bike_materials.json] [--uvs none|stage] [--bgsm 0|1]
+      [--volume-guard 1|0] [--disc ours|model] [--view 1|0]
 
 BUILD STAGES (build_bike.sh runs them): with no --stage, the fallback build (--uvs none): palette
 textures, no materials files (the 27c way). The textured build is three steps: --stage export
 writes the finished shapes (S/manifest.json and S/shapes/<label>.npz, in the parked frame: the
 positions after the normal split, the triangles as written, each triangle's material, glTF mesh
-and piece, and the fixed UVs of the dial, needle, badge and light shells); bike_textures.py
+and piece, and the fixed UVs of the dial, needle, badge, light shells and discs; a shape's file is rewritten only when
+its arrays changed, so the texture stage's caches keep what didn't); bike_textures.py
 unwraps them and bakes their textures and materials, returning S/uv/<label>.npz (a UV per
 triangle corner); --stage build makes the same shapes again (they must match the export), splits
 each vertex where its corners' UVs differ (the seams) and writes the nifs naming
 Materials\\CMB\\Bike\\<mat>_worn.bgsm (worn) and <mat>.bgsm (parked), with the same values and
-textures in the nif's own shader block (so the bike looks the same if the materials are
-missing). --bgsm 0 writes empty material names (the shader block alone, as 27c).
+textures in the nif's own shader block. The game reads the named file and doesn't fall back to
+the block when it is missing (test 47: the bike went magenta), so the materials files must ship
+with the meshes; the block's values serve tools and --bgsm 0, which writes empty material names
+(the shader block alone, as 27c).
 
 The rider sits --sit of the way along the seat from its front edge (0.27: snug behind the
 tank, as on the real thing, which keeps the long reach to the bars within arm's length even
@@ -124,6 +136,7 @@ HIPS_Y_WORN = -5.0       # the middle of the buttocks zone riding_anims.py seats
 GROUND_FOOT_L = [-30.0, 6.0, 0.0]   # the left foot at a stop, as for the vanilla bike (this one is as wide)
 MODEL_NAME = "Harley Davidson Iron 883 2015 by Nieve5677 (CC-BY-4.0)"
 BIKE_BONE = "AnimObjectA"
+VIEW_NODE = "CMB_BikeView"   # the view nif's hidden node and its shapes' stem ([View] Node in CMB_Slope.ini)
 PALETTE_W, PALETTE_H, BLOCK = 256, 8, 8   # 32 blocks of 8x8 (19 used)
 PALETTE = "CMB_Bike"   # textures\CMB\CMB_Bike_d/_n/_s.dds: the fallback build's (27c's had another stem)
 
@@ -183,10 +196,16 @@ LABELS = (
     ("front_dial", "front"), ("front_dialglow", "front"), ("front_needle", "front"),
     ("front_mirrorStock", "front"), ("front_mirrorUnderEgg", "front"), ("front_mirrorUnderD", "front"),
     ("fork_chrome", "fork"), ("fork_paint", "fork"), ("fork_black", "fork"), ("fork_glass", "fork"),
-    ("wheelF_tyre", "wheelF"), ("wheelF_rim", "wheelF"), ("wheelR_tyre", "wheelR"), ("wheelR_rim", "wheelR"),
+    ("wheelF_tyre", "wheelF"), ("wheelF_rim", "wheelF"), ("wheelF_disc", "wheelF"),
+    ("wheelR_tyre", "wheelR"), ("wheelR_rim", "wheelR"), ("wheelR_disc", "wheelR"),
 )
 ROLE_OF_LABEL = dict(LABELS)
-FIXED_UV = ("static_badge", "rear_tail", "rear_brake", "front_dial", "front_dialglow", "front_needle")   # our art's layout
+# Since the 2026-11-01a build the brake discs are our own (bike_pieces.disc_pieces), each its own shape: --disc model
+# leaves these two out and keeps the model's discs in the tyres' shapes (2026-10-31a's 28).
+DISC_LABELS = ("wheelF_disc", "wheelR_disc")
+DISC_MESHES = (78, 100)             # the model's brake discs (front, rear): their plates, the silver pieces not small
+FIXED_UV = ("static_badge", "rear_tail", "rear_brake", "front_dial", "front_dialglow", "front_needle",
+            "wheelF_disc", "wheelR_disc")   # our art's layout
 WORN_ONLY = ("rear_tail", "rear_brake", "front_dialglow")   # lit overlays: the parked bike shows the plain lens and dial
 PARKED_HIDDEN = ("front_mirrorUnderEgg", "front_mirrorUnderD")   # variants: in the parked nif, hidden by the node flag
 MIRROR_VARIANTS = ("front_mirrorStock", "front_mirrorUnderEgg", "front_mirrorUnderD")
@@ -327,9 +346,10 @@ DEFAULT_SHADERS = {
     "front_mirrorStock": _ENV("MR", 1.5), "front_mirrorUnderEgg": _ENV("MR", 1.5), "front_mirrorUnderD": _ENV("MR", 1.5),
     "fork_chrome": _ENV("CH", 1.0), "fork_paint": _ENV("DI", 0.5), "fork_black": {}, "fork_glass": {**_ENV("GL", 1.0), **_GLASS},
     "wheelF_tyre": _ENV("DI", 0.25), "wheelR_tyre": _ENV("DI", 0.25), "wheelF_rim": _ENV("DI", 0.4), "wheelR_rim": _ENV("DI", 0.4),
+    "wheelF_disc": _ENV("DI", 0.4), "wheelR_disc": _ENV("DI", 0.4),
 }
 SHADER_BASE = dict(shader="default", cube=None, env_scale=1.0, smoothness=1.0, spec_colour=(1.0, 1.0, 1.0), spec_mult=1.0,
-                   emit=None, alpha=None, two_sided=True)
+                   emit=None, alpha=None, two_sided=True, textures_of=None)
 
 
 # --- glTF --------------------------------------------------------------------------------
@@ -464,7 +484,7 @@ def components(n, f):
 
 
 def decimate(groups, normals, total_target, speck_area=SPECK_AREA, small_area=SMALL_AREA, min_tris=8, weight=None, role=None,
-             sources=None):
+             sources=None, guard=False, shape_of=None, guard_report=None):
     """Cut the model down, each connected piece towards its share of total_target triangles by
     surface area: so a tyre keeps its shape while a bolt gets a few triangles, instead of the
     thousands of small pieces of one material (tread blocks, bolts, cables) starving the big
@@ -480,7 +500,8 @@ def decimate(groups, normals, total_target, speck_area=SPECK_AREA, small_area=SM
     Returns (material, verts, tris, small, source, mesh) per piece: small if it's under small_area,
     source the piece as it was with its glTF corner normals (verts, tris, normals), for
     gltf_normals(), mesh the glTF mesh most of its triangles came from (with sources, what
-    load_gltf filled; else -1)."""
+    load_gltf filled; else -1). With guard (the volume guard, since the 2026-11-01a build), a closed piece the cut
+    crushed is cut again (volume_guard(); shape_of and guard_report are its)."""
     import fast_simplification as fs
     pieces = []   # (material, verts, tris, area, corner normals, glTF mesh)
     dropped = dropped_area = 0
@@ -518,6 +539,7 @@ def decimate(groups, normals, total_target, speck_area=SPECK_AREA, small_area=SM
         free &= ~done
     budget = np.maximum(np.minimum(budget, counts), np.minimum(min_tris, counts)).astype(int)
     result = []
+    cut = []   # (index in result, its share, its error cap): the pieces the simplifier cut, for the volume guard
     kept = held = over = painted = bright = fine = 0
     for (name, v, f, area, n0, mesh), b in zip(pieces, budget):
         v0, f0 = v, f
@@ -542,6 +564,7 @@ def decimate(groups, normals, total_target, speck_area=SPECK_AREA, small_area=SM
             if len(f) > b * 1.05:
                 held += 1
                 over += len(f) - b
+            cut.append((len(result), int(b), agg))
         result.append((name, v, f, area < small_area, (v0, f0, n0), mesh))
     got = sum(len(r[2]) for r in result)
     print(f"  {len(pieces)} pieces kept ({sum(p[3] < small_area for p in pieces)} of them under {small_area:g} units²), "
@@ -554,7 +577,95 @@ def decimate(groups, normals, total_target, speck_area=SPECK_AREA, small_area=SM
     for name, (v, f) in groups.items():
         if name in per:
             print(f"  {name:12s} {len(f):8d} -> {per[name]:6d} tris")
+    if guard or guard_report is not None:   # off, it only measures (the manifest's volumes: check_bike_meshes fails them)
+        volume_guard(result, cut, shape_of, guard_report, recut=guard)
     return result
+
+
+# The volume guard (since the 2026-11-01a build; --volume-guard 0 is 2026-10-31a's cut, byte for byte). Test 47: the
+# seat's piping cord (glTF mesh 25's second piece, a closed 0.5 x 0.15 tube along the seam) was cut from 2,368 to 210
+# triangles and kept 0.34 of its volume: it stood out of the seat as fins at random angles, "textures in the air".
+# The same audit over all 775 pieces found two more crushed closed pieces (static_black's glTF 46, 0.21; static_engine's
+# glTF 45, 0.32); every other closed piece keeps 0.62 or more. A closed piece of at least VOLUME_MIN that keeps under
+# VOLUME_KEEP of its volume is cut again from the source at twice its target, and again, until it keeps VOLUME_OK (or
+# the target reaches its source's count: then it's kept whole). A re-cut that would take its shape past
+# VOLUME_SHAPE_CAP vertices in the nifs is not made (logged): the decimation's welded vertices grow by up to
+# VOLUME_SEAM_GROWTH by the time the normal and UV seams are split (2026-10-31a's shapes: 1.69 to 2.14, static_black
+# 2.09), which keeps every shape well under MAX_VERTS.
+VOLUME_MIN = 0.05            # closed pieces of at least this volume (units cubed) are guarded
+VOLUME_KEEP = 0.6            # cut again if the simplified piece keeps less than this share of its volume
+VOLUME_OK = 0.8              # until it keeps this share
+VOLUME_SHAPE_CAP = 55000     # a shape's vertices in the nifs (after the seams) a re-cut may take it to, at most
+VOLUME_SEAM_GROWTH = 2.25    # the nif's vertices per welded vertex of the decimation, at most (2.14 measured, a margin)
+
+
+def volume_guard(result, cut, shape_of=None, report=None, recut=True):
+    """decimate()'s second pass: the cut pieces that are closed in the source and of at least VOLUME_MIN cubic units,
+    and keep under VOLUME_KEEP of their volume, cut again from the source at twice their target until they keep
+    VOLUME_OK (or kept whole), unless that takes their shape (shape_of(material, verts, mesh), the label) past
+    VOLUME_SHAPE_CAP. result's entries are replaced in place. report (a dict) gets "volume_guard": the pieces re-cut
+    [{piece, mesh, material, label, from, to, share_from, share}] and "volumes": every closed cut piece guarded or not
+    [{piece, mesh, label, src_tris, tris, share}] (check_bike_meshes reads both). recut False (--volume-guard 0) only
+    measures: result is left as it is."""
+    import fast_simplification as fs
+    welded = {}
+    labels = {}
+    for i, (name, v, f, small, source, mesh) in enumerate(result):
+        labels[i] = shape_of(name, v, mesh) if shape_of else ""
+        welded[labels[i]] = welded.get(labels[i], 0) + len(v)
+    guarded, volumes, stopped = [], [], 0
+    for i, b, agg in cut:
+        name, v, f, small, source, mesh = result[i]
+        v0, f0, n0 = source
+        vol0 = closed_volume(v0, f0)
+        if vol0 is None or abs(vol0) < VOLUME_MIN:
+            continue
+        share0 = share = abs(closed_volume(v, f, closed=True)) / abs(vol0)
+        label = labels[i]
+        tgt, tris0 = b, len(f)
+        while recut and share < VOLUME_OK and share0 < VOLUME_KEEP:
+            tgt *= 2
+            if tgt >= len(f0):
+                nv, nf = v0, f0
+            else:
+                vo, fo = fs.simplify(v0, f0, target_count=tgt, agg=agg)
+                nv, nf = np.asarray(vo, dtype=np.float64), np.asarray(fo, dtype=np.int64)
+                nv = snap_border(nv, nf, v0, f0)
+            after = welded[label] - len(v) + len(nv)
+            if after * VOLUME_SEAM_GROWTH > VOLUME_SHAPE_CAP:
+                stopped += 1
+                print(f"  volume guard: glTF mesh {mesh} {name} ({label}): not cut again at {len(nf)} triangles, which "
+                      f"would take {label} to about {after * VOLUME_SEAM_GROWTH:.0f} vertices (over {VOLUME_SHAPE_CAP}); "
+                      f"kept at {len(f)} triangles, volume share {share:.2f}")
+                break
+            welded[label] = after
+            v, f = nv, nf
+            share = abs(closed_volume(v, f, closed=True)) / abs(vol0)
+            if tgt >= len(f0):
+                break
+        if len(f) != tris0:
+            result[i] = (name, v, f, small, source, mesh)
+            guarded.append(dict(piece=i, mesh=int(mesh), material=name, label=label, **{"from": tris0}, to=len(f),
+                                share_from=round(share0, 4), share=round(share, 4)))
+            print(f"  volume guard: glTF mesh {mesh} {name} ({label}): {tris0} -> {len(f)} triangles (share of the "
+                  f"budget {b}), volume {abs(closed_volume(v, f, closed=True)):.3f} of {abs(vol0):.3f} "
+                  f"({share0:.2f} -> {share:.2f})")
+        volumes.append(dict(piece=i, mesh=int(mesh), label=label, src_tris=len(f0), tris=len(f), share=round(share, 4)))
+    print(f"  volume guard{'' if recut else ' (off: measured only)'}: {len(volumes)} closed pieces cut, {len(guarded)} cut again (+"
+          f"{sum(g['to'] - g['from'] for g in guarded)} triangles), {stopped} stopped by the shapes' vertex cap; the least "
+          f"volume kept {min([x['share'] for x in volumes] or [1.0]):.2f}")
+    if report is not None:
+        report["volume_guard"] = guarded
+        report["volumes"] = volumes
+
+
+def closed_volume(v, f, closed=False):
+    """The enclosed volume of a closed piece (None if it has open edges, unless closed)."""
+    if not closed and len(border_vertices(f)):
+        return None
+    c = v.mean(axis=0)
+    a, b_, d = v[f[:, 0]] - c, v[f[:, 1]] - c, v[f[:, 2]] - c
+    return float(np.einsum("ij,ij->i", a, np.cross(b_, d)).sum() / 6.0)
 
 
 def border_vertices(f):
@@ -1007,7 +1118,7 @@ def write_palette(folder: Path, order, body):
 
 
 SHADER_KEYS = ("shader", "cube", "env_scale", "smoothness", "spec_colour", "spec_mult", "emit", "alpha", "two_sided",
-               "cast_shadows_worn", "cast_shadows_parked")
+               "cast_shadows_worn", "cast_shadows_parked", "textures_of")
 
 
 def cube_path(cube):
@@ -1050,8 +1161,9 @@ def load_shaders(path):
 
 def texture_paths(spec, mat, worn, palette):
     """A shape's texture set: its material's own (textures\\CMB\\Bike\\<mat>_d/_n/_s, _g when it
-    glows by a glow map on the riding bike) or the fallback build's palette, and its cube map."""
-    base = f"textures\\CMB\\{PALETTE}" if palette else f"textures\\CMB\\Bike\\{mat}"
+    glows by a glow map on the riding bike; another material's with "textures_of", as the rear disc the front's) or the
+    fallback build's palette, and its cube map."""
+    base = f"textures\\CMB\\{PALETTE}" if palette else f"textures\\CMB\\Bike\\{spec.get('textures_of') or mat}"
     t = {"Diffuse": f"{base}_d.dds", "Normal": f"{base}_n.dds", "Specular": f"{base}_s.dds"}
     if worn and not palette and spec["shader"] == "glow" and spec["emit"] and spec["emit"].get("glow_map"):
         t["Glow"] = f"{base}_g.dds"
@@ -1123,7 +1235,7 @@ def shader_setup(shape, base_props, spec, skinned, worn, textures, material=""):
 
 
 def add_shape(nif, name, verts, tris, uvs, normals, base_props, use_type, spec, skinned, worn, textures, material="",
-              bone=None, bind=None, TransformBuf=None):
+              bone=None, bind=None, TransformBuf=None, parent=None):
     props = base_props.copy()
     props.nameID = props.controllerID = props.collisionID = -1
     props.skinInstanceID = props.shaderPropertyID = props.alphaPropertyID = -1
@@ -1133,7 +1245,7 @@ def add_shape(nif, name, verts, tris, uvs, normals, base_props, use_type, spec, 
         # small triangles to nothing (1,325 of test 40's mesh would be). The worn nifs keep
         # half floats until one is tried in game (PyNifly writes them, vertex format 0x45b).
         props.hasFullPrecision = 1
-    new = nif.createShapeFromData(name, verts, tris, uvs, normals, props=props, use_type=use_type)
+    new = nif.createShapeFromData(name, verts, tris, uvs, normals, props=props, use_type=use_type, parent=parent)
     if skinned:
         def buf(m):
             b = TransformBuf()
@@ -1312,6 +1424,16 @@ def main() -> int:
     ap.add_argument("--bgsm", type=int, choices=(0, 1),
                     help="1: each shape names its materials file (the default with --uvs stage); 0: empty names, the "
                          "nif's own shader block alone (27c's way; the default with --uvs none)")
+    ap.add_argument("--volume-guard", type=int, choices=(0, 1), default=1,
+                    help="1 (since the 2026-11-01a build): a closed piece the simplifier crushed (under 0.6 of its volume "
+                         "kept) is cut again at twice its share till it keeps 0.8 (volume_guard); 0: 2026-10-31a's cut")
+    ap.add_argument("--disc", choices=("ours", "model"), default="ours",
+                    help="ours (since the 2026-11-01a build): the brake discs are the mod's own drilled discs "
+                         "(bike_pieces.disc_pieces), shapes wheelF_disc and wheelR_disc in place of the model's plates; "
+                         "model: the model's discs in the tyres' shapes, 2026-10-31a's 28 shapes")
+    ap.add_argument("--view", type=int, choices=(0, 1), default=1,
+                    help="1 (since the 2026-11-01a build): also write CMB_BikeView.nif, the bike in first person (the worn "
+                         "shapes unskinned under a hidden node, which the plugin shows and places); 0: not written")
     args = ap.parse_args()
     grip = np.array([float(t) for t in args.grip.split(",")])
     peg = np.array([float(t) for t in args.peg.split(",")])
@@ -1362,9 +1484,13 @@ def main() -> int:
           f"{parts['rear_axle'][2]:.1f}), radius {parts['wheel_radius']:.1f}, the rim's lip at {parts['rim_radius']:.1f}; steering axis through "
           f"({parts['steer_point'][1]:.1f}, {parts['steer_point'][2]:.1f}) raked {rake:.0f} deg"
           + (f" (from {parts['tubes']} fork tubes)" if "tubes" in parts else " (--steer)"))
-    print(f"decimating: shares of {args.tris} triangles by area (the wheels' pieces at 2.5 times theirs), the error capped:")
+    print(f"decimating: shares of {args.tris} triangles by area (the wheels' pieces at 2.5 times theirs), the error capped"
+          f"{', the volume guard on' if args.volume_guard else ''}:")
+    guard_report = {}
     pieces = decimate(groups, corner_normals, args.tris, weight=lambda v: 2.5 if wheel_of(v, parts) else 1.0,
-                      role=lambda v: role_of(v, parts, raked=False), sources=sources)
+                      role=lambda v: role_of(v, parts, raked=False), sources=sources, guard=bool(args.volume_guard),
+                      shape_of=lambda name, v, mesh: label_of(role_of(v, parts), name, mesh) or "", guard_report=guard_report)
+    labels_built = [(label, role) for label, role in LABELS if args.disc == "ours" or label not in DISC_LABELS]
     seat_front, seat_back = float(seat_v[:, 1].min()), float(seat_v[:, 1].max())
     hips_y = args.seat_at if args.seat_at is not None else seat_front + args.sit * (seat_back - seat_front)
     # The worn bike is turned round and shifted so the hips' spot lands at HIPS_Y_WORN.
@@ -1432,9 +1558,11 @@ def main() -> int:
             if roles[ordinary_of[at]].startswith("wheel"):
                 roles[i] = roles27[i] = roles[ordinary_of[at]]
     started = time.time()
-    collected = {label: [] for label, _ in LABELS}   # (material, verts, tris, normals or None, UVs per vertex or None, glTF mesh, piece)
+    collected = {label: [] for label, _ in labels_built}   # (material, verts, tris, normals or None, UVs per vertex or None, glTF mesh, piece)
     dropped = dropped_ours = guarded = averaged = corners = 0
     dropped_meshes = {}
+    plates = {}   # --disc ours: wheel role -> the model's disc plates replaced [(piece, source verts, tris)]
+    bolts = {}    # and the small silver pieces of the same meshes, the bolts on the disc's carrier (kept): their verts
     raked = []
     dial_tris, tail_lens, signal_lenses, tank_v = [], [], [], []
     for pid, ((name, v, f, small, source, mesh), role, role27) in enumerate(zip(pieces, roles, roles27)):
@@ -1448,6 +1576,11 @@ def main() -> int:
             dropped_meshes[mesh] = dropped_meshes.get(mesh, 0) + len(f)
             dropped_ours += 1
             continue
+        if args.disc == "ours" and mesh in DISC_MESHES and role.startswith("wheel") and name == "silver":
+            if not small:
+                plates.setdefault(role, []).append((pid, source[0], f))   # replaced by our own disc (below)
+                continue
+            bolts.setdefault(role, []).append(source[0])
         if role != role27:
             raked.append((label, mesh, worn_v(v).mean(axis=0)))
         if role.startswith("wheel") and name == "silver" and not small:
@@ -1477,7 +1610,8 @@ def main() -> int:
         if mesh == TANK_MESH:
             tank_v.append((worn_v(v), f))
         collected[label].append((name, v, f, n, None, mesh, pid))
-    print(f"the glTF's normals on {len(pieces) - dropped - dropped_ours - averaged} pieces, the averaged on the wheels' {averaged} silver ones; "
+    n_plates = sum(len(x) for x in plates.values())
+    print(f"the glTF's normals on {len(pieces) - dropped - dropped_ours - averaged - n_plates} pieces, the averaged on the wheels' {averaged} silver ones; "
           f"{guarded} of {corners} corners took the averaged normal (sampled over {NORMAL_GUARD_DEG:g} degrees off their own "
           f"triangle, or none in the file) ({time.time() - started:.0f} s)")
     for mesh, n_tris in sorted(dropped_meshes.items()):
@@ -1502,6 +1636,36 @@ def main() -> int:
     ours += list(BP.lamp_shells(np.concatenate(tail_lens), np.concatenate(signal_lenses), seat_at, flip))
     for style in ("egg", "D"):   # [Look] Mirrors 2 and 3
         ours += list(BP.mirror_under_pieces(style, fit["grip_r"], GRIP_RADIUS, MIRROR_CLAMP, seat_at, flip))
+    # Our brake discs (--disc ours) in place of the model's plates: on the axle the plugin spins the wheel about, in
+    # the plate's x range (its two faces, which the caliper's pads hug: 0.35 apart on the front, 0.32 on the rear), out
+    # to its outer radius about that axle, the bore just inside the bolt heads on its carrier (the bolts stay the
+    # model's, with the tyre's shape; without them, the plate's own least radius).
+    disc_replaced, disc_fit = {}, {}
+    if args.disc == "ours":
+        for role, axle in (("wheelF", "front_axle"), ("wheelR", "rear_axle")):
+            if not plates.get(role):
+                print(f"--disc ours: no disc plate of glTF meshes {DISC_MESHES} found on the {role} wheel", file=sys.stderr)
+                return 1
+            pv = np.vstack([x[1] for x in plates[role]])
+            c = parts[axle]
+            r = np.hypot(pv[:, 1] - c[1], pv[:, 2] - c[2])
+            x0, x1, r_out, r_hub = float(pv[:, 0].min()), float(pv[:, 0].max()), float(r.max()), float(r.min())
+            if bolts.get(role):
+                bv = np.vstack(bolts[role])
+                r_hub = float(np.hypot(bv[:, 1] - c[1], bv[:, 2] - c[2]).min())
+            dv, df, dn, duv = BP.disc_pieces((float(c[1]), float(c[2])), x0, x1, r_out, r_hub, flip)
+            ours.append(("silver", f"{role}_disc", dv, df, dn, duv))
+            meshes_of = {}
+            for pid, sv, sf in plates[role]:
+                m = pieces[pid][5]
+                meshes_of[m] = meshes_of.get(m, 0) + len(sf)
+            for m, n_tris in meshes_of.items():
+                disc_replaced[str(m)] = disc_replaced.get(str(m), 0) + n_tris
+            disc_fit[f"{role}_disc"] = dict(meshes=sorted(meshes_of), x=[round(-x1, 4), round(-x0, 4)], r_out=round(r_out, 4),
+                                            r_hub=round(r_hub, 4), axle_worn=to_worn(c), tris=len(df), verts=len(dv))
+            print(f"  {role}_disc: our drilled disc ({len(df)} triangles, {len(dv)} vertices) for glTF mesh(es) "
+                  f"{sorted(meshes_of)}' plate ({sum(meshes_of.values())} triangles): parked x {x0:.2f}..{x1:.2f}, "
+                  f"r {r_hub:.2f}..{r_out:.2f} about the axle ({c[1]:.2f}, {c[2]:.2f})")
     made = time.time() - started
     next_piece = len(pieces)
     for material, label, v, f, n, uv in ours:
@@ -1524,11 +1688,11 @@ def main() -> int:
         collected[label].append((material, v, f, n, uv, -1, next_piece))
         next_piece += 1
     print(f"ours: {len(ours)} pieces (the speedometer's dial, backlight, needle and hub; the tail and brake light shells; "
-          f"the under-bar mirrors, egg and D) ({made:.0f} s)")
+          f"the under-bar mirrors, egg and D{'; the brake discs' if args.disc == 'ours' else ''}) ({made:.0f} s)")
 
     # The shapes, each its pieces together (the vanilla's winding).
     shapes = {}   # label -> dict(v, f, n, mat, src, piece, uvc (fixed UVs per corner or None), role)
-    for label, role in LABELS:
+    for label, role in labels_built:
         if not collected[label]:
             print(f"the {label} shape has no pieces", file=sys.stderr)
             return 1
@@ -1632,6 +1796,11 @@ def main() -> int:
                         steer_point=[float(x) for x in parts["steer_point"]], steer_axis=[float(x) for x in parts["steer_axis"]],
                         steer_point_worn=to_worn(parts["steer_point"]), steer_axis_worn=steer_axis_worn,
                         bar_angle=args.bar_angle, max_verts=MAX_VERTS, labels={})
+        # Since the 2026-11-01a build: the build flags, the volume guard's work and the discs (check_bike_meshes reads
+        # them: the model's triangles per material may differ from the reference's by exactly these)
+        manifest.update(volume_guard_on=bool(args.volume_guard), disc=args.disc,
+                        volume_guard=guard_report.get("volume_guard", []), volumes=guard_report.get("volumes", []),
+                        disc_replaced=disc_replaced, discs=disc_fit)
         for label, s in shapes.items():
             manifest["labels"][label] = dict(
                 role=s["role"], mat=mat_of[label], verts=len(s["v"]), tris=len(s["f"]),
@@ -1640,14 +1809,33 @@ def main() -> int:
                 parked=label not in WORN_ONLY, parked_hidden=label in PARKED_HIDDEN)
         if exporting:
             (stage / "shapes").mkdir(parents=True, exist_ok=True)
+            written, kept = [], []
             for label, s in shapes.items():
                 arrays = dict(pos=s["v"].astype(np.float64), nrm=s["n"].astype(np.float32), tri=s["f"].astype(np.int32),
                               mat=s["mat"], src=s["src"], piece=s["piece"])
                 if s["uvc"] is not None:
                     arrays["uv_fixed"] = s["uvc"].astype(np.float32)
-                np.savez_compressed(stage / "shapes" / f"{label}.npz", **arrays)
+                # Written only if it changed (since the 2026-11-01a build): savez stamps the time into the file, and the
+                # texture stage keys its caches on the files' bytes, so a rewrite of the same arrays re-keyed every bake
+                path = stage / "shapes" / f"{label}.npz"
+                if path.exists():
+                    try:
+                        with np.load(path) as old:
+                            same = set(old.files) == set(arrays) and all(
+                                old[k].dtype == a.dtype and np.array_equal(old[k], a) for k, a in arrays.items())
+                    except (OSError, ValueError):
+                        same = False
+                    if same:
+                        kept.append(label)
+                        continue
+                np.savez_compressed(path, **arrays)
+                written.append(label)
+            gone = sorted(p.stem for p in (stage / "shapes").glob("*.npz") if p.stem not in shapes)
+            for label in gone:   # a shape this build doesn't make (--disc model after ours)
+                (stage / "shapes" / f"{label}.npz").unlink()
             (stage / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n")
-            print(f"wrote the stage export to {stage}: manifest.json and {len(shapes)} shapes")
+            print(f"wrote the stage export to {stage}: manifest.json and {len(shapes)} shapes ({len(written)} written: "
+                  f"{', '.join(written) or 'none'}; {len(kept)} unchanged{'; removed ' + ', '.join(gone) if gone else ''})")
             return 0
         # The build: the same shapes as the export, or the texture stage's UVs belong to something else.
         exported = json.loads((stage / "manifest.json").read_text())
@@ -1810,7 +1998,34 @@ def main() -> int:
           f"the bar assembly's spheres beyond y {front_min_y:.1f}, the needle about {fmt_value(needle_keys['NeedleAxis'], 4)} "
           f"through {fmt_value(needle_keys['NeedlePoint'], 2)}")
 
+    # The bike in first person (since the 2026-11-01a build): the game hides the player's third-person 3D in first person,
+    # and the worn bike with it, so the plugin shows this copy there instead, placed every frame where the worn one
+    # is (a script-placed MovableStatic, CMB_BikeView). The worn nif's shapes, the same vertices in the bike's own space
+    # (full precision, as the parked nif's), materials and shadows, unskinned, named CMB_BikeView_<label> under one
+    # NiNode, CMB_BikeView, that is hidden (flag bit 0): without the plugin a placed copy shows nothing. No collision.
+    def view(path: Path):
+        out = NifFile()
+        out.initialize("FO4", str(path), "BSFadeNode", path.stem)
+        identity = TransformBuf()
+        identity.set_identity()
+        node = out.add_node(VIEW_NODE, identity, out.rootNode)
+        node.flags = node.flags | 1   # hidden
+        for label, x in final.items():
+            add_shape(out, f"{VIEW_NODE}_{label}", rows(turned(x["v"])), rows(x["f"]), rows(x["uv"]),
+                      rows(to_worn_frame(x["n"])), base, base.use_type, shaders[label], False, True,
+                      texture_paths(shaders[label], x["mat"], True, palette), material_name(label, True), parent=node)
+        out.save()
+        check = NifFile(str(path))
+        blocks = [name for _, name in _block_offsets(path.read_bytes())]
+        print(f"wrote {path}: {len(check.shapes)} shapes under the hidden node {VIEW_NODE}, "
+              f"{'collision NOT expected: ' if any(b.startswith('bhk') for b in blocks) else 'no collision, '}"
+              f"{len(blocks)} blocks")
+
     worn(args.out / "CMB_BikeWorn.nif", BIKE_BONE, None)
+    if args.view:
+        view(args.out / "CMB_BikeView.nif")
+    else:
+        (args.out / "CMB_BikeView.nif").unlink(missing_ok=True)
     if args.seat:
         male = read_seat(args.seat)
         if male is None:

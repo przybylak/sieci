@@ -15,6 +15,11 @@ import sys
 
 DECL = re.compile(r"(?:([\w\[\]:]+)\s+)?(function|event)\s+([\w.]+)\s*\((.*)\)", re.I)
 
+# Stub scripts with no real source here (neither F4SE's scripts/vanilla nor scripts/modified has them): listed as
+# unaudited, not counted, while no folder given has that script at all; audited as any other once one does.
+# soundcategory: 2026-11-01a's AudioCategoryFSTplayer.Mute()/UnMute() (CMB_ControllerScript), from the CK wiki.
+NO_SOURCE_HERE = {"soundcategory"}
+
 
 def declarations(folder):
     """{(script, name): (return type, kind, parameter types)} with continued lines joined."""
@@ -43,10 +48,13 @@ def main():
         real.update(declarations(folder))
     here = os.path.dirname(os.path.abspath(__file__))
     problems = 0
+    scripts = {script for script, _ in real}
     for sub in ("vanilla", "f4se"):
         for key, (ret, kind, types, line) in sorted(declarations(os.path.join(here, "stubs", sub)).items()):
             r = real.get(key)
-            if r is None:
+            if r is None and key[0] in NO_SOURCE_HERE and key[0] not in scripts:
+                print(f"unaudited (no {key[0]}.psc in the real sources given): stubs/{sub}/{key[0]}.psc: {line}")
+            elif r is None:
                 print(f"not in the real sources: stubs/{sub}/{key[0]}.psc: {line}")
                 problems += 1
             elif (r[0], r[1], r[2]) != (ret, kind, types) and not (

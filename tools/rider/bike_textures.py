@@ -5,8 +5,10 @@ The model came with no textures, so every surface is made here from the model's 
 own UV atlas (made after the decimation, on the shape as the nifs will carry it), maps baked from the full
 1.3-million-triangle model (normals, ambient occlusion) and from the shape itself (position, normal and tangent
 frame per texel), and procedural surfaces authored from those (bike_materials.json: paint under a clear coat,
-chrome, a wrinkle-black engine with machined fin edges, satin powder coat, leather grain, rubber, discs, lenses).
-The fixed-UV shapes (dial, needle, badge, tail and brake shells) use the mod's own art (bike_art.py) as it comes.
+chrome, a wrinkle-black engine with machined fin edges, satin powder coat, leather grain, rubber, lenses; the tank's
+cream coachline since the 2026-11-01a build two offsets of one traced curve, coachline_v2). The fixed-UV shapes (dial,
+needle, badge, tail and brake shells, and since the 2026-11-01a build the brake discs, both on one texture set:
+"textures_of") use the mod's own art (bike_art.py) as it comes.
 
     <blender python> -I bike_textures.py --stage-dir S --gltf scene.gltf --out <Data> \\
         --dds-python <python with numpy, pillow, quicktex, etcpak> [--materials bike_materials.json] [--art S/art] \\
@@ -28,9 +30,12 @@ Inputs: S/manifest.json + S/shapes/<label>.npz (the stage's shapes, harley_meshe
                      redoes only what changed; --only does part of a run (each call well under 10 minutes)
   S/tex_report.json  per label: vertices after the seams, UV coverage, the bake's misses, timings, brand-relief check
 
-Two more modes, run after the textures:
+Three more modes, run after the textures:
     <dds python> -I bike_textures.py --stage-dir S --out <Data> --sheet atlases.png        # decode every DDS, contact sheet
     <blender python> -I bike_textures.py --stage-dir S --out <Data> --preview p.png        # Cycles look of the textured bike
+    <python> -I bike_textures.py --stage-dir S --out <folder> --mirror-cube Shared\\Cubemaps\\MetalBrushed02Cube_e.dds
+        # only the mirrors' six material files, naming a game cube by its path (the optional MO2 folder "game mirror
+        # cube (A-B)"; no game file is copied)
 
 Deterministic: Blender's UV operators and Cycles with a fixed seed, numpy noise from integer hashes, the DDS encoders.
 Brand guard: no source textures exist and the emblems are the mod's own art (bike_art.py); the bake can still
@@ -338,9 +343,10 @@ class Config:
         self.code_uv = src(unwrap, to_nif_uv, Scene)
         self.code_bake = src(Scene, set_uv, bake_gbuffer, bake_normals, bake_convexity, bake_ao, _bake_material,
                              _new_image, _pixels, ours_copy, high_set, occluders, vertex_convexity, unit, process_label)
-        self.code_author = sha(src(author, curvature, heat_ports, nearest_dist, coachline_field, detail_normals, height,
-                                   worley, fbm, vnoise, _hash, box_blur, masked_blur, dilate_fill, half_size, to_u8,
-                                   srgb_to_lin, lin_to_srgb, smoothstep, unit, hexrgb, label_axle),
+        self.code_author = sha(src(author, curvature, heat_ports, nearest_dist, coachline_field, coachline_v2, raster_side_yz,
+                                   march, resample_loop, dist_to_polyline, detail_normals, height, worley, fbm, vnoise,
+                                   _hash, box_blur, masked_blur, dilate_fill, half_size, to_u8, srgb_to_lin, lin_to_srgb,
+                                   smoothstep, unit, hexrgb, label_axle),
                                HERE / "nifly_tangents.py")
         self.code_dds = sha(src(dds_jobs_for, cube_jobs, run_dds, half_size, to_u8), HERE / "write_dds.py")
 
@@ -873,6 +879,252 @@ def coachline_field(P_tank, pos_tank, res=0.25):
     return lookup
 
 
+# --- the coachline since the 2026-11-01a build: two parallel offsets of one smooth traced curve ---------------------
+# Test 47: 2026-10-31a's line (coachline_field: the iso-lines of a distance field on a 0.25-unit grid of the tank's
+# projected outline) wobbled by up to 0.08 units (about 1.5 texels, every 2 to 3 units: the grid's staircase), its
+# width was measured in projection, and the side mask faded it where the tank's surface folds under itself at the rear
+# (the crease over the seat's nose): the line broke there and its turn was a sharp corner. coachline_v2 traces the
+# outline at 0.02, smooths it, offsets it once (C, at inset + gap + radius) and draws the two lines as C's outward
+# offsets, so they are parallel, round every corner (radius, radius + gap), keep one width on the surface, and are
+# drawn on the tank's outer layer (no fade at the crease). Off value: no "radius" in the pinstripe entry (width 0.16).
+
+def raster_side_yz(tris, lo, res, shape):
+    """The tank's triangles (T,3,3) projected on (y, z): coverage (H,W) bool on cell centres, and the outermost x of
+    the +x-facing and the -x-facing triangles per cell (for which surface layer is the outer one)."""
+    cover = np.zeros(shape, bool)
+    xmax = np.full(shape, -1e9)
+    xmin = np.full(shape, 1e9)
+    nx = np.cross(tris[:, 1] - tris[:, 0], tris[:, 2] - tris[:, 0])[:, 0]
+    for t, n in zip(tris, nx):
+        yz = t[:, 1:3]
+        a = np.floor((yz.min(0) - lo) / res).astype(int)
+        b = np.ceil((yz.max(0) - lo) / res).astype(int) + 1
+        a = np.clip(a, 0, np.array(shape) - 1)
+        b = np.clip(b, 0, np.array(shape))
+        if (b <= a).any():
+            continue
+        gy = lo[0] + (np.arange(a[0], b[0]) + 0.5) * res
+        gz = lo[1] + (np.arange(a[1], b[1]) + 0.5) * res
+        Y, Z = np.meshgrid(gy, gz, indexing="ij")
+        v0, v1, v2 = yz
+        d = (v1[1] - v2[1]) * (v0[0] - v2[0]) + (v2[0] - v1[0]) * (v0[1] - v2[1])
+        if abs(d) < 1e-12:
+            continue
+        l0 = ((v1[1] - v2[1]) * (Y - v2[0]) + (v2[0] - v1[0]) * (Z - v2[1])) / d
+        l1 = ((v2[1] - v0[1]) * (Y - v2[0]) + (v0[0] - v2[0]) * (Z - v2[1])) / d
+        l2 = 1 - l0 - l1
+        inside = (l0 >= -1e-9) & (l1 >= -1e-9) & (l2 >= -1e-9)
+        if not inside.any():
+            continue
+        x = l0 * t[0, 0] + l1 * t[1, 0] + l2 * t[2, 0]
+        sl = (slice(a[0], b[0]), slice(a[1], b[1]))
+        cover[sl] |= inside
+        if n > 0:
+            xmax[sl] = np.where(inside, np.maximum(xmax[sl], x), xmax[sl])
+        else:
+            xmin[sl] = np.where(inside, np.minimum(xmin[sl], x), xmin[sl])
+    return cover, xmax, xmin
+
+
+def march(field, level):
+    """Marching squares: the closed loops of field == level, in (row, col) index coordinates, longest first."""
+    f = field - level
+    pos = f > 0
+    H, W = f.shape
+    pts, ids = [], {}
+
+    def edge_pts(axis):
+        a = f[:-1, :] if axis == 0 else f[:, :-1]
+        b = f[1:, :] if axis == 0 else f[:, 1:]
+        ch = (a > 0) != (b > 0)
+        r, c = np.nonzero(ch)
+        t = a[r, c] / (a[r, c] - b[r, c])
+        p = np.column_stack([r + (t if axis == 0 else 0), c + (t if axis == 1 else 0)])
+        return r, c, p
+    out = {}
+    for axis in (0, 1):
+        r, c, p = edge_pts(axis)
+        for k in range(len(r)):
+            ids[(axis, int(r[k]), int(c[k]))] = len(pts)
+            pts.append(p[k])
+    pts = np.array(pts)
+    nbr = {}
+
+    def link(e1, e2):
+        nbr.setdefault(e1, []).append(e2)
+        nbr.setdefault(e2, []).append(e1)
+    pz = f > 0
+    corners = pz[:-1, :-1].astype(int) + pz[1:, :-1] + pz[:-1, 1:] + pz[1:, 1:]
+    for i, j in zip(*np.nonzero((corners > 0) & (corners < 4))):
+        i, j = int(i), int(j)
+        es = [e for e in ((0, i, j), (1, i + 1, j), (0, i, j + 1), (1, i, j)) if e in ids]
+        if len(es) == 2:
+            link(ids[es[0]], ids[es[1]])
+        elif len(es) == 4:
+            centre = (f[i, j] + f[i + 1, j] + f[i, j + 1] + f[i + 1, j + 1]) / 4
+            if (centre > 0) == (f[i, j] > 0):
+                link(ids[es[0]], ids[es[1]]); link(ids[es[2]], ids[es[3]])
+            else:
+                link(ids[es[3]], ids[es[0]]); link(ids[es[1]], ids[es[2]])
+    seen = np.zeros(len(pts), bool)
+    loops = []
+    for s in range(len(pts)):
+        if seen[s] or len(nbr.get(s, [])) != 2:
+            continue
+        loop = [s]
+        seen[s] = True
+        prev, cur = None, s
+        while True:
+            nx_ = [n for n in nbr[cur] if n != prev]
+            if not nx_:
+                break
+            nxt = nx_[0]
+            if nxt == s:
+                break
+            if seen[nxt]:
+                break
+            seen[nxt] = True
+            loop.append(nxt)
+            prev, cur = cur, nxt
+        if len(loop) > 8:
+            loops.append(pts[loop])
+    loops.sort(key=lambda L: -len(L))
+    return loops
+
+
+def resample_loop(L, step, sigma=0.0):
+    """A closed polyline resampled at equal arc length, then smoothed (a circular Gaussian of sigma, in units)."""
+    P = np.vstack([L, L[:1]])
+    s = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(P, axis=0), axis=1))])
+    n = max(16, int(s[-1] / step))
+    t = np.linspace(0, s[-1], n, endpoint=False)
+    Q = np.column_stack([np.interp(t, s, P[:, k]) for k in range(P.shape[1])])
+    if sigma > 0:
+        k = int(np.ceil(3 * sigma / (s[-1] / n)))
+        w = np.exp(-0.5 * ((np.arange(-k, k + 1) * s[-1] / n) / sigma) ** 2)
+        w /= w.sum()
+        Q = sum(w[i] * np.roll(Q, k - i, axis=0) for i in range(2 * k + 1))
+    return Q
+
+
+def dist_to_polyline(p, Q, chunk=2048):
+    """Distance from points p (n,2) to the closed polyline Q (m,2), exact on its segments: (distance, unit direction
+    from the nearest point to p)."""
+    A = Q
+    B = np.roll(Q, -1, axis=0)
+    AB = B - A
+    L2 = np.maximum((AB ** 2).sum(1), 1e-18)
+    dist = np.zeros(len(p))
+    dirv = np.zeros((len(p), 2))
+    for a in range(0, len(p), chunk):
+        q = p[a:a + chunk]
+        d2 = ((q[:, None, :] - A[None]) ** 2).sum(2)
+        i = d2.argmin(1)
+        best = np.full(len(q), np.inf)
+        bp = np.zeros((len(q), 2))
+        for j in (i - 1, i):
+            j = j % len(A)
+            t = np.clip(((q - A[j]) * AB[j]).sum(1) / L2[j], 0, 1)
+            c = A[j] + t[:, None] * AB[j]
+            dd = np.linalg.norm(q - c, axis=1)
+            better = dd < best
+            best = np.where(better, dd, best)
+            bp = np.where(better[:, None], c, bp)
+        dist[a:a + chunk] = best
+        v = q - bp
+        dirv[a:a + chunk] = v / np.maximum(np.linalg.norm(v, axis=1, keepdims=True), 1e-12)
+    return dist, dirv
+
+
+def coachline_v2(P, N, tank_tris, ps, texel_px, report):
+    """Per tank texel (P (n,3), N (n,3) its normal): the coachline's coverage 0..1. The outline is the tank's
+    silhouette on (y, z), rasterised at 0.02 and traced (marching squares), its staircase smoothed out; C is the
+    curve at outline distance inset + gap + radius; the two lines are C's outward offsets at radius and radius + gap,
+    so they stay parallel and round every corner (radius and radius + gap); their width is measured on the surface
+    (the field's slope across the line), their edges filtered over the texel's footprint (texel_px, units), and they
+    are drawn only on the outermost layer of the tank seen along x."""
+    inset, gap, hw = float(ps["inset"]), float(ps["gap"]), float(ps["width"]) / 2
+    rc = float(ps.get("radius", 1.0))
+    L0 = inset + gap + rc
+    yz_all = tank_tris[:, :, 1:3].reshape(-1, 2)
+    res = 0.02
+    lo = yz_all.min(0) - 1.0
+    hi = yz_all.max(0) + 1.0
+    shape = tuple(np.ceil((hi - lo) / res).astype(int))
+    cover, xmax, xmin = raster_side_yz(tank_tris, lo, res, shape)
+    loops = march(cover.astype(np.float64), 0.5)
+    outline = resample_loop(lo + (loops[0] + 0.5) * res, 0.05, sigma=0.12)
+    # the outline's distance: coarse (every 5th cell of a 0.04 grid), then exact near level L0, where C is traced
+    rb = 0.04
+    ny, nz = int((hi[0] - lo[0]) / rb), int((hi[1] - lo[1]) / rb)
+    gy = lo[0] + (np.arange(ny) + 0.5) * rb
+    gz = lo[1] + (np.arange(nz) + 0.5) * rb
+    Y, Z = np.meshgrid(gy, gz, indexing="ij")
+    G = np.column_stack([Y.ravel(), Z.ravel()])
+    ci = np.clip(((G - lo) / res).astype(int), 0, np.array(shape) - 1)
+    ins = cover[ci[:, 0], ci[:, 1]]
+    k = 5
+    cy, cz = np.arange(0, ny, k), np.arange(0, nz, k)
+    CY, CZ = np.meshgrid(gy[cy], gz[cz], indexing="ij")
+    CG = np.column_stack([CY.ravel(), CZ.ravel()])
+    cci = np.clip(((CG - lo) / res).astype(int), 0, np.array(shape) - 1)
+    cins = cover[cci[:, 0], cci[:, 1]]
+    dc = np.full(len(CG), -1.0)
+    dc[cins] = dist_to_polyline(CG[cins], outline[::2])[0]
+    # bilinear up to the fine grid
+    fy = np.clip((np.arange(ny) / k), 0, len(cy) - 1.001)
+    fz = np.clip((np.arange(nz) / k), 0, len(cz) - 1.001)
+    i0, j0 = np.floor(fy).astype(int), np.floor(fz).astype(int)
+    ty, tz = (fy - i0)[:, None], (fz - j0)[None, :]
+    dcg = dc.reshape(len(cy), len(cz))
+    i1, j1 = np.minimum(i0 + 1, len(cy) - 1), np.minimum(j0 + 1, len(cz) - 1)
+    up = (dcg[i0][:, j0] * (1 - ty) * (1 - tz) + dcg[i1][:, j0] * ty * (1 - tz) + dcg[i0][:, j1] * (1 - ty) * tz
+          + dcg[i1][:, j1] * ty * tz).ravel()
+    dG = np.where(ins, up, -1.0)
+    band = ins & (np.abs(up - L0) < 0.6)
+    dG[band] = dist_to_polyline(G[band], outline)[0]
+    field = dG.reshape(Y.shape)
+    loopsC = march(field, L0)
+    C = resample_loop(np.column_stack([gy[0] + loopsC[0][:, 0] * rb, gz[0] + loopsC[0][:, 1] * rb]), 0.04, sigma=0.08)
+    report["coachline"] = dict(outline_len=round(float(np.linalg.norm(np.diff(outline, axis=0), axis=1).sum()), 1),
+                               c_len=round(float(np.linalg.norm(np.diff(C, axis=0), axis=1).sum()), 1), loops_c=len(loopsC),
+                               radius=rc)
+    # the signed distance to C (+ outside it, toward the outline) on the grid where the lines can be, then per texel
+    lines = ins & (up > inset - 0.6) & (up < L0 + 0.2)
+    eg = np.where(ins, L0 - up, -1e3)        # off the band: a continuous stand-in far from both lines (no stray texels)
+    ev = np.zeros((len(G), 2))
+    dd, dv = dist_to_polyline(G[lines], C)
+    sg = np.where(dG[lines] < L0, 1.0, -1.0)
+    eg[lines] = dd * sg
+    ev[lines] = dv * sg[:, None]
+    eg = eg.reshape(Y.shape)
+    ev = ev.reshape(Y.shape + (2,))
+    f = (P[:, 1:3] - lo) / rb - 0.5
+    a0 = np.clip(np.floor(f).astype(int), 0, np.array(Y.shape) - 2)
+    t = np.clip(f - a0, 0, 1)
+    w00 = (1 - t[:, 0]) * (1 - t[:, 1]); w10 = t[:, 0] * (1 - t[:, 1]); w01 = (1 - t[:, 0]) * t[:, 1]; w11 = t[:, 0] * t[:, 1]
+    def samp(A):
+        return (A[a0[:, 0], a0[:, 1]].T * w00 + A[a0[:, 0] + 1, a0[:, 1]].T * w10 + A[a0[:, 0], a0[:, 1] + 1].T * w01
+                + A[a0[:, 0] + 1, a0[:, 1] + 1].T * w11).T
+    e = samp(eg)
+    gdir = samp(ev)
+    gdir = gdir / np.maximum(np.linalg.norm(gdir, axis=1, keepdims=True), 1e-9)
+    e = np.where(np.abs(e) > 100, -1e3, e)
+    g3 = np.column_stack([np.zeros(len(P)), gdir])
+    slope = np.sqrt(np.clip(1 - (g3 * N).sum(1) ** 2, 0.04, 1.0))
+    cov = np.zeros(len(P))
+    for off in (rc, rc + gap):
+        across = np.abs(e - off) / slope                         # units on the surface
+        cov = np.maximum(cov, np.clip(0.5 + (hw - across) / np.maximum(texel_px, 1e-3), 0, 1))
+    # the outer layer only (the fold under the tank's rear lies under it in the projection)
+    ci = np.clip(((P[:, 1:3] - lo) / res).astype(int), 0, np.array(shape) - 1)
+    outer = np.where(N[:, 0] >= 0, P[:, 0] >= xmax[ci[:, 0], ci[:, 1]] - 0.35, P[:, 0] <= xmin[ci[:, 0], ci[:, 1]] + 0.35)
+    graze = smoothstep(0.05, 0.15, np.abs(N[:, 0]))
+    cov *= outer * graze
+    report["coachline"]["texels"] = int((cov > 0.5).sum())
+    return cov
+
+
 def author(cfg, label, shp, uvc, gb, nh, hit, ao, cvx, hid, report):
     """The label's _d (RGBA), _n (tangent space, RGB) and _s (R spec, G smoothness) as float images (H,W,C), plus
     the paint layers kept for recolouring."""
@@ -996,15 +1248,18 @@ def author(cfg, label, shp, uvc, gb, nh, hit, ao, cvx, hid, report):
                 tank = np.isin(src[sel], ps.get("meshes", []))
                 if tank.any():
                     tank_tris = tri[np.isin(shp["src"], ps["meshes"])]
-                    field = coachline_field(p[tank], pos[np.unique(tank_tris)])
-                    d = field(p[tank][:, 1:3])
-                    side = smoothstep(0.35, 0.55, np.abs(nl[tank][:, 0]))
-                    hw = float(ps["width"]) / 2
-                    aa = max(texel, 1e-3)
-                    line = np.zeros(int(tank.sum()))
-                    for off in (float(ps["inset"]), float(ps["inset"]) + float(ps["gap"])):
-                        line = np.maximum(line, 1 - smoothstep(hw, hw + aa, np.abs(d - off)))
-                    line *= side
+                    if "radius" in ps:   # since the 2026-11-01a build: two offsets of one smooth curve (coachline_v2)
+                        line = coachline_v2(p[tank], nl[tank], pos[tank_tris], ps, texel / 2, report)
+                    else:
+                        field = coachline_field(p[tank], pos[np.unique(tank_tris)])
+                        d = field(p[tank][:, 1:3])
+                        side = smoothstep(0.35, 0.55, np.abs(nl[tank][:, 0]))
+                        hw = float(ps["width"]) / 2
+                        aa = max(texel, 1e-3)
+                        line = np.zeros(int(tank.sum()))
+                        for off in (float(ps["inset"]), float(ps["inset"]) + float(ps["gap"])):
+                            line = np.maximum(line, 1 - smoothstep(hw, hw + aa, np.abs(d - off)))
+                        line *= side
                     pc = srgb_to_lin(hexrgb(ps["colour"]))
                     ct = c[tank]
                     c[tank] = ct * (1 - line[:, None]) + pc * line[:, None]
@@ -1295,6 +1550,8 @@ def mat_dir(cfg):
 def dds_jobs_for(cfg, mat, akey_by_label, tmp):
     """The write_dds jobs for one material: from the authored arrays (baked labels) or the art PNGs."""
     m = cfg.materials[mat]
+    if m.get("textures_of"):   # another material's set (the rear disc names the front's): nothing of its own
+        return []
     out = tex_dir(cfg)
     size, s_size = cfg.size(mat), cfg.s_size(mat)
     jobs = []
@@ -1377,14 +1634,16 @@ def run_dds(cfg, jobs, tmp):
         log("  " + line.replace(str(cfg.args.out), "<Data>"))
 
 
-def write_bgsm(cfg, mat):
+def write_bgsm(cfg, mat, cube_path=None, out=None):
+    """<mat>.bgsm and <mat>_worn.bgsm; cube_path (a path under Textures) in place of the material's cube, out in place of
+    the Data tree's Materials/CMB/Bike (bike_textures.py --mirror-cube: the optional MO2 folder)."""
     import bgsm
     m = cfg.materials[mat]
-    out = mat_dir(cfg)
+    out = out or mat_dir(cfg)
     out.mkdir(parents=True, exist_ok=True)
-    base = f"CMB\\Bike\\{mat}"
+    base = f"CMB\\Bike\\{m.get('textures_of') or mat}"
     env = m["shader"] == "env"
-    cube = CUBES.get(m.get("cube"), m.get("cube")) if env else ""
+    cube = (cube_path or CUBES.get(m.get("cube"), m.get("cube"))) if env else ""
     if cube and cube.lower().startswith("textures\\"):
         cube = cube[len("textures\\"):]
     written = []
@@ -1432,7 +1691,9 @@ def run(cfg):
     if bad:
         raise SystemExit(f"--only: not labels of {cfg.stage}: {bad}")
     labels = only or cfg.labels
-    mats = sorted({cfg.mat_of[lb] for lb in labels}, key=lambda m: list(cfg.materials).index(m))
+    mats = {cfg.mat_of[lb] for lb in labels}
+    mats |= {cfg.materials[m]["textures_of"] for m in mats if cfg.materials[m].get("textures_of")}
+    mats = sorted(mats, key=lambda m: list(cfg.materials).index(m))
     report_path = cfg.stage / "tex_report.json"
     report = json.loads(report_path.read_text()) if report_path.exists() else {}
     report.setdefault("labels", {})
@@ -1458,6 +1719,10 @@ def run(cfg):
     # textures per material (cached on the authored maps / the art)
     for mat in mats:
         m = cfg.materials[mat]
+        if m.get("textures_of"):
+            log(f"{mat}: {m['textures_of']}'s textures")
+            report.setdefault("materials", {})[mat] = {"bgsm": write_bgsm(cfg, mat), "textures_of": m["textures_of"]}
+            continue
         if cfg.is_art(mat):
             arts = [cfg.art / f for f in m["art"].values()]
             dkey = sha(cfg.code_dds, "dds", m, [Path(a) for a in arts], cfg.quick)
@@ -1504,8 +1769,11 @@ def sheet(cfg, out_png):
     tiles = []
     checks = {}
     for mat, m in cfg.materials.items():
+        # A material with no label in this stage (--disc model has no disc labels) is skipped, as --mirror-cube does.
+        if not any(lb in cfg.man["labels"] for lb in m["labels"]):
+            continue
         row = []
-        lbs = [lb for lb in m["labels"] if cfg.man["labels"][lb].get("uv") != "fixed"]
+        lbs = [lb for lb in m["labels"] if cfg.man["labels"].get(lb, {}).get("uv") != "fixed"]
         src = None
         if lbs and not cfg.is_art(mat) and (cfg.cache / lbs[0] / "author.npz").exists():
             with np.load(cfg.cache / lbs[0] / "author.npz") as z:
@@ -1531,7 +1799,7 @@ def sheet(cfg, out_png):
                 y = img[..., 1].astype(np.float64) / 255 * 2 - 1
                 z = np.sqrt(np.clip(1 - x * x - y * y, 0, 1))
                 img = np.dstack([img[..., 0], img[..., 1], to_u8(z * 0.5 + 0.5), np.full(x.shape, 255, np.uint8)])
-                lbs = [lb for lb in m["labels"] if cfg.man["labels"][lb].get("uv") != "fixed"]
+                lbs = [lb for lb in m["labels"] if cfg.man["labels"].get(lb, {}).get("uv") != "fixed"]
                 if lbs and not cfg.is_art(mat):
                     np.savez_compressed(cfg.cache / lbs[0] / "decoded.npz", n=img[..., :3])
             if slot == "s":
@@ -1637,11 +1905,12 @@ def preview(cfg, out_png):
         sc.collection.objects.link(o)
         if mat not in images:
             maps = {}
+            stem = m.get("textures_of") or mat   # the rear disc's maps are the front's (textures_of)
             for slot in ("d", "s", "g"):
-                p = tex_dir(cfg) / f"{mat}_{slot}.dds"
+                p = tex_dir(cfg) / f"{stem}_{slot}.dds"
                 if p.exists():
-                    maps[slot] = np.load(cfg.cache / "_dds" / f"{mat}_{slot}_decoded.npy") if (
-                        cfg.cache / "_dds" / f"{mat}_{slot}_decoded.npy").exists() else None
+                    maps[slot] = np.load(cfg.cache / "_dds" / f"{stem}_{slot}_decoded.npy") if (
+                        cfg.cache / "_dds" / f"{stem}_{slot}_decoded.npy").exists() else None
             images[mat] = maps
         # object-space normals: decode the shipped _n through nifly's frames (baked labels only)
         dec = cfg.cache / label / "decoded.npz"
@@ -1791,8 +2060,20 @@ def main(argv=None):
     ap.add_argument("--preview", type=Path, help="mode: Cycles renders of the textured bike (Blender Python)")
     ap.add_argument("--preview-size", default="1280x800")
     ap.add_argument("--views", help="--preview: some of front34,rear34,right,engine_left,front_wheel,tank_seat")
+    ap.add_argument("--mirror-cube", metavar="GAME_PATH",
+                    help="mode: write only the mirror materials' files (cube MR) naming this cube map instead of ours, a "
+                         "path under Textures (e.g. Shared\\Cubemaps\\MetalBrushed02Cube_e.dds), into --out's "
+                         "Materials/CMB/Bike: the optional MO2 folder \"game mirror cube (A-B)\" (the game's cube by path; "
+                         "no game file copied)")
     a = ap.parse_args(argv)
     cfg = Config(a)
+    if a.mirror_cube:
+        written = []
+        for mat, m in cfg.materials.items():
+            if m.get("cube") == "MR" and any(lb in cfg.man["labels"] for lb in m["labels"]):
+                written += write_bgsm(cfg, mat, cube_path=a.mirror_cube)
+        log(f"wrote {len(written)} mirror materials naming {a.mirror_cube} to {mat_dir(cfg)}: {', '.join(written)}")
+        return 0
     if a.sheet:
         return sheet(cfg, a.sheet)
     if a.preview:

@@ -5,9 +5,14 @@
       [--stage-dir <stage>]
 
 What it checks (FAIL lines make the exit status 1; INFO lines are numbers for the notes):
-  shapes     every worn nif has the 28 shapes of harley_meshes.LABELS, named <stem>_<label>, in that order, skinned;
-             the parked nif the vanilla shape (hidden) and ours but the lit overlays (WORN_ONLY), the under-bar mirror
-             variants hidden by the node flag; at most MAX_VERTS vertices a shape; every UV in 0..1
+  shapes     every worn nif has the 30 shapes of harley_meshes.LABELS (the stage's, with --stage-dir: 28 with --disc
+             model), named <stem>_<label>, in that order, skinned; the parked nif the vanilla shape (hidden) and ours
+             but the lit overlays (WORN_ONLY), the under-bar mirror variants hidden by the node flag; at most MAX_VERTS
+             vertices a shape; every UV in 0..1
+  view       CMB_BikeView.nif (the bike in first person, since the 2026-11-01a build): the worn shapes named
+             CMB_BikeView_<label>, unskinned, under the NiNode CMB_BikeView (hidden by its flag bit 0), no collision
+             block, every vertex the worn nif's (the parked nif's turned round, to 1e-4; the worn nif's half floats to
+             their rounding), the worn nif's materials files
   shaders    Fallout 4's flag bits only (no 0x100 in the first word, no 0x8000 in the second), smoothness 0..1, no
              root material, Skinned on the worn shapes only, no shadow from the riding bike's front end
   materials  the shader names all empty (--bgsm 0) or all Materials\\CMB\\Bike\\<mat>[_worn].bgsm, each file there
@@ -15,8 +20,11 @@ What it checks (FAIL lines make the exit status 1; INFO lines are numbers for th
              shadow the same as the nif's own block; no file there that no nif names
   textures   every texture the nifs and materials name is in the Data tree (the vanilla cube maps excepted), each a
              DDS of the format its suffix wants (_d BC1/BC3, _n and _s BC5, _g BC1, cube maps flagged), with every
-             mip level (the fallback palette excepted), no BC7; the total size of Textures/CMB/Bike; both mirror
-             cubes (mirror_cube_e, which the nifs name, and mirror_cube_zup_e, the one-file swap) in a textured build
+             mip level (the fallback palette excepted), no BC7; the total size and count of Textures/CMB/Bike (the
+             budget: 89 MB in 93 files since the 2026-11-01a build's discs); both mirror cubes (mirror_cube_e, which
+             the nifs name, and mirror_cube_zup_e, the one-file swap) in a textured build; with --stage-dir, the
+             mirror glass's texels of each mirror's _d a mid grey (mean 90-140 sRGB: the game tints the cube by it,
+             test 47's near-black glass showed black)
   overlays   the dial's backlight, the needle and the light shells clear of what they cover in the worn nif's half
              floats; the needle's culling sphere on NeedlePoint and long enough; where the needle points at rest
   mirrors    every mirror variant clear of the tank with the bars anywhere within BarAngle
@@ -25,7 +33,13 @@ What it checks (FAIL lines make the exit status 1; INFO lines are numbers for th
   brand      no brand name in any output (the model's credit in CMB_BikeFit.json excepted)
   totals     each shape's vertices and triangles; triangles per material against the reference's (its palette
              UVs say each one's material), with --stage-dir (or the fallback build's palette) split into the model's
-             and ours: the model's must equal the reference's but for glTF mesh 9 (the dial face, 24 tex1)
+             and ours: the model's must equal the reference's but for glTF mesh 9 (the dial face, 24 tex1) and, with
+             --stage-dir, the pieces the volume guard cut again and the disc plates ours replaced (the manifest's
+             volume_guard and disc_replaced, printed)
+  volumes    (--stage-dir) no closed piece of the model keeps under 0.6 of its volume after the cut (the manifest's
+             volumes; the volume guard since the 2026-11-01a build)
+  discs      (--stage-dir, --disc ours) each of our discs in the replaced plate's x range and at its outer radius
+             about the axle, within 0.05 (the parked nif's full-precision vertices)
   clamp      the lower triple clamp's box: its vertices in front_black now, in the fixed shapes in the reference
 """
 
@@ -46,6 +60,9 @@ from nearest import TriangleGrid  # noqa: E402
 
 WORN = ("CMB_BikeWorn", "CMB_BikeWornRider", "CMB_BikeWornRiderF")
 BRAND = (b"harley", b"davidson", b"sportster")
+VIEW = "CMB_BikeView"   # the view nif's stem, node and shapes' prefix (harley_meshes.VIEW_NODE)
+TEX_BUDGET = (93, 89.0)  # Textures/CMB/Bike: files, MB (since the 2026-11-01a build's discs: 2026-10-31a's 90 files, 85.3 MB)
+MIRROR_GLASS_SRGB = (90, 140)   # the mirror glass's mean in its _d (the 2026-11-01a build: 6e7276; 2026-10-31a's 08090a)
 PALETTE_27C = ("chrome", "silver", "tex2", "body", "logo_decals", "black_m", "tex1", "material", "leather", "glass",
                "o_glass", "r_glass", "lamp_black", "lamp_led")   # 27c's palette blocks, 8 of 128 wide each
 CLAMP_BOX = ((-12.7, 12.7), (65.0, 76.7), (64.1, 72.9))   # worn: the lower triple clamp (glTF mesh 74's piece)
@@ -112,6 +129,27 @@ def nif_texts(data: bytes):
     return out
 
 
+def bc1_level0(path: Path):
+    """The first mip level of a BC1 (DXT1) DDS as an (h, w, 3) uint8 array (numpy only: the mirror glass check)."""
+    data = path.read_bytes()
+    h, w = struct.unpack_from("<II", data, 12)
+    blocks = np.frombuffer(data, dtype="<u2", count=(h // 4) * (w // 4) * 4, offset=128).reshape(-1, 4)
+    c0, c1 = blocks[:, 0].astype(np.int32), blocks[:, 1].astype(np.int32)
+    bits = (blocks[:, 2].astype(np.uint32) | (blocks[:, 3].astype(np.uint32) << 16))
+
+    def rgb565(c):
+        return np.stack([((c >> 11) & 31) * 255 // 31, ((c >> 5) & 63) * 255 // 63, (c & 31) * 255 // 31], -1)
+    p0, p1 = rgb565(c0), rgb565(c1)
+    four = (c0 > c1)[:, None]
+    p2 = np.where(four, (2 * p0 + p1) // 3, (p0 + p1) // 2)
+    p3 = np.where(four, (p0 + 2 * p1) // 3, 0)
+    pal = np.stack([p0, p1, p2, p3], 1)                                  # (n, 4, 3)
+    idx = (bits[:, None] >> (2 * np.arange(16, dtype=np.uint32))) & 3    # (n, 16)
+    px = np.take_along_axis(pal, idx[..., None].astype(np.int64), axis=1)   # (n, 16, 3)
+    img = px.reshape(h // 4, w // 4, 4, 4, 3).transpose(0, 2, 1, 3, 4).reshape(h, w, 3)
+    return img.astype(np.uint8)
+
+
 def ini_keys(path: Path):
     out = {}
     for line in path.read_text().splitlines():
@@ -139,7 +177,11 @@ def main() -> int:
     meshes = args.data / "Meshes" / "CMB"
     textures = files_by_lower(args.data / "Textures")
     materials = files_by_lower(args.data / "Materials")
-    labels = [label for label, _ in H.LABELS]
+    manifest = None
+    if args.stage_dir and (args.stage_dir / "manifest.json").exists():
+        manifest = json.loads((args.stage_dir / "manifest.json").read_text())
+    # the shapes this build made: the stage's (28 with --disc model), else harley_meshes.LABELS (30)
+    labels = list(manifest["labels"]) if manifest else [label for label, _ in H.LABELS]
     roles = dict(H.LABELS)
 
     def block(f, s):
@@ -159,6 +201,8 @@ def main() -> int:
     named = {}            # material file name (lower) -> [(nif, shape, block props, slots)]
     used_textures = set()
     worn_geo = {}         # label -> (verts, tris, uvs) from CMB_BikeWorn.nif
+    worn_names = {}       # label -> CMB_BikeWorn.nif's materials file name
+    parked_geo = {}       # label -> verts from CMB_BikeParked.nif (full precision)
     for stem in WORN + ("CMB_BikeParked",):
         path = meshes / f"{stem}.nif"
         if not path.exists():
@@ -216,12 +260,80 @@ def main() -> int:
                     bad_flags.append(f"{label} material name {name}")
             if stem == "CMB_BikeWorn":
                 worn_geo[label] = (np.asarray(s.verts, dtype=np.float64), np.asarray(s.tris, dtype=np.int64), uv)
+                worn_names[label] = name
+            if not worn:
+                parked_geo[label] = np.asarray(s.verts, dtype=np.float64)
         rep.check(not too_big, f"{stem}: at most {H.MAX_VERTS} vertices a shape", ", ".join(too_big))
         rep.check(not bad_uv, f"{stem}: UVs in 0..1", ", ".join(bad_uv))
         rep.check(not bad_skin, f"{stem}: {'skinned' if worn else 'not skinned'}", ", ".join(bad_skin))
         rep.check(not bad_flags, f"{stem}: Fallout 4 flags, smoothness 0..1, no root material, material names", "; ".join(bad_flags))
         rep.check(not bad_shadow, f"{stem}: {'no shadow from the front end' if worn else 'the lamp unlit'}", ", ".join(bad_shadow))
         rep.check(len(names) <= 1, f"{stem}: material names all set or all empty")
+
+    # --- the view nif (the bike in first person, since the 2026-11-01a build) ------------------------------------
+    view_path = meshes / f"{VIEW}.nif"
+    if not view_path.exists():
+        rep.check(False, f"{VIEW}.nif", "missing (harley_meshes.py --view 1)")
+    else:
+        f = P.NifFile(str(view_path))
+        shapes = list(f.shapes)
+        want = [f"{VIEW}_{label}" for label in labels]
+        got = [s.name for s in shapes]
+        rep.check(got == want, f"{VIEW}: {len(got)} shapes named and ordered as the worn nif's",
+                  "" if got == want else f"missing {sorted(set(want) - set(got))}, extra {sorted(set(got) - set(want))}")
+        blocks = [name for _, name in _block_offsets(view_path.read_bytes())]
+        skinned = [s.name for s in shapes if s.properties.skinInstanceID != P.NODEID_NONE]
+        rep.check(not skinned and not any(b.startswith("bhk") or b.startswith("BSSkin") for b in blocks),
+                  f"{VIEW}: no skin, no collision block", f"skinned {skinned}; blocks {sorted(set(blocks))}")
+        parents = set()
+        node_flags = None
+        for s in shapes:
+            par = s.parent
+            parents.add(par.name if par is not None else None)
+            if par is not None and par.name == VIEW:
+                node_flags = par.flags
+        rep.check(parents == {VIEW} and node_flags is not None and node_flags & 1,
+                  f"{VIEW}: every shape under the NiNode {VIEW}, hidden by its flag bit 0",
+                  f"parents {sorted(map(str, parents))}, flags {node_flags}")
+        seat_at = None
+        bad_v, bad_m, bad_sh, worst_parked, worst_worn = [], [], [], 0.0, 0.0
+        for s in shapes:
+            label = s.name[len(VIEW) + 1:]
+            v = np.asarray(s.verts, dtype=np.float64)
+            sh = block(f, s)
+            p = sh.properties
+            if (sh.name or "") != worn_names.get(label, ""):
+                bad_m.append(f"{label} {sh.name!r} (worn {worn_names.get(label)!r})")
+            if p.Shader_Flags_1 & H.SF1_SKINNED or (roles.get(label) in ("front", "fork", "wheelF") and p.Shader_Flags_1 & H.SF1_CAST_SHADOWS):
+                bad_sh.append(f"{label} SF1 {p.Shader_Flags_1:#x}")
+            if label in parked_geo and len(parked_geo[label]) == len(v):
+                pk = parked_geo[label]
+                if seat_at is None:
+                    seat_at = float(np.median(v[:, 1] + pk[:, 1]))
+                turned = np.column_stack([-pk[:, 0], seat_at - pk[:, 1], pk[:, 2]])
+                d = float(np.abs(v - turned).max()) if len(v) else 0.0
+                worst_parked = max(worst_parked, d)
+                if d > 1e-4:
+                    bad_v.append(f"{label} {d:.5f} off the parked nif's")
+            if label in worn_geo:
+                wv = worn_geo[label][0]
+                if len(wv) != len(v):
+                    bad_v.append(f"{label} {len(v)} vertices, the worn nif {len(wv)}")
+                    continue
+                d = np.abs(v - wv)
+                worst_worn = max(worst_worn, float(d.max()) if len(v) else 0.0)
+                if (d > 1e-4 + np.abs(wv) * 2.0 ** -11).any():   # half floats: within half their step
+                    bad_v.append(f"{label} {float(d.max()):.4f} off the worn nif's")
+            elif label not in parked_geo:
+                bad_v.append(f"{label}: in neither the worn nor the parked nif")
+        rep.check(not bad_v, f"{VIEW}: every vertex the worn bike's (the parked nif's turned round to 1e-4, the worn nif's "
+                             f"half floats to their rounding)", "; ".join(bad_v[:8]))
+        rep.info(f"{VIEW} vertices", f"at most {worst_parked:.6f} off the parked nif's turned round (seat_at {seat_at}), "
+                                     f"{worst_worn:.4f} off the worn nif's half floats")
+        rep.check(not bad_m, f"{VIEW}: the worn nif's materials files", "; ".join(bad_m[:8]))
+        rep.check(not bad_sh, f"{VIEW}: not skinned in the shader flags, no shadow from the front end", "; ".join(bad_sh))
+        rep.info(f"{VIEW}.nif", f"{len(shapes)} shapes, {sum(len(s.verts) for s in shapes)} vertices, "
+                                f"{view_path.stat().st_size / 1048576:.1f} MB")
 
     # --- materials files ----------------------------------------------------------------------------------------
     palette_build = any(PureWindowsPath(t).stem.lower() == f"{H.PALETTE.lower()}_d" for t in used_textures)
@@ -304,8 +416,11 @@ def main() -> int:
     rep.check(not bad_dds, "textures: DDS formats by suffix, every mip, no BC7", "; ".join(bad_dds[:12]))
     bike_tex = args.data / "Textures" / "CMB" / "Bike"
     if bike_tex.exists():
-        total = sum(p.stat().st_size for p in bike_tex.rglob("*.dds"))
-        rep.check(total <= 90 * 1024 * 1024, f"textures: Textures/CMB/Bike {total / 1048576:.1f} MB of DDS (budget 90)")
+        dds = list(bike_tex.rglob("*.dds"))
+        total = sum(p.stat().st_size for p in dds)
+        rep.check(len(dds) <= TEX_BUDGET[0] and total <= TEX_BUDGET[1] * 1024 * 1024,
+                  f"textures: Textures/CMB/Bike {len(dds)} files, {total / 1048576:.1f} MB of DDS (budget {TEX_BUDGET[0]} "
+                  f"files, {TEX_BUDGET[1]:g} MB)")
     if not palette_build and named:
         # Both mirror cubes ship: the one the nifs name and the +Z-up one TESTING has the tester copy over it if the
         # game shows the sky sideways (a one-file swap, so the same size and format).
@@ -314,6 +429,36 @@ def main() -> int:
         same = all(h and h[4] for h in heads.values()) and len({h[:4] for h in heads.values()}) == 1
         rep.check(same, "textures: both mirror cubes there, cube maps of the same size and format",
                   "; ".join(f"{n} {h[:4] if h else 'missing'}" for n, h in heads.items()))
+
+    # the mirror glass's colour in each mirror's _d (the stage says which triangles are glass: the model's glass, glTF
+    # mesh 59's chrome, and ours, "mirror")
+    if manifest and not palette_build and all(label in worn_geo for label in H.MIRROR_VARIANTS if label in labels):
+        lines, ok = [], True
+        for label in H.MIRROR_VARIANTS:
+            if label not in labels:
+                continue
+            with np.load(args.stage_dir / "shapes" / f"{label}.npz") as e:
+                mats_l = np.array(manifest["materials"])[e["mat"]]
+                glass = ((mats_l == "mirror") | ((mats_l == "chrome") & (e["src"] == H.MIRROR_GLASS_MESH)))
+            v, f, uv = worn_geo[label]
+            name = worn_names.get(label, "")
+            mfile = materials.get(name.lower()[len("materials\\"):]) if name else None
+            dpath = None
+            if mfile is not None:
+                d_rel = bgsmaterial.MaterialFile.Open(str(mfile)).textures.get("Diffuse", "")
+                dpath = textures.get(d_rel.replace("/", "\\").lower())
+            if dpath is None or len(f) != len(glass) or not glass.any():
+                ok = False
+                lines.append(f"{label}: no _d or no glass triangles")
+                continue
+            img = bc1_level0(dpath)
+            hgt, wid = img.shape[:2]
+            c = uv[f[glass]].mean(axis=1)
+            px = img[np.clip((c[:, 1] * hgt).astype(int), 0, hgt - 1), np.clip((c[:, 0] * wid).astype(int), 0, wid - 1)]
+            mean = float(px.mean())
+            ok &= MIRROR_GLASS_SRGB[0] <= mean <= MIRROR_GLASS_SRGB[1]
+            lines.append(f"{label} {mean:.0f} ({int(glass.sum())} glass triangles)")
+        rep.check(ok, f"mirror glass a mid grey in its _d (mean {MIRROR_GLASS_SRGB[0]}-{MIRROR_GLASS_SRGB[1]} sRGB)", "; ".join(lines))
 
     # --- the parts file and the fit file --------------------------------------------------------------------------
     parts = ini_keys(meshes / "CMB_BikeParts.ini") if (meshes / "CMB_BikeParts.ini").exists() else {}
@@ -332,7 +477,7 @@ def main() -> int:
     # --- overlays, the needle, the mirrors (CMB_BikeWorn.nif: AnimObjectA, its mesh space is the bike's) ---------------
     complete = all(label in worn_geo for label in labels)
     if worn_geo and not complete:
-        rep.check(False, "the geometry checks (overlays, needle, mirrors, totals, clamp)", "CMB_BikeWorn.nif hasn't the 28 shapes")
+        rep.check(False, "the geometry checks (overlays, needle, mirrors, totals, clamp)", f"CMB_BikeWorn.nif hasn't the {len(labels)} shapes")
     if complete:
         def tris_of(label, sel=None):
             v, f, _ = worn_geo[label]
@@ -408,8 +553,16 @@ def main() -> int:
         rep.info("total", f"{sum(len(g[0]) for g in worn_geo.values())} vertices, {sum(len(g[1]) for g in worn_geo.values())} "
                           f"triangles in {len(worn_geo)} shapes")
         mats = None   # per label: material per triangle (names) and whether it's ours (bike_pieces)
-        if args.stage_dir and (args.stage_dir / "manifest.json").exists():
-            manifest = json.loads((args.stage_dir / "manifest.json").read_text())
+        allowed = {}  # material -> the model's triangles the build changed on purpose (the volume guard, our discs)
+        if manifest:
+            for g in manifest.get("volume_guard", []):
+                m = H.STAGE_NAME.get(g["material"], g["material"])
+                allowed[m] = allowed.get(m, 0) + g["to"] - g["from"]
+                rep.info("volume guard", f"glTF mesh {g['mesh']} {m} ({g['label']}): {g['from']} -> {g['to']} triangles, "
+                                         f"volume kept {g['share_from']:.2f} -> {g['share']:.2f}")
+            for mesh, n in manifest.get("disc_replaced", {}).items():
+                allowed["silver"] = allowed.get("silver", 0) - int(n)
+                rep.info("disc replaced", f"glTF mesh {mesh}'s plate, {n} silver triangles of the model's, by our disc")
             mats = {}
             for label in labels:
                 with np.load(args.stage_dir / "shapes" / f"{label}.npz") as e:
@@ -454,11 +607,13 @@ def main() -> int:
                 for name in sorted(set(ref_mat) | set(model) | set(ours)):
                     d = model.get(name, 0) - ref_mat.get(name, 0)
                     print(f"      {name:11s} {ref_mat.get(name, 0):6d} {model.get(name, 0):9d} {ours.get(name, 0):6d} {d:+9d}")
-                    expect = -24 if name == "tex1" else 0
+                    expect = (-24 if name == "tex1" else 0) + allowed.get(name, 0)
                     if d != expect and (ours or name not in ("black_m", "mirror", "dial", "needle", "tail_led", "brake_led")):
-                        bad.append(f"{name} {d:+d}")
+                        bad.append(f"{name} {d:+d} (allowed {expect:+d})")
                 split = bool(ours)
                 rep.check(not bad, "triangles per material: the model's as the reference's, but glTF mesh 9's 24 tex1"
+                          + (" and the volume guard's and discs' (" + ", ".join(f"{k} {v:+d}" for k, v in sorted(allowed.items()))
+                             + ")" if allowed else "")
                           + ("" if split else " (no --stage-dir: black_m not split from ours)"), ", ".join(bad))
                 rep.info("triangles", f"reference {ref_tris}, now {sum(len(g[1]) for g in worn_geo.values())} "
                                       f"(ours {sum(ours.values()) if split else '?'})")
@@ -473,6 +628,39 @@ def main() -> int:
             rep.check(now.get("front_black", 0) >= 300 and static_ref - static_now >= 300,
                       "the lower triple clamp turns with the bars (front_black)",
                       f"vertices in its box now {now}; the reference's {clamp_ref}")
+
+    # --- the volume guard and our discs (the stage manifest, since the 2026-11-01a build) --------------------------
+    if manifest is not None:
+        vols = manifest.get("volumes")
+        if vols is None:
+            rep.check(False, "volumes: the stage manifest lists the closed pieces' volumes", "an export older than the "
+                             "2026-11-01a build's: export again")
+        else:
+            low = sorted((x for x in vols if x["share"] < 0.6), key=lambda x: x["share"])
+            rep.check(not low, f"volumes: no closed piece of the model under 0.6 of its volume after the cut ({len(vols)} "
+                               f"closed pieces cut; the least {min([x['share'] for x in vols] or [1.0]):.2f})",
+                      "; ".join(f"glTF mesh {x['mesh']} ({x['label']}) {x['src_tris']} -> {x['tris']} triangles, "
+                                f"{x['share']:.2f}" for x in low[:8]))
+        if manifest.get("disc", "model") == "ours":
+            lines, ok = [], True
+            for label in H.DISC_LABELS:
+                fit = manifest.get("discs", {}).get(label)
+                if fit is None or label not in parked_geo:
+                    ok = False
+                    lines.append(f"{label}: {'not in the manifest' if fit is None else 'not in the parked nif'}")
+                    continue
+                pv = parked_geo[label]
+                seat = float(manifest["seat_at"])
+                wv = np.column_stack([-pv[:, 0], seat - pv[:, 1], pv[:, 2]])   # worn
+                ax = np.array(fit["axle_worn"], dtype=np.float64)
+                r = np.hypot(wv[:, 1] - ax[1], wv[:, 2] - ax[2])
+                dx = max(abs(wv[:, 0].min() - fit["x"][0]), abs(wv[:, 0].max() - fit["x"][1]))
+                dr = abs(r.max() - fit["r_out"])
+                ok &= dx <= 0.05 and dr <= 0.05
+                lines.append(f"{label} x {wv[:, 0].min():.3f}..{wv[:, 0].max():.3f} (the plate's {fit['x'][0]:.3f}.."
+                             f"{fit['x'][1]:.3f}), r_out {r.max():.3f} ({fit['r_out']:.3f}), the bore {r.min():.3f} "
+                             f"({fit['r_hub']:.3f}), {len(pv)} vertices")
+            rep.check(ok, "discs: ours within 0.05 of the model's plate in x and outer radius", "; ".join(lines))
 
     # --- brand ----------------------------------------------------------------------------------------------------
     hits = []

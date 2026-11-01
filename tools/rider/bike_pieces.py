@@ -32,6 +32,7 @@ below (DIAL_*, NEEDLE_PATCH, LENS_*, BADGE_*), so the two can't drift apart.
   bend_convex(verts, normals, centre, normal, radius) -> normals
   clearance(turning, static, steer_point, steer_axis, bar_angle) -> the least gap
   badge_uvs(verts, tris) -> uvs (m, 3, 2)
+  disc_pieces(centre_yz, x0, x1, r_out, r_hub, flip) -> (verts, tris, normals, uvs), the brake discs
 
 Run it (python3 -I bike_pieces.py) for a self-test of the geometry on synthetic inputs.
 """
@@ -967,6 +968,164 @@ def badge_uvs(verts, tris):
     return uv.astype(np.float32)
 
 
+# --- the brake discs (since the 2026-11-01a build) ---------------------------------------------------------
+# Test 47: the model's discs (glTF meshes 78 and 100) read as low-quality plates: a 36-48 segment outline, the face cut
+# into long thin triangles from the rim to octagonal holes, dented in the source. Ours: a drilled disc with a 96-segment
+# outline. The friction band, DISC_BAND to 1 of the outer radius, is 24 cells of 15 degrees, each with one drilled hole
+# (radius DISC_HOLE_R) at DISC_HOLE_AT of the way across the band, alternating (a drilled disc's zigzag); the carrier, from
+# the bore to the band, is 6 cells of 60 degrees, each with a round window. Every cell's face is quads between its
+# outline and its hole's circle, the hole's points on the rays from its centre to the outline's (star-shaped, so nothing
+# overlaps); both faces, the holes' walls, the rim and the bore. All sizes are fractions of the outer radius, so one art
+# (bike_art.disc_art) serves both discs: the faces' UVs are planar, u = 0.5 + dy / (2 R_art), v = 0.5 - dz / (2 R_art),
+# R_art = DISC_ART_R x the outer radius (dy, dz from the axle in the frame the disc is made in).
+DISC_BAND = 0.70                 # the friction band's inner edge
+DISC_CELLS, DISC_WINDOWS = 24, 6
+DISC_HOLE_AT = (0.33, 0.67)      # the holes' radii across the band, alternating
+DISC_HOLE_R = 0.0266             # the drilled holes' radius (0.36 on the front, 0.33 on the rear)
+DISC_HUB_REF = 0.15              # the carrier's windows are laid out for a bore of this much (the model's: 0.146, 0.151)
+DISC_WINDOW_AT = 0.55            # the windows' centres, across the carrier (bore to band, of DISC_HUB_REF)
+DISC_WINDOW_R = 0.24             # the windows' radius, of the carrier's width
+DISC_ARC, DISC_ARC_HUB = 4, 8    # segments per band cell's arc (96 round), per carrier cell's bore arc (48 round)
+DISC_SIDE, DISC_SIDE_HUB = 3, 6  # points along a band cell's and a carrier cell's radial sides
+DISC_ART_R = 1.02                # the art's square spans this much of the outer radius each way
+DISC_WALL_UV = 0.02              # units: a wall takes the UVs of a ring this far either side of its edge (the chamfer)
+
+
+def disc_layout(r_out=1.0):
+    """The holes of a disc of outer radius r_out: [(kind, angle (rad), radius from the axle, hole radius)], kind
+    "hole" (the band's drilled holes) or "window" (the carrier's)."""
+    out = []
+    band = DISC_BAND * r_out
+    dt = 2 * math.pi / DISC_CELLS
+    for k in range(DISC_CELLS):
+        rr = band + DISC_HOLE_AT[k % 2] * (r_out - band)
+        out.append(("hole", (k + 0.5) * dt, rr, DISC_HOLE_R * r_out))
+    hub = DISC_HUB_REF * r_out
+    dc = 2 * math.pi / DISC_WINDOWS
+    for k in range(DISC_WINDOWS):
+        out.append(("window", (k + 0.5) * dc, hub + DISC_WINDOW_AT * (band - hub), DISC_WINDOW_R * (band - hub)))
+    return out
+
+
+def disc_pieces(centre_yz, x0, x1, r_out, r_hub, flip=False):
+    """Our brake disc about the x axis through (y, z) = centre_yz, its faces at x0 and x1, from the bore r_hub to r_out:
+    (verts (n, 3), tris (m, 3), normals (n, 3), uvs (n, 2)), in the frame the centre is given in. The faces' normals
+    are +-x, the walls' radial (inward on the holes and the bore), split at the 90-degree edges; every triangle winds
+    with its normal (pre-flipped with flip, as piece() does). The UVs: planar on the faces (see above), a wall the
+    DISC_WALL_UV ring either side of its edge on the face (the art paints it as the chamfer)."""
+    cy, cz = float(centre_yz[0]), float(centre_yz[1])
+    x0, x1 = (float(x0), float(x1)) if x0 < x1 else (float(x1), float(x0))
+    R, hub = float(r_out), float(r_hub)
+    band = DISC_BAND * R
+    r_art = DISC_ART_R * R
+    verts, norms, uvs, tris = [], [], [], []
+
+    def uv_of(p):
+        return (0.5 + p[0] / (2 * r_art), 0.5 - p[1] / (2 * r_art))
+
+    def add(x, p, n, uv):
+        verts.append((x, cy + p[0], cz + p[1]))
+        norms.append(n)
+        uvs.append(uv)
+        return len(verts) - 1
+
+    def tri(a, b, c, want):
+        pa, pb, pc = (np.array(verts[i]) for i in (a, b, c))
+        if np.dot(np.cross(pb - pa, pc - pa), want) < 0:
+            b, c = c, b
+        tris.append((a, b, c))
+
+    def pol(r, t):
+        return np.array([r * math.cos(t), r * math.sin(t)])
+
+    def arc(r, t0, t1, segs):
+        return [pol(r, t0 + (t1 - t0) * k / segs) for k in range(segs + 1)]
+
+    def side(r0, r1, t, pts):
+        return [pol(r0 + (r1 - r0) * k / (pts + 1), t) for k in range(1, pts + 1)]
+
+    def cell(boundary, h, rho):
+        """One cell: both faces between its outline and its hole, and the hole's wall."""
+        boundary = np.asarray(boundary)
+        n = len(boundary)
+        dirs = np.array([(b - h) / np.linalg.norm(b - h) for b in boundary])
+        ring = h + rho * dirs
+        for x, nx in ((x1, 1.0), (x0, -1.0)):
+            bi = [add(x, b, (nx, 0.0, 0.0), uv_of(b)) for b in boundary]
+            hi = [add(x, q, (nx, 0.0, 0.0), uv_of(q)) for q in ring]
+            for i in range(n):
+                j = (i + 1) % n
+                tri(bi[i], bi[j], hi[j], (nx, 0, 0))
+                tri(bi[i], hi[j], hi[i], (nx, 0, 0))
+        # the wall: normals toward the hole's centre; UVs just outside the hole (x1 side) and just inside it (x0)
+        a = [add(x1, q, (0.0, -d[0], -d[1]), uv_of(h + (rho + DISC_WALL_UV) * d)) for q, d in zip(ring, dirs)]
+        b = [add(x0, q, (0.0, -d[0], -d[1]), uv_of(h + (rho - DISC_WALL_UV) * d)) for q, d in zip(ring, dirs)]
+        for i in range(n):
+            j = (i + 1) % n
+            want = (0.0, -(dirs[i][0] + dirs[j][0]), -(dirs[i][1] + dirs[j][1]))
+            tri(a[i], b[i], b[j], want)
+            tri(a[i], b[j], a[j], want)
+
+    holes = disc_layout(R)
+    dt = 2 * math.pi / DISC_CELLS
+    for k in range(DISC_CELLS):
+        t0, t1 = k * dt, (k + 1) * dt
+        B = (arc(band, t0, t1, DISC_ARC) + side(band, R, t1, DISC_SIDE) + arc(R, t1, t0, DISC_ARC)
+             + side(R, band, t0, DISC_SIDE))
+        _, ang, rr, rho = holes[k]
+        cell(B, pol(rr, ang), rho)
+    dc = 2 * math.pi / DISC_WINDOWS
+    per = DISC_CELLS // DISC_WINDOWS
+    for k in range(DISC_WINDOWS):
+        t0, t1 = k * dc, (k + 1) * dc
+        B = (arc(hub, t0, t1, DISC_ARC_HUB) + side(hub, band, t1, DISC_SIDE_HUB) + arc(band, t1, t0, DISC_ARC * per)
+             + side(band, hub, t0, DISC_SIDE_HUB))
+        _, ang, rr, rho = holes[DISC_CELLS + k]
+        cell(B, pol(rr, ang), rho)
+    # the rim (outward) and the bore (inward)
+    for r, segs, sign in ((R, DISC_CELLS * DISC_ARC, 1.0), (hub, DISC_WINDOWS * DISC_ARC_HUB, -1.0)):
+        ang = [2 * math.pi * k / segs for k in range(segs)]
+        d = [np.array([math.cos(t), math.sin(t)]) for t in ang]
+        face_r = r - sign * DISC_WALL_UV   # the face side of the wall's UV ring
+        a = [add(x1, r * e, (0.0, sign * e[0], sign * e[1]), uv_of(face_r * e)) for e in d]
+        b = [add(x0, r * e, (0.0, sign * e[0], sign * e[1]), uv_of((2 * r - face_r) * e)) for e in d]
+        for i in range(segs):
+            j = (i + 1) % segs
+            want = (0.0, sign * (d[i][0] + d[j][0]), sign * (d[i][1] + d[j][1]))
+            tri(a[i], b[i], b[j], want)
+            tri(a[i], b[j], a[j], want)
+    v = np.array(verts, dtype=np.float64)
+    f = np.array(tris, dtype=np.int64)
+    n = unit(np.array(norms, dtype=np.float64))
+    uv = np.array(uvs, dtype=np.float64)
+    # one vertex per (place, normal, UV): the faces' shared cell edges merged
+    key = np.concatenate([np.round(v * 1e5), np.round(n * 1e4), np.round(uv * 1e6)], axis=1).astype(np.int64)
+    _, first, inv = np.unique(key, axis=0, return_index=True, return_inverse=True)
+    order = np.argsort(first)               # keep the vertices in the order they were made
+    rank = np.empty_like(order)
+    rank[order] = np.arange(len(order))
+    f = rank[inv.reshape(-1)][f]
+    first = first[order]
+    v, n, uv = v[first], n[first], uv[first]
+    if flip:
+        f = f[:, [0, 2, 1]]
+    return v, f, n, uv
+
+
+def disc_check(v, f, n, flip=False):
+    """For tests: (open edges, non-manifold edges, edges used twice the same way, triangles against their normals) of
+    disc_pieces' output, with the vertices welded by place."""
+    q = np.round(v * 1e5).astype(np.int64)
+    _, inv = np.unique(q, axis=0, return_inverse=True)
+    F = inv.reshape(-1)[f if not flip else f[:, [0, 2, 1]]]
+    e = np.vstack([F[:, [0, 1]], F[:, [1, 2]], F[:, [2, 0]]])
+    und, cnt = np.unique(np.sort(e, axis=1), axis=0, return_counts=True)
+    dirs, dcnt = np.unique(e, axis=0, return_counts=True)
+    fn = unit(face_normals(v, f if not flip else f[:, [0, 2, 1]]))
+    against = int((np.einsum("ij,ij->i", fn, n[f].mean(axis=1)) <= 0).sum())
+    return int((cnt == 1).sum()), int((cnt > 2).sum()), int((dcnt > 1).sum()), against
+
+
 # --- self-test ------------------------------------------------------------------------------------------
 
 def _synthetic_dial():
@@ -1027,6 +1186,13 @@ def _selftest():
             print("   ", m)
     for m in check_pieces(pieces + lamp):
         print("   ", m)
+    for name, args in (("front", ((-68.11, 29.87), 5.61, 6.35, 13.54, 1.97)), ("rear", ((68.11, 29.94), 6.78, 7.53, 12.53, 1.89))):
+        v, f, n, uv = disc_pieces(*args)
+        op, nm, same, against = disc_check(v, f, n)
+        r = np.hypot(v[:, 1] - args[0][0], v[:, 2] - args[0][1])
+        print(f"disc {name}: {len(f)} triangles, {len(v)} vertices; welded: {op} open edges, {nm} non-manifold, {same} "
+              f"edges twice the same way, {against} triangles against their normals; x {v[:, 0].min():.2f}..{v[:, 0].max():.2f}, "
+              f"r {r.min():.3f}..{r.max():.3f}, UVs {uv.min():.3f}..{uv.max():.3f}")
 
 
 if __name__ == "__main__":

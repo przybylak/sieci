@@ -15,6 +15,8 @@ Compiles the mod's scripts with [Caprica](https://github.com/nikitalita/Caprica)
 - `audit_stubs.py <folder with real .psc files> ...` checks every stub declaration against the
   real ones (the Creation Kit's `Data\Scripts\Source\Base`, or F4SE's repository, `scripts/vanilla` and
   `scripts/modified`). It found that the camera script called a `GetINIFloat` that doesn't exist.
+  F4SE's folders have no `SoundCategory.psc` (2026-11-01a's `Mute`/`UnMute`): while no folder given has it, the
+  audit lists that stub as "unaudited" instead of counting it (`NO_SOURCE_HERE`); the CK's `Base` folder audits it.
 
 `caprica-linux.patch` + `compat/` make upstream Caprica (MSVC-only) build with clang on Linux. The patch also fixes two crashes:
 error messages with string arguments crashed (a varargs layout difference outside MSVC), and passing too many arguments to a function crashed instead of reporting an error.

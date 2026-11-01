@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """The bike's own art: the speedometer's face and needle, the tail and brake lenses' pattern, the
-tank badge (a winged wheel, no text) and the mirrors' sky. Drawn here from shapes, so no source
+tank badge (a winged wheel, no text), the brake discs and the mirrors' sky. Drawn here from shapes, so no source
 image or font file is needed (the numerals are a stroke font of our own), and laid out to the UV
 layouts bike_pieces.py gives the pieces (its DIAL_*, NEEDLE_PATCH, LENS_*, BADGE_* constants).
 
   python3 -I bike_art.py --out <stage>/art [--size-dial 512] [--size-lens 256] [--size-badge 512] [--size-cube 512]
+      [--size-disc 1024]
 
 Writes PNGs (8-bit, numpy and zlib only) and art.json, which says for each file what its channels
 hold. The texture stage (bike_textures.py) turns them into DDS and the materials point at them:
@@ -24,6 +25,9 @@ hold. The texture stage (bike_textures.py) turns them into DDS and the materials
   static_badge_s.png      R specular, G smoothness
   rear_tail_d/g.png       the running light's lens: Fresnel rings round LED cells, its glow map
   rear_brake_d/g.png      the brake light's, brighter and fuller
+  wheel_disc_d/n/s.png    (since the 2026-11-01a build) the brake discs, both: machined steel band with a
+                          polished pad track and a faint heat ring, a satin carrier, a bright chamfer
+                          round every hole, the rim and the bore; concentric turning grooves in _n
   mirror_cube_<f>.png     the mirrors' sky (f = px nx py ny pz nz: the six faces in Direct3D order and
                           orientation, +Y up): a clear sky, a sun with its glare, hazy hills on the
                           horizon, dark ground; continuous across the faces
@@ -472,6 +476,81 @@ def draw_badge(size):
 
 # --- the mirrors' sky ------------------------------------------------------------------------------------
 
+# --- the brake discs (since the 2026-11-01a build) -----------------------------------------------------------------
+# One art for both discs (bike_pieces.disc_pieces: the layout scales with the outer radius; the faces' UVs planar over
+# DISC_ART_R of it each way). Sizes below in units of the outer radius unless named units (DISC_UNIT: the two discs'
+# mean outer radius, 13.04 game units, turns those into the art's).
+DISC_UNIT = 13.04
+DISC_STEEL = (0x8A / 255, 0x8D / 255, 0x92 / 255)    # the friction band: machined steel
+DISC_CARRIER = (0x4A / 255, 0x4C / 255, 0x50 / 255)  # the carrier: satin
+DISC_PAD = (0.15, 0.85, 0.06)          # the polished pad track across the band (from, to) and its extra brightness
+DISC_HEAT = (0.10, 0.08)               # the heat ring's place across the band and its strength at most (blue-straw)
+DISC_CHAMFER = 0.06                    # units: the bright chamfer round every hole, the rim and the bore (+12 %)
+DISC_GROOVE = (0.18, 4.0)              # units, degrees: the concentric turning grooves' pitch and slope
+DISC_SPEC = {"band": (0.80, 0.62), "pad": (0.80, 0.72), "carrier": (0.40, 0.45)}   # _s R specular, G smoothness
+
+
+def draw_disc(size):
+    """The discs' _d (RGB), _n (tangent space, Direct3D) and _s (R specular, G smoothness) at size x size."""
+    R = bp.DISC_ART_R
+    u = (np.arange(size) + 0.5) / size
+    dy = np.broadcast_to((u[None, :] - 0.5) * 2 * R, (size, size))      # u = 0.5 + dy / (2 R_art)
+    dz = np.broadcast_to(-(u[:, None] - 0.5) * 2 * R, (size, size))     # v = 0.5 - dz / (2 R_art), v down the image
+    r = np.hypot(dy, dz)
+    band0, hub = bp.DISC_BAND, bp.DISC_HUB_REF
+    px = 2 * R / size                                   # one pixel, in outer radii
+    ch = DISC_CHAMFER / DISC_UNIT
+    across = np.clip((r - band0) / (1 - band0), 0, 1)
+    band = r >= band0
+    # the distance to the nearest edge a chamfer runs along (holes, windows, the rim, the bore) and the way to it
+    edge = np.minimum(np.abs(1.0 - r), np.abs(r - hub))
+    toward = np.where((np.abs(1.0 - r) < np.abs(r - hub))[..., None],
+                      np.stack([dy, dz], -1) / np.maximum(r, 1e-9)[..., None],
+                      -np.stack([dy, dz], -1) / np.maximum(r, 1e-9)[..., None])
+    inside = (r > 1.0) | (r < hub)                      # off the face (the rim's and the bore's walls)
+    for kind, ang, rr, rho in bp.disc_layout(1.0):
+        hy, hz = rr * math.cos(ang), rr * math.sin(ang)
+        d = np.hypot(dy - hy, dz - hz)
+        e = np.abs(d - rho)
+        nearer = e < edge
+        dirs = np.stack([hy - dy, hz - dz], -1) / np.maximum(d, 1e-9)[..., None]   # toward the hole's centre
+        toward = np.where(nearer[..., None], dirs, toward)
+        edge = np.where(nearer, e, edge)
+        inside |= d < rho
+    # _d
+    base = np.where(band[..., None], np.array(DISC_STEEL), np.array(DISC_CARRIER))
+    pad = band & (across >= DISC_PAD[0]) & (across <= DISC_PAD[1])
+    soft = smooth01((across - DISC_PAD[0]) / 0.04) * smooth01((DISC_PAD[1] - across) / 0.04) * band
+    col = base * (1 + DISC_PAD[2] * soft[..., None])
+    heat = np.exp(-0.5 * ((across - DISC_HEAT[0]) / 0.05) ** 2) * band * DISC_HEAT[1]
+    straw_blue = np.array([0.62, 0.55, 0.78])
+    col = col * (1 - heat[..., None]) + straw_blue * heat[..., None] * col.mean(-1, keepdims=True) / straw_blue.mean()
+    cham = np.clip((ch - edge) / px + 0.5, 0, 1) * ~inside
+    col = col * (1 + 0.12 * cham[..., None])
+    col = np.where(inside[..., None], np.array(DISC_STEEL) * 0.82, col)   # the walls: the drilled steel, darker
+    # _n: concentric grooves (a sine of the radius) on the faces, the chamfer a bevel toward its edge
+    pitch, slope = DISC_GROOVE[0] / DISC_UNIT, math.tan(math.radians(DISC_GROOVE[1]))
+    g = slope * np.cos(2 * math.pi * r / pitch) * ~inside                 # dh/dr over the slope's amplitude
+    ny_, nz_ = -g * dy / np.maximum(r, 1e-9), -g * dz / np.maximum(r, 1e-9)
+    bevel = math.tan(math.radians(30.0)) * cham
+    ny_ = ny_ + bevel * toward[..., 0]
+    nz_ = nz_ + bevel * toward[..., 1]
+    # tangent space: +u along +dy, +v (down the image) along -dz; a normal tilted toward +dz leans toward -v
+    n = np.stack([ny_, -nz_, np.ones_like(r)], -1)
+    n /= np.linalg.norm(n, axis=-1, keepdims=True)
+    # _s
+    spec = np.where(band, DISC_SPEC["band"][0], DISC_SPEC["carrier"][0])
+    smooth = np.where(band, DISC_SPEC["band"][1], DISC_SPEC["carrier"][1])
+    smooth = smooth + (DISC_SPEC["pad"][1] - DISC_SPEC["band"][1]) * soft
+    s = np.stack([spec, smooth, np.zeros_like(r)], -1)
+    return to8(np.clip(col, 0, 1)), to8(n * 0.5 + 0.5), to8(s), int(pad.sum())
+
+
+def smooth01(x):
+    x = np.clip(x, 0.0, 1.0)
+    return x * x * (3 - 2 * x)
+
+
 SUN = (35.0, 40.0)   # elevation, azimuth (degrees; azimuth from the first horizontal axis toward the second)
 
 
@@ -631,6 +710,7 @@ def main():
     ap.add_argument("--size-lens", type=int, default=256)
     ap.add_argument("--size-badge", type=int, default=512)
     ap.add_argument("--size-cube", type=int, default=512)
+    ap.add_argument("--size-disc", type=int, default=1024)
     args = ap.parse_args()
     out = args.out
     out.mkdir(parents=True, exist_ok=True)
@@ -656,6 +736,11 @@ def main():
     put("static_badge_d.png", bd, "diffuse", "RGB colour, A the emblem's outline (alpha test at 128)", ["static_badge"])
     put("static_badge_n.png", bn, "normal", "tangent space, Direct3D (G toward +v)", ["static_badge"])
     put("static_badge_s.png", bs, "specular/smoothness", "R specular, G smoothness, B unused (linear)", ["static_badge"])
+    dd, dn, ds, _ = draw_disc(args.size_disc)
+    disc_labels = ["wheelF_disc", "wheelR_disc"]
+    put("wheel_disc_d.png", dd, "diffuse", "RGB colour", disc_labels)
+    put("wheel_disc_n.png", dn, "normal", "tangent space, Direct3D (G toward +v): the turning grooves, the chamfers", disc_labels)
+    put("wheel_disc_s.png", ds, "specular/smoothness", "R specular, G smoothness, B unused (linear)", disc_labels)
     seams = {}
     for up_axis, stem in (("y", "mirror_cube"), ("z", "mirror_cube_zup")):
         faces = draw_cube(args.size_cube, up_axis)
@@ -680,7 +765,9 @@ def main():
                 "layout": {"dial": {"DIAL_ART_R": bp.DIAL_ART_R, "NEEDLE_PATCH": bp.NEEDLE_PATCH, "DIAL_ZERO": bp.DIAL_ZERO,
                                     "DIAL_MAX": bp.DIAL_MAX, "DIAL_PER_MPH": bp.DIAL_PER_MPH},
                            "lens": {"LENS_TAIL_BOX": bp.LENS_TAIL_BOX, "LENS_ROUND_BOX": bp.LENS_ROUND_BOX},
-                           "badge": {"BADGE_BAND_W": bp.BADGE_BAND_W, "BADGE_ROUNDEL": bp.BADGE_ROUNDEL}}}
+                           "badge": {"BADGE_BAND_W": bp.BADGE_BAND_W, "BADGE_ROUNDEL": bp.BADGE_ROUNDEL},
+                           "disc": {"DISC_ART_R": bp.DISC_ART_R, "DISC_BAND": bp.DISC_BAND, "DISC_HUB_REF": bp.DISC_HUB_REF,
+                                    "holes": [[k, round(a, 6), round(r, 6), round(h, 6)] for k, a, r, h in bp.disc_layout(1.0)]}}}
     (out / "art.json").write_text(json.dumps(manifest, indent=1) + "\n")
     print(f"wrote {len(files)} images and art.json, cube.json to {out}; cube seams (mean step across / inside, 0-255): "
           + ", ".join(f"{k} {v[0]:.2f}/{v[1]:.2f}" for k, v in seams.items()))

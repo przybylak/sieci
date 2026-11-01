@@ -6,6 +6,7 @@ int Function Ceiling(float afValue) native global
 int Function LogicalAnd(int arg1, int arg2) native global
 int Function RightShift(int arg1, int arg2) native global
 float Function Sqrt(float afValue) native global
+float Function Pow(float x, float y) native global
 float Function Abs(float afValue) native global
 float Function Asin(float afValue) native global
 float Function Atan(float afValue) native global

@@ -15,7 +15,7 @@ sh tools/sound/run_all.sh <demodave's idle.wav> [out dir]          # everything,
 | `make_piece_loops.py` | The files cut from the recording itself. These are the idle loop (92.0 to 98.3 s), the start (0.25 to 2.6 s) and the stop (158.6 to 160.6 s), plus the 2300 rpm closed-throttle loop made from 18 flattened pieces of its falls. Before that it finds every engine cycle in the recording with a dechirped comb map and a cycle walker. |
 | `build_loops.py` | The shipped set. Each riding loop's tone is matched to the reference ride: a third-octave EQ, the brightness law, the attacks, the half-order line pattern on 1400, 1700 and 2000, and the pulse-to-pulse brightness. Each loop is then levelled to -13.5 dBFS RMS through a look-ahead limiter. The idle, start and stop are copied as they are. The 2000 rpm loop on load is written as `CMB_EngineCruiseLP.wav`, the file the cruise sound record plays. |
 | `hot_loops.py` | The last stage, since test 45's answer: every one of the 13 files 2.5 dB hotter, its peaks rounded off by a memoryless soft limiter (knee -6 dBFS, ceiling -1). See *Hotter loops* below. |
-| `engine_model.py` | The engine model: rpm, gear, load, and each loop's pitch and level, frame by frame. The plugin's C port follows it, and every constant's measured basis is in its `DEFAULTS`. Since test 45's build the gears follow a "heard speed" with a real ride's limits rather than the game's bike (`HeardSpeed` and the keys after it). |
+| `engine_model.py` | The engine model: rpm, gear, load, and each loop's pitch and level, frame by frame. The plugin's C port follows it, and every constant's measured basis is in its `DEFAULTS`. Since test 45's build the gears follow a "heard speed" with a real ride's limits rather than the game's bike (`HeardSpeed` and the keys after it); since the 2026-11-01a build a stop shifts down with blips (`StopShift`). `--check-off` checks its off values against the 2026-10-31a build's frames (`check_off_2026-10-31a.txt`). |
 | `render.py` | Renders the demo ride, or a recorded one (`--ride`), through the model and a loop set, the way the game plays it. Writes a WAV and CSVs of the model's state. |
 | `run_all.sh` | Runs all of the above, end to end. |
 | `make_engine_sounds.py` | The old synthesiser: the fallback set (see below). |
@@ -144,8 +144,24 @@ python3 -I tools/sound/render.py --loops <loops> --out ride.wav --ride ride.csv
   "LevelOffset": 0, "LaunchDraw": [0, 0], "LaunchRise": 0, "ShiftDraw": [0, 0], "DownHold": 0, "DownHeld": 0}'`, the same
   values the INI's comments give. Test 45's levels are `--cfg '{"LevelScale": 0.7, "LevelOffset": 0}'` (test 46: LevelScale
   1.0, LevelOffset +5 dB, each loop's gain held at 0 dB).
+- The 2026-10-31a build's model is `--cfg '{"StopShift": 0, "ShiftDraw": [2000, 2900]}'`. The 2026-11-01a build draws each
+  pull's up-shift from `ShiftDraw` 2300-3000 and gives a stop its down-shifts (`StopShift`, with `HeardStop`, `HeardBrake`,
+  `StopGap`, `StopHold` and `StopAfter`: the comments on `DEFAULTS`); the demo ride renders with them by default.
 - The CSV (`ride.csv`, 10 rows a second) gives the gear, rpm, load, on-family weight, clutch, shift and coast state,
   and the level. `ride_frames.csv` gives every frame's gain and pitch per loop.
+
+### The off values' check
+
+```
+python3 -I tools/sound/engine_model.py --check-off                       # 0 if the off values give the 2026-10-31a frames
+python3 -I tools/sound/engine_model.py --check-off --against <old model>  # the same, frame by frame against another file
+```
+
+`--check-off` runs the model with `StopShift=0` and `ShiftDraw` 2000,2900 over the demo ride, a random ride of 60 segments in
+the harness's game and five stops (44,136 frames), and compares each frame (the gear, the rpm, the clutch, the heard level and
+every loop's gain and pitch, exactly) with `check_off_2026-10-31a.txt`: the 2026-10-31a build's model over the same rides, 500
+frames a hash, and its gear changes. It prints each ride's count and exits 1 if any frame differs. The file was written from
+0c3df02's `engine_model.py` (`git show 0c3df02:tools/sound/engine_model.py > old.py`, then `--write-expected old.py`).
 
 ### The build is repeatable
 

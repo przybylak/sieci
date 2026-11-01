@@ -195,6 +195,66 @@ Group Optional
 	can take for the most room ([Room] ParkTilt; -1000 none), and Ground that spot's ground height
 	with it; SettleBike sets the brought bike to them where it stays on the spot. Not Mandatory: an
 	ESP from before test 46 leaves them None, and nothing changes.}
+	GlobalVariable Property CMB_RoomAskKind Auto Const
+	{2026-11-01a (test 47: a call put the bike on the very edge of a truck's hood), read by
+	CMB_Slope.dll: what a room ask is, written with the spot before the ask's number on every ask
+	(RoomAt), 0 included, so a 1 never carries over. 0: a spot, as before; 1: the navmesh point a
+	call's snap found, asked about as a navmesh point (a level line from the player, a drop off what
+	they stand on, no step test: the plugin's [Room] SnapSpot). Not Mandatory: an ESP from before
+	2026-11-01a leaves it None, and no navmesh point is asked about.}
+	GlobalVariable Property CMB_RiderPoseOff Auto Const
+	{2026-11-01a (test 47's floating rider), written by CMB_Slope.dll ([Tilt] PoseCheck): the raw
+	seconds the rider's clips have been off the seat, 0 while seated, and at a ride's start and end
+	(never written with PoseCheck=0). Read at each ride tick (CheckRiderPose) and compared with
+	CMB_PoseOffAfter (3.0): once it is that long, the rider pose is applied again, one more way in for
+	the footstep watch's retries (the same count and gate). Not Mandatory: an ESP from before
+	2026-11-01a leaves it None, and only the footstep watch retries, as in build 2026-10-31a.}
+	Light Property CMB_TailLight Auto Const
+	{2026-11-01a (test 47: the tail lamp "is on, but it's not producing light"; an emissive shell
+	lights nothing): a shadowless red spotlight placed at the rider once CMB_Slope.dll is seen
+	working, handed over and removed with the headlamp; the plugin keeps it at the tail lamp, aimed
+	back and down, brighter while braking ([TailLight]).}
+	GlobalVariable Property CMB_TailRefHi Auto Const
+	GlobalVariable Property CMB_TailRefLo Auto Const
+	{The placed tail light's form id for CMB_Slope.dll, its high and low 16 bits (0 when there is
+	none), as CMB_HeadlampRefHi/Lo.}
+	GlobalVariable Property CMB_TailLightMode Auto Const
+	{MCM "Tail lamp lights the road": 1 = the tail light is placed (default); 0 = none, as in build
+	2026-10-31a. Not Mandatory, as the three above: an ESP from before 2026-11-01a leaves them None,
+	and no tail light is placed.}
+	MovableStatic Property CMB_BikeView Auto Const
+	{2026-11-01a (test 47: "in 1st person the bike model isn't even visible"): an unskinned copy of the
+	riding bike (CMB_BikeView.nif), placed at the rider, handed over and removed with the tail light;
+	CMB_Slope.dll shows it in first person only and places it every frame through the worn bike's
+	per-part maps ([View]).}
+	GlobalVariable Property CMB_ViewRefHi Auto Const
+	GlobalVariable Property CMB_ViewRefLo Auto Const
+	{The placed first-person bike's form id for CMB_Slope.dll, its high and low 16 bits (0 when there
+	is none).}
+	GlobalVariable Property CMB_FirstPersonBike Auto Const
+	{MCM "Bike in first person": 1 = the first-person bike is placed (default); 0 = none, as in build
+	2026-10-31a. Not Mandatory, as the three above: an ESP from before 2026-11-01a leaves them None,
+	and no first-person bike is placed.}
+	Perk Property CMB_RiderSteadyPerk Auto Const
+	{Test 47: Mod Incoming Stagger x0 while riding (CMB_RiderSteady). None (an older ESP): staggered as in 2026-10-31a.}
+	GlobalVariable Property CMB_RiderSteady Auto Const
+	{MCM "Steady in the saddle": 1 = hits don't stagger the rider (default); 0 = as 2026-10-31a.}
+	GlobalVariable Property CMB_PoseReactionWindow Auto Const
+	{MCM "Pose re-check pause after a hit (s)", 3 by default (0 to 5): a standing footstep (the
+	footstep watch) or a CMB_RiderPoseOff reading (CheckRiderPose) doesn't apply the rider pose again
+	within this long of a hit taken or an item used, or while the stagger watch says staggered: a hit
+	reaction or a stagger plays standing clips, and that isn't the pose lost. 0 = applied again on any
+	standing footstep, as 2026-10-31a. Not Mandatory: None (an older ESP) reads as 0.}
+	GlobalVariable Property CMB_PoseOffAfter Auto Const
+	{The seconds off the seat (CMB_RiderPoseOff, the plugin's raw count) from which CheckRiderPose
+	applies the rider pose again: 3.0, longer than any stagger (2 s at most) or hit reaction. Not
+	Mandatory: None (an older ESP), and CMB_RiderPoseOff is None with it.}
+	Spell Property CMB_StaggerWatchAbility Auto Const
+	{Test 47's stagger watch: a hidden ability whose effect (CMB_StaggerWatchEffectScript) runs while
+	the player is staggered (IsStaggered) and tells this script (NoteStagger); given on getting on,
+	taken on getting off. Ability conditions are checked about once a second, so a shorter stagger
+	may be missed: it verifies "Steady in the saddle", it doesn't measure staggers. Not Mandatory:
+	None (an older ESP), no watch.}
 	Sound Property CMB_EngineOn1400Sound Auto Const
 	Sound Property CMB_EngineOn1700Sound Auto Const
 	Sound Property CMB_EngineOn2400Sound Auto Const
@@ -232,6 +292,82 @@ Group Optional
 	plays.}
 EndGroup
 
+; Test 47's stagger watch: CMB_StaggerWatchEffectScript calls this with true when the player is
+; staggered and false when the stagger is over (the ability is on the player only while riding:
+; Mount gives it, FinishRide takes it). Log only, and the reaction window's "while staggered"
+; (CMB_PoseReactionWindow): it verifies "Steady in the saddle" (no line with Steady on is expected).
+Function NoteStagger(bool abStaggered)
+	float now = Utility.GetCurrentRealTime()
+	if abStaggered
+		if !riding
+			return
+		endif
+		staggered = true
+		staggeredAt = now
+		bool steady = CMB_RiderSteadyPerk && PlayerRef.HasPerk(CMB_RiderSteadyPerk)
+		Log("Staggered while riding (Steady " + Ternary(steady, "on", "off") + "): the stagger watch saw it.")
+	elseif staggered
+		staggered = false
+		if staggeredAt > now
+			staggeredAt = now   ; an earlier session's stamp
+		endif
+		Log("Staggered while riding: the stagger over after " + Tenths(now - staggeredAt) + " s.")
+	endif
+EndFunction
+
+; 2026-11-01a, the bike's own sounds besides the engine (test 47: "currently the sound used is
+; default character jump effect", "another sound would be when bike is crossing a water"): the
+; rider's own jump and landing sounds muted while riding, a landing sound on the landing clips'
+; first event at the plugin's level, and a water loop the plugin drives. None is Mandatory: an ESP
+; from before 2026-11-01a leaves them None, and nothing plays (as the 2026-10-31a build).
+Group Bike_Effects
+	GlobalVariable Property CMB_FxVolume Auto Const
+	{MCM "Bike effects volume", 0-100 (90; 0 none): landings and the water loop. 0x884, read by
+	CMB_Slope.dll every frame for the water loop, and by this script at each landing.}
+	GlobalVariable Property CMB_FxMuteRider Auto Const
+	{MCM "Mute the rider's own jump and landing sounds": 1 = the player's own footstep sounds
+	(AudioCategoryFSTplayer: the shoes' jump and landing sounds) muted while riding (default); 0 = as
+	the 2026-10-31a build. Read on getting on.}
+	GlobalVariable Property CMB_FxLandOn Auto Const
+	{MCM "Landing sound": 1 = the bike's landing sound (default); 0 = none, as the 2026-10-31a build.}
+	GlobalVariable Property CMB_FxWaterOn Auto Const
+	{MCM "Water sound": 1 = the water loop (needs CMB_Slope.dll; default); 0 = none, as the
+	2026-10-31a build. Read on getting on.}
+	SoundCategory Property AudioCategoryFSTplayer Auto Const
+	{Vanilla (000F5FFC): the player's own footsteps, jumps and landings; Mute() on getting on,
+	UnMute() on every way off (CMB_FxMuteRider).}
+	FormList Property CMB_FxLandSounds Auto Const
+	{The landing set: 0 light, 1 heavy, 2 the clunk on top of a heavy one, 3 into water, 4 into
+	water heavy (the game's own sound descriptors by reference).}
+	FormList Property CMB_FxLandSoundsAlt Auto Const
+	{The second landing set for an A/B (set CMB_FxLandPick to 1 in the console).}
+	FormList Property CMB_FxWaterLoops Auto Const
+	{The water loop candidates (CMB_FxWaterPick picks one, read on getting on).}
+	GlobalVariable Property CMB_FxLandPick Auto Const
+	{0 = CMB_FxLandSounds (default), 1 = CMB_FxLandSoundsAlt: the console's A/B of the landing set.}
+	GlobalVariable Property CMB_FxWaterPick Auto Const
+	{The index into CMB_FxWaterLoops of the water loop played (0 default; 0-3), read on getting on.}
+	GlobalVariable Property CMB_FxWaterId Auto Const
+	{0x885: the water loop's instance id for CMB_Slope.dll, written by this script on getting on (the
+	loop played at no volume); 0 = none.}
+	GlobalVariable Property CMB_FxDriven Auto Const
+	{0x886: the plugin's answer: the id when it drives the water loop, minus it when it declines
+	(its log says why).}
+	GlobalVariable Property CMB_FxAir Auto Const
+	{0x887: the plugin's flight state: 0 on the ground, 1 a flight of [Fx] AirMin (0.35 s) or more,
+	2 for AirHold (0.3 s) after that flight's landing, then 0.}
+	GlobalVariable Property CMB_FxLandSeq Auto Const
+	{0x888: counts the plugin's flights (one more at each take-off past AirMin), started from the
+	global's own value at each ride's start, so a save's number never repeats.}
+	GlobalVariable Property CMB_FxLandLevel Auto Const
+	{0x889: the landing's level 0-1 from the fall's speed (2-3: into water), written by the plugin
+	through the flight and at the landing; -1 (the ESP's, no plugin, or [Fx] Land=0): no cue, this
+	script's own level.}
+	GlobalVariable Property CMB_FxLandPlayed Auto Const
+	{0x88A: the flight whose landing sound this script played last, written by it after playing it
+	(the plugin logs how long after the landing).}
+EndGroup
+
 ; ---------------------------------------------------------------------------
 ; Constants
 ; ---------------------------------------------------------------------------
@@ -261,6 +397,12 @@ far as MaxSettleDistance, as in test 44's build. Test 47: with the plugin's [Roo
 (CMB_RoomOptions bit 8; test 46's calls onto a wrecked sedan and a truck, the snaps 89 and 207)
 a spot with room whose snap would go farther than this is not walkable, and the next spot is asked
 (PickBikeSpot, SnapOff): the putting back is left for when no other spot passes.}
+float Property SpotSnapReach = 300.0 Auto
+{2026-11-01a (the plugin's [Room] SnapSpot, CMB_RoomOptions bit 16; test 47's call from on top of the
+red truck: no spot passed, spot 10 had room on the hood, its navmesh snap 129 from it, and the bike was
+put back on the hood's edge): when nothing passes, the place the first such spot's navmesh snap found
+is asked about as a navmesh point (CMB_RoomAskKind 1) before that spot is taken as before, if it lies
+over SpotSettleMax and at most this far from the spot (test 46's snaps were 89 and 207, test 47's 129).}
 float Property ParkBackWithin = 136.0 AutoReadOnly
 {Test 47 (the plugin's [Room] ParkCheck, CMB_RoomOptions bit 4; test 46: got on facing a house's
 window at point blank and off 2 s later, and the bike went in beside the worn one, through the
@@ -312,6 +454,23 @@ float Property PoseRetryInterval = 2.0 AutoReadOnly
 int Property MaxPoseRetries = 10 AutoReadOnly
 string Property FootstepEvent = "FootLeft" AutoReadOnly
 {Standing walk/run clips send it; the seated riding clips don't.}
+int Property TimerPipboyCheck = 12 AutoReadOnly
+float Property PipboyCheckDelay = 0.6 AutoReadOnly
+{2026-11-01a (test 47's stim "skirt"): the plugin's reading of the clips is looked at this long
+after the Pip-Boy closes while riding (PipboyPoseCheck)...}
+float Property PipboyPoseOff = 0.3 AutoReadOnly
+{...and over this many seconds off the seat (CMB_RiderPoseOff) applies the rider pose again at once.}
+float Property TailRetireAfter = 2.5 AutoReadOnly
+{2026-11-01a: an old tail light is deleted this long after its handover (the headlamp's 2.5 s)...}
+float Property ViewRetireAfter = 4.0 AutoReadOnly
+{...and an old first-person bike this long: past the plugin's [View] HandoverTime (1.0 s), which
+keeps the old one shown until the new one has had its 3D that long.}
+float Property StaggerHoldMax = 10.0 AutoReadOnly
+{2026-11-01a: the stagger watch's "staggered" holds the pose's re-checks off at most this long (a
+stagger lasts 2 s at most): an end the watch never told can't hold them off for the ride.}
+string Property PipboyMenuName = "PipboyMenu" AutoReadOnly
+string Property FavoritesMenuName = "FavoritesMenu" AutoReadOnly
+{The two menus logged while riding (test 47: an item used from either), watched only then.}
 float Property EngineStartLength = 2.4 AutoReadOnly
 {The start sound ends on idle; the loops take over after it.}
 float Property CruiseSpeed = 700.0 AutoReadOnly
@@ -485,6 +644,19 @@ bool footstepsWatched = false
 bool hitGrace = false
 float healthMark = 1.0
 bool poseRetryWaiting = false
+float hitLoggedAt = -100.0   ; test 47: the last "Hit while riding" line (one a second at most)
+float mountedAt = 0.0   ; test 47: real time of the ride's start (the engine's hand-over line says how long it took)
+string mountedHow = "getting on"   ; ...and what started it: getting on, or a load into a ride
+; Test 47 (the rider "like a skirt" when hit): the reaction window (CMB_PoseReactionWindow). Real
+; time of the last hit taken or item used while riding, which it was, and the stagger watch's word;
+; the footstep watch and CheckRiderPose leave standing clips alone within the window, one line a
+; reaction (reactionLeft: the reaction whose line was logged).
+float reactionAt = -100.0
+string reactionWhat = "a hit"
+float reactionLeft = -200.0
+bool staggered = false
+float staggeredAt = 0.0
+float itemLoggedAt = -100.0   ; the last "Used ... while riding" line (one a second at most)
 int poseRetries = 0
 bool combatHinted = false
 float fallDamageDelta = 0.0
@@ -559,6 +731,10 @@ float lastRoomPitch
 float lastRoomRoll
 float lastRoomGround
 bool lastRoomTilted = false
+; 2026-11-01a: where the last SnapOff's navmesh snap took the probe (the plugin's [Room] SnapSpot asks about it).
+float snapX
+float snapY
+float snapZ
 float spotPitch
 float spotRoll
 bool spotTiltKnown = false
@@ -592,6 +768,11 @@ Event OnInit()
 	WatchFalls()
 	; Kept for good: one event per loading screen, and a teleport waits for its close.
 	RegisterForMenuOpenCloseEvent(LoadingMenuName)
+	; 2026-11-01a: a new game started after a ride in the same session: the player's own footstep sounds back (a
+	; category's mute may outlive the game it was set in, as a load's may: LoadedOffTheBike).
+	if AudioCategoryFSTplayer
+		AudioCategoryFSTplayer.UnMute()
+	endif
 	TryDeliverKeys()
 EndEvent
 
@@ -649,11 +830,23 @@ Function OnGameReloaded()
 	if !riding && headlampRef
 		RemoveHeadlamp()
 	endif
+	if !riding
+		; 2026-11-01a: nothing a save carries from a ride stays on off the bike.
+		LoadedOffTheBike()
+	endif
 	if riding
 		; Input layers and the engine's cached movement speed do not reliably
 		; survive a reload, so put the riding setup back in place.
 		ApplyControls()
 		RefreshMovement(PlayerRef)
+		; 2026-11-01a: the rider's own footstep sounds muted again (a load may or may not keep a
+		; category's mute) and the landing cues registered again (FxStartRide).
+		fxCueEventsOn = false
+		FxStartRide()
+		UpdateSteady("after loading")
+		staggered = false   ; a save made mid-stagger: the watch's effect starts again if it still is
+		reactionAt = -100.0
+		RideWatchesOn()
 		if riderPoseApplied
 			; Right after a load the flavour can be refused (the graph isn't up yet),
 			; so put it back on once the game is running.
@@ -678,15 +871,25 @@ Function OnGameReloaded()
 		healthMark = PlayerRef.GetValuePercentage(Health)
 		WatchForHits()
 		WatchFootsteps()
+		; 2026-11-01a: the save's reading isn't this session's (the plugin starts again at 0).
+		if CMB_RiderPoseOff
+			CMB_RiderPoseOff.SetValue(0.0)
+		endif
+		; The tail light and the first-person bike: the save's references, told to the plugin again.
+		TwinsAfterLoad()
 		StartTimer(TickInterval, TimerTick)
 		; Sounds don't survive a load, and their old instance numbers mean nothing now.
 		engineIdle = 0
 		engineCruise = 0
+		fxWaterLoop = 0
 		; Test 44: nor the plugin's eleven, nor its hold on them. The CMB_Snd globals still hold the
 		; save's set (offeredGen says so): StartEngineLoops' stop withdraws it before the new one.
 		engineLoops = None
 		soundDriven = false
+		mountedAt = Utility.GetCurrentRealTime()
+		mountedHow = "loading into the ride"
 		StartEngineLoops()
+		FxStartWaterLoop()
 	elseif bikeAtDoor
 		; The bike waits at a door: the way out is watched for (as riding's is, put back here).
 		RegisterForPlayerTeleport()
@@ -924,6 +1127,7 @@ Function HandOverHeadlamp()
 	TellPluginHeadlamp()
 	lampRetireAt = lampPlacedAt + 2.5
 	Log("Headlamp light handed over (" + fresh.GetFormID() + ") in cell " + lampCellX + ", " + lampCellY + ".")
+	HandOverTwins()   ; 2026-11-01a: the tail light and the first-person bike, at the same moment
 EndFunction
 
 Function RetireOldHeadlamp()
@@ -980,6 +1184,234 @@ Function RemoveHeadlamp()
 		headlampRef = None
 	endif
 	RetireOldHeadlamp()
+	RemoveTwins()   ; 2026-11-01a: the tail light and the first-person bike go with it
+EndFunction
+
+; ---------------------------------------------------------------------------
+; 2026-11-01a: two more carried references, the headlamp's way (test 47): the tail lamp's light
+; ("you can tell it's on, but it's not producing light": CMB_TailLight, a shadowless red spot) and
+; the bike in first person ("in 1st person the bike model isn't even visible": CMB_BikeView, an
+; unskinned copy of the bike). Placed at the rider on the first ride tick at which the plugin is
+; seen working (PluginAlive), each only with its MCM switch on (CMB_TailLightMode,
+; CMB_FirstPersonBike, read then: "takes effect the next time you get on"); their form ids go to the
+; plugin in two globals each (16 bits, as the headlamp's), and the plugin keeps them at the bike
+; (its [TailLight] and [View]). Handed over with the headlamp, or two cells on from where they were
+; placed when there is no headlamp reference; the old one retired TailRetireAfter (tail) or
+; ViewRetireAfter (view) later (the plugin keeps it in place until the new one's 3D is in);
+; removed with the headlamp. The headlamp's own code is unchanged.
+; ---------------------------------------------------------------------------
+ObjectReference tailRef = None
+ObjectReference tailRefOld = None
+ObjectReference viewRef = None
+ObjectReference viewRefOld = None
+bool twinsPlaced = false
+int twinCellX = 0
+int twinCellY = 0
+float twinPlacedAt = 0.0
+float tailRetireAt = 0.0
+float viewRetireAt = 0.0
+
+; Without the plugin no light or view bike is placed: CMB_GroundNormalZ is zeroed on getting on and
+; only CMB_Slope.dll writes it (a light placed without it would sit lit where it was put).
+bool Function PluginAlive()
+	return CMB_GroundNormalZ && CMB_GroundNormalZ.GetValue() > 0.0
+EndFunction
+
+bool Function TailWanted()
+	return CMB_TailLight && CMB_TailRefHi && CMB_TailRefLo && CMB_TailLightMode && CMB_TailLightMode.GetValue() > 0.0
+EndFunction
+
+bool Function ViewWanted()
+	return CMB_BikeView && CMB_ViewRefHi && CMB_ViewRefLo && CMB_FirstPersonBike && CMB_FirstPersonBike.GetValue() > 0.0
+EndFunction
+
+Function TellPluginTwin(ObjectReference akRef, GlobalVariable akHi, GlobalVariable akLo)
+	int id = 0
+	if akRef
+		id = akRef.GetFormID()
+	endif
+	akHi.SetValue(Math.LogicalAnd(Math.RightShift(id, 16), 65535) as float)
+	akLo.SetValue(Math.LogicalAnd(id, 65535) as float)
+EndFunction
+
+Function NoteTwinCell()
+	twinCellX = Math.Floor(PlayerRef.GetPositionX() / 4096.0)
+	twinCellY = Math.Floor(PlayerRef.GetPositionY() / 4096.0)
+	twinPlacedAt = Utility.GetCurrentRealTime()
+EndFunction
+
+; From the ride tick (once per ride). Each PlaceAtMe lets another thread run: a ride that ended
+; meanwhile takes the fresh reference away again here. FinishRide clears the twins (RemoveTwins,
+; which alone sets twinsPlaced false) well before it sets riding false, so both are tested.
+Function PlaceTwins()
+	twinsPlaced = true
+	NoteTwinCell()
+	if TailWanted() && !tailRef
+		ObjectReference freshTail = PlayerRef.PlaceAtMe(CMB_TailLight, 1, false, false, false)
+		if freshTail && (!riding || !twinsPlaced)
+			DeleteRef(freshTail)
+			return
+		elseif freshTail
+			tailRef = freshTail
+			TellPluginTwin(tailRef, CMB_TailRefHi, CMB_TailRefLo)
+			Log("Tail light placed (" + freshTail.GetFormID() + ").")
+		else
+			Log("Tail light could not be placed.")
+		endif
+	endif
+	if ViewWanted() && !viewRef
+		ObjectReference freshView = PlayerRef.PlaceAtMe(CMB_BikeView, 1, false, false, false)
+		if freshView && (!riding || !twinsPlaced)
+			DeleteRef(freshView)
+			return
+		elseif freshView
+			viewRef = freshView
+			TellPluginTwin(viewRef, CMB_ViewRefHi, CMB_ViewRefLo)
+			Log("First-person bike placed (" + freshView.GetFormID() + ").")
+		else
+			Log("First-person bike could not be placed.")
+		endif
+	endif
+EndFunction
+
+; From HandOverHeadlamp, or FollowTwins without a headlamp reference: a fresh one of each placed at
+; the player, the current one kept as the old one for the plugin's handover.
+Function HandOverTwins()
+	if !twinsPlaced || (!tailRef && !viewRef)
+		return
+	endif
+	RetireOldTwins(true)
+	NoteTwinCell()
+	if tailRef
+		ObjectReference freshTail = PlayerRef.PlaceAtMe(CMB_TailLight, 1, false, false, false)
+		if freshTail && (!riding || !twinsPlaced)
+			DeleteRef(freshTail)
+			return
+		elseif freshTail
+			tailRefOld = tailRef
+			tailRef = freshTail
+			TellPluginTwin(tailRef, CMB_TailRefHi, CMB_TailRefLo)
+			tailRetireAt = twinPlacedAt + TailRetireAfter
+		endif
+	endif
+	if viewRef
+		ObjectReference freshView = PlayerRef.PlaceAtMe(CMB_BikeView, 1, false, false, false)
+		if freshView && (!riding || !twinsPlaced)
+			DeleteRef(freshView)
+			return
+		elseif freshView
+			viewRefOld = viewRef
+			viewRef = freshView
+			TellPluginTwin(viewRef, CMB_ViewRefHi, CMB_ViewRefLo)
+			viewRetireAt = twinPlacedAt + ViewRetireAfter
+		endif
+	endif
+	Log("Tail light and first-person bike handed over (" + Ternary(tailRef != None, "tail " + FormIdText(tailRef), "no tail") + ", " + Ternary(viewRef != None, "view " + FormIdText(viewRef), "no view") + ") in cell " + twinCellX + ", " + twinCellY + ".")
+EndFunction
+
+string Function FormIdText(ObjectReference akRef)
+	if !akRef
+		return "none"
+	endif
+	return "" + akRef.GetFormID()
+EndFunction
+
+; abNow: whatever their time (a new handover, getting off); else each once its time is up.
+Function RetireOldTwins(bool abNow)
+	float now = Utility.GetCurrentRealTime()
+	if tailRefOld && (abNow || now >= tailRetireAt)
+		ObjectReference oldTail = tailRefOld
+		tailRefOld = None
+		DeleteRef(oldTail)
+	endif
+	if viewRefOld && (abNow || now >= viewRetireAt)
+		ObjectReference oldView = viewRefOld
+		viewRefOld = None
+		DeleteRef(oldView)
+	endif
+EndFunction
+
+Function DeleteRef(ObjectReference akRef)
+	if akRef
+		akRef.Disable()
+		akRef.Delete()
+	endif
+EndFunction
+
+; Each ride tick (RideTick, after FollowHeadlamp): the old ones retired once their time is up; two
+; cells on without a headlamp reference (whose handover takes them along otherwise), a handover of
+; their own; and one whose 3D is gone 1.5 s after it was placed is moved to the player (the
+; headlamp's recovery).
+Function FollowTwins()
+	if !riding || !twinsPlaced
+		return
+	endif
+	float now = Utility.GetCurrentRealTime()
+	; Stamps are real seconds, which start again with each launch (as the headlamp's, test 46).
+	if twinPlacedAt > now
+		twinPlacedAt = now
+	endif
+	if tailRetireAt > now + ViewRetireAfter
+		tailRetireAt = now
+	endif
+	if viewRetireAt > now + ViewRetireAfter
+		viewRetireAt = now
+	endif
+	RetireOldTwins(false)
+	int cx = Math.Floor(PlayerRef.GetPositionX() / 4096.0)
+	int cy = Math.Floor(PlayerRef.GetPositionY() / 4096.0)
+	if Math.Abs(cx - twinCellX) >= 2 || Math.Abs(cy - twinCellY) >= 2
+		HandOverTwins()
+		return
+	endif
+	if now - twinPlacedAt <= 1.5
+		return
+	endif
+	if tailRef && !tailRef.Is3DLoaded()
+		tailRef.MoveTo(PlayerRef)
+		twinPlacedAt = now
+		Log("Tail light moved to the player: its 3D was gone.")
+	endif
+	if viewRef && !viewRef.Is3DLoaded()
+		viewRef.MoveTo(PlayerRef)
+		twinPlacedAt = now
+		Log("First-person bike moved to the player: its 3D was gone.")
+	endif
+EndFunction
+
+; Getting off (RemoveHeadlamp), a load off the bike: none left, the plugin told.
+Function RemoveTwins()
+	twinsPlaced = false
+	if CMB_TailRefHi && CMB_TailRefLo
+		TellPluginTwin(None, CMB_TailRefHi, CMB_TailRefLo)
+	endif
+	if CMB_ViewRefHi && CMB_ViewRefLo
+		TellPluginTwin(None, CMB_ViewRefHi, CMB_ViewRefLo)
+	endif
+	ObjectReference a = tailRef
+	ObjectReference b = viewRef
+	tailRef = None
+	viewRef = None
+	DeleteRef(a)
+	DeleteRef(b)
+	RetireOldTwins(true)
+EndFunction
+
+; A load into a ride: the save's references are told to the plugin again (it starts afresh after a
+; load), the old ones retired, the stamps this session's. None in the save: placed at the next tick.
+Function TwinsAfterLoad()
+	RetireOldTwins(true)
+	twinsPlaced = tailRef != None || viewRef != None
+	if tailRef && CMB_TailRefHi && CMB_TailRefLo
+		TellPluginTwin(tailRef, CMB_TailRefHi, CMB_TailRefLo)
+	endif
+	if viewRef && CMB_ViewRefHi && CMB_ViewRefLo
+		TellPluginTwin(viewRef, CMB_ViewRefHi, CMB_ViewRefLo)
+	endif
+	if twinsPlaced
+		NoteTwinCell()
+		Log("Tail light and first-person bike from the save told to the plugin again (" + Ternary(tailRef != None, "tail " + FormIdText(tailRef), "no tail") + ", " + Ternary(viewRef != None, "view " + FormIdText(viewRef), "no view") + ").")
+	endif
 EndFunction
 
 bool Function IsNight()
@@ -1279,6 +1711,7 @@ Function Mount()
 	HandleFollowersOnMount()
 
 	riding = true
+	UpdateSteady("getting on")
 	hasLastPos = false
 	lastOutdoorTime = Utility.GetCurrentGameTime()
 	combatHinted = false
@@ -1287,10 +1720,20 @@ Function Mount()
 	healthMark = PlayerRef.GetValuePercentage(Health)
 	hitGrace = true
 	StartTimer(HitGraceTime, TimerHitGrace)
+	; 2026-11-01a: no reaction yet this ride (the reaction window), and the watches that feed it.
+	reactionAt = -100.0
+	reactionLeft = -200.0
+	staggered = false
+	RideWatchesOn()
 	WatchForHits()
 	poseRetries = 0
 	poseRetryWaiting = false
+	mountedAt = Utility.GetCurrentRealTime()
+	mountedHow = "getting on"
 	WatchFootsteps()
+	; 2026-11-01a: the rider's own footstep sounds muted, the landing cues watched (CMB_FxMuteRider,
+	; CMB_FxLandOn; the water loop starts with the engine's loops, TimerEngine).
+	FxStartRide()
 	SetSlopeLive(true)
 	SetTiltLive(true)
 	CallRam("StartRide")
@@ -1302,6 +1745,9 @@ Function Mount()
 	endif
 	if CMB_ParkUpZ
 		CMB_ParkUpZ.SetValue(0.0)
+	endif
+	if CMB_RiderPoseOff
+		CMB_RiderPoseOff.SetValue(0.0)   ; 2026-11-01a: an earlier ride's reading isn't this one's
 	endif
 	StartTimer(TickInterval, TimerTick)
 	PlaySound(CMB_EngineStartSound)
@@ -1445,9 +1891,13 @@ float Function SnapOff(float afX, float afY, float afGround, bool abFlat)
 	endif
 	GroundProbeRef.MoveTo(PlayerRef, afX - PlayerRef.GetPositionX(), afY - PlayerRef.GetPositionY(), 0.0, false)
 	GroundProbeRef.MoveToNearestNavmeshLocation()
-	float sx = GroundProbeRef.GetPositionX() - afX
-	float sy = GroundProbeRef.GetPositionY() - afY
-	float sz = GroundProbeRef.GetPositionZ() - afGround
+	; 2026-11-01a: the place it found, kept before the probe goes back (the plugin's [Room] SnapSpot).
+	snapX = GroundProbeRef.GetPositionX()
+	snapY = GroundProbeRef.GetPositionY()
+	snapZ = GroundProbeRef.GetPositionZ()
+	float sx = snapX - afX
+	float sy = snapY - afY
+	float sz = snapZ - afGround
 	GroundProbeRef.MoveTo(HoldingMarkerRef)
 	if abFlat
 		sz = 0.0
@@ -1474,7 +1924,10 @@ EndFunction
 ; the next is asked; the first such is taken only when nothing else passes (a call's most-room
 ; spot first if its own snap passes), and a bring takes it rather than where it waited. abPark
 ; (getting off, the plugin's [Room] ParkCheck, ParkChecked): the AroundSpots only, beside and behind
-; the player, no most room; -1 with none of them to take (the bike parked as before).
+; the player, no most room; -1 with none of them to take (the bike parked as before). 2026-11-01a:
+; with the plugin's [Room] SnapSpot (CMB_RoomOptions bit 16) a call or a bring that would take that
+; first spot as before asks first about the place its navmesh snap found (SpotSnapReach at most from
+; it), as a navmesh point, and takes it with room there and its own snap within SpotSettleMax.
 int Function PickBikeSpot(bool abFromDoor, bool abPark = false)
 	spotKnown = false
 	spotGroundKnown = false
@@ -1514,6 +1967,10 @@ int Function PickBikeSpot(bool abFromDoor, bool abPark = false)
 	float farPitch = 0.0
 	float farRoll = 0.0
 	bool farTilted = false
+	; 2026-11-01a (the plugin's [Room] SnapSpot): that spot's snap, and where it took the probe.
+	float farSnap = 0.0
+	float farSnapX = 0.0
+	float farSnapY = 0.0
 	bool unanswered = false
 	int spots = BikeSpots
 	int spot = 0
@@ -1603,6 +2060,9 @@ int Function PickBikeSpot(bool abFromDoor, bool abPark = false)
 				farPitch = spotPitch
 				farRoll = spotRoll
 				farTilted = spotTiltKnown
+				farSnap = snap
+				farSnapX = snapX
+				farSnapY = snapY
 			endif
 			spotKnown = false
 			spotGroundKnown = false
@@ -1656,6 +2116,31 @@ int Function PickBikeSpot(bool abFromDoor, bool abPark = false)
 			endif
 		else
 			bestSpot = -1
+		endif
+		if bestSpot < 0 && RoomOption(16) && !abPark && CMB_RoomAskKind && farSnap > SpotSettleMax && farSnap <= SpotSnapReach
+			; 2026-11-01a: test 47's call from on top of the red truck (20:04:16): spot 10 room on the hood, its snap 129 off,
+			; the bike put back on the hood's edge. The place the snap found, asked about as a navmesh point (the plugin's
+			; [Room] SnapSpot: a level line from the player, a drop off what they stand on, no step test), and taken if it
+			; has room and its own snap stays within SpotSettleMax.
+			string pointLabel = "Bike's spot " + (farSpot + 1) + "'s navmesh point (" + Whole(farSnap) + " from it)"
+			int pointRoom = RoomAt(farSnapX, farSnapY, pz, farSpot, farAngle, ".", pointLabel, 1)
+			if pointRoom > 0
+				float again = SnapOff(lastRoomX, lastRoomY, pz - lastRoomClear, false)
+				if again <= SpotSettleMax
+					spotX = lastRoomX
+					spotY = lastRoomY
+					spotAngle = lastRoomAngle
+					spotKnown = true
+					spotGround = pz - lastRoomClear
+					spotGroundKnown = true
+					spotPitch = lastRoomPitch
+					spotRoll = lastRoomRoll
+					spotTiltKnown = lastRoomTilted
+					Log(who + pointLabel + ", heading " + Whole(spotAngle) + ": room, walkable (its own snap " + Whole(again) + "): taken (the plugin's [Room] SnapSpot).")
+					return farSpot
+				endif
+				Log(pointLabel + ": its own navmesh snap " + Whole(again) + ", over " + Whole(SpotSettleMax) + ".")
+			endif
 		endif
 		if bestSpot < 0
 			spotX = farX
@@ -1728,7 +2213,8 @@ EndFunction
 ; older plugin), and lastRoomPitch/Roll the ground's tilt under the wheels there (CMB_RoomPitch and
 ; Roll, lastRoomTilted; -1000 none: its ParkTilt off, or an older plugin or ESP). Test 47: asSpot
 ; names a spot that isn't one of the BikeSpots in its lines (ParkChecked's "The park spot (...)").
-int Function RoomAt(float afX, float afY, float afZ, int aiSpot, float afAngle, string asUnchecked = ".", string asSpot = "")
+; 2026-11-01a: aiKind is CMB_RoomAskKind's value for the ask (1: a navmesh point, the plugin's [Room] SnapSpot).
+int Function RoomAt(float afX, float afY, float afZ, int aiSpot, float afAngle, string asUnchecked = ".", string asSpot = "", int aiKind = 0)
 	string try = "Bike's spot " + (aiSpot + 1) + " (" + SpotText(aiSpot) + "): "
 	if asSpot != ""
 		try = asSpot + ": "
@@ -1758,6 +2244,11 @@ int Function RoomAt(float afX, float afY, float afZ, int aiSpot, float afAngle, 
 	if CMB_RoomAskAngle
 		; Before the number, like the spot: the plugin reads them all once the number is new.
 		CMB_RoomAskAngle.SetValue(afAngle)
+	endif
+	if CMB_RoomAskKind
+		; 2026-11-01a (the plugin's [Room] SnapSpot): what the ask is (1: a navmesh point), before the number too, on every
+		; ask, 0 included, so a 1 never carries over.
+		CMB_RoomAskKind.SetValue(aiKind as float)
 	endif
 	if CMB_RoomPitch && CMB_RoomRoll
 		; Test 46: none until the plugin measures one for this answer (an older plugin never does).
@@ -2040,6 +2531,11 @@ Function EmergencyReset()
 		LeaveBikeOutside(true)
 	endif
 	FinishRide()
+	; 2026-11-01a: whatever the script lost track of, the player's own footstep sounds are back.
+	if AudioCategoryFSTplayer
+		AudioCategoryFSTplayer.UnMute()
+		fxMuted = false
+	endif
 	bikeWaitsForShore = false
 	; Restart the swim watch: its effect ends (not swimming) and starts again if you are.
 	PlayerRef.RemoveSpell(CMB_SwimWatchAbility)
@@ -2068,6 +2564,7 @@ Event OnTimer(int aiTimerID)
 		HandleKeys()
 	elseif aiTimerID == TimerEngine && riding
 		StartEngineLoops()
+		FxStartWaterLoop()   ; 2026-11-01a: after the engine's offer, outside busy (its wait holds nothing up)
 	elseif aiTimerID == TimerShore
 		BringBikeAfterSwim()
 	elseif aiTimerID == TimerHitGrace
@@ -2092,6 +2589,8 @@ Event OnTimer(int aiTimerID)
 		BusyWatchFired()
 	elseif aiTimerID == TimerAPWatch
 		APWatchPoll()
+	elseif aiTimerID == TimerPipboyCheck
+		PipboyPoseCheck()
 	endif
 EndEvent
 
@@ -2144,6 +2643,10 @@ EndFunction
 ; The loading screen, watched for good (OnInit, OnGameReloaded): a pending teleport is handled
 ; when it closes, with the player where the teleport took them.
 Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
+	if asMenuName == PipboyMenuName || asMenuName == FavoritesMenuName
+		RiderMenu(asMenuName, abOpening)   ; 2026-11-01a, registered only while riding
+		return
+	endif
 	if asMenuName != LoadingMenuName
 		return
 	endif
@@ -2392,6 +2895,12 @@ Function RideTick()
 	UpdateEngineSound(stepDistance)
 	SetHeadlampLive(true)
 	FollowHeadlamp()
+	; 2026-11-01a: the tail light and the first-person bike, once the plugin is seen at work (it
+	; writes CMB_GroundNormalZ, which getting on zeroes), then kept with the rider (FollowTwins).
+	if !twinsPlaced && PluginAlive() && StillRiding()
+		PlaceTwins()
+	endif
+	FollowTwins()
 
 	; The disabled bike follows the player, so it can be dropped here at any moment.
 	if !StillRiding()
@@ -2416,13 +2925,19 @@ Function RideTick()
 		RemoveBikeArmor()
 		return
 	endif
+	UpdateSteady("the MCM switch")   ; 2026-11-01a: an MCM change is taken up mid-ride
 	if riderPoseApplied
 		; The graph can switch it back on (dialogue, for one).
 		PlayerRef.SetAnimationVariableBool(HeadTrackingVariable, false)
 		if !footstepsWatched
 			WatchFootsteps()
 		endif
+		CheckRiderPose()
 	endif
+	if !fxCueEventsOn
+		FxWatchCues()   ; 2026-11-01a: failed while the 3D wasn't loaded (as WatchFootsteps)
+	endif
+	FxWaterTick()
 	CombatHint()
 	; Damage is counted from here: what one hit, or a quick run of them, took.
 	healthMark = PlayerRef.GetValuePercentage(Health)
@@ -2496,6 +3011,11 @@ Function FinishRide()
 
 	CancelTimer(TimerEngine)
 	StopEngineLoops()
+	; 2026-11-01a: every way off passes here (the swim, the knock-off, doors, fast travel, the
+	; reset): the rider's own footstep sounds back, the landing cues and the water loop stopped,
+	; and the item, menu and stagger watches off.
+	FxEndRide()
+	RideWatchesOff()
 	UnregisterForHitEvent(PlayerRef)
 	UnregisterForAnimationEvent(PlayerRef, FootstepEvent)
 	footstepsWatched = false
@@ -2522,6 +3042,7 @@ Function FinishRide()
 		PlaySound(CMB_EngineStopSound)
 	endif
 	riding = false
+	UpdateSteady("getting off")
 	; Test 44: a ride end overlapping the start (the hotkey or the keys just after getting on, deep
 	; water) found its loops still in their Play above, ids not yet kept, and StartEngineLoops looked
 	; at riding before this: stopped again now (nothing to do when none plays). A start that looks
@@ -2541,6 +3062,7 @@ Function CleanUpAfterRide()
 	endif
 	RemoveBikeArmor()
 	PlayerRef.SetAnimationVariableBool(HeadTrackingVariable, true)
+	UpdateSteady("the clean-up after the ride")
 EndFunction
 
 ; abParkBesidePlayer: park next to the player (they're outdoors and standing).
@@ -3168,6 +3690,10 @@ EndFunction
 ; Riding through shallow water is fine; this only decides when the bike comes back.
 Function SetInWater(bool abInWater)
 	inWater = abInWater
+	if riding
+		; 2026-11-01a: the game's own IsInWater, for comparing with the plugin's depth ("fx: into the water").
+		Log("In water while riding (the wade watch): " + abInWater)
+	endif
 	if !abInWater && bikeWaitsForShore && !swimming
 		; Out of the water: a few seconds on dry land, then the bike.
 		StartTimer(ShoreDelay, TimerShore)
@@ -3228,9 +3754,11 @@ Function BringBikeAfterSwim()
 	Debug.Notification("Your motorbike rolls up.")
 EndFunction
 
-; Hit events are one-shot: OnHit registers again for the next one.
+; Hit events are one-shot: OnHit registers again for the next one. 2026-11-01a: also with
+; "Thrown off when hit" off while the reaction window is on (CMB_PoseReactionWindow over 0: a hit's
+; standing clips are told from a lost pose by it); with both at 0 nothing registers (2026-10-31a).
 Function WatchForHits()
-	if riding && CMB_DismountOnHit.GetValue() > 0.0
+	if riding && (CMB_DismountOnHit.GetValue() > 0.0 || ReactionWindow() > 0.0)
 		RegisterForHitEvent(PlayerRef)
 	endif
 EndFunction
@@ -3243,8 +3771,15 @@ Event OnHit(ObjectReference akTarget, ObjectReference akAggressor, Form akSource
 	if !riding
 		return
 	endif
+	; 2026-11-01a: any hit starts the reaction window, before the hitGrace return (test 47's episode
+	; A, the rider standing 1.4 s after getting on in a fight, was inside hitGrace).
+	reactionAt = Utility.GetCurrentRealTime()
+	reactionWhat = "a hit"
 	Actor attacker = akAggressor as Actor
 	if busy || hitGrace || !attacker || attacker == PlayerRef || !attacker.IsHostileToActor(PlayerRef)
+		if hitGrace && attacker && attacker != PlayerRef
+			LogHit(abPowerAttack, abHitBlocked, "in the first " + (HitGraceTime as int) + " s after getting on: not counted")
+		endif
 		WatchForHits()
 		return
 	endif
@@ -3259,13 +3794,26 @@ Event OnHit(ObjectReference akTarget, ObjectReference akAggressor, Form akSource
 	float lost = (healthMark - PlayerRef.GetValuePercentage(Health)) * 100.0
 	float threshold = CMB_KnockOffDamage.GetValue()
 	bool explosion = akSource as Explosion
-	if abPowerAttack || explosion || threshold <= 0.0 || lost >= threshold
+	; 2026-11-01a: the hit may have come only for the reaction window, "Thrown off when hit" off.
+	bool knockOffs = CMB_DismountOnHit.GetValue() > 0.0
+	if knockOffs && (abPowerAttack || explosion || threshold <= 0.0 || lost >= threshold)
 		Log("Knocked off: lost " + lost + "% health, power attack " + abPowerAttack + ", explosion " + explosion)
 		AutoDismount("You're knocked off the motorbike.", true)
 	else
+		LogHit(abPowerAttack, abHitBlocked, "lost " + Tenths(lost) + "% health since the last tick: " + Ternary(knockOffs, "not knocked off", "not knocked off (the MCM's Thrown off when hit is off)"))
 		WatchForHits()
 	endif
 EndEvent
+
+; Test 47: a hit that doesn't knock the rider off, logged one a second at most (test 47's rider pose
+; was disturbed for 2.3 s, 1.4 s after getting on in a fight, and nothing said whether a hit did it).
+Function LogHit(bool abPowerAttack, bool abBlocked, string asWhat)
+	float now = Utility.GetCurrentRealTime()
+	if now - hitLoggedAt >= 1.0 || now < hitLoggedAt
+		hitLoggedAt = now
+		Log("Hit while riding: power attack " + abPowerAttack + ", blocked " + abBlocked + ", " + asWhat + ".")
+	endif
+EndFunction
 
 ; Falls while riding: every one is logged (for tuning), and small ones cost
 ; nothing: under CMB_FreeFallDamage percent of max health comes straight back.
@@ -3310,7 +3858,16 @@ Function WatchFootsteps()
 	endif
 EndFunction
 
+; 2026-11-01a: three handlers share this event, in this order. First the bike's landing cues
+; (JumpDown, SyncRight, SyncLeft: LandingCue), which return at once: the footstep watch below would
+; take every SyncRight of the seated clips for a standing footstep. Then the footstep watch, which
+; leaves standing clips alone within the reaction window (a hit, an item used, a stagger:
+; CMB_PoseReactionWindow; 0 = as 2026-10-31a).
 Event OnAnimationEvent(ObjectReference akSource, string asEventName)
+	if asEventName == LandCueEvent || asEventName == LandSyncEvent || asEventName == LandSyncEvent2
+		LandingCue(asEventName)
+		return
+	endif
 	if !riding || busy || !riderPoseApplied || poseRetryWaiting || PlayerRef.IsWeaponDrawn()
 		return
 	endif
@@ -3319,11 +3876,201 @@ Event OnAnimationEvent(ObjectReference akSource, string asEventName)
 		Log("Rider pose still not showing after " + poseRetries + " tries; giving up for this ride.")
 		return
 	endif
+	if InReaction("Standing footsteps")
+		return
+	endif
 	poseRetryWaiting = true
 	StartTimer(PoseRetryInterval, TimerPoseRetry)
 	poseRetries += 1
 	SwitchToRiderFlavor("standing footsteps while riding: applying the rider pose again, try " + poseRetries)
 EndEvent
+
+; Test 47: the plugin's word on the clips (CMB_RiderPoseOff, its [Tilt] PoseCheck: the raw seconds
+; the clips have been off the seat, by the knees' height), at every ride tick from the first,
+; TickInterval after getting on. The footstep watch only hears a lost pose once standing walk clips
+; play; a bike standing or turning on the spot sends none. Once the reading is CMB_PoseOffAfter (3 s,
+; longer than any stagger or hit reaction) or more, and outside the reaction window, the rider pose
+; is applied again as the footstep watch does: the same count (MaxPoseRetries a ride), the same gate
+; (no try within PoseRetryInterval of the last, by either). Weapon out: the standing clips are meant
+; (the ground-planted bike), nothing done. No plugin, PoseCheck=0 or an older ESP: the global stays 0
+; or None, and nothing is done (2026-10-31a).
+Function CheckRiderPose()
+	if !CMB_RiderPoseOff || poseRetryWaiting || busy || !riding || !riderPoseApplied
+		return
+	endif
+	float off = CMB_RiderPoseOff.GetValue()
+	float after = 3.0
+	if CMB_PoseOffAfter
+		after = CMB_PoseOffAfter.GetValue()
+	endif
+	if off <= 0.0 || off < after || poseRetries >= MaxPoseRetries || PlayerRef.IsWeaponDrawn()
+		return
+	endif
+	if InReaction("The clips " + Tenths(off) + " s off the seat")
+		return
+	endif
+	poseRetryWaiting = true
+	StartTimer(PoseRetryInterval, TimerPoseRetry)
+	poseRetries += 1
+	SwitchToRiderFlavor("the plugin reads the clips off the seat for " + Tenths(off) + " s: applying the rider pose again, try " + poseRetries)
+EndFunction
+
+; The MCM's "Pose re-check pause after a hit (s)": 0 when off or with an older ESP.
+float Function ReactionWindow()
+	if !CMB_PoseReactionWindow
+		return 0.0
+	endif
+	return CMB_PoseReactionWindow.GetValue()
+EndFunction
+
+; True within the reaction window: CMB_PoseReactionWindow seconds of a hit taken or an item used
+; while riding, or while the stagger watch says staggered. Its standing clips are a reaction, not
+; the pose lost, so asWhat (the footstep watch's or CheckRiderPose's word) is left alone; one line
+; a reaction. Off (0, or an older ESP): never, as 2026-10-31a.
+bool Function InReaction(string asWhat)
+	float window = ReactionWindow()
+	if window <= 0.0
+		return false
+	endif
+	float now = Utility.GetCurrentRealTime()
+	if reactionAt > now
+		reactionAt = -100.0   ; an earlier session's stamp (the real-time clock starts again at each launch)
+	endif
+	string note = ""
+	float which = 0.0
+	if staggered && staggeredAt > now
+		staggeredAt = now   ; an earlier session's stamp
+	endif
+	if staggered && now - staggeredAt < StaggerHoldMax
+		note = "while staggered"
+		which = staggeredAt
+	elseif now - reactionAt < window
+		note = Tenths(now - reactionAt) + " s after " + reactionWhat
+		which = reactionAt
+	else
+		return false
+	endif
+	if which != reactionLeft
+		reactionLeft = which
+		Log(asWhat + " " + note + ": a hit reaction or stagger, not the pose: left alone.")
+	endif
+	return true
+EndFunction
+
+; Test 47 ("Steady in the saddle", CMB_RiderSteady): a hidden perk, Mod Incoming Stagger x0, on the
+; player while riding and off them otherwise. Called on getting on, at every ride tick (an MCM change
+; is taken up mid-ride), on getting off, by the clean-up after it and after a load (a save made
+; mid-ride carries the perk, and one made off the bike must not). An older ESP (no perk): nothing.
+Function UpdateSteady(string asWhy)
+	if !CMB_RiderSteadyPerk
+		return
+	endif
+	bool want = riding && CMB_RiderSteady && CMB_RiderSteady.GetValue() > 0.0
+	bool has = PlayerRef.HasPerk(CMB_RiderSteadyPerk)
+	if want && !has
+		PlayerRef.AddPerk(CMB_RiderSteadyPerk, false)
+		Log("Steady in the saddle: on (" + asWhy + "): hits don't stagger you while riding.")
+	elseif !want && has
+		PlayerRef.RemovePerk(CMB_RiderSteadyPerk)
+		Log("Steady in the saddle: off (" + asWhy + ").")
+	endif
+EndFunction
+
+; Test 47's diagnostics while riding, log only: items used (a remote OnItemEquipped on the player),
+; the Pip-Boy and the favourites opening and closing, and the stagger watch. On at getting on and
+; after a load into a ride, off at every way off (FinishRide).
+Function RideWatchesOn()
+	RegisterForRemoteEvent(PlayerRef, "OnItemEquipped")
+	RegisterForMenuOpenCloseEvent(PipboyMenuName)
+	RegisterForMenuOpenCloseEvent(FavoritesMenuName)
+	if CMB_StaggerWatchAbility
+		PlayerRef.AddSpell(CMB_StaggerWatchAbility, false)
+	endif
+EndFunction
+
+Function RideWatchesOff()
+	UnregisterForRemoteEvent(PlayerRef, "OnItemEquipped")
+	UnregisterForMenuOpenCloseEvent(PipboyMenuName)
+	UnregisterForMenuOpenCloseEvent(FavoritesMenuName)
+	CancelTimer(TimerPipboyCheck)   ; a Pip-Boy check still to come is moot
+	if CMB_StaggerWatchAbility
+		PlayerRef.RemoveSpell(CMB_StaggerWatchAbility)
+	endif
+	staggered = false
+EndFunction
+
+; Test 47 ("using stim on bike ... like a skirt"): an item used while riding. Potions only (the
+; stims, chems, food and drink; the bike's own armour is equipped too), one line a second at most.
+; It starts the reaction window as a hit does.
+Event Actor.OnItemEquipped(Actor akSender, Form akBaseObject, ObjectReference akReference)
+	if !riding || !(akBaseObject as Potion)
+		return
+	endif
+	float now = Utility.GetCurrentRealTime()
+	reactionAt = now
+	reactionWhat = "an item used"
+	if now - itemLoggedAt >= 1.0 || now < itemLoggedAt
+		itemLoggedAt = now
+		Log("Used " + akBaseObject + " while riding.")
+	endif
+EndEvent
+
+; Test 47: the Pip-Boy and the favourites while riding, log only; and 0.6 s after the Pip-Boy
+; closes, the plugin's reading (PipboyPoseCheck), with the reaction window on.
+Function RiderMenu(string asMenuName, bool abOpening)
+	if !riding
+		return
+	endif
+	string what = "Pip-Boy"
+	if asMenuName == FavoritesMenuName
+		what = "Favourites"
+	endif
+	Log(what + Ternary(abOpening, " opened", " closed") + " while riding.")
+	if asMenuName == PipboyMenuName
+		if abOpening
+			CancelTimer(TimerPipboyCheck)
+		elseif ReactionWindow() > 0.0
+			StartTimer(PipboyCheckDelay, TimerPipboyCheck)
+		endif
+	endif
+EndFunction
+
+; Test 47's second guess at the stim's "skirt": the Pip-Boy's round trip leaving the seated pose
+; disturbed. PipboyCheckDelay after it closes, a reading of the clips off the seat (CMB_RiderPoseOff
+; over PipboyPoseOff) applies the rider pose again at once, as one of the footstep watch's tries
+; (its count, and its gate set after). No hit is expected right after a menu, so the reaction window
+; doesn't hold it; its switch does (CMB_PoseReactionWindow 0: no menu check, as 2026-10-31a).
+Function PipboyPoseCheck()
+	if !riding || busy || !riderPoseApplied || !CMB_RiderPoseOff || ReactionWindow() <= 0.0 || Utility.IsInMenuMode()
+		return
+	endif
+	float off = CMB_RiderPoseOff.GetValue()
+	if off <= PipboyPoseOff || poseRetries >= MaxPoseRetries || PlayerRef.IsWeaponDrawn()
+		return
+	endif
+	poseRetryWaiting = true
+	StartTimer(PoseRetryInterval, TimerPoseRetry)
+	poseRetries += 1
+	SwitchToRiderFlavor("the Pip-Boy closed and the clips are off the seat for " + Tenths(off) + " s: applying the rider pose again, try " + poseRetries)
+EndFunction
+
+; A load off the bike (OnGameReloaded): nothing a save made mid-ride, or an older build's, carries
+; stays on (the perk, the stagger watch, the player's footstep sounds muted, a placed tail light or
+; first-person bike).
+Function LoadedOffTheBike()
+	UpdateSteady("loaded off the bike")
+	if CMB_StaggerWatchAbility
+		PlayerRef.RemoveSpell(CMB_StaggerWatchAbility)
+	endif
+	staggered = false
+	if AudioCategoryFSTplayer
+		AudioCategoryFSTplayer.UnMute()
+	endif
+	fxMuted = false
+	if tailRef || tailRefOld || viewRef || viewRefOld
+		RemoveTwins()
+	endif
+EndFunction
 
 ; Once per fight, when weapons are off while riding: say how to get off.
 Function CombatHint()
@@ -3819,7 +4566,7 @@ Function OfferEngineLoops(int aiSet)
 			; value SetInstanceVolume sets, which would undo the level), read every frame.
 			soundDriven = true
 			drivenGen = gen
-			Log("Engine sound: the plugin drives the " + EngineLoopCount + " loops (generation " + gen + ", answered in poll " + poll + "), the engine volume in their levels.")
+			Log("Engine sound: the plugin drives the " + EngineLoopCount + " loops (generation " + gen + ", answered in poll " + poll + ", " + Tenths(Utility.GetCurrentRealTime() - mountedAt) + " s after " + mountedHow + "), the engine volume in their levels.")
 			return
 		elseif answer == -(gen as float)
 			DropExtraLoops()
@@ -4051,4 +4798,359 @@ EndFunction
 
 float Function OffsetY(float afAngle, float afForward, float afRight)
 	return Math.Cos(afAngle) * afForward - Math.Sin(afAngle) * afRight
+EndFunction
+
+
+; ---------------------------------------------------------------------------
+; 2026-11-01a: the bike's own sounds besides the engine (test 47: "sound when jumping off of a ledge
+; or anything else, currently the sound used is default character jump effect, another sound would
+; be when bike is crossing a water"). The game's own sounds, by reference (the Bike_Effects group's
+; lists; docs/ASSETS.md's borrowed list). Off values, each the 2026-10-31a build: CMB_FxMuteRider 0,
+; CMB_FxLandOn 0, CMB_FxWaterOn 0, CMB_FxVolume 0.
+; ---------------------------------------------------------------------------
+string Property LandCueEvent = "JumpDown" AutoReadOnly
+{The landing clips' own event (the shoes' landing sound's footstep tag): every landing clip but the
+female soft running one.}
+string Property LandSyncEvent = "SyncRight" AutoReadOnly
+{The female soft running landing has only its sync markers at its start: a landing cue while the
+plugin says a flight has just ended (CMB_FxAir 2).}
+string Property LandSyncEvent2 = "SyncLeft" AutoReadOnly
+{The same landing's next sync marker (0.133 s): the fallback should a trigger at exactly 0.0 not fire.}
+float Property FxCueWait = 0.05 AutoReadOnly
+{A sync cue while the plugin still says "in the air": its landing frame may come just after the
+clip's first event.}
+float Property FxLandDefault = 0.5 AutoReadOnly
+{The landing's level without the plugin's (CMB_FxLandLevel -1: no plugin, or its [Fx] Land=0).}
+float Property FxLandFloorDb = -18.0 AutoReadOnly
+{The level of a landing at level 0+, in dB under full; full at 1.}
+float Property FxLandHeavy = 0.45 AutoReadOnly
+{From this level the heavy tyre thump (slot 1) instead of the light one (slot 0)...}
+float Property FxLandBig = 0.6 AutoReadOnly
+{...and from this one the clunk on top (slot 2, FxClunkDb under), or the heavy splash into water (4).}
+float Property FxClunkDb = -4.0 AutoReadOnly
+float Property FxAnswerWait = 0.5 AutoReadOnly
+{The plugin's answer to the water loop (CMB_FxDriven) is waited for this long, polled every
+SoundPollInterval, as the engine loops' is.}
+float Property FxAuditionLoop = 3.0 AutoReadOnly
+{FxAudition plays a water loop this long.}
+bool fxMuted = false
+bool fxCueBusy = false
+bool fxCueEventsOn = false
+int fxSeqSeen = -1
+int fxWaterLoop = 0
+int fxWaterSet = 0   ; counted up by each stop: a start that finds it changed was overtaken by a ride end
+
+float Function FxVolume()
+	if !CMB_FxVolume
+		return 0.0
+	endif
+	float v = CMB_FxVolume.GetValue() / 100.0
+	if v < 0.0
+		return 0.0
+	elseif v > 1.0
+		return 1.0
+	endif
+	return v
+EndFunction
+
+; On getting on and after a load into a ride. The water loop starts from the engine's start timer,
+; after StartEngineLoops (its wait outside busy), and after the load's StartEngineLoops.
+Function FxStartRide()
+	fxCueBusy = false   ; a save made while a cue waited would keep it set
+	FxMuteRider()
+	FxWatchCues()
+EndFunction
+
+; Every way a ride ends (FinishRide: the emergency reset passes it too).
+Function FxEndRide()
+	FxUnmuteRider()
+	if fxCueEventsOn
+		fxCueEventsOn = false
+		UnregisterForAnimationEvent(PlayerRef, LandCueEvent)
+		UnregisterForAnimationEvent(PlayerRef, LandSyncEvent)
+		UnregisterForAnimationEvent(PlayerRef, LandSyncEvent2)
+	endif
+	FxStopWaterLoop()
+	; The plugin's last level is this ride's: back to the ESP's -1 (no cue), so a later game without the plugin plays
+	; FxLandDefault, as the MCM says; the plugin writes its own again at the next ride's start.
+	if CMB_FxLandLevel
+		CMB_FxLandLevel.SetValue(-1.0)
+	endif
+EndFunction
+
+; CMB_FxMuteRider (MCM "Mute the rider's own jump and landing sounds"): the game's category of the
+; player's own footsteps, AudioCategoryFSTplayer, muted while riding.
+Function FxMuteRider()
+	if !AudioCategoryFSTplayer || !CMB_FxMuteRider
+		return
+	endif
+	; A load may or may not keep a category's mute, and a Mute may count rather than set: cleared
+	; first, so it is never on twice.
+	AudioCategoryFSTplayer.UnMute()
+	fxMuted = false
+	if CMB_FxMuteRider.GetValue() != 0.0
+		AudioCategoryFSTplayer.Mute()
+		fxMuted = true
+		Log("Bike sounds: the rider's own footstep sounds muted while riding (AudioCategoryFSTplayer).")
+	endif
+EndFunction
+
+Function FxUnmuteRider()
+	if fxMuted && AudioCategoryFSTplayer
+		fxMuted = false
+		AudioCategoryFSTplayer.UnMute()
+		Log("Bike sounds: the rider's own footstep sounds back.")
+	endif
+EndFunction
+
+; The landing cues (CMB_FxLandOn: switched on, watched from the next ride tick; switched off, each
+; cue reads it, LandingCue). Fails while the player's 3D isn't loaded; the ride tick tries again (as
+; WatchFootsteps).
+Function FxWatchCues()
+	if !riding || fxCueEventsOn || !CMB_FxLandOn || CMB_FxLandOn.GetValue() == 0.0 || !CMB_FxLandSounds
+		return
+	endif
+	bool a = RegisterForAnimationEvent(PlayerRef, LandCueEvent)
+	bool b = RegisterForAnimationEvent(PlayerRef, LandSyncEvent)
+	bool c = RegisterForAnimationEvent(PlayerRef, LandSyncEvent2)
+	fxCueEventsOn = a && b && c
+	if !riding && fxCueEventsOn
+		; The ride ended meanwhile: FxEndRide may have looked before this.
+		fxCueEventsOn = false
+		UnregisterForAnimationEvent(PlayerRef, LandCueEvent)
+		UnregisterForAnimationEvent(PlayerRef, LandSyncEvent)
+		UnregisterForAnimationEvent(PlayerRef, LandSyncEvent2)
+	endif
+EndFunction
+
+; From OnAnimationEvent, before its footstep watch. The plugin's flight state (CMB_FxAir: 1 in the
+; air past its AirMin, 2 just landed) and its flights' number (CMB_FxLandSeq) say whether a cue is a
+; landing, and which; fxCueBusy, claimed before any call, makes two cues of one clip play once.
+; CMB_FxLandOn is read once it is claimed: switched off mid-ride, the cues stay watched and play nothing.
+;   JumpDown: a landing clip: played unless that flight's sound was played already (its SyncRight).
+;   SyncRight/SyncLeft: only right after a flight not yet played: in the air still, waited for once
+;   (FxCueWait); played once the plugin says landed.
+; No plugin: CMB_FxAir stays 0 and the level -1, so a JumpDown plays at FxLandDefault, a sync marker
+; never.
+Function LandingCue(string asEventName)
+	if fxCueBusy || !riding
+		return
+	endif
+	fxCueBusy = true
+	if !CMB_FxLandOn || CMB_FxLandOn.GetValue() == 0.0
+		fxCueBusy = false
+		return
+	endif
+	float air = 0.0
+	int seq = 0
+	if CMB_FxAir && CMB_FxLandSeq
+		air = CMB_FxAir.GetValue()
+		seq = CMB_FxLandSeq.GetValue() as int
+	endif
+	bool play = false
+	if asEventName == LandCueEvent
+		play = !(air > 0.0 && seq == fxSeqSeen)
+	elseif air > 0.0 && seq != fxSeqSeen
+		if air < 1.5
+			Utility.Wait(FxCueWait)
+			air = CMB_FxAir.GetValue()
+			seq = CMB_FxLandSeq.GetValue() as int
+		endif
+		play = air > 1.5 && seq != fxSeqSeen
+	endif
+	if play && riding
+		fxSeqSeen = seq
+		float level = -1.0
+		if CMB_FxLandLevel
+			level = CMB_FxLandLevel.GetValue()
+		endif
+		if level < 0.0
+			level = FxLandDefault
+		endif
+		PlayLanding(level, asEventName)
+		if CMB_FxLandPlayed
+			CMB_FxLandPlayed.SetValue(seq as float)
+		endif
+	endif
+	fxCueBusy = false
+EndFunction
+
+; afLevel 0-1 from the fall's speed, 2-3 into water. The volume: the bike effects volume x
+; 10^(FxLandFloorDb x (1 - level) / 20); the light thump under FxLandHeavy, the heavy one from it,
+; and the clunk on top from FxLandBig; into water the splash, or the heavy one from FxLandBig.
+Function PlayLanding(float afLevel, string asCue)
+	float fx = FxVolume()
+	bool water = afLevel >= 2.0
+	float level = afLevel
+	if water
+		level -= 2.0
+	endif
+	if level > 1.0
+		level = 1.0
+	endif
+	if fx <= 0.0 || level <= 0.0
+		return
+	endif
+	FormList set = CMB_FxLandSounds
+	if CMB_FxLandPick && CMB_FxLandPick.GetValue() == 1.0 && CMB_FxLandSoundsAlt
+		set = CMB_FxLandSoundsAlt
+	endif
+	float volume = fx * Math.Pow(10.0, FxLandFloorDb * (1.0 - level) / 20.0)
+	int first = 0
+	if water
+		first = 3
+		if level >= FxLandBig
+			first = 4
+		endif
+	elseif level >= FxLandHeavy
+		first = 1
+	endif
+	int id = FxPlay(set.GetAt(first) as Sound, volume)
+	int extra = 0
+	if !water && level >= FxLandBig
+		extra = FxPlay(set.GetAt(2) as Sound, volume * Math.Pow(10.0, FxClunkDb / 20.0))
+	endif
+	Log("Bike sounds: landing (" + asCue + ") at level " + Hundredths(level) + Ternary(water, " into water", "") + ": sound " + first + " instance " + id + Ternary(extra > 0, ", the clunk " + extra, "") + ", volume " + Thousandths(volume) + ".")
+EndFunction
+
+int Function FxPlay(Sound akSound, float afVolume)
+	if !akSound
+		return 0
+	endif
+	int id = akSound.Play(PlayerRef)
+	if id > 0
+		Sound.SetInstanceVolume(id, afVolume)
+	endif
+	return id
+EndFunction
+
+; The water loop (CMB_FxWaterOn, CMB_FxWaterPick, read on getting on): played at no volume, its id
+; to the plugin (CMB_FxWaterId), which brings it in by the water's depth over the feet and the speed
+; (as the engine's loops) and answers in CMB_FxDriven: the id, or minus it when it declines. No
+; answer in FxAnswerWait: stopped (it needs CMB_Slope.dll). From the engine's start timer and the
+; load's setup, outside busy.
+Function FxStartWaterLoop()
+	FxStopWaterLoop()
+	if !riding || !CMB_FxWaterOn || CMB_FxWaterOn.GetValue() == 0.0 || !CMB_FxWaterLoops || !CMB_FxWaterId || !CMB_FxDriven || FxVolume() <= 0.0
+		return
+	endif
+	int set = fxWaterSet
+	int pick = 0
+	if CMB_FxWaterPick
+		pick = CMB_FxWaterPick.GetValue() as int
+	endif
+	if pick < 0 || pick >= CMB_FxWaterLoops.GetSize()
+		pick = 0
+	endif
+	Sound loop = CMB_FxWaterLoops.GetAt(pick) as Sound
+	if !loop
+		return
+	endif
+	int id = loop.Play(PlayerRef)
+	if fxWaterSet != set || !riding
+		; A ride end came during the play: its stop missed this one.
+		if id > 0
+			Sound.StopInstance(id)
+		endif
+		return
+	endif
+	if id <= 0 || id >= MaxSoundId
+		if id > 0
+			Sound.StopInstance(id)
+		endif
+		Log("Bike sounds: the water loop " + pick + " didn't play (instance " + id + ").")
+		return
+	endif
+	Sound.SetInstanceVolume(id, 0.0)
+	fxWaterLoop = id
+	CMB_FxWaterId.SetValue(id as float)
+	int polls = (FxAnswerWait / SoundPollInterval + 0.5) as int
+	int poll = 0
+	while poll < polls && fxWaterLoop == id
+		Utility.Wait(SoundPollInterval)
+		poll += 1
+		float answer = CMB_FxDriven.GetValue()
+		if fxWaterLoop != id
+			return   ; a ride end (or a newer start) has stopped it
+		elseif answer == (id as float)
+			Log("Bike sounds: the plugin drives the water loop " + pick + " (instance " + id + ", poll " + poll + ").")
+			return
+		elseif answer == -(id as float)
+			Log("Bike sounds: the plugin declined the water loop (see its log): stopped.")
+			FxStopWaterLoop()
+			return
+		endif
+	endwhile
+	if fxWaterLoop == id
+		Log("Bike sounds: no answer from the plugin in 0.5 s: the water loop stopped (it needs CMB_Slope.dll).")
+		FxStopWaterLoop()
+	endif
+EndFunction
+
+Function FxStopWaterLoop()
+	fxWaterSet += 1
+	int id = fxWaterLoop
+	fxWaterLoop = 0
+	if CMB_FxWaterId && CMB_FxWaterId.GetValue() != 0.0
+		CMB_FxWaterId.SetValue(0.0)
+	endif
+	; The plugin's answer to that loop goes with it: instance ids can repeat after a load, and a new loop with the
+	; save's id must not read the save's answer as its own (FxStartWaterLoop's poll, FxWaterTick).
+	if CMB_FxDriven && CMB_FxDriven.GetValue() != 0.0
+		CMB_FxDriven.SetValue(0.0)
+	endif
+	if id > 0
+		Sound.StopInstance(id)
+	endif
+EndFunction
+
+; Each ride tick: a water loop the plugin let go of after its answer (CMB_FxDriven minus the id: 30 of its calls
+; refused in a row, so it can't set the loop's level any more) is stopped, as one declined at the start is.
+Function FxWaterTick()
+	if fxWaterLoop > 0 && CMB_FxDriven && CMB_FxDriven.GetValue() == -(fxWaterLoop as float)
+		Log("Bike sounds: the plugin let go of the water loop (instance " + fxWaterLoop + ", see its log): stopped.")
+		FxStopWaterLoop()
+	endif
+EndFunction
+
+; Console: cqf CMB_ControllerQuest FxAudition 3 plays a candidate on the player at the bike effects
+; volume (100 if it's 0): 0-4 the landing set, 10-14 the alternative set, 20 and up the water loops
+; (FxAuditionLoop s each). Instance 0: it didn't play (a condition, or not a sound).
+Function FxAudition(int aiWhich)
+	float fx = FxVolume()
+	if fx <= 0.0
+		fx = 1.0
+	endif
+	Sound s = None
+	if aiWhich >= 20 && CMB_FxWaterLoops
+		s = CMB_FxWaterLoops.GetAt(aiWhich - 20) as Sound
+	elseif aiWhich >= 10 && aiWhich < 20 && CMB_FxLandSoundsAlt
+		s = CMB_FxLandSoundsAlt.GetAt(aiWhich - 10) as Sound
+	elseif aiWhich >= 0 && aiWhich < 10 && CMB_FxLandSounds
+		s = CMB_FxLandSounds.GetAt(aiWhich) as Sound
+	endif
+	int id = FxPlay(s, fx)
+	Log("Bike sounds: audition " + aiWhich + ": " + s + " instance " + id + ".")
+	if id > 0 && aiWhich >= 20
+		Utility.Wait(FxAuditionLoop)
+		Sound.StopInstance(id)
+	endif
+EndFunction
+
+; A value of 0 or more to two decimals ("0.47"), to three ("0.298"): Papyrus prints six.
+string Function Hundredths(float afValue)
+	int n = (afValue * 100.0 + 0.5) as int
+	if n < 0
+		n = 0
+	endif
+	return (n / 100) + "." + Ternary(n % 100 < 10, "0", "") + (n % 100)
+EndFunction
+
+string Function Thousandths(float afValue)
+	int n = (afValue * 1000.0 + 0.5) as int
+	if n < 0
+		n = 0
+	endif
+	int f = n % 1000
+	return (n / 1000) + "." + Ternary(f < 100, Ternary(f < 10, "00", "0"), "") + f
 EndFunction

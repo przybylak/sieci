@@ -123,11 +123,41 @@
     },
     {
       "type": "switcher",
+      "text": "Bike in first person",
+      "help": "Shows the bike under you in first person (needs F4SE and CMB_Slope.dll). Takes effect the next time you get on.",
+      "valueOptions": {
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|87B"
+      }
+    },
+    {
+      "type": "switcher",
       "text": "Thrown off when hit",
       "help": "A big hit from an enemy knocks you off the bike, so you can fight back. Off: you keep riding; a hint says how to get off when a fight starts.",
       "valueOptions": {
         "sourceType": "GlobalValue",
         "sourceForm": "CommonwealthMotorbike.esp|81E"
+      }
+    },
+    {
+      "type": "switcher",
+      "text": "Steady in the saddle",
+      "help": "Hits don\u0027t stagger you while riding (a stagger plays the standing animation, and the bike hangs round your hips). Power attacks and explosions still knock you off with \u0022Thrown off when hit\u0022 on. Off: staggered as on foot.",
+      "valueOptions": {
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|87E"
+      }
+    },
+    {
+      "type": "slider",
+      "text": "Pose re-check pause after a hit (s)",
+      "help": "A hit, a stagger or an item used while riding can play a standing animation for a moment: that is a reaction, not the seated pose lost, so the pose isn\u0027t applied again for this long after one. 0 = applied again at any standing footstep, as before.",
+      "valueOptions": {
+        "min": 0,
+        "max": 5,
+        "step": 0.5,
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|880"
       }
     },
     {
@@ -166,13 +196,22 @@
     {
       "type": "slider",
       "text": "Knock-over damage (% of their health)",
-      "help": "At riding speed; half that at the slowest, up to one and a half times faster. It never kills. 0 = none.",
+      "help": "At riding speed; half that at the slowest, up to one and a half times faster. It takes their last point of health only with the setting below. 0 = none.",
       "valueOptions": {
         "min": 0,
         "max": 50,
         "step": 5,
         "sourceType": "GlobalValue",
         "sourceForm": "CommonwealthMotorbike.esp|84D"
+      }
+    },
+    {
+      "type": "switcher",
+      "text": "Knock-overs can kill",
+      "help": "A knock-over that takes an enemy\u0027s last health kills it, and the kill is yours: experience, quests and the rest as if you had shot it. Never companions or essential characters (they aren\u0027t knocked over at all). Off: the bike leaves them at their last point of health.",
+      "valueOptions": {
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|879"
       }
     },
     {
@@ -295,6 +334,45 @@
       }
     },
     {
+      "type": "slider",
+      "text": "Bike effects volume",
+      "help": "Landings and riding through water (the game\u0027s own sounds for now). 0 = none. The water follows it at once, a landing at the next one.",
+      "valueOptions": {
+        "min": 0,
+        "max": 100,
+        "step": 5,
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|884"
+      }
+    },
+    {
+      "type": "switcher",
+      "text": "Landing sound",
+      "help": "A tyre thump when the bike lands, louder the higher the drop, a clunk on big ones, a splash into water. Without F4SE one level.",
+      "valueOptions": {
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|88C"
+      }
+    },
+    {
+      "type": "switcher",
+      "text": "Water sound",
+      "help": "Spray while riding through shallow water, by speed and depth (needs F4SE and the CMB_Slope.dll plugin). Takes effect the next time you get on.",
+      "valueOptions": {
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|88D"
+      }
+    },
+    {
+      "type": "switcher",
+      "text": "Mute the rider\u0027s own jump and landing sounds",
+      "help": "While riding, your character\u0027s own footstep, jump and landing sounds are silent (the bike\u0027s take their place). Takes effect the next time you get on.",
+      "valueOptions": {
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|88B"
+      }
+    },
+    {
       "type": "section",
       "text": "Headlamp"
     },
@@ -328,6 +406,15 @@
       }
     },
     {
+      "type": "switcher",
+      "text": "Tail lamp lights the road",
+      "help": "The tail lamp casts a small red light behind the bike, brighter while you brake (needs F4SE and CMB_Slope.dll). Takes effect the next time you get on.",
+      "valueOptions": {
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|87A"
+      }
+    },
+    {
       "type": "section",
       "text": "Hotkeys"
     },
@@ -347,6 +434,18 @@
         "step": 1,
         "sourceType": "GlobalValue",
         "sourceForm": "CommonwealthMotorbike.esp|807"
+      }
+    },
+    {
+      "type": "slider",
+      "text": "Brake key (scan code)",
+      "help": "Brakes while riding, as S does, and holds the bike still once stopped (S still backs up). 57 = Space, 42 = Left Shift, 29 = Left Ctrl, 45 = X, 0 = none (only S brakes). Takes effect the next time you get on.",
+      "valueOptions": {
+        "min": 0,
+        "max": 211,
+        "step": 1,
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|878"
       }
     },
     {
