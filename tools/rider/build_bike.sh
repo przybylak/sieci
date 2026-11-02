@@ -26,6 +26,9 @@
 #   REFERENCE   a previous build's Meshes/CMB: CMB_BikeParts.ini's keys and CMB_BikeFit.json compared (check)
 #   MATERIALS   the materials' shader values (default: bike_materials.json here, if it's there)
 #   MESH_ARGS   more harley_meshes.py arguments, e.g. "--tris 90000"
+#   DISC_BORE   shared (the default since 2026-11-02a: the brake discs' bore where the art paints it) or bolts (the
+#               2026-11-01a build's, its nifs and disc art byte for byte): harley_meshes.py and bike_art.py --disc-bore;
+#               the export writes it into the stage manifest, and art and build refuse another
 #   PYTHON      the Python for export, art, build, fallback and check: 3.10+ with numpy and fast_simplification
 #               (default python3; on Windows' Git Bash, where a python.org install has no python3, e.g. PYTHON=python
 #               or PYTHON="py -3"). It runs with -I, which leaves out the user's site-packages (pip install --user):
@@ -38,6 +41,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 : "${DATA:?DATA (the output Data tree) is required}"
 STAGE="${STAGE:-$DATA/../bike_stage}"
 MESH_ARGS="${MESH_ARGS:-}"
+DISC_BORE="${DISC_BORE:-shared}"
 read -r -a PY <<< "${PYTHON:-python3}"   # a command with its arguments ("py -3")
 MATERIALS="${MATERIALS:-$HERE/bike_materials.json}"
 materials=()
@@ -54,7 +58,7 @@ meshes() {   # harley_meshes.py with the build's own arguments, then the given o
     mkdir -p "$DATA/Meshes/CMB" "$DATA/Textures/CMB"
     # shellcheck disable=SC2086
     "${PY[@]}" -I "$HERE/harley_meshes.py" --pynifly "$PYNIFLY" --gltf "$GLTF" --vanilla "$VANILLA" \
-        --out "$DATA/Meshes/CMB" --textures "$DATA/Textures/CMB" "${seat[@]}" $MESH_ARGS "$@"
+        --out "$DATA/Meshes/CMB" --textures "$DATA/Textures/CMB" "${seat[@]}" --disc-bore "$DISC_BORE" $MESH_ARGS "$@"
 }
 
 for stage in "${stages[@]}"; do
@@ -65,7 +69,7 @@ for stage in "${stages[@]}"; do
             mkdir -p "$STAGE"
             meshes --stage export --stage-dir "$STAGE" "${materials[@]}" ;;
         art)
-            "${PY[@]}" -I "$HERE/bike_art.py" --out "$STAGE/art" ;;
+            "${PY[@]}" -I "$HERE/bike_art.py" --out "$STAGE/art" --disc-bore "$DISC_BORE" --stage-manifest "$STAGE/manifest.json" ;;
         textures)
             need GLTF BLENDER_PY DDS_PY
             extra=()

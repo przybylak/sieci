@@ -22,7 +22,8 @@ Inputs: S/manifest.json + S/shapes/<label>.npz (the stage's shapes, harley_meshe
                      and the same quantised UV (harley_meshes' seam_split counts the same and refuses a mismatch)
   <Data>/Textures/CMB/Bike/<mat>_d.dds (BC1, BC3 with alpha), _n.dds (BC5, DirectX green, re-encoded into nifly's own
                      tangent frames: nifly_tangents.py), _s.dds (BC5: R specular, G smoothness), _g.dds (BC1, glow maps),
-                     mirror_cube_e.dds (+ mirror_cube_zup_e.dds, the same sky with +Z up)
+                     mirror_cube_e.dds (+ mirror_cube_zup_e.dds, the same sky with +Z up) only if a material names
+                     our cube (MR; since 2026-11-02a the mirrors name the game's, MB, and the main build ships neither)
   <Data>/Materials/CMB/Bike/<mat>.bgsm (the parked bike: shadows on, nothing lit; none for a material the parked nif
                      leaves out, the lit overlays) and <mat>_worn.bgsm (the riding bike: its shadows as
                      bike_materials.json says, emissive on)
@@ -34,8 +35,8 @@ Three more modes, run after the textures:
     <dds python> -I bike_textures.py --stage-dir S --out <Data> --sheet atlases.png        # decode every DDS, contact sheet
     <blender python> -I bike_textures.py --stage-dir S --out <Data> --preview p.png        # Cycles look of the textured bike
     <python> -I bike_textures.py --stage-dir S --out <folder> --mirror-cube Shared\\Cubemaps\\MetalBrushed02Cube_e.dds
-        # only the mirrors' six material files, naming a game cube by its path (the optional MO2 folder "game mirror
-        # cube (A-B)"; no game file is copied)
+        # only the mirrors' six material files, naming a game cube by its path (a candidate MO2 folder for another
+        # cube; the 2026-11-01a build's "game mirror cube (A-B)"; no game file is copied)
 
 Deterministic: Blender's UV operators and Cycles with a fixed seed, numpy noise from integer hashes, the DDS encoders.
 Brand guard: no source textures exist and the emblems are the mod's own art (bike_art.py); the bake can still
@@ -60,7 +61,8 @@ import nifly_tangents as NT  # noqa: E402
 VERSION = 1
 GLTF_MATERIALS = {"logo_decals": "logo", "material": "gum"}   # glTF material name -> the piece material (the manifest's) if renamed
 CUBES = {"CH": "Shared\\Cubemaps\\MetalChrome01Cube_e.dds", "DI": "Shared\\Cubemaps\\mipblur_DefaultOutside1_dielectric.dds",
-         "GL": "Shared\\Cubemaps\\shinyglass_e.dds", "MR": "CMB\\Bike\\mirror_cube_e.dds"}   # as harley_meshes.CUBES
+         "GL": "Shared\\Cubemaps\\shinyglass_e.dds", "MB": "Shared\\Cubemaps\\MetalBrushed02Cube_e.dds",
+         "MR": "CMB\\Bike\\mirror_cube_e.dds"}   # as harley_meshes.CUBES (MB the mirrors' since 2026-11-02a; MR built only if named)
 OVERLAYS = ("rear_tail", "rear_brake", "front_dialglow", "front_needle", "static_badge")   # never occluders
 MIRROR_VARIANTS = ("front_mirrorStock", "front_mirrorUnderEgg", "front_mirrorUnderD")
 BAKE_DEFAULTS = dict(exclude_meshes=[0, 9, 10, 11, 12, 62, 63], cage=0.3, ray=0.9, ao_distance=10.0, ao_samples=48,
@@ -1663,6 +1665,7 @@ def write_bgsm(cfg, mat, cube_path=None, out=None):
         tex = {"diffuse": base + "_d.dds", "normal": base + "_n.dds", "smoothspec": base + "_s.dds",
                "envmap": cube or "", "glow": base + "_g.dds" if glow else ""}
         kw = dict(textures=tex, environment_mapping=env, env_map_mask_scale=float(m["env_scale"]) if env else 1.0,
+                  ssr=bool(m.get("ssr", False)),   # 2026-11-02a: the chrome's screen-space reflections (none: 2026-11-01a's)
                   smoothness=float(m["smoothness"]), specular_mult=float(m["spec_mult"]),
                   specular_color=[float(x) for x in m["spec_colour"]], two_sided=bool(m["two_sided"]),
                   cast_shadows=shadows, receive_shadows=True, emit_enabled=bool(emit), glowmap=glow, root_material="")
@@ -1979,7 +1982,7 @@ def preview(cfg, out_png):
                 mul.inputs[1].default_value = float(m["env_scale"])
                 tree.links.new(sep.outputs[0], mul.inputs[0])
                 gl = tree.nodes.new("ShaderNodeBsdfGlossy")
-                if m.get("cube") not in ("CH", "MR"):   # the dielectric cube is a dim blur of the sky: a Fresnel stand-in
+                if m.get("cube") not in ("CH", "MR", "MB"):   # the dielectric cube is a dim blur of the sky: a Fresnel stand-in
                     lw = tree.nodes.new("ShaderNodeLayerWeight")
                     lw.inputs["Blend"].default_value = 0.35
                     fm = tree.nodes.new("ShaderNodeMath")
@@ -2061,16 +2064,16 @@ def main(argv=None):
     ap.add_argument("--preview-size", default="1280x800")
     ap.add_argument("--views", help="--preview: some of front34,rear34,right,engine_left,front_wheel,tank_seat")
     ap.add_argument("--mirror-cube", metavar="GAME_PATH",
-                    help="mode: write only the mirror materials' files (cube MR) naming this cube map instead of ours, a "
-                         "path under Textures (e.g. Shared\\Cubemaps\\MetalBrushed02Cube_e.dds), into --out's "
-                         "Materials/CMB/Bike: the optional MO2 folder \"game mirror cube (A-B)\" (the game's cube by path; "
-                         "no game file copied)")
+                    help="mode: write only the mirror materials' files (MIRROR_VARIANTS) naming this cube map instead of "
+                         "their own, a path under Textures (e.g. Shared\\Cubemaps\\MetalBrushed02Cube_e.dds), into --out's "
+                         "Materials/CMB/Bike: a candidate MO2 folder for another cube (the game's cube by path; no game "
+                         "file copied)")
     a = ap.parse_args(argv)
     cfg = Config(a)
     if a.mirror_cube:
         written = []
         for mat, m in cfg.materials.items():
-            if m.get("cube") == "MR" and any(lb in cfg.man["labels"] for lb in m["labels"]):
+            if mat in MIRROR_VARIANTS and any(lb in cfg.man["labels"] for lb in m["labels"]):
                 written += write_bgsm(cfg, mat, cube_path=a.mirror_cube)
         log(f"wrote {len(written)} mirror materials naming {a.mirror_cube} to {mat_dir(cfg)}: {', '.join(written)}")
         return 0

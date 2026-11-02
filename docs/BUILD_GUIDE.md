@@ -136,6 +136,20 @@ You only need this if the generated plugin turns out to have a problem and you'd
    1D3312, 05BAD7, 03C7A9, 0452CE), `CMB_FxLandSoundsAlt` (1D3313, 20A0B9, 1A8550, 089380, 20A0B8), `CMB_FxWaterLoops`
    (1E4F2D, 1E4F2C, 03D0A7, 1E4F1B). **Light** `CMB_TailLight` (radius 220, colour 255/24/10, Dynamic and Non-Shadow
    Spotlight, FOV 120, fade 0.75) and **Movable Static** `CMB_BikeView` (model `CMB\CMB_BikeView.nif`).
+   Since 2026-11-02a (28 records, 0x893-0x8AE; the ESP then holds 198 records, its next ID 0x8AF): `CMB_RiderItemUse` 0,
+   `CMB_RamCombat` 0 and `CMB_FxLandRange` 10 (must be 0x893-0x895: the plugin looks for them); `CMB_RiderSteadyWay` 1,
+   `CMB_PoseUseWindow` 6, `CMB_UseCameraFix` 1, `CMB_RamKillXP` 1 and `CMB_FxOwnSounds` 1. **Sound Output Model**
+   `CMB_SOMMonoFx`: `CMB_SOMMonoEngine`'s values exactly (Attenuates With Distance, Uses HRTF, reverb send 5, static
+   attenuation 0, fade-in 0-0 with the curve 0/50/80/95, fade-out 600-4000 with 50/20/5/0). **Sound Descriptors**, 13,
+   each a standard descriptor in `AudioCategorySFX` (0172A1) on `CMB_SOMMonoFx`, priority 128, static attenuation 0, no
+   conditions, with the files, pitch and loudness variation of the game's record it follows (docs/ASSETS.md, "The game's
+   sound files our own records name by path"): `CMB_FxTyreLightSD`, `CMB_FxTyreHeavySD`, `CMB_FxClunkSD`,
+   `CMB_FxSplashSD`, `CMB_FxSplashHeavySD`, `CMB_FxThudHeavySD`, `CMB_FxClunkBarrelSD`, `CMB_FxSplashMediumSD`,
+   `CMB_FxThudWaterSD`, and the four loops (Loop) `CMB_FxWaterSprayLPSD` (pitch +15), `CMB_FxWaterSprayLargeLPSD`
+   (pitch -15), `CMB_FxWaterStreamLPSD`, `CMB_FxWaterChurnLPSD`. **FormLists** of them in the borrowed lists' slots:
+   `CMB_FxLandSoundsOwn` (TyreLight, TyreHeavy, Clunk, Splash, SplashHeavy), `CMB_FxLandSoundsAltOwn` (TyreLight,
+   ThudHeavy, ClunkBarrel, SplashMedium, ThudWater), `CMB_FxWaterLoopsOwn` (WaterSpray, WaterSprayLarge, WaterStream,
+   WaterChurn). No form ID may be over 0xF00 (the light plugin's range, the rest kept for the customisation builds).
 2. *(no keyword: `CMB_AnimFlavorRider` lives in `CMB_RiderPose.esp`)*
 3. **Messages** (tick *Message Box*; button order matters):
    `CMB_ParkedMenu` "Motorbike" / "What do you want to do?" with buttons `Ride`, `Open side bag`, `Cancel`.
@@ -151,10 +165,15 @@ You only need this if the generated plugin turns out to have a problem and you'd
    **Spell** `CMB_SwimWatchAbility`: type Ability, Constant Effect, Self, two effects (0/0/0): `CMB_SwimWatchEffect` with the condition `IsSwimming == 1` and `CMB_WadeWatchEffect` with `IsInWater == 1` (both Subject).
    **Magic Effect** `CMB_StaggerWatchEffect` (since 2026-11-01a): as `CMB_SwimWatchEffect`, script `CMB_StaggerWatchEffectScript`; **Spell** `CMB_StaggerWatchAbility`: Ability, Constant Effect, Self, that effect with `IsStaggered == 1` (Subject).
    **Perk** `CMB_RiderSteadyPerk` "Steady in the saddle": not playable, hidden, one rank; one entry point Mod Incoming Stagger, Multiply 0, no conditions (the controller adds and removes it).
+   **Perk** `CMB_RiderSteadyPerk2` (since 2026-11-02a) "Steady in the saddle": the same, but the entry's condition tabs 2 and its entry point function 0 (EPFB 0000), as the game's own `mod_armor_LessStagger`; the controller gives it with `CMB_RiderSteadyWay` 1 (2 gives the game's 00245AFE, 0 `CMB_RiderSteadyPerk`).
+   **Magic Effect** `CMB_RamKillEffect` (since 2026-11-02a): archetype Value Modifier, actor value Health (000002D4), Fire and Forget, Target Actor; flags Hostile, Detrimental, Painless, No Hit Effect, No Duration, No Area, Hide in UI (not No Hit Event); no art, no sounds. **Spell** `CMB_RamKillSpell` "Motorbike knock-over": type Spell, Fire and Forget, Target Actor, Manual Cost Calc, Ignore Resistance, No Absorb/Reflect, cost 0; one effect, `CMB_RamKillEffect`, magnitude 100000, area 0, duration 0 (`CMB_RamScript` casts it from the player for the killing hit).
 6. **Activator** `CMB_BikeActivator`: name "Motorbike", activate text "Use", model `CMB\CMB_BikeParked.nif`, script `CMB_BikeActivatorScript`.
    **Container** `CMB_SideBagContainer`: name "Side Bag", model `CMB\CMB_BikeParked.nif`, script `CMB_SideBagScript`.
 7. **Interior cell** `CMB_HoldingCell` holding four *persistent* references: `CMB_BikeRef` (the activator), `CMB_SideBagRef` (the container), `CMB_HoldingMarkerRef` (an XMarker) and `CMB_GroundProbeRef` (an XMarker that feels for the navmesh around the parked bike; once the unused `CMB_DrySpotMarkerRef`, same record).
 8. **Quest** `CMB_ControllerQuest`: *Start Game Enabled*, priority 50.
    - Reference alias `Player` (Specific Reference: PlayerRef) with script `CMB_PlayerAliasScript`.
    - Scripts `CMB_ControllerScript` and, optionally (F4SE), `CMB_HotkeyF4SE` and `CMB_GearRestoreF4SE`.
+   - Since 2026-11-02a the controller's three new groups (`Rider_Pose_Fixes`, `Ram_Fixes`, `Fx_Own_Records`: 11
+     properties, 138 in all) and `CMB_RamScript`'s `Kill_Experience` (`CMB_RamKillSpell`, `CMB_RamKillXP`: 17 in all)
+     are filled with the records of the same names.
 9. **Properties:** fill every *Mandatory* property ("Auto-Fill All" gets the vanilla ones). Script-typed properties called `Controller` point at `CMB_ControllerQuest`. `Pipboy` is the vanilla Pip-Boy armor (00021B3B), `FallingDamageMod` and `Health` the vanilla actor values (000BA43D, 000002D4).

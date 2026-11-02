@@ -9,8 +9,13 @@ CMB_RamHit = the ask's number) and this script pushes it away from the rider. Wi
 plugin the globals never change and nothing happens. Since 2026-11-01a (test 47: "you can't kill
 an enemy while on the bike, just take them down to the last bit of health"), with the MCM's
 "Knock-overs can kill" (CMB_RamKills, on by default) a knock-over whose damage takes the last of
-an actor's health kills it, the player the killer (Kill(PlayerRef)); off, never the last point of
-health, as in build 2026-10-31a.
+an actor's health kills it, the player the killer; off, never the last point of health, as in
+build 2026-10-31a. Since 2026-11-02a (test 48: 12 kills by the bike, no experience: Kill(PlayerRef)
+credits the kill but skips the game's damage path, where kill experience is given) that last hit
+is the player's own damage, the spell CMB_RamKillSpell cast by the player, so the game rewards the
+kill as its own: the MCM's "Kill experience" (CMB_RamKillXP) 1 = Spell.Cast (the default), 2 =
+DoCombatSpellApply, 0 = Kill(PlayerRef), as the 2026-11-01a build; one still alive KillCheckAfter
+(0.3 s) after the spell is killed by Kill(PlayerRef) all the same, so no kill is lost.
 Attach to CMB_ControllerQuest; the controller calls StartRide and EndRide (through CastAs, so
 without this script nothing is called). It is a script of its own so that its 0.1 s poll and
 the controller's work never wait on each other's lock.
@@ -40,13 +45,24 @@ GlobalVariable Property CMB_RamHitSpeed Auto Const Mandatory
 GlobalVariable Property CMB_RamHit Auto Const Mandatory
 GlobalVariable Property CMB_RamKills Auto Const
 {MCM "Knock-overs can kill" (test 47): 1 = a knock-over whose damage reaches the last of an
-actor's health kills it, the player the killer (Kill(PlayerRef): experience, quests and crime as
-for a kill of the player's own; protected actors die to it as to the player's own blows, essential
-ones are never knocked over). 0 = never the last point of health, as in build 2026-10-31a. Not
-Mandatory: an older ESP leaves it None, read as 0. Default 1.}
+actor's health kills it, the player the killer (quests and crime as for a kill of the player's
+own; the experience by "Kill experience", CMB_RamKillXP, since 2026-11-02a: Kill(PlayerRef) alone
+gave none in test 48; protected actors die to it as to the player's own blows, essential ones are
+never knocked over). 0 = never the last point of health, as in build 2026-10-31a. Not Mandatory:
+an older ESP leaves it None, read as 0. Default 1.}
 ActorValue Property Experience Auto Const
 {Vanilla (000002C9), for the log only: the player's experience before a kill and 0.5 s after it.
 None: not logged.}
+
+; 2026-11-02a (test 48: 12 kills by the bike, no experience): the killing knock-over dealt as the
+; player's own damage (script-only, 0x89B and 0x89C). Not Mandatory: an older ESP leaves them None,
+; and a kill is Kill(PlayerRef), as the 2026-11-01a build.
+Group Kill_Experience
+	Spell Property CMB_RamKillSpell Auto Const
+	{Test 48 (Kill(PlayerRef) gave no experience): the bike's killing hit dealt as the player's own. None: Kill(PlayerRef).}
+	GlobalVariable Property CMB_RamKillXP Auto Const
+	{MCM "Kill experience": 0 Kill(PlayerRef) only (2026-11-01a), 1 Spell.Cast by the player (default), 2 DoCombatSpellApply. None: 0.}
+EndGroup
 
 int Property TimerPoll = 1 AutoReadOnly
 float Property PollInterval = 0.1 AutoReadOnly
@@ -74,6 +90,10 @@ bike's path gets a no, and the bike brakes for it.}
 float Property KillBelow = 1.0 AutoReadOnly
 {Test 47: with CMB_RamKills on, a hit that would leave less than this much health kills (the
 2026-10-31a floor, so every hit the floor held at 1.0 kills instead).}
+float Property KillCheckAfter = 0.3 AutoReadOnly
+{2026-11-02a: a kill by the spell (CMB_RamKillXP 1 or 2) checked this long after it, at the first
+poll that late; still alive (the spell didn't reach it): Kill(PlayerRef), so no kill is lost, only
+its experience.}
 float Property RefusalLogEvery = 10.0 AutoReadOnly
 {The plugin asks again a second after a no: one line per actor and reason this often.}
 
@@ -113,6 +133,10 @@ float[] pushedZ
 float[] pushedAt
 bool[] pushedKill
 float[] pushedXp
+; 2026-11-02a: how a kill was dealt (KillHow: 0 Kill(PlayerRef), 1 Spell.Cast, 2 DoCombatSpellApply,
+; 3 Kill(PlayerRef) after a spell that didn't kill in KillCheckAfter), and whether that check is done.
+int[] pushedHow
+bool[] pushedChecked
 int pushedNext = 0
 
 Function Remember()
@@ -131,7 +155,7 @@ Function Remember()
 		refusedKeys = new string[4]
 		refusedAt = new float[4]
 	endif
-	if !pushed || pushed.Length != 4 || !pushedKill
+	if !pushed || pushed.Length != 4 || !pushedKill || !pushedHow || !pushedChecked
 		pushed = new Actor[4]
 		pushedNames = new string[4]
 		pushedX = new float[4]
@@ -140,6 +164,8 @@ Function Remember()
 		pushedAt = new float[4]
 		pushedKill = new bool[4]
 		pushedXp = new float[4]
+		pushedHow = new int[4]
+		pushedChecked = new bool[4]
 		pushedNext = 0
 	endif
 EndFunction
@@ -179,7 +205,7 @@ Function StartRide()
 	lastHit = CMB_RamHit.GetValue() as int
 	CMB_RamOk.SetValue(0.0)
 	if CMB_RamEnemies.GetValue() > 0.0
-		Log("Ram: on from " + ((CMB_RamMinSpeed.GetValue() + 0.5) as int) + " a second, " + ((CMB_RamDamage.GetValue() + 0.5) as int) + "% of their health, " + Ternary(Kills(), "the last of it a kill (the player's)", "never the last of it") + ".")
+		Log("Ram: on from " + ((CMB_RamMinSpeed.GetValue() + 0.5) as int) + " a second, " + ((CMB_RamDamage.GetValue() + 0.5) as int) + "% of their health, " + Ternary(Kills(), "the last of it a kill (the player's: " + KillHowText(KillHow()) + ")", "never the last of it") + ".")
 	else
 		Log("Ram: off (the MCM).")
 	endif
@@ -490,6 +516,8 @@ Function KnockOver(int aiAsk)
 		pushedAt[slot] = Utility.GetCurrentRealTime()
 		pushedKill[slot] = false
 		pushedXp[slot] = -1.0
+		pushedHow[slot] = 0
+		pushedChecked[slot] = true   ; nothing to check but a spell's kill (below)
 		pushedNext = (pushedNext + 1) % pushed.Length
 	endif
 	PlayerRef.PushActorAway(target, force)
@@ -502,6 +530,7 @@ Function KnockOver(int aiAsk)
 	float damage = 0.0
 	bool kill = false
 	bool kills = Kills()
+	int how = 0
 	if fraction > 0.0 && (hp > 1.0 || (kills && hp > 0.0))
 		float share = speed / FullSpeed
 		if share < 0.5
@@ -520,10 +549,25 @@ Function KnockOver(int aiAsk)
 			if Experience
 				xp = PlayerRef.GetValue(Experience)
 			endif
-			target.Kill(PlayerRef)
+			; 2026-11-02a (test 48: Kill(PlayerRef) gave no experience): the last hit the player's own
+			; damage, the game's own kill reward with it; only with a measure slot (its KillCheckAfter
+			; check, Kill(PlayerRef) should the spell not kill), else Kill(PlayerRef) as before.
+			how = KillHow()
+			if how > 0 && slot >= 0
+				if how == 1
+					CMB_RamKillSpell.Cast(PlayerRef, target)
+				else
+					PlayerRef.DoCombatSpellApply(CMB_RamKillSpell, target)
+				endif
+			else
+				how = 0
+				target.Kill(PlayerRef)
+			endif
 			if slot >= 0
 				pushedKill[slot] = true
 				pushedXp[slot] = xp
+				pushedHow[slot] = how
+				pushedChecked[slot] = how == 0
 			endif
 		elseif damage > 0.0
 			target.DamageValue(Health, damage)
@@ -534,8 +578,10 @@ Function KnockOver(int aiAsk)
 	knocked[knockedNext] = target
 	knockedAt[knockedNext] = Utility.GetCurrentRealTime()
 	knockedNext = (knockedNext + 1) % knocked.Length
-	if kill
-		Log("Ram: " + name + " knocked over at " + ((speed + 0.5) as int) + " a second (ask " + aiAsk + "): force " + Tenths(force) + ", the hit's " + Tenths(damage) + " damage takes the last of its health (" + Tenths(hp) + "): killed, the player the killer" + ProtectedNote(target) + ".")
+	if kill && how > 0
+		Log("Ram: " + name + " knocked over at " + ((speed + 0.5) as int) + " a second (ask " + aiAsk + "): force " + Tenths(force) + ", the hit's " + Tenths(damage) + " damage takes the last of its health (" + Tenths(hp) + "): the player's last hit (CMB_RamKillSpell, " + KillHowText(how) + ")" + ProtectedNote(target) + ".")
+	elseif kill
+		Log("Ram: " + name + " knocked over at " + ((speed + 0.5) as int) + " a second (ask " + aiAsk + "): force " + Tenths(force) + ", the hit's " + Tenths(damage) + " damage takes the last of its health (" + Tenths(hp) + "): killed, the player the killer (Kill: no experience)" + ProtectedNote(target) + ".")
 	else
 		Log("Ram: " + name + " knocked over at " + ((speed + 0.5) as int) + " a second (ask " + aiAsk + "): force " + Tenths(force) + ", " + Tenths(damage) + " damage, health " + Tenths(hp) + " -> " + Tenths(hp - damage) + ".")
 	endif
@@ -544,6 +590,31 @@ EndFunction
 ; Test 47: the MCM's "Knock-overs can kill" (an older ESP: off).
 bool Function Kills()
 	return CMB_RamKills && CMB_RamKills.GetValue() > 0.0
+EndFunction
+
+; 2026-11-02a: the MCM's "Kill experience" (CMB_RamKillXP): how a killing knock-over is dealt. 1 =
+; CMB_RamKillSpell.Cast by the player, 2 = PlayerRef.DoCombatSpellApply, 0 = Kill(PlayerRef) as the
+; 2026-11-01a build (also with an older ESP: either property None, or a value out of 0-2).
+int Function KillHow()
+	int v = 0
+	if CMB_RamKillXP
+		v = CMB_RamKillXP.GetValue() as int
+	endif
+	if v < 0 || v > 2 || !CMB_RamKillSpell
+		return 0
+	endif
+	return v
+EndFunction
+
+string Function KillHowText(int aiHow)
+	if aiHow == 1
+		return "Spell.Cast"
+	elseif aiHow == 2
+		return "DoCombatSpellApply"
+	elseif aiHow == 3
+		return "Kill(PlayerRef) after the spell"
+	endif
+	return "Kill(PlayerRef)"
 EndFunction
 
 ; Test 47: a protected actor dies to the player's own blows, so to this kill too (the log says so).
@@ -573,13 +644,22 @@ Function MeasurePushes(bool abNow)
 	int i = 0
 	while i < pushed.Length
 		Actor target = pushed[i]
+		; 2026-11-02a: a kill by the spell checked first (KillCheckAfter): still alive, Kill(PlayerRef).
+		if target && !pushedChecked[i] && (abNow || now - pushedAt[i] >= KillCheckAfter)
+			pushedChecked[i] = true
+			if !target.IsDead()
+				Log("Ram: " + pushedNames[i] + ": the player's last hit (" + KillHowText(pushedHow[i]) + ") didn't kill it in " + Tenths(now - pushedAt[i]) + " s (health " + Tenths(target.GetValue(Health)) + "): Kill(PlayerRef) after it (no experience).")
+				pushedHow[i] = 3
+				target.Kill(PlayerRef)
+			endif
+		endif
 		if target && (abNow || now - pushedAt[i] >= PushMeasureAfter)
 			pushed[i] = None
 			float dx = target.GetPositionX() - pushedX[i]
 			float dy = target.GetPositionY() - pushedY[i]
 			float dz = target.GetPositionZ() - pushedZ[i]
 			float moved = Math.Sqrt(dx * dx + dy * dy + dz * dz)
-			Log("Ram: " + pushedNames[i] + " " + Tenths(now - pushedAt[i]) + " s after the push: moved " + ((moved + 0.5) as int) + " units" + DeathNote(target, pushedKill[i], pushedXp[i]) + ".")
+			Log("Ram: " + pushedNames[i] + " " + Tenths(now - pushedAt[i]) + " s after the push: moved " + ((moved + 0.5) as int) + " units" + DeathNote(target, pushedKill[i], pushedXp[i], pushedHow[i]) + ".")
 		endif
 		i += 1
 	endwhile
@@ -587,8 +667,10 @@ EndFunction
 
 ; Test 47: whether the pushed actor is dead now, and who killed it (the dogs of test 47 "seemed to
 ; work": nothing logged whether the bike or a shot did it); after the bike's kill, the player's
-; experience then and now (-1: Experience not filled).
-string Function DeathNote(Actor akTarget, bool abKilled, float afXpBefore)
+; experience then and now (-1: Experience not filled). 2026-11-02a: the victim's level, the gain
+; and how the kill was dealt (aiHow, KillHow's; "+0.0: none" after Spell.Cast says "Kill experience"
+; 2 is the next to try).
+string Function DeathNote(Actor akTarget, bool abKilled, float afXpBefore, int aiHow)
 	if !akTarget.IsDead()
 		if abKilled
 			return "; NOT dead after Kill (health " + Tenths(akTarget.GetValue(Health)) + ")"
@@ -603,10 +685,32 @@ string Function DeathNote(Actor akTarget, bool abKilled, float afXpBefore)
 		who = "someone else"
 	endif
 	string note = "; dead, the killer " + who
+	if abKilled
+		note += ", its level " + akTarget.GetLevel()
+	endif
 	if abKilled && afXpBefore >= 0.0 && Experience
-		note += ", the player's experience " + Tenths(afXpBefore) + " -> " + Tenths(PlayerRef.GetValue(Experience))
+		float xpNow = PlayerRef.GetValue(Experience)
+		note += ", the player's experience " + Tenths(afXpBefore) + " -> " + Tenths(xpNow) + " (" + XpGain(xpNow - afXpBefore, aiHow) + ")"
 	endif
 	return note
+EndFunction
+
+; 2026-11-02a: the gain at a bike kill, and whose it is likely to be.
+string Function XpGain(float afGain, int aiHow)
+	string gain = "+" + Tenths(afGain)
+	if afGain < 0.05
+		if aiHow == 1
+			return "+0.0: none (Spell.Cast: try \"Kill experience\" 2)"
+		elseif aiHow == 2
+			return "+0.0: none (DoCombatSpellApply)"
+		endif
+		return "+0.0: none (" + KillHowText(aiHow) + ")"
+	elseif aiHow == 1 || aiHow == 2
+		return gain + ": the game's, " + KillHowText(aiHow)
+	elseif aiHow == 3
+		return gain + ": " + KillHowText(aiHow)
+	endif
+	return gain + ": " + KillHowText(aiHow) + " (not the bike's: another kill or reward meanwhile)"
 EndFunction
 
 ; A value of 0 or more to one decimal ("12.5"): Papyrus prints floats with six decimals.

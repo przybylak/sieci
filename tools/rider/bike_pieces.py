@@ -32,7 +32,8 @@ below (DIAL_*, NEEDLE_PATCH, LENS_*, BADGE_*), so the two can't drift apart.
   bend_convex(verts, normals, centre, normal, radius) -> normals
   clearance(turning, static, steer_point, steer_axis, bar_angle) -> the least gap
   badge_uvs(verts, tris) -> uvs (m, 3, 2)
-  disc_pieces(centre_yz, x0, x1, r_out, r_hub, flip) -> (verts, tris, normals, uvs), the brake discs
+  disc_pieces(centre_yz, x0, x1, r_out, r_hub, flip, bore) -> (verts, tris, normals, uvs), the brake discs (bore "shared"
+      at DISC_HUB_REF of the outer radius, art and geometry alike; "bolts" the 2026-11-01a build's, at r_hub)
 
 Run it (python3 -I bike_pieces.py) for a self-test of the geometry on synthetic inputs.
 """
@@ -982,7 +983,14 @@ DISC_BAND = 0.70                 # the friction band's inner edge
 DISC_CELLS, DISC_WINDOWS = 24, 6
 DISC_HOLE_AT = (0.33, 0.67)      # the holes' radii across the band, alternating
 DISC_HOLE_R = 0.0266             # the drilled holes' radius (0.36 on the front, 0.33 on the rear)
-DISC_HUB_REF = 0.15              # the carrier's windows are laid out for a bore of this much (the model's: 0.146, 0.151)
+# The bore, a fraction of the outer radius: the carrier's windows are laid out for it, the art paints the bore's chamfer
+# there and (since 2026-11-02a, disc_pieces' bore "shared") the geometry cuts it there too, so both discs' art and
+# geometry agree. This build's discs: the bolt heads' least radius is 0.143 of the outer radius on the front, 0.150 on
+# the rear; the smaller, rounded down, keeps every bolt on the carrier. DISC_HUB_REF_BOLTS is the 2026-11-01a build's
+# (bore "bolts": the art's bore at 0.15, the geometry's at the bolt heads, which left a ring of the bore's wall colour
+# round the front disc's hole, review look-2).
+DISC_HUB_REF = 0.142
+DISC_HUB_REF_BOLTS = 0.15
 DISC_WINDOW_AT = 0.55            # the windows' centres, across the carrier (bore to band, of DISC_HUB_REF)
 DISC_WINDOW_R = 0.24             # the windows' radius, of the carrier's width
 DISC_ARC, DISC_ARC_HUB = 4, 8    # segments per band cell's arc (96 round), per carrier cell's bore arc (48 round)
@@ -991,31 +999,47 @@ DISC_ART_R = 1.02                # the art's square spans this much of the outer
 DISC_WALL_UV = 0.02              # units: a wall takes the UVs of a ring this far either side of its edge (the chamfer)
 
 
-def disc_layout(r_out=1.0):
+def disc_hub_ref(bore="shared"):
+    """The bore's fraction of the outer radius the windows (and the art's bore) are laid out for: "shared" (2026-11-02a)
+    or "bolts" (the 2026-11-01a build's)."""
+    if bore not in ("shared", "bolts"):
+        raise ValueError(f"disc bore {bore!r}: shared or bolts")
+    return DISC_HUB_REF if bore == "shared" else DISC_HUB_REF_BOLTS
+
+
+def disc_layout(r_out=1.0, hub_ref=DISC_HUB_REF):
     """The holes of a disc of outer radius r_out: [(kind, angle (rad), radius from the axle, hole radius)], kind
-    "hole" (the band's drilled holes) or "window" (the carrier's)."""
+    "hole" (the band's drilled holes) or "window" (the carrier's), the carrier from the bore at hub_ref."""
     out = []
     band = DISC_BAND * r_out
     dt = 2 * math.pi / DISC_CELLS
     for k in range(DISC_CELLS):
         rr = band + DISC_HOLE_AT[k % 2] * (r_out - band)
         out.append(("hole", (k + 0.5) * dt, rr, DISC_HOLE_R * r_out))
-    hub = DISC_HUB_REF * r_out
+    hub = hub_ref * r_out
     dc = 2 * math.pi / DISC_WINDOWS
     for k in range(DISC_WINDOWS):
         out.append(("window", (k + 0.5) * dc, hub + DISC_WINDOW_AT * (band - hub), DISC_WINDOW_R * (band - hub)))
     return out
 
 
-def disc_pieces(centre_yz, x0, x1, r_out, r_hub, flip=False):
-    """Our brake disc about the x axis through (y, z) = centre_yz, its faces at x0 and x1, from the bore r_hub to r_out:
-    (verts (n, 3), tris (m, 3), normals (n, 3), uvs (n, 2)), in the frame the centre is given in. The faces' normals
-    are +-x, the walls' radial (inward on the holes and the bore), split at the 90-degree edges; every triangle winds
-    with its normal (pre-flipped with flip, as piece() does). The UVs: planar on the faces (see above), a wall the
-    DISC_WALL_UV ring either side of its edge on the face (the art paints it as the chamfer)."""
+def disc_pieces(centre_yz, x0, x1, r_out, r_hub, flip=False, bore="shared"):
+    """Our brake disc about the x axis through (y, z) = centre_yz, its faces at x0 and x1, out to r_out:
+    (verts (n, 3), tris (m, 3), normals (n, 3), uvs (n, 2)), in the frame the centre is given in. The bore: bore
+    "shared" (since 2026-11-02a) at DISC_HUB_REF x r_out, where the art paints it, which must be inside r_hub (the bolt
+    heads' least radius: they sit on the carrier) or ValueError; "bolts" (the 2026-11-01a build) at r_hub itself, the
+    windows laid out for DISC_HUB_REF_BOLTS. The faces' normals are +-x, the walls' radial (inward on the holes and
+    the bore), split at the 90-degree edges; every triangle winds with its normal (pre-flipped with flip, as piece()
+    does). The UVs: planar on the faces (see above), a wall the DISC_WALL_UV ring either side of its edge on the face
+    (the art paints it as the chamfer)."""
     cy, cz = float(centre_yz[0]), float(centre_yz[1])
     x0, x1 = (float(x0), float(x1)) if x0 < x1 else (float(x1), float(x0))
+    hub_ref = disc_hub_ref(bore)
     R, hub = float(r_out), float(r_hub)
+    if bore == "shared":
+        hub = DISC_HUB_REF * R
+        if hub > float(r_hub):
+            raise ValueError("the bore %.3f is outside the bolt heads at %.3f" % (hub, float(r_hub)))
     band = DISC_BAND * R
     r_art = DISC_ART_R * R
     verts, norms, uvs, tris = [], [], [], []
@@ -1066,7 +1090,7 @@ def disc_pieces(centre_yz, x0, x1, r_out, r_hub, flip=False):
             tri(a[i], b[i], b[j], want)
             tri(a[i], b[j], a[j], want)
 
-    holes = disc_layout(R)
+    holes = disc_layout(R, hub_ref)
     dt = 2 * math.pi / DISC_CELLS
     for k in range(DISC_CELLS):
         t0, t1 = k * dt, (k + 1) * dt
@@ -1193,6 +1217,16 @@ def _selftest():
         print(f"disc {name}: {len(f)} triangles, {len(v)} vertices; welded: {op} open edges, {nm} non-manifold, {same} "
               f"edges twice the same way, {against} triangles against their normals; x {v[:, 0].min():.2f}..{v[:, 0].max():.2f}, "
               f"r {r.min():.3f}..{r.max():.3f}, UVs {uv.min():.3f}..{uv.max():.3f}")
+        assert abs(r.min() - DISC_HUB_REF * args[3]) < 1e-6, "the shared bore isn't at DISC_HUB_REF of the outer radius"
+        vb, fb, nb, uvb = disc_pieces(*args, bore="bolts")
+        rb = np.hypot(vb[:, 1] - args[0][0], vb[:, 2] - args[0][1])
+        assert abs(rb.min() - args[4]) < 1e-6, "the bolts bore isn't at r_hub"
+        print(f"   bore: shared {r.min():.3f} ({DISC_HUB_REF} of the outer radius), bolts {rb.min():.3f} (r_hub)")
+    try:
+        disc_pieces((0.0, 0.0), 0.0, 0.35, 13.5, 1.5)
+        raise AssertionError("a bore outside the bolt heads was accepted")
+    except ValueError as e:
+        print(f"disc: a bolt circle inside the shared bore refused ({e})")
 
 
 if __name__ == "__main__":

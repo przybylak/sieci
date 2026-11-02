@@ -33,3 +33,5 @@ bool Function IsChild() native
 Function Kill(Actor akKiller = None) native
 Actor Function GetKiller() native
 ActorBase Function GetLeveledActorBase() native
+Function DoCombatSpellApply(Spell akSpell, ObjectReference akTarget) native
+int Function GetLevel() native

@@ -108,6 +108,61 @@ public static class Vanilla
         : "unknown";
 }
 
+// 2026-11-02a (test 48: the landing and water sounds played but went unheard, 13-37 dB under their files): the bike
+// sounds' own records over the game's own sound files, by path (nothing is copied: the strings are the game's records'
+// own, as the tester's Fallout4.esm stores them, letter case and all, so the game resolves them the same way). Each
+// follows the game's record named beside it in all but four fields: our category AudioCategorySFX (0172A1, as the
+// engine's), our output model CMB_SOMMonoFx, a static attenuation of 0, and no "alternate sound for". The frequency
+// shift and variance and the dB variance are the game's record's, so the two differ only in those four (a clean A/B:
+// MCM "Bike sounds through the mod's own records").
+public static class FxOwn
+{
+    public sealed record Sound(string Id, string Follows, string[] Files, bool Loop, sbyte Shift, sbyte Variance, byte DbVariance);
+
+    // In the order they are made (0x89E-0x8AA).
+    public static readonly Sound[] Records =
+    {
+        new("CMB_FxTyreLightSD", "PHYRubberTireL 1D3313",
+            new[] { @"data\Sound\FX\PHY\RubberTire\PHY_Rubber_Tire_L_01.wav", @"data\Sound\FX\PHY\RubberTire\PHY_Rubber_Tire_L_02.wav",
+                    @"data\Sound\FX\PHY\RubberTire\PHY_Rubber_Tire_L_03.wav" }, false, 0, 5, 4),
+        new("CMB_FxTyreHeavySD", "PHYRubberTireH 1D3312",
+            new[] { @"data\Sound\FX\PHY\RubberTire\PHY_Rubber_Tire_H_02.wav", @"data\Sound\FX\PHY\RubberTire\PHY_Rubber_Tire_H_03.wav",
+                    @"data\Sound\FX\PHY\RubberTire\PHY_Rubber_Tire_H_01.wav" }, false, 0, 4, 4),
+        new("CMB_FxClunkSD", "PHYMetalAutoMediumH 05BAD7",
+            new[] { @"data\Sound\FX\PHY\MetalAuto\PHY_Metal_Auto_Medium_H_01.wav", @"data\Sound\FX\PHY\MetalAuto\PHY_Metal_Auto_Medium_H_02.wav",
+                    @"data\Sound\FX\PHY\MetalAuto\PHY_Metal_Auto_Medium_H_03.wav", @"data\Sound\FX\PHY\MetalAuto\PHY_Metal_Auto_Medium_H_04.wav" }, false, 0, 12, 2),
+        new("CMB_FxSplashSD", "FSTnpcWaterJumpDown 03C7A9",
+            new[] { @"Data\Sound\FX\FST\Water\Land\FST_Water_Jump_Down_01.wav", @"Data\Sound\FX\FST\Water\Land\FST_Water_Jump_Down_02.wav" }, false, 0, 3, 0),
+        new("CMB_FxSplashHeavySD", "PHYWaterSplash 0452CE",
+            new[] { @"Data\Sound\FX\PHY\PHY_Water_M_01.wav" }, false, 0, 5, 2),
+        new("CMB_FxThudHeavySD", "FSTArmorPowerHardLandingImpactDirt 20A0B9",
+            new[] { @"data\Sound\FX\FST\ArmorPower\FST_ArmorPower_Land_3D_Dirt_02.wav", @"data\Sound\FX\FST\ArmorPower\FST_ArmorPower_Land_3D_Dirt_03.wav",
+                    @"data\Sound\FX\FST\ArmorPower\FST_ArmorPower_Land_3D_Dirt_01.wav" }, false, 0, 5, 1),
+        new("CMB_FxClunkBarrelSD", "PHYMetalBarrelH 1A8550",
+            new[] { @"data\Sound\FX\PHY\MetalBarrel\PHY_Metal_Barrel_H_01.wav", @"data\Sound\FX\PHY\MetalBarrel\PHY_Metal_Barrel_H_02.wav",
+                    @"data\Sound\FX\PHY\MetalBarrel\PHY_Metal_Barrel_H_03.wav", @"data\Sound\FX\PHY\MetalBarrel\PHY_Metal_Barrel_H_04.wav" }, false, 0, 10, 6),
+        new("CMB_FxSplashMediumSD", "CWaterMedium 089380",
+            new[] { @"Data\Sound\FX\PHY\Generic\PHY_Generic_Water_Medium_01.wav", @"Data\Sound\FX\PHY\Generic\PHY_Generic_Water_Medium_02.wav",
+                    @"Data\Sound\FX\PHY\Generic\PHY_Generic_Water_Medium_03.wav" }, false, 0, 7, 3),
+        new("CMB_FxThudWaterSD", "FSTArmorPowerHardLandingImpactWater 20A0B8",
+            new[] { @"data\Sound\FX\FST\ArmorPower\FST_ArmorPower_Land_3D_Water_02.wav", @"data\Sound\FX\FST\ArmorPower\FST_ArmorPower_Land_3D_Water_03.wav",
+                    @"data\Sound\FX\FST\ArmorPower\FST_ArmorPower_Land_3D_Water_01.wav" }, false, 0, 5, 1),
+        new("CMB_FxWaterSprayLPSD", "AMBWaterfallSplatterSmallLP 1E4F2D",
+            new[] { @"data\Sound\FX\AMB\Waterfall\AMB_WaterfallSplatter_Small_02_LP.wav", @"data\Sound\FX\AMB\Waterfall\AMB_WaterfallSplatter_Small_01_LP.wav" }, true, 15, 6, 0),
+        new("CMB_FxWaterSprayLargeLPSD", "AMBWaterfallSplatterLargeLP 1E4F2C",
+            new[] { @"data\Sound\FX\AMB\Waterfall\AMB_WaterfallSplatter_Large_01_LP.wav", @"data\Sound\FX\AMB\Waterfall\AMB_WaterfallSplatter_Large_02_LP.wav" }, true, -15, 6, 0),
+        new("CMB_FxWaterStreamLPSD", "AMBWaterStream01LPSD 03D0A7",
+            new[] { @"fx\amb\water\exterior\amb_water_stream_01_lp.wav" }, true, 0, 0, 0),
+        new("CMB_FxWaterChurnLPSD", "AMBWaterfallChurn 1E4F1B",
+            new[] { @"data\Sound\FX\AMB\Waterfall\AMB_Waterfall_Churn_02_LP.wav", @"data\Sound\FX\AMB\Waterfall\AMB_Waterfall_Churn_01_LP.wav" }, true, 0, 6, 0),
+    };
+
+    // The lists, in the borrowed lists' slots (Vanilla.FxLandSounds, FxLandSoundsAlt, FxWaterLoops).
+    public static readonly string[] Land = { "CMB_FxTyreLightSD", "CMB_FxTyreHeavySD", "CMB_FxClunkSD", "CMB_FxSplashSD", "CMB_FxSplashHeavySD" };
+    public static readonly string[] LandAlt = { "CMB_FxTyreLightSD", "CMB_FxThudHeavySD", "CMB_FxClunkBarrelSD", "CMB_FxSplashMediumSD", "CMB_FxThudWaterSD" };
+    public static readonly string[] Water = { "CMB_FxWaterSprayLPSD", "CMB_FxWaterSprayLargeLPSD", "CMB_FxWaterStreamLPSD", "CMB_FxWaterChurnLPSD" };
+}
+
 public static class Program
 {
     public const string PluginName = "CommonwealthMotorbike.esp";
@@ -265,7 +320,9 @@ public static class Program
                     "CMB_RamMinSpeed", 100, 1500, 50),
                 Slider("Knock-over damage (% of their health)", "At riding speed; half that at the slowest, up to one and a half times faster. It takes their last point of health only with the setting below. 0 = none.",
                     "CMB_RamDamage", 0, 50, 5),
-                Switcher("Knock-overs can kill", "A knock-over that takes an enemy's last health kills it, and the kill is yours: experience, quests and the rest as if you had shot it. Never companions or essential characters (they aren't knocked over at all). Off: the bike leaves them at their last point of health.", "CMB_RamKills"),
+                Switcher("Knock-overs can kill", "A knock-over that takes an enemy's last health kills it, and the kill is yours: quests and the rest as if you had shot it, and the experience with \"Kill experience\" below on. Never companions or essential characters (they aren't knocked over at all). Off: the bike leaves them at their last point of health.", "CMB_RamKills"),
+                Slider("Kill experience", "What a kill by the bike gives you: 1 = the game's own experience, as for a kill of yours (the bike's last hit is yours); 2 = the same another way, should 1 give none; 0 = none, as before.",
+                    "CMB_RamKillXP", 0, 2, 1),
                 Slider("Less fall damage (%)", "How much less fall damage you take while riding. 100 = none. Takes effect the next time you get on.",
                     "CMB_FallDamageCut", 0, 100, 5),
                 Slider("Free small falls (% of max health)", "Falls while riding that would cost less than this much of your max health cost nothing. Bigger falls still hurt (less, by the setting above). 0 = off. Every fall while riding is logged.",
@@ -288,8 +345,11 @@ public static class Program
                 Slider("Side bag capacity", "Pounds with F4SE (items without it). 0 = unlimited.", "CMB_BagCapacity", 0, 500, 10),
                 Section("Sound"),
                 Slider("Engine volume", "0 = silent. The engine follows it as you ride.", "CMB_EngineVolume", 0, 100, 5),
-                Slider("Bike effects volume", "Landings and riding through water (the game's own sounds for now). 0 = none. The water follows it at once, a landing at the next one.",
+                Slider("Bike effects volume", "Landings and riding through water (the game's own sound files for now). 0 = none. The water follows it at once, a landing at the next one.",
                     "CMB_FxVolume", 0, 100, 5),
+                Switcher("Bike sounds through the mod's own records", "Landings and the water through the mod's own sound records over the game's sound files: heard at the riding camera's distance. Off: the game's own records, as the 2026-11-01a build (much quieter: they fade with the camera's distance and carry their own attenuation). Landings at once, the water the next time you get on.", "CMB_FxOwnSounds"),
+                Slider("Landing loudness range (dB)", "How far under the hardest landing the softest one sounds. 10 by default; 18 as the 2026-11-01a build; smaller makes small drops louder.",
+                    "CMB_FxLandRange", 0, 30, 1),
                 Switcher("Landing sound", "A tyre thump when the bike lands, louder the higher the drop, a clunk on big ones, a splash into water. Without F4SE one level.", "CMB_FxLandOn"),
                 Switcher("Water sound", "Spray while riding through shallow water, by speed and depth (needs F4SE and the CMB_Slope.dll plugin). Takes effect the next time you get on.", "CMB_FxWaterOn"),
                 Switcher("Mute the rider's own jump and landing sounds", "While riding, your character's own footstep, jump and landing sounds are silent (the bike's take their place). Takes effect the next time you get on.", "CMB_FxMuteRider"),
@@ -307,7 +367,7 @@ public static class Program
                 new { type = "hotkey", id = "ToggleRide", text = "Get on / off / call the bike", help = "If you use this, set the built-in hotkey below to 0 so the key doesn't fire twice." },
                 Slider("Built-in hotkey (scan code)", "The F4SE hotkey that works without MCM. 48 = B, 34 = G, 47 = V, 0 = off. Press Apply after changing it.",
                     "CMB_HotkeyCode", 0, 211, 1),
-                Slider("Brake key (scan code)", "Brakes while riding, as S does, and holds the bike still once stopped (S still backs up). 57 = Space, 42 = Left Shift, 29 = Left Ctrl, 45 = X, 0 = none (only S brakes). Takes effect the next time you get on.",
+                Slider("Brake key (scan code)", "Brakes while riding, as S does, and holds the bike still once stopped (S still backs up). A DirectInput scan code: 57 = Space, 42 = Left Shift, 29 = Left Ctrl, 56 = Left Alt, 45 = X, 46 = C, 0 = none (only S brakes). The log names the key it read. Takes effect the next time you get on.",
                     "CMB_BrakeKey", 0, 211, 1),
                 Button("Apply built-in hotkey", "Re-registers the built-in hotkey after changing it.", "RefreshHotkey"),
                 Section("Troubleshooting"),
@@ -645,13 +705,12 @@ public static class Program
                 throw new InvalidOperationException($"{roomMore[i].EditorID} must be 0x{0x86D + i:X} (CMB_RoomOptions, CMB_RoomPitch, CMB_RoomRoll, CMB_RoomGround 0x86D-0x870, CMB_Slope.dll looks for them), got {roomMore[i].FormKey.ID:X}");
 
         // The engine's own output model (test 45's answer), made last so every earlier form ID stays put (it comes
-        // after the room globals 0x86D-0x870, so it is 0x871); all 13 engine sounds play through it.
-        var engineModel = EngineOutputModel(mod);
+        // after the room globals 0x86D-0x870, so it is 0x871); all 13 engine sounds play through it. (2026-11-02a: the
+        // check that every sound plays through its model comes after the bike sounds' own records, below.)
+        var engineModel = OutputModel(mod, EngineModelId);
         foreach (var s in new[] { sndStart, sndStop, sndIdle, sndCruise, sndOn1400, sndOn1700, sndOn2400, sndOn2800, sndOn3300,
                                   sndOff1400, sndOff1800, sndOff2300, sndOff2800 })
             s.OutputModel.SetTo(engineModel);
-        if (mod.SoundDescriptors.FirstOrDefault(s => s.OutputModel.FormKey != engineModel.FormKey) is { } missed)
-            throw new InvalidOperationException($"{missed.EditorID} doesn't play through {engineModel.EditorID}: give it that output model");
 
         // --- 2026-11-01a (test 47's answer): the round's fixed IDs, 0x872-0x878, right after the engine's output model
         // (0x871) so no ID above moves; CMB_Slope.dll finds each by ID (its #defines and the harness's FORMIDs use these
@@ -768,7 +827,7 @@ public static class Program
         var gFxLandPick = Global(mod, "CMB_FxLandPick", 0);
         var gFxWaterPick = Global(mod, "CMB_FxWaterPick", 0);
         // The game's own sound descriptors by FormID (Vanilla.FxLandSounds, FxLandSoundsAlt, FxWaterLoops), in lists so
-        // our own can take their places later: nothing else names them. No new SoundDescriptor (the engine's 13 stay).
+        // our own can take their places later: nothing else names them.
         var fxLandSounds = mod.FormLists.AddNew("CMB_FxLandSounds");
         foreach (var s in Vanilla.FxLandSounds)
             fxLandSounds.Items.Add(new FormLink<IFallout4MajorRecordGetter>(s));
@@ -778,6 +837,133 @@ public static class Program
         var fxWaterLoops = mod.FormLists.AddNew("CMB_FxWaterLoops");
         foreach (var s in Vanilla.FxWaterLoops)
             fxWaterLoops.Items.Add(new FormLink<IFallout4MajorRecordGetter>(s));
+
+        // --- 2026-11-02a (test 48's answer): the round's fixed IDs, 0x893-0x895, right after the bike sounds' lists
+        // (0x892) so no ID above moves; CMB_Slope.dll finds them by ID, all three or none (its RIDER_ITEM_USE_ID,
+        // RAM_COMBAT_ID and FX_RANGE_ID and the harness's ITEM_USE_FORMID, RAM_COMBAT_FORMID and FX_RANGE_FORMID use these
+        // numbers: renumber all three together). The controller's properties for them aren't Mandatory: an older ESP
+        // leaves them None, and each change stays off (2026-11-01a). Their readers: the plugin's [Tilt] UseLetGo, its
+        // [Ram] PendingFoe=2 and its landing lines.
+        // RiderItemUse (test 48: the arm stretched while eating): the controller's count of the items used while riding,
+        // 1-999 then 1 again, written at the use or at the Pip-Boy's or the favourites' close; the plugin lets go of the
+        // hands while the item's use clip plays.
+        var gRiderItemUse = Global(mod, "CMB_RiderItemUse", 0);
+        // RamCombat (test 48: 10 brakes for asks not answered in time): 1 while the player is in combat, written by the
+        // controller's CombatHint every tick; the plugin passes a medium race whose ask is pending.
+        var gRamCombat = Global(mod, "CMB_RamCombat", 0);
+        // FxLandRange (test 48: the landings played and not heard): the MCM's "Landing loudness range (dB)", 0-30 (10;
+        // 18 = 2026-11-01a): the softest landing this many dB under the hardest; the controller at each landing, the
+        // plugin for its landing lines.
+        var gFxLandRange = Global(mod, "CMB_FxLandRange", 10);
+        var fixed50 = new[] { gRiderItemUse, gRamCombat, gFxLandRange };
+        for (int i = 0; i < fixed50.Length; i++)
+            if (fixed50[i].FormKey.ID != 0x893 + i)
+                throw new InvalidOperationException($"CMB_RiderItemUse, CMB_RamCombat and CMB_FxLandRange must be 0x893-0x895 (CMB_Slope.dll looks for them), got {string.Join(", ", fixed50.Select(g => $"{g.EditorID} {g.FormKey.ID:X}"))}");
+
+        // --- 2026-11-02a's script-only forms, after the fixed IDs (only the scripts' properties find them, so their
+        // IDs fall where they do).
+        // Test 48 (8 "Staggered while riding (Steady on)", 4 of them power attacks): CMB_RiderSteadyPerk's entry had three
+        // condition tabs (Mod Incoming Damage's owner/attacker/weapon) and no EPFB; the game's only Mod Incoming Stagger perk,
+        // mod_armor_LessStagger (00245AFE), has two (the perk owner, the attacker) and EPFB 0x0000. CMB_RiderSteadyPerk stays as
+        // it was (CMB_RiderSteadyWay 0 = the 2026-11-01a record); this one is the default.
+        var steadyPerk2 = mod.Perks.AddNew("CMB_RiderSteadyPerk2");
+        steadyPerk2.Name = "Steady in the saddle";
+        steadyPerk2.Playable = false;
+        steadyPerk2.Hidden = true;
+        steadyPerk2.NumRanks = 1;
+        steadyPerk2.Level = 0;
+        steadyPerk2.Trait = false;
+        steadyPerk2.Effects.Add(new PerkEntryPointModifyValue
+        {
+            Rank = 0,
+            Priority = 0,
+            PerkEntryID = 0,                 // EPFB 0x0000, as 245AFE (Mutagen's APerkEffect.PerkEntryID; null = no EPFB, as 11-01a)
+            EntryPoint = APerkEntryPointEffect.EntryType.ModIncomingStagger,
+            PerkConditionTabCount = 2,       // the perk owner, the attacker (245AFE's count)
+            Modification = PerkEntryPointModifyValue.ModificationType.Multiply,
+            Value = 0f,
+        });
+        // Which record Steady gives: 1 = CMB_RiderSteadyPerk2 (the default), 2 = the game's mod_armor_LessStagger (245AFE,
+        // Add -1: one step less), 0 = the 2026-11-01a CMB_RiderSteadyPerk (three tabs). No MCM control: a console A/B.
+        var gRiderSteadyWay = Global(mod, "CMB_RiderSteadyWay", 1);
+        // Test 48 (the camera stuck after the first stimpak: an animation mod's use clip cut by the Pip-Boy check): no pose
+        // re-apply within this many seconds of an item used while riding, from the menu's close when it was used in one
+        // (0 = 2026-11-01a); and the camera's recovery after a use (1: the view entered again, then a notification; 0 none).
+        // Console only.
+        var gPoseUseWindow = Global(mod, "CMB_PoseUseWindow", 6);
+        var gUseCameraFix = Global(mod, "CMB_UseCameraFix", 1);
+        // Test 48 (12 kills by the bike, no experience): the bike's killing hit dealt as the player's own, a damage spell the
+        // player casts (CMB_RamScript), so the game rewards the kill as one of the player's. The effect: Health down by the
+        // magnitude, at once, no hit art or pain sound, not in the UI; an ordinary hit event (not NoHitEvent).
+        var ramKillEffect = mod.MagicEffects.AddNew("CMB_RamKillEffect");
+        ramKillEffect.Archetype = new MagicEffectArchetype { Type = MagicEffectArchetype.TypeEnum.ValueModifier };
+        ((MagicEffectArchetype)ramKillEffect.Archetype).ActorValue.SetTo(Vanilla.Health);
+        ramKillEffect.CastType = CastType.FireAndForget;
+        ramKillEffect.TargetType = TargetType.TargetActor;
+        ramKillEffect.Flags = MagicEffect.Flag.Hostile | MagicEffect.Flag.Detrimental | MagicEffect.Flag.Painless
+            | MagicEffect.Flag.NoHitEffect | MagicEffect.Flag.NoDuration | MagicEffect.Flag.NoArea | MagicEffect.Flag.HideInUI;
+        ramKillEffect.CastingSoundLevel = SoundLevel.Silent;
+        ramKillEffect.DualCastScale = 1;
+        var ramKillSpell = mod.Spells.AddNew("CMB_RamKillSpell");
+        ramKillSpell.Name = "Motorbike knock-over";
+        ramKillSpell.ObjectBounds = new ObjectBounds();
+        ramKillSpell.Type = SpellType.Spell;
+        ramKillSpell.CastType = CastType.FireAndForget;
+        ramKillSpell.TargetType = TargetType.TargetActor;
+        ramKillSpell.Flags = SpellDataFlag.ManualCostCalc | SpellDataFlag.IgnoreResistance | SpellDataFlag.NoAbsorbOrReflect;
+        ramKillSpell.BaseCost = 0;
+        ramKillSpell.Effects.Add(new Effect
+        {
+            BaseEffect = ramKillEffect.ToNullableLink(),
+            Data = new EffectData { Magnitude = 100000, Area = 0, Duration = 0 },   // only cast when the knock-over's own damage already takes the last health
+        });
+        if (ramKillEffect.Archetype is not MagicEffectArchetype { Type: MagicEffectArchetype.TypeEnum.ValueModifier } arch
+            || arch.ActorValue.FormKey != Vanilla.Health
+            || ramKillEffect.Flags != (MagicEffect.Flag.Hostile | MagicEffect.Flag.Detrimental | MagicEffect.Flag.Painless
+                                       | MagicEffect.Flag.NoHitEffect | MagicEffect.Flag.NoDuration | MagicEffect.Flag.NoArea | MagicEffect.Flag.HideInUI)
+            || ramKillEffect.Flags.HasFlag(MagicEffect.Flag.NoHitEvent))
+            throw new InvalidOperationException("CMB_RamKillEffect must be a Value Modifier of Health (0002D4), Hostile, Detrimental, Painless, NoHitEffect, NoDuration, NoArea and HideInUI, not NoHitEvent");
+        if (ramKillSpell.Effects.Count != 1 || ramKillSpell.Effects[0].BaseEffect.FormKey != ramKillEffect.FormKey
+            || ramKillSpell.Effects[0].Data?.Magnitude != 100000)
+            throw new InvalidOperationException("CMB_RamKillSpell must have one effect, CMB_RamKillEffect at magnitude 100000");
+        // MCM "Kill experience": 0 Kill(PlayerRef) (2026-11-01a, no experience), 1 Spell.Cast by the player (the default),
+        // 2 DoCombatSpellApply (the same another way).
+        var gRamKillXP = Global(mod, "CMB_RamKillXP", 1);
+        // Test 48 (the landing and water sounds played but 13-37 dB under their files: the game's records' own static
+        // attenuation and their output models' fade at the riding camera): our own records over the game's files by
+        // path, through an output model of our own, a copy of the engine's (so the engine's stays the engine's).
+        var fxModel = OutputModel(mod, FxModelId);
+        var fxOwn = new Dictionary<string, SoundDescriptor>();
+        foreach (var r in FxOwn.Records)
+        {
+            var s = FxSound(mod, r);
+            s.OutputModel.SetTo(fxModel);
+            fxOwn.Add(r.Id, s);
+        }
+        var fxLandSoundsOwn = mod.FormLists.AddNew("CMB_FxLandSoundsOwn");
+        foreach (var id in FxOwn.Land)
+            fxLandSoundsOwn.Items.Add(new FormLink<IFallout4MajorRecordGetter>(fxOwn[id].FormKey));
+        var fxLandSoundsAltOwn = mod.FormLists.AddNew("CMB_FxLandSoundsAltOwn");
+        foreach (var id in FxOwn.LandAlt)
+            fxLandSoundsAltOwn.Items.Add(new FormLink<IFallout4MajorRecordGetter>(fxOwn[id].FormKey));
+        var fxWaterLoopsOwn = mod.FormLists.AddNew("CMB_FxWaterLoopsOwn");
+        foreach (var id in FxOwn.Water)
+            fxWaterLoopsOwn.Items.Add(new FormLink<IFallout4MajorRecordGetter>(fxOwn[id].FormKey));
+        // MCM "Bike sounds through the mod's own records": 1 = ours (the default), 0 = the game's own records (the
+        // borrowed lists above), as 2026-11-01a.
+        var gFxOwnSounds = Global(mod, "CMB_FxOwnSounds", 1);
+        // Every sound plays through its own model: the engine's 13 (CMB_Engine*) through CMB_SOMMonoEngine, the effects'
+        // (CMB_Fx*SD) through CMB_SOMMonoFx, and there is no other sound.
+        foreach (var s in mod.SoundDescriptors)
+        {
+            var want = s.EditorID!.StartsWith("CMB_Engine") ? engineModel
+                     : s.EditorID.StartsWith("CMB_Fx") && s.EditorID.EndsWith("SD") ? fxModel
+                     : null;
+            if (want == null)
+                throw new InvalidOperationException($"{s.EditorID}: a sound that is neither an engine sound (CMB_Engine*) nor a bike effect (CMB_Fx*SD)");
+            if (s.OutputModel.FormKey != want.FormKey)
+                throw new InvalidOperationException($"{s.EditorID} doesn't play through {want.EditorID}: give it that output model");
+        }
         // The next fixed-ID form comes after these.
 
         // --- Controller quest ---
@@ -903,6 +1089,17 @@ public static class Program
             Obj("CMB_FxLandSeq", gFxLandSeq),
             Obj("CMB_FxLandLevel", gFxLandLevel),
             Obj("CMB_FxLandPlayed", gFxLandPlayed),
+            Obj("CMB_RiderSteadyPerk2", steadyPerk2),
+            Obj("CMB_RiderSteadyWay", gRiderSteadyWay),
+            Obj("CMB_PoseUseWindow", gPoseUseWindow),
+            Obj("CMB_UseCameraFix", gUseCameraFix),
+            Obj("CMB_RiderItemUse", gRiderItemUse),
+            Obj("CMB_RamCombat", gRamCombat),
+            Obj("CMB_FxOwnSounds", gFxOwnSounds),
+            Obj("CMB_FxLandRange", gFxLandRange),
+            Obj("CMB_FxLandSoundsOwn", fxLandSoundsOwn),
+            Obj("CMB_FxLandSoundsAltOwn", fxLandSoundsAltOwn),
+            Obj("CMB_FxWaterLoopsOwn", fxWaterLoopsOwn),
             Obj("CMB_EngineOn1400Sound", sndOn1400),
             Obj("CMB_EngineOn1700Sound", sndOn1700),
             Obj("CMB_EngineOn2400Sound", sndOn2400),
@@ -942,7 +1139,9 @@ public static class Program
             Obj("CMB_RamHitSpeed", gRam[4]),
             Obj("CMB_RamHit", gRam[5]),
             Obj("CMB_RamKills", gRamKills),
-            Obj("Experience", Vanilla.Experience));
+            Obj("Experience", Vanilla.Experience),
+            Obj("CMB_RamKillSpell", ramKillSpell),
+            Obj("CMB_RamKillXP", gRamKillXP));
         // Optional: only does anything with F4SE and the compiled CMB_HotkeyF4SE.pex.
         var hotkey = Script("CMB_HotkeyF4SE",
             Obj("Controller", quest),
@@ -976,8 +1175,15 @@ public static class Program
             },
         };
 
+        // The ESL range's reserve (2026-11-02a): the next build's customisation takes its forms up to about 0x9F1 and
+        // keeps 0xF01-0xFFF free, so no form of this generator may go past 0xF00.
+        if (mod.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey.ID > EslReserveFrom) is { } past)
+            throw new InvalidOperationException($"{past.EditorID} is 0x{past.FormKey.ID:X}, past 0x{EslReserveFrom:X}: the light plugin's last IDs are kept free");
         return mod;
     }
+
+    // The highest form ID this generator may give (2026-11-02a): 0xF01-0xFFF stay free.
+    const uint EslReserveFrom = 0xF00;
 
     // ---------------------------------------------------------------------
     // Record helpers
@@ -1211,7 +1417,7 @@ public static class Program
         Data = value,
     };
 
-    // The output model is set once CMB_SOMMonoEngine exists (EngineOutputModel: made after every other record).
+    // The output model is set once CMB_SOMMonoEngine exists (OutputModel: made after every other record).
     static SoundDescriptor EngineSound(Fallout4Mod mod, string editorId, string file, bool loop)
     {
         var sound = mod.SoundDescriptors.AddNew(editorId);
@@ -1243,10 +1449,14 @@ public static class Program
     static readonly byte[] EngineModelCurve = { 50, 20, 5, 0 };
     static readonly byte[] EngineModelFadeIn = { 0, 50, 80, 95 };   // SOMMono02000's
     const byte EngineModelReverbSend = 5;                            // SOMMono02000's (test 46: 100)
+    // The bike effects' output model (2026-11-02a): the engine's fields exactly, a record of its own so the engine's
+    // stays the engine's and the effects' reach can move alone later.
+    public const string FxModelId = "CMB_SOMMonoFx";
 
-    static SoundOutputModel EngineOutputModel(Fallout4Mod mod)
+    // An output model with the engine's fields (EngineModelId, and since 2026-11-02a FxModelId).
+    static SoundOutputModel OutputModel(Fallout4Mod mod, string editorId)
     {
-        var model = mod.SoundOutputModels.AddNew(EngineModelId);
+        var model = mod.SoundOutputModels.AddNew(editorId);
         model.Data = new SoundOutputData
         {
             Flags = SoundOutputModel.Flag.AttenuatesWithDistance,
@@ -1267,6 +1477,29 @@ public static class Program
             FadeOutCurveValue3 = EngineModelCurve[2], FadeOutCurveValue4 = EngineModelCurve[3],
         };
         return model;
+    }
+
+    // A bike effect of our own over the game's files (2026-11-02a, FxOwn): the game's record's fields but four (our
+    // category AudioCategorySFX, our output model, set by the caller, static attenuation 0, no alternate).
+    static SoundDescriptor FxSound(Fallout4Mod mod, FxOwn.Sound r)
+    {
+        var sound = mod.SoundDescriptors.AddNew(r.Id);
+        sound.Category.SetTo(Vanilla.AudioCategorySFX);
+        foreach (var f in r.Files)
+            sound.SoundFiles.Add(f);                 // verbatim, as the game's own record stores it
+        sound.Data = new SoundDescriptorStandardData
+        {
+            PercentFrequencyShift = r.Shift,
+            PercentFrequencyVariance = r.Variance,
+            Priority = 128,
+            Variance = r.DbVariance,
+            StaticAttenuation = 0,
+        };
+        sound.LoopAndRumble = new SoundLoopAndRumble
+        {
+            Loop = r.Loop ? SoundDescriptor.LoopType.Loop : SoundDescriptor.LoopType.None,
+        };
+        return sound;
     }
 
     // The output models and the sounds' links to them, read back from the written file and compared with the
@@ -1341,8 +1574,15 @@ public static class Program
                     PrintScript(s, "      ", types);
             // The sounds' output model and the output models' fields (check_plugin.py reads both).
             if (rec is ISoundDescriptorGetter snd)
+            {
                 Console.WriteLine($"      output model {snd.OutputModel.FormKey} " +
                                   $"{types.GetValueOrDefault(snd.OutputModel.FormKey, Vanilla.Describe(snd.OutputModel.FormKey))}");
+                // 2026-11-02a: the category, the static attenuation, the loop and the files (check_plugin.py reads them).
+                var std = snd.Data as ISoundDescriptorStandardDataGetter;
+                Console.WriteLine($"      sound category {(snd.Category.IsNull ? "none" : snd.Category.FormKey.ToString())} " +
+                                  $"static {(std == null ? "none" : std.StaticAttenuation.ToString(System.Globalization.CultureInfo.InvariantCulture))} " +
+                                  $"loop {snd.LoopAndRumble?.Loop.ToString() ?? "none"} files {snd.SoundFiles.Count}: {string.Join("; ", snd.SoundFiles)}");
+            }
             if (rec is ISoundOutputModelGetter som)
                 Console.WriteLine($"      sopm {SopmLine(som)}");
             if (rec is IRaceGetter race)
@@ -1354,13 +1594,14 @@ public static class Program
                                       $"targets [{string.Join(", ", sg.TargetKeywords.Select(k => k.FormKey))}] " +
                                       $"{sg.BehaviorGraph} paths [{string.Join(", ", sg.AnimationPaths)}]");
             }
-            // The perks' flags and entry points (2026-11-01a: CMB_RiderSteadyPerk reads "ModIncomingStagger Multiply 0 tabs 3").
+            // The perks' flags and entry points (2026-11-01a: CMB_RiderSteadyPerk reads "ModIncomingStagger Multiply 0 tabs 3";
+            // 2026-11-02a: and EPFB, the entry's ID, empty when the record has none).
             if (rec is IPerkGetter perk)
             {
                 Console.WriteLine($"      perk playable {perk.Playable} hidden {perk.Hidden} ranks {perk.NumRanks}");
                 foreach (var e in perk.Effects)
                     Console.WriteLine(e is IPerkEntryPointModifyValueGetter v
-                        ? $"      entry {v.EntryPoint} {v.Modification} {v.Value} tabs {v.PerkConditionTabCount} conditions {v.Conditions.Count}"
+                        ? $"      entry {v.EntryPoint} {v.Modification} {v.Value} tabs {v.PerkConditionTabCount} EPFB {v.PerkEntryID} conditions {v.Conditions.Count}"
                         : $"      effect {e.GetType().Name}");
             }
             // The lists' entries (CMB_RamTooBig's races, CMB_FuelItems), one a line.

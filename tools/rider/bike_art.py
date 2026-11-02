@@ -5,7 +5,7 @@ image or font file is needed (the numerals are a stroke font of our own), and la
 layouts bike_pieces.py gives the pieces (its DIAL_*, NEEDLE_PATCH, LENS_*, BADGE_* constants).
 
   python3 -I bike_art.py --out <stage>/art [--size-dial 512] [--size-lens 256] [--size-badge 512] [--size-cube 512]
-      [--size-disc 1024]
+      [--size-disc 1024] [--disc-bore shared|bolts] [--stage-manifest <stage>/manifest.json]
 
 Writes PNGs (8-bit, numpy and zlib only) and art.json, which says for each file what its channels
 hold. The texture stage (bike_textures.py) turns them into DDS and the materials point at them:
@@ -490,14 +490,17 @@ DISC_GROOVE = (0.18, 4.0)              # units, degrees: the concentric turning 
 DISC_SPEC = {"band": (0.80, 0.62), "pad": (0.80, 0.72), "carrier": (0.40, 0.45)}   # _s R specular, G smoothness
 
 
-def draw_disc(size):
-    """The discs' _d (RGB), _n (tangent space, Direct3D) and _s (R specular, G smoothness) at size x size."""
+def draw_disc(size, hub_ref=bp.DISC_HUB_REF):
+    """The discs' _d (RGB), _n (tangent space, Direct3D) and _s (R specular, G smoothness) at size x size, the bore
+    (its chamfer and its wall) at hub_ref of the outer radius: bike_pieces.disc_hub_ref(--disc-bore), the geometry's own
+    since 2026-11-02a ("shared"; "bolts", the 2026-11-01a build's 0.15, left a ring of the wall's colour round the
+    front disc's hole, whose bore the geometry cut at its bolt heads, 0.143)."""
     R = bp.DISC_ART_R
     u = (np.arange(size) + 0.5) / size
     dy = np.broadcast_to((u[None, :] - 0.5) * 2 * R, (size, size))      # u = 0.5 + dy / (2 R_art)
     dz = np.broadcast_to(-(u[:, None] - 0.5) * 2 * R, (size, size))     # v = 0.5 - dz / (2 R_art), v down the image
     r = np.hypot(dy, dz)
-    band0, hub = bp.DISC_BAND, bp.DISC_HUB_REF
+    band0, hub = bp.DISC_BAND, hub_ref
     px = 2 * R / size                                   # one pixel, in outer radii
     ch = DISC_CHAMFER / DISC_UNIT
     across = np.clip((r - band0) / (1 - band0), 0, 1)
@@ -508,7 +511,7 @@ def draw_disc(size):
                       np.stack([dy, dz], -1) / np.maximum(r, 1e-9)[..., None],
                       -np.stack([dy, dz], -1) / np.maximum(r, 1e-9)[..., None])
     inside = (r > 1.0) | (r < hub)                      # off the face (the rim's and the bore's walls)
-    for kind, ang, rr, rho in bp.disc_layout(1.0):
+    for kind, ang, rr, rho in bp.disc_layout(1.0, hub_ref):
         hy, hz = rr * math.cos(ang), rr * math.sin(ang)
         d = np.hypot(dy - hy, dz - hz)
         e = np.abs(d - rho)
@@ -711,7 +714,19 @@ def main():
     ap.add_argument("--size-badge", type=int, default=512)
     ap.add_argument("--size-cube", type=int, default=512)
     ap.add_argument("--size-disc", type=int, default=1024)
+    ap.add_argument("--disc-bore", choices=("shared", "bolts"), default="shared",
+                    help="the discs' bore as harley_meshes.py --disc-bore cuts it: shared (since 2026-11-02a, "
+                         "bike_pieces.DISC_HUB_REF) or bolts (the 2026-11-01a build's art, byte for byte)")
+    ap.add_argument("--stage-manifest", type=Path,
+                    help="the stage's manifest.json: its disc_bore (the export's; none: bolts) must be --disc-bore's")
     args = ap.parse_args()
+    if args.stage_manifest and args.stage_manifest.exists():
+        man = json.loads(args.stage_manifest.read_text())
+        if man.get("disc", "model") == "ours" and man.get("disc_bore", "bolts") != args.disc_bore:
+            print(f"{args.stage_manifest}: the export's discs have the bore {man.get('disc_bore', 'bolts')!r}, the art "
+                  f"--disc-bore {args.disc_bore}: export again with the same (build_bike.sh DISC_BORE=)", file=sys.stderr)
+            return 1
+    hub_ref = bp.disc_hub_ref(args.disc_bore)
     out = args.out
     out.mkdir(parents=True, exist_ok=True)
     files = {}
@@ -736,7 +751,7 @@ def main():
     put("static_badge_d.png", bd, "diffuse", "RGB colour, A the emblem's outline (alpha test at 128)", ["static_badge"])
     put("static_badge_n.png", bn, "normal", "tangent space, Direct3D (G toward +v)", ["static_badge"])
     put("static_badge_s.png", bs, "specular/smoothness", "R specular, G smoothness, B unused (linear)", ["static_badge"])
-    dd, dn, ds, _ = draw_disc(args.size_disc)
+    dd, dn, ds, _ = draw_disc(args.size_disc, hub_ref)
     disc_labels = ["wheelF_disc", "wheelR_disc"]
     put("wheel_disc_d.png", dd, "diffuse", "RGB colour", disc_labels)
     put("wheel_disc_n.png", dn, "normal", "tangent space, Direct3D (G toward +v): the turning grooves, the chamfers", disc_labels)
@@ -766,8 +781,9 @@ def main():
                                     "DIAL_MAX": bp.DIAL_MAX, "DIAL_PER_MPH": bp.DIAL_PER_MPH},
                            "lens": {"LENS_TAIL_BOX": bp.LENS_TAIL_BOX, "LENS_ROUND_BOX": bp.LENS_ROUND_BOX},
                            "badge": {"BADGE_BAND_W": bp.BADGE_BAND_W, "BADGE_ROUNDEL": bp.BADGE_ROUNDEL},
-                           "disc": {"DISC_ART_R": bp.DISC_ART_R, "DISC_BAND": bp.DISC_BAND, "DISC_HUB_REF": bp.DISC_HUB_REF,
-                                    "holes": [[k, round(a, 6), round(r, 6), round(h, 6)] for k, a, r, h in bp.disc_layout(1.0)]}}}
+                           "disc": {"DISC_ART_R": bp.DISC_ART_R, "DISC_BAND": bp.DISC_BAND, "DISC_HUB_REF": hub_ref,
+                                    "disc_bore": args.disc_bore,
+                                    "holes": [[k, round(a, 6), round(r, 6), round(h, 6)] for k, a, r, h in bp.disc_layout(1.0, hub_ref)]}}}
     (out / "art.json").write_text(json.dumps(manifest, indent=1) + "\n")
     print(f"wrote {len(files)} images and art.json, cube.json to {out}; cube seams (mean step across / inside, 0-255): "
           + ", ".join(f"{k} {v[0]:.2f}/{v[1]:.2f}" for k, v in seams.items()))

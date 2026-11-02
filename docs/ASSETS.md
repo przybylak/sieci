@@ -14,7 +14,7 @@ from your own copy of the game and the downloaded model:
 | `Meshes\CMB\CMB_BikeView.nif` | `harley_meshes.py` (`--view 0` leaves it out) | since the 2026-11-01a build: the bike in first person, where the game hides the worn bike with the rest of the player's third-person 3D. The worn nif's 30 shapes with the same vertices (in full precision, as the parked nif's), materials and shadow flags, unskinned, named `CMB_BikeView_<label>` under one NiNode `CMB_BikeView` hidden by its flag bit 0 (without `CMB_Slope.dll` a placed copy shows nothing), no collision. The controller places it (the `CMB_BikeView` MovableStatic) and the plugin shows and moves it in first person (DESIGN.md) |
 | `Meshes\CMB\CMB_BikeFit.json` | `harley_meshes.py` | where the bike's seat, grips, pegs and steering axis are, for the riding clips (`riding_anims.py --fit`); the grip centre at (29.4, -10.7, 96) since test 38 (`--grip 29.4,-10.7,96`, the rubber sleeve's centre by a fit of its vertices; test 34's 24.5,-15,98 put the hands on the lever perches, and 20 on the lever clamps) |
 | `Meshes\CMB\CMB_BikeParts.ini` | `harley_meshes.py` | the axles, wheel radius, steering axis, `FrontMinY` (the line between the fixed shapes' culling spheres and the bar assembly's and lower fork's, halfway between the nearest two, 31.3 since test 38; it comes out of each build's shapes, so the grips joining the assembly in test 35 needed nothing of the plugin), `Grip` (the +x grip's centre in the worn bike's space, the fit's grip_r, 29.4, 38.39, 96.0: the wrist roll's pivot since test 39) and the headlamp's lens for `CMB_Slope.dll`, which spins the wheels, turns the bars and places the lamp's light (install it with the meshes); since the 2026-10-31a build also the speedometer's needle (`NeedlePoint`, `NeedleAxis`, `NeedleZero`, `NeedleMax`, `NeedlePerMph`: without them the needle is never turned), and `FrontMinY` 31.7 (31.3 in 27c); every other key as 27c's |
-| `Textures\CMB\Bike\<mat>_d.dds`, `_n.dds`, `_s.dds`, `_g.dds`; `mirror_cube_e.dds`, `mirror_cube_zup_e.dds` | `bike_textures.py` (`build_bike.sh`'s `textures` stage) | since the 2026-10-31a build: one texture set per material on the shape's own UV atlas, baked from the full model and authored procedurally (DESIGN.md, *The bike's look*); the mirrors' sky (the zup file the same sky with +Z up, a one-file swap if the game shows it sideways; both ship). 93 files, 88.6 MB since the 2026-11-01a build (90 and 85.3 in the 2026-10-31a build): 30 materials, the needle's its own (the dial's art and a glow map on the blade), the two brake discs on one set, `wheelF_disc_*` (`bike_art.py`'s disc art; the rear disc's material names the front's textures, `"textures_of"`). 27c's three palette textures directly in `Textures\CMB` (`*_d.dds`, `_n`, `_s`: one colour block per part) are no longer used; `--uvs none` (the emergency build) writes that palette again as `Textures\CMB\CMB_Bike_d.dds`, `_n`, `_s` |
+| `Textures\CMB\Bike\<mat>_d.dds`, `_n.dds`, `_s.dds`, `_g.dds`; `mirror_cube_e.dds`, `mirror_cube_zup_e.dds` | `bike_textures.py` (`build_bike.sh`'s `textures` stage) | since the 2026-10-31a build: one texture set per material on the shape's own UV atlas, baked from the full model and authored procedurally (DESIGN.md, *The bike's look*); the mirrors' sky (the zup file the same sky with +Z up, a one-file swap if the game shows it sideways), since the 2026-11-02a build only in the optional "2026-11-01a look (A-B)" folder: the mirrors name the game's `Shared\Cubemaps\MetalBrushed02Cube_e.dds`, and a cube of ours is written only if a material names it. 91 files, 86.6 MB since the 2026-11-02a build (93 and 88.6 in the 2026-11-01a build, 90 and 85.3 in the 2026-10-31a build): 30 materials, the needle's its own (the dial's art and a glow map on the blade), the two brake discs on one set, `wheelF_disc_*` (`bike_art.py`'s disc art; the rear disc's material names the front's textures, `"textures_of"`). 27c's three palette textures directly in `Textures\CMB` (`*_d.dds`, `_n`, `_s`: one colour block per part) are no longer used; `--uvs none` (the emergency build) writes that palette again as `Textures\CMB\CMB_Bike_d.dds`, `_n`, `_s` |
 | `Materials\CMB\Bike\<mat>_worn.bgsm`, `<mat>.bgsm` | `bike_textures.py` (with `bgsm.py`) | since the 2026-10-31a build: a material file per material, the riding bike's (`_worn`: lit parts lit, no shadow from the bar assembly, lower fork and front wheel) and the parked bike's (shadows on, nothing lit; none for the two lights' shells and the dial's backlight, which the parked nif leaves out): 57 files (53 in the 2026-10-31a build). The meshes need them: the nifs name their material files, and the game shows a missing one as magenta (test 47; it doesn't fall back to the nif's own block) |
 | `Meshes\Actors\Character\Animations\MT\CMB_Rider\*.hkx` and `...\CMB_Rider\Female\*.hkx` | `riding_anims.py` | seated riding versions of the holstered walk/run/turn/start/stop/idle clips (the arms' IK pole mostly down since test 39, (0.35, -0.3, -1.0) in the rig's root space, the left mirrored in x; before, (1, -0.6, -0.7), mostly sideways, which put the elbows out at shoulder height; the hand's frame from the forearm since test 40, its long axis along it seen along the grip, `HAND_PITCH` degrees above it, 0: before, a fixed frame, the wrists bent down 30 degrees in the cruise pose, test 39's "cat paw"), and of the jump/fall/land clips when those were extracted |
 | `...\CMB_Rider\CMB_RiderClips.json` (and `Female\`) | `riding_anims.py` | each clip's root motion and events, for the step below |
@@ -166,17 +166,22 @@ default: test 47's near-black mirror glass showed black in game and a sky in the
 reflection untinted; `--env-albedo 0` is that old way), and the `t49` set holds test 47's close-ups: the tank's
 coachline from both sides and its rear turn, the seat, both discs, the mirrors by day and at night.
 
-**Two optional MO2 folders** (since the 2026-11-01a build; the package carries them, off by default), each a mod folder
-to enable below the main one:
-- *Commonwealth Motorbike - 2026-10-31a look (A-B)*: the 2026-10-31a build's `Meshes\CMB`, `Textures\CMB\Bike` and
-  `Materials\CMB\Bike` (and a 28-shape `CMB_BikeView.nif` made from them): that build's bike in game, to compare the
-  coachline, the seat, the discs and the mirrors. The three folders go together (a mesh's UV atlas is its textures').
-- *Commonwealth Motorbike - game mirror cube (A-B)*: the six mirror material files (`front_mirrorStock`,
-  `front_mirrorUnderEgg`, `front_mirrorUnderD` and their `_worn`), identical but for the cube map, which names the
-  game's own `Shared\Cubemaps\MetalBrushed02Cube_e.dds` (what the game's bathroom mirror material names) by path, so
-  no game file is copied. Made by `bike_textures.py --stage-dir <stage> --out <folder> --mirror-cube
-  Shared\Cubemaps\MetalBrushed02Cube_e.dds`. For a mirror that reads plain grey (our cube not loading) or glows at
-  night.
+**One optional MO2 folder** (since the 2026-11-02a build; the package carries it, off by default), a mod folder to
+enable below the main one:
+- *Commonwealth Motorbike - 2026-11-01a look (A-B)*: the 2026-11-01a build's bytes of every art file the 2026-11-02a
+  build changes or drops: the five nifs of `Meshes\CMB` (the disc bore, and the chrome's and mirrors' shader values in
+  their blocks), 21 DDS of `Textures\CMB\Bike` (the front disc's three, our mirror cube and its +Z-up copy, and 16 maps
+  whose baked occlusion moved a little with the new disc bore) and 14 BGSMs of `Materials\CMB\Bike` (the four chrome
+  materials' and three mirrors', parked and worn): 40 files, 70 MB. One restart shows the whole 2026-11-01a look: the
+  duller chrome, our own mirror sky, the light ring round the front disc's bore. No `CMB_BikeFit.json`, no
+  `CMB_BikeParts.ini`: the packager's guard refuses them, and any file that isn't nif, dds, bgsm or bgem.
+
+The 2026-11-01a package's two folders, "2026-10-31a look (A-B)" and "game mirror cube (A-B)", are retired (the build-48
+check found the first shipped the build file `CMB_BikeFit.json`). Since the 2026-11-02a build the mirrors' materials
+name the game's cube themselves (`bike_materials.json`: `"cube": "MB"`), the chrome's four materials are at env 6,
+specular 2 with screen-space reflections, and the brake discs' bore is cut where the art paints it (`build_bike.sh`'s
+`DISC_BORE=shared`); `"cube": "MR"`, env 1, specular 1, no `ssr` and `DISC_BORE=bolts` rebuild the 2026-11-01a build's
+157 files byte for byte. `bike_textures.py --mirror-cube <path>` still writes the mirror materials with another cube.
 
 **The vanilla motorcycle instead:** `build_bike_meshes.py` makes the same four nifs from it, and the clips are built
 without `--fit`:
@@ -325,7 +330,7 @@ riding (the seated version, `CMB_BikeRiderArmor`, only lines up when seated); `p
 | bike sunk into the ground or floating while seated | the `CMB_BikeWornRider` meshes were built from an older clip set: build the clips, then the meshes with `--seat` |
 | pink / white bike | the vanilla motorcycle textures/materials aren't loading (they come from the base game archives) |
 | the bike all magenta | `Materials\CMB\Bike` missing, or in a mod folder that isn't enabled: the meshes name their material files, and the game doesn't fall back to the nif's own values (test 47) |
-| the mirrors plain grey, no sky in them | our cube `Textures\CMB\Bike\mirror_cube_e.dds` isn't loading: enable the optional "game mirror cube (A-B)" folder, which points the mirrors at a game cube |
+| the mirrors plain grey, no sky in them | the game's `Shared\Cubemaps\MetalBrushed02Cube_e.dds` isn't reaching them: another mod replacing that cube, or an older `Materials\CMB\Bike` winning; the "2026-11-01a look (A-B)" folder gives our own cube back |
 | bike pops out at screen edges | an old `CMB_BikeWorn.nif` with a small culling sphere; rebuild it |
 | the old flat colours, no needle, no lit tail light, no mirror styles | an older `Meshes\CMB` wins (another mod folder, or 27c's files left in a later-loading one) |
 | the bike blotchy or its colours on the wrong parts | `Textures\CMB\Bike` from another build than the meshes (their UV atlases belong together: build and install both) |
@@ -356,14 +361,43 @@ sounds and the mute are the 2026-11-01a build's; the engine's category is test 4
 | `CMB_FxWaterLoops` (FLST, FExxx892; `set CMB_FxWaterPick to 0`-`3`) | 0 | the water loop | `AMBWaterfallSplatterSmallLP` | 1E4F2D | our own spray loop |
 | | 1 | | `AMBWaterfallSplatterLargeLP` | 1E4F2C | |
 | | 2 | | `AMBWaterStream01LPSD` | 03D0A7 | |
-| | 3 | (no LP suffix: it may not loop, and the plugin then declines it, "it doesn't play") | `AMBWaterfallChurn` | 1E4F1B | |
+| | 3 | | `AMBWaterfallChurn` | 1E4F1B | |
 | the controller's `AudioCategoryFSTplayer` (SoundCategory) | muted while riding (MCM "Mute the rider's own jump and landing sounds") | the rider's own footstep, jump and landing sounds | `AudioCategoryFSTplayer` | 0F5FFC | our own riding clips without the footstep tags |
 | the 13 engine sound descriptors (since test 44's build) | their category | the engine's volume class | `AudioCategorySFX` (SoundCategory) | 0172A1 | our own category |
 | our output model `CMB_SOMMonoEngine` (FExxx871) | its values (copied, not referenced: test 45's answer) | the engine's attenuation and reverb | `SOMMono02000` (SoundOutputModel) | 07E5DC | (our own values already; listed as their source) |
-| the optional MO2 folder "game mirror cube (A-B)" (by path) | the mirrors' six material files' envmap | the mirrors' sky | `Shared\Cubemaps\MetalBrushed02Cube_e.dds` | (an archive path) | our own cube, `mirror_cube_e.dds` (the default) |
+| the mirrors' six material files' envmap (since 2026-11-02a, the main mod; by path) | the cube map | the mirrors' sky | `Shared\Cubemaps\MetalBrushed02Cube_e.dds` | (an archive path) | our own cube, `mirror_cube_e.dds` (the "2026-11-01a look (A-B)" folder) |
+| the controller, `set CMB_RiderSteadyWay to 2` (console; since 2026-11-02a) | the perk "Steady in the saddle" gives | one step less stagger, for the A/B | `mod_armor_LessStagger` (Perk) | 245AFE | (ours, `CMB_RiderSteadyPerk2`, is the default) |
 
-The sound descriptors are candidates, not chosen by ear yet: `cqf CMB_ControllerQuest FxAudition 0` to `4`, `10` to
-`14` and `20` to `23` play each at the bike effects volume, and which of them fit is TESTING.md's question Q12. Beside
+Since the 2026-11-02a build these lists are the A/B: the controller plays the mod's own records below, and the MCM's
+"Bike sounds through the mod's own records" off (`CMB_FxOwnSounds` 0) plays these, as the 2026-11-01a build did.
+
+**The game's sound files our own records name by path (2026-11-02a).** 13 sound descriptors of the mod's own
+(`CMB_Fx*SD`, FExxx89E-FExxx8AA), each following the game's record in the third column: the same files, in the order
+its dump gives them, letter case kept, the same pitch and loudness variation, but static attenuation 0,
+`AudioCategorySFX` and our output model `CMB_SOMMonoFx` (FExxx89D, the engine model's fields: full to 600, so heard at
+the riding camera's 450). Nothing is copied: the game resolves those strings in its own archives (`Fallout4 -
+Sounds.ba2`). Each file is to be replaced by our own for a standalone mod.
+
+| Our record | Our list, slot | Follows (`Fallout4.esm`) | Files, by path | Replace with |
+|---|---|---|---|---|
+| `CMB_FxTyreLightSD` (89E) | `CMB_FxLandSoundsOwn` 0, `CMB_FxLandSoundsAltOwn` 0 | `PHYRubberTireL` 1D3313 | `data\Sound\FX\PHY\RubberTire\PHY_Rubber_Tire_L_01.wav`, `_L_02.wav`, `_L_03.wav` | our own file |
+| `CMB_FxTyreHeavySD` (89F) | `CMB_FxLandSoundsOwn` 1 | `PHYRubberTireH` 1D3312 | `data\Sound\FX\PHY\RubberTire\PHY_Rubber_Tire_H_02.wav`, `_H_03.wav`, `_H_01.wav` | our own file |
+| `CMB_FxClunkSD` (8A0) | `CMB_FxLandSoundsOwn` 2 | `PHYMetalAutoMediumH` 05BAD7 | `data\Sound\FX\PHY\MetalAuto\PHY_Metal_Auto_Medium_H_01.wav` to `_H_04.wav` | our own file |
+| `CMB_FxSplashSD` (8A1) | `CMB_FxLandSoundsOwn` 3 | `FSTnpcWaterJumpDown` 03C7A9 | `Data\Sound\FX\FST\Water\Land\FST_Water_Jump_Down_01.wav`, `_02.wav` | our own file |
+| `CMB_FxSplashHeavySD` (8A2) | `CMB_FxLandSoundsOwn` 4 | `PHYWaterSplash` 0452CE | `Data\Sound\FX\PHY\PHY_Water_M_01.wav` | our own file |
+| `CMB_FxThudHeavySD` (8A3) | `CMB_FxLandSoundsAltOwn` 1 | `FSTArmorPowerHardLandingImpactDirt` 20A0B9 | `data\Sound\FX\FST\ArmorPower\FST_ArmorPower_Land_3D_Dirt_02.wav`, `_03.wav`, `_01.wav` | our own file |
+| `CMB_FxClunkBarrelSD` (8A4) | `CMB_FxLandSoundsAltOwn` 2 | `PHYMetalBarrelH` 1A8550 | `data\Sound\FX\PHY\MetalBarrel\PHY_Metal_Barrel_H_01.wav` to `_H_04.wav` | our own file |
+| `CMB_FxSplashMediumSD` (8A5) | `CMB_FxLandSoundsAltOwn` 3 | `CWaterMedium` 089380 | `Data\Sound\FX\PHY\Generic\PHY_Generic_Water_Medium_01.wav`, `_02.wav`, `_03.wav` | our own file |
+| `CMB_FxThudWaterSD` (8A6) | `CMB_FxLandSoundsAltOwn` 4 | `FSTArmorPowerHardLandingImpactWater` 20A0B8 | `data\Sound\FX\FST\ArmorPower\FST_ArmorPower_Land_3D_Water_02.wav`, `_03.wav`, `_01.wav` | our own file |
+| `CMB_FxWaterSprayLPSD` (8A7) | `CMB_FxWaterLoopsOwn` 0 | `AMBWaterfallSplatterSmallLP` 1E4F2D | `data\Sound\FX\AMB\Waterfall\AMB_WaterfallSplatter_Small_02_LP.wav`, `_Small_01_LP.wav` (a loop, pitch +15) | our own spray loop |
+| `CMB_FxWaterSprayLargeLPSD` (8A8) | `CMB_FxWaterLoopsOwn` 1 | `AMBWaterfallSplatterLargeLP` 1E4F2C | `data\Sound\FX\AMB\Waterfall\AMB_WaterfallSplatter_Large_01_LP.wav`, `_Large_02_LP.wav` (a loop, pitch -15) | our own file |
+| `CMB_FxWaterStreamLPSD` (8A9) | `CMB_FxWaterLoopsOwn` 2 | `AMBWaterStream01LPSD` 03D0A7 | `fx\amb\water\exterior\amb_water_stream_01_lp.wav` (a loop) | our own file |
+| `CMB_FxWaterChurnLPSD` (8AA) | `CMB_FxWaterLoopsOwn` 3 | `AMBWaterfallChurn` 1E4F1B | `data\Sound\FX\AMB\Waterfall\AMB_Waterfall_Churn_02_LP.wav`, `_Churn_01_LP.wav` (a loop) | our own file |
+
+The sounds are candidates, not chosen by ear yet: `cqf CMB_ControllerQuest FxAudition 0` to `4`, `10` to `14` and `20`
+to `23` play our own records, `100` more the game's (`100` to `104`, `110` to `114`, `120` to `123`), `-1` all of ours
+and `-2` all of the game's, once the console is closed, at the bike effects volume; which of them fit is TESTING.md's
+question T5 (an instance id of 0 for one of ours means its file didn't resolve). Beside
 these, the riding clips are built on your PC from the game's own clips (section 3), and the parked bike stands on the
 vanilla motorcycle's collision (the table at the top).
 

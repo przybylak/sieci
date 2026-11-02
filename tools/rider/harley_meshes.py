@@ -82,7 +82,7 @@ and takes each shape's shader values from bike_materials.json (see BUILD STAGES)
       [--seat <Data>/Meshes/Actors/Character/Animations/MT/CMB_Rider] [--tris 90000] [--body 7a1118]
       [--sit 0.27] [--grip 29.4,-10.7,96] [--peg 19,6,27]
       [--stage export|build --stage-dir S] [--materials bike_materials.json] [--uvs none|stage] [--bgsm 0|1]
-      [--volume-guard 1|0] [--disc ours|model] [--view 1|0]
+      [--volume-guard 1|0] [--disc ours|model] [--disc-bore shared|bolts] [--view 1|0]
 
 BUILD STAGES (build_bike.sh runs them): with no --stage, the fallback build (--uvs none): palette
 textures, no materials files (the 27c way). The textured build is three steps: --stage export
@@ -327,10 +327,13 @@ ALPHA_BLEND_FLAGS = 4845   # blend src alpha / inv src alpha, test greater
 
 # Each shape's shader (tools/rider/bike_materials.json overrides these per material; a material is
 # one shape's, <mat> = its label: since the 2026-10-31a build the needle has its own, the dial's art with a glow map
-# lighting its blade, so it reads at night). The cube maps are vanilla's but for the mirrors' (ours, a sharp sky and
-# ground the texture stage writes).
+# lighting its blade, so it reads at night). The cube maps are vanilla's, named by their paths (none copied); since
+# 2026-11-02a the mirrors' too, MB (the game's own reflective bathroom mirrors' cube: test 48, "the game cube looks
+# better"); MR, ours (a sharp sky and ground), is written by the texture stage only if a material names it (the
+# 2026-11-01a look, in the optional A-B folder).
 CUBES = {"CH": "Shared\\Cubemaps\\MetalChrome01Cube_e.dds", "DI": "Shared\\Cubemaps\\mipblur_DefaultOutside1_dielectric.dds",
-         "GL": "Shared\\Cubemaps\\shinyglass_e.dds", "MR": "CMB\\Bike\\mirror_cube_e.dds"}
+         "GL": "Shared\\Cubemaps\\shinyglass_e.dds", "MB": "Shared\\Cubemaps\\MetalBrushed02Cube_e.dds",
+         "MR": "CMB\\Bike\\mirror_cube_e.dds"}
 SHAPE_MAT = {}   # label -> material where a material serves more than one shape (none now)
 _ENV = lambda cube, scale: dict(shader="env", cube=cube, env_scale=scale)   # noqa: E731
 _GLOW = lambda rgb, mult, glow_map=True: dict(shader="glow", emit=dict(colour=rgb, mult=mult, glow_map=glow_map))   # noqa: E731
@@ -1118,7 +1121,9 @@ def write_palette(folder: Path, order, body):
 
 
 SHADER_KEYS = ("shader", "cube", "env_scale", "smoothness", "spec_colour", "spec_mult", "emit", "alpha", "two_sided",
-               "cast_shadows_worn", "cast_shadows_parked", "textures_of")
+               "cast_shadows_worn", "cast_shadows_parked", "textures_of", "ssr")   # ssr (2026-11-02a): the materials file's
+# screen-space reflections only (bike_textures.write_bgsm); the nif's own block keeps none: a shape naming a materials
+# file takes the file's
 
 
 def cube_path(cube):
@@ -1431,6 +1436,11 @@ def main() -> int:
                     help="ours (since the 2026-11-01a build): the brake discs are the mod's own drilled discs "
                          "(bike_pieces.disc_pieces), shapes wheelF_disc and wheelR_disc in place of the model's plates; "
                          "model: the model's discs in the tyres' shapes, 2026-10-31a's 28 shapes")
+    ap.add_argument("--disc-bore", choices=("shared", "bolts"), default="shared",
+                    help="shared (since 2026-11-02a): our discs' bore cut at bike_pieces.DISC_HUB_REF of the outer "
+                         "radius, where the art paints it (inside the bolt heads, or the build stops); bolts: at the "
+                         "bolt heads' least radius, the 2026-11-01a build's (its five nifs byte for byte). The export "
+                         "writes it into the stage manifest, and the build (and bike_art.py) refuse another")
     ap.add_argument("--view", type=int, choices=(0, 1), default=1,
                     help="1 (since the 2026-11-01a build): also write CMB_BikeView.nif, the bike in first person (the worn "
                          "shapes unskinned under a hidden node, which the plugin shows and places); 0: not written")
@@ -1653,7 +1663,11 @@ def main() -> int:
             if bolts.get(role):
                 bv = np.vstack(bolts[role])
                 r_hub = float(np.hypot(bv[:, 1] - c[1], bv[:, 2] - c[2]).min())
-            dv, df, dn, duv = BP.disc_pieces((float(c[1]), float(c[2])), x0, x1, r_out, r_hub, flip)
+            try:
+                dv, df, dn, duv = BP.disc_pieces((float(c[1]), float(c[2])), x0, x1, r_out, r_hub, flip, args.disc_bore)
+            except ValueError as e:
+                print(f"--disc-bore {args.disc_bore}: the {role} disc: {e}", file=sys.stderr)
+                return 1
             ours.append(("silver", f"{role}_disc", dv, df, dn, duv))
             meshes_of = {}
             for pid, sv, sf in plates[role]:
@@ -1798,6 +1812,8 @@ def main() -> int:
                         bar_angle=args.bar_angle, max_verts=MAX_VERTS, labels={})
         # Since the 2026-11-01a build: the build flags, the volume guard's work and the discs (check_bike_meshes reads
         # them: the model's triangles per material may differ from the reference's by exactly these)
+        if args.disc == "ours":   # 2026-11-02a: the bore's rule (an older export has none: the 2026-11-01a build's, bolts)
+            manifest["disc_bore"] = args.disc_bore
         manifest.update(volume_guard_on=bool(args.volume_guard), disc=args.disc,
                         volume_guard=guard_report.get("volume_guard", []), volumes=guard_report.get("volumes", []),
                         disc_replaced=disc_replaced, discs=disc_fit)
@@ -1839,6 +1855,10 @@ def main() -> int:
             return 0
         # The build: the same shapes as the export, or the texture stage's UVs belong to something else.
         exported = json.loads((stage / "manifest.json").read_text())
+        if args.disc == "ours" and exported.get("disc", "model") == "ours" and exported.get("disc_bore", "bolts") != args.disc_bore:
+            print(f"{stage}: the export's discs have the bore {exported.get('disc_bore', 'bolts')!r}, this build "
+                  f"--disc-bore {args.disc_bore}: export again with the same (build_bike.sh DISC_BORE=)", file=sys.stderr)
+            return 1
         for label, s in shapes.items():
             with np.load(stage / "shapes" / f"{label}.npz") as e:
                 same = (np.array_equal(e["pos"], s["v"]) and np.array_equal(e["tri"], s["f"]) and np.array_equal(e["mat"], s["mat"]))

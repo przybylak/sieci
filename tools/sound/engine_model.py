@@ -17,7 +17,10 @@ WanderSmooth) and a throttle-off dip at each up-shift (ShiftDip, ShiftDipTime); 
 WanderMax 0 with 27c's Wander, WanderSmooth is 27c's model. The 2026-11-01a build (test 47: "rpm could be slightly higher
 the closer it is to shifting gear", "the sound could indicate that gears are shifted down"): each pull's up-shift drawn
 from ShiftDraw 2300-3000 (2000-2900 before), and a stop's down-shifts each blipped (StopShift and the five keys after it,
-below); StopShift=0 with ShiftDraw (2000, 2900) is the 2026-10-31a build's model exactly (--check-off).
+below); StopShift=0 with ShiftDraw (2000, 2900) is the 2026-10-31a build's model exactly (--check-off). The 2026-11-02a
+build (test 48: "make it louder when idle", "when bike stops on obstacle it goes fully quiet"): IdleDb -11 (-17.2
+before), the idle at -6.0 dB where the start and stop sounds meet it; IdleDb=-17.2 is the 2026-11-01a build's model
+exactly (--check-off checks both builds).
 
 Gearbox. Four gears with the measured steps 1.35 / 1.28 / 1.21; each gear's entry is its speed at ShiftRpm (2500).
 2nd reaches ShiftRpm at 750 u/s (3000 rpm at the top speed), 4th cruises at the top speed at 1937 rpm.
@@ -74,7 +77,13 @@ tops out at 1): LevelScale 1.0 and LevelOffset +5 dB: the cruise at -3.8 dB (-6.
 -12.2 dB (8.4 under the cruise; -12.0 in test 45: the one-shots meet it as they did). The demo ride's windows (the
 first pull 6.5-10 s, the cruise 12-16 s, power sums): the first pull +2.6 over the cruise (+2.1 at 0.7; paris about
 +4 over steady riding; with the 0 dB ceiling a louder cruise leaves a pull less room: 6.8 dB of offset would put the
-cruise at -2 and every pull within 2 dB of it).
+cruise at -2 and every pull within 2 dB of it). Test 48's answer (the 2026-11-02a build): IdleDb -11, the idle at
+-6.0 dB, 2.5 under test 48's cruise (-3.5 at 1990 rpm; it was 8.7 under) and exactly where the start and stop sounds'
+idle parts meet it (make_piece_loops.py's IDLE_LEVEL_DB: the start's last 0.3 s and the stop's first 0.5 s 6.0 dB under
+the loops, so since test 45 each start dropped 6.2 dB into the idle and each stop rose 6.2 out of it). IdleDb is the
+floor of every state: it also holds the throttle shut under about 1945 rpm, the cruise's load under 1650 and a full-load
+launch under 1360 (8 % of the random ride's frames, by 6.2 dB at most); the cruise and every pull are untouched, and a
+roll-off to a stop stays at -6.0 instead of sinking to -12.2.
 
 The heard speed (test 45; HeardSpeed=0: the bike's own speed, as up to test 44). The game's bike does everything 2-3x
 faster than the reference rides (0 to 900 u/s in about 3 s, a let-up stops it in about 2 s), and the gears tied to
@@ -245,7 +254,11 @@ DEFAULTS = dict(
                           # paris's own law: the idle 8.4 dB under the cruise, a full-load pull at the cruise's rpm 2.75
                           # over it (0.7 in test 45: idle -12.0 dB, on - off 3.5 dB, the pull's windows +2.1 over the
                           # cruise; 0.3 up to test 44: what the daily/autumn cameras deliver, 0.29-0.36 of paris's range)
-    RpmDb=9.6, LoadDb=5.0, IdleDb=-17.2,   # paris (linear): 9.6 dB per rpm doubling, on - off 5.0 dB, idle -17.2
+    RpmDb=9.6, LoadDb=5.0,   # paris (linear): 9.6 dB per rpm doubling, on - off 5.0 dB
+    IdleDb=-11.0,         # the floor of every state (the 2026-11-02a build, test 48: "make it louder when idle"): the idle at
+                          # -11 + 5 = -6.0 dB, where the start and stop sounds' idle parts meet it (make_piece_loops.py's
+                          # IDLE_LEVEL_DB), 2.5 under test 48's cruise, where paris's -17.2 (-12.2 dB, the 2026-11-01a build's)
+                          # put it 8.7 under and every start dropped 6.2 dB into it; -10 the idle at -5.0, -12 at -7.0
     LevelOffset=5.0,      # dB on every level, each loop's gain then held at 0 dB (test 46; 0 with LevelScale 0.7: test
                           # 45's levels): the cruise at -3.8 dB, full load from about 2100 rpm at the 0 dB ceiling
     LevelRpm=3000.0,      # the level law's own reference (it was ShiftRpm; moving the shift point to 2500 must not
@@ -688,10 +701,19 @@ class Engine:
         return db
 
 
-# --- The off values' check (the 2026-11-01a build): StopShift=0 with ShiftDraw (2000, 2900) is the 2026-10-31a build's model,
-# frame for frame, over the demo ride, a random ride in the harness's game and five stops. check_off_2026-10-31a.txt holds the
-# 2026-10-31a model's frames (0c3df02's engine_model.py, by --write-expected) as hashes of 500 frames each.
-OFF_31A = {"StopShift": 0, "ShiftDraw": [2000.0, 2900.0]}
+# --- The off values' check: each build's off values give that build's model, frame for frame, over the demo ride, a
+# random ride in the harness's game and five stops. The expected files hold those builds' frames, written from their own
+# engine_model.py (by --write-expected) as hashes of 500 frames each:
+#   - 2026-10-31a (the 2026-11-01a build's StopShift and ShiftDraw off): StopShift=0 with ShiftDraw (2000, 2900), and
+#     IdleDb -17.2 (the 2026-11-02a build's), 0c3df02's model, check_off_2026-10-31a.txt (its hashes as written with 0c3df02's
+#     own -17.2; only its header's JSON is newer);
+#   - 2026-11-01a (the 2026-11-02a build's IdleDb off): IdleDb -17.2, 993f582's model, check_off_2026-11-01a.txt.
+OFF_31A = {"StopShift": 0, "ShiftDraw": [2000.0, 2900.0], "IdleDb": -17.2}
+OFF_01A = {"IdleDb": -17.2}
+OFF_BUILDS = {   # --off NAME: (the off values, the expected file here, the build, the commit its model is from)
+    "31a": (OFF_31A, "check_off_2026-10-31a.txt", "2026-10-31a", "0c3df02"),
+    "01a": (OFF_01A, "check_off_2026-11-01a.txt", "2026-11-01a", "993f582"),
+}
 CHECK_ON = [("On1400", 1400.0), ("On1700", 1700.0), ("On2000", 2000.0), ("On2400", 2400.0), ("On2800", 2800.0), ("On3300", 3300.0)]
 CHECK_OFF = [("Off1400", 1400.0), ("Off1800", 1800.0), ("Off2300", 2300.0), ("Off2800", 2800.0)]
 CHECK_IDLE = ("Idle", 860.0)
@@ -785,38 +807,52 @@ def _load_model(path):
     return mod.Engine
 
 
-def write_expected(model_path, out_path):
-    """The expected file from another model (0c3df02's engine_model.py: the 2026-10-31a build's), run with OFF_31A."""
+def _off_words(off):
+    """The off values as the check's line says them: "StopShift=0, ShiftDraw=2000,2900, IdleDb=-17.2"."""
+    return ", ".join("%s=%s" % (k, ",".join("%g" % x for x in v) if isinstance(v, (list, tuple)) else "%g" % v) for k, v in off.items())
+
+
+def write_expected(model_path, out_path, build="31a"):
+    """The expected file from another model (that build's own engine_model.py: 0c3df02's for 31a, 993f582's for 01a), run with
+    that build's off values."""
+    off, _, name, commit = OFF_BUILDS[build]
     engine_cls = _load_model(model_path)
-    lines = ["# engine_model.py --check-off: the 2026-10-31a build's model (0c3df02's tools/sound/engine_model.py) over these rides,",
-             "# run with %s; each frame as check_frames() writes it, %d frames a hash (sha256's first 16)." % (json.dumps(OFF_31A), CHECK_BLOCK)]
-    for name, ride in check_rides().items():
-        frames, changes = check_frames(engine_cls, OFF_31A, ride)
-        lines.append("ride %s frames %d changes %d" % (name, len(frames), len(changes)))
-        lines.append("blocks %s %s" % (name, " ".join(_blocks(frames))))
+    lines = ["# engine_model.py --check-off: the %s build's model (%s's tools/sound/engine_model.py) over these rides," % (name, commit),
+             "# run with %s; each frame as check_frames() writes it, %d frames a hash (sha256's first 16)." % (json.dumps(off), CHECK_BLOCK)]
+    for rname, ride in check_rides().items():
+        frames, changes = check_frames(engine_cls, off, ride)
+        lines.append("ride %s frames %d changes %d" % (rname, len(frames), len(changes)))
+        lines.append("blocks %s %s" % (rname, " ".join(_blocks(frames))))
         for c in changes:
-            lines.append("change %s %d %d->%d %d%s%s" % (name, c[0], c[1], c[2], c[3], " blip" if c[4] else "", " clutch" if c[5] else ""))
+            lines.append("change %s %d %d->%d %d%s%s" % (rname, c[0], c[1], c[2], c[3], " blip" if c[4] else "", " clutch" if c[5] else ""))
     with open(out_path, "w") as fh:
         fh.write("\n".join(lines) + "\n")
     return 0
 
 
-def check_off(path=None, against=None):
-    """0 if StopShift=0 with ShiftDraw (2000, 2900) gives the 2026-10-31a model's frames on every ride: against the expected
-    file (block hashes, the gear changes) or, with against, another model file frame by frame."""
+def check_off(path=None, against=None, build=None):
+    """0 if each build's off values give that build's model's frames on every ride: against its expected file (block hashes,
+    the gear changes) or, with against, another model file frame by frame. build None: every build (each with its own file;
+    with against or path, 31a as before)."""
+    if build is None and (against or path):
+        build = "31a"
+    if build is None:
+        return 1 if any([check_off(None, None, b) for b in OFF_BUILDS]) else 0
+    off, file_name, name, _ = OFF_BUILDS[build]
+    words = "%s against the %s build's model" % (_off_words(off), name)
     bad = 0
     if against:
         other = _load_model(against)
-        for name, ride in check_rides().items():
-            a, _ = check_frames(Engine, OFF_31A, ride)
-            b, _ = check_frames(other, OFF_31A, ride)
+        for rname, ride in check_rides().items():
+            a, _ = check_frames(Engine, off, ride)
+            b, _ = check_frames(other, off, ride)
             diff = sum(1 for x, y in zip(a, b) if x != y) + abs(len(a) - len(b))
-            print("%s: %d frames, %d differing" % (name, len(a), diff))
+            print("%s: %d frames, %d differing" % (rname, len(a), diff))
             bad += diff
-        print("check-off against %s: %s" % (against, "the same, frame for frame" if not bad else "%d frames differ" % bad))
+        print("check-off against %s: %s (%s)" % (against, "the same, frame for frame" if not bad else "%d frames differ" % bad, _off_words(off)))
         return 1 if bad else 0
     want, changes = {}, {}
-    with open(path or os.path.join(os.path.dirname(os.path.abspath(__file__)), "check_off_2026-10-31a.txt")) as fh:
+    with open(path or os.path.join(os.path.dirname(os.path.abspath(__file__)), file_name)) as fh:
         for ln in fh:
             w = ln.split()
             if not w or w[0].startswith("#"):
@@ -829,35 +865,41 @@ def check_off(path=None, against=None):
             elif w[0] == "change":
                 changes[w[1]].append(" ".join(w[2:]))
     total = 0
-    for name, ride in check_rides().items():
-        frames, ch = check_frames(Engine, OFF_31A, ride)
+    for rname, ride in check_rides().items():
+        frames, ch = check_frames(Engine, off, ride)
         got = _blocks(frames)
-        exp = want.get(name, {"frames": -1, "blocks": []})
+        exp = want.get(rname, {"frames": -1, "blocks": []})
         nb = sum(1 for x, y in zip(got, exp["blocks"]) if x != y) + abs(len(got) - len(exp["blocks"]))
         mine = ["%d %d->%d %d%s%s" % (c[0], c[1], c[2], c[3], " blip" if c[4] else "", " clutch" if c[5] else "") for c in ch]
-        same = mine == changes.get(name)
+        same = mine == changes.get(rname)
         total += len(frames)
-        print("%s: %d frames (%d expected), %d of %d blocks of %d differing, %d gear changes %s" % (
-            name, len(frames), exp["frames"], nb, len(exp["blocks"]), CHECK_BLOCK, len(ch), "as expected" if same else "NOT as expected"))
+        print("%s %s: %d frames (%d expected), %d of %d blocks of %d differing, %d gear changes %s" % (
+            name, rname, len(frames), exp["frames"], nb, len(exp["blocks"]), CHECK_BLOCK, len(ch), "as expected" if same else "NOT as expected"))
         bad += nb + (len(frames) != exp["frames"]) + (not same)
-    print("check-off: %s over %d frames (StopShift=0, ShiftDraw=2000,2900 against the 2026-10-31a build's model)" % (
-        "the same, frame for frame" if not bad else "DIFFERENT", total))
+    print("check-off: %s over %d frames (%s)" % ("the same, frame for frame" if not bad else "DIFFERENT", total, words))
     return 1 if bad else 0
 
 
 if __name__ == "__main__":
     import argparse
-    ap = argparse.ArgumentParser(description="The engine model (the plugin's C twin follows it). --check-off: StopShift=0 with "
-                                 "ShiftDraw 2000,2900 against the 2026-10-31a build's frames.")
-    ap.add_argument("--check-off", action="store_true", help="the off values against check_off_2026-10-31a.txt (exit 1 if any frame differs)")
-    ap.add_argument("--against", metavar="MODEL", help="with --check-off: compare frame by frame with another engine_model.py instead")
-    ap.add_argument("--expected", metavar="FILE", help="with --check-off: the expected file (default: check_off_2026-10-31a.txt here)")
-    ap.add_argument("--write-expected", metavar="MODEL", help="write the expected file from another engine_model.py (0c3df02's)")
-    ap.add_argument("--out", metavar="FILE", help="with --write-expected: where (default: check_off_2026-10-31a.txt here)")
+    ap = argparse.ArgumentParser(description="The engine model (the plugin's C twin follows it). --check-off: each build's off values "
+                                 "against that build's frames (2026-10-31a: StopShift=0, ShiftDraw 2000,2900, IdleDb -17.2; "
+                                 "2026-11-01a: IdleDb -17.2).")
+    ap.add_argument("--check-off", action="store_true", help="the off values against check_off_2026-10-31a.txt and check_off_2026-11-01a.txt "
+                    "(exit 1 if any frame differs); --off NAME: only that build's")
+    ap.add_argument("--off", choices=sorted(OFF_BUILDS), help="the build: 31a (0c3df02's model) or 01a (993f582's); with --write-expected "
+                    "31a by default")
+    ap.add_argument("--against", metavar="MODEL", help="with --check-off: compare frame by frame with another engine_model.py instead "
+                    "(the --off build's values, 31a by default)")
+    ap.add_argument("--expected", metavar="FILE", help="with --check-off: the expected file (default: the --off build's file here)")
+    ap.add_argument("--write-expected", metavar="MODEL", help="write the --off build's expected file from that build's engine_model.py "
+                    "(0c3df02's for 31a, 993f582's for 01a)")
+    ap.add_argument("--out", metavar="FILE", help="with --write-expected: where (default: the --off build's file here)")
     a = ap.parse_args()
-    here = os.path.join(os.path.dirname(os.path.abspath(__file__)), "check_off_2026-10-31a.txt")
     if a.write_expected:
-        sys.exit(write_expected(a.write_expected, a.out or here))
+        b = a.off or "31a"
+        here = os.path.join(os.path.dirname(os.path.abspath(__file__)), OFF_BUILDS[b][1])
+        sys.exit(write_expected(a.write_expected, a.out or here, b))
     if a.check_off:
-        sys.exit(check_off(a.expected, a.against))
+        sys.exit(check_off(a.expected, a.against, a.off))
     ap.print_help()

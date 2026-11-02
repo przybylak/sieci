@@ -27,6 +27,13 @@ Function RegisterHotkey()
 	registeredKey = wanted
 EndFunction
 
+; 2026-11-02a (test 48: the camera stuck after a stimpak): F4SE's camera state for the controller's
+; check after an item's use (0 first person, 7 and 8 third person), called through CastAs so the
+; controller runs without F4SE.
+int Function CameraState()
+	return Game.GetCameraState()
+EndFunction
+
 Event OnKeyDown(int keyCode)
 	if keyCode == registeredKey
 		Controller.HotkeyPressed("the F4SE hotkey")

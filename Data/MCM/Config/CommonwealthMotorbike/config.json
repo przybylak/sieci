@@ -208,10 +208,22 @@
     {
       "type": "switcher",
       "text": "Knock-overs can kill",
-      "help": "A knock-over that takes an enemy\u0027s last health kills it, and the kill is yours: experience, quests and the rest as if you had shot it. Never companions or essential characters (they aren\u0027t knocked over at all). Off: the bike leaves them at their last point of health.",
+      "help": "A knock-over that takes an enemy\u0027s last health kills it, and the kill is yours: quests and the rest as if you had shot it, and the experience with \u0022Kill experience\u0022 below on. Never companions or essential characters (they aren\u0027t knocked over at all). Off: the bike leaves them at their last point of health.",
       "valueOptions": {
         "sourceType": "GlobalValue",
         "sourceForm": "CommonwealthMotorbike.esp|879"
+      }
+    },
+    {
+      "type": "slider",
+      "text": "Kill experience",
+      "help": "What a kill by the bike gives you: 1 = the game\u0027s own experience, as for a kill of yours (the bike\u0027s last hit is yours); 2 = the same another way, should 1 give none; 0 = none, as before.",
+      "valueOptions": {
+        "min": 0,
+        "max": 2,
+        "step": 1,
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|89C"
       }
     },
     {
@@ -336,13 +348,34 @@
     {
       "type": "slider",
       "text": "Bike effects volume",
-      "help": "Landings and riding through water (the game\u0027s own sounds for now). 0 = none. The water follows it at once, a landing at the next one.",
+      "help": "Landings and riding through water (the game\u0027s own sound files for now). 0 = none. The water follows it at once, a landing at the next one.",
       "valueOptions": {
         "min": 0,
         "max": 100,
         "step": 5,
         "sourceType": "GlobalValue",
         "sourceForm": "CommonwealthMotorbike.esp|884"
+      }
+    },
+    {
+      "type": "switcher",
+      "text": "Bike sounds through the mod\u0027s own records",
+      "help": "Landings and the water through the mod\u0027s own sound records over the game\u0027s sound files: heard at the riding camera\u0027s distance. Off: the game\u0027s own records, as the 2026-11-01a build (much quieter: they fade with the camera\u0027s distance and carry their own attenuation). Landings at once, the water the next time you get on.",
+      "valueOptions": {
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|8AE"
+      }
+    },
+    {
+      "type": "slider",
+      "text": "Landing loudness range (dB)",
+      "help": "How far under the hardest landing the softest one sounds. 10 by default; 18 as the 2026-11-01a build; smaller makes small drops louder.",
+      "valueOptions": {
+        "min": 0,
+        "max": 30,
+        "step": 1,
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|895"
       }
     },
     {
@@ -439,7 +472,7 @@
     {
       "type": "slider",
       "text": "Brake key (scan code)",
-      "help": "Brakes while riding, as S does, and holds the bike still once stopped (S still backs up). 57 = Space, 42 = Left Shift, 29 = Left Ctrl, 45 = X, 0 = none (only S brakes). Takes effect the next time you get on.",
+      "help": "Brakes while riding, as S does, and holds the bike still once stopped (S still backs up). A DirectInput scan code: 57 = Space, 42 = Left Shift, 29 = Left Ctrl, 56 = Left Alt, 45 = X, 46 = C, 0 = none (only S brakes). The log names the key it read. Takes effect the next time you get on.",
       "valueOptions": {
         "min": 0,
         "max": 211,

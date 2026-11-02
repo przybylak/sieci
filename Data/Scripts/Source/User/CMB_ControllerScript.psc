@@ -296,22 +296,38 @@ EndGroup
 ; staggered and false when the stagger is over (the ability is on the player only while riding:
 ; Mount gives it, FinishRide takes it). Log only, and the reaction window's "while staggered"
 ; (CMB_PoseReactionWindow): it verifies "Steady in the saddle" (no line with Steady on is expected).
+; 2026-11-02a (test 48: 8 staggers with Steady on, the clips back on the seat by themselves 0.3-1.1 s
+; later every time): the line names the perk given (SteadyNow), the ride counts its staggers (the
+; getting off's "Hit events this ride" line), and nothing is done during a stagger (a flavour switch
+; there would cut its end, test 48's camera); its end's line comes StaggerOverDelay later with the
+; plugin's reading of the clips (StaggerOverLine).
 Function NoteStagger(bool abStaggered)
 	float now = Utility.GetCurrentRealTime()
 	if abStaggered
 		if !riding
 			return
 		endif
+		if staggerOverPending   ; the last one's end still to tell: told now, not with this one's clips
+			staggerOverPending = false
+			CancelTimer(TimerStaggerOver)
+			Log("Staggered while riding: the stagger over after " + Tenths(staggerLasted) + " s; staggered again " + Tenths(now - staggeredAt - staggerLasted) + " s later.")
+		endif
 		staggered = true
 		staggeredAt = now
-		bool steady = CMB_RiderSteadyPerk && PlayerRef.HasPerk(CMB_RiderSteadyPerk)
-		Log("Staggered while riding (Steady " + Ternary(steady, "on", "off") + "): the stagger watch saw it.")
+		rideStaggers += 1
+		Log("Staggered while riding (Steady " + SteadyNow() + "): the stagger watch saw it.")
 	elseif staggered
 		staggered = false
 		if staggeredAt > now
 			staggeredAt = now   ; an earlier session's stamp
 		endif
-		Log("Staggered while riding: the stagger over after " + Tenths(now - staggeredAt) + " s.")
+		staggerLasted = now - staggeredAt
+		if riding && CMB_RiderPoseOff
+			staggerOverPending = true
+			StartTimer(StaggerOverDelay, TimerStaggerOver)
+		else
+			Log("Staggered while riding: the stagger over after " + Tenths(staggerLasted) + " s.")
+		endif
 	endif
 EndFunction
 
@@ -366,6 +382,59 @@ Group Bike_Effects
 	GlobalVariable Property CMB_FxLandPlayed Auto Const
 	{0x88A: the flight whose landing sound this script played last, written by it after playing it
 	(the plugin logs how long after the landing).}
+EndGroup
+
+; 2026-11-02a (test 48: "Steady in the saddle" didn't stop the staggers, the camera stuck after the
+; first stimpak, the arm stretched while eating): Steady's second record and its console A/B, the
+; item-use window, the camera's recovery after a use (script-only, 0x896-0x899), and the count of
+; items used, for CMB_Slope.dll (fixed ID 0x893). None is Mandatory: an older ESP leaves them None,
+; and each change stays off (as the 2026-11-01a build).
+Group Rider_Pose_Fixes
+	Perk Property CMB_RiderSteadyPerk2 Auto Const
+	{Test 48: Mod Incoming Stagger x0 with two condition tabs and EPFB 0, as the game's mod_armor_LessStagger.}
+	GlobalVariable Property CMB_RiderSteadyWay Auto Const
+	{Test 48: which perk Steady gives: 1 = CMB_RiderSteadyPerk2 (default); 2 = the game's mod_armor_LessStagger
+	(00245AFE, one step less); 0 = 2026-11-01a's CMB_RiderSteadyPerk (three tabs). None (an older ESP): 0.}
+	GlobalVariable Property CMB_PoseUseWindow Auto Const
+	{Test 48 (IAF's use clip cut by the Pip-Boy check, the camera stuck): no pose re-apply within this many seconds of an
+	item used while riding, counted from the Pip-Boy's or favourites' close when it was used in one (an animation mod plays
+	the use clip after the menus close). 0 or None = as 2026-11-01a: the item stamps the hit window at the use, and the
+	Pip-Boy check ignores it.}
+	GlobalVariable Property CMB_UseCameraFix Auto Const
+	{Test 48: 1 = after an item's use, a camera whose switch is off or that is stuck out of 0/7/8 is entered again, then a
+	notification; 0 or None = no recovery (the check line stays).}
+	GlobalVariable Property CMB_RiderItemUse Auto Const
+	{Test 48: 0x893, a count of the items used while riding (1-999, then 1 again), written at the use or the menu's close;
+	read by CMB_Slope.dll ([Tilt] UseLetGo) to let go of the hands while the use clip plays. None: never written.}
+EndGroup
+
+; 2026-11-02a (test 48: 10 brakes for knock-over asks not answered in time): the player's combat
+; state for CMB_Slope.dll (fixed ID 0x894). Not Mandatory: an older ESP leaves it None.
+Group Ram_Fixes
+	GlobalVariable Property CMB_RamCombat Auto Const
+	{Test 48: 0x894, 1 while the player is in combat, for the plugin ([Ram] PendingFoe=2). Not Mandatory: None = never
+	written.}
+EndGroup
+
+; 2026-11-02a (test 48: the landing and water sounds played but went unheard): our own sound
+; records over the game's files (the switch and the three lists, script-only, 0x8AB-0x8AE) and
+; the landings' loudness range (fixed ID 0x895, the plugin quotes it). None is Mandatory: an older
+; ESP leaves them None, and the game's own records and the 18 dB range stay (2026-11-01a).
+Group Fx_Own_Records
+	GlobalVariable Property CMB_FxOwnSounds Auto Const
+	{MCM "Bike sounds through the mod's own records": 1 = the landing and water sounds through our own records over the
+	game's files (no static attenuation, full level out to 600 like the engine); 0 = the game's own records, as the
+	2026-11-01a build. Read at each landing and on getting on.}
+	GlobalVariable Property CMB_FxLandRange Auto Const
+	{MCM "Landing loudness range (dB)": the softest landing this many dB under the hardest (10; 18 = the 2026-11-01a build).
+	At a fixed ID, 0x895: CMB_Slope.dll's landing lines quote it.}
+	FormList Property CMB_FxLandSoundsOwn Auto Const
+	{Our own landing set (CMB_FxOwnSounds 1), CMB_FxLandSounds' slots: 0 light, 1 heavy, 2 the clunk, 3 into water, 4 into
+	water heavy.}
+	FormList Property CMB_FxLandSoundsAltOwn Auto Const
+	{Our own second landing set, CMB_FxLandSoundsAlt's slots (CMB_FxLandPick 1).}
+	FormList Property CMB_FxWaterLoopsOwn Auto Const
+	{Our own water loops, CMB_FxWaterLoops' slots (CMB_FxWaterPick picks one, read on getting on).}
 EndGroup
 
 ; ---------------------------------------------------------------------------
@@ -644,6 +713,32 @@ bool footstepsWatched = false
 bool hitGrace = false
 float healthMark = 1.0
 bool poseRetryWaiting = false
+; 2026-11-02a (test 48; pose.md 1.4, 2.4, 2.5, 4.2). Steady: the perk this script gave (None: none; a
+; perk on the player it didn't give is never taken off), and its "already on the player" line said.
+; The ride's hit events, power attacks and staggers (log only: the getting off's "Hit events this
+; ride" line).
+; The use window: real time an item's use clip can start (the use, or the Pip-Boy's or favourites'
+; close when it was used in one), what it was, the item whose "left alone" line was logged; an item
+; used in a menu, timed from its close; a menu of the two open. The camera check after a use: its
+; tries while a menu is open, the view entered again at the last check (looked at again
+; UseCameraRecheck later), the notification shown this ride. The stagger's end, its line still to
+; come (StaggerOverLine). First person's footsteps line said this ride.
+Perk steadyGiven
+bool steadyKeptSaid = false
+int rideHits = 0
+int ridePowerHits = 0
+int rideStaggers = 0
+float itemAt = -100.0
+string itemWhat = ""
+float itemLeft = -200.0
+bool itemInMenu = false
+bool riderMenuOpen = false
+int useCameraTries = 0
+bool useCameraFixed = false
+bool useCameraNoted = false
+float staggerLasted = 0.0
+bool staggerOverPending = false
+bool firstFootSaid = false
 float hitLoggedAt = -100.0   ; test 47: the last "Hit while riding" line (one a second at most)
 float mountedAt = 0.0   ; test 47: real time of the ride's start (the engine's hand-over line says how long it took)
 string mountedHow = "getting on"   ; ...and what started it: getting on, or a load into a ride
@@ -846,6 +941,10 @@ Function OnGameReloaded()
 		UpdateSteady("after loading")
 		staggered = false   ; a save made mid-stagger: the watch's effect starts again if it still is
 		reactionAt = -100.0
+		itemAt = -100.0          ; 2026-11-02a: no use window across a load (real time starts again), no menu open
+		itemInMenu = false
+		riderMenuOpen = false
+		staggerOverPending = false
 		RideWatchesOn()
 		if riderPoseApplied
 			; Right after a load the flavour can be refused (the graph isn't up yet),
@@ -1724,6 +1823,19 @@ Function Mount()
 	reactionAt = -100.0
 	reactionLeft = -200.0
 	staggered = false
+	; 2026-11-02a: no item used yet this ride, no menu open, the ride's counts and its once-a-ride lines afresh.
+	itemAt = -100.0
+	itemLeft = -200.0
+	itemInMenu = false
+	riderMenuOpen = false
+	useCameraTries = 0
+	useCameraFixed = false
+	useCameraNoted = false
+	staggerOverPending = false
+	firstFootSaid = false
+	rideHits = 0
+	ridePowerHits = 0
+	rideStaggers = 0
 	RideWatchesOn()
 	WatchForHits()
 	poseRetries = 0
@@ -1737,6 +1849,7 @@ Function Mount()
 	SetSlopeLive(true)
 	SetTiltLive(true)
 	CallRam("StartRide")
+	SetRamCombat(PlayerRef.IsInCombat())   ; 2026-11-02a: the plugin's PendingFoe=2 from the start, not a tick later
 	PlaceHeadlamp()
 	SetHeadlampLive(true)
 	; Whatever is there is old (or from a game with the plugin): it writes them again at once.
@@ -2591,6 +2704,10 @@ Event OnTimer(int aiTimerID)
 		APWatchPoll()
 	elseif aiTimerID == TimerPipboyCheck
 		PipboyPoseCheck()
+	elseif aiTimerID == TimerUseCamera
+		UseCameraCheck()   ; 2026-11-02a
+	elseif aiTimerID == TimerStaggerOver
+		StaggerOverLine()   ; 2026-11-02a
 	endif
 EndEvent
 
@@ -3026,6 +3143,7 @@ Function FinishRide()
 	SetSlopeLive(false)
 	SetTiltLive(false)
 	CallRam("EndRide")
+	SetRamCombat(false)   ; 2026-11-02a: no fight told while not riding
 	SetHeadlampLive(false)
 	RemoveHeadlamp()
 	if CMB_ParkUpZ
@@ -3771,6 +3889,16 @@ Event OnHit(ObjectReference akTarget, ObjectReference akAggressor, Form akSource
 	if !riding
 		return
 	endif
+	; 2026-11-02a: the ride's hit events and power attacks, every one delivered (the "Hit while riding"
+	; lines are one a second at most): Steady's A/B as a ratio, at getting off (RideWatchesOff). The
+	; registration is one-shot and comes back after the hostile path's wait, so hits within about 0.1 s
+	; of an enemy's are not seen, and with both switches of WatchForHits off none is (the line says so).
+	if akAggressor != PlayerRef
+		rideHits += 1
+		if abPowerAttack
+			ridePowerHits += 1
+		endif
+	endif
 	; 2026-11-01a: any hit starts the reaction window, before the hitGrace return (test 47's episode
 	; A, the rider standing 1.4 s after getting on in a fight, was inside hitGrace).
 	reactionAt = Utility.GetCurrentRealTime()
@@ -3871,6 +3999,17 @@ Event OnAnimationEvent(ObjectReference akSource, string asEventName)
 	if !riding || busy || !riderPoseApplied || poseRetryWaiting || PlayerRef.IsWeaponDrawn()
 		return
 	endif
+	; 2026-11-02a (test 48: in first person 10 re-applies in 20 s, the first-person graph's walk clips'
+	; footsteps): the plugin's [Tilt] PoseFirstPerson writes CMB_RiderPoseOff -1 in first person (the
+	; Pip-Boy's too), where the third-person clips aren't measured; its footsteps are left alone. With
+	; PoseFirstPerson=0 or an older plugin it is never negative: as 2026-11-01a.
+	if CMB_RiderPoseOff && CMB_RiderPoseOff.GetValue() < 0.0
+		if !firstFootSaid
+			firstFootSaid = true
+			Log("Standing footsteps in first person: the first-person clips, not the pose: left alone (the plugin's PoseFirstPerson).")
+		endif
+		return
+	endif
 	if poseRetries >= MaxPoseRetries
 		UnregisterForAnimationEvent(PlayerRef, FootstepEvent)
 		Log("Rider pose still not showing after " + poseRetries + " tries; giving up for this ride.")
@@ -3927,12 +4066,27 @@ EndFunction
 ; while riding, or while the stagger watch says staggered. Its standing clips are a reaction, not
 ; the pose lost, so asWhat (the footstep watch's or CheckRiderPose's word) is left alone; one line
 ; a reaction. Off (0, or an older ESP): never, as 2026-10-31a.
+; 2026-11-02a (test 48: the Pip-Boy check cut an animation mod's stimpak clip 0.6 s into it, its
+; prop held 15 minutes and the camera stuck): first the use window, CMB_PoseUseWindow seconds from
+; when an item's use clip can start (itemAt: the use, or the menu's close), whatever the hit window
+; says; one line an item. 0 or None: as 2026-11-01a.
 bool Function InReaction(string asWhat)
+	float now = Utility.GetCurrentRealTime()
+	if itemAt > now
+		itemAt = -100.0   ; an earlier session's stamp
+	endif
+	float useWin = UseWindow()
+	if useWin > 0.0 && now - itemAt < useWin
+		if itemAt != itemLeft
+			itemLeft = itemAt
+			Log(asWhat + " " + Tenths(now - itemAt) + " s after " + itemWhat + " was used: its use clip, not the pose: left alone.")
+		endif
+		return true
+	endif
 	float window = ReactionWindow()
 	if window <= 0.0
 		return false
 	endif
-	float now = Utility.GetCurrentRealTime()
 	if reactionAt > now
 		reactionAt = -100.0   ; an earlier session's stamp (the real-time clock starts again at each launch)
 	endif
@@ -3957,22 +4111,101 @@ bool Function InReaction(string asWhat)
 	return true
 EndFunction
 
+; 2026-11-02a (test 48: 8 staggers with Steady on, 4 of 4 power attacks): which perk Steady gives, by the
+; console's CMB_RiderSteadyWay: 1 = CMB_RiderSteadyPerk2 (x0, two condition tabs and EPFB 0, as the game's
+; only Mod Incoming Stagger perk; the default), 2 = that perk itself, mod_armor_LessStagger (00245AFE, Add
+; -1: a stagger one step less), by its FormID at runtime, 0 = 2026-11-01a's CMB_RiderSteadyPerk (x0,
+; three tabs). An older ESP (no global, or no second perk): CMB_RiderSteadyPerk, as 2026-11-01a.
+Perk Function SteadyWanted()
+	int way = 0
+	if CMB_RiderSteadyWay
+		way = CMB_RiderSteadyWay.GetValue() as int
+	endif
+	if way == 1 && CMB_RiderSteadyPerk2
+		return CMB_RiderSteadyPerk2
+	elseif way == 2
+		Perk game = Game.GetFormFromFile(0x00245AFE, "Fallout4.esm") as Perk
+		if game
+			return game
+		endif
+	endif
+	return CMB_RiderSteadyPerk
+EndFunction
+
+; The perk's name for the log (its editor ID isn't there at runtime).
+string Function SteadyName(Perk akPerk)
+	if !akPerk
+		return "none"
+	elseif akPerk == CMB_RiderSteadyPerk2
+		return "CMB_RiderSteadyPerk2"
+	elseif akPerk == CMB_RiderSteadyPerk
+		return "CMB_RiderSteadyPerk"
+	endif
+	return "the game's mod_armor_LessStagger (00245AFE)"
+EndFunction
+
+string Function SteadyWayText(Perk akPerk)
+	if akPerk == CMB_RiderSteadyPerk2
+		return "x0, two tabs"
+	elseif akPerk == CMB_RiderSteadyPerk
+		return "2026-11-01a's x0, three tabs"
+	endif
+	return "the game's -1"
+EndFunction
+
+; Steady as it stands, for the stagger and the ride's lines: "on: CMB_RiderSteadyPerk2, x0, two tabs".
+string Function SteadyNow()
+	if steadyGiven
+		return "on: " + SteadyName(steadyGiven) + ", " + SteadyWayText(steadyGiven)
+	elseif steadyKeptSaid
+		return "on: the game's mod_armor_LessStagger, an armour lining's"
+	endif
+	return "off"
+EndFunction
+
 ; Test 47 ("Steady in the saddle", CMB_RiderSteady): a hidden perk, Mod Incoming Stagger x0, on the
 ; player while riding and off them otherwise. Called on getting on, at every ride tick (an MCM change
 ; is taken up mid-ride), on getting off, by the clean-up after it and after a load (a save made
 ; mid-ride carries the perk, and one made off the bike must not). An older ESP (no perk): nothing.
+; 2026-11-02a: the perk SteadyWanted picks. Only the perk this script gave is taken off (steadyGiven):
+; never a game perk already on the player (an armour lining's 00245AFE is left as it is), and either
+; of ours that a save carried, or that a CMB_RiderSteadyWay change left, is taken off when it isn't the
+; one wanted.
 Function UpdateSteady(string asWhy)
 	if !CMB_RiderSteadyPerk
 		return
 	endif
-	bool want = riding && CMB_RiderSteady && CMB_RiderSteady.GetValue() > 0.0
-	bool has = PlayerRef.HasPerk(CMB_RiderSteadyPerk)
-	if want && !has
-		PlayerRef.AddPerk(CMB_RiderSteadyPerk, false)
-		Log("Steady in the saddle: on (" + asWhy + "): hits don't stagger you while riding.")
-	elseif !want && has
+	Perk want = None
+	if riding && CMB_RiderSteady && CMB_RiderSteady.GetValue() > 0.0
+		want = SteadyWanted()
+	endif
+	if steadyGiven && steadyGiven != want
+		PlayerRef.RemovePerk(steadyGiven)
+		Log("Steady in the saddle: off (" + asWhy + "): " + SteadyName(steadyGiven) + " taken off.")
+		steadyGiven = None
+	endif
+	; ours, carried by a save (11-01a's has no steadyGiven) or given before a CMB_RiderSteadyWay change
+	if CMB_RiderSteadyPerk != want && PlayerRef.HasPerk(CMB_RiderSteadyPerk)
 		PlayerRef.RemovePerk(CMB_RiderSteadyPerk)
-		Log("Steady in the saddle: off (" + asWhy + ").")
+		Log("Steady in the saddle: CMB_RiderSteadyPerk taken off (" + asWhy + "): not the one wanted.")
+	endif
+	if CMB_RiderSteadyPerk2 && CMB_RiderSteadyPerk2 != want && PlayerRef.HasPerk(CMB_RiderSteadyPerk2)
+		PlayerRef.RemovePerk(CMB_RiderSteadyPerk2)
+		Log("Steady in the saddle: CMB_RiderSteadyPerk2 taken off (" + asWhy + "): not the one wanted.")
+	endif
+	if want && !steadyGiven
+		if PlayerRef.HasPerk(want)
+			if want == CMB_RiderSteadyPerk || want == CMB_RiderSteadyPerk2
+				steadyGiven = want   ; ours from a save: ours to take off
+			elseif !steadyKeptSaid
+				steadyKeptSaid = true
+				Log("Steady in the saddle: " + SteadyName(want) + " is on the player already (an armour lining's): left as it is.")
+			endif
+		else
+			PlayerRef.AddPerk(want, false)
+			steadyGiven = want
+			Log("Steady in the saddle: on (" + asWhy + "): " + SteadyName(want) + " (" + SteadyWayText(want) + ").")
+		endif
 	endif
 EndFunction
 
@@ -3997,6 +4230,23 @@ Function RideWatchesOff()
 		PlayerRef.RemoveSpell(CMB_StaggerWatchAbility)
 	endif
 	staggered = false
+	; 2026-11-02a: a camera check still to come is moot; a stagger's end still to tell is told now;
+	; the ride's counts (Steady's A/B: way 1 ideally 0 staggers, power attacks included); no menu open,
+	; no item in one.
+	CancelTimer(TimerUseCamera)
+	CancelTimer(TimerStaggerOver)
+	if staggerOverPending
+		staggerOverPending = false
+		Log("Staggered while riding: the stagger over after " + Tenths(staggerLasted) + " s.")
+	endif
+	if CMB_DismountOnHit.GetValue() > 0.0 || ReactionWindow() > 0.0
+		Log("Hit events this ride: " + rideHits + " (" + ridePowerHits + " power attacks; one at a time: hits within about a tenth of a second of an enemy's are not seen), staggers " + rideStaggers + " (Steady " + SteadyNow() + ").")
+	else
+		Log("Hits this ride: not watched (Thrown off when hit and the pose pause both off), staggers " + rideStaggers + " (Steady " + SteadyNow() + ").")
+	endif
+	itemInMenu = false
+	riderMenuOpen = false
+	steadyKeptSaid = false
 EndFunction
 
 ; Test 47 ("using stim on bike ... like a skirt"): an item used while riding. Potions only (the
@@ -4013,6 +4263,16 @@ Event Actor.OnItemEquipped(Actor akSender, Form akBaseObject, ObjectReference ak
 		itemLoggedAt = now
 		Log("Used " + akBaseObject + " while riding.")
 	endif
+	; 2026-11-02a: the use window (and the plugin's signal, CMB_RiderItemUse) from when its use clip can
+	; start: an animation mod plays it after the menus close, so an item used in the Pip-Boy or the
+	; favourites is timed from that close (RiderMenu), one used outside them from now (another menu, the
+	; console's say, has no close watched: from now too).
+	itemWhat = "" + akBaseObject
+	if riderMenuOpen
+		itemInMenu = true
+	else
+		ItemSignal("")
+	endif
 EndEvent
 
 ; Test 47: the Pip-Boy and the favourites while riding, log only; and 0.6 s after the Pip-Boy
@@ -4026,6 +4286,16 @@ Function RiderMenu(string asMenuName, bool abOpening)
 		what = "Favourites"
 	endif
 	Log(what + Ternary(abOpening, " opened", " closed") + " while riding.")
+	; 2026-11-02a: an item used in it is timed from this close (ItemSignal); with the use window on, no
+	; Pip-Boy check for this close: the clips off the seat after it are the item's use clip.
+	riderMenuOpen = abOpening
+	if !abOpening && itemInMenu
+		itemInMenu = false
+		ItemSignal("in the " + what)
+		if UseWindow() > 0.0
+			return
+		endif
+	endif
 	if asMenuName == PipboyMenuName
 		if abOpening
 			CancelTimer(TimerPipboyCheck)
@@ -4048,10 +4318,180 @@ Function PipboyPoseCheck()
 	if off <= PipboyPoseOff || poseRetries >= MaxPoseRetries || PlayerRef.IsWeaponDrawn()
 		return
 	endif
+	; 2026-11-02a: through InReaction with the use window on (an item used outside the Pip-Boy shortly
+	; before it was opened; one used in it skips this check: RiderMenu). 0: as 2026-11-01a.
+	if UseWindow() > 0.0 && InReaction("The Pip-Boy closed and the clips are off the seat")
+		return
+	endif
 	poseRetryWaiting = true
 	StartTimer(PoseRetryInterval, TimerPoseRetry)
 	poseRetries += 1
 	SwitchToRiderFlavor("the Pip-Boy closed and the clips are off the seat for " + Tenths(off) + " s: applying the rider pose again, try " + poseRetries)
+EndFunction
+
+; ---------------------------------------------------------------------------
+; 2026-11-02a (test 48): the item-use window, the camera after a use, the stagger's end
+; ---------------------------------------------------------------------------
+
+int Property TimerUseCamera = 50 AutoReadOnly
+float Property UseCameraDelay = 6.0 AutoReadOnly
+{2026-11-02a (test 48: the camera stuck after the first stimpak, its switch and zoom gone for 14 s till
+getting off): the camera is looked at this long after an item's use clip can start (ItemSignal), log
+only ("After ... was used: the camera switch on, looking on, moving on, the camera state 8"), retried
+every UseCameraRetry while a menu is open, UseCameraMaxTries at most; with CMB_UseCameraFix 1 a stuck one
+is put right (UseCameraCheck).}
+float Property UseCameraRetry = 1.0 AutoReadOnly
+int Property UseCameraMaxTries = 10 AutoReadOnly
+float Property UseCameraRecheck = 2.0 AutoReadOnly
+{After the view is entered again, looked at once more this long later: still held, a notification
+(once a ride) tells the way out, getting off and on.}
+int Property TimerStaggerOver = 51 AutoReadOnly
+float Property StaggerOverDelay = 0.5 AutoReadOnly
+{2026-11-02a (pose.md 1.5): the plugin's reading of the clips (CMB_RiderPoseOff) this long after a
+stagger's end, for its line: back on the seat by themselves (all 8 of test 48's), or still off.}
+
+; The console's CMB_PoseUseWindow (6; 0 or an older ESP: 0, as 2026-11-01a).
+float Function UseWindow()
+	if !CMB_PoseUseWindow
+		return 0.0
+	endif
+	return CMB_PoseUseWindow.GetValue()
+EndFunction
+
+; The console's CMB_UseCameraFix (1; 0 or an older ESP: 0, no recovery).
+int Function UseCameraFix()
+	if !CMB_UseCameraFix
+		return 0
+	endif
+	return CMB_UseCameraFix.GetValue() as int
+EndFunction
+
+; An item's use clip may start now (asWhere: "in the Pip-Boy", "in the Favourites"; "" for a use
+; outside them): the use window from now (InReaction), the plugin's signal (CMB_RiderItemUse, a count
+; 1-999, then 1 again: its [Tilt] UseLetGo lets go of the hands while the clip plays) and the camera's
+; check UseCameraDelay on.
+Function ItemSignal(string asWhere)
+	itemAt = Utility.GetCurrentRealTime()
+	if CMB_RiderItemUse
+		int n = (CMB_RiderItemUse.GetValue() as int) % 999 + 1
+		CMB_RiderItemUse.SetValue(n as float)
+	endif
+	if UseWindow() > 0.0 && asWhere != ""
+		Log("Used " + itemWhat + " " + asWhere + ": its use clip may follow: the pose left alone for " + Tenths(UseWindow()) + " s.")
+	endif
+	useCameraTries = 0
+	useCameraFixed = false
+	StartTimer(UseCameraDelay, TimerUseCamera)
+EndFunction
+
+; F4SE's camera state through CMB_HotkeyF4SE (this script runs without F4SE): 0 first person, 7 and 8
+; third person (F4SE's Game.psc lists the rest); -2 without the helper.
+int Function CameraState()
+	ScriptObject hotkey = CastAs("CMB_HotkeyF4SE")
+	if !hotkey
+		return -2
+	endif
+	return hotkey.CallFunction("CameraState", new Var[0]) as int
+EndFunction
+
+; The game's own camera views, which nothing stuck makes (F4SE's GameCamera states): 1 auto vanity, 2
+; VATS, 3 free, 4 iron sights or a scope, 6 the tween menu, 11 bleedout, 12 dialogue.
+bool Function GameCameraView(int aiState)
+	return aiState == 1 || aiState == 2 || aiState == 3 || aiState == 4 || aiState == 6 || aiState == 11 || aiState == 12
+EndFunction
+
+string Function CameraStateText(int aiState)
+	if aiState == -2
+		return "unknown (no F4SE helper)"
+	elseif aiState == 0
+		return "0 (first person)"
+	elseif aiState == 7 || aiState == 8
+		return aiState + " (third person)"
+	endif
+	return aiState + " (neither first nor third person)"
+EndFunction
+
+; UseCameraDelay after an item's use: the camera's switch, looking and moving controls and its
+; state, logged. With CMB_UseCameraFix 1, outside menus and the game's own views, a camera whose
+; switch is off or stuck in a transition, furniture or mount state (5, 9, 10) has its view entered
+; again, which resets the camera's state machine (no flavour switch: that was test 48's fault);
+; UseCameraRecheck later, still held means another mod's input layer, which no script can release: a
+; notification (once a ride) tells the way out. 0: the line only. The game's own views (1 auto
+; vanity, 2 VATS, 3 free, 4 iron sights or a scope, 6 the tween menu, 11 bleedout, 12 dialogue) are
+; waited out like a menu, at the check and at the recheck: never forced.
+Function UseCameraCheck()
+	if !riding
+		return
+	endif
+	if Utility.IsInMenuMode()
+		useCameraTries += 1
+		if useCameraTries < UseCameraMaxTries
+			StartTimer(UseCameraRetry, TimerUseCamera)
+		else
+			Log("After " + itemWhat + " was used: the camera not looked at (a menu open " + useCameraTries + " times).")
+		endif
+		return
+	endif
+	bool camSwitch = Game.IsCamSwitchControlsEnabled()
+	int camState = CameraState()
+	if GameCameraView(camState)
+		useCameraTries += 1
+		if useCameraTries < UseCameraMaxTries
+			StartTimer(UseCameraRetry, TimerUseCamera)
+		else
+			useCameraFixed = false
+			Log("After " + itemWhat + " was used: the camera in the game's own view, state " + camState + ": not looked at (" + useCameraTries + " times).")
+		endif
+		return
+	endif
+	string line = "the camera switch " + Ternary(camSwitch, "on", "OFF") + ", looking " + Ternary(Game.IsLookingControlsEnabled(), "on", "OFF") + ", moving " + Ternary(Game.IsMovementControlsEnabled(), "on", "OFF") + ", the camera state " + CameraStateText(camState)
+	bool stuck = !camSwitch || camState == 5 || camState == 9 || camState == 10
+	if useCameraFixed
+		useCameraFixed = false
+		if !stuck
+			Log("After " + itemWhat + " was used, " + Tenths(UseCameraRecheck) + " s after the view was entered again: " + line + ": free.")
+			return
+		endif
+		Log("After " + itemWhat + " was used, " + Tenths(UseCameraRecheck) + " s after the view was entered again: " + line + ": still held (another mod's input layer: getting off and on frees it).")
+		if !useCameraNoted
+			useCameraNoted = true
+			Debug.Notification("An item animation still holds the camera: get off and on to free it.")
+		endif
+		return
+	endif
+	Log("After " + itemWhat + " was used: " + line + ".")
+	if !stuck || UseCameraFix() < 1
+		return
+	endif
+	if camState == 0
+		Game.ForceFirstPerson()
+	else
+		Game.ForceThirdPerson()
+	endif
+	useCameraFixed = true
+	Log("After " + itemWhat + " was used: " + Ternary(camSwitch, "the camera state stuck", "the camera switch off") + " with no use clip left to play: the view entered again (CMB_UseCameraFix 1).")
+	StartTimer(UseCameraRecheck, TimerUseCamera)
+EndFunction
+
+; StaggerOverDelay after a stagger's end: its line, with the plugin's reading of the clips (pose.md
+; 1.5: a re-seat would only be safe now, and test 48 shows none is needed; none is made).
+Function StaggerOverLine()
+	if !staggerOverPending
+		return
+	endif
+	staggerOverPending = false
+	string seat = ""
+	if CMB_RiderPoseOff
+		float off = CMB_RiderPoseOff.GetValue()
+		if off < 0.0
+			seat = "; in first person (the clips not measured there)"
+		elseif off <= 0.0
+			seat = "; the clips back on the seat by themselves"
+		else
+			seat = "; the clips still off the seat for " + Tenths(off) + " s (CheckRiderPose takes it at CMB_PoseOffAfter)"
+		endif
+	endif
+	Log("Staggered while riding: the stagger over after " + Tenths(staggerLasted) + " s" + seat + ".")
 EndFunction
 
 ; A load off the bike (OnGameReloaded): nothing a save made mid-ride, or an older build's, carries
@@ -4072,15 +4512,29 @@ Function LoadedOffTheBike()
 	endif
 EndFunction
 
-; Once per fight, when weapons are off while riding: say how to get off.
+; Once per fight, when weapons are off while riding: say how to get off. 2026-11-02a: also every tick
+; (TickInterval, 1 s) the player's combat for the plugin's [Ram] PendingFoe=2 (CMB_RamCombat).
 Function CombatHint()
-	if !PlayerRef.IsInCombat()
+	bool fighting = PlayerRef.IsInCombat()   ; the one call, as before
+	SetRamCombat(fighting)
+	if !fighting
 		combatHinted = false
 	elseif !combatHinted
 		combatHinted = true
 		if CMB_AllowCombat.GetValue() == 0.0
 			Debug.Notification("You're in a fight! Use the Motorbike Keys (or your hotkey) to get off.")
 		endif
+	endif
+EndFunction
+
+; 2026-11-02a (test 48: 10 brakes for knock-over asks pending at the front wheel, 4 of them first asks
+; deep in a fight): CMB_RamCombat 1 while the player is in combat, written only when it changes (and
+; logged then), read by CMB_Slope.dll's [Ram] PendingFoe=2: a medium race whose ask is pending at the
+; wheel is passed. False on getting off. An older ESP (None): never written, PendingFoe=2 acts as 1.
+Function SetRamCombat(bool abOn)
+	if CMB_RamCombat && (CMB_RamCombat.GetValue() > 0.5) != abOn
+		CMB_RamCombat.SetValue(abOn as float)
+		Log("Ram: the player " + Ternary(abOn, "in combat", "out of combat") + " (CMB_RamCombat " + (abOn as int) + ").")
 	endif
 EndFunction
 
@@ -4853,6 +5307,67 @@ float Function FxVolume()
 	return v
 EndFunction
 
+; 2026-11-02a (test 48: the landing and water sounds played and went unheard): our own sound records over
+; the game's files (Fx_Own_Records), MCM "Bike sounds through the mod's own records". Off, or an ESP
+; without them: the game's own records (the borrowed lists), as the 2026-11-01a build. Read at each
+; landing, and for the water loop on getting on.
+bool Function FxOwn()
+	return CMB_FxOwnSounds && CMB_FxOwnSounds.GetValue() != 0.0
+EndFunction
+
+; aiKind 0 the landing set, 1 the second set, 2 the water loops; abOwn our records or the game's.
+; None for one the ESP hasn't.
+FormList Function FxList(int aiKind, bool abOwn)
+	if abOwn
+		if aiKind == 0
+			return CMB_FxLandSoundsOwn
+		elseif aiKind == 1
+			return CMB_FxLandSoundsAltOwn
+		endif
+		return CMB_FxWaterLoopsOwn
+	elseif aiKind == 0
+		return CMB_FxLandSounds
+	elseif aiKind == 1
+		return CMB_FxLandSoundsAlt
+	endif
+	return CMB_FxWaterLoops
+EndFunction
+
+; The set a landing plays from: ours unless CMB_FxOwnSounds is 0 or the ESP has none; CMB_FxLandPick
+; 1 the second set (the game's second set, or the first, as before, when there's no own one).
+FormList Function FxLandSet()
+	int kind = 0
+	if CMB_FxLandPick && CMB_FxLandPick.GetValue() == 1.0
+		kind = 1
+	endif
+	FormList set = None
+	if FxOwn()
+		set = FxList(kind, true)
+	endif
+	if !set
+		set = FxList(kind, false)
+	endif
+	if !set
+		set = CMB_FxLandSounds
+	endif
+	return set
+EndFunction
+
+; MCM "Landing loudness range (dB)": the softest landing this many dB under the hardest, 0-60 (10;
+; the 2026-11-01a build's 18, FxLandFloorDb, without the global).
+float Function FxLandRange()
+	if !CMB_FxLandRange
+		return -FxLandFloorDb
+	endif
+	float r = CMB_FxLandRange.GetValue()
+	if r < 0.0
+		return 0.0
+	elseif r > 60.0
+		return 60.0
+	endif
+	return r
+EndFunction
+
 ; On getting on and after a load into a ride. The water loop starts from the engine's start timer,
 ; after StartEngineLoops (its wait outside busy), and after the load's StartEngineLoops.
 Function FxStartRide()
@@ -4967,18 +5482,27 @@ Function LandingCue(string asEventName)
 		if level < 0.0
 			level = FxLandDefault
 		endif
-		PlayLanding(level, asEventName)
+		int played = PlayLanding(level, asEventName)
 		if CMB_FxLandPlayed
-			CMB_FxLandPlayed.SetValue(seq as float)
+			; 2026-11-02a: minus the flight's number for a level-0 cue (nothing played; the plugin's line
+			; says "silent by the script (level 0)", where test 48's 7 such cues read "played").
+			if played == 0
+				CMB_FxLandPlayed.SetValue(-(seq as float))
+			else
+				CMB_FxLandPlayed.SetValue(seq as float)
+			endif
 		endif
 	endif
 	fxCueBusy = false
 EndFunction
 
 ; afLevel 0-1 from the fall's speed, 2-3 into water. The volume: the bike effects volume x
-; 10^(FxLandFloorDb x (1 - level) / 20); the light thump under FxLandHeavy, the heavy one from it,
-; and the clunk on top from FxLandBig; into water the splash, or the heavy one from FxLandBig.
-Function PlayLanding(float afLevel, string asCue)
+; 10^(-range x (1 - level) / 20), the range the MCM's (FxLandRange: 10 dB; 18 = FxLandFloorDb, the
+; 2026-11-01a build); the light thump under FxLandHeavy, the heavy one from it, and the clunk on top
+; from FxLandBig; into water the splash, or the heavy one from FxLandBig. Through our own records
+; or the game's (FxLandSet). Returns 1 when it played, 0 at level 0 (nothing to play: the silent
+; cue), -1 for nothing played otherwise (the bike effects volume 0).
+int Function PlayLanding(float afLevel, string asCue)
 	float fx = FxVolume()
 	bool water = afLevel >= 2.0
 	float level = afLevel
@@ -4988,14 +5512,15 @@ Function PlayLanding(float afLevel, string asCue)
 	if level > 1.0
 		level = 1.0
 	endif
-	if fx <= 0.0 || level <= 0.0
-		return
+	if level <= 0.0
+		return 0
+	elseif fx <= 0.0
+		return -1
 	endif
-	FormList set = CMB_FxLandSounds
-	if CMB_FxLandPick && CMB_FxLandPick.GetValue() == 1.0 && CMB_FxLandSoundsAlt
-		set = CMB_FxLandSoundsAlt
-	endif
-	float volume = fx * Math.Pow(10.0, FxLandFloorDb * (1.0 - level) / 20.0)
+	FormList set = FxLandSet()
+	bool own = set && (set == CMB_FxLandSoundsOwn || set == CMB_FxLandSoundsAltOwn)
+	float range = FxLandRange()
+	float volume = fx * Math.Pow(10.0, -range * (1.0 - level) / 20.0)
 	int first = 0
 	if water
 		first = 3
@@ -5010,7 +5535,10 @@ Function PlayLanding(float afLevel, string asCue)
 	if !water && level >= FxLandBig
 		extra = FxPlay(set.GetAt(2) as Sound, volume * Math.Pow(10.0, FxClunkDb / 20.0))
 	endif
-	Log("Bike sounds: landing (" + asCue + ") at level " + Hundredths(level) + Ternary(water, " into water", "") + ": sound " + first + " instance " + id + Ternary(extra > 0, ", the clunk " + extra, "") + ", volume " + Thousandths(volume) + ".")
+	int r = (range + 0.5) as int
+	string article = Ternary(r == 8 || r == 11 || r == 18, "an ", "a ")
+	Log("Bike sounds: landing (" + asCue + ") at level " + Hundredths(level) + Ternary(water, " into water", "") + " (" + Ternary(own, "our records", "the game's records") + ", " + article + r + " dB range): sound " + first + " instance " + id + Ternary(extra > 0, ", the clunk " + extra, "") + ", volume " + Thousandths(volume) + ".")
+	return 1
 EndFunction
 
 int Function FxPlay(Sound akSound, float afVolume)
@@ -5035,14 +5563,20 @@ Function FxStartWaterLoop()
 		return
 	endif
 	int set = fxWaterSet
+	; 2026-11-02a: our own loops over the game's files unless CMB_FxOwnSounds is 0 or the ESP has none
+	FormList loops = CMB_FxWaterLoops
+	if FxOwn() && CMB_FxWaterLoopsOwn
+		loops = CMB_FxWaterLoopsOwn
+	endif
+	string records = Ternary(loops == CMB_FxWaterLoopsOwn, " (our records)", " (the game's records)")
 	int pick = 0
 	if CMB_FxWaterPick
 		pick = CMB_FxWaterPick.GetValue() as int
 	endif
-	if pick < 0 || pick >= CMB_FxWaterLoops.GetSize()
+	if pick < 0 || pick >= loops.GetSize()
 		pick = 0
 	endif
-	Sound loop = CMB_FxWaterLoops.GetAt(pick) as Sound
+	Sound loop = loops.GetAt(pick) as Sound
 	if !loop
 		return
 	endif
@@ -5058,7 +5592,7 @@ Function FxStartWaterLoop()
 		if id > 0
 			Sound.StopInstance(id)
 		endif
-		Log("Bike sounds: the water loop " + pick + " didn't play (instance " + id + ").")
+		Log("Bike sounds: the water loop " + pick + records + " didn't play (instance " + id + ").")
 		return
 	endif
 	Sound.SetInstanceVolume(id, 0.0)
@@ -5073,7 +5607,7 @@ Function FxStartWaterLoop()
 		if fxWaterLoop != id
 			return   ; a ride end (or a newer start) has stopped it
 		elseif answer == (id as float)
-			Log("Bike sounds: the plugin drives the water loop " + pick + " (instance " + id + ", poll " + poll + ").")
+			Log("Bike sounds: the plugin drives the water loop " + pick + records + " (instance " + id + ", poll " + poll + ").")
 			return
 		elseif answer == -(id as float)
 			Log("Bike sounds: the plugin declined the water loop (see its log): stopped.")
@@ -5113,28 +5647,119 @@ Function FxWaterTick()
 	endif
 EndFunction
 
-; Console: cqf CMB_ControllerQuest FxAudition 3 plays a candidate on the player at the bike effects
-; volume (100 if it's 0): 0-4 the landing set, 10-14 the alternative set, 20 and up the water loops
-; (FxAuditionLoop s each). Instance 0: it didn't play (a condition, or not a sound).
+; 2026-11-02a (test 48: every audition was typed with the console open, and the console pauses the
+; game: all of them played into the pause, none was heard).
+float Property FxAuditionDelay = 0.5 AutoReadOnly
+{An audition plays this long after the menus close (Utility.Wait's timer doesn't run in menu mode).}
+float Property FxAuditionGap = 2.5 AutoReadOnly
+{Auditions typed together play this far apart, in the order typed; so do the sounds of -1 and -2.}
+int fxAuditionQueued = 0   ; the slots auditions waiting or playing hold: the next one typed takes the slot after them
+
+; Console: cqf CMB_ControllerQuest FxAudition N, then close the console: it plays FxAuditionDelay s after
+; the menus close, those typed together FxAuditionGap s apart in the order typed. 0-4 the landing set,
+; 10-14 the second set, 20-23 the water loops (FxAuditionLoop s each), through our own records; the
+; same plus 100 (100-104, 110-114, 120-123) through the game's own records, the 2026-11-01a build's.
+; -1: every one of ours in turn (14, about 47 s), -2: every one of the game's; each holds the queue's
+; slots for its whole sequence, so one typed with it starts after it. At the bike effects volume (100
+; if it's 0). Instance 0: it didn't play (a file that didn't resolve, a condition, or not a sound).
 Function FxAudition(int aiWhich)
+	int slots = 1
+	if aiWhich == -1 || aiWhich == -2
+		slots = ((14.0 * FxAuditionGap + 4.0 * FxAuditionLoop) / FxAuditionGap) as int + 1   ; 19: its 47 s in gaps, rounded up
+	endif
+	int slot = fxAuditionQueued   ; claimed before any call (a call lets another audition's thread run): the order kept
+	fxAuditionQueued += slots
+	bool menu = Utility.IsInMenuMode()
+	float wait = FxAuditionDelay + slot * FxAuditionGap
+	if menu
+		Log("Bike sounds: audition " + aiWhich + ": waiting for the menus to close (the console pauses the game); it plays " + Hundredths(wait) + " s after.")
+	endif
+	Utility.Wait(wait)
+	if slots == 1
+		fxAuditionQueued -= 1
+	endif
+	if aiWhich == -1 || aiWhich == -2
+		int kind = 0
+		while kind < 3
+			int n = 5
+			if kind == 2
+				n = 4
+			endif
+			int i = 0
+			while i < n
+				FxAuditionOne(kind, i, aiWhich == -1, menu)
+				Utility.Wait(FxAuditionGap)
+				i += 1
+			endwhile
+			kind += 1
+		endwhile
+		fxAuditionQueued -= slots   ; the sequence over: its slots given back
+		return
+	endif
+	int code = aiWhich % 100
+	int set = code / 10
+	int slotIn = code % 10
+	if aiWhich < 0 || aiWhich >= 200 || set > 2 || slotIn > 4 || (set == 2 && slotIn > 3)
+		Log("Bike sounds: audition " + aiWhich + ": no such sound (0-4, 10-14, 20-23 ours; 100 more the game's; -1 all of ours, -2 all of the game's).")
+		return
+	endif
+	FxAuditionOne(set, slotIn, aiWhich < 100, menu)
+EndFunction
+
+; One audition: our record or the game's for that list's slot, at the bike effects volume (100 if it's
+; 0), its line, a water loop stopped after FxAuditionLoop s.
+Function FxAuditionOne(int aiKind, int aiSlot, bool abOwn, bool abAfterMenu)
 	float fx = FxVolume()
 	if fx <= 0.0
 		fx = 1.0
 	endif
+	FormList list = FxList(aiKind, abOwn)
 	Sound s = None
-	if aiWhich >= 20 && CMB_FxWaterLoops
-		s = CMB_FxWaterLoops.GetAt(aiWhich - 20) as Sound
-	elseif aiWhich >= 10 && aiWhich < 20 && CMB_FxLandSoundsAlt
-		s = CMB_FxLandSoundsAlt.GetAt(aiWhich - 10) as Sound
-	elseif aiWhich >= 0 && aiWhich < 10 && CMB_FxLandSounds
-		s = CMB_FxLandSounds.GetAt(aiWhich) as Sound
+	if list && aiSlot < list.GetSize()
+		s = list.GetAt(aiSlot) as Sound
 	endif
 	int id = FxPlay(s, fx)
-	Log("Bike sounds: audition " + aiWhich + ": " + s + " instance " + id + ".")
-	if id > 0 && aiWhich >= 20
+	int code = aiKind * 10 + aiSlot
+	if !abOwn
+		code += 100
+	endif
+	Log("Bike sounds: audition " + code + " (" + Ternary(abOwn, "our record", "the game's record") + ", " + FxSlotName(aiKind, aiSlot) + "): " + s + " instance " + id + ", volume " + Thousandths(fx) + Ternary(abAfterMenu, ", after the menus closed", "") + ".")
+	if id > 0 && aiKind == 2
 		Utility.Wait(FxAuditionLoop)
 		Sound.StopInstance(id)
 	endif
+EndFunction
+
+; The slots' names for the audition lines (the lists' order).
+string Function FxSlotName(int aiKind, int aiSlot)
+	if aiKind == 2
+		if aiSlot == 0
+			return "spray"
+		elseif aiSlot == 1
+			return "large spray"
+		elseif aiSlot == 2
+			return "stream"
+		endif
+		return "churn"
+	elseif aiSlot == 0
+		return "light tyre"
+	elseif aiKind == 1
+		if aiSlot == 1
+			return "heavy thud"
+		elseif aiSlot == 2
+			return "barrel clunk"
+		elseif aiSlot == 3
+			return "medium splash"
+		endif
+		return "heavy water thud"
+	elseif aiSlot == 1
+		return "heavy tyre"
+	elseif aiSlot == 2
+		return "clunk"
+	elseif aiSlot == 3
+		return "splash"
+	endif
+	return "heavy splash"
 EndFunction
 
 ; A value of 0 or more to two decimals ("0.47"), to three ("0.298"): Papyrus prints six.
