@@ -1,5 +1,5 @@
 # engine_model.py --check-off: the 2026-11-01a build's model (993f582's tools/sound/engine_model.py) over these rides,
-# run with {"IdleDb": -17.2}; each frame as check_frames() writes it, 500 frames a hash (sha256's first 16).
+# run with {"IdleDb": -17.2, "ShiftTime": 0.35, "ShiftDipTime": 0.24, "LaunchFlare": 0.0}; each frame as check_frames() writes it, 500 frames a hash (sha256's first 16).
 ride demo frames 1860 changes 10
 blocks demo 8358b492ab3119a1 720e0c6fe212a70c 45f93d8e1bcf5a6d c852babec51ebbd5
 change demo 589 1->2 2597

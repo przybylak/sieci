@@ -17,7 +17,8 @@ sh tools/sound/run_all.sh <demodave's idle.wav> [out dir]          # everything,
 | `hot_loops.py` | The last stage, since test 45's answer: every one of the 13 files 2.5 dB hotter, its peaks rounded off by a memoryless soft limiter (knee -6 dBFS, ceiling -1). See *Hotter loops* below. |
 | `engine_model.py` | The engine model: rpm, gear, load, and each loop's pitch and level, frame by frame. The plugin's C port follows it, and every constant's measured basis is in its `DEFAULTS`. Since test 45's build the gears follow a "heard speed" with a real ride's limits rather than the game's bike (`HeardSpeed` and the keys after it); since the 2026-11-01a build a stop shifts down with blips (`StopShift`); since the 2026-11-02a build the idle is louder (`IdleDb` -11, -17.2 before: test 48's "make it louder when idle"). `--check-off` checks its off values against the 2026-10-31a and 2026-11-01a builds' frames (`check_off_2026-10-31a.txt`, `check_off_2026-11-01a.txt`). |
 | `render.py` | Renders the demo ride, or a recorded one (`--ride`), through the model and a loop set, the way the game plays it. Writes a WAV and CSVs of the model's state. |
-| `run_all.sh` | Runs all of the above, end to end. |
+| `make_water_loop.py` | Since the 2026-11-06a build: the mod's own wet-road water loop, `CMB_FxWaterRoadLP.wav`, from the tester's example 1 (see *The wet road* below), with `water.json` and its listen-free checks. |
+| `run_all.sh` | Runs all of the above, end to end (the wet road with `WATER=`). |
 | `make_engine_sounds.py` | The old synthesiser: the fallback set (see below). |
 
 Every tool runs isolated (`python3 -I`) with its files as arguments. It needs Python 3 and numpy, nothing else.
@@ -35,6 +36,10 @@ Every tool runs isolated (`python3 -I`) with its files as arguments. It needs Py
   use, no attribution needed, but the raw file may not be passed on as it is).
   - It gave the earlier set its on-load loops.
   - Nothing of it is in this set, and none of these tools reads it.
+- **freesound_community, "Cars driving on a wet road 3"**, Pixabay 101246 (test 49's tester's example 1). Licence:
+  **Pixabay Content License** (as spinopel's). `make_water_loop.py` cuts three stretches of it into the mod's own wet-road
+  loop; the recording and the loop stay out of the repository. Check the file's Pixabay page before a package ships the
+  loop (the licence shown, and whether it names a Freesound original and its author, who then gets the credit).
 
 **The reference rides** are three on-board videos of an Iron 883 (`daily`, `autumn`, `paris` in the comments). They are
 someone else's recordings, and they are only measured. The tools store what was measured as plain numbers:
@@ -153,6 +158,12 @@ python3 -I tools/sound/render.py --loops <loops> --out ride.wav --ride ride.csv
   every state, so a roll-off to a stop stays at -6.0 dB instead of sinking to -12.2; the cruise and every pull are as
   before. `render.py` scales its start and stop sounds to meet the model's idle, so in the renders they now sit 6.2 dB
   higher, where the game plays them (the files as made, which the game doesn't scale).
+- The 2026-11-02a build's model is `--cfg '{"IdleDb": -11, "ShiftTime": 0.35, "ShiftDipTime": 0.24, "LaunchFlare": 0}'`. The
+  2026-11-06a build (test 49: "idle could be a slightly louder", "gear sound should be longer on each shift", "I just want
+  take off to be faster"): `IdleDb` -9, the idle at -4.0 dB, level with the cruise (a let-off at the cruise keeps its level);
+  `ShiftTime` 0.55 and `ShiftDipTime` 0.4, the off family through 0.55 s of each gap, the shift points as before; and a launch
+  rev, `LaunchFlare` 0.5 over `LaunchFlareTime` 1.2 s: a press in 1st revs the slip by up to half over itself, 1938 rpm and
+  -1.1 dB at +0.5 s in the harness's game where the 2026-11-02a build had 1432 and -5.2; the gears as before.
 - The CSV (`ride.csv`, 10 rows a second) gives the gear, rpm, load, on-family weight, clutch, shift and coast state,
   and the level. `ride_frames.csv` gives every frame's gain and pitch per loop.
 
@@ -160,24 +171,54 @@ python3 -I tools/sound/render.py --loops <loops> --out ride.wav --ride ride.csv
 
 ```
 python3 -I tools/sound/engine_model.py --check-off                       # 0 if each build's off values give its frames
-python3 -I tools/sound/engine_model.py --check-off --off 01a             # only the 2026-11-01a build's
+python3 -I tools/sound/engine_model.py --check-off --off 02a             # only the 2026-11-02a build's
 python3 -I tools/sound/engine_model.py --check-off --against <old model> --off 01a   # frame by frame against another file
 ```
 
 `--check-off` runs the model over the demo ride, a random ride of 60 segments in the harness's game and five stops (44,136
-frames) twice, once with each earlier build's off values, and compares each frame (the gear, the rpm, the clutch, the heard
+frames) three times, once with each earlier build's off values, and compares each frame (the gear, the rpm, the clutch, the heard
 level and every loop's gain and pitch, exactly) with that build's file, 500 frames a hash, and its gear changes:
 
 | `--off` | the off values | the file | written from |
 |---|---|---|---|
-| `31a` | `StopShift=0`, `ShiftDraw` 2000,2900, `IdleDb` -17.2 | `check_off_2026-10-31a.txt` | 0c3df02's `engine_model.py` |
-| `01a` | `IdleDb` -17.2 | `check_off_2026-11-01a.txt` | 993f582's `engine_model.py` |
+| `31a` | `StopShift=0`, `ShiftDraw` 2000,2900, `IdleDb` -17.2 (and the later builds' `ShiftTime` 0.35, `ShiftDipTime` 0.24, `LaunchFlare` 0) | `check_off_2026-10-31a.txt` | 0c3df02's `engine_model.py` |
+| `01a` | `IdleDb` -17.2 (and the same three) | `check_off_2026-11-01a.txt` | 993f582's `engine_model.py` |
+| `02a` | `IdleDb` -11, `ShiftTime` 0.35, `ShiftDipTime` 0.24, `LaunchFlare` 0 | `check_off_2026-11-02a.txt` | f0253e8's `engine_model.py` |
 
-It prints each ride's count and one line a build, `check-off: the same, frame for frame over 44136 frames (IdleDb=-17.2
-against the 2026-11-01a build's model)`, and exits 1 if any frame differs. Each file is written from that build's own model
+It prints each ride's count and one line a build, `check-off: the same, frame for frame over 44136 frames (IdleDb=-11,
+ShiftTime=0.35, ShiftDipTime=0.24, LaunchFlare=0 against the 2026-11-02a build's model)`, and exits 1 if any frame differs. Each file is written from that build's own model
 (`git show 993f582:tools/sound/engine_model.py > old.py`, then `--write-expected old.py --off 01a`). The 2026-10-31a file's
 hashes are 0c3df02's, whose own `IdleDb` was -17.2; only its header's off values gained `IdleDb` (rewritten the same way with
-`--off 31a`: every other line the same).
+`--off 31a`: every other line the same). The 2026-11-06a build's three keys were the same in 0c3df02's and 993f582's models
+(ShiftTime 0.35, ShiftDipTime 0.24, no launch rev), so both older files' hashes stand; only their headers' off values gained
+the three. The 2026-11-02a file is f0253e8's (`--write-expected old.py --off 02a`).
+
+### The wet road (the 2026-11-06a build)
+
+```
+ffmpeg -i <the mp3> -c:a pcm_s16le ex1.wav                                    # in a new, empty folder
+python3 -I -B tools/sound/make_water_loop.py --ex1 ex1.wav --out <dir>       # CMB_FxWaterRoadLP.wav and water.json
+```
+
+Test 49's tester heard the water loop of the 2026-11-02a build (the game's small waterfall splatter, pitched up 15 %, 76 %
+of it above 4 kHz) as "frying or crumpling foil" and sent two recordings of cars on a wet road. Example 1 is steady traffic:
+a smooth hiss with no crackle, centroid about 1.86 kHz. The tool takes its three clean stretches (0.30-3.10, 4.40-8.10 and
+9.60-11.90 s: not the start, a 1.35-1.70 kHz tone at 3.2-4.2 s or a low thump at 8.4-8.7 s), mono, at 44.1 kHz, high-passed at
+120 Hz and rolled off from 6 kHz, splices them with 0.25 s equal-power crossfades, flattens the slow level (0.4 s, within
+6 dB), wraps the tail into the head over 0.4 s and levels it to -23 dBFS A-weighted. On example 1 as Pixabay gives it
+(24 kHz stereo, 11.98 s; the tool checks that):
+
+| measure | the loop |
+|---|---|
+| length | 7.90 s, 44.1 kHz mono 16-bit (the engine WAVs' format) |
+| level | RMS -23.1 dBFS, A-weighted -23.0, peak -9.8; the 20 ms level's p10-p90 -24.2 to -22.2 (2.0 dB) |
+| spectrum | centroid 1763 Hz (example 1: 1863); under 250 Hz 2 %, 250 Hz-4 kHz 91 %, over 4 kHz 7 % |
+| the wrap | spectral step 0.676 (the loop's own 0.1 s steps: median 0.675, p90 0.718), level step -0.21 dB (median 0.33, p90 1.04), sample step at the 90th percentile of all |
+
+Every one of those is a check (`water.json` holds them; exit 1 if one fails), none of them by ear: the seam within the
+loop's own steps, the centroid within 15 % of example 1's, the level at its target. The game plays the file as 0x8A9
+`CMB_FxWaterRoadLPSD`'s, `Data\Sound\FX\CMB\CMB_FxWaterRoadLP.wav`, when the MCM's "Water sound loop" is on "Wet road"
+(the default); `[Fx] WaterRoadDb` trims it. The build is repeatable (byte for byte on a second run, numpy 2.5.3).
 
 ### The build is repeatable
 

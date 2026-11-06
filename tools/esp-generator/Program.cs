@@ -131,10 +131,18 @@ public static class FxOwn
         new("CMB_FxClunkSD", "PHYMetalAutoMediumH 05BAD7",
             new[] { @"data\Sound\FX\PHY\MetalAuto\PHY_Metal_Auto_Medium_H_01.wav", @"data\Sound\FX\PHY\MetalAuto\PHY_Metal_Auto_Medium_H_02.wav",
                     @"data\Sound\FX\PHY\MetalAuto\PHY_Metal_Auto_Medium_H_03.wav", @"data\Sound\FX\PHY\MetalAuto\PHY_Metal_Auto_Medium_H_04.wav" }, false, 0, 12, 2),
-        new("CMB_FxSplashSD", "FSTnpcWaterJumpDown 03C7A9",
-            new[] { @"Data\Sound\FX\FST\Water\Land\FST_Water_Jump_Down_01.wav", @"Data\Sound\FX\FST\Water\Land\FST_Water_Jump_Down_02.wav" }, false, 0, 3, 0),
-        new("CMB_FxSplashHeavySD", "PHYWaterSplash 0452CE",
-            new[] { @"Data\Sound\FX\PHY\PHY_Water_M_01.wav" }, false, 0, 5, 2),
+        // 2026-11-06a (test 49's check, Q-L): FSTnpcWaterJumpDown names Data\Sound\FX\FST\Water\Land\..., a folder that
+        // isn't in any of the game's archives (the 2026-11-02a build played silence); the game has the two files only
+        // under sound\fx\fst\player\water\, so this record no longer follows a game record's files: the same two files
+        // where they are, written as the records above write theirs (.wav; the game resolves the .xwm).
+        new("CMB_FxSplashSD", "the game's jump-down files, test 49: the old path isn't in the game",
+            new[] { @"Data\Sound\FX\FST\Player\Water\FST_Water_Jump_Down_01.wav", @"Data\Sound\FX\FST\Player\Water\FST_Water_Jump_Down_02.wav" }, false, 0, 3, 0),
+        // 2026-11-06a (test 49's check, Q-L): PHYWaterSplash names PHY_Water_M_01, a file that isn't in the game; the
+        // game's medium water splash files instead (CWaterMedium's strings, as CMB_FxSplashMediumSD below), the fields as
+        // before (variance 5, dB variance 2).
+        new("CMB_FxSplashHeavySD", "the game's medium water splash files (CWaterMedium 089380's strings), test 49: PHYWaterSplash's file isn't in the game",
+            new[] { @"Data\Sound\FX\PHY\Generic\PHY_Generic_Water_Medium_01.wav", @"Data\Sound\FX\PHY\Generic\PHY_Generic_Water_Medium_02.wav",
+                    @"Data\Sound\FX\PHY\Generic\PHY_Generic_Water_Medium_03.wav" }, false, 0, 5, 2),
         new("CMB_FxThudHeavySD", "FSTArmorPowerHardLandingImpactDirt 20A0B9",
             new[] { @"data\Sound\FX\FST\ArmorPower\FST_ArmorPower_Land_3D_Dirt_02.wav", @"data\Sound\FX\FST\ArmorPower\FST_ArmorPower_Land_3D_Dirt_03.wav",
                     @"data\Sound\FX\FST\ArmorPower\FST_ArmorPower_Land_3D_Dirt_01.wav" }, false, 0, 5, 1),
@@ -151,8 +159,11 @@ public static class FxOwn
             new[] { @"data\Sound\FX\AMB\Waterfall\AMB_WaterfallSplatter_Small_02_LP.wav", @"data\Sound\FX\AMB\Waterfall\AMB_WaterfallSplatter_Small_01_LP.wav" }, true, 15, 6, 0),
         new("CMB_FxWaterSprayLargeLPSD", "AMBWaterfallSplatterLargeLP 1E4F2C",
             new[] { @"data\Sound\FX\AMB\Waterfall\AMB_WaterfallSplatter_Large_01_LP.wav", @"data\Sound\FX\AMB\Waterfall\AMB_WaterfallSplatter_Large_02_LP.wav" }, true, -15, 6, 0),
-        new("CMB_FxWaterStreamLPSD", "AMBWaterStream01LPSD 03D0A7",
-            new[] { @"fx\amb\water\exterior\amb_water_stream_01_lp.wav" }, true, 0, 0, 0),
+        // 2026-11-06a (test 49's check, Q-L: AMBWaterStream01LPSD's amb_water_stream_01_lp isn't in the game): renamed
+        // from CMB_FxWaterStreamLPSD, the mod's own wet-road loop, shipped loose at Data\Sound\FX\CMB\CMB_FxWaterRoadLP.wav
+        // and named relative to Data\Sound as the engine's 13 name theirs. Slot 2 of CMB_FxWaterLoopsOwn as before.
+        new("CMB_FxWaterRoadLPSD", "the mod's own wet-road loop (Pixabay 101246)",
+            new[] { @"FX\CMB\CMB_FxWaterRoadLP.wav" }, true, 0, 0, 0),
         new("CMB_FxWaterChurnLPSD", "AMBWaterfallChurn 1E4F1B",
             new[] { @"data\Sound\FX\AMB\Waterfall\AMB_Waterfall_Churn_02_LP.wav", @"data\Sound\FX\AMB\Waterfall\AMB_Waterfall_Churn_01_LP.wav" }, true, 0, 6, 0),
     };
@@ -160,7 +171,10 @@ public static class FxOwn
     // The lists, in the borrowed lists' slots (Vanilla.FxLandSounds, FxLandSoundsAlt, FxWaterLoops).
     public static readonly string[] Land = { "CMB_FxTyreLightSD", "CMB_FxTyreHeavySD", "CMB_FxClunkSD", "CMB_FxSplashSD", "CMB_FxSplashHeavySD" };
     public static readonly string[] LandAlt = { "CMB_FxTyreLightSD", "CMB_FxThudHeavySD", "CMB_FxClunkBarrelSD", "CMB_FxSplashMediumSD", "CMB_FxThudWaterSD" };
-    public static readonly string[] Water = { "CMB_FxWaterSprayLPSD", "CMB_FxWaterSprayLargeLPSD", "CMB_FxWaterStreamLPSD", "CMB_FxWaterChurnLPSD" };
+    public static readonly string[] Water = { "CMB_FxWaterSprayLPSD", "CMB_FxWaterSprayLargeLPSD", "CMB_FxWaterRoadLPSD", "CMB_FxWaterChurnLPSD" };
+    // 2026-11-06a (test 49: the landings' metal clunk): CMB_FxLandSoundsDull, the MCM's "Landing sounds without metal":
+    // the light and heavy tyre, the PA dirt thud, the splash, the heavy splash and the PA water thud.
+    public static readonly string[] LandDull = { "CMB_FxTyreLightSD", "CMB_FxTyreHeavySD", "CMB_FxThudHeavySD", "CMB_FxSplashSD", "CMB_FxSplashHeavySD", "CMB_FxThudWaterSD" };
 }
 
 public static class Program
@@ -309,11 +323,20 @@ public static class Program
                     "CMB_MaxTilt", 0, 50, 1),
                 Switcher("Allow combat while riding", "Weapons and VATS stay usable while riding. Takes effect the next time you get on.", "CMB_AllowCombat"),
                 Switcher("Bike in first person", "Shows the bike under you in first person (needs F4SE and CMB_Slope.dll). Takes effect the next time you get on.", "CMB_FirstPersonBike"),
+                Slider("Look down on getting into first person (deg)", "Each time you go into first person on the bike, the view eases down this far so the dial and bars are in sight; look up whenever you like. 0 = the view left as it is (as before). Needs F4SE and CMB_Slope.dll.",
+                    "CMB_ViewTip", 0, 45, 1),
+                Slider("Field of view riding in first person", "The game's field of view while you ride in first person (more shows more of the bike, and widens the world too); back to yours as you get off or leave first person. 0 = your own, as before. Needs F4SE and CMB_Slope.dll.",
+                    "CMB_ViewFov", 0, 120, 5),
+                Slider("Eye forward on the bike", "Moves your seat in first person forward (+) or back (-), in game units. 0 = the plugin's EyeAt. At once.",
+                    "CMB_ViewEyeForward", -30, 30, 1),
+                Slider("Eye height on the bike", "Lower (-) brings the bike higher into view under you (its wheels lift off the road by as much in first person), higher (+) sinks it. 0 = the plugin's EyeAt. At once.",
+                    "CMB_ViewEyeUp", -30, 20, 1),
                 Switcher("Thrown off when hit", "A big hit from an enemy knocks you off the bike, so you can fight back. Off: you keep riding; a hint says how to get off when a fight starts.", "CMB_DismountOnHit"),
-                Switcher("Steady in the saddle", "Hits don't stagger you while riding (a stagger plays the standing animation, and the bike hangs round your hips). Power attacks and explosions still knock you off with \"Thrown off when hit\" on. Off: staggered as on foot.", "CMB_RiderSteady"),
+                Switcher("Power attacks throw you off", "On: an enemy's power attack knocks you off whatever it costs you (the 2026-11-02a build). Off: a power attack is a hit like any other: it knocks you off only when it takes the Big hit share of your health. Explosions always do. Needs \"Thrown off when hit\".", "CMB_KnockOffPower"),
+                Switcher("Steady in the saddle", "Hits don't stagger you while riding (a stagger plays the standing animation, and the bike hangs round your hips). Explosions, and power attacks with \"Power attacks throw you off\" on, still knock you off with \"Thrown off when hit\" on. Off: staggered as on foot.", "CMB_RiderSteady"),
                 Slider("Pose re-check pause after a hit (s)", "A hit, a stagger or an item used while riding can play a standing animation for a moment: that is a reaction, not the seated pose lost, so the pose isn't applied again for this long after one. 0 = applied again at any standing footstep, as before.",
                     "CMB_PoseReactionWindow", 0, 5, 0.5f),
-                Slider("Big hit (% of max health)", "How much of your max health a hit (or several within about a second) must take to knock you off. Power attacks and explosions always do. 0 = any hit. Not in the first 3 seconds after getting on.",
+                Slider("Big hit (% of max health)", "How much of your max health a hit (or several within about a second) must take to knock you off. Explosions always do, and power attacks with \"Power attacks throw you off\" on. 0 = any hit. Not in the first 3 seconds after getting on.",
                     "CMB_KnockOffDamage", 0, 50, 5),
                 Switcher("Knock enemies over", "Hostile people, creatures and smaller robots the bike hits at speed are knocked over and take a little damage, and the bike loses some speed at each (needs F4SE and the CMB_Slope.dll plugin). Never companions, essential characters, anyone in power armor or the big ones (super mutants, behemoths, deathclaws, sentry bots, ...). Off: the bike brakes for them as for anyone.", "CMB_RamEnemies"),
                 Slider("Knock over from (speed)", "How fast the bike must be going, in game units a second (riding speed is about 900 at Speed 250%). Slower, it brakes for them.",
@@ -347,11 +370,18 @@ public static class Program
                 Slider("Engine volume", "0 = silent. The engine follows it as you ride.", "CMB_EngineVolume", 0, 100, 5),
                 Slider("Bike effects volume", "Landings and riding through water (the game's own sound files for now). 0 = none. The water follows it at once, a landing at the next one.",
                     "CMB_FxVolume", 0, 100, 5),
-                Switcher("Bike sounds through the mod's own records", "Landings and the water through the mod's own sound records over the game's sound files: heard at the riding camera's distance. Off: the game's own records, as the 2026-11-01a build (much quieter: they fade with the camera's distance and carry their own attenuation). Landings at once, the water the next time you get on.", "CMB_FxOwnSounds"),
+                Switcher("Bike sounds through the mod's own records", "Landings and the water through the mod's own sound records over the game's sound files: heard at the riding camera's distance. Off: the game's own records, as the 2026-11-01a build (much quieter: they fade with the camera's distance and carry their own attenuation): the landings only with \"Landing sounds without metal\" off, the water only with \"Water sound loop\" on its first choice (the others are the mod's own records either way). Landings at once, the water the next time you get on.", "CMB_FxOwnSounds"),
                 Slider("Landing loudness range (dB)", "How far under the hardest landing the softest one sounds. 10 by default; 18 as the 2026-11-01a build; smaller makes small drops louder.",
                     "CMB_FxLandRange", 0, 30, 1),
-                Switcher("Landing sound", "A tyre thump when the bike lands, louder the higher the drop, a clunk on big ones, a splash into water. Without F4SE one level.", "CMB_FxLandOn"),
+                Switcher("Landing sounds without metal", "On: a tyre thump, and on big drops a heavy dull thud under it; into water a splash, and on big drops a heavier one with a thud. Off: as the 2026-11-02a build, a metal clunk on big drops.", "CMB_FxLandDull"),
+                Switcher("Landing sound", "A tyre thump when the bike lands, louder the higher the drop, a heavier thud on big ones, a splash into water. Without F4SE one level.", "CMB_FxLandOn"),
                 Switcher("Water sound", "Spray while riding through shallow water, by speed and depth (needs F4SE and the CMB_Slope.dll plugin). Takes effect the next time you get on.", "CMB_FxWaterOn"),
+                new
+                {
+                    type = "stepper", text = "Water sound loop",
+                    help = "Which water loop plays while riding through water. The first is the 2026-11-02a build's (the console's CMB_FxWaterPick). Takes effect the next time you get on.",
+                    valueOptions = new { options = new[] { "As the 2026-11-02a build (spray)", "Churning water", "Wet road (the mod's own)" }, sourceType = "GlobalValue", sourceForm = Form(Rec("CMB_FxWaterLoop")) },
+                },
                 Switcher("Mute the rider's own jump and landing sounds", "While riding, your character's own footstep, jump and landing sounds are silent (the bike's take their place). Takes effect the next time you get on.", "CMB_FxMuteRider"),
                 Section("Headlamp"),
                 new
@@ -964,6 +994,52 @@ public static class Program
             if (s.OutputModel.FormKey != want.FormKey)
                 throw new InvalidOperationException($"{s.EditorID} doesn't play through {want.EditorID}: give it that output model");
         }
+
+        // --- 2026-11-06a (test 49's answer): the round's fixed IDs, 0x8B0-0x8B4. 0x8AF is left unmade: it is kept for
+        // CMB_LookCode (the customisation build makes it there by FormKey), so this block starts at 0x8B0 and no form may
+        // take 0x8AF (a throw at the end). CMB_Slope.dll finds the five by ID, all five or none (its VIEW_TIP_ID,
+        // VIEW_FOV_ID, VIEW_EYE_FORWARD_ID, VIEW_EYE_UP_ID and FX_WATER_LOOP_ID and the harness's VIEW_TIP_FORMID ..
+        // FX_WATER_LOOP_FORMID use these numbers: renumber all five together). The controller's properties aren't
+        // Mandatory: an older ESP leaves them None, and each change stays off (2026-11-02a). Their readers: the plugin's
+        // first-person view (the tip, the riding FOV, the eye's offsets) and the water loop's trim; the controller's
+        // FxStartWaterLoop.
+        mod.ModHeader.Stats.NextFormID = 0x8B0;
+        // ViewTip (test 49: in first person the bike sat under the frame, the view level): the MCM's "Look down on getting
+        // into first person (deg)", 0-45 (20; 0 = 2026-11-02a, the view left alone): the plugin eases the view down this far
+        // once on entering first person on the bike.
+        var gViewTip = Global(mod, "CMB_ViewTip", 20);
+        // ViewFov: the MCM's "Field of view riding in first person", 0-120 (0 = the game's own, as 2026-11-02a; 1-59 read
+        // as 0): the plugin's riding FOV in first person.
+        var gViewFov = Global(mod, "CMB_ViewFov", 0);
+        // ViewEyeForward, ViewEyeUp: the MCM's "Eye forward on the bike" (-30..30) and "Eye height on the bike" (-30..20)
+        // and the console, added to [View] EyeAt's y and z (0 = the INI's EyeAt, 2026-11-02a).
+        var gViewEyeForward = Global(mod, "CMB_ViewEyeForward", 0);
+        var gViewEyeUp = Global(mod, "CMB_ViewEyeUp", 0);
+        // FxWaterLoop (test 49: the water loop heard as a waterfall's frying): the MCM's "Water sound loop", 0 spray (the
+        // 2026-11-02a build's, CMB_FxWaterPick), 1 churn, 2 the mod's own wet road (the default); the controller's
+        // FxStartWaterLoop picks the loop, the plugin its trim and its line.
+        var gFxWaterLoop = Global(mod, "CMB_FxWaterLoop", 2);
+        var fixed51 = new[] { gViewTip, gViewFov, gViewEyeForward, gViewEyeUp, gFxWaterLoop };
+        for (int i = 0; i < fixed51.Length; i++)
+            if (fixed51[i].FormKey.ID != 0x8B0 + i)
+                throw new InvalidOperationException($"CMB_ViewTip, CMB_ViewFov, CMB_ViewEyeForward, CMB_ViewEyeUp and CMB_FxWaterLoop must be 0x8B0-0x8B4 (CMB_Slope.dll looks for them), got {string.Join(", ", fixed51.Select(g => $"{g.EditorID} {g.FormKey.ID:X}"))}");
+
+        // --- 2026-11-06a's script-only forms, after the fixed IDs (only the scripts' properties find them).
+        // KnockOffPower (test 49: every power attack threw the rider off): the MCM's "Power attacks throw you off", 0 (off,
+        // the default: a power attack is a hit like any other, Big hit's rule); 1 = 2026-11-02a (every power attack
+        // knocks off). Explosions always do.
+        var gKnockOffPower = Global(mod, "CMB_KnockOffPower", 0);
+        // RiderUseOwn (test 49: another mod's dummy potion after a load read as an item used): 1 = only the player's own
+        // uses watched (the favourites through CMB_HotkeyF4SE); 0 = every potion equipped, as 2026-11-02a. Console only.
+        var gRiderUseOwn = Global(mod, "CMB_RiderUseOwn", 1);
+        // FxLandDull (test 49: the landings' clunk heard as a metal barrel): the MCM's "Landing sounds without metal",
+        // 1 = CMB_FxLandSoundsDull below (tyres, the PA dirt thud, the splashes and the PA water thud); 0 = the 2026-11-02a
+        // build's sets. FxThudDb: the thud's level under the landing's, in dB (-11), console only.
+        var gFxLandDull = Global(mod, "CMB_FxLandDull", 1);
+        var gFxThudDb = Global(mod, "CMB_FxThudDb", -11);
+        var fxLandSoundsDull = mod.FormLists.AddNew("CMB_FxLandSoundsDull");
+        foreach (var id in FxOwn.LandDull)
+            fxLandSoundsDull.Items.Add(new FormLink<IFallout4MajorRecordGetter>(fxOwn[id].FormKey));
         // The next fixed-ID form comes after these.
 
         // --- Controller quest ---
@@ -1100,6 +1176,13 @@ public static class Program
             Obj("CMB_FxLandSoundsOwn", fxLandSoundsOwn),
             Obj("CMB_FxLandSoundsAltOwn", fxLandSoundsAltOwn),
             Obj("CMB_FxWaterLoopsOwn", fxWaterLoopsOwn),
+            Obj("CMB_KnockOffPower", gKnockOffPower),
+            Obj("CMB_RiderUseOwn", gRiderUseOwn),
+            Obj("CMB_FxLandDull", gFxLandDull),
+            Obj("CMB_FxThudDb", gFxThudDb),
+            Obj("CMB_FxLandSoundsDull", fxLandSoundsDull),
+            Obj("CMB_FxWaterLoop", gFxWaterLoop),
+            Obj("CMB_FxWaterRoad", fxOwn["CMB_FxWaterRoadLPSD"]),
             Obj("CMB_EngineOn1400Sound", sndOn1400),
             Obj("CMB_EngineOn1700Sound", sndOn1700),
             Obj("CMB_EngineOn2400Sound", sndOn2400),
@@ -1179,11 +1262,16 @@ public static class Program
         // keeps 0xF01-0xFFF free, so no form of this generator may go past 0xF00.
         if (mod.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey.ID > EslReserveFrom) is { } past)
             throw new InvalidOperationException($"{past.EditorID} is 0x{past.FormKey.ID:X}, past 0x{EslReserveFrom:X}: the light plugin's last IDs are kept free");
+        // 0x8AF is kept for CMB_LookCode (2026-11-06a: the customisation build makes it there by FormKey).
+        if (mod.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey.ID == LookCodeId) is { } onLookCode)
+            throw new InvalidOperationException($"{onLookCode.EditorID} is 0x{LookCodeId:X}: that ID is kept for CMB_LookCode");
         return mod;
     }
 
     // The highest form ID this generator may give (2026-11-02a): 0xF01-0xFFF stay free.
     const uint EslReserveFrom = 0xF00;
+    // The ID kept free for CMB_LookCode (2026-11-06a): the customisation build makes it by FormKey.
+    const uint LookCodeId = 0x8AF;
 
     // ---------------------------------------------------------------------
     // Record helpers
@@ -1604,6 +1692,9 @@ public static class Program
                         ? $"      entry {v.EntryPoint} {v.Modification} {v.Value} tabs {v.PerkConditionTabCount} EPFB {v.PerkEntryID} conditions {v.Conditions.Count}"
                         : $"      effect {e.GetType().Name}");
             }
+            // A global's value (2026-11-06a: check_plugin.py reads the round's nine).
+            if (rec is IGlobalFloatGetter glob)
+                Console.WriteLine($"      global value {glob.Data?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "none"}");
             // The lists' entries (CMB_RamTooBig's races, CMB_FuelItems), one a line.
             if (rec is IFormListGetter list)
                 foreach (var item in list.Items)

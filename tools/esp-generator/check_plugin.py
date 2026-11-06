@@ -9,10 +9,13 @@ Reads the generator's --dump output on stdin and the .psc files, and fails if:
     doesn't read back with the fields the generator writes (since test 45's answer),
   - a bike effect (CMB_Fx*SD, since 2026-11-02a) isn't on CMB_SOMMonoFx with the engine model's fields, or its category,
     static attenuation, loop or files aren't the generator's (FX_SOUNDS), the own lists' slots aren't in order, the
-    borrowed lists don't hold the game's 14 records, or any sound plays through another model.
+    borrowed lists don't hold the game's 14 records, or any sound plays through another model,
+  - (2026-11-06a) the five globals CMB_Slope.dll finds by ID aren't at 0x8B0-0x8B4, one of the round's nine globals
+    hasn't its default, or any record takes 0x8AF (kept for CMB_LookCode).
 
   dotnet run -c Release -- --dump CommonwealthMotorbike.esp | python3 check_plugin.py <Scripts/Source/User>
 """
+import json
 import re
 import sys
 from pathlib import Path
@@ -59,23 +62,38 @@ FX_SOUNDS = {
     "CMB_FxTyreLightSD": (3, r"data\Sound\FX\PHY\RubberTire\PHY_Rubber_Tire_L_01.wav", "None"),
     "CMB_FxTyreHeavySD": (3, r"data\Sound\FX\PHY\RubberTire\PHY_Rubber_Tire_H_02.wav", "None"),
     "CMB_FxClunkSD": (4, r"data\Sound\FX\PHY\MetalAuto\PHY_Metal_Auto_Medium_H_01.wav", "None"),
-    "CMB_FxSplashSD": (2, r"Data\Sound\FX\FST\Water\Land\FST_Water_Jump_Down_01.wav", "None"),
-    "CMB_FxSplashHeavySD": (1, r"Data\Sound\FX\PHY\PHY_Water_M_01.wav", "None"),
+    # 2026-11-06a (test 49's check, Q-L: the 2026-11-02a strings named files that aren't in the game): the jump-down
+    # files where the game has them, the medium water splash files, and the mod's own wet-road loop (FX\CMB\, relative
+    # to Data\Sound as the engine's 13).
+    "CMB_FxSplashSD": (2, r"Data\Sound\FX\FST\Player\Water\FST_Water_Jump_Down_01.wav", "None"),
+    "CMB_FxSplashHeavySD": (3, r"Data\Sound\FX\PHY\Generic\PHY_Generic_Water_Medium_01.wav", "None"),
     "CMB_FxThudHeavySD": (3, r"data\Sound\FX\FST\ArmorPower\FST_ArmorPower_Land_3D_Dirt_02.wav", "None"),
     "CMB_FxClunkBarrelSD": (4, r"data\Sound\FX\PHY\MetalBarrel\PHY_Metal_Barrel_H_01.wav", "None"),
     "CMB_FxSplashMediumSD": (3, r"Data\Sound\FX\PHY\Generic\PHY_Generic_Water_Medium_01.wav", "None"),
     "CMB_FxThudWaterSD": (3, r"data\Sound\FX\FST\ArmorPower\FST_ArmorPower_Land_3D_Water_02.wav", "None"),
     "CMB_FxWaterSprayLPSD": (2, r"data\Sound\FX\AMB\Waterfall\AMB_WaterfallSplatter_Small_02_LP.wav", "Loop"),
     "CMB_FxWaterSprayLargeLPSD": (2, r"data\Sound\FX\AMB\Waterfall\AMB_WaterfallSplatter_Large_01_LP.wav", "Loop"),
-    "CMB_FxWaterStreamLPSD": (1, r"fx\amb\water\exterior\amb_water_stream_01_lp.wav", "Loop"),
+    "CMB_FxWaterRoadLPSD": (1, r"FX\CMB\CMB_FxWaterRoadLP.wav", "Loop"),
     "CMB_FxWaterChurnLPSD": (2, r"data\Sound\FX\AMB\Waterfall\AMB_Waterfall_Churn_02_LP.wav", "Loop"),
 }
 # The lists, slot by slot: ours by EditorID, the borrowed ones (2026-11-01a, kept for the A/B) by the game's FormIDs.
 FX_OWN_LISTS = {
     "CMB_FxLandSoundsOwn": ["CMB_FxTyreLightSD", "CMB_FxTyreHeavySD", "CMB_FxClunkSD", "CMB_FxSplashSD", "CMB_FxSplashHeavySD"],
     "CMB_FxLandSoundsAltOwn": ["CMB_FxTyreLightSD", "CMB_FxThudHeavySD", "CMB_FxClunkBarrelSD", "CMB_FxSplashMediumSD", "CMB_FxThudWaterSD"],
-    "CMB_FxWaterLoopsOwn": ["CMB_FxWaterSprayLPSD", "CMB_FxWaterSprayLargeLPSD", "CMB_FxWaterStreamLPSD", "CMB_FxWaterChurnLPSD"],
+    "CMB_FxWaterLoopsOwn": ["CMB_FxWaterSprayLPSD", "CMB_FxWaterSprayLargeLPSD", "CMB_FxWaterRoadLPSD", "CMB_FxWaterChurnLPSD"],
+    # 2026-11-06a: "Landing sounds without metal" (CMB_FxLandDull).
+    "CMB_FxLandSoundsDull": ["CMB_FxTyreLightSD", "CMB_FxTyreHeavySD", "CMB_FxThudHeavySD", "CMB_FxSplashSD", "CMB_FxSplashHeavySD",
+                             "CMB_FxThudWaterSD"],
 }
+# The effect sounds that play the mod's own files (shipped loose under Data\Sound\FX\CMB), not the game's.
+FX_OWN_FILES = {"CMB_FxWaterRoadLPSD"}
+# 2026-11-06a: the five globals CMB_Slope.dll finds by ID (all five or none), and the round's nine globals' values.
+FIXED_51 = {"CMB_ViewTip": "0008B0", "CMB_ViewFov": "0008B1", "CMB_ViewEyeForward": "0008B2", "CMB_ViewEyeUp": "0008B3",
+            "CMB_FxWaterLoop": "0008B4"}
+GLOBALS_51 = {"CMB_ViewTip": "20", "CMB_ViewFov": "0", "CMB_ViewEyeForward": "0", "CMB_ViewEyeUp": "0", "CMB_FxWaterLoop": "2",
+              "CMB_KnockOffPower": "0", "CMB_RiderUseOwn": "1", "CMB_FxLandDull": "1", "CMB_FxThudDb": "-11"}
+# Kept free for CMB_LookCode (the customisation build).
+LOOK_CODE_ID = "0008AF"
 FX_BORROWED_LISTS = {
     "CMB_FxLandSounds": ["1D3313", "1D3312", "05BAD7", "03C7A9", "0452CE"],
     "CMB_FxLandSoundsAlt": ["1D3313", "20A0B9", "1A8550", "089380", "20A0B8"],
@@ -132,6 +150,8 @@ def check_sounds(lines):
                             m2.group(5).split("; ") if m2.group(5) else []) if m2 else None
         elif cur is not None and line.strip().startswith("item "):
             cur.setdefault("items", []).append(line.split()[1])
+        elif cur is not None and line.strip().startswith("global value "):
+            cur["value"] = line.split()[2]
     problems = []
     models = [r for r in recs if r["type"] == "SoundOutputModel" and r["edid"] == ENGINE_MODEL]
     if len(models) != 1:
@@ -195,8 +215,20 @@ def check_fx(recs, engine_model):
         want = [f"{s}:Fallout4.esm" for s in slots]
         if items != want:
             problems.append(f"{name}: {items}, expected the game's {want}")
+    by_edid = {r["edid"]: r for r in recs}
+    for name, want_id in FIXED_51.items():
+        got = (by_edid.get(name) or {}).get("id")
+        if got != want_id:
+            problems.append(f"{name}: at {got}, expected {want_id} (CMB_Slope.dll finds it by ID)")
+    for name, want_value in GLOBALS_51.items():
+        r = by_edid.get(name)
+        if r is None or r["type"] != "GlobalFloat" or r.get("value") != want_value:
+            problems.append(f"{name}: {None if r is None else (r['type'], r.get('value'))}, expected a GlobalFloat of {want_value}")
+    if LOOK_CODE_ID in by_id:
+        problems.append(f"{by_id[LOOK_CODE_ID]['edid']} is at {LOOK_CODE_ID}: that ID is kept for CMB_LookCode")
+    own = sorted(e for e in sounds if e in FX_OWN_FILES)
     return problems, (f"checked {len(sounds)} effect sounds: output model {FX_MODEL} ({fm['id']}), static 0, "
-                      f"the game's files by path")
+                      f"{len(sounds) - len(own)} the game's files by path and {len(own)} the mod's own ({', '.join(own)})")
 
 
 def perk_lines(lines):
@@ -211,11 +243,37 @@ def perk_lines(lines):
     return out
 
 
+def check_mcm(scripts_folder: Path):
+    """2026-11-06a: the MCM help of "Bike sounds through the mod's own records" names the two controls whose own
+    records play whatever it says ("Landing sounds without metal" on, "Water sound loop" past its first choice), and
+    both are in the menu under those names."""
+    config = scripts_folder.parents[2] / "MCM" / "Config" / "CommonwealthMotorbike" / "config.json"
+    controls = {}
+
+    def walk(o):
+        if isinstance(o, dict):
+            if isinstance(o.get("text"), str) and "help" in o:
+                controls[o["text"]] = o["help"]
+            for v in o.values():
+                walk(v)
+        elif isinstance(o, list):
+            for v in o:
+                walk(v)
+
+    walk(json.loads(config.read_text(encoding="utf-8")))
+    own, past = "Bike sounds through the mod's own records", ("Landing sounds without metal", "Water sound loop")
+    if own not in controls:
+        return [f"MCM: no \"{own}\" control in {config.name}"]
+    return [f"MCM: \"{own}\"'s help doesn't name \"{name}\" (its own records play whatever the switch says)"
+            for name in past if name not in controls or f'"{name}"' not in controls[own]]
+
+
 def main() -> int:
     scripts = parse_scripts(Path(sys.argv[1]))
     dump = sys.stdin.read().splitlines()
     attached = parse_dump(dump)
     problems, sounds_line = check_sounds(dump)
+    problems += check_mcm(Path(sys.argv[1]))
     if not attached:
         problems.append("no scripts found in the plugin dump")
     for script, props in attached:

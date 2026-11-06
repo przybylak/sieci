@@ -20,7 +20,10 @@ from ShiftDraw 2300-3000 (2000-2900 before), and a stop's down-shifts each blipp
 below); StopShift=0 with ShiftDraw (2000, 2900) is the 2026-10-31a build's model exactly (--check-off). The 2026-11-02a
 build (test 48: "make it louder when idle", "when bike stops on obstacle it goes fully quiet"): IdleDb -11 (-17.2
 before), the idle at -6.0 dB where the start and stop sounds meet it; IdleDb=-17.2 is the 2026-11-01a build's model
-exactly (--check-off checks both builds).
+exactly. The 2026-11-06a build (test 49: "idle could be a slightly louder", "gear sound should be longer on each shift", "I just
+want take off to be faster"): IdleDb -9 (the idle at -4.0 dB, level with the cruise), ShiftTime 0.55 and ShiftDipTime 0.4
+(0.35, 0.24), and a launch rev (LaunchFlare 0.5 over LaunchFlareTime 1.2 s; 0: none); IdleDb=-11 with ShiftTime 0.35,
+ShiftDipTime 0.24 and LaunchFlare 0 is the 2026-11-02a build's model exactly (--check-off checks all three builds).
 
 Gearbox. Four gears with the measured steps 1.35 / 1.28 / 1.21; each gear's entry is its speed at ShiftRpm (2500).
 2nd reaches ShiftRpm at 750 u/s (3000 rpm at the top speed), 4th cruises at the top speed at 1937 rpm.
@@ -83,7 +86,12 @@ idle parts meet it (make_piece_loops.py's IDLE_LEVEL_DB: the start's last 0.3 s 
 the loops, so since test 45 each start dropped 6.2 dB into the idle and each stop rose 6.2 out of it). IdleDb is the
 floor of every state: it also holds the throttle shut under about 1945 rpm, the cruise's load under 1650 and a full-load
 launch under 1360 (8 % of the random ride's frames, by 6.2 dB at most); the cruise and every pull are untouched, and a
-roll-off to a stop stays at -6.0 instead of sinking to -12.2.
+roll-off to a stop stays at -6.0 instead of sinking to -12.2. Test 49's answer (the 2026-11-06a build; the tester tried -11,
+-10 and -12 and kept -10, "idle could be a slightly louder when I'm on the bike"): IdleDb -9, the idle at -4.0 dB, level
+with the cruise (-3.8 at 1937 rpm in 4th). The floor then holds the throttle shut under about 2250 rpm, so a let-off at the
+cruise keeps its level (the off family's timbre and the rpm's dip still tell it; at -11 it fell 1.9 dB, at -10 0.9), and
+the start and stop sounds (6.0 dB under the loops) each step 2 dB into and out of the idle. IdleDb=-11 is the 2026-11-02a
+build's levels exactly; -10 test 49's.
 
 The heard speed (test 45; HeardSpeed=0: the bike's own speed, as up to test 44). The game's bike does everything 2-3x
 faster than the reference rides (0 to 900 u/s in about 3 s, a let-up stops it in about 2 s), and the gears tied to
@@ -114,7 +122,11 @@ that speed swept 1st and 2nd in 2 s and fell to idle as the bike stopped. The en
 The launch (any mode): the clutch slips from LaunchDraw's start (drawn per pull; 0,0: IdleRpm + Launch x the key),
 rising LaunchRise rpm a second at the heard speed's fastest rise (LaunchRise x heard speed / HeardRise) until 1st's
 rpm takes over; an up-shift out of the slip takes the heard speed to the slip's rpm in 1st (the step to 2nd is the
-gear's). Each pull (each press of the key) draws its full-throttle shift point from ShiftDraw (0,0: ShiftRpm) and its
+gear's). The launch rev (the 2026-11-06a build, test 49: "I just want take off to be faster"; the first 0.5-0.75 s of a
+launch sat at the IdleDb floor, heard only as a pitch rise): a press in 1st in a launch with the bike under ClutchSpeed
+revs the slip by LaunchFlare over itself, the share fading out as a cosine over LaunchFlareTime (1938 rpm and -1.1 dB at
++0.5 s where the 2026-11-02a build had 1432 and -5.2); only 1st's rpm target moves, the slip the gear decisions read, the
+heard speed and every shift are as before (LaunchFlare=0: the 2026-11-02a build's). Each pull (each press of the key) draws its full-throttle shift point from ShiftDraw (0,0: ShiftRpm) and its
 launch from LaunchDraw, from the wander's LCG in a stream of their own (paris: shifts at 2000-2900, launches at
 1250-1500). With the throttle
 on, a down-shift only after the gear's rpm (the heard speed's) has stayed under DownRpm for DownHold seconds (0: at
@@ -161,7 +173,10 @@ DEFAULTS = dict(
                           # down-shifts in 0.58 s
     ShiftCatch=0.9,       # the engine within 10 % of the up-shift point (it lags its gear by ~0.1 s pulling: 4.5 %)
     # --- the up-shift's clutch gap (measured on the model as on the ride)
-    ShiftTime=0.35,       # s: paris gap 0.30 (IQR 0.30-0.40), daily fall 0.39 (0.19-0.73)
+    ShiftTime=0.55,       # s: paris gap 0.30 (IQR 0.30-0.40), daily fall 0.39 (0.19-0.73). The 2026-11-06a build (test 49:
+                          # "gear sound should be longer on each shift"): 0.55 (0.35 before, the 2026-11-02a build's): the
+                          # off family through 0.55 s of each gap, the shift points the same (3.83, 5.29, 6.55 s from rest in
+                          # the harness's game), the largest frame step 0.51 dB summed (0.62 before)
     FlareTime=0.08, Flare=0.05, FlareTau=0.04,
                           # the flare: model +3.6..+4.4 % (daily median +2.9 %, p10-p90 -0.5..+10; the rides +5 %)
     ShiftFall=0.10,       # s, the rides' fall constant: model peak->engaged 0.37-0.42 s at a steady speed (daily 0.39),
@@ -248,17 +263,21 @@ DEFAULTS = dict(
     ShiftDip=4.0,         # dB at its deepest (0: none, test 46), from the up-shift's clutch-in, after the 0 dB ceiling (so it
                           # is heard at the top of a pull), never taking the level more than DIP_FLOOR under where it was
                           # at the clutch-in
-    ShiftDipTime=0.24,    # s: in over its first quarter, full depth, out over its last third (cosine ramps)
+    ShiftDipTime=0.4,     # s: in over its first quarter, full depth, out over its last third (cosine ramps). The 2026-11-06a
+                          # build (test 49): 0.4 (0.24 before, the 2026-11-02a build's): 0.24 s under -3 dB in 1->2 and
+                          # 2->3 (0.15), the last into the cruise 0.10-0.14 s under -6 (the floor and the law's fall)
     # --- level, dB re full load at LevelRpm: LevelScale * max(IdleDb, RpmDb log2(rpm/LevelRpm) + LoadDb (load - 1))
     LevelScale=1.0,       # paris (linear): idle 11.6 dB under a pull, the throttle closing -4..-5 dB; 1.0 (test 46) is
                           # paris's own law: the idle 8.4 dB under the cruise, a full-load pull at the cruise's rpm 2.75
                           # over it (0.7 in test 45: idle -12.0 dB, on - off 3.5 dB, the pull's windows +2.1 over the
                           # cruise; 0.3 up to test 44: what the daily/autumn cameras deliver, 0.29-0.36 of paris's range)
     RpmDb=9.6, LoadDb=5.0,   # paris (linear): 9.6 dB per rpm doubling, on - off 5.0 dB
-    IdleDb=-11.0,         # the floor of every state (the 2026-11-02a build, test 48: "make it louder when idle"): the idle at
-                          # -11 + 5 = -6.0 dB, where the start and stop sounds' idle parts meet it (make_piece_loops.py's
-                          # IDLE_LEVEL_DB), 2.5 under test 48's cruise, where paris's -17.2 (-12.2 dB, the 2026-11-01a build's)
-                          # put it 8.7 under and every start dropped 6.2 dB into it; -10 the idle at -5.0, -12 at -7.0
+    IdleDb=-9.0,          # the floor of every state. The 2026-11-06a build (test 49: the tester kept -10, "idle could be a
+                          # slightly louder"): -9, the idle at -4.0 dB, level with the cruise (a let-off at the cruise keeps
+                          # its level; the start and stop sounds step 2 dB into and out of it). The 2026-11-02a build's -11
+                          # (test 48: "make it louder when idle"): the idle at -6.0 dB, where the start and stop sounds' idle
+                          # parts meet it (make_piece_loops.py's IDLE_LEVEL_DB), 2.5 under test 48's cruise, where paris's
+                          # -17.2 (-12.2 dB, the 2026-11-01a build's) put it 8.7 under; -10 the idle at -5.0, -12 at -7.0
     LevelOffset=5.0,      # dB on every level, each loop's gain then held at 0 dB (test 46; 0 with LevelScale 0.7: test
                           # 45's levels): the cruise at -3.8 dB, full load from about 2100 rpm at the 0 dB ceiling
     LevelRpm=3000.0,      # the level law's own reference (it was ShiftRpm; moving the shift point to 2500 must not
@@ -286,6 +305,11 @@ DEFAULTS = dict(
                                    # Launch x the key (1500, as up to test 44)
     LaunchRise=350.0,     # rpm/s the slip climbs at the heard speed's fastest rise (paris 370, IQR 250-540; daily 270,
                           # autumn 310); 0: a flat slip (as up to test 44: 1.5-2 s at 1500, then a sprint)
+    LaunchFlare=0.5,      # the 2026-11-06a build (test 49: "I just want take off to be faster"): a launch press revs the
+                          # slip x (1 + LaunchFlare x share), the share 1 -> 0 as a cosine over LaunchFlareTime: in the
+                          # harness's game 1938 rpm and -1.1 dB at +0.5 s (1432 and -5.2 before), the up-shifts as before;
+                          # 0: none (the 2026-11-02a build's); 0.3 milder, 0.6 punchier
+    LaunchFlareTime=1.2,  # s, the launch rev's fade
     ShiftDraw=(2300.0, 3000.0),    # rpm: each pull's full-throttle up-shift, drawn (paris first shifts 2000-2900,
                                    # median 2370); 0,0: ShiftRpm (every pull-away identical, as up to test 44). The
                                    # 2026-11-01a build (test 47: "rpm could be slightly higher the closer it is to
@@ -401,6 +425,7 @@ class Engine:
         self.launch = True                     # a launch: from the clutch's last going in till the bike passes ClutchSpeed
         self.shut_t = 0.0                      # StopShift: the throttle shut this long (coasting)
         self.stop_t = 0.0                      # StopShift: the bike under ClutchSpeed with the throttle shut this long
+        self.flare_t = -1.0                    # the 2026-11-06a build: since the launch press (-1: none)
 
     def noise(self):
         """uniform in [-1, 1) from a 32-bit LCG (Numerical Recipes' constants): the C twin draws the same numbers."""
@@ -433,6 +458,13 @@ class Engine:
                 self.shift_at = self.draw(c["ShiftDraw"][0], c["ShiftDraw"][1])
             if c["LaunchDraw"][1] > 0.0:
                 self.launch_at = self.draw(c["LaunchDraw"][0], c["LaunchDraw"][1])
+        # the 2026-11-06a build: a press in 1st in a launch, the bike under ClutchSpeed, starts the launch rev
+        if on and not self.was_on and c["LaunchFlare"] > 0.0 and self.launch and self.gear == 0 and v < c["ClutchSpeed"]:
+            self.flare_t = 0.0
+        elif not on:
+            self.flare_t = -1.0
+        elif self.flare_t >= 0.0:
+            self.flare_t += dt
         self.was_on = on
         if self.blip_left > 0.0:
             self.blip_left -= dt
@@ -568,7 +600,11 @@ class Engine:
         elif throttle:
             target = max(rg, idle)
             if self.gear == 0:
-                target = max(target, slip)     # the clutch slips until 1st takes over
+                sf = slip
+                T = c["LaunchFlareTime"]
+                if c["LaunchFlare"] > 0.0 and 0.0 <= self.flare_t < T:    # the launch rev on the slip (2026-11-06a)
+                    sf = slip * (1.0 + c["LaunchFlare"] * (0.5 + 0.5 * math.cos(math.pi * self.flare_t / T)))
+                target = max(target, sf)       # the clutch slips until 1st takes over
             tau = c["RpmUp"] if target > self.rpm else c["RpmDown"]
             self.coasting = False
         elif heard:
@@ -707,12 +743,19 @@ class Engine:
 #   - 2026-10-31a (the 2026-11-01a build's StopShift and ShiftDraw off): StopShift=0 with ShiftDraw (2000, 2900), and
 #     IdleDb -17.2 (the 2026-11-02a build's), 0c3df02's model, check_off_2026-10-31a.txt (its hashes as written with 0c3df02's
 #     own -17.2; only its header's JSON is newer);
-#   - 2026-11-01a (the 2026-11-02a build's IdleDb off): IdleDb -17.2, 993f582's model, check_off_2026-11-01a.txt.
-OFF_31A = {"StopShift": 0, "ShiftDraw": [2000.0, 2900.0], "IdleDb": -17.2}
-OFF_01A = {"IdleDb": -17.2}
+#   - 2026-11-01a (the 2026-11-02a build's IdleDb off): IdleDb -17.2, 993f582's model, check_off_2026-11-01a.txt;
+#   - 2026-11-02a (the 2026-11-06a build's four off): IdleDb -11, ShiftTime 0.35, ShiftDipTime 0.24, LaunchFlare 0,
+#     f0253e8's model, check_off_2026-11-02a.txt.
+# Each build's set carries the later builds' off values too (0c3df02's and 993f582's ShiftTime and ShiftDipTime were 0.35 and
+# 0.24 and they had no LaunchFlare; their models take unknown keys), so the older files' hashes stand; only their headers'
+# JSON is newer.
+OFF_31A = {"StopShift": 0, "ShiftDraw": [2000.0, 2900.0], "IdleDb": -17.2, "ShiftTime": 0.35, "ShiftDipTime": 0.24, "LaunchFlare": 0.0}
+OFF_01A = {"IdleDb": -17.2, "ShiftTime": 0.35, "ShiftDipTime": 0.24, "LaunchFlare": 0.0}
+OFF_02A = {"IdleDb": -11.0, "ShiftTime": 0.35, "ShiftDipTime": 0.24, "LaunchFlare": 0.0}
 OFF_BUILDS = {   # --off NAME: (the off values, the expected file here, the build, the commit its model is from)
     "31a": (OFF_31A, "check_off_2026-10-31a.txt", "2026-10-31a", "0c3df02"),
     "01a": (OFF_01A, "check_off_2026-11-01a.txt", "2026-11-01a", "993f582"),
+    "02a": (OFF_02A, "check_off_2026-11-02a.txt", "2026-11-02a", "f0253e8"),
 }
 CHECK_ON = [("On1400", 1400.0), ("On1700", 1700.0), ("On2000", 2000.0), ("On2400", 2400.0), ("On2800", 2800.0), ("On3300", 3300.0)]
 CHECK_OFF = [("Off1400", 1400.0), ("Off1800", 1800.0), ("Off2300", 2300.0), ("Off2800", 2800.0)]
@@ -813,7 +856,7 @@ def _off_words(off):
 
 
 def write_expected(model_path, out_path, build="31a"):
-    """The expected file from another model (that build's own engine_model.py: 0c3df02's for 31a, 993f582's for 01a), run with
+    """The expected file from another model (that build's own engine_model.py: 0c3df02's for 31a, 993f582's for 01a, f0253e8's for 02a), run with
     that build's off values."""
     off, _, name, commit = OFF_BUILDS[build]
     engine_cls = _load_model(model_path)
@@ -884,16 +927,17 @@ if __name__ == "__main__":
     import argparse
     ap = argparse.ArgumentParser(description="The engine model (the plugin's C twin follows it). --check-off: each build's off values "
                                  "against that build's frames (2026-10-31a: StopShift=0, ShiftDraw 2000,2900, IdleDb -17.2; "
-                                 "2026-11-01a: IdleDb -17.2).")
-    ap.add_argument("--check-off", action="store_true", help="the off values against check_off_2026-10-31a.txt and check_off_2026-11-01a.txt "
+                                 "2026-11-01a: IdleDb -17.2; 2026-11-02a: IdleDb -11, ShiftTime 0.35, ShiftDipTime 0.24, "
+                                 "LaunchFlare 0; the older two with the later builds' off values too).")
+    ap.add_argument("--check-off", action="store_true", help="the off values against check_off_2026-10-31a.txt, check_off_2026-11-01a.txt and check_off_2026-11-02a.txt "
                     "(exit 1 if any frame differs); --off NAME: only that build's")
-    ap.add_argument("--off", choices=sorted(OFF_BUILDS), help="the build: 31a (0c3df02's model) or 01a (993f582's); with --write-expected "
+    ap.add_argument("--off", choices=sorted(OFF_BUILDS), help="the build: 31a (0c3df02's model), 01a (993f582's) or 02a (f0253e8's); with --write-expected "
                     "31a by default")
     ap.add_argument("--against", metavar="MODEL", help="with --check-off: compare frame by frame with another engine_model.py instead "
                     "(the --off build's values, 31a by default)")
     ap.add_argument("--expected", metavar="FILE", help="with --check-off: the expected file (default: the --off build's file here)")
     ap.add_argument("--write-expected", metavar="MODEL", help="write the --off build's expected file from that build's engine_model.py "
-                    "(0c3df02's for 31a, 993f582's for 01a)")
+                    "(0c3df02's for 31a, 993f582's for 01a, f0253e8's for 02a)")
     ap.add_argument("--out", metavar="FILE", help="with --write-expected: where (default: the --off build's file here)")
     a = ap.parse_args()
     if a.write_expected:

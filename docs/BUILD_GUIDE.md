@@ -150,6 +150,17 @@ You only need this if the generated plugin turns out to have a problem and you'd
    `CMB_FxLandSoundsOwn` (TyreLight, TyreHeavy, Clunk, Splash, SplashHeavy), `CMB_FxLandSoundsAltOwn` (TyreLight,
    ThudHeavy, ClunkBarrel, SplashMedium, ThudWater), `CMB_FxWaterLoopsOwn` (WaterSpray, WaterSprayLarge, WaterStream,
    WaterChurn). No form ID may be over 0xF00 (the light plugin's range, the rest kept for the customisation builds).
+   Since 2026-11-06a (10 records, 0x8B0-0x8B9; the ESP then holds 208 records, its next ID 0x8BA; **0x8AF is left
+   unmade**, kept for the customisation build's `CMB_LookCode`, and the generator throws if any form takes it):
+   **Globals** (float) `CMB_ViewTip` 20, `CMB_ViewFov` 0, `CMB_ViewEyeForward` 0, `CMB_ViewEyeUp` 0 and
+   `CMB_FxWaterLoop` 2 (must be 0x8B0-0x8B4, all five: the plugin looks for them), `CMB_KnockOffPower` 0,
+   `CMB_RiderUseOwn` 1, `CMB_FxLandDull` 1 and `CMB_FxThudDb` -11; the **FormList** `CMB_FxLandSoundsDull`
+   (`CMB_FxTyreLightSD`, `CMB_FxTyreHeavySD`, `CMB_FxThudHeavySD`, `CMB_FxSplashSD`, `CMB_FxSplashHeavySD`,
+   `CMB_FxThudWaterSD`). **Three changed in place**: `CMB_FxSplashSD` names
+   `Data\Sound\FX\FST\Player\Water\FST_Water_Jump_Down_01.wav` and `_02.wav`; `CMB_FxSplashHeavySD` names
+   `Data\Sound\FX\PHY\Generic\PHY_Generic_Water_Medium_01.wav`, `_02.wav` and `_03.wav` (its variation as before);
+   0x8A9 is renamed `CMB_FxWaterRoadLPSD` and names one file, `FX\CMB\CMB_FxWaterRoadLP.wav` (Loop, no pitch or loudness
+   variation), the mod's own (docs/ASSETS.md).
 2. *(no keyword: `CMB_AnimFlavorRider` lives in `CMB_RiderPose.esp`)*
 3. **Messages** (tick *Message Box*; button order matters):
    `CMB_ParkedMenu` "Motorbike" / "What do you want to do?" with buttons `Ride`, `Open side bag`, `Cancel`.
@@ -176,4 +187,9 @@ You only need this if the generated plugin turns out to have a problem and you'd
    - Since 2026-11-02a the controller's three new groups (`Rider_Pose_Fixes`, `Ram_Fixes`, `Fx_Own_Records`: 11
      properties, 138 in all) and `CMB_RamScript`'s `Kill_Experience` (`CMB_RamKillSpell`, `CMB_RamKillXP`: 17 in all)
      are filled with the records of the same names.
+   - Since 2026-11-06a two more groups (`Rider_Fixes_51`: `CMB_KnockOffPower`, `CMB_RiderUseOwn`; `Fx_Fixes_51`:
+     `CMB_FxLandDull`, `CMB_FxThudDb`, `CMB_FxLandSoundsDull`, `CMB_FxWaterLoop`, and `CMB_FxWaterRoad` =
+     `CMB_FxWaterRoadLPSD`: 7 properties, 145 in all), none Mandatory.
+   - The MCM's seven new controls (Riding: the four first-person sliders and "Power attacks throw you off"; Sound:
+     "Landing sounds without metal" and the "Water sound loop" stepper) are in `config.json`, written by the generator.
 9. **Properties:** fill every *Mandatory* property ("Auto-Fill All" gets the vanilla ones). Script-typed properties called `Controller` point at `CMB_ControllerQuest`. `Pipboy` is the vanilla Pip-Boy armor (00021B3B), `FallingDamageMod` and `Health` the vanilla actor values (000BA43D, 000002D4).

@@ -2,7 +2,7 @@
 """Checks a bike build (harley_meshes.py's nifs, and the texture stage's textures and materials) in a Data tree.
 
   python check_bike_meshes.py --pynifly <io_scene_nifly> --data <Data> [--reference <27c Data>/Meshes/CMB]
-      [--stage-dir <stage>] [--look-reference <2026-11-01a's Data>]
+      [--stage-dir <stage>] [--look-reference <the previous build's Data>]
 
 What it checks (FAIL lines make the exit status 1; INFO lines are numbers for the notes):
   shapes     every worn nif has the 30 shapes of harley_meshes.LABELS (the stage's, with --stage-dir: 28 with --disc
@@ -27,11 +27,11 @@ What it checks (FAIL lines make the exit status 1; INFO lines are numbers for th
              mirror's _d a mid grey (mean 90-140 sRGB: the game tints the cube by it, test 47's near-black glass
              showed black)
   look       (2026-11-02a, test 48) the mirrors' six materials files name the game's cube MetalBrushed02Cube_e at env
-             2.0; the chrome's eight (CHROME_MATS, parked and worn) env 6.0, spec mult 2.0, screen-space reflections
-             on; with --look-reference (the 2026-11-01a build's Data), the chrome's _d/_n/_s the reference's (the look is
-             the materials files' alone): byte for byte, or at most CHROME_TEX_SHARE of a map's texels within
-             CHROME_TEX_MOST levels (the discs' new bore is an occluder in every label's bake near the hubs, so the AO in
-             _d and _s moves a little there; a re-authored colour map moves nearly every texel)
+             2.0; (2026-11-06a, test 49) the chrome's eight (CHROME_MATS, parked and worn) env 2.5, spec mult 1.5,
+             screen-space reflections off, and the wheels' eight (WHEEL_MATS: the rims and discs, parked and worn; the
+             rear disc's own files over the front's textures) env 0.25, spec mult 0.75; with --look-reference (the
+             2026-11-02a build's Data), the chrome's and the wheels' _d/_n/_s the reference's byte for byte (the look is
+             the materials files' alone, and the stage is the reference's)
   overlays   the dial's backlight, the needle and the light shells clear of what they cover in the worn nif's half
              floats; the needle's culling sphere on NeedlePoint and long enough; where the needle points at rest
   mirrors    every mirror variant clear of the tank with the bars anywhere within BarAngle
@@ -72,12 +72,15 @@ WORN = ("CMB_BikeWorn", "CMB_BikeWornRider", "CMB_BikeWornRiderF")
 BRAND = (b"harley", b"davidson", b"sportster")
 VIEW = "CMB_BikeView"   # the view nif's stem, node and shapes' prefix (harley_meshes.VIEW_NODE)
 TEX_BUDGET = (93, 89.0)  # Textures/CMB/Bike: files, MB (since the 2026-11-01a build's discs: 2026-10-31a's 90 files, 85.3 MB)
-# 2026-11-02a's look (test 48): the mirrors on the game's cube (the tester's A/B), the chrome brighter by its materials
-# files alone. The 2026-11-01a build's values are the optional MO2 folder "2026-11-01a look (A-B)".
+# 2026-11-02a's look (test 48): the mirrors on the game's cube (the tester's A/B). 2026-11-06a's (test 49: the chrome "too
+# bright, pearly, smudged", the discs and rims "a bit too white"): the chrome env 2.5, spec 1.5, no screen-space
+# reflections (2026-11-02a: 6, 2, on), the rims and discs env 0.25, spec 0.75 (0.4, 1), by their materials files alone.
+# The 2026-11-02a build's values are the optional MO2 folder "2026-11-02a look (A-B)".
 MIRROR_CUBE, MIRROR_ENV = "shared\\cubemaps\\metalbrushed02cube_e.dds", 2.0
 CHROME_MATS = ("static_chrome", "static_exhaust", "front_chrome", "fork_chrome")
-CHROME_ENV, CHROME_SPEC, CHROME_SSR = 6.0, 2.0, True
-CHROME_TEX_SHARE, CHROME_TEX_MOST = 0.02, 32   # the chrome's maps against 2026-11-01a's: the share of texels, the levels
+CHROME_ENV, CHROME_SPEC, CHROME_SSR = 2.5, 1.5, False
+WHEEL_MATS = ("wheelF_rim", "wheelR_rim", "wheelF_disc", "wheelR_disc")
+WHEEL_ENV, WHEEL_SPEC = 0.25, 0.75
 DISC_CARRIER_SRGB = (0x4A, 0x4C, 0x50)   # bike_art.DISC_CARRIER
 MIRROR_GLASS_SRGB = (90, 140)   # the mirror glass's mean in its _d (the 2026-11-01a build: 6e7276; 2026-10-31a's 08090a)
 PALETTE_27C = ("chrome", "silver", "tex2", "body", "logo_decals", "black_m", "tex1", "material", "leather", "glass",
@@ -211,7 +214,7 @@ def main() -> int:
     ap.add_argument("--reference", type=Path, help="the reference build's Meshes/CMB (27c)")
     ap.add_argument("--stage-dir", type=Path, help="the stage export the build was made from (per-material totals)")
     ap.add_argument("--look-reference", type=Path,
-                    help="the 2026-11-01a build's Data tree: the chrome's textures must be its bytes (2026-11-02a)")
+                    help="the previous build's Data tree (2026-11-02a's): the chrome's and the wheels' textures must be its bytes")
     args = ap.parse_args()
     sys.path.insert(0, str(args.pynifly))
     import logging
@@ -517,12 +520,13 @@ def main() -> int:
     # --- the look's materials files (2026-11-02a, test 48: the mirrors on the game's cube, the chrome brighter) ------
     if named and not palette_build:
         import bgsm as B   # ours (tools/rider/bgsm.py): every field, ssr included
-        mirror_bad, chrome_bad, mirror_n, chrome_n = [], [], 0, 0
-        for mat, want in [(m, "mirror") for m in H.MIRROR_VARIANTS if m in labels] + [(m, "chrome") for m in CHROME_MATS if m in labels]:
+        mirror_bad, chrome_bad, wheel_bad, mirror_n, chrome_n, wheel_n = [], [], [], 0, 0, 0
+        for mat, want in ([(m, "mirror") for m in H.MIRROR_VARIANTS if m in labels] + [(m, "chrome") for m in CHROME_MATS if m in labels] +
+                          [(m, "wheel") for m in WHEEL_MATS if m in labels]):
             for worn in ("", "_worn"):
                 path = materials.get(f"cmb\\bike\\{mat}{worn}.bgsm".lower())   # the keys are lower case
                 if path is None:
-                    (mirror_bad if want == "mirror" else chrome_bad).append(f"{mat}{worn}.bgsm missing")
+                    {"mirror": mirror_bad, "chrome": chrome_bad, "wheel": wheel_bad}[want].append(f"{mat}{worn}.bgsm missing")
                     continue
                 m = B.read(path)
                 cube = m["textures"].get("envmap", "").replace("/", "\\").lower()
@@ -531,48 +535,44 @@ def main() -> int:
                     mirror_n += 1
                     if cube != MIRROR_CUBE or abs(env - MIRROR_ENV) > 1e-6:
                         mirror_bad.append(f"{mat}{worn}: {cube or '(no cube)'} env {env:g}")
-                else:
+                elif want == "chrome":
                     chrome_n += 1
                     if abs(env - CHROME_ENV) > 1e-6 or abs(spec - CHROME_SPEC) > 1e-6 or ssr != CHROME_SSR:
                         chrome_bad.append(f"{mat}{worn}: env {env:g} spec {spec:g} ssr {ssr}")
+                else:   # 2026-11-06a: the rims and discs
+                    wheel_n += 1
+                    if abs(env - WHEEL_ENV) > 1e-6 or abs(spec - WHEEL_SPEC) > 1e-6:
+                        wheel_bad.append(f"{mat}{worn}: env {env:g} spec {spec:g}")
         rep.check(not mirror_bad and mirror_n == 2 * sum(m in labels for m in H.MIRROR_VARIANTS),
                   f"look: the mirrors' {mirror_n} materials files name the game's cube ({MIRROR_CUBE}) at env {MIRROR_ENV:g}",
                   "; ".join(mirror_bad))
         rep.check(not chrome_bad and chrome_n == 2 * sum(m in labels for m in CHROME_MATS),
                   f"look: the chrome's {chrome_n} materials files at env {CHROME_ENV:g}, spec mult {CHROME_SPEC:g}, "
                   f"screen-space reflections {'on' if CHROME_SSR else 'off'}", "; ".join(chrome_bad))
+        rep.check(not wheel_bad and wheel_n == 2 * sum(m in labels for m in WHEEL_MATS),
+                  f"look: the rims' and discs' {wheel_n} materials files at env {WHEEL_ENV:g}, spec mult {WHEEL_SPEC:g}",
+                  "; ".join(wheel_bad))
         if args.look_reference:
-            # The chrome's look is its materials files' alone: its textures are the 2026-11-01a build's but where the
-            # bake's occlusion changed (the discs' new bore is an occluder of every label near the hubs, so its AO, in
-            # _d and _s, moves a few levels on a few texels). A re-authored colour map moves nearly every texel.
+            # The look is the materials files' alone (2026-11-06a): the chrome's and the wheels' textures are the
+            # reference's (the 2026-11-02a build's Data, from the same stage) byte for byte. The rear disc has its own
+            # materials files over the front disc's textures ("textures_of"): a map in neither tree is skipped.
             ref_tex = files_by_lower(args.look_reference / "Textures")
-            diff, lines, n = [], [], 0
-            for mat in CHROME_MATS:
+            diff, n = [], 0
+            for mat in CHROME_MATS + WHEEL_MATS:
                 for slot in ("d", "n", "s"):
                     key = f"cmb\\bike\\{mat}_{slot}.dds".lower()
                     a, b = textures.get(key), ref_tex.get(key)
+                    if a is None and b is None:
+                        continue
                     n += 1
                     if a is None or b is None:
                         diff.append(f"{mat}_{slot}.dds missing")
-                        continue
-                    if a.read_bytes() == b.read_bytes():
-                        continue
-                    level0 = bc1_level0 if slot == "d" else bc5_level0
-                    x, y = level0(a).astype(np.int32), level0(b).astype(np.int32)
-                    if x.shape != y.shape:
-                        diff.append(f"{mat}_{slot}.dds {x.shape[1]}x{x.shape[0]}, the reference's {y.shape[1]}x{y.shape[0]}")
-                        continue
-                    dd = np.abs(x - y).reshape(x.shape[0], x.shape[1], -1).max(-1)
-                    share, most = float((dd > 0).mean()), int(dd.max())
-                    lines.append(f"{mat}_{slot} {share:.2%} of its texels, at most {most} off")
-                    if share > CHROME_TEX_SHARE or most > CHROME_TEX_MOST:
-                        diff.append(f"{mat}_{slot}.dds {share:.2%} of its texels differ, at most {most}")
-            rep.check(not diff, f"look: the chrome's {n} textures the 2026-11-01a build's (--look-reference: byte for byte, "
-                                f"or at most {CHROME_TEX_SHARE:.0%} of a map's texels within {CHROME_TEX_MOST} levels, the "
-                                f"bake's occlusion by the discs' new bore; the materials files alone changed)",
-                      "; ".join(diff + lines))
+                    elif a.read_bytes() != b.read_bytes():
+                        diff.append(f"{mat}_{slot}.dds differs")
+            rep.check(not diff and n, f"look: the chrome's and the wheels' {n} textures the reference's byte for byte (--look-reference; "
+                                      f"the materials files alone changed)", "; ".join(diff))
         else:
-            rep.info("look", "the chrome's textures not compared (no --look-reference)")
+            rep.info("look", "the chrome's and the wheels' textures not compared (no --look-reference)")
 
     # --- the parts file and the fit file --------------------------------------------------------------------------
     parts = ini_keys(meshes / "CMB_BikeParts.ini") if (meshes / "CMB_BikeParts.ini").exists() else {}

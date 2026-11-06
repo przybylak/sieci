@@ -437,6 +437,39 @@ Group Fx_Own_Records
 	{Our own water loops, CMB_FxWaterLoops' slots (CMB_FxWaterPick picks one, read on getting on).}
 EndGroup
 
+; 2026-11-06a (test 49's answer): the rider's two fixes (script-only globals 0x8B5, 0x8B6) and the
+; sound's (the landings without metal, 0x8B7-0x8B9; the water loop's choice at the fixed ID 0x8B4,
+; which the plugin reads too; the mod's own wet-road loop 0x8A9). None is Mandatory: an older ESP
+; leaves them None, and each stays as the 2026-11-02a build.
+Group Rider_Fixes_51
+	GlobalVariable Property CMB_KnockOffPower Auto Const
+	{MCM "Power attacks throw you off": 1 = every power attack knocks you off (the 2026-11-02a build);
+	0 (the default) = a power attack is a hit like any other, under Big hit's rule. Explosions always
+	do. None (an older ESP) = 1.}
+	GlobalVariable Property CMB_RiderUseOwn Auto Const
+	{Console: 1 (the default) = only the player's own item uses are watched (the favourites through
+	CMB_HotkeyF4SE), so another mod's dummy potion isn't read as one; 0 or None = every potion equipped,
+	as the 2026-11-02a build.}
+EndGroup
+Group Fx_Fixes_51
+	GlobalVariable Property CMB_FxLandDull Auto Const
+	{MCM "Landing sounds without metal": 1 (the default) = CMB_FxLandSoundsDull: a tyre thump, on big
+	drops a heavy dull thud under it; into water a splash, on big drops a heavier one with a thud.
+	0 or None = the 2026-11-02a build's sets (a metal clunk on big drops). Read at each landing.}
+	GlobalVariable Property CMB_FxThudDb Auto Const
+	{Console: the dull set's thud on big drops, this many dB under the landing's level (-11). Unused
+	with CMB_FxLandDull 0.}
+	FormList Property CMB_FxLandSoundsDull Auto Const
+	{The landings without metal (CMB_FxLandDull 1): 0 light, 1 heavy, 2 the PA dirt thud, 3 into water,
+	4 into water heavy, 5 the PA water thud.}
+	GlobalVariable Property CMB_FxWaterLoop Auto Const
+	{MCM "Water sound loop": 0 = the spray, as the 2026-11-02a build (CMB_FxWaterPick); 1 = the churn;
+	2 (the default) = the mod's own wet road. At a fixed ID, 0x8B4: CMB_Slope.dll reads it for the
+	loop's trim and its line. Read on getting on.}
+	Sound Property CMB_FxWaterRoad Auto Const
+	{0x8A9 CMB_FxWaterRoadLPSD, the mod's own wet-road loop (CMB_FxWaterLoop 2).}
+EndGroup
+
 ; ---------------------------------------------------------------------------
 ; Constants
 ; ---------------------------------------------------------------------------
@@ -944,6 +977,7 @@ Function OnGameReloaded()
 		itemAt = -100.0          ; 2026-11-02a: no use window across a load (real time starts again), no menu open
 		itemInMenu = false
 		riderMenuOpen = false
+		CacheFavourites()        ; 2026-11-06a: the favourites as the save has them (CMB_RiderUseOwn)
 		staggerOverPending = false
 		RideWatchesOn()
 		if riderPoseApplied
@@ -1828,6 +1862,7 @@ Function Mount()
 	itemLeft = -200.0
 	itemInMenu = false
 	riderMenuOpen = false
+	CacheFavourites()   ; 2026-11-06a: the favourites at getting on (CMB_RiderUseOwn)
 	useCameraTries = 0
 	useCameraFixed = false
 	useCameraNoted = false
@@ -2041,6 +2076,9 @@ EndFunction
 ; with the plugin's [Room] SnapSpot (CMB_RoomOptions bit 16) a call or a bring that would take that
 ; first spot as before asks first about the place its navmesh snap found (SpotSnapReach at most from
 ; it), as a navmesh point, and takes it with room there and its own snap within SpotSettleMax.
+; 2026-11-06a: with the plugin's [Room] SnapBest (CMB_RoomOptions bit 32; test 49's calls from on
+; top of a truck) a call with no spot with room does the same for the most room when its own snap
+; goes past SpotSettleMax, before the most room is taken as before.
 int Function PickBikeSpot(bool abFromDoor, bool abPark = false)
 	spotKnown = false
 	spotGroundKnown = false
@@ -2278,6 +2316,38 @@ int Function PickBikeSpot(bool abFromDoor, bool abPark = false)
 		return -1
 	endif
 	if bestSpot >= 0
+		; 2026-11-06a: test 49's calls from on top of a modded truck (12:05:13, 12:06:09): no spot had room, the most room was on
+		; the truck 70 below the player, its navmesh snap 166 and 193 to the street, and the bike was put back on the truck. With
+		; the plugin's [Room] SnapBest (CMB_RoomOptions bit 32): the most room's own snap first, and past SpotSettleMax the place
+		; it found asked as a navmesh point, taken with room there and its own snap within SpotSettleMax. Off (bit 32 clear:
+		; SnapBest=0, an older plugin, or no CMB_RoomAskKind): the most room taken as before.
+		if RoomOption(32) && CMB_RoomAskKind && SpotSettleMax > 0.0 && !unanswered
+			float mostSnap = SnapOff(bestX, bestY, bestGround, !bestTilted)
+			if mostSnap > SpotSettleMax && mostSnap <= SpotSnapReach
+				float mostX = snapX
+				float mostY = snapY
+				string mostLabel = "Bike's spot " + (bestSpot + 1) + "'s navmesh point, the most room's (" + Whole(mostSnap) + " from it)"
+				int mostRoom = RoomAt(mostX, mostY, pz, bestSpot, bestAngle, ".", mostLabel, 1)
+				if mostRoom > 0
+					float mostAgain = SnapOff(lastRoomX, lastRoomY, pz - lastRoomClear, false)
+					if mostAgain <= SpotSettleMax
+						spotX = lastRoomX
+						spotY = lastRoomY
+						spotAngle = lastRoomAngle
+						spotKnown = true
+						spotGround = pz - lastRoomClear
+						spotGroundKnown = true
+						spotPitch = lastRoomPitch
+						spotRoll = lastRoomRoll
+						spotTiltKnown = lastRoomTilted
+						Log(who + mostLabel + ", heading " + Whole(spotAngle) + ": room, walkable (its own snap " + Whole(mostAgain) + "): taken (the plugin's [Room] SnapBest).")
+						return bestSpot
+					endif
+					Log(mostLabel + ": its own navmesh snap " + Whole(mostAgain) + ", over " + Whole(SpotSettleMax) + ".")
+				endif
+				Log("Bike's spot " + (bestSpot + 1) + ", the most room: its navmesh snap " + Whole(mostSnap) + ", over " + Whole(SpotSettleMax) + ", its navmesh point not taken: the most room as before (the plugin's [Room] SnapBest).")
+			endif
+		endif
 		Log("The bike's spot: " + (bestSpot + 1) + " (" + SpotText(bestSpot) + "), heading " + Whole(bestAngle) + ", the most room of the " + spots + " (the nearest hit " + Whole(bestClear) + " along a ray, on the bike's 110, or the ground " + Whole(bestClear) + " below; none has room, a call takes the most room).")
 		spotX = bestX
 		spotY = bestY
@@ -3924,11 +3994,20 @@ Event OnHit(ObjectReference akTarget, ObjectReference akAggressor, Form akSource
 	bool explosion = akSource as Explosion
 	; 2026-11-01a: the hit may have come only for the reaction window, "Thrown off when hit" off.
 	bool knockOffs = CMB_DismountOnHit.GetValue() > 0.0
-	if knockOffs && (abPowerAttack || explosion || threshold <= 0.0 || lost >= threshold)
+	; 2026-11-06a (test 49: every power attack outside the grace threw the rider off, 6 of 6 at 1.8-2.5% health): with
+	; the MCM's "Power attacks throw you off" off (CMB_KnockOffPower 0, the default) a power attack is a hit like any
+	; other, judged by Big hit's share; explosions always throw off. On (1), or an older ESP without the global: every
+	; power attack does, as the 2026-11-02a build.
+	bool powerThrows = !CMB_KnockOffPower || CMB_KnockOffPower.GetValue() > 0.0
+	if knockOffs && ((abPowerAttack && powerThrows) || explosion || threshold <= 0.0 || lost >= threshold)
 		Log("Knocked off: lost " + lost + "% health, power attack " + abPowerAttack + ", explosion " + explosion)
 		AutoDismount("You're knocked off the motorbike.", true)
 	else
-		LogHit(abPowerAttack, abHitBlocked, "lost " + Tenths(lost) + "% health since the last tick: " + Ternary(knockOffs, "not knocked off", "not knocked off (the MCM's Thrown off when hit is off)"))
+		string notOff = Ternary(knockOffs, "not knocked off", "not knocked off (the MCM's Thrown off when hit is off)")
+		if knockOffs && abPowerAttack
+			notOff = "not knocked off (a power attack under Big hit's " + Tenths(threshold) + "%: the MCM's Power attacks throw you off is off)"
+		endif
+		LogHit(abPowerAttack, abHitBlocked, "lost " + Tenths(lost) + "% health since the last tick: " + notOff)
 		WatchForHits()
 	endif
 EndEvent
@@ -4256,6 +4335,20 @@ Event Actor.OnItemEquipped(Actor akSender, Form akBaseObject, ObjectReference ak
 	if !riding || !(akBaseObject as Potion)
 		return
 	endif
+	; 2026-11-06a (test 49: another mod's dummy potion right after a load went into the use watch, and the camera's
+	; check after it forced the view for nothing): with CMB_RiderUseOwn 1 only the player's own uses count. The player
+	; uses a potion in the Pip-Boy or the favourites (a menu open) or by a favourites hotkey (the item in a favourite
+	; slot, or in the cache of them: a stack's last one leaves its slot as it is used); an item equipped outside both, or
+	; a nameless one, is another mod's: logged, then no reaction window, no use window, no CMB_RiderItemUse, no camera
+	; check. CMB_RiderUseOwn 0, an older ESP without it, or no F4SE: every potion, as the 2026-11-02a build.
+	if !riderMenuOpen && CMB_RiderUseOwn && CMB_RiderUseOwn.GetValue() > 0.0 && ItemOwnUse(akBaseObject) == 0
+		float at = Utility.GetCurrentRealTime()
+		if at - itemOwnLoggedAt >= 1.0 || at < itemOwnLoggedAt
+			itemOwnLoggedAt = at
+			Log("Used " + akBaseObject + " while riding: not from the Pip-Boy, the favourites or a hotkey (another mod's item, a dummy's kind): left out of the use watch (CMB_RiderUseOwn 1).")
+		endif
+		return
+	endif
 	float now = Utility.GetCurrentRealTime()
 	reactionAt = now
 	reactionWhat = "an item used"
@@ -4275,6 +4368,32 @@ Event Actor.OnItemEquipped(Actor akSender, Form akBaseObject, ObjectReference ak
 	endif
 EndEvent
 
+; 2026-11-06a: CMB_RiderUseOwn's helpers, through CMB_HotkeyF4SE (F4SE's FavoritesManager; this script runs without
+; F4SE). ItemOwnUse: 1 the player's own (a favourite, or in the cache of them), 0 another mod's (nameless, or in no
+; favourite slot), -1 unknown (no favourites list: counted), -2 without the helper (counted). CacheFavourites: the
+; favourites as they stand, kept by the helper (at getting on, after a load into a ride, at each menu's close).
+float itemOwnLoggedAt = -100.0
+
+int Function ItemOwnUse(Form akItem)
+	ScriptObject hotkey = CastAs("CMB_HotkeyF4SE")
+	if !hotkey
+		return -2
+	endif
+	Var[] args = new Var[1]
+	args[0] = akItem
+	return hotkey.CallFunction("ItemOwnUse", args) as int
+EndFunction
+
+Function CacheFavourites()
+	if !CMB_RiderUseOwn || CMB_RiderUseOwn.GetValue() <= 0.0
+		return
+	endif
+	ScriptObject hotkey = CastAs("CMB_HotkeyF4SE")
+	if hotkey
+		hotkey.CallFunction("CacheFavourites", new Var[0])
+	endif
+EndFunction
+
 ; Test 47: the Pip-Boy and the favourites while riding, log only; and 0.6 s after the Pip-Boy
 ; closes, the plugin's reading (PipboyPoseCheck), with the reaction window on.
 Function RiderMenu(string asMenuName, bool abOpening)
@@ -4289,6 +4408,9 @@ Function RiderMenu(string asMenuName, bool abOpening)
 	; 2026-11-02a: an item used in it is timed from this close (ItemSignal); with the use window on, no
 	; Pip-Boy check for this close: the clips off the seat after it are the item's use clip.
 	riderMenuOpen = abOpening
+	if !abOpening
+		CacheFavourites()   ; 2026-11-06a: favourites change only in menus (CMB_RiderUseOwn)
+	endif
 	if !abOpening && itemInMenu
 		itemInMenu = false
 		ItemSignal("in the " + what)
@@ -5335,7 +5457,11 @@ EndFunction
 
 ; The set a landing plays from: ours unless CMB_FxOwnSounds is 0 or the ESP has none; CMB_FxLandPick
 ; 1 the second set (the game's second set, or the first, as before, when there's no own one).
+; 2026-11-06a: the landings without metal first (FxDull: the MCM's "Landing sounds without metal").
 FormList Function FxLandSet()
+	if FxDull()
+		return CMB_FxLandSoundsDull
+	endif
 	int kind = 0
 	if CMB_FxLandPick && CMB_FxLandPick.GetValue() == 1.0
 		kind = 1
@@ -5351,6 +5477,31 @@ FormList Function FxLandSet()
 		set = CMB_FxLandSounds
 	endif
 	return set
+EndFunction
+
+; 2026-11-06a (test 49: big landings "like an empty barrel or a microwave", the car-metal clunk on top):
+; MCM "Landing sounds without metal" (CMB_FxLandDull 1, the default): CMB_FxLandSoundsDull, a tyre thump,
+; on big drops the power-armour dirt thud FxThudDb() under the heavy tyre; into water a splash, on big
+; drops a heavy one with the power-armour water thud under it. 0, or an ESP without the three: the
+; 2026-11-02a build's sets (CMB_FxLandPick picks). Read at each landing.
+bool Function FxDull()
+	return CMB_FxLandDull && CMB_FxLandSoundsDull && CMB_FxLandDull.GetValue() != 0.0
+EndFunction
+
+; Console CMB_FxThudDb: the dull set's thud this many dB under the landing's volume (-11: its loudest 50 ms
+; 1 dB over the 2026-11-02a clunk's at -4, over in 0.2 s where the clunk rang 0.63 s; -12 the clunk's
+; exactly), -40 to 0. Read at each landing.
+float Function FxThudDb()
+	if !CMB_FxThudDb
+		return -11.0
+	endif
+	float d = CMB_FxThudDb.GetValue()
+	if d > 0.0
+		return 0.0
+	elseif d < -40.0
+		return -40.0
+	endif
+	return d
 EndFunction
 
 ; MCM "Landing loudness range (dB)": the softest landing this many dB under the hardest, 0-60 (10;
@@ -5500,8 +5651,10 @@ EndFunction
 ; 10^(-range x (1 - level) / 20), the range the MCM's (FxLandRange: 10 dB; 18 = FxLandFloorDb, the
 ; 2026-11-01a build); the light thump under FxLandHeavy, the heavy one from it, and the clunk on top
 ; from FxLandBig; into water the splash, or the heavy one from FxLandBig. Through our own records
-; or the game's (FxLandSet). Returns 1 when it played, 0 at level 0 (nothing to play: the silent
-; cue), -1 for nothing played otherwise (the bike effects volume 0).
+; or the game's (FxLandSet). 2026-11-06a, the set without metal (FxDull): from FxLandBig the thud
+; (slot 2; into water slot 5 under the heavy splash) FxThudDb() under, no clunk. Returns 1 when it
+; played, 0 at level 0 (nothing to play: the silent cue), -1 for nothing played otherwise (the bike
+; effects volume 0).
 int Function PlayLanding(float afLevel, string asCue)
 	float fx = FxVolume()
 	bool water = afLevel >= 2.0
@@ -5518,7 +5671,8 @@ int Function PlayLanding(float afLevel, string asCue)
 		return -1
 	endif
 	FormList set = FxLandSet()
-	bool own = set && (set == CMB_FxLandSoundsOwn || set == CMB_FxLandSoundsAltOwn)
+	bool dull = set && set == CMB_FxLandSoundsDull
+	bool own = set && (set == CMB_FxLandSoundsOwn || set == CMB_FxLandSoundsAltOwn || dull)
 	float range = FxLandRange()
 	float volume = fx * Math.Pow(10.0, -range * (1.0 - level) / 20.0)
 	int first = 0
@@ -5532,12 +5686,26 @@ int Function PlayLanding(float afLevel, string asCue)
 	endif
 	int id = FxPlay(set.GetAt(first) as Sound, volume)
 	int extra = 0
-	if !water && level >= FxLandBig
+	float extraDb = FxClunkDb
+	int extraSlot = 2
+	if dull
+		if level >= FxLandBig
+			if water
+				extraSlot = 5
+			endif
+			extraDb = FxThudDb()
+			extra = FxPlay(set.GetAt(extraSlot) as Sound, volume * Math.Pow(10.0, extraDb / 20.0))
+		endif
+	elseif !water && level >= FxLandBig
 		extra = FxPlay(set.GetAt(2) as Sound, volume * Math.Pow(10.0, FxClunkDb / 20.0))
 	endif
 	int r = (range + 0.5) as int
 	string article = Ternary(r == 8 || r == 11 || r == 18, "an ", "a ")
-	Log("Bike sounds: landing (" + asCue + ") at level " + Hundredths(level) + Ternary(water, " into water", "") + " (" + Ternary(own, "our records", "the game's records") + ", " + article + r + " dB range): sound " + first + " instance " + id + Ternary(extra > 0, ", the clunk " + extra, "") + ", volume " + Thousandths(volume) + ".")
+	string extraText = ""
+	if extra > 0
+		extraText = Ternary(dull, ", the thud " + extra + " (" + Whole(extraDb) + " dB)", ", the clunk " + extra)
+	endif
+	Log("Bike sounds: landing (" + asCue + ") at level " + Hundredths(level) + Ternary(water, " into water", "") + " (" + Ternary(own, "our records", "the game's records") + Ternary(dull, ", no metal", "") + ", " + article + r + " dB range): sound " + first + " instance " + id + extraText + ", volume " + Thousandths(volume) + ".")
 	return 1
 EndFunction
 
@@ -5552,6 +5720,9 @@ int Function FxPlay(Sound akSound, float afVolume)
 	return id
 EndFunction
 
+; 2026-11-06a: MCM "Water sound loop" (CMB_FxWaterLoop, read on getting on) picks it: 1 the churn (our
+; record, CMB_FxWaterLoopsOwn's slot 3), 2 the mod's own wet road (CMB_FxWaterRoad); 0, another value,
+; a record the ESP hasn't or no global: as the 2026-11-02a build (CMB_FxWaterPick's from the set).
 ; The water loop (CMB_FxWaterOn, CMB_FxWaterPick, read on getting on): played at no volume, its id
 ; to the plugin (CMB_FxWaterId), which brings it in by the water's depth over the feet and the speed
 ; (as the engine's loops) and answers in CMB_FxDriven: the id, or minus it when it declines. No
@@ -5576,7 +5747,23 @@ Function FxStartWaterLoop()
 	if pick < 0 || pick >= loops.GetSize()
 		pick = 0
 	endif
-	Sound loop = loops.GetAt(pick) as Sound
+	Sound loop = None
+	string what = " " + pick + records
+	int kind = 0
+	if CMB_FxWaterLoop
+		kind = CMB_FxWaterLoop.GetValue() as int
+	endif
+	if kind == 1 && CMB_FxWaterLoopsOwn && CMB_FxWaterLoopsOwn.GetSize() > 3
+		loop = CMB_FxWaterLoopsOwn.GetAt(3) as Sound
+		what = ": the churn (CMB_FxWaterLoop 1)"
+	elseif kind == 2 && CMB_FxWaterRoad
+		loop = CMB_FxWaterRoad
+		what = ": the wet road (CMB_FxWaterLoop 2)"
+	endif
+	if !loop
+		loop = loops.GetAt(pick) as Sound
+		what = " " + pick + records
+	endif
 	if !loop
 		return
 	endif
@@ -5592,7 +5779,7 @@ Function FxStartWaterLoop()
 		if id > 0
 			Sound.StopInstance(id)
 		endif
-		Log("Bike sounds: the water loop " + pick + records + " didn't play (instance " + id + ").")
+		Log("Bike sounds: the water loop" + what + " didn't play (instance " + id + ").")
 		return
 	endif
 	Sound.SetInstanceVolume(id, 0.0)
@@ -5607,7 +5794,7 @@ Function FxStartWaterLoop()
 		if fxWaterLoop != id
 			return   ; a ride end (or a newer start) has stopped it
 		elseif answer == (id as float)
-			Log("Bike sounds: the plugin drives the water loop " + pick + records + " (instance " + id + ", poll " + poll + ").")
+			Log("Bike sounds: the plugin drives the water loop" + what + " (instance " + id + ", poll " + poll + ").")
 			return
 		elseif answer == -(id as float)
 			Log("Bike sounds: the plugin declined the water loop (see its log): stopped.")
@@ -5662,10 +5849,15 @@ int fxAuditionQueued = 0   ; the slots auditions waiting or playing hold: the ne
 ; -1: every one of ours in turn (14, about 47 s), -2: every one of the game's; each holds the queue's
 ; slots for its whole sequence, so one typed with it starts after it. At the bike effects volume (100
 ; if it's 0). Instance 0: it didn't play (a file that didn't resolve, a condition, or not a sound).
+; 2026-11-06a, -3: the landings as heard (PlayLanding, the set in use: FxLandSet), small to big at
+; levels 0.1, 0.3, 0.5, 0.7 and 1.0 onto the ground, then 0.3 and 1.0 into water, FxAuditionGap s
+; apart (about 15 s), each logged as "landing (audition)", at the bike effects volume and the MCM's range.
 Function FxAudition(int aiWhich)
 	int slots = 1
 	if aiWhich == -1 || aiWhich == -2
 		slots = ((14.0 * FxAuditionGap + 4.0 * FxAuditionLoop) / FxAuditionGap) as int + 1   ; 19: its 47 s in gaps, rounded up
+	elseif aiWhich == -3
+		slots = 7
 	endif
 	int slot = fxAuditionQueued   ; claimed before any call (a call lets another audition's thread run): the order kept
 	fxAuditionQueued += slots
@@ -5696,14 +5888,43 @@ Function FxAudition(int aiWhich)
 		fxAuditionQueued -= slots   ; the sequence over: its slots given back
 		return
 	endif
+	if aiWhich == -3
+		FxAuditionLandings(menu)
+		fxAuditionQueued -= slots
+		return
+	endif
 	int code = aiWhich % 100
 	int set = code / 10
 	int slotIn = code % 10
 	if aiWhich < 0 || aiWhich >= 200 || set > 2 || slotIn > 4 || (set == 2 && slotIn > 3)
-		Log("Bike sounds: audition " + aiWhich + ": no such sound (0-4, 10-14, 20-23 ours; 100 more the game's; -1 all of ours, -2 all of the game's).")
+		Log("Bike sounds: audition " + aiWhich + ": no such sound (0-4, 10-14, 20-23 ours; 100 more the game's; -1 all of ours, -2 all of the game's; -3 the landings as heard).")
 		return
 	endif
 	FxAuditionOne(set, slotIn, aiWhich < 100, menu)
+EndFunction
+
+; FxAudition -3 (2026-11-06a): seven landings through PlayLanding, FxAuditionGap s apart, as a ride hears them.
+Function FxAuditionLandings(bool abAfterMenu)
+	Log("Bike sounds: audition -3: the landings as heard (" + Ternary(FxDull(), "without metal", "the 2026-11-02a build's sets") + "), levels 0.1, 0.3, 0.5, 0.7, 1.0, then 0.3 and 1.0 into water" + Ternary(abAfterMenu, ", after the menus closed", "") + ".")
+	int i = 0
+	while i < 7
+		float level = 0.1 + 0.2 * i
+		if i == 4
+			level = 1.0
+		elseif i == 5
+			level = 2.3
+		elseif i == 6
+			level = 3.0
+		endif
+		if PlayLanding(level, "audition") < 0
+			Log("Bike sounds: audition -3: the bike effects volume is 0: nothing played.")
+			return
+		endif
+		if i < 6
+			Utility.Wait(FxAuditionGap)
+		endif
+		i += 1
+	endwhile
 EndFunction
 
 ; One audition: our record or the game's for that list's slot, at the bike effects volume (100 if it's
@@ -5738,7 +5959,7 @@ string Function FxSlotName(int aiKind, int aiSlot)
 		elseif aiSlot == 1
 			return "large spray"
 		elseif aiSlot == 2
-			return "stream"
+			return "wet road"   ; 2026-11-06a: 0x8A9 CMB_FxWaterRoadLPSD, the mod's own loop (the stream's file wasn't in the game)
 		endif
 		return "churn"
 	elseif aiSlot == 0

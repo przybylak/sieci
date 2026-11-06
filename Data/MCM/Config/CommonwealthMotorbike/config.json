@@ -131,6 +131,54 @@
       }
     },
     {
+      "type": "slider",
+      "text": "Look down on getting into first person (deg)",
+      "help": "Each time you go into first person on the bike, the view eases down this far so the dial and bars are in sight; look up whenever you like. 0 = the view left as it is (as before). Needs F4SE and CMB_Slope.dll.",
+      "valueOptions": {
+        "min": 0,
+        "max": 45,
+        "step": 1,
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|8B0"
+      }
+    },
+    {
+      "type": "slider",
+      "text": "Field of view riding in first person",
+      "help": "The game\u0027s field of view while you ride in first person (more shows more of the bike, and widens the world too); back to yours as you get off or leave first person. 0 = your own, as before. Needs F4SE and CMB_Slope.dll.",
+      "valueOptions": {
+        "min": 0,
+        "max": 120,
+        "step": 5,
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|8B1"
+      }
+    },
+    {
+      "type": "slider",
+      "text": "Eye forward on the bike",
+      "help": "Moves your seat in first person forward (\u002B) or back (-), in game units. 0 = the plugin\u0027s EyeAt. At once.",
+      "valueOptions": {
+        "min": -30,
+        "max": 30,
+        "step": 1,
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|8B2"
+      }
+    },
+    {
+      "type": "slider",
+      "text": "Eye height on the bike",
+      "help": "Lower (-) brings the bike higher into view under you (its wheels lift off the road by as much in first person), higher (\u002B) sinks it. 0 = the plugin\u0027s EyeAt. At once.",
+      "valueOptions": {
+        "min": -30,
+        "max": 20,
+        "step": 1,
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|8B3"
+      }
+    },
+    {
       "type": "switcher",
       "text": "Thrown off when hit",
       "help": "A big hit from an enemy knocks you off the bike, so you can fight back. Off: you keep riding; a hint says how to get off when a fight starts.",
@@ -141,8 +189,17 @@
     },
     {
       "type": "switcher",
+      "text": "Power attacks throw you off",
+      "help": "On: an enemy\u0027s power attack knocks you off whatever it costs you (the 2026-11-02a build). Off: a power attack is a hit like any other: it knocks you off only when it takes the Big hit share of your health. Explosions always do. Needs \u0022Thrown off when hit\u0022.",
+      "valueOptions": {
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|8B5"
+      }
+    },
+    {
+      "type": "switcher",
       "text": "Steady in the saddle",
-      "help": "Hits don\u0027t stagger you while riding (a stagger plays the standing animation, and the bike hangs round your hips). Power attacks and explosions still knock you off with \u0022Thrown off when hit\u0022 on. Off: staggered as on foot.",
+      "help": "Hits don\u0027t stagger you while riding (a stagger plays the standing animation, and the bike hangs round your hips). Explosions, and power attacks with \u0022Power attacks throw you off\u0022 on, still knock you off with \u0022Thrown off when hit\u0022 on. Off: staggered as on foot.",
       "valueOptions": {
         "sourceType": "GlobalValue",
         "sourceForm": "CommonwealthMotorbike.esp|87E"
@@ -163,7 +220,7 @@
     {
       "type": "slider",
       "text": "Big hit (% of max health)",
-      "help": "How much of your max health a hit (or several within about a second) must take to knock you off. Power attacks and explosions always do. 0 = any hit. Not in the first 3 seconds after getting on.",
+      "help": "How much of your max health a hit (or several within about a second) must take to knock you off. Explosions always do, and power attacks with \u0022Power attacks throw you off\u0022 on. 0 = any hit. Not in the first 3 seconds after getting on.",
       "valueOptions": {
         "min": 0,
         "max": 50,
@@ -360,7 +417,7 @@
     {
       "type": "switcher",
       "text": "Bike sounds through the mod\u0027s own records",
-      "help": "Landings and the water through the mod\u0027s own sound records over the game\u0027s sound files: heard at the riding camera\u0027s distance. Off: the game\u0027s own records, as the 2026-11-01a build (much quieter: they fade with the camera\u0027s distance and carry their own attenuation). Landings at once, the water the next time you get on.",
+      "help": "Landings and the water through the mod\u0027s own sound records over the game\u0027s sound files: heard at the riding camera\u0027s distance. Off: the game\u0027s own records, as the 2026-11-01a build (much quieter: they fade with the camera\u0027s distance and carry their own attenuation): the landings only with \u0022Landing sounds without metal\u0022 off, the water only with \u0022Water sound loop\u0022 on its first choice (the others are the mod\u0027s own records either way). Landings at once, the water the next time you get on.",
       "valueOptions": {
         "sourceType": "GlobalValue",
         "sourceForm": "CommonwealthMotorbike.esp|8AE"
@@ -380,8 +437,17 @@
     },
     {
       "type": "switcher",
+      "text": "Landing sounds without metal",
+      "help": "On: a tyre thump, and on big drops a heavy dull thud under it; into water a splash, and on big drops a heavier one with a thud. Off: as the 2026-11-02a build, a metal clunk on big drops.",
+      "valueOptions": {
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|8B7"
+      }
+    },
+    {
+      "type": "switcher",
       "text": "Landing sound",
-      "help": "A tyre thump when the bike lands, louder the higher the drop, a clunk on big ones, a splash into water. Without F4SE one level.",
+      "help": "A tyre thump when the bike lands, louder the higher the drop, a heavier thud on big ones, a splash into water. Without F4SE one level.",
       "valueOptions": {
         "sourceType": "GlobalValue",
         "sourceForm": "CommonwealthMotorbike.esp|88C"
@@ -394,6 +460,20 @@
       "valueOptions": {
         "sourceType": "GlobalValue",
         "sourceForm": "CommonwealthMotorbike.esp|88D"
+      }
+    },
+    {
+      "type": "stepper",
+      "text": "Water sound loop",
+      "help": "Which water loop plays while riding through water. The first is the 2026-11-02a build\u0027s (the console\u0027s CMB_FxWaterPick). Takes effect the next time you get on.",
+      "valueOptions": {
+        "options": [
+          "As the 2026-11-02a build (spray)",
+          "Churning water",
+          "Wet road (the mod\u0027s own)"
+        ],
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|8B4"
       }
     },
     {

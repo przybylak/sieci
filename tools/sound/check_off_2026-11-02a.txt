@@ -1,0 +1,90 @@
+# engine_model.py --check-off: the 2026-11-02a build's model (f0253e8's tools/sound/engine_model.py) over these rides,
+# run with {"IdleDb": -11.0, "ShiftTime": 0.35, "ShiftDipTime": 0.24, "LaunchFlare": 0.0}; each frame as check_frames() writes it, 500 frames a hash (sha256's first 16).
+ride demo frames 1860 changes 10
+blocks demo 2c7e29f1b9638591 941d5b6cff65c295 1992576651c6ea49 d7b26fe51190718f
+change demo 589 1->2 2597
+change demo 677 2->3 2586
+change demo 752 3->4 2343
+change demo 995 4->3 1729 blip
+change demo 1022 3->2 1817 blip
+change demo 1051 2->1 1828 blip
+change demo 1163 1->2 2411
+change demo 1303 2->3 2618
+change demo 1360 3->2 1786 blip
+change demo 1384 2->1 1859 blip
+ride random frames 26619 changes 40
+blocks random e99367030502e776 1a4b0f45f3c4d0b1 f59c3777d1ad10b3 63502afc98ec87b2 dd4b9a94125c6032 01761b05e657e669 6c65c617c1074c13 1d8978df6237e6a9 617fac5c7b879d40 58469ad9d9119dce e79034f5ca3890bb e96a96ebcb864503 f0e94d4bdc7abee2 8d94503c8036594f 500f45fbd6688c89 3b5849325ea537df 19a99675802bc7eb ce669ddbb09f041a b9c77b6634782046 ab095454b09697e3 c0175d99572fce6e 204e1257300a2634 719776b36f304f31 94b8fb434a4ef395 08a1df73d60d1dc6 f4a427435045dd54 9904a62aa5af5a8d 8ef40c0dc150f96d 55b9d03297f9e8a2 b9e6aa663f37c982 e1463ca682ce02d3 5eb37d0db711b0f8 7b0b6bb1ba6fafba eb8f2612d6091a7d daa05ac3e9f10dfc e95dad70eb21ee18 44a423445ef1c226 74d2925e5cac62e7 6369b10f86ac2b3a d19558e0a58ad8c9 4d7d8336da5551fc 0520488427c5e954 01c9da687ab2753c 36cdb23d57689547 aa30059d86cc4ab0 062e466e66f26557 b2c9115c7de01b78 98fc684738873d5d d61006b39493b299 d610b6d51d091ff5 8fe4f183fa8387e1 a69937f30e52337b f39bcb398b962eeb df92e6e190a0aa87
+change random 638 1->2 2599
+change random 829 2->1 1888 blip
+change random 1636 1->2 2633
+change random 1764 2->1 1884 blip
+change random 4693 1->2 2568
+change random 4935 2->3 2559
+change random 5144 3->4 2343
+change random 6562 4->3 1790 blip
+change random 6629 3->2 1631 blip
+change random 6690 2->1 1325 clutch
+change random 8220 1->2 2849
+change random 8361 2->1 1899 blip
+change random 10480 1->2 2432
+change random 10708 2->3 2418
+change random 10917 3->4 2331
+change random 13221 4->3 1730 blip
+change random 13556 3->2 1747 blip
+change random 14139 2->1 1931 blip
+change random 15259 1->2 2356
+change random 15481 2->3 2345
+change random 15690 3->4 2290
+change random 15978 4->3 1790 blip
+change random 16045 3->2 1631 blip
+change random 16106 2->1 1325 clutch
+change random 17200 1->2 2733
+change random 17456 2->3 2720
+change random 17665 3->4 2344
+change random 18845 4->3 1730 blip
+change random 18921 3->2 1812 blip
+change random 19000 2->1 1835 blip
+change random 20485 1->2 2929
+change random 20717 2->1 1915 blip
+change random 23815 1->2 2473
+change random 24047 2->3 2460
+change random 24256 3->4 2339
+change random 24974 4->3 1730 blip
+change random 25050 3->2 1812 blip
+change random 25129 2->1 1835 blip
+change random 26203 1->2 2568
+change random 26445 2->3 2558
+ride coast frames 2833 changes 6
+blocks coast e99367030502e776 1756b4bd33d45662 40c6da144e3d7e74 7c716d04962b20bc fe40f44fb6c458a0 2089a9a594912501
+change coast 638 1->2 2599
+change coast 882 2->3 2587
+change coast 1091 3->4 2343
+change coast 2099 4->3 1730 blip
+change coast 2175 3->2 1812 blip
+change coast 2254 2->1 1835 blip
+ride brake frames 2833 changes 6
+blocks brake e99367030502e776 1756b4bd33d45662 40c6da144e3d7e74 7c716d04962b20bc e18ff47df6504f32 9d646d302d048d9c
+change brake 638 1->2 2599
+change brake 882 2->3 2587
+change brake 1091 3->4 2343
+change brake 2035 4->3 1790 blip
+change brake 2102 3->2 1631 blip
+change brake 2163 2->1 1632 clutch
+ride letoff frames 4133 changes 3
+blocks letoff e99367030502e776 1756b4bd33d45662 40c6da144e3d7e74 7c716d04962b20bc 80b7c09dfc9a5160 5e0a1ed7699ab20f c2caacdfc0c73b3b 275377400a21ccd1 83bb4b4a5a5938ac
+change letoff 638 1->2 2599
+change letoff 882 2->3 2587
+change letoff 1091 3->4 2343
+ride brake_tap frames 3025 changes 3
+blocks brake_tap e99367030502e776 1756b4bd33d45662 40c6da144e3d7e74 7c716d04962b20bc 8e790c2569200f9e 3106e5ac45ed75b5 93f8853d1f1a50ab
+change brake_tap 638 1->2 2599
+change brake_tap 882 2->3 2587
+change brake_tap 1091 3->4 2343
+ride coast_brake frames 2833 changes 6
+blocks coast_brake e99367030502e776 1756b4bd33d45662 40c6da144e3d7e74 7c716d04962b20bc f94e884acbd0f039 ffe7086726377228
+change coast_brake 638 1->2 2599
+change coast_brake 882 2->3 2587
+change coast_brake 1091 3->4 2343
+change coast_brake 2099 4->3 1730 blip
+change coast_brake 2166 3->2 1719 blip
+change coast_brake 2254 2->1 1330 clutch

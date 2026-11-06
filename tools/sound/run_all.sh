@@ -12,9 +12,12 @@
 #   work/    the grain and piece tools' outputs and every tool's log
 # The last stage (hot_loops.py, since test 45's answer) takes every file of loops/ 2.5 dB hotter through a memoryless
 # soft limiter (knee -6 dBFS, ceiling -1). HOT=0 leaves the set as build_loops.py writes it: test 45's set.
+# With WATER=<example 1 as WAV> set (the 2026-11-06a build: "Cars driving on a wet road 3", Pixabay 101246, decoded first with
+# ffmpeg -i <the mp3> -c:a pcm_s16le ex1.wav), make_water_loop.py also writes the 14th WAV the game plays, the mod's own
+# wet-road water loop CMB_FxWaterRoadLP.wav, into loops/ with its water.json (exit 1 if one of its checks fails).
 # With CHECK=<dir> set, every WAV in loops/ is compared byte for byte with the one of the same name in <dir> (the
 # cruise loop with CMB_EngineOn2000LP.wav when <dir> is a set built before it took the cruise's name, demo D's; a set
-# built before test 45's answer, demo D's or test 45's, with HOT=0).
+# built before test 45's answer, demo D's or test 45's, with HOT=0; the wet road only when <dir> has it).
 #
 # The recording is someone else's work (Creative Commons 0, but still not ours to re-host): it and everything built
 # from it stay out of the repository. Every tool runs isolated (python3 -I -B) with its files as arguments.
@@ -41,6 +44,10 @@ if [ "${HOT:-1}" != 0 ]; then
     echo "hotter (hot_loops.py) ..."
     $PY "$HERE/hot_loops.py" --in "$OUT/loops" --out "$OUT/loops" > "$OUT/work/hot.log" 2>&1
 fi
+if [ -n "${WATER:-}" ]; then
+    echo "the wet road (make_water_loop.py) ..."
+    $PY "$HERE/make_water_loop.py" --ex1 "$WATER" --out "$OUT/loops" > "$OUT/work/water.log" 2>&1
+fi
 echo "the demo ride (render.py) ..."
 $PY "$HERE/render.py" --loops "$OUT/loops" --out "$OUT/demo/CMB_engine_demo.wav" > "$OUT/work/render.log" 2>&1
 $PY "$HERE/render.py" --loops "$OUT/loops" --out "$OUT/demo/CMB_engine_demo_stepped.wav" --stepped \
@@ -52,6 +59,10 @@ if [ -n "$CHECK" ]; then
         ref=$CHECK/$(basename "$f")
         if [ ! -f "$ref" ] && [ "$(basename "$f")" = CMB_EngineCruiseLP.wav ]; then
             ref=$CHECK/CMB_EngineOn2000LP.wav
+        fi
+        if [ ! -f "$ref" ] && [ "$(basename "$f")" = CMB_FxWaterRoadLP.wav ]; then
+            echo "no ref    $(basename "$f")"
+            continue
         fi
         if cmp -s "$f" "$ref"; then
             echo "same      $(basename "$f")"
