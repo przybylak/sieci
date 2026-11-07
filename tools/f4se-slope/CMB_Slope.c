@@ -290,6 +290,9 @@
 #define VIEW_EYE_FORWARD_ID   0x8B2u        /* CMB_ViewEyeForward (MCM, console): added to [View] EyeAt's y; 0 = the INI's */
 #define VIEW_EYE_UP_ID        0x8B3u        /* CMB_ViewEyeUp (MCM, console): added to EyeAt's z; 0 = the INI's */
 #define FX_WATER_LOOP_ID      0x8B4u        /* CMB_FxWaterLoop (the MCM's "Water sound loop"): 0 spray (2026-11-02a), 1 churn, 2 the wet road */
+/* The 2026-11-07a build (the customisation build, C1): one fixed global (Program.cs makes it by FormKey at the ID
+ * the earlier builds kept free; fake_game.c's LOOK_CODE_FORMID), found in FindGlobals with its own line. */
+#define LOOK_CODE_ID          0x8AFu        /* CMB_LookCode (the customisation build, 2026-11-07a): bits 0-1 the mirror (0 none, 1 stock, 2 under-bar egg, 3 under-bar D), bit 2 set (chosen at the bike), bits 3-8 kept for later builds; 0 = [Look] Mirrors' */
 #define OFF_AV_FLAGS          0x108         /* NiAVObject::flags (bit 0: hidden, app culled); +0x100 is the collision object (test 30); [Lamp] FlagsOffset= overrides */
 #define OFF_MOVE_INPUT        0x44          /* PlayerControls: moveInputVec x (strafe), y (forward +1, back -1) */
 #define OFF_PREV_MOVE         0x5C          /* PlayerControls: prevMoveVec (what the movement used last) */
@@ -880,6 +883,7 @@ static uintptr_t g_fxGlobals[FX_GLOBALS];     /* CMB_FxVolume to CMB_FxLandPlaye
 static uintptr_t g_itemUseGlobal, g_ramCombatGlobal, g_fxRangeGlobal;   /* CMB_RiderItemUse, CMB_RamCombat, CMB_FxLandRange (2026-11-02a): all three or none (0, an older ESP) */
 /* CMB_ViewTip, CMB_ViewFov, CMB_ViewEyeForward and CMB_ViewEyeUp, CMB_FxWaterLoop (2026-11-06a): all five or none (0, an older ESP) */
 static uintptr_t g_viewTipGlobal, g_viewFovGlobal, g_viewEyeGlobals[2], g_fxWaterLoopGlobal;
+static uintptr_t g_lookCodeGlobal;            /* CMB_LookCode (2026-11-07a; 0: not found, an older ESP): the mirrors chosen at the bike (LookMirrorsNow) */
 static void ReadSoundSettings(const char *ini, bool log);   /* the engine sound, with its driver below */
 static const char *SoundTraceWord(void);
 static void ReadBrakeKey(const char *ini, bool log);        /* the 2026-11-01a build: [Steer] BrakeKey, the key reader above AfterInput */
@@ -2555,6 +2559,7 @@ static bool g_tailMissingSaid, g_viewMissingSaid;   /* the older ESP's line said
 static void ReadTailLightSettings(const char *ini, bool log);
 static void ReadViewSettings(const char *ini, bool log);
 
+static const char *LookMirrorsName(void);   /* 2026-11-07a: [Look] Mirrors=-1's mirror as chosen at the bike */
 /* The 2026-10-31a build's look ([Parts] RolesByName, [Speedo], [Tail], [Look]): read at the start and again on
  * getting on, so an A/B needs no restart; each off value is build 27c's behaviour. */
 static void ReadLookSettings(const char *ini, bool log)
@@ -2569,16 +2574,21 @@ static void ReadLookSettings(const char *ini, bool log)
 	g_tailGlow = (int)GetPrivateProfileIntA("Tail", "Glow", 1, ini) != 0;
 	g_tailBrake = (int)GetPrivateProfileIntA("Tail", "Brake", 1, ini) != 0;
 	g_tailBrakeHold = IniFloat(ini, "Tail", "BrakeHold", 0.3f, 0.0f, 5.0f);
-	g_lookMirrors = (int)GetPrivateProfileIntA("Look", "Mirrors", 1, ini);
-	if (g_lookMirrors < 0 || g_lookMirrors > 3)
+	g_lookMirrors = (int)GetPrivateProfileIntA("Look", "Mirrors", -1, ini);   /* -1 (2026-11-07a): as chosen at the bike (LookMirrorsNow) */
+	if (g_lookMirrors < -1 || g_lookMirrors > 3)
 		g_lookMirrors = 1;
 	g_lookCull = (int)GetPrivateProfileIntA("Look", "Cull", 0, ini) != 0;   /* 2026-11-01a; the default 0 since 2026-11-06a (1 = 2026-11-02a) */
 	bool changed = was[0] != g_rolesByName || was[1] != g_speedoNeedle || was[2] != g_speedoBacklight || was[3] != g_tailGlow || was[4] != g_tailBrake ||
 	               was[5] != g_lookMirrors || was[6] != g_lookCull || wasF[0] != g_speedoScale || wasF[1] != g_speedoTau || wasF[2] != g_tailBrakeHold;
 	static const char *mirrorNames[4] = { "none", "the stock one", "under the bars, egg", "under the bars, D" };
+	char chosen[96];
+	if (g_lookMirrors >= 0)
+		snprintf(chosen, sizeof(chosen), "%s", mirrorNames[g_lookMirrors]);
+	else
+		snprintf(chosen, sizeof(chosen), "as chosen at the bike: %s", LookMirrorsName());
 	if (log || changed)
 		Log("  look: RolesByName=%d [Speedo] Needle=%d Scale=%g Tau=%g Backlight=%d [Tail] Glow=%d Brake=%d BrakeHold=%g [Look] Mirrors=%d (%s) Cull=%d%s", g_rolesByName,
-		    g_speedoNeedle, g_speedoScale, g_speedoTau, g_speedoBacklight, g_tailGlow, g_tailBrake, g_tailBrakeHold, g_lookMirrors, mirrorNames[g_lookMirrors],
+		    g_speedoNeedle, g_speedoScale, g_speedoTau, g_speedoBacklight, g_tailGlow, g_tailBrake, g_tailBrakeHold, g_lookMirrors, chosen,
 		    g_lookCull, log ? "" : " (read again on getting on)");
 	ReadTailLightSettings(ini, log);   /* 2026-11-01a: the tail lamp's light and the first-person bike, read with the look */
 	ReadViewSettings(ini, log);
@@ -3151,6 +3161,15 @@ static void FindGlobals(void)
 			g_viewTipGlobal = g_viewFovGlobal = g_viewEyeGlobals[0] = g_viewEyeGlobals[1] = g_fxWaterLoopGlobal = 0;
 			Log("globals: the 2026-11-06a build's %d of 5 found (0x%03X-0x%03X, an older ESP): none used", n, VIEW_TIP_ID, FX_WATER_LOOP_ID);
 		}
+	}
+	/* The 2026-11-07a build's one (the customisation build), CMB_LookCode at the fixed 0x8AF: the mirrors chosen at the
+	 * bike's field kit, for [Look] Mirrors=-1 (LookMirrorsNow). None (an older ESP): -1 reads as 1, the stock one. */
+	{
+		g_lookCodeGlobal = FindGlobalQuiet(prefix, shift, LOOK_CODE_ID, "CMB_LookCode");
+		if (g_lookCodeGlobal)
+			Log("globals: the 2026-11-07a build's CMB_LookCode found (%08X)", *(const uint32_t *)(g_lookCodeGlobal + OFF_FORM_ID));
+		else
+			Log("globals: no CMB_LookCode (0x%03X, an older ESP): [Look] Mirrors=-1 reads as 1", LOOK_CODE_ID);
 	}
 	g_globalsMissingLogged = true;   /* found or not, don't look again */
 }
@@ -10111,6 +10130,45 @@ static void CarriedNotReady(void)
 	g_carryReady = true;
 }
 
+/* The mirror the worn and first-person bikes show (the 2026-11-07a build's hook, FrameTilt's speck): 0 none, 1 the
+ * stock one, 2 under-bar egg, 3 under-bar D. [Look] Mirrors 0-3 as before (1 = 2026-11-06a's); -1 (the default since
+ * 2026-11-07a) the one chosen at the bike's field kit: CMB_LookCode (a float global the controller writes when a look
+ * is applied, read every call) with bit 2 set gives bits 0-1; nothing chosen (0, or bit 2 clear) or an ESP without
+ * the global, the stock one. One line each time the code read changes (the first in a game session included). */
+static int LookMirrorsCode(void)
+{
+	return g_lookCodeGlobal ? (int)GlobalValue(g_lookCodeGlobal) : 0;
+}
+
+static int LookMirrorsOf(int code)
+{
+	return g_lookMirrors >= 0 ? g_lookMirrors : (code & 4) ? (code & 3) : 1;
+}
+
+static const char *LookMirrorsName(void)
+{
+	static const char *names[4] = { "none", "the stock one", "under the bars, egg", "under the bars, D" };
+	int code = LookMirrorsCode();
+	if (!g_globalsMissingLogged)
+		return "nothing chosen yet, the stock one";   /* the settings read at the start, before the ESP's globals */
+	if (!g_lookCodeGlobal)
+		return "the stock one (no CMB_LookCode in the ESP)";
+	return (code & 4) ? names[LookMirrorsOf(code)] : "nothing chosen, the stock one";
+}
+
+static int LookMirrorsNow(void)
+{
+	static int lastCode = -1;   /* the code last said (-1: none yet) */
+	static const char *names[4] = { "none", "the stock one", "under the bars, egg", "under the bars, D" };
+	int code = LookMirrorsCode(), now = LookMirrorsOf(code);
+	if (g_lookMirrors < 0 && code != lastCode) {
+		lastCode = code;
+		Log("look: the mirrors now %d, %s (CMB_LookCode 0x%X, %s)", now, names[now], (unsigned)code,
+		    (code & 4) ? "as chosen at the bike" : g_lookCodeGlobal ? "nothing chosen at the bike" : "no CMB_LookCode in the ESP");
+	}
+	return now;
+}
+
 /* Every frame while riding: the ground's pitch and roll under the rider, filtered (a
  * median drops one-frame contacts with a curb or a lip of rock, then smoothing, then a
  * rate limit), capped, and put on the bike's mesh before it goes onto its bone: turned
@@ -10548,7 +10606,7 @@ static void FrameTilt(void)
 		 * mirror [Look] Mirrors picks. */
 		bool speck = (hs->backlight && (!lampLit || !g_speedoBacklight)) || (hs->role == ROLE_TAIL && !g_tailGlow) ||
 		             (hs->role == ROLE_BRAKE && (!g_tailBrake || !g_brakeOn)) || (hs->role == ROLE_NEEDLE && !g_speedoNeedle) ||
-		             (hs->variant && hs->variant != g_lookMirrors);
+		             (hs->variant && hs->variant != LookMirrorsNow());
 		if (speck)
 			Speck(M, m, hs->centre);
 		hs->hide = glowOff || speck;

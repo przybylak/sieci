@@ -4,6 +4,7 @@
 //
 //   dotnet run -c Release -- <output.esp>          write the plugin
 //   dotnet run -c Release -- --dump <plugin.esp>   print what a plugin contains
+//   dotnet run -c Release -- --look-ids look_ids.txt   write the save-stable ID list (appends only)
 //
 // Vanilla form IDs below were checked against Mutagen.Bethesda.FormKeys.Fallout4
 // (generated from the real Fallout4.esm), except PlayerRef (00000014), which is
@@ -15,6 +16,7 @@ using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Strings;
 using Noggog;
+using System.Text.Json;
 
 namespace CmbEspGenerator;
 
@@ -90,6 +92,34 @@ public static class Vanilla
     {
         Fo4(0x0DFB33), Fo4(0x0A563A), Fo4(0x0359F4), Fo4(0x0D8417),
     };
+    // 2026-11-07a, the customisation build (C1), each checked against Mutagen's Fallout4 FormKeys 3.4.0. The field kit's
+    // furniture keywords: WorkbenchArmorA (12EA9B)'s KWDA as the tester's checker read it (WorkbenchArmor 0657FF,
+    // FurnitureForce3rdPerson 0A56D8, AnimFurnWorkbenchArmorA 14D04F, FurnitureScaleActorToOne 12F848, Workbench_General
+    // 091FD4). The kit's links (the controller): WorkshopItemKeyword 054BA6, LinkedWorkbenchContainerKeyword 1D1BEF,
+    // LocTypeWorkshopSettlement 083C9A, the quest WorkshopParent 02058E, the actor value WorkshopPlayerOwned 00033C, the
+    // toolbox's sound DRScToolboxBOpen 1B0652. The mirrors' loose mods: ObjectTypeLooseMod 135C17, the transform MiscMod01
+    // 248769 (as the game's miscmod_mod_armor_*). The recipes: the six components and the perk Armorer01 04B254
+    // (look_options.json names them; LookRecords checks its IDs against these).
+    public static readonly FormKey WorkbenchArmor = Fo4(0x0657FF);
+    public static readonly FormKey FurnitureForce3rdPerson = Fo4(0x0A56D8);
+    public static readonly FormKey AnimFurnWorkbenchArmorA = Fo4(0x14D04F);
+    public static readonly FormKey FurnitureScaleActorToOne = Fo4(0x12F848);
+    public static readonly FormKey WorkbenchGeneral = Fo4(0x091FD4);
+    public static readonly FormKey WorkshopItemKeyword = Fo4(0x054BA6);
+    public static readonly FormKey LinkedWorkbenchContainerKeyword = Fo4(0x1D1BEF);
+    public static readonly FormKey LocTypeWorkshopSettlement = Fo4(0x083C9A);
+    public static readonly FormKey ObjectTypeLooseMod = Fo4(0x135C17);
+    public static readonly FormKey WorkshopParent = Fo4(0x02058E);
+    public static readonly FormKey WorkshopPlayerOwned = Fo4(0x00033C);
+    public static readonly FormKey DRScToolboxBOpen = Fo4(0x1B0652);
+    public static readonly FormKey MiscMod01 = Fo4(0x248769);
+    public static readonly FormKey Armorer01 = Fo4(0x04B254);
+    public static readonly IReadOnlyDictionary<string, FormKey> Components = new Dictionary<string, FormKey>
+    {
+        ["c_Adhesive"] = Fo4(0x01FAA5), ["c_Cloth"] = Fo4(0x1223C7), ["c_Oil"] = Fo4(0x01FAB4),
+        ["c_Steel"] = Fo4(0x01FABD), ["c_Glass"] = Fo4(0x01FAA4), ["c_Screws"] = Fo4(0x03D294),
+    };
+    public static readonly IReadOnlyDictionary<string, FormKey> Perks = new Dictionary<string, FormKey> { ["Armorer01"] = Armorer01 };
 
     // Record types of the vanilla forms above, for the property type check.
     public static string Describe(FormKey key) =>
@@ -98,8 +128,16 @@ public static class Vanilla
         : key == HumanRace || TooBigToKnockOver.Contains(key) || Robots.Contains(key) ? "Race"
         : key == SpeedMult || key == CarryWeight || key == FallingDamageMod || key == Health || key == Experience
             || key == ActionPoints || key == ActionPointsRate || key == ActionPointsRateMult ? "ActorValueInformation"
+        : key == WorkshopPlayerOwned ? "ActorValueInformation"
         : key == Pipboy ? "Armor"
-        : key == AnimArchetypePlayer ? "Keyword"
+        : key == AnimArchetypePlayer || key == WorkbenchArmor || key == FurnitureForce3rdPerson || key == AnimFurnWorkbenchArmorA
+            || key == FurnitureScaleActorToOne || key == WorkbenchGeneral || key == WorkshopItemKeyword
+            || key == LinkedWorkbenchContainerKeyword || key == LocTypeWorkshopSettlement || key == ObjectTypeLooseMod ? "Keyword"
+        : key == WorkshopParent ? "Quest"
+        : key == DRScToolboxBOpen ? "SoundDescriptor"
+        : key == MiscMod01 ? "Transform"
+        : Components.Values.Contains(key) ? "Component"
+        : key == Armorer01 ? "Perk"
         : key == AmmoFlamerFuel ? "Ammunition"
         : key == AudioCategorySFX || key == AudioCategoryFSTplayer ? "SoundCategory"
         : FxLandSounds.Contains(key) || FxLandSoundsAlt.Contains(key) || FxWaterLoops.Contains(key) ? "SoundDescriptor"
@@ -208,6 +246,12 @@ public static class Program
             Dump(args[1]);
             return 0;
         }
+        // 2026-11-07a: tools/esp-generator/look_ids.txt, the save-stable IDs (appends only; check_plugin.py compares).
+        if (args.Length == 2 && args[0] == "--look-ids")
+        {
+            LookRecords.WriteIds(Build(), args[1]);
+            return 0;
+        }
         if (args.Length == 2 && args[0] == "--rider-template")
         {
             if (Path.GetFileName(args[1]) != RiderPluginName)
@@ -295,6 +339,21 @@ public static class Program
         // Global functions on CMB_MCMRelay (tests 30 and 31: MCM called the quest's other scripts).
         object Call(string function) => new { type = "CallGlobalFunction", script = "CMB_MCMRelay", function, @params = Array.Empty<object>() };
         object Button(string text, string help, string function) => new { type = "button", text, help, action = Call(function) };
+        // 2026-11-07a, the Look section: a control on a global (a switcher, or a stepper or dropdown of names), and MCM's
+        // group keys ("Free customising" shows the per-slot choices: groupControl 1 on it, groupCondition 1 on them).
+        var lookTable = LookRecords.LoadTable();
+        var lookSlots = LookRecords.ReadSlots(lookTable).ToDictionary(s => s.Key);
+        string[] Names(string slot) => lookSlots[slot].Options.Select(o => o.Name).ToArray();
+        object Look(string type, string text, string help, string global, string[]? options = null, int? groupControl = null, int? groupCondition = null)
+        {
+            var c = new Dictionary<string, object> { ["type"] = type, ["text"] = text, ["help"] = help };
+            if (groupControl is int gc)
+                c["groupControl"] = gc;
+            if (groupCondition is int g)
+                c["groupCondition"] = g;
+            c["valueOptions"] = options == null ? Global(global) : new { options, sourceType = "GlobalValue", sourceForm = Form(Rec(global)) };
+            return c;
+        }
 
         var config = new
         {
@@ -393,6 +452,28 @@ public static class Program
                 new { type = "hotkey", id = "ToggleHeadlamp", text = "Headlamp on / off", help = "Switches the headlamp while riding, until you get off or the next dusk or dawn; the setting above stays as it is." },
                 Switcher("Headlamp casts shadows", "The beam casts shadows (costlier: the game runs only a few shadow lights at once). Takes effect the next time you get on.", "CMB_HeadlampShadows"),
                 Switcher("Tail lamp lights the road", "The tail lamp casts a small red light behind the bike, brighter while you brake (needs F4SE and CMB_Slope.dll). Takes effect the next time you get on.", "CMB_TailLightMode"),
+                Section("Look"),
+                Look("switcher", "Customise at the bike", "A Customise button in the parked bike's menu: the field kit comes out of the side bag and you change the bike's badges, paint and mirrors at the armour menu. Off: no button, and the bike looks as it came.",
+                    "CMB_LookOn"),
+                Look("stepper", "Field kit", "Automatic tries the toolbox, then an armour bench, and remembers the one that worked. The others force one (for a test).",
+                    "CMB_KitMode", new[] { "Automatic", "Toolbox", "Toolbox (armour bench keyword)", "Armour bench" }),
+                Look("switcher", "Parts from the side bag", "Outside your settlements the field kit uses the side bag's components as well as yours. Off: only yours (and a settlement's workshop).",
+                    "CMB_KitBagLink"),
+                Look("switcher", "Free customising (no field kit, no cost)", "Choose the look here instead: the choices below, then \"Apply the look\". No field kit and no components. Off: the choices are hidden, and the bike keeps the look it has.",
+                    "CMB_LookFree", groupControl: 1),
+                Look("dropdown", "Tank badge, left", "The badge on the tank's left side (Stock: the winged wheel, as it came).", "CMB_Look_TankL", Names("TankL"), groupCondition: 1),
+                Look("dropdown", "Tank badge, right", "The badge on the tank's right side. \"Same as the left\" follows the left one.", "CMB_Look_TankR", Names("TankR"), groupCondition: 1),
+                Look("dropdown", "Rear fender badge", "A badge on the rear fender (None: as it came).", "CMB_Look_Fender", Names("Fender"), groupCondition: 1),
+                Look("dropdown", "Paint", "The tank's and fenders' paint and the coachline (Factory: the oxblood, as it came).", "CMB_Look_Paint", Names("Paint"), groupCondition: 1),
+                Look("stepper", "Mirrors", "The stock mirrors, mirrors under the bars (egg or D), or none.", "CMB_Look_Mirrors", Names("Mirrors"), groupCondition: 1),
+                Look("dropdown", "Faction set", "Sets the paint and all three badges to one faction's when you press Apply.", "CMB_LookFactionSet",
+                    LookRecords.ReadSets(lookTable).Select(x => x.Name).ToArray(), groupCondition: 1),
+                new Dictionary<string, object>
+                {
+                    ["type"] = "button", ["text"] = "Apply the look",
+                    ["help"] = "Puts these choices on the bike now (the ridden bike at the next getting on).",
+                    ["groupCondition"] = 1, ["action"] = Call("LookApply"),
+                },
                 Section("Hotkeys"),
                 new { type = "hotkey", id = "ToggleRide", text = "Get on / off / call the bike", help = "If you use this, set the built-in hotkey below to 0 so the key doesn't fire twice." },
                 Slider("Built-in hotkey (scan code)", "The F4SE hotkey that works without MCM. 48 = B, 34 = G, 47 = V, 0 = off. Press Apply after changing it.",
@@ -995,10 +1076,10 @@ public static class Program
                 throw new InvalidOperationException($"{s.EditorID} doesn't play through {want.EditorID}: give it that output model");
         }
 
-        // --- 2026-11-06a (test 49's answer): the round's fixed IDs, 0x8B0-0x8B4. 0x8AF is left unmade: it is kept for
-        // CMB_LookCode (the customisation build makes it there by FormKey), so this block starts at 0x8B0 and no form may
-        // take 0x8AF (a throw at the end). CMB_Slope.dll finds the five by ID, all five or none (its VIEW_TIP_ID,
-        // VIEW_FOV_ID, VIEW_EYE_FORWARD_ID, VIEW_EYE_UP_ID and FX_WATER_LOOP_ID and the harness's VIEW_TIP_FORMID ..
+        // --- 2026-11-06a (test 49's answer): the round's fixed IDs, 0x8B0-0x8B4. 0x8AF is left unmade here: it is
+        // CMB_LookCode's (LookRecords makes it there by FormKey since 2026-11-07a), so this block starts at 0x8B0 and
+        // only CMB_LookCode may take 0x8AF (a throw at the end). CMB_Slope.dll finds the five by ID, all five or none (its
+        // VIEW_TIP_ID, VIEW_FOV_ID, VIEW_EYE_FORWARD_ID, VIEW_EYE_UP_ID and FX_WATER_LOOP_ID and the harness's VIEW_TIP_FORMID ..
         // FX_WATER_LOOP_FORMID use these numbers: renumber all five together). The controller's properties aren't
         // Mandatory: an older ESP leaves them None, and each change stays off (2026-11-02a). Their readers: the plugin's
         // first-person view (the tip, the riding FOV, the eye's offsets) and the water loop's trim; the controller's
@@ -1041,6 +1122,13 @@ public static class Program
         foreach (var id in FxOwn.LandDull)
             fxLandSoundsDull.Items.Add(new FormLink<IFallout4MajorRecordGetter>(fxOwn[id].FormKey));
         // The next fixed-ID form comes after these.
+
+        // --- 2026-11-07a (the customisation build, C1): CMB_LookCode at the fixed 0x8AF (CMB_Slope.dll finds it by ID), then
+        // 0x8BA-0xA13 in the order of look_options.json (save-stable: later builds only append, look_ids.txt): the look's
+        // globals, keywords and attach points, the look item, the field kit's three furnitures and its box, the composed
+        // swap, the mirrors' loose mods, a material swap, an object mod and a recipe per option, the lists. And in place:
+        // the parked menu's Customise button, the riding armours' keyword and attach points (LookRecords).
+        var look = LookRecords.Build(mod, armor, armorFrame, msgParked);
 
         // --- Controller quest ---
         quest.Name = "Commonwealth Motorbike";
@@ -1183,6 +1271,36 @@ public static class Program
             Obj("CMB_FxLandSoundsDull", fxLandSoundsDull),
             Obj("CMB_FxWaterLoop", gFxWaterLoop),
             Obj("CMB_FxWaterRoad", fxOwn["CMB_FxWaterRoadLPSD"]),
+            // 2026-11-07a: the Look_C1 group (the session, the field kit, the looks), 29.
+            Obj("CMB_BikeLook", look.BikeLook),
+            Obj("CMB_LookCode", look.LookCode),
+            Obj("CMB_LookOn", look.LookOn),
+            Obj("CMB_LookFree", look.LookFree),
+            Obj("CMB_Look_TankL", look.SlotGlobal("TankL")),
+            Obj("CMB_Look_TankR", look.SlotGlobal("TankR")),
+            Obj("CMB_Look_Fender", look.SlotGlobal("Fender")),
+            Obj("CMB_Look_Paint", look.SlotGlobal("Paint")),
+            Obj("CMB_Look_Mirrors", look.SlotGlobal("Mirrors")),
+            Obj("CMB_LookFactionSet", look.FactionSet),
+            Obj("CMB_KitMode", look.KitMode),
+            Obj("CMB_KitWorked", look.KitWorked),
+            Obj("CMB_KitBagLink", look.KitBagLink),
+            Obj("CMB_LookCategories", look.Categories),
+            Obj("CMB_FieldKit", look.FieldKit),
+            Obj("CMB_FieldKitArmorKw", look.FieldKitArmorKw),
+            Obj("CMB_FieldKitBench", look.FieldKitBench),
+            Obj("CMB_FieldKitBox", look.FieldKitBox),
+            Obj("WorkshopItemKeyword", Vanilla.WorkshopItemKeyword),
+            Obj("LinkedWorkbenchContainerKeyword", Vanilla.LinkedWorkbenchContainerKeyword),
+            Obj("LocTypeWorkshopSettlement", Vanilla.LocTypeWorkshopSettlement),
+            Obj("WorkshopParentQuest", Vanilla.WorkshopParent),
+            Obj("WorkshopPlayerOwned", Vanilla.WorkshopPlayerOwned),
+            Obj("DRScToolboxBOpen", Vanilla.DRScToolboxBOpen),
+            IntList("LookSetPaint", look.SetPaint),
+            IntList("LookSetTank", look.SetTank),
+            IntList("LookSetFender", look.SetFender),
+            StringList("LookKeys", look.Keys),
+            IntList("LookSlotStart", look.SlotStart),
             Obj("CMB_EngineOn1400Sound", sndOn1400),
             Obj("CMB_EngineOn1700Sound", sndOn1700),
             Obj("CMB_EngineOn2400Sound", sndOn2400),
@@ -1235,12 +1353,25 @@ public static class Program
             Obj("CMB_BikeRiderArmor", armor),
             Obj("CMB_BikeRiderArmorFrame", armorFrame),
             Int("BikeSlotIndex", BikeSlotIndex));
+        // 2026-11-07a, optional too (F4SE's MatSwap and ApplyMaterialSwap): the chosen look on the parked and first-person
+        // bikes through one composed swap, and on the worn bike when the game refuses the look's mods there.
+        var lookF4se = Script("CMB_LookF4SE",
+            Obj("Controller", quest),
+            Obj("BikeRef", bikeRef),
+            Obj("CMB_LookSwap", look.LookSwap),
+            Obj("CMB_LookSwapLists", look.SwapLists),
+            Obj("CMB_LookOn", look.LookOn),
+            Obj("CMB_Look_TankL", look.SlotGlobal("TankL")),
+            Obj("CMB_Look_TankR", look.SlotGlobal("TankR")),
+            Obj("CMB_Look_Fender", look.SlotGlobal("Fender")),
+            Obj("CMB_Look_Paint", look.SlotGlobal("Paint")),
+            Obj("CMB_Look_Mirrors", look.SlotGlobal("Mirrors")));
 
         quest.VirtualMachineAdapter = new QuestAdapter
         {
             Version = 6,
             ObjectFormat = 2,
-            Scripts = new ExtendedList<ScriptEntry> { controller, hotkey, gear, ram },
+            Scripts = new ExtendedList<ScriptEntry> { controller, hotkey, gear, ram, lookF4se },
             Aliases = new ExtendedList<QuestFragmentAlias>
             {
                 new QuestFragmentAlias
@@ -1258,20 +1389,21 @@ public static class Program
             },
         };
 
-        // The ESL range's reserve (2026-11-02a): the next build's customisation takes its forms up to about 0x9F1 and
-        // keeps 0xF01-0xFFF free, so no form of this generator may go past 0xF00.
+        // The ESL range's reserve (2026-11-02a): the customisation builds take their forms from 0x8BA (C1 up to 0xA13) and
+        // keep 0xF01-0xFFF free, so no form of this generator may go past 0xF00.
         if (mod.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey.ID > EslReserveFrom) is { } past)
             throw new InvalidOperationException($"{past.EditorID} is 0x{past.FormKey.ID:X}, past 0x{EslReserveFrom:X}: the light plugin's last IDs are kept free");
-        // 0x8AF is kept for CMB_LookCode (2026-11-06a: the customisation build makes it there by FormKey).
-        if (mod.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey.ID == LookCodeId) is { } onLookCode)
-            throw new InvalidOperationException($"{onLookCode.EditorID} is 0x{LookCodeId:X}: that ID is kept for CMB_LookCode");
+        // 0x8AF is CMB_LookCode's (kept free in 2026-11-06a; the customisation build makes it there by FormKey).
+        if (mod.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey.ID == LookCodeId) is not { EditorID: "CMB_LookCode" })
+            throw new InvalidOperationException("0x8AF must be CMB_LookCode (CMB_Slope.dll looks for it), got " +
+                                                (mod.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey.ID == LookCodeId)?.EditorID ?? "nothing"));
         return mod;
     }
 
     // The highest form ID this generator may give (2026-11-02a): 0xF01-0xFFF stay free.
     const uint EslReserveFrom = 0xF00;
-    // The ID kept free for CMB_LookCode (2026-11-06a): the customisation build makes it by FormKey.
-    const uint LookCodeId = 0x8AF;
+    // CMB_LookCode's fixed ID (kept free in 2026-11-06a; made there by FormKey since 2026-11-07a).
+    public const uint LookCodeId = 0x8AF;
 
     // ---------------------------------------------------------------------
     // Record helpers
@@ -1470,6 +1602,487 @@ public static class Program
     }
 
     // ---------------------------------------------------------------------
+    // The customisation build's records (2026-11-07a, C1), from look_options.json
+    // ---------------------------------------------------------------------
+
+    // tools/esp-generator/look_options.json (embedded in the generator, EspGenerator.csproj) is the one table of the look's
+    // slots, options, badges, palette rows and faction sets. Every look record is made from it, in its order, and each ID
+    // is checked against the table's own (an option's `ids`, a slot's `list_id` and `swaps_id`, `slot_lists`): the IDs are
+    // save-stable (a save's CMB_Look_<slot> indices and the parked bike's swap keep their meaning), so a later build only
+    // appends (at a list's end, IDs after 0xA13; look_ids.txt, `--look-ids`). check_plugin.py checks the written plugin
+    // against the same table. Every slot's option 0 is the 2026-11-06a look; nothing here changes the bike until a script
+    // attaches or applies a choice (CMB_LookOn 0: no Customise button, nothing attached).
+    public sealed class LookRecords
+    {
+        public sealed record Option(int Index, string Key, string Name, string Kind, float? Cnam, (string Component, uint Count)[] Cost,
+                                    string? Perk, string? Loose, (string From, string To)[]? Swap, string?[] Ids);
+        public sealed record Slot(string Key, string Ap, string Name, string Global, int Default, string List, string Swaps,
+                                  string ListId, string SwapsId, string[] Sources, Option[] Options);
+        public sealed record Set(int Index, string Key, string Name, int? Paint, int? TankLeft, int? TankRight, int? Fender);
+
+        // The first ID after 2026-11-06a's forms; CMB_LookCode is LookCodeId (0x8AF), the one below it.
+        public const uint FirstId = 0x8BA;
+        public const string ToolboxModel = @"SetDressing\Toolbox\Toolbox_Large.nif";                       // the game's, by path
+        public const string BenchModel = @"Furniture\Workstations\WorkbenchArmor\WorkstationArmorB01.nif"; // WorkbenchArmorA's, by path
+        public const string LooseModModel = @"Props\ModsPartBox\ModCrate.nif";                              // the game's loose mods'
+        // The toolbox's bounds (the game's Loot_ToolboxLarge) and the bench's (WorkbenchArmorA), from the tester's dump.
+        static ObjectBounds ToolboxBounds() => new() { First = new P3Int16(-17, -26, 0), Second = new P3Int16(13, 25, 34) };
+        static ObjectBounds BenchBounds() => new() { First = new P3Int16(-71, -53, -7), Second = new P3Int16(98, 64, 87) };
+
+        public Slot[] Slots { get; }
+        public Set[] Sets { get; }
+        LookRecords(Slot[] slots, Set[] sets) { Slots = slots; Sets = sets; }
+
+        public GlobalFloat LookCode { get; private set; } = null!;
+        public GlobalFloat LookOn { get; private set; } = null!;
+        public GlobalFloat LookFree { get; private set; } = null!;
+        public GlobalFloat FactionSet { get; private set; } = null!;
+        public GlobalFloat KitMode { get; private set; } = null!;
+        public GlobalFloat KitWorked { get; private set; } = null!;
+        public GlobalFloat KitBagLink { get; private set; } = null!;
+        public Keyword MaBike { get; private set; } = null!;
+        public Keyword WorkbenchBike { get; private set; } = null!;
+        public Armor BikeLook { get; private set; } = null!;
+        public Furniture FieldKit { get; private set; } = null!;
+        public Furniture FieldKitArmorKw { get; private set; } = null!;
+        public Furniture FieldKitBench { get; private set; } = null!;
+        public MovableStatic FieldKitBox { get; private set; } = null!;
+        public MaterialSwap LookSwap { get; private set; } = null!;
+        public FormList Categories { get; private set; } = null!;
+        public FormList SwapLists { get; private set; } = null!;
+        readonly Dictionary<string, GlobalFloat> slotGlobals = new();
+        public GlobalFloat SlotGlobal(string slot) => slotGlobals[slot];
+        // The controller's arrays: per faction set (index = CMB_LookFactionSet; 0 "(none)" -1) its Paint, left tank and fender
+        // indices; "<slot>:<key>" for every option, slot-major; each slot's first index in Keys.
+        public int[] SetPaint => Sets.Select(s => s.Paint ?? -1).ToArray();
+        public int[] SetTank => Sets.Select(s => s.TankLeft ?? -1).ToArray();
+        public int[] SetFender => Sets.Select(s => s.Fender ?? -1).ToArray();
+        public string[] Keys => Slots.SelectMany(s => s.Options.Select(o => $"{s.Key}:{o.Key}")).ToArray();
+        public int[] SlotStart => Slots.Select((s, i) => Slots.Take(i).Sum(x => x.Options.Length)).ToArray();
+
+        // The embedded table.
+        public static JsonElement LoadTable()
+        {
+            using var stream = typeof(LookRecords).Assembly.GetManifestResourceStream("look_options.json")
+                ?? throw new InvalidOperationException("look_options.json isn't in the generator (EspGenerator.csproj embeds it)");
+            using var doc = JsonDocument.Parse(stream);
+            return doc.RootElement.Clone();
+        }
+        static string? S(JsonElement e, string name) => e.GetProperty(name).ValueKind == JsonValueKind.Null ? null : e.GetProperty(name).GetString();
+        static int? I(JsonElement e, string name) => e.GetProperty(name).ValueKind == JsonValueKind.Null ? null : e.GetProperty(name).GetInt32();
+        static uint Id(string hex) => Convert.ToUInt32(hex, 16);
+
+        public static Slot[] ReadSlots(JsonElement root) => root.GetProperty("slots").EnumerateArray().Select(s => new Slot(
+            S(s, "key")!, S(s, "ap")!, S(s, "name")!, S(s, "global")!, s.GetProperty("default").GetInt32(), S(s, "list")!, S(s, "swaps")!,
+            S(s, "list_id")!, S(s, "swaps_id")!, s.GetProperty("sources").EnumerateArray().Select(x => x.GetString()!).ToArray(),
+            s.GetProperty("options").EnumerateArray().Select(o => new Option(
+                o.GetProperty("index").GetInt32(), S(o, "key")!, S(o, "name")!, S(o, "kind")!,
+                o.GetProperty("cnam").ValueKind == JsonValueKind.Null ? null : o.GetProperty("cnam").GetSingle(),
+                o.GetProperty("cost").EnumerateArray().Select(c => (c[0].GetString()!, c[1].GetUInt32())).ToArray(),
+                S(o, "perk"), S(o, "loose"),
+                o.GetProperty("swap").ValueKind == JsonValueKind.Null ? null
+                    : o.GetProperty("swap").EnumerateArray().Select(e => (e[0].GetString()!, e[1].GetString()!)).ToArray(),
+                o.GetProperty("ids").EnumerateArray().Select(x => x.ValueKind == JsonValueKind.Null ? null : x.GetString()).ToArray()))
+            .ToArray())).ToArray();
+
+        public static Set[] ReadSets(JsonElement root) => root.GetProperty("sets").EnumerateArray().Select(s => new Set(
+            s.GetProperty("index").GetInt32(), S(s, "key")!, S(s, "name")!, I(s, "paint"), I(s, "tank_left"), I(s, "tank_right"), I(s, "fender")))
+            .ToArray();
+
+        // The table's own rules, before anything is made from it.
+        static void CheckTable(JsonElement root, Slot[] slots, Set[] sets)
+        {
+            var fail = new List<string>();
+            foreach (var (name, fk) in Vanilla.Components)
+                if (!root.GetProperty("components").TryGetProperty(name, out var v) || Id(v.GetString()!) != fk.ID)
+                    fail.Add($"components.{name}: not {fk.ID:X6} (Vanilla.Components)");
+            foreach (var (name, fk) in Vanilla.Perks)
+                if (!root.GetProperty("perks").TryGetProperty(name, out var v) || Id(v.GetString()!) != fk.ID)
+                    fail.Add($"perks.{name}: not {fk.ID:X6} (Vanilla.Perks)");
+            var kinds = new[] { "identity", "off", "badge", "paint", "mirror", "follow" };
+            foreach (var s in slots)
+            {
+                for (int i = 0; i < s.Options.Length; i++)
+                {
+                    var o = s.Options[i];
+                    if (o.Index != i) fail.Add($"{s.Key}:{o.Key}: index {o.Index} at position {i}");
+                    if (!kinds.Contains(o.Kind)) fail.Add($"{s.Key}:{o.Key}: kind {o.Kind}");
+                    if ((o.Kind == "follow") != (o.Swap == null) || (o.Swap == null) != (o.Ids[0] == null))
+                        fail.Add($"{s.Key}:{o.Key}: only a `follow` option has no swap (and no MSWP ID)");
+                    if (o.Swap != null && !o.Swap.Select(e => e.From).SequenceEqual(s.Sources))
+                        fail.Add($"{s.Key}:{o.Key}: its swap's sources aren't the slot's, in order");
+                    foreach (var (c, _) in o.Cost)
+                        if (!Vanilla.Components.ContainsKey(c)) fail.Add($"{s.Key}:{o.Key}: component {c}");
+                    if (o.Perk != null && !Vanilla.Perks.ContainsKey(o.Perk)) fail.Add($"{s.Key}:{o.Key}: perk {o.Perk}");
+                    if (o.Loose != null && s.Key != "Mirrors") fail.Add($"{s.Key}:{o.Key}: a loose mod outside the mirrors");
+                }
+                if (s.Options[0].Kind is not ("identity" or "mirror") || s.Options[0].Swap!.Any(e => e.From != e.To))
+                    fail.Add($"{s.Key}: option 0 isn't the identity (the 2026-11-06a look)");
+                if (s.Default < 0 || s.Default >= s.Options.Length) fail.Add($"{s.Key}: default {s.Default}");
+            }
+            var sources = slots.SelectMany(s => s.Sources.Select(src => (s.Key, src))).ToArray();
+            foreach (var g in sources.GroupBy(x => x.src.ToLowerInvariant()).Where(g => g.Count() > 1))
+                fail.Add($"the source {g.Key} is in {string.Join(" and ", g.Select(x => x.Key))}: a source belongs to one slot");
+            for (int i = 0; i < sets.Length; i++)
+                if (sets[i].Index != i || (i == 0) != (sets[i].Paint == null)) fail.Add($"set {sets[i].Key}: index {sets[i].Index} at {i}");
+            if (fail.Count > 0)
+                throw new InvalidOperationException("look_options.json:\n  " + string.Join("\n  ", fail));
+        }
+
+        public static LookRecords Build(Fallout4Mod mod, Armor ridingArmor, Armor ridingArmorFrame, Message parkedMenu)
+        {
+            var root = LoadTable();
+            var look = new LookRecords(ReadSlots(root), ReadSets(root));
+            CheckTable(root, look.Slots, look.Sets);
+            if (mod.ModHeader.Stats.NextFormID != FirstId)
+                throw new InvalidOperationException($"the look's records start at 0x{FirstId:X} (look_options.json's IDs), the next ID is 0x{mod.ModHeader.Stats.NextFormID:X}");
+            var before = mod.EnumerateMajorRecords().Count();
+            var made = new List<(IMajorRecordGetter Record, uint Id)>();   // each with the ID the table gives it
+            uint head = FirstId;
+            T Next<T>(T r) where T : IMajorRecordGetter { made.Add((r, head++)); return r; }
+            T At<T>(T r, string id) where T : IMajorRecordGetter { made.Add((r, Id(id))); return r; }
+
+            // The fixed one: CMB_LookCode at 0x8AF by FormKey (CMB_Slope.dll finds it by ID; the next ID stays 0x8BA). Bits 0-1
+            // the mirror, bit 2 set, written only by the controller's ApplyLook; 0 = the plugin's own [Look] Mirrors.
+            look.LookCode = new GlobalFloat(new FormKey(mod.ModKey, LookCodeId), Fallout4Release.Fallout4)
+            {
+                EditorID = "CMB_LookCode",
+                Data = 0,
+                OutputChar = true,
+            };
+            mod.Globals.Add(look.LookCode);
+            made.Add((look.LookCode, LookCodeId));
+            // The MCM's and the scripts' globals: Customise at the bike (1; 0 = 2026-11-06a), free customising (0), each
+            // slot's choice (the table's default: 0, the right tank 17 "Same as the left", 0, 0, 0), the faction set (0, a
+            // one-shot at Apply), the kit's mode (0 automatic; 3 the armour bench), the mode automatic found (-1 none yet),
+            // the side bag's parts (1).
+            look.LookOn = Next(Global(mod, "CMB_LookOn", 1));
+            look.LookFree = Next(Global(mod, "CMB_LookFree", 0));
+            foreach (var s in look.Slots)
+                look.slotGlobals[s.Key] = Next(Global(mod, s.Global, s.Default));
+            look.FactionSet = Next(Global(mod, "CMB_LookFactionSet", 0));
+            look.KitMode = Next(Global(mod, "CMB_KitMode", 0));
+            look.KitWorked = Next(Global(mod, "CMB_KitWorked", -1));
+            look.KitBagLink = Next(Global(mod, "CMB_KitBagLink", 1));
+            // The keywords: the bike's mod association (the object mods' target, the three armours' keyword), the field kit's
+            // workbench keyword (every recipe's; type None as the game's WorkbenchArmor), the five attach points named for
+            // the menu.
+            look.MaBike = Next(Kw(mod, "CMB_ma_Bike", Keyword.TypeEnum.ModAssociation, null));
+            look.WorkbenchBike = Next(Kw(mod, "CMB_WorkbenchBike", Keyword.TypeEnum.None, null));
+            var aps = look.Slots.ToDictionary(s => s.Key, s => Next(Kw(mod, s.Ap, Keyword.TypeEnum.AttachPoint, s.Name)));
+            // The look as an item (held only while customising, so the armour menu lists it): playable, slot 57, the parked
+            // nif, previewed small and turned (the test tunes the transform), the five attach points, each slot's option 0 as
+            // its default template.
+            var preview = Next(mod.Transforms.AddNew("CMB_BikeLookPreview"));
+            preview.Scale = 0.45f;
+            preview.Rotation = new P3Float(0, 0, 135);
+            preview.ZoomMin = 0.5f;
+            preview.ZoomMax = 1.5f;
+            var item = WornBike(mod, "CMB_BikeLookAA", "CMB_BikeLook", ParkedBikeModel, ParkedBikeModel);
+            Next(mod.ArmorAddons.First(a => a.EditorID == "CMB_BikeLookAA"));
+            look.BikeLook = Next(item);   // after its addon (WornBike makes the two in that order)
+            item.MajorFlags &= ~Armor.MajorFlag.NonPlayable;
+            item.Description = "The bike's look. You hold it only while you customise.";
+            item.ObjectBounds = Bounds(120, 120, 0, 120);
+            item.WorldModel = new GenderedItem<ArmorModel?>(new ArmorModel { Model = new Model { File = ParkedBikeModel } }, null);
+            item.PreviewTransform.SetTo(preview);
+            item.Keywords = new() { look.MaBike };
+            item.AttachParentSlots = new();
+            foreach (var s in look.Slots)
+                item.AttachParentSlots.Add(aps[s.Key]);
+            // The field kit (custom 6.1, the plan's ladder): 1 the toolbox (the game's by path) with an armour bench's data, our
+            // marker and keyword; 2 the same with the armour bench's own keywords too; 3 the armour bench's model by path with
+            // its own marker and keywords plus ours, and the toolbox beside it as a movable static. No scripts on them.
+            look.FieldKit = Next(Kit(mod, "CMB_FieldKit", ToolboxModel, ToolboxBounds(), new P3Float(-30, 20, 0),
+                look.WorkbenchBike.FormKey, Vanilla.FurnitureForce3rdPerson, Vanilla.AnimFurnWorkbenchArmorA, Vanilla.FurnitureScaleActorToOne));
+            look.FieldKitArmorKw = Next(Kit(mod, "CMB_FieldKitArmorKw", ToolboxModel, ToolboxBounds(), new P3Float(-30, 20, 0),
+                look.WorkbenchBike.FormKey, Vanilla.FurnitureForce3rdPerson, Vanilla.AnimFurnWorkbenchArmorA, Vanilla.FurnitureScaleActorToOne,
+                Vanilla.WorkbenchArmor, Vanilla.WorkbenchGeneral));
+            look.FieldKitBench = Next(Kit(mod, "CMB_FieldKitBench", BenchModel, BenchBounds(), new P3Float(0, 0, 0),
+                Vanilla.WorkbenchArmor, Vanilla.FurnitureForce3rdPerson, Vanilla.AnimFurnWorkbenchArmorA, Vanilla.FurnitureScaleActorToOne,
+                Vanilla.WorkbenchGeneral, look.WorkbenchBike.FormKey));
+            look.FieldKitBox = Next(mod.MovableStatics.AddNew("CMB_FieldKitBox"));
+            look.FieldKitBox.Name = "Field kit";
+            look.FieldKitBox.Model = new Model { File = ToolboxModel };
+            look.FieldKitBox.ObjectBounds = ToolboxBounds();
+            // The composed swap CMB_LookF4SE fills (SetRemapData) for the parked and first-person bikes: empty here.
+            look.LookSwap = Next(mod.MaterialSwaps.AddNew("CMB_LookSwap"));
+            // The mirrors' loose mods (the three mirrors; "None" is no part), as the game's armour loose mods.
+            var loose = new Dictionary<string, MiscItem>();
+            foreach (var o in look.Slots.SelectMany(s => s.Options).Where(o => o.Loose != null))
+            {
+                var m = Next(mod.MiscItems.AddNew(o.Loose));
+                m.Name = "Motorbike mirrors: " + char.ToLowerInvariant(o.Name[0]) + o.Name[1..];
+                m.ObjectBounds = new ObjectBounds();
+                m.Model = new Model { File = LooseModModel };
+                m.PreviewTransform.SetTo(Vanilla.MiscMod01);
+                m.Keywords = new() { new FormLink<IKeywordGetter>(Vanilla.ObjectTypeLooseMod) };
+                m.Value = 5;
+                m.Weight = 0.5f;
+                loose.Add(o.Loose!, m);
+            }
+            // Per option, at the table's IDs: the material swap (none for "Same as the left"), the object mod on the slot's
+            // attach point (the swap added; the loose mod for a mirror), the recipe on CMB_WorkbenchBike (the components; the
+            // perk for a paint colour).
+            var mods = new Dictionary<string, List<ArmorModification>>();
+            var swaps = new Dictionary<string, List<MaterialSwap>>();
+            foreach (var s in look.Slots)
+            {
+                mods[s.Key] = new();
+                swaps[s.Key] = new();
+                foreach (var o in s.Options)
+                {
+                    MaterialSwap? sw = null;
+                    if (o.Swap != null)
+                    {
+                        sw = At(mod.MaterialSwaps.AddNew($"CMB_sw_{s.Key}_{o.Key}"), o.Ids[0]!);
+                        foreach (var (from, to) in o.Swap)
+                            sw.Substitutions.Add(new MaterialSubstitution { OriginalMaterial = from, ReplacementMaterial = to, ColorRemappingIndex = o.Cnam });
+                        swaps[s.Key].Add(sw);
+                    }
+                    var omod = At(new ArmorModification(mod.GetNextFormKey(), Fallout4Release.Fallout4) { EditorID = $"CMB_mod_{s.Key}_{o.Key}" }, o.Ids[1]!);
+                    omod.Name = o.Name;
+                    omod.AttachPoint.SetTo(aps[s.Key]);
+                    omod.TargetOmodKeywords = new() { look.MaBike };
+                    if (sw != null)
+                        omod.Properties.Add(new ObjectModFormLinkIntProperty<Armor.Property>
+                        {
+                            Property = Armor.Property.MaterialSwaps,
+                            Record = new FormLink<IFallout4MajorRecordGetter>(sw.FormKey),
+                            FunctionType = ObjectModProperty.FormLinkFunctionType.Add,
+                        });
+                    if (o.Loose != null)
+                        omod.LooseMod.SetTo(loose[o.Loose]);
+                    mod.ObjectModifications.Add(omod);
+                    mods[s.Key].Add(omod);
+                    var cobj = At(mod.ConstructibleObjects.AddNew($"CMB_co_{s.Key}_{o.Key}"), o.Ids[2]!);
+                    cobj.CreatedObject.SetTo(omod.FormKey);
+                    cobj.WorkbenchKeyword.SetTo(look.WorkbenchBike);
+                    if (o.Cost.Length > 0)
+                        cobj.Components = new(o.Cost.Select(c => new ConstructibleObjectComponent
+                        {
+                            Component = new FormLink<IItemGetter>(Vanilla.Components[c.Component]),
+                            Count = c.Count,
+                        }));
+                    if (o.Perk != null)
+                        cobj.Conditions.Add(Is(Condition.Function.HasPerk, Vanilla.Perks[o.Perk], 1));
+                    cobj.CreatedObjectCounts = new() { new ConstructibleCreatedObjectCount { Count = 1, Priority = 0 } };
+                }
+            }
+            // The default template: each slot's option 0 (the stock look) on its attach point.
+            item.ObjectTemplates = new()
+            {
+                new ObjectTemplate<Armor.Property>
+                {
+                    Name = "Default",
+                    Default = true,
+                    Includes = new(look.Slots.Select(s => new ObjectTemplateInclude { Mod = mods[s.Key][0].ToLink<IAObjectModificationGetter>(), AttachPointIndex = 0 })),
+                },
+            };
+            // The lists, index = choice: the options (the object mods) and the swaps (TankR's 17 entries: its 18th option has
+            // none), then the two lists of lists in slot order.
+            var optionLists = look.Slots.Select(s => At(List(mod, s.List, mods[s.Key].Select(m => m.FormKey)), s.ListId)).ToArray();
+            var swapLists = look.Slots.Select(s => At(List(mod, s.Swaps, swaps[s.Key].Select(m => m.FormKey)), s.SwapsId)).ToArray();
+            var slotLists = root.GetProperty("slot_lists");
+            look.Categories = At(List(mod, slotLists.GetProperty("options")[0].GetString()!, optionLists.Select(l => l.FormKey)),
+                                 slotLists.GetProperty("options")[1].GetString()!);
+            look.SwapLists = At(List(mod, slotLists.GetProperty("swaps")[0].GetString()!, swapLists.Select(l => l.FormKey)),
+                                slotLists.GetProperty("swaps")[1].GetString()!);
+
+            // In place: the riding armours take the look's mods (the keyword, the attach points; no template).
+            foreach (var a in new[] { ridingArmor, ridingArmorFrame })
+            {
+                a.Keywords ??= new();
+                a.Keywords.Add(look.MaBike);
+                a.AttachParentSlots ??= new();
+                foreach (var s in look.Slots)
+                    a.AttachParentSlots.Add(aps[s.Key]);
+            }
+            // The parked bike's menu: Customise (shown while CMB_LookOn is 1) between Open side bag and Cancel: 0 ride, 1 the
+            // bag, 2 customise, 3 cancel (a hidden button keeps the others' indices).
+            if (!parkedMenu.MenuButtons.Select(b => b.Text?.String).SequenceEqual(new[] { "Ride", "Open side bag", "Cancel" }))
+                throw new InvalidOperationException("CMB_ParkedMenu's buttons aren't Ride, Open side bag, Cancel: Customise goes before Cancel");
+            var customise = new MessageButton { Text = "Customise" };
+            customise.Conditions.Add(Is(Condition.Function.GetGlobalValue, look.LookOn.FormKey, 1));
+            parkedMenu.MenuButtons.Insert(2, customise);
+
+            // Every record at the table's ID, 347 of them, none past the last list.
+            var wrong = made.Where(x => x.Record.FormKey.ID != x.Id).ToArray();
+            if (wrong.Length > 0)
+                throw new InvalidOperationException("look records off their IDs (look_options.json): " +
+                    string.Join(", ", wrong.Take(5).Select(x => $"{x.Record.EditorID} 0x{x.Record.FormKey.ID:X} (expected 0x{x.Id:X})")));
+            var count = mod.EnumerateMajorRecords().Count() - before;
+            if (count != made.Count || made.Select(x => x.Id).Distinct().Count() != made.Count)
+                throw new InvalidOperationException($"{count} look records made, {made.Count} at the table's IDs");
+            if (mod.ModHeader.Stats.NextFormID != made.Max(x => x.Id) + 1)
+                throw new InvalidOperationException($"the next ID after the look is 0x{mod.ModHeader.Stats.NextFormID:X}, not 0x{made.Max(x => x.Id) + 1:X}");
+            return look;
+        }
+
+        static Keyword Kw(Fallout4Mod mod, string editorId, Keyword.TypeEnum type, string? name)
+        {
+            var k = mod.Keywords.AddNew(editorId);
+            k.Type = type;
+            k.Color = System.Drawing.Color.FromArgb(0, 0, 0, 0); // CNAM is a required field
+            if (name != null)
+                k.Name = name;
+            return k;
+        }
+
+        // A field kit: an armour bench's data (WBDT 7 in one byte, MNAM 0x40000001: the model flag and marker 0) with one
+        // marker of our own (keyword none, entry points 0xFFFFFFFF, as WorkbenchArmorA's), named "Field kit".
+        static Furniture Kit(Fallout4Mod mod, string editorId, string model, ObjectBounds bounds, P3Float marker, params FormKey[] keywords)
+        {
+            var f = mod.Furniture.AddNew(editorId);
+            f.Name = "Field kit";
+            f.ObjectBounds = bounds;
+            f.Model = new Model { File = model };
+            f.Keywords = new(keywords.Select(k => (IFormLinkGetter<IKeywordGetter>)new FormLink<IKeywordGetter>(k)));
+            f.Flags = Furniture.Flag.HasModel;
+            f.BenchType = Furniture.BenchTypes.Armor;
+            f.WBDTDataTypeState = Furniture.WBDTDataType.Break0;
+            f.MarkerParameters = new()
+            {
+                new FurnitureMarkerParameters
+                {
+                    Enabled = true,
+                    Offset = marker,
+                    RotationZ = 0,
+                    Keyword = new FormLink<IKeywordGetter>(FormKey.Null),
+                    EntryTypes = (Furniture.EntryParameterType)0xFF,
+                    Unknown = new byte[] { 0xFF, 0xFF, 0xFF },
+                },
+            };
+            return f;
+        }
+
+        static FormList List(Fallout4Mod mod, string editorId, IEnumerable<FormKey> items)
+        {
+            var list = mod.FormLists.AddNew(editorId);
+            foreach (var i in items)
+                list.Items.Add(new FormLink<IFallout4MajorRecordGetter>(i));
+            return list;
+        }
+
+        // A condition on the subject (the player): <function>(<parameter>) == value.
+        static ConditionFloat Is(Condition.Function function, FormKey parameter, float value) => new()
+        {
+            Data = new FunctionConditionData
+            {
+                Function = function,
+                RunOnType = Condition.RunOnType.Subject,
+                ParameterOneRecord = new FormLink<IFallout4MajorRecordGetter>(parameter),
+            },
+            CompareOperator = CompareOperator.EqualTo,
+            ComparisonValue = value,
+        };
+
+        // look_ids.txt: every record at 0x8AF and from 0x8BA on, "EditorID ID" by ID. `--look-ids <file>` writes it and
+        // refuses to change or drop a line already there (save-stable IDs: a later build only appends); check_plugin.py
+        // fails when the plugin doesn't match the committed file.
+        public static string[] IdLines(IModGetter mod) => mod.EnumerateMajorRecords()
+            .Where(r => r.FormKey.ID == LookCodeId || r.FormKey.ID >= FirstId)
+            .OrderBy(r => r.FormKey.ID).Select(r => $"{r.EditorID} {r.FormKey.ID:X6}").ToArray();
+
+        public static void WriteIds(IModGetter mod, string path)
+        {
+            var lines = IdLines(mod);
+            var kept = File.Exists(path) ? File.ReadAllLines(path).Where(l => l.Length > 0 && !l.StartsWith('#')).ToArray() : Array.Empty<string>();
+            var changed = kept.Except(lines).ToArray();
+            if (changed.Length > 0)
+                throw new InvalidOperationException($"{path}: {changed.Length} line(s) would change or go (a later build only appends), the first: {changed[0]}");
+            File.WriteAllText(path,
+                "# CommonwealthMotorbike.esp's IDs from the customisation build on (2026-11-07a): CMB_LookCode at 0x8AF and every\n" +
+                "# record from 0x8BA, \"EditorID ID\". Save-stable: a later build only appends. Written by the generator's --look-ids;\n" +
+                "# check_plugin.py fails if the plugin doesn't match it.\n" +
+                string.Join("\n", lines) + "\n");
+            Console.WriteLine($"Wrote {path}: {lines.Length} IDs ({lines.Length - kept.Length} new)");
+        }
+
+        // The dump's lines for the look's record types (check_plugin.py reads them).
+        public static void DumpLines(IMajorRecordGetter rec)
+        {
+            static string L<T>(IEnumerable<IFormLinkGetter<T>>? links) where T : class, IMajorRecordGetter =>
+                "[" + string.Join(",", (links ?? Enumerable.Empty<IFormLinkGetter<T>>()).Select(l => l.FormKey)) + "]";
+            static string F(float v) => v.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            switch (rec)
+            {
+                case IKeywordGetter k:
+                    Console.WriteLine($"      keyword type {k.Type?.ToString() ?? "none"} name {k.Name?.String ?? "none"}");
+                    break;
+                case IArmorModificationGetter m:
+                    var props = m.Properties.Select(p => p is IObjectModFormLinkIntPropertyGetter<Armor.Property> fl
+                        ? $"{fl.Property}:{fl.FunctionType}:{fl.Record.FormKey}:{fl.Value}" : p.GetType().Name);
+                    Console.WriteLine($"      omod ap {m.AttachPoint.FormKey} targets {L(m.TargetOmodKeywords)} loose {(m.LooseMod.IsNull ? "none" : m.LooseMod.FormKey.ToString())} " +
+                                      $"properties [{string.Join(",", props)}] name {m.Name?.String ?? "none"}");
+                    break;
+                case IConstructibleObjectGetter c:
+                    Console.WriteLine($"      cobj creates {c.CreatedObject.FormKey} bench {c.WorkbenchKeyword.FormKey} " +
+                                      $"counts [{string.Join(",", (c.CreatedObjectCounts ?? Enumerable.Empty<IConstructibleCreatedObjectCountGetter>()).Select(x => $"{x.Count}/{x.Priority}"))}]");
+                    foreach (var x in c.Components ?? Enumerable.Empty<IConstructibleObjectComponentGetter>())
+                        Console.WriteLine($"      component {x.Component.FormKey} {x.Count}");
+                    foreach (var cond in c.Conditions)
+                        Console.WriteLine($"      condition {Cond(cond)}");
+                    break;
+                case IMaterialSwapGetter w:
+                    foreach (var x in w.Substitutions)
+                        Console.WriteLine($"      entry {x.OriginalMaterial} -> {x.ReplacementMaterial} cnam {(x.ColorRemappingIndex is float v ? F(v) : "none")}");
+                    break;
+                case IFurnitureGetter f:
+                    var markers = f.MarkerParameters ?? Array.Empty<IFurnitureMarkerParametersGetter>();
+                    uint mnam = (uint)(f.Flags ?? default);
+                    for (int i = 0; i < markers.Count; i++)
+                        if (markers[i].Enabled) mnam |= 1u << i;
+                    Console.WriteLine($"      furn bench {(int)f.BenchType} wbdt {(f.WBDTDataTypeState.HasFlag(Furniture.WBDTDataType.Break0) ? 1 : 2)} " +
+                                      $"mnam {mnam:X8} markers {markers.Count} vmad {(f.VirtualMachineAdapter == null ? "none" : "yes")} keywords {L(f.Keywords)} model {f.Model?.File}");
+                    for (int i = 0; i < markers.Count; i++)
+                    {
+                        var p = markers[i];
+                        var unknown = p.Unknown.ToArray();
+                        uint entry = (uint)p.EntryTypes | (unknown.Length == 3 ? (uint)unknown[0] << 8 | (uint)unknown[1] << 16 | (uint)unknown[2] << 24 : 0);
+                        Console.WriteLine($"      marker {i} enabled {p.Enabled} offset {F(p.Offset.X)},{F(p.Offset.Y)},{F(p.Offset.Z)} rot {F(p.RotationZ)} " +
+                                          $"keyword {(p.Keyword.IsNull ? "none" : p.Keyword.FormKey.ToString())} entry {entry:X8}");
+                    }
+                    break;
+                case IMovableStaticGetter ms:
+                    Console.WriteLine($"      model {ms.Model?.File} name {ms.Name?.String ?? "none"}");
+                    break;
+                case IMiscItemGetter misc:
+                    Console.WriteLine($"      misc model {misc.Model?.File} preview {misc.PreviewTransform.FormKey} keywords {L(misc.Keywords)} " +
+                                      $"value {misc.Value} weight {F(misc.Weight)} name {misc.Name?.String ?? "none"}");
+                    break;
+                case ITransformGetter t:
+                    Console.WriteLine($"      transform position {F(t.Position.X)},{F(t.Position.Y)},{F(t.Position.Z)} rotation {F(t.Rotation.X)},{F(t.Rotation.Y)},{F(t.Rotation.Z)} " +
+                                      $"scale {F(t.Scale)} zoom {F(t.ZoomMin)}-{F(t.ZoomMax)}");
+                    break;
+                case IArmorGetter a:
+                    Console.WriteLine($"      armor playable {!a.MajorFlags.HasFlag(Armor.MajorFlag.NonPlayable)} keywords {L(a.Keywords)} aps {L(a.AttachParentSlots)} " +
+                                      $"model {a.WorldModel?.Male?.Model?.File?.ToString() ?? "none"} preview {(a.PreviewTransform.IsNull ? "none" : a.PreviewTransform.FormKey.ToString())} " +
+                                      $"armatures [{string.Join(",", a.Armatures.Select(x => x.ArmorAddon.FormKey))}] slot {a.BipedBodyTemplate?.FirstPersonFlags} name {a.Name?.String ?? "none"}");
+                    foreach (var t in a.ObjectTemplates ?? Enumerable.Empty<IObjectTemplateGetter<Armor.Property>>())
+                        Console.WriteLine($"      template default {t.Default} addon {t.AddonIndex} includes [{string.Join(",", t.Includes.Select(i => $"{i.Mod.FormKey}@{i.AttachPointIndex}"))}]");
+                    break;
+                case IArmorAddonGetter aa:
+                    Console.WriteLine($"      addon slot {aa.BodyTemplate?.FirstPersonFlags} race {aa.Race.FormKey} model {aa.WorldModel?.Male?.File}|{aa.WorldModel?.Female?.File}");
+                    break;
+                case IMessageGetter msg:
+                    for (int i = 0; i < msg.MenuButtons.Count; i++)
+                    {
+                        Console.WriteLine($"      button {i} conditions {msg.MenuButtons[i].Conditions.Count} text {msg.MenuButtons[i].Text?.String}");
+                        foreach (var cond in msg.MenuButtons[i].Conditions)
+                            Console.WriteLine($"      condition {Cond(cond)}");
+                    }
+                    break;
+            }
+        }
+
+        static string Cond(IConditionGetter c) => c.Data is IFunctionConditionDataGetter d
+            ? $"{d.Function} {d.ParameterOneRecord.FormKey} {c.CompareOperator} " +
+              $"{(c is IConditionFloatGetter f ? f.ComparisonValue.ToString(System.Globalization.CultureInfo.InvariantCulture) : "global")} runon {d.RunOnType}"
+            : c.Data.GetType().Name;
+    }
+
+    // ---------------------------------------------------------------------
     // Script (VMAD) helpers
     // ---------------------------------------------------------------------
 
@@ -1503,6 +2116,21 @@ public static class Program
         Name = name,
         Flags = ScriptProperty.Flag.Edited,
         Data = value,
+    };
+
+    // Array properties (2026-11-07a: the controller's look tables).
+    static ScriptIntListProperty IntList(string name, IEnumerable<int> values) => new()
+    {
+        Name = name,
+        Flags = ScriptProperty.Flag.Edited,
+        Data = new ExtendedList<int>(values),
+    };
+
+    static ScriptStringListProperty StringList(string name, IEnumerable<string> values) => new()
+    {
+        Name = name,
+        Flags = ScriptProperty.Flag.Edited,
+        Data = new ExtendedList<string>(values),
     };
 
     // The output model is set once CMB_SOMMonoEngine exists (OutputModel: made after every other record).
@@ -1692,6 +2320,8 @@ public static class Program
                         ? $"      entry {v.EntryPoint} {v.Modification} {v.Value} tabs {v.PerkConditionTabCount} EPFB {v.PerkEntryID} conditions {v.Conditions.Count}"
                         : $"      effect {e.GetType().Name}");
             }
+            // 2026-11-07a: the look's records (the object mods, recipes, swaps, the kit, the item, the menu's buttons).
+            LookRecords.DumpLines(rec);
             // A global's value (2026-11-06a: check_plugin.py reads the round's nine).
             if (rec is IGlobalFloatGetter glob)
                 Console.WriteLine($"      global value {glob.Data?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "none"}");
@@ -1723,6 +2353,9 @@ public static class Program
                 IScriptFloatPropertyGetter f => $"{f.Data} Float",
                 IScriptIntPropertyGetter i => $"{i.Data} Int",
                 IScriptBoolPropertyGetter b => $"{b.Data} Bool",
+                // 2026-11-07a: the controller's look tables, the values without spaces.
+                IScriptIntListPropertyGetter il => $"[{string.Join(",", il.Data)}] IntList",
+                IScriptStringListPropertyGetter sl => $"[{string.Join(",", sl.Data)}] StringList",
                 _ => p.GetType().Name,
             };
             Console.WriteLine($"{indent}  {p.Name} = {value}");

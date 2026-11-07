@@ -35,3 +35,6 @@ Actor Function GetKiller() native
 ActorBase Function GetLeveledActorBase() native
 Function DoCombatSpellApply(Spell akSpell, ObjectReference akTarget) native
 int Function GetLevel() native
+bool Function SnapIntoInteraction(ObjectReference akTarget) native
+Event OnPlayerModArmorWeapon(Form akBaseObject, ObjectMod akModBaseObject)
+EndEvent

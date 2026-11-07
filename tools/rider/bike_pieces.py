@@ -32,6 +32,8 @@ below (DIAL_*, NEEDLE_PATCH, LENS_*, BADGE_*), so the two can't drift apart.
   bend_convex(verts, normals, centre, normal, radius) -> normals
   clearance(turning, static, steer_point, steer_axis, bar_angle) -> the least gap
   badge_uvs(verts, tris) -> uvs (m, 3, 2)
+  fender_badge_patch(fender, flip) -> (verts, tris, normals, uvs), the rear fender's badge patch (2026-11-07a), parked
+      frame in and out
   disc_pieces(centre_yz, x0, x1, r_out, r_hub, flip, bore) -> (verts, tris, normals, uvs), the brake discs (bore "shared"
       at DISC_HUB_REF of the outer radius, art and geometry alike; "bolts" the 2026-11-01a build's, at r_hub)
 
@@ -967,6 +969,115 @@ def badge_uvs(verts, tris):
         uv[sel, :, 0] = cu + (a - (a0 + a1) / 2) * k
         uv[sel, :, 1] = cv - (b - (b0 + b1) / 2) * k
     return uv.astype(np.float32)
+
+
+# --- the rear fender's badge patch (the customisation build, 2026-11-07a) -----------------------------------------------
+# static_badgeFender: a conforming patch on the rear fender's top, between the seat's end (parked y 67.0) and the rear
+# roundel (y 85.5), FENDER_PATCH_SIZE (across x along: the long axis across the bike, so it reads from behind) centred
+# on the centre line at parked y FENDER_PATCH_Y. A FENDER_PATCH_GRID grid of quads cast straight down onto the fender's
+# triangles (static_paint's glTF mesh 14), its columns at equal steps along the surface across (so the art isn't
+# stretched where the fender curves down to its sides) and its rows at equal steps in y, every vertex lifted
+# FENDER_PATCH_LIFT along the surface's normal: the worn nifs' half floats (1/32 to 1/16 of a unit up here) keep it
+# clear of the paint (DESIGN's overlay rule: 0.25 and up). Its UVs are the tank plates' rectangle (BADGE_PLATE_RECT,
+# badge_uvs' long-island band) seen from behind with z up: u to the viewer's right (the bike's right, parked -x), v down
+# toward the rear: so one badge material serves both tank plates and this patch (look_options.json's atlas cells).
+FENDER_PATCH_SIZE = (14.0, 5.8)
+FENDER_PATCH_Y = 76.0
+FENDER_PATCH_GRID = (24, 10)     # quads across, along: 2 x 240 triangles
+FENDER_PATCH_LIFT = 0.32       # 0.3 left one vertex 0.247 off the paint in the worn nifs' half floats
+FENDER_PATCH_SAMPLES = 801       # the arc length's samples across, over the fender's x range
+BADGE_PLATE_RECT = (0.020, 0.299, 0.980, 0.701)   # u0, v0, u1, v1: a tank plate's (BADGE_BAND_W across, 2.4:1)
+
+
+def _cast_down(tris, cnrm, x, y):
+    """Straight-down rays at (x, y) onto triangles (T, 3, 3) with corner normals (T, 3, 3): the topmost hit per ray,
+    (points (k, 3), normals (k, 3) facing up, hit (k,) bool)."""
+    k = len(x)
+    pts, nrm, hit = np.zeros((k, 3)), np.zeros((k, 3)), np.zeros(k, bool)
+    best = np.full(k, -np.inf)
+    a, b, c = tris[:, 0], tris[:, 1], tris[:, 2]
+    den = (b[:, 1] - c[:, 1]) * (a[:, 0] - c[:, 0]) + (c[:, 0] - b[:, 0]) * (a[:, 1] - c[:, 1])
+    ok = np.abs(den) > 1e-12
+    a, b, c, den, tn = a[ok], b[ok], c[ok], den[ok], cnrm[ok]
+    for s in range(0, k, 64):
+        px, py = x[s:s + 64, None], y[s:s + 64, None]
+        w0 = ((b[:, 1] - c[:, 1]) * (px - c[:, 0]) + (c[:, 0] - b[:, 0]) * (py - c[:, 1])) / den
+        w1 = ((c[:, 1] - a[:, 1]) * (px - c[:, 0]) + (a[:, 0] - c[:, 0]) * (py - c[:, 1])) / den
+        w2 = 1.0 - w0 - w1
+        inside = (w0 >= -1e-9) & (w1 >= -1e-9) & (w2 >= -1e-9)
+        z = np.where(inside, w0 * a[:, 2] + w1 * b[:, 2] + w2 * c[:, 2], -np.inf)
+        j = np.argmax(z, axis=1)
+        r = np.arange(len(j))
+        zz = z[r, j]
+        got = np.isfinite(zz)
+        idx = np.arange(s, s + len(j))[got]
+        jj, rr = j[got], r[got]
+        W = np.column_stack([w0[rr, jj], w1[rr, jj], w2[rr, jj]])
+        pts[idx] = np.column_stack([x[idx], y[idx], zz[got]])
+        n = unit(np.einsum("ij,ijk->ik", W, tn[jj]))
+        n[n[:, 2] < 0] *= -1.0
+        nrm[idx], hit[idx], best[idx] = n, True, zz[got]
+    return pts, nrm, hit
+
+
+def fender_badge_patch(fender, flip=False, size=FENDER_PATCH_SIZE, centre_y=FENDER_PATCH_Y, grid=FENDER_PATCH_GRID,
+                       lift=FENDER_PATCH_LIFT, rect=BADGE_PLATE_RECT):
+    """The rear fender's badge patch (see FENDER_PATCH_*): fender = [(verts (n, 3), tris (m, 3), normals (n, 3) or
+    None)], the fender's pieces in the parked frame. Returns (verts (V, 3), tris (T, 3), normals (V, 3), uvs (T, 3, 2)
+    per corner, nif convention) in the parked frame, wound outward (up; pre-flipped with flip, as piece())."""
+    tris = np.concatenate([np.asarray(v, np.float64)[np.asarray(f, np.int64)] for v, f, _ in fender])
+    cn = np.concatenate([unit(np.asarray(n, np.float64) if n is not None else smooth_normals(np.asarray(v, np.float64),
+                                                                                            np.asarray(f, np.int64)))[np.asarray(f, np.int64)]
+                         for v, f, n in fender])
+    nu, nv = grid
+    w, h = size
+    ys = np.linspace(centre_y - h / 2, centre_y + h / 2, nv + 1)
+    near = (tris[:, :, 1].max(axis=1) >= ys[0] - 1.0) & (tris[:, :, 1].min(axis=1) <= ys[-1] + 1.0)
+    tris, cn = tris[near], cn[near]
+    if not len(tris):
+        raise ValueError(f"fender_badge_patch: no fender triangles at y {ys[0]:.1f}..{ys[-1]:.1f}")
+    x_lo, x_hi = float(tris[:, :, 0].min()), float(tris[:, :, 0].max())
+    xs = np.linspace(x_lo, x_hi, FENDER_PATCH_SAMPLES)
+    rows_p, rows_n = [], []
+    for y in ys:
+        p, n, hit = _cast_down(tris, cn, xs, np.full(len(xs), y))
+        if not hit[np.argmin(np.abs(xs))]:
+            raise ValueError(f"fender_badge_patch: the centre line misses the fender at y {y:.2f}")
+        # the hit run through x = 0, its arc length from there
+        c = int(np.argmin(np.abs(xs)))
+        lo, hi = c, c
+        while lo > 0 and hit[lo - 1]:
+            lo -= 1
+        while hi < len(xs) - 1 and hit[hi + 1]:
+            hi += 1
+        run = p[lo:hi + 1]
+        s = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(run, axis=0), axis=1))])
+        s -= np.interp(0.0, xs[lo:hi + 1], s)
+        want = np.linspace(-w / 2, w / 2, nu + 1)
+        if want[0] < s[0] or want[-1] > s[-1]:
+            raise ValueError(f"fender_badge_patch: the fender is {s[-1] - s[0]:.2f} across at y {y:.2f}, under the "
+                             f"patch's {w}")
+        px = np.interp(want, s, xs[lo:hi + 1])
+        p, n, hit = _cast_down(tris, cn, px, np.full(len(px), y))
+        if not hit.all():
+            raise ValueError(f"fender_badge_patch: a vertex misses the fender at y {y:.2f}")
+        rows_p.append(p + lift * n)
+        rows_n.append(n)
+    v = np.vstack(rows_p)
+    n = np.vstack(rows_n)
+    idx = np.arange((nu + 1) * (nv + 1)).reshape(nv + 1, nu + 1)
+    a, b, c, d = idx[:-1, :-1].ravel(), idx[:-1, 1:].ravel(), idx[1:, 1:].ravel(), idx[1:, :-1].ravel()
+    f = np.vstack([np.column_stack([a, b, c]), np.column_stack([a, c, d])]).astype(np.int64)
+    gi, gj = np.meshgrid(np.arange(nu + 1), np.arange(nv + 1))
+    u0, v0, u1, v1 = rect
+    uv = np.column_stack([u1 - (u1 - u0) * gi.ravel() / nu, v0 + (v1 - v0) * gj.ravel() / nv])
+    fn = face_normals(v, f)
+    if (fn[:, 2] <= 0).any():
+        raise ValueError("fender_badge_patch: a triangle faces down (the fender too steep for the grid)")
+    uvc = uv[f].astype(np.float32)
+    if flip:
+        f, uvc = f[:, [0, 2, 1]], uvc[:, [0, 2, 1]]
+    return v, f, n, uvc
 
 
 # --- the brake discs (since the 2026-11-01a build) ---------------------------------------------------------

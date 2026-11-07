@@ -41,3 +41,11 @@ Function EmergencyReset() global
 		c.EmergencyReset()
 	endif
 EndFunction
+
+; 2026-11-07a: MCM "Apply the look" (the Look section).
+Function LookApply() global
+	CMB_ControllerScript c = Controller()
+	if c
+		c.LookApplyFromMcm()
+	endif
+EndFunction

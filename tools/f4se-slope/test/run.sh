@@ -24,10 +24,14 @@
 # person, the riding FOV and the eye's globals, a narrow thing's own reference, the rail at 1.5 radii and the sidestep,
 # the launch from rest (in a mode of its own: launch), the most room's navmesh point, items used at speed, the food arm,
 # the player's own items and power attacks, the headlamp let go, the landings without metal, the water loop's law and
-# kinds, the longer gear change and the launch's flare. 24 modes (0-23). Needs MinGW-w64 and wine64.
-# The 2026-11-06a build: 1562 checks ok (full 382, probe 10, guard 8, wrongversion 4, transposed 76, disagree 6,
+# kinds, the longer gear change and the launch's flare; the 2026-11-07a build's customisation: the CMB_LookCode global
+# (an older ESP without it), the mirrors as chosen at the bike ([Look] Mirrors=-1) on the worn and first-person bikes,
+# and the split tank badges and the rear fender's patch held (in a mode of its own: custom). 25 modes (0-24). Needs
+# MinGW-w64 and wine64.
+# The 2026-11-07a build: 1580 checks ok (full 382, probe 10, guard 8, wrongversion 4, transposed 76, disagree 6,
 # backpush 6, riderinplace 18, riderheldonly 8, load 43, climb 125, wall 75, ram 110, hits 22, launch 13, backing 56,
-# arms 36, room 131, roomold 54, decals 77, sound 100, look 57, view 103, fx 42); 1481 in 23 modes at 2026-11-02a.
+# arms 36, room 131, roomold 55, decals 77, sound 100, look 57, view 103, fx 42, custom 17); 1562 in 24 modes at
+# 2026-11-06a.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 WORK="$(mktemp -d)"
@@ -100,6 +104,10 @@ LOOK='[Speedo]\nNeedle=1\nScale=1.75\nTau=0.3\nBacklight=1\n[Tail]\nGlow=1\nBrak
 run look 17 "$KNOWN[Tilt]\nTrace=1\nPivotHeight=74\nPivotForward=0\nTorsoLean=0\nBumpMax=0\nLiftRate=0\nSuspension=0\n$PARTSLOOK$LAMP$LOOK[Sound]\nDrive=0\n"
 VIEW49='[TailLight]\nEnabled=1\nBack=8\nPitch=30\nBrakeGain=3\nBrakeBy=colour\n[View]\nEnabled=1\nLead=0\nHandoverTime=1.0\nStale=1\nEye=0\nEyeSide=1\nEyeSmooth=0.05\nEyeSmoothZ=0.25\nEyeMax=150\nStaleLines=3\nTipTime=0.4\nFovTime=0.3\nFovOffset=auto\n'   # 2026-11-01a (mode 20 only): the tail lamp's light and the first-person bike, the keys a ride rewrites at their defaults (Lead 0 for exact numbers; a ride rewrites it to 1); [Look] Cull=1 goes in through LOOK's Mirrors line; 2026-11-02a: Eye=0 so the 2026-11-01a build's checks keep their numbers (the eye's rides rewrite it to 1), EyeSide, EyeSmooth, EyeSmoothZ, EyeMax and StaleLines at their defaults so rides can rewrite them; 2026-11-06a: TipTime, FovTime and FovOffset at their defaults, likewise
 run view 20 "$KNOWN[Tilt]\nTrace=1\nPivotHeight=74\nPivotForward=0\nTorsoLean=0\nBumpMax=0\nLiftRate=0\nSuspension=0\n$PARTSLOOK$LAMP${LOOK/Mirrors=1\\n/Mirrors=1\\nCull=1\\n}$VIEW49[Sound]\nDrive=0\n"
+# 2026-11-07a, the customisation build (mode 24 only): the mirrors chosen at the bike (CMB_LookCode) and the split badges' and
+# the fender patch's shapes, on mode 17's look bike with its parts file, lamp and look keys, [Look] Mirrors=-1 (the new default,
+# "as chosen at the bike"). After the look and view runs: PARTSLOOK and LOOK are defined with them.
+run custom 24 "$KNOWN[Tilt]\nTrace=1\nPivotHeight=74\nPivotForward=0\nTorsoLean=0\nBumpMax=0\nLiftRate=0\nSuspension=0\n$PARTSLOOK$LAMP${LOOK/Mirrors=1\\n/Mirrors=-1\\n}[Sound]\nDrive=0\n"
 # The 2026-11-01a build's bike sounds and landings (mode 21 only): the water loop the fake script plays and hands over, driven through this
 # mode's own Address Library (no BSStringPool::GetEntry in it: LandSoft's soft landings named from the game's own events); LandSoft,
 # LandSoftNames, Land, Water, WaterSource and WaterSplash at their defaults, so the run can rewrite them (Water to 0, WaterSource to controller);

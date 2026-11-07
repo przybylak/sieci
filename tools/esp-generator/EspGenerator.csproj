@@ -9,4 +9,8 @@
   <ItemGroup>
     <PackageReference Include="Mutagen.Bethesda.Fallout4" Version="0.53.1" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- 2026-11-07a: the customisation build's option table, read by LookRecords (Program.cs) from the generator itself. -->
+    <EmbeddedResource Include="look_options.json" LogicalName="look_options.json" />
+  </ItemGroup>
 </Project>

@@ -2,7 +2,8 @@
 """Checks a bike build (harley_meshes.py's nifs, and the texture stage's textures and materials) in a Data tree.
 
   python check_bike_meshes.py --pynifly <io_scene_nifly> --data <Data> [--reference <27c Data>/Meshes/CMB]
-      [--stage-dir <stage>] [--look-reference <the previous build's Data>]
+      [--stage-dir <stage>] [--look-reference <the previous build's Data>] [--look-options <look_options.json>]
+      [--look-targets art|all]
 
 What it checks (FAIL lines make the exit status 1; INFO lines are numbers for the notes):
   shapes     every worn nif has the 30 shapes of harley_meshes.LABELS (the stage's, with --stage-dir: 28 with --disc
@@ -32,6 +33,17 @@ What it checks (FAIL lines make the exit status 1; INFO lines are numbers for th
              rear disc's own files over the front's textures) env 0.25, spec mult 0.75; with --look-reference (the
              2026-11-02a build's Data), the chrome's and the wheels' _d/_n/_s the reference's byte for byte (the look is
              the materials files' alone, and the stage is the reference's)
+  custom     (2026-11-07a, the customisation build: harley_meshes.py --look-slots 1, found by the fender patch in the
+             nifs; --look-options demands it) 33 shapes: static_badgeTankL/TankR/Rear and static_badgeFender in the worn,
+             parked and view nifs, each naming its own materials file and the plugin's fixed role by name; the parked
+             nif's under-bar mirrors (PARKED_OFF) not hidden, naming <label>_off.bgsm; the invisible materials files
+             (the patch's own, the _off ones, off.bgsm: alpha test 255, alpha 0, no shadow); the patch at least 0.25
+             over the paint at every vertex in the worn nif's half floats; every MSWP source and target of
+             look_options.json in Materials (the art unit's badge_*.bgsm listed, --look-targets all to demand them),
+             their textures checked as the nifs' are (the game's badge art by path aside), the palette one mip; no
+             real-world brand in the option table's names; with --look-reference (2026-11-06a's Data) CMB_BikeParts.ini
+             and CMB_BikeFit.json its bytes and the three split badges together its static_badge (every vertex with
+             its UV, each split shape its culling sphere); the texture budget TEX_BUDGET_LOOK
   overlays   the dial's backlight, the needle and the light shells clear of what they cover in the worn nif's half
              floats; the needle's culling sphere on NeedlePoint and long enough; where the needle points at rest
   mirrors    every mirror variant clear of the tank with the bars anywhere within BarAngle
@@ -72,6 +84,13 @@ WORN = ("CMB_BikeWorn", "CMB_BikeWornRider", "CMB_BikeWornRiderF")
 BRAND = (b"harley", b"davidson", b"sportster")
 VIEW = "CMB_BikeView"   # the view nif's stem, node and shapes' prefix (harley_meshes.VIEW_NODE)
 TEX_BUDGET = (93, 89.0)  # Textures/CMB/Bike: files, MB (since the 2026-11-01a build's discs: 2026-10-31a's 90 files, 85.3 MB)
+# The customisation build's (2026-11-07a, harley_meshes.py --look-slots 1): look_paint.py's index maps (3.5 MB), palette
+# and off's three, and the art's badge atlas (badges_d/_n/_s, 8.4 MB): 99 files and 92.6 MB without the atlas
+TEX_BUDGET_LOOK = (104, 102.0)
+LOOK_OPTIONS = Path(__file__).resolve().parent.parent / "esp-generator" / "look_options.json"
+# The option table's names are scanned for the brand words above (BRAND: Fallout's own factions and fictional brands
+# are fine; the scan keeps real-world names out of the menus)
+NAME_BRANDS = tuple(w.decode() for w in BRAND)
 # 2026-11-02a's look (test 48): the mirrors on the game's cube (the tester's A/B). 2026-11-06a's (test 49: the chrome "too
 # bright, pearly, smudged", the discs and rims "a bit too white"): the chrome env 2.5, spec 1.5, no screen-space
 # reflections (2026-11-02a: 6, 2, on), the rims and discs env 0.25, spec 0.75 (0.4, 1), by their materials files alone.
@@ -207,6 +226,113 @@ def ini_keys(path: Path):
     return out
 
 
+def look_checks(rep, args, opts, labels, materials, textures, worn_geo, worn_names, parked_names, parked_flags, P):
+    """The customisation build's (2026-11-07a, harley_meshes.py --look-slots 1) shapes and the option table's swaps."""
+    import re
+    import bgsm as B   # ours (tools/rider/bgsm.py)
+    new = H.BADGE_SPLIT + (H.FENDER_BADGE,)
+    mat = lambda name: f"materials\\cmb\\bike\\{name}.bgsm".lower()   # noqa: E731
+    bad = []
+    for label in new:
+        if (worn_names.get(label) or "").lower() != mat(label + "_worn"):
+            bad.append(f"{label} worn {worn_names.get(label)!r}")
+        if (parked_names.get(label) or "").lower() != mat(label):
+            bad.append(f"{label} parked {parked_names.get(label)!r}")
+        if not ("_static_" in f"_{label}" and not any(t in f"_{label}" for t in ("_fork", "_wheelF", "_wheelR", "_front_", "_rear_"))):
+            bad.append(f"{label}: not the plugin's fixed role by its name")
+    for label in H.PARKED_OFF:
+        if (parked_names.get(label) or "").lower() != mat(label + "_off") or parked_flags.get(label, 1) & 1:
+            bad.append(f"{label} parked {parked_names.get(label)!r} flags {parked_flags.get(label)}")
+        if (worn_names.get(label) or "").lower() != mat(label + "_worn"):
+            bad.append(f"{label} worn {worn_names.get(label)!r}")
+    rep.check(not bad and len(labels) == len(H.LOOK_LABELS),
+              f"custom: {len(labels)} shapes; {', '.join(new)} in the worn, parked and view nifs (the view's names the worn's), "
+              f"each its own materials file and the plugin's fixed role by name; the parked nif's under-bar mirrors "
+              f"({', '.join(H.PARKED_OFF)}) not hidden, naming <label>_off.bgsm", "; ".join(bad))
+    # the invisible materials files: the fender patch's own (its stock look), the parked mirrors' and the swaps' off
+    invisible = [H.FENDER_BADGE, H.FENDER_BADGE + "_worn"] + [x + "_off" for x in H.PARKED_OFF] + \
+                [opts["off_material"].split("\\")[-1][:-len(".bgsm")]]
+    bad = []
+    for name in invisible:
+        path = materials.get(mat(name)[len("materials\\"):])
+        if path is None:
+            bad.append(f"{name}.bgsm missing")
+            continue
+        m = B.read(path)
+        if not (m["alpha_test"] and m["alpha_test_ref"] == 255 and m["alpha"] == 0.0 and not m["cast_shadows"]):
+            bad.append(f"{name}: alpha test {m['alpha_test']} ref {m['alpha_test_ref']} alpha {m['alpha']} shadows {m['cast_shadows']}")
+    rep.check(not bad, f"custom: {len(invisible)} invisible materials files (alpha test 255, alpha 0, no shadow): "
+                       f"{', '.join(invisible)}", "; ".join(bad))
+    # the patch over the paint, in the worn nif's half floats
+    if H.FENDER_BADGE not in worn_geo or "static_paint" not in worn_geo:
+        rep.check(False, f"custom: the rear fender patch over the paint", f"no {H.FENDER_BADGE} in CMB_BikeWorn.nif")
+    else:
+        pv = worn_geo[H.FENDER_BADGE][0]
+        v, f, _ = worn_geo["static_paint"]
+        t = v[f]
+        c = t[:, :, 1].mean(axis=1)
+        t = t[(c > pv[:, 1].min() - 4) & (c < pv[:, 1].max() + 4)]
+        g = TriangleGrid(t, 0.6).closest(pv, reach=1.0)[2]
+        rep.check(len(t) and g.min() >= 0.25, f"custom: the rear fender patch at least 0.25 over the paint at every one of its "
+                                              f"{len(pv)} vertices in the worn nif's half floats",
+                  f"{g.min():.3f} to {g.max():.3f}")
+    # every MSWP source and target there (the art unit's badge files listed until the merge)
+    missing, art, n = set(), set(), 0
+    for slot in opts["slots"]:
+        for o in slot["options"]:
+            for pair in o["swap"] or []:
+                for x in pair:
+                    n += 1
+                    if x.replace("/", "\\").lower() in materials:
+                        continue
+                    leaf = x.split("\\")[-1]
+                    (art if leaf.lower().startswith("badge_") and args.look_targets == "art" else missing).add(leaf)
+    rep.check(not missing, f"custom: the option table's {n} MSWP sources and targets in Materials"
+                           + (f" (the art unit's {len(art)} badge materials files aside)" if art else ""),
+              ", ".join(sorted(missing)[:12]))
+    if art:
+        rep.info("custom: the art unit's badge materials files not here yet", ", ".join(sorted(art)))
+    # the option table's names: no real-world brand
+    names = [x.get("name", "") for x in opts["slots"]]
+    names += [o.get("name", "") for s in opts["slots"] for o in s["options"]]
+    names += [b.get(k) or "" for b in opts["badges"] for k in ("name", "motif")]
+    names += [r.get("name", "") for r in opts["paint_rows"]] + [x.get("name", "") for x in opts["sets"]]
+    hits = sorted({f"{nm!r}: {w}" for nm in names for w in NAME_BRANDS if re.search(rf"\b{re.escape(w)}\b", nm.lower())})
+    rep.check(not hits, f"custom: no real-world brand in the option table's {len(names)} names", "; ".join(hits))
+    # with the 2026-11-06a build's Data: the parts and fit files its bytes, the split badges its static_badge
+    if args.look_reference:
+        rm = args.look_reference / "Meshes" / "CMB"
+        diff = [n_ for n_ in ("CMB_BikeParts.ini", "CMB_BikeFit.json")
+                if (args.data / "Meshes" / "CMB" / n_).read_bytes() != (rm / n_).read_bytes()]
+        rep.check(not diff, "custom: CMB_BikeParts.ini and CMB_BikeFit.json the reference's bytes (--look-reference: the split "
+                            "and the patch move no key, FrontMinY included)", ", ".join(diff))
+        ref = P.NifFile(str(rm / "CMB_BikeWorn.nif"))
+        rs = next((s for s in ref.shapes if s.name == "CMB_BikeWorn_static_badge"), None)
+        if rs is None or not all(b in worn_geo for b in H.BADGE_SPLIT):
+            rep.check(False, "custom: the three split badges together the reference's static_badge",
+                      "no CMB_BikeWorn_static_badge in the reference" if rs is None else "not all three in CMB_BikeWorn.nif")
+        else:
+            def rows_of(vv, uu):
+                a = np.round(np.column_stack([vv, uu]) * 2 ** 20).astype(np.int64)
+                return a[np.lexsort(a.T[::-1])]
+            ra = rows_of(np.asarray(rs.verts, np.float64), np.asarray(rs.uvs, np.float64))
+            na = rows_of(np.vstack([worn_geo[b][0] for b in H.BADGE_SPLIT]), np.vstack([worn_geo[b][2] for b in H.BADGE_SPLIT]))
+            tri_n = sum(len(worn_geo[b][1]) for b in H.BADGE_SPLIT)
+            data = (args.data / "Meshes" / "CMB" / "CMB_BikeWorn.nif").read_bytes()
+            bone = [off for off, nm in _block_offsets(data) if nm == "BSSkin::BoneData"]
+            rdata = (rm / "CMB_BikeWorn.nif").read_bytes()
+            rbone = [off for off, nm in _block_offsets(rdata) if nm == "BSSkin::BoneData"]
+            ref_labels = [s.name[len("CMB_BikeWorn_"):] for s in ref.shapes]
+            rsph = rdata[rbone[ref_labels.index("static_badge")] + 4:rbone[ref_labels.index("static_badge")] + 20]
+            sph = [data[bone[labels.index(b)] + 4:bone[labels.index(b)] + 20] for b in H.BADGE_SPLIT]
+            same = ra.shape == na.shape and np.array_equal(ra, na) and tri_n == len(rs.tris)
+            rep.check(same and all(x == rsph for x in sph),
+                      "custom: the three split badges together the reference's static_badge (every vertex with its UV, "
+                      "the triangles' count) and each its culling sphere",
+                      f"{len(na)} vertices, {tri_n} triangles (the reference {len(ra)}, {len(rs.tris)}); spheres "
+                      f"{'the same' if all(x == rsph for x in sph) else 'differ'}")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--pynifly", type=Path, required=True)
@@ -215,6 +341,12 @@ def main() -> int:
     ap.add_argument("--stage-dir", type=Path, help="the stage export the build was made from (per-material totals)")
     ap.add_argument("--look-reference", type=Path,
                     help="the previous build's Data tree (2026-11-02a's): the chrome's and the wheels' textures must be its bytes")
+    ap.add_argument("--look-options", type=Path,
+                    help="the customisation build's option table (default: tools/esp-generator/look_options.json when the "
+                         "nifs are that build's, harley_meshes.py --look-slots 1); given, the nifs must be that build's")
+    ap.add_argument("--look-targets", choices=("art", "all"), default="art",
+                    help="art (until the art unit's files are in the tree): the badge materials files (badge_*.bgsm) the "
+                         "option table's swaps target are listed when missing; all: every target must be there")
     args = ap.parse_args()
     sys.path.insert(0, str(args.pynifly))
     import logging
@@ -230,9 +362,27 @@ def main() -> int:
     manifest = None
     if args.stage_dir and (args.stage_dir / "manifest.json").exists():
         manifest = json.loads((args.stage_dir / "manifest.json").read_text())
-    # the shapes this build made: the stage's (28 with --disc model), else harley_meshes.LABELS (30)
-    labels = list(manifest["labels"]) if manifest else [label for label, _ in H.LABELS]
-    roles = dict(H.LABELS)
+    # the shapes this build made: the stage's (28 with --disc model), else harley_meshes.LABELS (30), or LOOK_LABELS (33)
+    # when the worn nif has the customisation build's fender patch
+    if manifest:
+        labels = list(manifest["labels"])
+    else:
+        worn0 = meshes / "CMB_BikeWorn.nif"
+        look0 = worn0.exists() and f"CMB_BikeWorn_{H.FENDER_BADGE}".encode() in worn0.read_bytes()
+        labels = [label for label, _ in (H.LOOK_LABELS if look0 else H.LABELS)]
+    roles = dict(H.LABELS + H.LOOK_LABELS)
+    look = H.FENDER_BADGE in labels   # the customisation build's nifs (2026-11-07a, --look-slots 1)
+    look_path = args.look_options or (LOOK_OPTIONS if look and LOOK_OPTIONS.exists() else None)
+    look_opts = json.loads(look_path.read_text()) if look_path else None
+    swap_files = set()   # the option table's MSWP sources and targets (cmb\bike\<name>.bgsm, lower case)
+    if look_opts:
+        for slot in look_opts["slots"]:
+            for o in slot["options"]:
+                for pair in o["swap"] or []:
+                    swap_files.update(x.replace("/", "\\").lower() for x in pair)
+    if args.look_options:
+        rep.check(look, "custom: the customisation build's shapes (harley_meshes.py --look-slots 1: "
+                        f"{', '.join(H.BADGE_SPLIT + (H.FENDER_BADGE,))})", "" if look else f"{len(labels)} shapes, none of them")
 
     def block(f, s):
         sp = s.properties
@@ -253,6 +403,8 @@ def main() -> int:
     worn_geo = {}         # label -> (verts, tris, uvs) from CMB_BikeWorn.nif
     worn_names = {}       # label -> CMB_BikeWorn.nif's materials file name
     parked_geo = {}       # label -> verts from CMB_BikeParked.nif (full precision)
+    parked_names = {}     # label -> CMB_BikeParked.nif's materials file name
+    parked_flags = {}     # label -> its node flags
     for stem in WORN + ("CMB_BikeParked",):
         path = meshes / f"{stem}.nif"
         if not path.exists():
@@ -274,7 +426,7 @@ def main() -> int:
                   "" if got == want else f"missing {sorted(set(want) - set(got))}, extra {sorted(set(got) - set(want))}")
         if not worn:
             hidden = sorted(s.name for s in shapes if s.flags & 1)
-            want_hidden = sorted(["Motorcycle:0"] + [f"CMB_Bike_{label}" for label in H.PARKED_HIDDEN])
+            want_hidden = sorted(["Motorcycle:0"] + ([] if look else [f"CMB_Bike_{label}" for label in H.PARKED_HIDDEN]))
             rep.check(hidden == want_hidden, f"{stem}: hidden by the node flag: {hidden}")
         bad_flags, too_big, bad_uv, bad_shadow, bad_skin, names = [], [], [], [], [], set()
         for s in shapes:
@@ -313,6 +465,8 @@ def main() -> int:
                 worn_names[label] = name
             if not worn:
                 parked_geo[label] = np.asarray(s.verts, dtype=np.float64)
+                parked_names[label] = name
+                parked_flags[label] = s.flags
         rep.check(not too_big, f"{stem}: at most {H.MAX_VERTS} vertices a shape", ", ".join(too_big))
         rep.check(not bad_uv, f"{stem}: UVs in 0..1", ", ".join(bad_uv))
         rep.check(not bad_skin, f"{stem}: {'skinned' if worn else 'not skinned'}", ", ".join(bad_skin))
@@ -421,13 +575,23 @@ def main() -> int:
     if named:
         rep.check(not missing_mat, f"materials files: {len(named)} named, every one in {args.data / 'Materials'}", ", ".join(missing_mat))
         ours = [k for k in materials if k.startswith("cmb\\bike\\") and k.endswith(".bgsm")]
-        unused = sorted(k for k in ours if "materials\\" + k not in named)
-        rep.check(not unused, f"materials files: every one of the {len(ours)} in Materials\\CMB\\Bike named by a nif (none shipped unused)",
+        unused = sorted(k for k in ours if "materials\\" + k not in named and k not in swap_files)
+        rep.check(not unused, f"materials files: every one of the {len(ours)} in Materials\\CMB\\Bike named by a nif"
+                              + (" or by the option table's swaps" if swap_files else "") + " (none shipped unused)",
                   ", ".join(unused))
+        for k in sorted(swap_files):   # the swaps' materials files there: their textures are checked as the nifs' are
+            path = materials.get(k)
+            if path is not None and "materials\\" + k not in named:
+                used_textures.update("textures\\" + v for v in bgsmaterial.MaterialFile.Open(str(path)).textures.values() if v)
         rep.check(not mismatch, "materials files read back (PyNifly) agree with the nifs' blocks", "; ".join(mismatch[:12]))
 
     # --- textures -----------------------------------------------------------------------------------------------
     vanilla_cubes = {("textures\\" + c).lower() for k, c in H.CUBES.items() if k != "MR"}
+    if look_opts:   # the game's own badge art, by path (look_options.json's badges with art "game")
+        for b in look_opts["badges"]:
+            for t in (b.get("textures") or {}).values():
+                if t:
+                    vanilla_cubes.add(("textures\\" + t.replace("/", "\\")).lower())
     missing_tex, bad_dds, seen = [], [], set()
     for t in sorted({u.lower() for u in used_textures}):
         rel = t.removeprefix("textures\\")
@@ -449,9 +613,9 @@ def main() -> int:
         palette = tex_stem.startswith(H.PALETTE.lower() + "_")
         full = int(math.log2(max(w, h))) + 1
         suffix = tex_stem[-2:]
-        if palette:
-            if fmt != "A8R8G8B8":
-                bad_dds.append(f"{rel}: {fmt}")
+        if palette or (look_opts and rel == look_opts["palette"]["texture"].lower()):
+            if fmt != "A8R8G8B8" or (not palette and mips != 1):   # 2026-11-07a's paint palette: one mip, no row blur
+                bad_dds.append(f"{rel}: {fmt}, {mips} mips")
             continue
         if mips != full:
             bad_dds.append(f"{rel}: {mips} of {full} mips")
@@ -468,9 +632,10 @@ def main() -> int:
     if bike_tex.exists():
         dds = list(bike_tex.rglob("*.dds"))
         total = sum(p.stat().st_size for p in dds)
-        rep.check(len(dds) <= TEX_BUDGET[0] and total <= TEX_BUDGET[1] * 1024 * 1024,
-                  f"textures: Textures/CMB/Bike {len(dds)} files, {total / 1048576:.1f} MB of DDS (budget {TEX_BUDGET[0]} "
-                  f"files, {TEX_BUDGET[1]:g} MB)")
+        budget = TEX_BUDGET_LOOK if look else TEX_BUDGET
+        rep.check(len(dds) <= budget[0] and total <= budget[1] * 1024 * 1024,
+                  f"textures: Textures/CMB/Bike {len(dds)} files, {total / 1048576:.1f} MB of DDS (budget {budget[0]} "
+                  f"files, {budget[1]:g} MB)")
     if not palette_build and named:
         # Our mirror cube ships only if a materials file names it (MR, the 2026-11-01a build's mirrors), and then both:
         # the one the nifs name and the +Z-up one TESTING has the tester copy over it if the game shows the sky sideways
@@ -808,6 +973,10 @@ def main() -> int:
                           f"mean ({mean[0]:.0f}, {mean[1]:.0f}, {mean[2]:.0f}) over {int(ring.sum())} texels, {off:.0f} off")
             else:
                 rep.check(False, "discs: wheelF_disc_d.dds there (the bore's art)")
+
+    # --- the customisation build (2026-11-07a) ------------------------------------------------------------------------
+    if look or args.look_options:   # (on another build with --look-options, each fails)
+        look_checks(rep, args, look_opts, labels, materials, textures, worn_geo, worn_names, parked_names, parked_flags, P)
 
     # --- brand ----------------------------------------------------------------------------------------------------
     hits = []

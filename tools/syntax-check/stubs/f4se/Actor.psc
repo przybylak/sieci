@@ -13,6 +13,9 @@ Function AttemptAnimationSetSwitch() native
 Function EvaluatePackage(bool abResetAI) native
 Event OnPlayerLoadGame()
 EndEvent
+bool Function SnapIntoInteraction(ObjectReference akTarget) native
+Event OnPlayerModArmorWeapon(Form akBaseObject, ObjectMod akModBaseObject)
+EndEvent
 
 ; F4SE
 Struct WornItem
@@ -24,3 +27,4 @@ Struct WornItem
 EndStruct
 
 WornItem Function GetWornItem(int slotIndex, bool firstPerson = false) native
+ObjectReference Function GetFurnitureReference() native

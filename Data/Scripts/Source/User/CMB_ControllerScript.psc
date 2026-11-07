@@ -470,6 +470,87 @@ Group Fx_Fixes_51
 	{0x8A9 CMB_FxWaterRoadLPSD, the mod's own wet-road loop (CMB_FxWaterLoop 2).}
 EndGroup
 
+; 2026-11-07a (the customisation build, C1): the Customise session at the bike, the field kit and the
+; looks (badges on both tank sides and the rear fender, the paint, the mirrors). The records follow
+; tools/esp-generator/look_options.json. None is Mandatory: an older ESP leaves them None, and then
+; there is no Customise button and the bike looks as the 2026-11-06a build.
+Group Look_C1
+	Armor Property CMB_BikeLook Auto Const
+	{0x8CE, the bike's look as a playable item (slot 57, the five look attach points): held only
+	while you customise, so the armour menu lists it. None = no Customise.}
+	GlobalVariable Property CMB_LookCode Auto Const
+	{At a fixed ID, 0x8AF: CMB_Slope.dll reads it for the worn and first-person bikes' mirrors. Bits
+	0-1 the mirror (0 none, 1 stock, 2 under the bars egg, 3 under the bars D), bit 2 set (a choice
+	was made), bits 3-8 kept for later builds. 0 = the plugin's own [Look] Mirrors. Written only by
+	ApplyLook.}
+	GlobalVariable Property CMB_LookOn Auto Const
+	{MCM "Customise at the bike": 1 (the default) = the parked bike's menu has Customise and the
+	chosen look is put on every bike; 0 or None = no button, nothing attached on getting on, the
+	parked and first-person bikes back to stock, CMB_LookCode 0 (the 2026-11-06a build).}
+	GlobalVariable Property CMB_LookFree Auto Const
+	{MCM "Free customising (no field kit, no cost)": 1 shows the MCM's dropdowns per slot; 0 (the
+	default) hides them. The MCM's "Apply the look" applies either way.}
+	GlobalVariable Property CMB_Look_TankL Auto Const
+	{The left tank badge: an index into CMB_LookOptions_TankL (0 = stock, the winged wheel).}
+	GlobalVariable Property CMB_Look_TankR Auto Const
+	{The right tank badge: an index into CMB_LookOptions_TankR; 17 (the default) = "Same as the left",
+	resolved wherever a look is composed. Any other right option ends the link; 17 restores it.}
+	GlobalVariable Property CMB_Look_Fender Auto Const
+	{The rear fender badge: an index into CMB_LookOptions_Fender (0 = none, the patch invisible).}
+	GlobalVariable Property CMB_Look_Paint Auto Const
+	{The paint: an index into CMB_LookOptions_Paint (0 = Factory, the oxblood; 44 the colour-index
+	test).}
+	GlobalVariable Property CMB_Look_Mirrors Auto Const
+	{The mirrors: an index into CMB_LookOptions_Mirrors (0 stock, 1 under the bars egg, 2 under the
+	bars D, 3 none).}
+	GlobalVariable Property CMB_LookFactionSet Auto Const
+	{MCM "Faction set" (0 = none, 1-11): at "Apply the look" sets the paint, both tank badges (the
+	right following) and the fender badge to one faction's, then goes back to 0.}
+	GlobalVariable Property CMB_KitMode Auto Const
+	{MCM "Field kit": 0 (the default) = automatic (the toolbox, then the armour bench; the one that
+	worked is remembered in CMB_KitWorked), 1 the toolbox, 2 the toolbox with the armour bench's
+	keyword, 3 the armour bench (the first plan's way).}
+	GlobalVariable Property CMB_KitWorked Auto Const
+	{Console: the field kit mode automatic found working (-1, the default, = none yet: it starts again
+	from mode 1).}
+	GlobalVariable Property CMB_KitBagLink Auto Const
+	{MCM "Parts from the side bag": 1 (the default) = outside your settlements the field kit counts the
+	side bag's components; 0 = only yours (and a settlement's workshop).}
+	FormList Property CMB_LookCategories Auto Const
+	{The five option lists in slot order (0 TankL, 1 TankR, 2 Fender, 3 Paint, 4 Mirrors); in each, an
+	option's index is the CMB_Look_<slot> value.}
+	Furniture Property CMB_FieldKit Auto Const
+	{0x8CF, kit mode 1: the toolbox (the game's by path) with an armour bench's data and our keyword.}
+	Furniture Property CMB_FieldKitArmorKw Auto Const
+	{0x8D0, kit mode 2: the same with the armour bench's own keywords too (a test of the menu's list).}
+	Furniture Property CMB_FieldKitBench Auto Const
+	{0x8D1, kit mode 3: the armour bench's model by path, its own marker and keywords plus ours.}
+	MovableStatic Property CMB_FieldKitBox Auto Const
+	{0x8D2, the toolbox at the bench's foot in kit mode 3.}
+	Keyword Property WorkshopItemKeyword Auto Const
+	{054BA6: a kit in one of your settlements is linked to its workshop with it (and the next).}
+	Keyword Property LinkedWorkbenchContainerKeyword Auto Const
+	{1D1BEF: the bench's container link (the workshop's, or the side bag's elsewhere).}
+	Keyword Property LocTypeWorkshopSettlement Auto Const
+	{083C9A: a settlement's location.}
+	Quest Property WorkshopParentQuest Auto Const
+	{02058E WorkshopParent: its GetWorkshopFromLocation finds the settlement's workshop.}
+	ActorValue Property WorkshopPlayerOwned Auto Const
+	{00033C: a workshop the player owns.}
+	Sound Property DRScToolboxBOpen Auto Const
+	{1B0652: the toolbox opening.}
+	int[] Property LookSetPaint Auto Const
+	{Per faction set (index = CMB_LookFactionSet, 0 unused): its Paint index.}
+	int[] Property LookSetTank Auto Const
+	{Per faction set: the left tank's index of its badge (the right follows: 17).}
+	int[] Property LookSetFender Auto Const
+	{Per faction set: the fender's index of the same badge.}
+	string[] Property LookKeys Auto Const
+	{"<slot>:<key>" for every option, slot-major in slot order (the log's names; look_options.json).}
+	int[] Property LookSlotStart Auto Const
+	{Each slot's first index in LookKeys (five entries).}
+EndGroup
+
 ; ---------------------------------------------------------------------------
 ; Constants
 ; ---------------------------------------------------------------------------
@@ -1027,6 +1108,9 @@ Function OnGameReloaded()
 		; The bike waits at a door: the way out is watched for (as riding's is, put back here).
 		RegisterForPlayerTeleport()
 	endif
+	; 2026-11-07a: a Customise session in the save (a crash, or a save made in it) ended, a stray look
+	; item taken back, and the chosen look put on again (the composed swap isn't kept by the save).
+	LookAfterLoad()
 EndFunction
 
 ; Defaults that changed: a save that still has the old value gets the new one, once.
@@ -1400,6 +1484,7 @@ Function PlaceTwins()
 		elseif freshView
 			viewRef = freshView
 			TellPluginTwin(viewRef, CMB_ViewRefHi, CMB_ViewRefLo)
+			LookOnView()   ; 2026-11-07a: the chosen look on it, from a timer (none with a stock look)
 			Log("First-person bike placed (" + freshView.GetFormID() + ").")
 		else
 			Log("First-person bike could not be placed.")
@@ -1436,6 +1521,7 @@ Function HandOverTwins()
 			viewRefOld = viewRef
 			viewRef = freshView
 			TellPluginTwin(viewRef, CMB_ViewRefHi, CMB_ViewRefLo)
+			LookOnView()   ; 2026-11-07a: as PlaceTwins
 			viewRetireAt = twinPlacedAt + ViewRetireAfter
 		endif
 	endif
@@ -1509,6 +1595,7 @@ Function FollowTwins()
 		viewRef.MoveTo(PlayerRef)
 		twinPlacedAt = now
 		Log("First-person bike moved to the player: its 3D was gone.")
+		LookOnView()   ; 2026-11-07a: its new 3D is stock (ApplyTo's swap isn't kept): the look again
 	endif
 EndFunction
 
@@ -1609,6 +1696,32 @@ Function CallGearRestore(string asFunction)
 		params[0] = PlayerRef
 		gear.CallFunction(asFunction, params)
 	endif
+EndFunction
+
+; 2026-11-07a (the customisation build): the look on the parked, first-person and (when the game
+; refuses the worn bike's mods) worn bikes is F4SE's material swaps, in CMB_LookF4SE on this quest.
+; Without it (no F4SE) nothing is called, logged once a session; returns its answer (-1 without it).
+; akRef: ApplyTo's reference; asFrom: ApplyParked's "from" for its line.
+int Function CallLookF4SE(string asFunction, ObjectReference akRef = None, string asFrom = "")
+	ScriptObject look = CastAs("CMB_LookF4SE")
+	if !look
+		if !lookNoF4seSaid
+			lookNoF4seSaid = true
+			Log("Look: no CMB_LookF4SE (F4SE): the parked and first-person bikes stay stock")
+		endif
+		return -1
+	endif
+	Var[] params
+	if asFunction == "ApplyParked"
+		params = new Var[1]
+		params[0] = asFrom
+	elseif asFunction == "ApplyTo" || asFunction == "InFurniture"
+		params = new Var[1]
+		params[0] = akRef
+	else
+		params = new Var[0]
+	endif
+	return look.CallFunction(asFunction, params) as int
 EndFunction
 
 ; ---------------------------------------------------------------------------
@@ -1790,6 +1903,11 @@ string Function BusyText()
 EndFunction
 
 Function Mount()
+	if customising
+		; 2026-11-07a: the field kit is out (BeginCustomise): its session ends first.
+		Log("Getting on ignored: customising.")
+		return
+	endif
 	if riding || busy
 		Log("Getting on ignored: " + Ternary(riding, "riding already.", "busy (" + BusyText() + ")."))
 		return
@@ -1837,6 +1955,7 @@ Function Mount()
 	BikeRef.Disable()
 	CallGearRestore("RememberSlot")
 	ApplyRiderPose()
+	LookSync("getting on")   ; 2026-11-07a: an MCM change since the look was last put on
 	EquipBike()
 	ApplyControls()
 	playerSpeedDelta = ApplySpeed(PlayerRef)
@@ -2698,6 +2817,12 @@ EndFunction
 
 ; Console escape hatch: undoes everything riding changed, whatever state we're in.
 Function EmergencyReset()
+	if customising || lookKit || lookBox
+		; 2026-11-07a: a Customise session that lost its way ended, the field kit put away.
+		customising = true
+		lookEnding = false
+		EndCustomise("the emergency reset")
+	endif
 	teleportPending = false
 	CancelTimer(TimerTeleport)
 	CancelTimer(TimerTick)
@@ -2778,6 +2903,10 @@ Event OnTimer(int aiTimerID)
 		UseCameraCheck()   ; 2026-11-02a
 	elseif aiTimerID == TimerStaggerOver
 		StaggerOverLine()   ; 2026-11-02a
+	elseif aiTimerID == TimerKit
+		KitTick()   ; 2026-11-07a: the field kit's session, once a second
+	elseif aiTimerID == TimerLook
+		LookFollowUp()   ; 2026-11-07a: the look on the first-person and worn bikes, outside busy
 	endif
 EndEvent
 
@@ -2830,6 +2959,10 @@ EndFunction
 ; The loading screen, watched for good (OnInit, OnGameReloaded): a pending teleport is handled
 ; when it closes, with the player where the teleport took them.
 Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
+	if asMenuName == LookMenuName
+		LookMenu(abOpening)   ; 2026-11-07a: the field kit's armour menu, registered only while customising
+		return
+	endif
 	if asMenuName == PipboyMenuName || asMenuName == FavoritesMenuName
 		RiderMenu(asMenuName, abOpening)   ; 2026-11-01a, registered only while riding
 		return
@@ -3826,10 +3959,16 @@ Function EquipBike()
 		if PlayerRef.GetItemCount(wanted) == 0
 			PlayerRef.AddItem(wanted, 1, true)
 		endif
+		; 2026-11-07a: the chosen look's mods on it before it goes on (no call with a stock look).
+		int refused = AttachLook(wanted, true)
 		PlayerRef.EquipItem(wanted, true, true)
 		; Test 41: read right after the equip, the slot said nothing twice (16:00:13, 16:01:37) while
 		; the bike showed: the biped hadn't taken the armor yet. Read a tick later (RideTick).
 		wornSlotToLog = true
+		wornRefused = refused > 0
+		if wornRefused
+			WornLookRefused(refused)
+		endif
 	endif
 	RemoveArmor(other)
 EndFunction
@@ -3845,6 +3984,925 @@ Function RemoveArmor(Armor akArmor)
 		PlayerRef.UnequipItem(akArmor, false, true)
 		PlayerRef.RemoveItem(akArmor, count, true)
 	endif
+EndFunction
+
+; ---------------------------------------------------------------------------
+; Customising (2026-11-07a)
+; ---------------------------------------------------------------------------
+
+; The customisation build (C1; tools/esp-generator/look_options.json is its one table of slots and
+; options). The parked bike's Customise button (CMB_BikeActivatorScript, choice 2) starts a session
+; (BeginCustomise): the bike's look item CMB_BikeLook in the inventory with the current look on it
+; (AttachLook), the field kit out of the side bag beside the bike (PlaceKit) with its components
+; linked (LinkKit), and the player at the kit's armour menu. Each mod made there comes back as
+; OnPlayerModArmorWeapon (CMB_PlayerAliasScript -> LookModded), which sets that slot's CMB_Look_<slot>.
+; The menu's close ends it (EndCustomise): the item taken back, the kit put away, the look put on
+; the bikes (ApplyLook). The worn bike gets the look's mods at getting on (EquipBike -> AttachLook), the
+; parked and first-person bikes one composed material swap (CMB_LookF4SE, F4SE), and the plugin hides
+; the worn and first-person mirrors by CMB_LookCode. Every slot starts on the stock look; with
+; CMB_LookOn 0 (or an older ESP: these properties None) there is no button and nothing is called on
+; any bike: the 2026-11-06a bike.
+
+string Property LookMenuName = "ExamineMenu" AutoReadOnly
+{The armour bench's menu (the field kit opens it).}
+int Property LookSlots = 5 AutoReadOnly
+{The slots, in CMB_LookCategories' order: 0 the left tank badge, 1 the right, 2 the rear fender badge,
+3 the paint, 4 the mirrors.}
+int Property LookSlotTankL = 0 AutoReadOnly
+int Property LookSlotTankR = 1 AutoReadOnly
+int Property LookSlotFender = 2 AutoReadOnly
+int Property LookSlotPaint = 3 AutoReadOnly
+int Property LookSlotMirrors = 4 AutoReadOnly
+int Property LookFollowLeft = 17 AutoReadOnly
+{The right tank's option "Same as the left" (its default): the left's choice, wherever a look is put on.}
+float Property KitSpotSide = 52.0 AutoReadOnly
+{Where the player stands at the kit: this far out from the bike's middle, on the side they stood on
+(the parked half width at the tank, about 16, the capsule and a gap), facing the bike.}
+float Property KitMarkerForward = 20.0 AutoReadOnly
+float Property KitMarkerRight = -30.0 AutoReadOnly
+{The toolbox's furniture marker in its own frame (CMB_FieldKit's SNAM): 20 ahead of it and 30 to its
+left, facing its front. The toolbox is placed so that the marker is the player's spot.}
+float Property KitBenchSide = 110.0 AutoReadOnly
+{Kit mode 3: the armour bench's middle this far out from the bike's middle (t49's bench), facing it.}
+float Property KitBoxForward = 0.0 AutoReadOnly
+float Property KitBoxRight = -100.0 AutoReadOnly
+{Kit mode 3: the toolbox (CMB_FieldKitBox) here in the bench's frame, beside its left end.}
+float Property KitTickInterval = 1.0 AutoReadOnly
+int Property KitSnapTicks = 4 AutoReadOnly
+{Seconds (ticks out of menus) without the menu and not in the kit: one SnapIntoInteraction.}
+int Property KitGiveUpTicks = 6 AutoReadOnly
+{Seconds without the menu: automatic tries the next mode (1, then 3), a forced mode ends the session.}
+float Property KitWatchdog = 2.0 AutoReadOnly
+{After the menu was seen: this long out of every menu and out of the kit ends the session.}
+float Property LookViewDelay = 0.1 AutoReadOnly
+{The look on a first-person bike just placed or handed over (the plugin shows it after its 3D has
+been there 1.0 s, [View] HandoverTime): from a timer, outside the ride tick and busy.}
+float Property WornSwapAgain = 1.0 AutoReadOnly
+{The worn bike's F4SE swap (when its mods were refused) once more this long after the equip: right
+after it the armour's 3D may not be on the player yet.}
+float Property LookRetryDelay = 0.5 AutoReadOnly
+float Property KitLeaveWait = 1.0 AutoReadOnly
+{Automatic's next mode: the wait after the old kit is put away with the player still in it.}
+
+bool customising = false       ; a Customise session is on (BeginCustomise to EndCustomise)
+bool lookEnding = false        ; EndCustomise is running (it runs once)
+ObjectReference lookKit        ; the furniture the player uses: the toolbox (modes 1, 2) or the bench (3)
+ObjectReference lookBox        ; mode 3: the toolbox at the bench's foot
+int kitMode = 0                ; the kit mode of this attempt (1-3)
+bool kitAuto = false           ; CMB_KitMode 0: automatic (1, then 3; the one that worked remembered)
+bool lookMenuSeen = false      ; the armour menu was seen open in this session
+bool kitMenuGuess = false      ; a menu was up while the player was in the kit, with no ExamineMenu event
+float lookSince = 0.0          ; real time of the session's start
+float kitSince = 0.0           ; ...and of this attempt's activation
+int kitTicks = 0               ; this attempt's ticks out of menus
+bool kitSwitching = false      ; NextKitMode is putting this attempt away and placing the next (one thread)
+bool kitSnapped = false
+bool kitEntered = false
+float kitOutSince = -1.0       ; after the menu: since when the player is out of every menu and the kit
+int lookChanged = 0            ; slots changed in this session
+int lookEvents = 0             ; OnPlayerModArmorWeapon events for the look item in this session
+bool kitBagLinked = false      ; the side bag is the kit's container (LinkKit)
+int bagBefore = 0              ; ...and its item count then
+string lookWsWhy = ""          ; BikeWorkshop's reason for no workshop
+string lookNotice = ""         ; CustomiseBlocker's notification, if the player should see one
+bool lookNoF4seSaid = false    ; "no CMB_LookF4SE" logged this session
+bool lookWasActive = false     ; the bikes were last given a non-stock look (so the stock one is put back)
+string lookApplied = ""        ; LookState() when ApplyLook last ran ("" not yet): LookSync's test
+bool lookViewDue = false       ; LookFollowUp: the look on the first-person bike
+bool wornSwapDue = false       ; LookFollowUp: the worn bike's F4SE swap again
+bool wornRefused = false       ; the worn bike's mods were refused at its last equip (the F4SE swap instead)
+
+; MCM "Customise at the bike" (CMB_LookOn 1) with the look's records there.
+bool Function LookIsOn()
+	return CMB_LookOn && CMB_LookCategories && CMB_LookOn.GetValue() > 0.0
+EndFunction
+
+GlobalVariable Function LookGlobal(int aiSlot)
+	if aiSlot == LookSlotTankL
+		return CMB_Look_TankL
+	elseif aiSlot == LookSlotTankR
+		return CMB_Look_TankR
+	elseif aiSlot == LookSlotFender
+		return CMB_Look_Fender
+	elseif aiSlot == LookSlotPaint
+		return CMB_Look_Paint
+	elseif aiSlot == LookSlotMirrors
+		return CMB_Look_Mirrors
+	endif
+	return None
+EndFunction
+
+; The slot's option list (CMB_LookOptions_<slot>: the OMODs, index = the choice).
+FormList Function LookList(int aiSlot)
+	if !CMB_LookCategories
+		return None
+	endif
+	return CMB_LookCategories.GetAt(aiSlot) as FormList
+EndFunction
+
+; The slot's choice: its global, or 0 (the stock look) when it is missing or past its list. With
+; abResolved the right tank's "Same as the left" (17) is the left's choice (the two lists agree on 0-16).
+int Function LookChoice(int aiSlot, bool abResolved)
+	GlobalVariable g = LookGlobal(aiSlot)
+	if !g
+		return 0
+	endif
+	int i = g.GetValue() as int
+	if i == 0
+		return 0   ; the stock look: no list looked at (getting on with it reads the five globals only)
+	endif
+	if abResolved && aiSlot == LookSlotTankR && i == LookFollowLeft
+		return LookChoice(LookSlotTankL, true)
+	endif
+	FormList options = LookList(aiSlot)
+	if i < 0 || (options && i >= options.GetSize())
+		return 0
+	endif
+	return i
+EndFunction
+
+; A look other than the stock one is chosen (and Customise at the bike is on).
+bool Function LookActive()
+	if !LookIsOn()
+		return false
+	endif
+	int s = 0
+	while s < LookSlots
+		if LookChoice(s, true) != 0
+			return true
+		endif
+		s += 1
+	endwhile
+	return false
+EndFunction
+
+; CMB_LookCode's mirror bits: Mirrors' options 0 stock, 1 egg, 2 D, 3 none are the plugin's 1, 2, 3, 0.
+int Function LookMirrorCode()
+	return (LookChoice(LookSlotMirrors, false) + 1) % 4
+EndFunction
+
+string Function LookSlotText(int aiSlot)
+	if aiSlot == LookSlotTankL
+		return "tank left"
+	elseif aiSlot == LookSlotTankR
+		return "tank right"
+	elseif aiSlot == LookSlotFender
+		return "fender"
+	elseif aiSlot == LookSlotPaint
+		return "paint"
+	endif
+	return "mirrors"
+EndFunction
+
+; An option's name for the log: its "<slot>:<key>" in LookKeys (look_options.json's keys).
+string Function LookName(int aiSlot, int aiIndex)
+	if LookKeys && LookSlotStart && aiSlot >= 0 && aiSlot < LookSlotStart.Length && aiIndex >= 0
+		int j = LookSlotStart[aiSlot] + aiIndex
+		if j < LookKeys.Length
+			return LookKeys[j]
+		endif
+	endif
+	return "option " + aiIndex
+EndFunction
+
+; The look as chosen (the right tank's 17 as itself), for the log.
+string Function LookNow()
+	string text = ""
+	int s = 0
+	while s < LookSlots
+		if s > 0
+			text += ", "
+		endif
+		text += LookSlotText(s) + " " + LookName(s, LookChoice(s, false))
+		s += 1
+	endwhile
+	return text
+EndFunction
+
+; The current non-stock choices as mods on an item in the player's inventory: the worn bike before it
+; goes on (abWorn: not the mirrors, which the plugin hides by CMB_LookCode), or the look item at the
+; field kit (every slot, the right tank as itself or, while it follows, as the left). Nothing with
+; CMB_LookOn 0 or every slot stock (the 2026-11-06a path: no call). Returns how many were refused.
+int Function AttachLook(Armor akArmor, bool abWorn)
+	if !akArmor || !LookActive()
+		return 0
+	endif
+	int wanted = 0
+	int took = 0
+	int s = 0
+	while s < LookSlots
+		if !abWorn || s != LookSlotMirrors
+			int i = LookChoice(s, true)
+			FormList options = LookList(s)
+			if i > 0 && options
+				ObjectMod om = options.GetAt(i) as ObjectMod
+				if om
+					wanted += 1
+					if PlayerRef.AttachModToInventoryItem(akArmor, om)
+						took += 1
+					endif
+				endif
+			endif
+		endif
+		s += 1
+	endwhile
+	if wanted > 0
+		if abWorn
+			Log("Look: " + took + " of " + wanted + " mods on the worn bike")
+		else
+			Log("Customise: the bike's look item holds the current look: " + took + " of " + wanted + " mods")
+		endif
+	endif
+	return wanted - took
+EndFunction
+
+; EquipBike: the game refused some of the worn bike's mods (it is NonPlayable): the composed F4SE swap
+; on the player instead (its sources are the bike's own files only), now and once more a moment later.
+Function WornLookRefused(int aiRefused)
+	int applied = CallLookF4SE("ApplyWorn")
+	if applied < 0
+		Log("Look: " + aiRefused + " refused on the worn bike (AttachModToInventoryItem), and no CMB_LookF4SE (F4SE): the worn bike stays stock")
+		return
+	endif
+	Log("Look: " + aiRefused + " refused on the worn bike (AttachModToInventoryItem): the F4SE swap instead, " + applied + " entries applied")
+	wornSwapDue = true
+	StartTimer(WornSwapAgain, TimerLook)
+EndFunction
+
+; PlaceTwins and HandOverTwins: a first-person bike just placed gets the look from a timer (outside
+; the ride tick and busy). Nothing with the stock look: a fresh one is stock.
+Function LookOnView()
+	if LookActive()
+		lookViewDue = true
+		StartTimer(LookViewDelay, TimerLook)
+	endif
+EndFunction
+
+; TimerLook: the first-person bike's look and the worn bike's F4SE swap, while riding and outside busy.
+Function LookFollowUp()
+	if !riding
+		lookViewDue = false
+		wornSwapDue = false
+		return
+	endif
+	if busy
+		StartTimer(LookRetryDelay, TimerLook)
+		return
+	endif
+	if wornSwapDue
+		wornSwapDue = false
+		int applied = CallLookF4SE("ApplyWorn")
+		if applied >= 0
+			Log("Look: the worn bike's F4SE swap again: " + applied + " entries applied")
+		endif
+	endif
+	if lookViewDue
+		lookViewDue = false
+		ObjectReference view = viewRef
+		if view
+			CallLookF4SE("ApplyTo", view)
+		endif
+	endif
+EndFunction
+
+; What the bikes show as the MCM stands: "off" with Customise at the bike off (every bike stock),
+; else "on" and each slot's choice as put on (the right tank's "Same as the left" as the left's).
+string Function LookState()
+	if !LookIsOn()
+		return "off"
+	endif
+	string text = "on"
+	int s = 0
+	while s < LookSlots
+		text += " " + LookChoice(s, true)
+		s += 1
+	endwhile
+	return text
+EndFunction
+
+; Getting on (Mount) and the parked bike's activation (CMB_BikeActivatorScript): the look put on
+; again if the MCM changed it since ApplyLook last ran (Customise at the bike switched, or a choice
+; changed without "Apply the look"), so the parked bike, CMB_LookCode's mirror and the worn bike
+; agree. Nothing when it matches (the globals read, no call on any bike), nor in a session (its end
+; puts the look on).
+Function LookSync(string asFrom)
+	if (!CMB_LookCode && !CMB_LookOn) || customising
+		return   ; an older ESP (no look), or a session
+	endif
+	if LookState() != lookApplied
+		ApplyLook(asFrom)
+	endif
+EndFunction
+
+; The chosen look put on the bikes: CMB_LookCode for the plugin (the worn and first-person bikes'
+; mirrors: CMB_LookOn ? 4 + the mirror : 0), the parked bike's composed swap (kept on it), and the
+; first-person bike when one is out. With the stock look and nothing to put back, CMB_LookCode only
+; (no call on any bike: 2026-11-06a's).
+Function ApplyLook(string asFrom)
+	if !CMB_LookCode && !CMB_LookOn
+		return   ; an older ESP: no look
+	endif
+	lookApplied = LookState()
+	bool active = LookActive()
+	float code = 0.0
+	if LookIsOn()
+		code = (4 + LookMirrorCode()) as float
+	endif
+	if CMB_LookCode
+		CMB_LookCode.SetValue(code)
+	endif
+	if !active && !lookWasActive
+		return
+	endif
+	lookWasActive = active
+	Log("Look: put on (" + asFrom + "): " + LookNow() + Ternary(LookIsOn(), "", " (Customise at the bike is off: the stock look)") + "; CMB_LookCode " + (code as int))
+	CallLookF4SE("ApplyParked", None, asFrom)
+	if riding && viewRef
+		lookViewDue = true
+		StartTimer(LookViewDelay, TimerLook)
+	endif
+EndFunction
+
+; OnGameReloaded: a session in the save ended (the kit put away), a stray look item taken back, the
+; look put on again (the composed swap's entries aren't kept by the save), and the worn bike's F4SE
+; swap again if its mods were refused (the load gives the player new 3D).
+Function LookAfterLoad()
+	lookNoF4seSaid = false
+	lookViewDue = false
+	wornSwapDue = false
+	if customising || lookKit || lookBox
+		customising = true
+		lookEnding = false
+		EndCustomise("a load", false)
+	endif
+	int stray = TakeLookItem()
+	if stray > 0
+		Log("Look: a stray CMB_BikeLook taken back after the load (" + stray + ").")
+	endif
+	ApplyLook("load")
+	if riding && wornRefused
+		wornSwapDue = true
+		StartTimer(ReloadPoseDelay, TimerLook)
+	endif
+EndFunction
+
+int Function TakeLookItem()
+	if !CMB_BikeLook
+		return 0
+	endif
+	int n = PlayerRef.GetItemCount(CMB_BikeLook)
+	if n > 0
+		PlayerRef.RemoveItem(CMB_BikeLook, n, true)
+	endif
+	return n
+EndFunction
+
+; Why a session can't start now ("" if it can); lookNotice the player's notification, if any.
+string Function CustomiseBlocker()
+	lookNotice = ""
+	string missing = ""
+	if !CMB_LookOn
+		missing += " CMB_LookOn"
+	endif
+	if !CMB_LookCode
+		missing += " CMB_LookCode"
+	endif
+	if !CMB_BikeLook
+		missing += " CMB_BikeLook"
+	endif
+	if !CMB_LookCategories
+		missing += " CMB_LookCategories"
+	endif
+	int s = 0
+	while s < LookSlots
+		if !LookGlobal(s)
+			missing += " the " + LookSlotText(s) + " global"
+		elseif CMB_LookCategories && !LookList(s)
+			missing += " the " + LookSlotText(s) + " list"
+		endif
+		s += 1
+	endwhile
+	if missing != ""
+		return "the look's records are missing:" + missing + " (an older ESP, whose third button is Cancel)."
+	elseif CMB_LookOn.GetValue() <= 0.0
+		return "Customise at the bike is off (CMB_LookOn 0)."
+	elseif PlayerRef.IsInCombat()
+		lookNotice = "Not in a fight."
+		return "in a fight."
+	elseif swimming
+		lookNotice = "Not while swimming."
+		return "swimming."
+	endif
+	return ""
+EndFunction
+
+; The parked bike's Customise (CMB_BikeActivatorScript, choice 2).
+Function BeginCustomise()
+	if riding || busy || customising
+		Log("Customise refused: " + Ternary(riding, "riding.", Ternary(customising, "customising already.", "busy (" + BusyText() + ").")))
+		return
+	endif
+	; Claimed before calling anything: every call below lets another thread run.
+	busy = true
+	NoteBusy("customising")
+	string blocker = CustomiseBlocker()
+	if blocker != ""
+		busy = false
+		Log("Customise refused: " + blocker)
+		if lookNotice != ""
+			Debug.Notification(lookNotice)
+		endif
+		return
+	endif
+	lookSince = Utility.GetCurrentRealTime()
+	lookChanged = 0
+	lookEvents = 0
+	lookMenuSeen = false
+	kitMenuGuess = false
+	kitBagLinked = false
+	lookEnding = false
+	kitSwitching = false
+	TakeLookItem()
+	PlayerRef.AddItem(CMB_BikeLook, 1, true)
+	AttachLook(CMB_BikeLook, false)
+	int m = 0
+	if CMB_KitMode
+		m = CMB_KitMode.GetValue() as int
+	endif
+	kitAuto = m < 1 || m > 3
+	if kitAuto
+		m = 1
+		if CMB_KitWorked
+			int worked = CMB_KitWorked.GetValue() as int
+			if worked >= 1 && worked <= 3
+				m = worked
+			endif
+		endif
+	endif
+	kitMode = m
+	customising = true
+	RegisterForMenuOpenCloseEvent(LookMenuName)
+	bool ready = PrepareKit()
+	if !ready && kitAuto && kitMode < 3
+		Log("Field kit: mode " + kitMode + ": not placed: trying mode 3")
+		kitMode = 3
+		ready = PrepareKit()
+	endif
+	busy = false
+	if !ready
+		EndCustomise("the field kit couldn't be placed")
+		Debug.Notification("The field kit couldn't be used here.")
+		return
+	endif
+	GoToKit()
+EndFunction
+
+Furniture Function KitForm(int aiMode)
+	if aiMode == 2
+		return CMB_FieldKitArmorKw
+	elseif aiMode == 3
+		return CMB_FieldKitBench
+	endif
+	return CMB_FieldKit
+EndFunction
+
+string Function KitModeText(int aiMode)
+	if aiMode == 2
+		return "the toolbox with the armour bench's keyword"
+	elseif aiMode == 3
+		return "the armour bench"
+	endif
+	return "the toolbox"
+EndFunction
+
+; Placed, linked and watched (the kit's OnExitFurniture); false if it couldn't be placed.
+bool Function PrepareKit()
+	if !PlaceKit(kitMode) || !customising
+		KitTidy()
+		return false
+	endif
+	LinkKit()
+	RegisterForRemoteEvent(lookKit, "OnExitFurniture")
+	return true
+EndFunction
+
+; The player to the kit (Activate: the armour menu opens there), and the session's ticks.
+Function GoToKit()
+	kitTicks = 0
+	kitSnapped = false
+	kitEntered = false
+	kitOutSince = -1.0
+	kitSince = Utility.GetCurrentRealTime()
+	ObjectReference kit = lookKit
+	if kit
+		kit.Activate(PlayerRef)
+	endif
+	StartTimer(KitTickInterval, TimerKit)
+EndFunction
+
+; The field kit beside the bike, on the side the player stands on (they reached the bike from there).
+; The player's spot is KitSpotSide out from the bike's middle, facing it; modes 1 and 2 put the toolbox
+; so that its marker is that spot; mode 3 the armour bench KitBenchSide out, facing the bike, and the
+; toolbox at its foot. The toolbox opens there, with its sound: out of the side bag.
+bool Function PlaceKit(int aiMode)
+	Furniture form = KitForm(aiMode)
+	if !form
+		Log("Customise: no " + Ternary(aiMode == 2, "CMB_FieldKitArmorKw", Ternary(aiMode == 3, "CMB_FieldKitBench", "CMB_FieldKit")) + " in the plugin: field kit mode " + aiMode + " can't be placed.")
+		return false
+	endif
+	float heading = BikeRef.GetAngleZ() - ParkedModelYaw
+	float bikeX = BikeRef.GetPositionX()
+	float bikeY = BikeRef.GetPositionY()
+	float across = (PlayerRef.GetPositionX() - bikeX) * Math.Cos(heading) - (PlayerRef.GetPositionY() - bikeY) * Math.Sin(heading)
+	float side = 1.0
+	if across < 0.0
+		side = -1.0
+	endif
+	float facing = heading - side * 90.0   ; from the player's side toward the bike
+	float z = PlayerRef.GetPositionZ()
+	float x
+	float y
+	if aiMode == 3
+		x = bikeX + OffsetX(heading, 0.0, side * KitBenchSide)
+		y = bikeY + OffsetY(heading, 0.0, side * KitBenchSide)
+	else
+		float standX = bikeX + OffsetX(heading, 0.0, side * KitSpotSide)
+		float standY = bikeY + OffsetY(heading, 0.0, side * KitSpotSide)
+		x = standX - OffsetX(facing, KitMarkerForward, KitMarkerRight)
+		y = standY - OffsetY(facing, KitMarkerForward, KitMarkerRight)
+	endif
+	ObjectReference kit = PlaceKitPart(form, x, y, z, facing)
+	if !kit
+		Log("Customise: field kit mode " + aiMode + " (" + KitModeText(aiMode) + ") could not be placed.")
+		return false
+	endif
+	lookKit = kit
+	ObjectReference toolbox = kit
+	if aiMode == 3 && CMB_FieldKitBox
+		lookBox = PlaceKitPart(CMB_FieldKitBox, x + OffsetX(facing, KitBoxForward, KitBoxRight), y + OffsetY(facing, KitBoxForward, KitBoxRight), z, facing)
+		toolbox = lookBox
+	endif
+	if toolbox
+		toolbox.PlayGamebryoAnimation("Open", true)
+		if DRScToolboxBOpen
+			DRScToolboxBOpen.Play(toolbox)
+		endif
+	endif
+	Log("Customise: field kit mode " + aiMode + " (" + KitModeText(aiMode) + ") at " + Whole(x) + ", " + Whole(y) + ", " + Ternary(side > 0.0, "right", "left") + " of the bike")
+	return true
+EndFunction
+
+ObjectReference Function PlaceKitPart(Form akForm, float afX, float afY, float afZ, float afAngle)
+	ObjectReference part = PlayerRef.PlaceAtMe(akForm, 1, false, true, false)
+	if part
+		part.SetPosition(afX, afY, afZ)
+		part.SetAngle(0.0, 0.0, afAngle)
+		part.Enable()
+		part.WaitFor3DLoad()
+	endif
+	return part
+EndFunction
+
+; The kit's components: in one of the player's settlements its workshop (both keywords, so either
+; reading of the engine finds it); elsewhere, with CMB_KitBagLink 1, the side bag as its container.
+Function LinkKit()
+	kitBagLinked = false
+	ObjectReference kit = lookKit
+	if !kit
+		return
+	endif
+	ObjectReference ws = BikeWorkshop(kit)
+	if ws && WorkshopItemKeyword && LinkedWorkbenchContainerKeyword
+		kit.SetLinkedRef(ws, WorkshopItemKeyword)
+		kit.SetLinkedRef(ws, LinkedWorkbenchContainerKeyword)
+		Log("Customise: the settlement's workshop " + ws.GetFormID() + " linked (both keywords)")
+		return
+	endif
+	Log("Customise: not in one of your settlements (" + lookWsWhy + ").")
+	if LinkedWorkbenchContainerKeyword && (!CMB_KitBagLink || CMB_KitBagLink.GetValue() > 0.0)
+		kit.SetLinkedRef(SideBagRef, LinkedWorkbenchContainerKeyword)
+		bagBefore = SideBagRef.GetItemCount()
+		kitBagLinked = true
+		Log("Customise: the side bag linked as the bench's container (" + bagBefore + " items)")
+	else
+		Log("Customise: no workshop here and the bag not linked: your own components only")
+	endif
+EndFunction
+
+; t49's: the workshop of the player's settlement the kit stands in, or None (lookWsWhy says why).
+; CastAs, CallFunction and GetPropertyValue are ScriptObject's: no workshop script is compiled against.
+ObjectReference Function BikeWorkshop(ObjectReference akBench)
+	lookWsWhy = ""
+	if !LocTypeWorkshopSettlement || !WorkshopParentQuest || !WorkshopPlayerOwned
+		lookWsWhy = "no workshop records in the plugin"
+		return None
+	endif
+	Location loc = PlayerRef.GetCurrentLocation()
+	if !loc || !loc.HasKeyword(LocTypeWorkshopSettlement)
+		lookWsWhy = "no settlement location"
+		return None
+	endif
+	ScriptObject wp = WorkshopParentQuest.CastAs("WorkshopParentScript")
+	if !wp
+		lookWsWhy = "no WorkshopParentScript"
+		return None
+	endif
+	Var[] args = new Var[1]
+	args[0] = loc
+	ObjectReference ws = wp.CallFunction("GetWorkshopFromLocation", args) as ObjectReference
+	if !ws
+		lookWsWhy = "no workshop for the location"
+		return None
+	endif
+	if !akBench.IsWithinBuildableArea(ws)
+		lookWsWhy = "not in its build area"
+		return None
+	endif
+	ScriptObject wss = ws.CastAs("WorkshopScript")
+	bool owned = wss && (wss.GetPropertyValue("OwnedByPlayer") as bool)
+	if !owned && ws.GetValue(WorkshopPlayerOwned) <= 0.0
+		lookWsWhy = "not yours"
+		return None
+	endif
+	return ws
+EndFunction
+
+; The player in the kit: F4SE's furniture reference (CMB_LookF4SE), else any furniture (GetSitState).
+bool Function InKit()
+	ObjectReference kit = lookKit
+	if !kit
+		return false
+	endif
+	int answer = CallLookF4SE("InFurniture", kit)
+	if answer >= 0
+		return answer > 0
+	endif
+	return PlayerRef.GetSitState() != 0
+EndFunction
+
+; TimerKit, once a second while customising. Before the menu: one SnapIntoInteraction at
+; KitSnapTicks if the player isn't in the kit; at KitGiveUpTicks automatic tries the next mode, a
+; forced one ends the session. After the menu (or mods seen without its event): out of every menu and
+; out of the kit for KitWatchdog ends it (its close or leaving the kit normally ends it first).
+Function KitTick()
+	if !customising || lookEnding || kitSwitching
+		return   ; kitSwitching: the old attempt's tick; the next mode's GoToKit starts its own
+	endif
+	bool menu = Utility.IsInMenuMode()
+	bool inKit = InKit()
+	float now = Utility.GetCurrentRealTime()
+	if !customising || lookEnding || kitSwitching
+		return
+	endif
+	if inKit && !kitEntered
+		kitEntered = true
+		Log("Field kit: mode " + kitMode + ": entered (after " + Tenths(now - kitSince) + " s)")
+	endif
+	if !lookMenuSeen && menu && inKit && !kitMenuGuess
+		kitMenuGuess = true
+		Log("Field kit: mode " + kitMode + ": a menu open in the kit and no " + LookMenuName + " event")
+	endif
+	if !lookMenuSeen && !menu
+		kitTicks += 1
+		if kitTicks == KitSnapTicks && !inKit && !kitSnapped
+			kitSnapped = true
+			bool snapped = PlayerRef.SnapIntoInteraction(lookKit)
+			Log("Field kit: mode " + kitMode + ": not in it after " + KitSnapTicks + " s: SnapIntoInteraction " + snapped)
+		elseif kitTicks >= KitGiveUpTicks
+			if kitMenuGuess || lookEvents > 0
+				; A menu in the kit, or mods made, without the menu's event: the session goes on as if seen.
+				lookMenuSeen = true
+				Log("Field kit: mode " + kitMode + ": no " + LookMenuName + " event, but " + Ternary(lookEvents > 0, "" + lookEvents + " mod events", "a menu in the kit") + ": the session goes on")
+			elseif !NextKitMode("no menu after " + KitGiveUpTicks + " s")
+				EndCustomise("no menu after " + KitGiveUpTicks + " s")
+				Debug.Notification("The field kit couldn't be used here.")
+				return
+			else
+				return   ; the next mode's ticks have started
+			endif
+		endif
+	endif
+	if lookMenuSeen
+		if menu || inKit
+			kitOutSince = -1.0
+		elseif kitOutSince < 0.0
+			kitOutSince = now
+		elseif now - kitOutSince >= KitWatchdog
+			EndCustomise("watchdog")
+			return
+		endif
+	endif
+	if customising && !lookEnding && !kitSwitching
+		StartTimer(KitTickInterval, TimerKit)
+	endif
+EndFunction
+
+; Automatic only: this attempt put away quietly and the next mode tried (1, then 3). False if there
+; is none, or it couldn't be placed. One thread only (the tick and the kit's exit can both come here,
+; and every call below lets the other run): the first one switches, with the old attempt's tick
+; cancelled; the other returns true (nothing for it to do).
+bool Function NextKitMode(string asWhy)
+	if kitSwitching
+		return true   ; the other thread is switching (it has set kitMode 3 or will)
+	endif
+	if !kitAuto || kitMode >= 3
+		return false
+	endif
+	kitSwitching = true
+	CancelTimer(TimerKit)
+	Log("Field kit: mode " + kitMode + ": " + asWhy + ": trying mode 3")
+	bool wasIn = InKit()
+	KitTidy()
+	if wasIn
+		Utility.Wait(KitLeaveWait)   ; out of the old kit's furniture first, or the next activation can be lost
+	endif
+	if !customising || lookEnding
+		kitSwitching = false
+		return true   ; ended meanwhile (a load): nothing more to do here
+	endif
+	kitMode = 3
+	bool ready = PrepareKit()
+	kitSwitching = false
+	if !ready
+		return false
+	endif
+	GoToKit()
+	return true
+EndFunction
+
+; OnMenuOpenCloseEvent's ExamineMenu (registered only while customising).
+Function LookMenu(bool abOpening)
+	if !customising || lookEnding
+		return
+	endif
+	if abOpening
+		if !lookMenuSeen
+			lookMenuSeen = true
+			Log("Field kit: mode " + kitMode + ": the menu open after " + Tenths(Utility.GetCurrentRealTime() - kitSince) + " s")
+			if kitAuto && CMB_KitWorked
+				CMB_KitWorked.SetValue(kitMode as float)
+				Log("Field kit: mode " + kitMode + " worked: remembered (CMB_KitWorked " + kitMode + ")")
+			endif
+		endif
+	elseif lookMenuSeen
+		EndCustomise("the menu closed")
+	endif
+EndFunction
+
+Event ObjectReference.OnExitFurniture(ObjectReference akSender, ObjectReference akActionRef)
+	if !customising || lookEnding || kitSwitching || akSender != lookKit || akActionRef != PlayerRef
+		return
+	endif
+	if !lookMenuSeen && lookEvents == 0 && NextKitMode("left it before the menu")
+		return
+	endif
+	EndCustomise("left the field kit")
+EndEvent
+
+; CMB_PlayerAliasScript's OnPlayerModArmorWeapon: a mod made at a workbench. Only the look item's,
+; in a session, with the menu up (the attaches at the session's start aren't choices).
+Function LookModded(Form akBase, ObjectMod akMod)
+	if !customising || lookEnding || !CMB_BikeLook || akBase != CMB_BikeLook
+		return
+	endif
+	if !lookMenuSeen && !Utility.IsInMenuMode()
+		return
+	endif
+	lookEvents += 1
+	int s = 0
+	while s < LookSlots
+		FormList options = LookList(s)
+		int i = -1
+		if options && akMod
+			i = options.Find(akMod)
+		endif
+		if i >= 0
+			GlobalVariable g = LookGlobal(s)
+			if g
+				if (g.GetValue() as int) != i
+					lookChanged += 1
+				endif
+				g.SetValue(i as float)
+			endif
+			Log("Customise: " + LookSlotText(s) + " = " + LookName(s, i) + " (" + i + ")")
+			return
+		endif
+		s += 1
+	endwhile
+	string id = "none"
+	if akMod
+		id = "" + akMod.GetFormID()
+	endif
+	Log("Customise: a mod not in the bike's lists: " + id)
+EndFunction
+
+; The session's end (it runs once): the look item taken back, the kit put away, the look put on the
+; bikes (not with abApply false: LookAfterLoad puts it on itself).
+Function EndCustomise(string asWhy, bool abApply = true)
+	if !customising || lookEnding
+		return
+	endif
+	lookEnding = true
+	CancelTimer(TimerKit)
+	UnregisterForMenuOpenCloseEvent(LookMenuName)
+	float lasted = Utility.GetCurrentRealTime() - lookSince
+	TakeLookItem()
+	if kitBagLinked
+		kitBagLinked = false
+		int after = SideBagRef.GetItemCount()
+		Log("Customise: components from the bag: " + (bagBefore - after) + " (" + bagBefore + " -> " + after + " items)")
+	endif
+	KitTidy()
+	customising = false
+	lookEnding = false
+	if lookMenuSeen && lookEvents == 0
+		Log("Customise: the menu was open and no mod event came (OnPlayerModArmorWeapon)")
+	endif
+	Log("Customise: " + asWhy + " after " + Tenths(lasted) + " s, " + lookChanged + " changes; the look: " + LookNow())
+	if CMB_Look_TankR && LookChoice(LookSlotTankR, false) == LookFollowLeft
+		Log("Customise: the right tank badge follows the left: " + LookName(LookSlotTankL, LookChoice(LookSlotTankL, false)))
+	endif
+	if abApply
+		ApplyLook("the field kit")
+	endif
+EndFunction
+
+; The kit put away: the toolbox closes, both links undone, faded out and deleted (the box too).
+Function KitTidy()
+	ObjectReference kit = lookKit
+	ObjectReference box = lookBox
+	lookKit = None
+	lookBox = None
+	ObjectReference toolbox = kit
+	if box
+		toolbox = box
+	endif
+	if kit
+		UnregisterForRemoteEvent(kit, "OnExitFurniture")
+	endif
+	if toolbox
+		toolbox.PlayGamebryoAnimation("Close", true)
+	endif
+	if kit
+		if WorkshopItemKeyword
+			kit.SetLinkedRef(None, WorkshopItemKeyword)
+		endif
+		if LinkedWorkbenchContainerKeyword
+			kit.SetLinkedRef(None, LinkedWorkbenchContainerKeyword)
+		endif
+		kit.Disable(true)
+		kit.Delete()
+	endif
+	if box
+		box.Disable(true)
+		box.Delete()
+	endif
+EndFunction
+
+; MCM "Apply the look" (CMB_MCMRelay.LookApply): a faction set (1-11) first (the paint and both tanks'
+; and the fender's badge, the right following), then every slot clamped to its list, then put on (the
+; ridden bike's worn look at the next getting on). Also the way back to stock with free customising off.
+Function LookApplyFromMcm()
+	if !CMB_LookCode || !CMB_LookCategories
+		Log("Look: from the MCM: no look records (an older ESP): nothing done.")
+		return
+	endif
+	int set = 0
+	if CMB_LookFactionSet
+		set = CMB_LookFactionSet.GetValue() as int
+	endif
+	if set >= 1
+		if LookSetPaint && LookSetTank && LookSetFender && set < LookSetPaint.Length && set < LookSetTank.Length && set < LookSetFender.Length && CMB_Look_Paint && CMB_Look_TankL && CMB_Look_TankR && CMB_Look_Fender
+			CMB_Look_Paint.SetValue(LookSetPaint[set] as float)
+			CMB_Look_TankL.SetValue(LookSetTank[set] as float)
+			CMB_Look_TankR.SetValue(LookFollowLeft as float)
+			CMB_Look_Fender.SetValue(LookSetFender[set] as float)
+			Log("Look: faction set " + set + ": paint " + LookName(LookSlotPaint, LookSetPaint[set]) + " (" + LookSetPaint[set] + "), tanks " + LookName(LookSlotTankL, LookSetTank[set]) + " (" + LookSetTank[set] + "), fender " + LookName(LookSlotFender, LookSetFender[set]) + " (" + LookSetFender[set] + ")")
+		else
+			Log("Look: faction set " + set + " is not among the plugin's sets: nothing set.")
+		endif
+		CMB_LookFactionSet.SetValue(0.0)
+	endif
+	int s = 0
+	while s < LookSlots
+		GlobalVariable g = LookGlobal(s)
+		FormList options = LookList(s)
+		if g && options
+			float value = g.GetValue()
+			int i = value as int
+			if i < 0 || i >= options.GetSize() || value != (i as float)
+				int stock = 0
+				if s == LookSlotTankR
+					stock = LookFollowLeft
+				endif
+				Log("Look: from the MCM: " + LookSlotText(s) + " " + value + " is no option: " + LookName(s, stock) + " (" + stock + ")")
+				g.SetValue(stock as float)
+			endif
+		endif
+		s += 1
+	endwhile
+	Log("Look: from the MCM: " + LookNow())
+	ApplyLook("the MCM")
 EndFunction
 
 ; ---------------------------------------------------------------------------
@@ -4471,6 +5529,11 @@ int Property TimerStaggerOver = 51 AutoReadOnly
 float Property StaggerOverDelay = 0.5 AutoReadOnly
 {2026-11-02a (pose.md 1.5): the plugin's reading of the clips (CMB_RiderPoseOff) this long after a
 stagger's end, for its line: back on the seat by themselves (all 8 of test 48's), or still off.}
+int Property TimerKit = 52 AutoReadOnly
+{2026-11-07a: the field kit's session, a tick a second while customising (KitTick).}
+int Property TimerLook = 53 AutoReadOnly
+{2026-11-07a: the look put on the first-person bike after its placing or hand-over, and the worn
+bike's F4SE swap after the equip or a load (LookFollowUp), each outside busy.}
 
 ; The console's CMB_PoseUseWindow (6; 0 or an older ESP: 0, as 2026-11-01a).
 float Function UseWindow()

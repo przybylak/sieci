@@ -17,246 +17,151 @@ The log goes to `Documents\My Games\Fallout4\Logs\Script\Papyrus.0.log`. Every m
 
 Without F4SE you'll see one or two harmless errors about the `F4SE` / `CMB_HotkeyF4SE` scripts not being found. That's the mod checking whether they're there. When something breaks, send the log, plus a screenshot or a short clip if it's visual.
 
-## The 2026-11-06a build: its steps, in this order
+## The 2026-11-07a build: customising, in this order
 
-This build answers test 49. It fixes the full stop at a mailbox ridden at head-on (now a sidestep to its open side), the
-slow first second of a take-off, items braking the bike, the stretched arm eating after the Pip-Boy, power attacks
-throwing you off, calls from on top of a truck; the idle a little quiet, the short gear change, a take-off with no
-rev, the metal clunks at landings and the "frying" water; the bike out of view in first person looking level, and the
-pearly, smeared chrome. It is fixes only: customisation is the next build. The rows named below say what to look for
-and which log lines to send.
+This is the first customisation build: badges on both sides of the tank and on the rear fender, faction paint and
+colours, and mirrors, chosen at a field kit that comes out of the side bag beside the parked bike. **Nothing changes
+until you choose**: with nothing chosen the bike is the 2026-11-06a build's, parked, ridden and in first person. This
+test answers what only the game can (twelve unknowns: does the toolbox take you, does the armour menu list the bike,
+does its preview show the choices, do the components count, does the game tell the script what you chose, do the three
+bikes show it); each step names the log line that answers it.
 
 Before you start:
-- install as a Replace;
-- **remove "Commonwealth Motorbike - 2026-11-01a look (A-B)" from MO2**: this zip doesn't ship it;
-- install the new one, "Commonwealth Motorbike - 2026-11-02a look (A-B)", as its own mod the same way, and leave it off
-  until step 11;
-- keep the mods of test 49, Immersive Animation Framework and "IAF Reanimation - Chems" included;
-- keep AI on throughout (`tai` if it says off);
-- load the save of test 49 and ride where it rode: Sanctuary's loop with the mailboxes, Red Rocket's red truck, the
-  pond.
+- install as a Replace; F4SE and `CMB_Slope.dll` as before (the parked and first-person bikes' look needs F4SE, the
+  riding bike's mirrors the plugin);
+- **untick (or remove) "Commonwealth Motorbike - 2026-11-02a look (A-B)"** from the 2026-11-06a package: its meshes have
+  one badge and hidden parked mirrors, so with it ticked no badge, paint or mirror choice shows on the parked bike. This
+  zip ships no optional folder;
+- load test 50's save;
+- put Adhesive, Cloth, Oil, Steel, Glass and Screws (a few of each) in Sanctuary's workshop, some in the side bag and
+  none on you (step 6 moves them); Armorer 1 for the paints (or `player.addperk 4B254`);
+- copy both logs aside before every quit (`CMB_Slope_stepN.log`, `Papyrus_stepN.log`): the plugin keeps only one
+  earlier session.
 
-As you go:
-- note the times, and record with the game's sound;
-- copy both logs aside before every quit (`CMB_Slope_stepN.log`, `Papyrus_stepN.log`, from
-  `Documents\My Games\Fallout4\F4SE` and `Documents\My Games\Fallout4\Logs\Script`): the plugin keeps only one earlier
-  session.
+The log's first lines: `CMB_Slope.log` has `globals: the 2026-11-07a build's CMB_LookCode found (...)` and, in the look
+settings line, `[Look] Mirrors=-1 (as chosen at the bike: nothing chosen yet, the stock one) Cull=0`. A line
+`globals: no CMB_LookCode (0x8AF, an older ESP): [Look] Mirrors=-1 reads as 1` means an older ESP is loaded: stop and
+say so.
 
-At the first getting on `CMB_Slope.log` should have `globals: the 2026-11-06a build's 5 found, CMB_ViewTip to
-CMB_FxWaterLoop (...)`; a line `the 2026-11-06a build's N of 5 found (0x8B0-0x8B4, an older ESP): none used` means an
-older ESP is loaded: stop and say so.
+1. **The stock bike, before any choice** (row 17s): parked, ridden and in first person, in daylight beside test 50's
+   spot.
+   - Expected: exactly as the 2026-11-06a build. Say anything that differs (the badges, the rear fender, the mirrors).
+   - Log: `Papyrus.0.log` has no `Look:` line yet (a stock look calls nothing); `CMB_Slope.log` at the first getting
+     on `look: the mirrors now 1, the stock one (CMB_LookCode 0x5, as chosen at the bike)` (with nothing chosen every
+     load writes 5, the stock mirror; before the script's first load the code is 0x0, `nothing chosen at the bike`).
+2. **The button** (the menu's condition): activate the parked bike.
+   - Expected: "Ride", "Open side bag", "Customise", "Cancel". Cancel: `Parked bike activated: choice 3.`
+   - Then MCM Look "Customise at the bike" off: the menu reads "Ride", "Open side bag", "Cancel", and Cancel still logs
+     `Parked bike activated: choice 3.`; turn it on again.
+3. **The field kit** (in Sanctuary): Customise.
+   - Expected: a toolbox on the ground beside the bike on your side opens (its lid's sound), you stand at it in the
+     armour bench's hammering idle and the armour menu opens.
+   - Log, `Papyrus.0.log`: `Customise: field kit mode 1 (the toolbox) at X, Y, right of the bike` (or `left`), then
+     `Field kit: mode 1: entered (after N s)`, `Field kit: mode 1: the menu open after N s` and `Field kit: mode 1
+     worked: remembered (CMB_KitWorked 1)`.
+   - If instead `Field kit: mode 1: not in it after 4 s: SnapIntoInteraction False` and `Field kit: mode 1: no menu
+     after 6 s: trying mode 3`: the toolbox is put away and an armour bench comes beside the bike (`Field kit: mode 3:
+     entered (after N s)`, `... mode 3 worked: remembered (CMB_KitWorked 3)`). Say whether it came and worked. The
+     mode that worked is remembered: the next Customise starts with it.
+   - The switch happens once, also when you step out of the toolbox just as the 6 s run out: one `Field kit: mode 1:
+     ...: trying mode 3` line, one `Customise: field kit mode 3 (the armour bench) at X, Y, ...` line, and no
+     `Customise: no menu after 6 s ...` line (one bench, one box beside the bike).
+   - A/B: MCM "Field kit" "Toolbox", then "Armour bench" (each forced, not remembered); back to "Automatic", and `set
+     CMB_KitWorked to -1` lets it try the toolbox first again.
+4. **The menu**: is "Motorbike" listed, with "Tank badge, left", "Tank badge, right", "Rear fender badge", "Paint" and
+   "Mirrors"? Is the bike's preview whole, the right size and angle (a screenshot)? Is other armour of yours listed too?
+   If the menu opens without "Motorbike": leave it, MCM "Field kit" "Toolbox (armour bench keyword)", Customise again;
+   say which listed it.
+5. **Hover every list** (the preview; nothing is paid until you take one):
+   - each badge on both tank plates and on the fender: in place, upright and reading the same way on both sides (not
+     mirrored), no edge of a neighbour's art, no sliver or smear (a different badge, a sliver or a smear: a
+     screenshot); the four "(game art)" ones show (not purple, not blank): the chest decals a square emblem with clear
+     edges, the two flags (fender only) stretched over the patch (say if they look squashed);
+   - the Raiders' red spray is close to the factory oxblood: say if it needs to be brighter;
+   - Paint: the 13 schemes two-tone (the tank against the fenders) with their coachline; neighbouring swatches differ
+     (Fire red and Oxblood, Sky blue and Steel blue); the six neutrals; **"Palette test: colour index": cobalt blue**
+     (the colour index works) or **primer grey** (it doesn't);
+   - for any option that shows grey, white, black or purple, name it.
+6. **Components** (do they count?): take three badges, one session each:
+   - (a) in Sanctuary, with Adhesive and Cloth only in the workshop: `Customise: the settlement's workshop N linked
+     (both keywords)`;
+   - (b) away from settlements, with them only in the side bag: `Customise: not in one of your settlements (no
+     settlement location).`, `Customise: the side bag linked as the bench's container (N items)`, and on leaving
+     `Customise: components from the bag: n (N -> M items)`;
+   - (c) with them only on you.
+   - Say which could pay. A/B: MCM "Parts from the side bag" off (`Customise: no workshop here and the bag not linked:
+     your own components only`).
+7. **The choices read** (does the game tell the script?): tank left "Brotherhood of Steel", Paint "Enclave", Mirrors
+   "Under the bars, egg"; leave the menu.
+   - Log, `Papyrus.0.log`: `Customise: tank left = TankL:bos (2)`, `Customise: paint = Paint:enclave (2)`, `Customise:
+     mirrors = Mirrors:egg (1)`, then `Customise: the menu closed after N s, 3 changes; the look: tank left TankL:bos,
+     tank right TankR:sameleft, fender Fender:none, paint Paint:enclave, mirrors Mirrors:egg`, `Customise: the right
+     tank badge follows the left: TankL:bos`, `Look: put on (the field kit): ...; CMB_LookCode 6` and `Look: the
+     parked bike's swap holds N entries, M applied now (the field kit)`.
+   - If `Customise: the menu was open and no mod event came (OnPlayerModArmorWeapon)`, say so.
+8. **The three bikes**: the parked bike shows the look at once; get on: the ridden bike; then first person. The egg
+   mirrors on all three, and no stock mirror beside them (on the parked bike the stock ones take an invisible material
+   whose shape has no alpha property: say if they still show).
+   - Log, `Papyrus.0.log`: on getting on `Look: 3 of 3 mods on the worn bike`, or `Look: N refused on the worn bike
+     (AttachModToInventoryItem): the F4SE swap instead, N entries applied` (and a second later `Look: the worn bike's
+     F4SE swap again: N entries applied`); in first person `Look: the first-person bike: N of N entries applied`.
+     When the first-person bike is brought back to you (`First-person bike moved to the player: its 3D was gone.`)
+     the same `Look: the first-person bike: ...` line follows, and it shows the look again (not stock).
+   - `CMB_Slope.log`: `look: the mirrors now 2, under the bars, egg (CMB_LookCode 0x6, as chosen at the bike)`.
+   - Fast travel away and back; save, quit, load: parked and ridden again (`Look: the parked bike's swap holds N
+     entries, M applied now (load)`: after a load the parked look comes back within a second).
+   - A/B: `[Look] Mirrors=1` (the stock mirrors on the ridden bike whatever is chosen, as 2026-11-06a).
+9. **Left and right**: change the left only (both sides change as you close the menu); give the right its own
+   ("Enclave"): they differ; "Same as the left": it follows again. While the right follows, the preview shows it as
+   the left was when the menu opened (the bike shows the new left after you close it).
+10. **The MCM**: Look "Free customising (no field kit, no cost)" on; set the dropdowns, "Apply the look": the parked
+    bike at once, the ridden one at the next getting on (`Look: from the MCM: tank left ...`, `Look: put on (the MCM):
+    ...`). "Faction set" "Minutemen" and Apply: `Look: faction set 4: paint Paint:minutemen (4), tanks TankL:minutemen
+    (7), fender Fender:minutemen (6)`. "Customise at the bike" off and Apply (or a load): the bike stock everywhere and
+    no button (`Look: put on (the MCM): ... (Customise at the bike is off: the stock look); CMB_LookCode 0`); on and
+    Apply: the look back.
+    - Without Apply: customise at the kit, then "Customise at the bike" off and get on (no Apply, no load): `Look: put
+      on (getting on): ... (Customise at the bike is off: the stock look); CMB_LookCode 0` and `Look: the parked bike's
+      swap holds N entries, M applied now (getting on); the stock look: none kept on the bike`; the stock mirrors on
+      the ridden and first-person bikes, and the parked bike stock after you get off. Activating the parked bike does
+      the same before its menu (`Look: put on (the bike's activation): ...; CMB_LookCode 0`). A dropdown changed
+      without Apply is put on the same way. These lines come only when the MCM changed the look since it was last put
+      on.
+11. **Costs**: a badge took Adhesive 1 and Cloth 1; a colour Adhesive 2 and Oil 2 (and needs Armorer 1; Factory Oil 1);
+    the egg Steel 2, Glass 2, Screws 1; egg back to stock gave "Motorbike mirrors: under the bars, egg" back as a
+    loose mod; back to the egg cost nothing (the loose mod).
+12. **Refusals and the frame rate**: Customise in a fight (`Not in a fight.`, `Customise refused: in a fight.`) and
+    swimming (`Not while swimming.`); getting on during a session is ignored (`Getting on ignored: customising.`). The
+    frame rate at one spot in Sanctuary with the stock look and with three badges and a paint (note both).
 
-1. **Head-on at narrow things** (row 17n; test 49's mailbox stop).
-   - Do, in Sanctuary at full speed:
-     - ride straight at a mailbox, a lamp post and a road sign, forward only, no side key and no mouse in the last
-       second; three passes each;
-     - then once each with a side key held into it.
-   - Expected:
-     - with forward only, a small swerve to the open side (up to about 12 degrees), past it, and straight again on a
-       line about a bike's width over;
-     - with a side key held, no sidestep: the bike eases to it as in test 49;
-     - walls, cars, fences and rails met square still stop the bike, and a long wall, fence or car flank met at a slant
-       still reads wide (the ray 80 out looks where a straight face through the hit and the side ray's meeting would
-       be: only a thing that ends within 80 on that side reads narrow).
-   - Log, `CMB_Slope.log`:
-     - the settings line `steer (2026-11-06a): a one-side hit on the wall's own reference, the ray 80 out passing,
-       narrow (WallNarrowSame); the side rays at axle height and at 1.5 radii (WallNarrowHigh); a narrow thing ahead
-       with no side key held and no turn asked stepped round toward its open side from 250 a second, up to 12 deg at
-       40 deg/s for 60 across, then back to the line (Sidestep); a pull-away from rest from 0.25 of the top closing on
-       the top over 1.5 s, ...`;
-     - each sidestep `sidestep: X (layer N) narrow N past the front wheel at N: to the right, both sides open: the
-       right, up to 12 deg at 40 deg/s for 60 across (Sidestep)` (or `to the left`, or `the side its rays found open
-       (...)`), then `sidestep: over after N s: the heading back on its line, the capsule N to the right of the hit's
-       line, N short of it (the least speed N)`;
-     - with a side key `sidestep: let go after N s: a side key (the capsule N across)` if it had begun;
-     - `sidestep: none for X: ...` when the way past is taken by something else: before stepping to a side it checks the
-       way across too, a ray out of the bike to that side (`sidestep: none for ...: the right (both open) is taken: the
-       ray out 78 to its right met ... N across`), one along the step's own path to the new line (`... the ray from the
-       capsule's right edge to its lane (60 across in N) met X N along`) and one along the new line past the thing (`...
-       the ray 60 to its right met X N along`); a guard rail, fence, wall or parked car alongside takes that side, and
-       the other side is tried;
-     - the narrow and wide notes now name the side ray's object and its reference: `(narrow: the ray 40 to the right
-       meets it level with the hit, its own reference 0003A1B0, the one 80 out passes; the one to the left passes:
-       FaceLook's ease, not WallStop's (WallStopNarrow))`, `(wide: ... another reference (...)`, `... and the one 80
-       out too ...`, `... no reference ...`. Tell us if Sanctuary's mailboxes say `no reference`.
-   - If every sidestep says `the game's own target moved N deg (the mouse)` with the mouse still, say so (the riding
-     camera turns with the bike).
-   - A/B, read on getting on: `[Steer] Sidestep=0` (no sidestep), `WallNarrowSame=0`, `WallNarrowHigh=0` (test 49's).
-   - Say whether the swerve is too strong, weak, late or twitchy (question T1).
-2. **Guard rails at an angle** (row 17n), along the highway: ride beside a guard rail, the heading a few degrees into
-   it. Note any rail that now stops you where test 49 eased past it (`WallNarrowHigh`: the side rays also at 1.5 wheel
-   radii, so a rail over posts is a wall); `wide: the rays 40 to either side of its path at 1.5 radii meet it ...` says
-   so.
-3. **Pull-away**, on a flat street.
-   - Do: ten launches from a standstill, forward only, each to full speed.
-   - Expected: a punchier first second, 0.3 of the top under 0.7 s (test 49: about 1.0 s), the top at about the same
-     time as before; re-accelerating at speed exactly as before.
-   - Log, `CMB_Slope.log`: each launch `launch: from rest: 0.3 of the top after N s, half after N s, 0.9 after N s (the
-     throttle from 0.25 closing on the top over 1.5 s, the cap's lead 0.45: LaunchTau); the cap bound N s` (test 49's
-     medians about 1.0, 1.8 and 3.1 s), or `launch: ended after N s: ...` (stuck, let go or braked). A launch counts
-     as stuck only under 20 a second 0.6 s in, pinned on a kerb or a hillside (`launch: ended after 0.60 s: under 20 a
-     second (stuck against something): the cap back to Lead`); an ordinary pull-away is at 40-60 by then, so its
-     `launch: from rest: ...` line is written.
-   - A/B: still slow `[Steer] LaunchFrom=0.35`; a lurch `0.15`; `LaunchTau=0` is test 49's.
-   - Say whether the first second is right, still slow, or a lurch (question T2).
-4. **Items while riding** (row 4b; in third person).
-   - Do:
-     - at full speed a stimpak by its hotkey, then food from the Pip-Boy, then Jet;
-     - stopped, the same food;
-     - into first person and back while stopped.
-   - Expected:
-     - at speed the bike keeps its speed and no item animation plays (the item is used as always);
-     - stopped, its animation plays with the arm on the food throughout;
-     - no `Rider pose applied (standing footsteps ...` in `Papyrus.0.log`.
-   - Log, `CMB_Slope.log`:
-     - the settings line `  rider: UseBlockAbove=150 UseBlockEvents=dyn_ActivationAllowMovement UseHold=2
-       UseHoldFrom=200 PoseViewSettle=0.1 UseRearm=1 UseBackTime=0.4 PoseOffRewrite=1: ...`;
-     - each item at speed `rider: the graph's dyn_ActivationAllowMovement at N u/s (an item's use clip): refused, the
-       speed kept (UseBlockAbove 150); N more refused in the next N s (the animation mod's retries)`; stopped, once a
-       ride, `rider: the graph's dyn_ActivationAllowMovement at N u/s: passed (under UseBlockAbove 150)`;
-     - if the bike dips instead, `throttle: held at N through standing clips at N a second (an item's use clip or a
-       hit's: the Lead cap off for up to 2 s, UseHold)` and `throttle: the use hold over after N s: ...`: send the log;
-     - after first person, once a ride, `rider: the knees and the clips' hands not measured for 0.1 s after first
-       person (its first third-person frames stand: PoseViewSettle)`.
-   - Log, `Papyrus.0.log`: if another mod's item shows up, `Used [Form <...>] while riding: not from the Pip-Boy, the
-     favourites or a hotkey (another mod's item, a dummy's kind): left out of the use watch (CMB_RiderUseOwn 1).`
-   - Say whether Jet's effect came (question T3).
-   - A/B: `[Steer] UseBlockAbove=0` (the animation at any speed, as test 49), `UseHold=0`; `[Tilt] PoseViewSettle=0`,
-     `UseRearm=0`, `UseBackTime=0.2`; console `set CMB_RiderUseOwn to 0` (every potion watched again).
-5. **Power attacks** (row 20; raiders or a super mutant).
-   - Do: with the MCM's Riding "Power attacks throw you off" off (the default), ride among them and take some power
-     attacks; then switch it on and take one more.
-   - Expected: off, ridden through (a power attack throws you off only when it takes the Big hit share of your
-     health); on, thrown off as in test 49. Explosions throw you off either way.
-   - Log, `Papyrus.0.log`: `Hit while riding: power attack True, blocked False, lost N% health since the last tick: not
-     knocked off (a power attack under Big hit's 10.0%: the MCM's Power attacks throw you off is off).`
-   - Say whether riding through them is right (question T4).
-6. **Calls from on top of a vehicle** (row 9b; test 49's truck calls).
-   - Do: stand on the red truck's cab roof and in its bed and call the bike, three times.
-   - Expected: the bike on the street beside the truck every time.
-   - Log, `Papyrus.0.log`: `Bike's spot N's navmesh point, the most room's (N from it), heading N: room, walkable (its
-     own snap N): taken (the plugin's [Room] SnapBest).`, or the line after "the most room's" saying why not, such as
-     `Bike's spot N, the most room: its navmesh snap N, over N, its navmesh point not taken: the most room as before
-     (the plugin's [Room] SnapBest).`; `CMB_Slope.log`'s settings `  room: SnapBest=1 SnapDrop=250: ...`.
-   - A/B: `[Room] SnapBest=0`.
-   - Say where it stood each time (question T6).
-7. **The engine** (row 17q).
-   - Do: sit 5 s; three hard pull-aways; through the gears to the top; let go at the cruise; stop.
-   - Expected:
-     - the idle a little louder, level with the cruise;
-     - a short rev at each take-off;
-     - each gear change about half a second of the darker sound and the dip.
-   - Log, `CMB_Slope.log`: the `sound:` lines read `IdleDb=-9`, `ShiftTime=0.55` and `ShiftDipTime=0.4`, and the sixth
-     `sound: LaunchFlare=0.5 LaunchFlareTime=1.2: a launch press revs the slip LaunchFlare over itself, fading out over
-     LaunchFlareTime s (the gears as before)`.
-   - A/B: `[Sound] IdleDb=-10`; `LaunchFlare=0` (no rev) and `0.6`; `ShiftTime=0.5` and `0.6`; `ShiftTime=0.35` with
-     `ShiftDipTime=0.24` (test 49's gear change).
-   - Say whether -9 or -10 is right, whether the rev fits and the shifts are long enough (question T7).
-8. **The pond** (rows 17t and 18).
-   - Do:
-     - the drop off its ledge twice: once after getting on, once after a quicksave and quickload on the bike;
-     - a kerb, a porch step and a ledge, slowly and fast;
-     - into the pond fast, through it, slowly, stop, and out.
-   - Expected:
-     - big landings a dull thud, no metal clunk;
-     - into water a splash (none in test 49);
-     - through the water a wet-road swish, quieter slow, louder at full speed, no hiss.
-   - Log, `Papyrus.0.log`:
-     - per landing `Bike sounds: landing (SyncRight) at level 0.62 (our records, no metal, a 10 dB range): sound 1
-       instance N, the thud M (-11 dB), volume 0.584.` (into water `at level N into water (...)`);
-     - `Bike sounds: the plugin drives the water loop: the wet road (CMB_FxWaterLoop 2) (instance N, poll 1).`;
-     - each fall `Fall while riding: N damage, N% of max health`. Test 49's fall at 12:42:51 cost twice test 48's: say
-       which difficulty you played tests 48 and 49 at (question T5).
-   - Log, `CMB_Slope.log`: the second `  fx:` line `  fx: WaterCurve=2 WaterChurnDb=-8 WaterRoadDb=0: the water's level
-     by (speed / WaterSpeedFull)^2; ...`, and in water `fx: the water loop (id N) driven (CMB_FxDriven N): ...; the wet
-     road (CMB_FxWaterLoop 2), WaterRoadDb +0 dB`.
-   - A/B:
-     - the MCM's Sound section: "Landing sounds without metal" off (test 49's clunks); "Water sound loop" "As the
-       2026-11-02a build (spray)", "Churning water" and "Wet road (the mod's own)" (the loop changes at the next getting
-       on);
-     - console `set CMB_FxThudDb to -14` (a softer thud);
-     - `[Fx] WaterRoadDb=-6` and `4`; `WaterCurve=1` with `WaterSpeedFull=600` (test 49's law).
-   - Optional, with the console closed: `cqf CMB_ControllerQuest FxAudition -3` plays the landings as heard, small to
-     big, then two into water (7, 2.5 s apart): `Bike sounds: audition -3: the landings as heard (without metal),
-     levels 0.1, 0.3, 0.5, 0.7, 1.0, then 0.3 and 1.0 into water, after the menus closed.`
-   - Say which water loop fits and whether the thud is right (question T8).
-9. **First person** (row 17s; stopped, then riding).
-   - Do: go into first person looking level; look up; out and in again.
-   - Expected: the view eases about 20 degrees down in under half a second, the dial, the bars' middle and the lamp in
-     view; looking up stays up until the next time you go into first person from third person on the bike (coming
-     back from aiming, a scope or VATS doesn't tip the view again).
-   - Log, `CMB_Slope.log`: `view: looked 20 deg down on getting into first person (from level; the camera now 20 deg
-     down)`, and every 2 s the probe adds `; looking N deg down (the camera)`. If it says instead `view: the camera
-     didn't follow the player's pitch (+0xC0): the view left as it was (no tip this session)` or `view: the player's
-     pitch is the other way round: flipped (the tip goes on)`, note the time.
-   - The MCM's Riding "Look down on getting into first person (deg)": try 15 and 25 (question T-L1); 0 is test 49's.
-   - The MCM's "Field of view riding in first person" (0, off, by default): try 85 and 95; open the Pip-Boy once and
-     quickload once with it on; `camera: the world FOV at PlayerCamera+0x160 (N; the first person's N at +0x164)` (or
-     `camera: the world FOV not found in PlayerCamera (...): the FOV left alone`), `camera: the world FOV N -> 85 while
-     riding in first person (CMB_ViewFov)`, and out of it `camera: the world FOV back to N (third person)`. With
-     `CMB_ViewFov` at your own FOV nothing is written or logged. If something else changes the FOV mid-ride, it is
-     left alone the rest of the ride; if it puts ours back, yours comes back as you leave first person or get off
-     (`camera: the world FOV back to N (...: ours again after something else had changed it)`). Back to 0 after
-     (question T-L2).
-   - The console: `set CMB_ViewEyeUp to -8` (the bike rises under you; its wheels lift by as much), then `set
-     CMB_ViewEyeForward to -6`; `view: the eye now at (0, 12, 120) on the bike: [View] EyeAt (0, 12, 128),
-     CMB_ViewEyeForward 0, CMB_ViewEyeUp -8`, then `(0, 6, 120)`. The MCM's "Eye forward on the bike" and "Eye height on
-     the bike" are the same two. Say the values you liked (question T-L3).
-10. **Chrome** (row 17s): the parked bike beside a wrecked car's bumper, in the same light. Expected: bright but not
-    milky, no pearly sheen, no smears that move as you walk round; the discs and rims a little greyer. Name the car
-    (question T-L4).
-11. **The old look, to compare** (optional): copy the logs and quit, tick "2026-11-02a look (A-B)" in MO2 and look again
-    at the same places (test 49's chrome, discs and rims); untick it after.
-12. **Send:**
-    - `CMB_Slope.log`, plus `CMB_Slope_prev.log` after a crash;
-    - `Papyrus.0.log`;
-    - the copies saved before each quit;
-    - the recording, with its start time.
+If a session hangs (no menu, no kit going away), `cqf CMB_ControllerQuest EmergencyReset` ends it and puts the kit away
+(`Customise: the emergency reset after N s, N changes; the look: ...`).
 
-Each change but the look has an off value for an A/B, read on getting on; each gives the 2026-11-02a build's behaviour
-back:
-- `[Steer] WallNarrowSame=0`, `WallNarrowHigh=0`, `Sidestep=0`, `LaunchTau=0`, `UseBlockAbove=0`, `UseHold=0`;
-- `[Tilt] PoseViewSettle=0`, `UseRearm=0`, `UseBackTime=0.2`, `PoseOffRewrite=0`;
-- `[Room] SnapBest=0`, `SnapDrop=100`;
-- `[Sound] IdleDb=-11`, `ShiftTime=0.35`, `ShiftDipTime=0.24`, `LaunchFlare=0`;
-- `[Fx] WaterSpeedFull=600`, `WaterCurve=1`;
-- `[Look] Cull=1`;
-- the console's `set CMB_RiderUseOwn to 0`;
-- the MCM's "Power attacks throw you off" on, "Landing sounds without metal" off, "Water sound loop" "As the 2026-11-02a
-  build (spray)" and "Look down on getting into first person (deg)" 0 ("Field of view riding in first person" is 0
-  already).
+Every new thing has an off value that gives the 2026-11-06a build: MCM Look "Customise at the bike" off (`set CMB_LookOn
+to 0`; the parked bike at the next getting on, activation of the parked bike, Apply or load), `[Look] Mirrors=1`, MCM
+"Field kit" "Armour bench" (`set CMB_KitMode to 3`, the first plan's armour bench), "Parts from the side bag" off. With
+every slot on its first entry (the defaults) the bike is 2026-11-06a's. The 2026-11-06a build's own switches back to
+2026-11-02a's are all still there (README's second key table).
 
-The three sound records re-pointed in place have no switch: the 2026-11-02a build played nothing there (their files
-weren't in the game), so with the two MCM switches above the sets are that build's with the splash heard. The look's
-A/B is the MO2 folder (step 11). The 2026-11-02a build's own switches back to 2026-11-01a's are still there (README's
-second key table: `[Tilt] UseLetGo=0`, `PoseFirstPerson=0`, `[Ram] HitKeep=0.6` ... `PendingFoe=0`, `[Steer]
-WallStopNarrow=0` ... `FaceAlongKeep=0`, `[Sound] IdleDb=-17.2`, `[View] Eye=0`, `StaleLines=0`, `[Diag] FpsLine=0`),
-and the 2026-11-01a build's back to 2026-10-31a's (its third table).
+Send both logs per session, screenshots of step 4's preview and step 5's lists (or a recording).
 
 ### Questions for you
 
-- **T1 (steps 1 and 2).** The sidestep: too strong, weak, late or twitchy? Any rail that now stops you?
-- **T2 (step 3).** The first second of a launch: right, still slow, or a lurch?
-- **T3 (step 4).** No item animation while moving: acceptable? Did Jet's effect come?
-- **T4 (step 5).** Power attacks ridden through: right?
-- **T5 (step 8).** Did the difficulty change between tests 48 and 49? (Test 49's fall cost twice test 48's.)
-- **T6 (step 6).** The truck calls: the street every time?
-- **T7 (step 7).** The idle at -9 or -10? Does the rev fit? Are the shifts long enough?
-- **T8 (step 8).** Which water loop fits? Is the thud right?
-- **T-L1 (step 9).** The tip: 15, 20 or 25 degrees?
-- **T-L2 (step 9).** Is a wider field of view worth the stretched world?
-- **T-L3 (step 9).** The eye values you liked.
-- **T-L4 (steps 10 and 11).** Chrome, discs, rims: too dull, right, or too bright?
+- **T-C1 (step 3).** The kit: which mode worked? Is the toolbox right at your feet, or where should it sit?
+- **T-C2 (step 4).** The preview's size and angle.
+- **T-C3 (step 5).** Each badge: recognisable, too big or small? Ours or the game art's?
+- **T-C4 (step 5).** The schemes' colours, the swatches' order.
+- **T-C5 (step 9).** The right badge following the left: right, or should the two always match?
+- **T-C6 (step 11).** The costs.
+- **T-C7 (step 5).** The army star and the Nuka-Cola and Red Rocket names: keep them?
+- **T-C8 (later).** The side bag: on the left only, or a pair?
+- **T-C9 (later).** Weathered paint as the default when it comes?
 
 ### Questions for your checker (data only; nothing of the game's ships)
 
-- **Q-W2 (the jump-down splash).** The game's record naming `...\FST\Player\Water\FST_Water_Jump_Down_01` and `_02`: its
-  EditorID, the file strings verbatim and its BNAM (`CMB_FxSplashSD` names them by that path: an audition id with no
-  sound would say it doesn't resolve).
-- **Q-W3 (the wet road's source).** Pixabay's page of "Cars driving on a wet road 3" (101246): the licence it shows, and
-  whether it names an original Freesound recording and its author to credit (10382, the second example, isn't used).
-- **Q-C2 (the cubes' brightness).** The mean RGB and luminance at mip 0 of `MetalChrome01Cube_e.dds`,
-  `mipblur_DefaultOutside1.dds` and `mipblur_DefaultOutside1_dielectric.dds`.
+- **Q-K1 (the bench's type).** The TNAM (type) of `WorkbenchArmor` 0657FF and `Workbench_General` 091FD4.
+- **Q-K2 (the menu's order).** An armour bench's mod order within a slot: the form order, the name, or the recipe's?
+- **Q-K3 (later badges).** The sheet `CMB_Q9_faction_textures.png` (the T-60 crops).
 
 ### The look's keys (since the 2026-10-31a build)
 
@@ -272,7 +177,7 @@ The bike's look has these keys in `CMB_Slope.ini`, all read again on getting on;
 | `[Tail] Glow` | 1 | 0 | 1: the tail lamp lit while riding; 0: the plain lens |
 | `[Tail] Brake` | 1 | 0 | 1: the brake light; 0: never lit |
 | `[Tail] BrakeHold` | 0.3 | 0 | seconds the brake light stays on after you let go of the brake |
-| `[Look] Mirrors` | 1 | 1 | the riding bike's mirrors: 1 the stock ones (27c's), 2 egg-shaped under the bar ends, 3 D-shaped under the bar ends, 0 none; the parked bike keeps the stock ones |
+| `[Look] Mirrors` | -1 (since 2026-11-07a; 1 before) | 1 | the riding bike's mirrors: 1 the stock ones (27c's), 2 egg-shaped under the bar ends, 3 D-shaped under the bar ends, 0 none; since 2026-11-07a -1, the default: the ones fitted at the bike's field kit (`CMB_LookCode`), the stock ones while nothing is chosen, and the parked bike shows the fitted ones too (before, it kept the stock ones) |
 
 With `RolesByName` left at 1 and every other key at its off value this build's bike looks like 27c's but for its
 textures and the lower triple clamp turning with the bars: no needle, no lit tail, brake or dial, the stock mirrors.
@@ -332,7 +237,7 @@ and, if you have one, a bag or other gear that sits in an unusual slot.
 | 17p | *(F4SE plugin; tests 43 and 48)* Ride over a bump or two first (a hop of half a second). Then ride off a high ledge with forward held, a fall of 0.7 s or more, as the rock cliffs at 19:53:30, 20:04:43 and 20:05:00 of test 47 (about 4 m); then off a step that gives half a second in the air; then off a ledge with a wall or a car just past where you land. Look from the side | The bike lands and carries on at its speed: no stop or stutter, the frame sinking on the suspension and coming back up. In test 47 it went 937 → 486 within 0.4 s and was at about half speed for 0.7 s ("character still stops/stutters when jumping off high ledge"): for a fall that high the game plays its hard landing, which moved the player by the landing clip, about 410 a second, whatever the speed. Since 2026-11-01a (step 9 of its list) the plugin passes the game's hard landings to the animations as the soft ones while riding (`[Steer] LandSoft`); test 43's landing hold and sink (test 42: 881 to 544 to 398 within 0.4 s, "it should sink on the suspension and carry on") stay. `CMB_Slope.log`: "graph: PlayerCharacter's NotifyAnimationGraph wrapped (...)" once; "graph: the soft landings named from the string pool (...)"; at each high drop "landing: 0.72 s in the air, the fall 489 a second (179 below its highest point): the throttle kept at 1.00 for 0.5 s (the Lead cap off; the measured speed 877 at the landing), the frame sunk 7.0 at the front wheel and 4.0 at the rear (the nose 1.3 deg down)", then "landing: the game's jumpImpactLandToRun (+0.00 s, after jumpRunningFall at -0.72 s), passed to the graph as jumpLandToRun (LandSoft)" and "landing: the hold over after 0.5N s: the speed along N at its lowest (+N s), N now (N at its lowest on the 0.05 s measure)" with N at 0.9 of the landing's speed or more (test 47's were 0.52); the trace's lift "lift N (landing N, nose N)" for about half a second, the throttle line ", landing hold N s left" and no "held to the measured speed" in the first half second. A soft landing reads "landing: the game's jumpLandToRun (+0.00 s, ...), a soft landing: as it is". Into the wall: "landing: the hold ended after N s: the speed along N under 0.25 of the top (stopped by something)" within about 0.3 s, and no lunge once you turn away. Off a ledge at a crawl (under a quarter of the top) the landing line reads "the throttle not held (the speed along N under LandStop's 0.25 of the top)" instead. If a line reads "no landing event from the game seen by the hook" or "no name for the soft landing yet", say so. Say whether the rider's landing looks right (the soft landing's seated clip now plays at every drop) and whether the sink looks right (`LandSpeed=700`; try 500 and 1000), and watch the arms and the hands through the landing (the rider sinks with the frame: if they jump, `LandSink=0`). `[Steer] LandSoft=0` (read again on getting on) is test 47's landing; `LandHold=0` with `LandSink=0` is test 42's |
 | 17q | *(F4SE plugin and its Address Library, `version-1-11-240-0.bin`; test 44's build: the engine sound; test 45: the heard speed; test 46: the levels by SetVolume, louder; test 47: the throttle hand and the up-shift's dip)* With the MCM's engine volume at its default (70; since test 47 90 in a new save, a save keeping its own): get on and sit still for 5 s; ride off from the stop at full throttle and hold forward for 10 s (the bike is at its top speed in about 3, the engine shifts on for about 6); cruise for 20 s with forward held along a road with rails, cars or fences beside it now and then; let go of forward for a third of a second and press it again; let go and roll to a stop without braking; sit for 3 s; pull away like that three more times, a stop between; then forward for 2 s and brake (back) to a stop; sit for 3 s; get off. Ride again and move the MCM's engine volume during the cruise (to 30, to 100, and to where it sits right). Then quicksave on the bike, ride on, quickload and ride off again. Record it with the game's sound, and note the times | the start, then the idle you called perfect (demo C's, the same in demo D) while standing, settling over about 0.4 s as the plugin takes it (`FirstFade`, 400 ms: the script starts it at full and the model's idle is 12.0 dB under that since test 45, 5.2 before, so it eases down rather than steps; since test 46 a straight ramp of the plugin's own, to 12.2 dB under). Pulling away (test 44: "the way it's implemented is horrid - it's not natural whatsoever": 1.5 to 2 s flat at 1500, then 1st and 2nd swept in 2 s, every pull alike): the idle hands over to a deeper sound on load as you press, and the rpm climbs at once, from about 1250 to 1500 (each pull its own start), about 350 rpm a second; the first up-shift 2 to 4 s after the press at 2000 to 2900 rpm (each pull its own point: every ride's first at about 2430), 2nd climbing slowly, 3rd and 4th later, the last about 6 s after the press, long after the bike itself reached its top speed; each shift a third of a second darker with the rpm falling (since test 47 with a short dip in level too: below). At the top speed a steady beat (4th gear, about 1940 rpm) with a slow wander in its pitch (since test 47, and in its level with it; since the 2026-10-31a build swings typically peaking 3 to 5% off, never past about 6%: below), and no surge (test 44: 4 to 3 and back half a second later every 6 s, 79 times, most after the face rays, a ram or the climb had eased the throttle): a down-shift only if the bike loses about half its speed; the short let-off changes no gear; at a lower steady speed with forward held (the MCM's Speed slider at 100%, about 360 a second) one gear as well, 1st at about 2200 rpm (test 45's build before its review: 1 to 2 and back every 2 to 3 s at any steady 215 to 445). Letting go, a drop of 2 to 3.5 dB and a softer, darker sound, the rpm falling steadily in gear (about 150 rpm a second) for the second or so the game's bike takes to stop, now and then a down-shift with a short blip, then the clutch (at about 1750) and the fall to the idle within about a second (test 44: the gears ticked down silently in a second and the note collapsed to the idle as the bike stopped); braking, it falls faster; the stop sound as you get off. A pull clearly louder than the idle and the cruise: since test 46 a full-throttle pull about 3.8 dB over the cruise and 12 over the idle (paris about 4 and 11.6; test 45's game 1.6 over the cruise), a roll-off 2.6 to 3.1 under the cruise; and the whole engine louder than test 45's ("I had to set engine sound to 100 because it was too quiet, also it feels like sound isn't as punchy as it should": the cruise at -3.8 dB where it was -6.2, the files about 2.4 dB hotter, full level out to 600 from the bike where it was 150, the riding camera about 450 out), so the MCM's engine volume likely sits well under 100 now: say where it sits right with gunfire, footsteps and the radio, and whether the pulses sound gritty (the hotter files round their peaks off). Nothing clicks at a loop's seam, no jump in pitch or tone where one loop hands over to the next, nothing doubled or echo-y; since test 46 no drop-out at a gear change, nor about once a second through a pull-away (test 45: two of about 0.1 s at every up-shift, its video's 0:20.4, 0:21.8 and 0:23.0, and one at each hand-over, 0:18.1, 0:19.0 and 0:20.0: FadeTo fades every change over 100 ms at least, a loop brought back from silence inaudible for most of it); the volume slider changes the whole engine and brings in nothing new (since test 46 at once, the plugin reading it every frame: "sound: the engine volume 0.70 -> 1.00 (CMB_EngineVolume 100): in every loop's level from this frame" for each change); after the quickload the same sound. `Papyrus.0.log` at each ride's start: "[CMB] Engine sound: the plugin drives the 11 loops (generation N, answered in poll P), the engine volume in their levels." ("…P)." up to test 45; send whatever it says instead: "[CMB] Engine sound: the script's crossfade (the plugin declined generation N: see its log)." or "... (the plugin didn't answer in 0.5 s, generation N)." mean the old two-loop sound, the idle and the cruise crossfaded by speed; "[CMB] Engine sound: the plugin let go of generation N (CMB_SndDriven reads X): the script's crossfade, its two loops started afresh." mid-ride). `CMB_Slope.log`: after the settings "sound: found CMB_SndLoop01 to CMB_SndLoop11, CMB_SndGen and CMB_SndDriven (...), CMB_EngineVolume (FExxx81C)" (since test 46; "; no CMB_EngineVolume (0x81C): the engine volume taken as the MCM's default, 90" is an older ESP; 70 up to test 46) and three "  sound:" settings lines (four since test 47: below), the first since test 46 with "SetVolume=1 …; their levels by SetVolume, at once, the engine volume in them (Fade and LevelStep unused)", the second with "ClutchFall=750 … DownRpm=1475 … CoastFall=150 … Wander=0.025 WanderTau=1.5 … LevelScale=1 LevelOffset=5" (Wander=0.006 WanderTau=0.8 up to test 46, LevelScale=0.7 in test 45's build), the third "  sound: HeardSpeed=1 HeardRise=140 HeardTau=0.8 HeardLead=150 HeardPull=60 ClutchSpeed=150 CoastDown=1700 Blip=0.09 BlipTime=0.3 BlipTau=0.05 LaunchDraw=1250,1500 LaunchRise=350 ShiftDraw=2000,2900 DownHold=1 DownHeld=1: the engine follows a heard speed (up at most HeardRise, down with engine braking after a let-up); the launch's slip climbs from each pull's start; each pull's up-shift point drawn; a down-shift with the throttle on after DownHold under DownRpm, none while the throttle is held for something ahead" (a "not understood" list on the first line is news: send it); at the first ride "sound: the Address Library at ... (N ids) matches this game (...); BSSoundHandle::SetFrequency +0x..., FadeTo +0x..., IsPlaying +0x..., in .text; SetVolume +0x162E160" (since test 46: SetVolume's place is test 45's tester's reading of the game, not yet seen in a real library, so "… doesn't match this game (ID 2267057 gives 0x… where the plugin has 0x0162E160, BSSoundHandle::SetVolume): the script's crossfade drives the engine" and "sound: generation N declined (the Address Library at … hasn't BSSoundHandle::SetVolume where the plugin has it): …" mean it is elsewhere, and the old two-loop crossfade plays: send them first; or the line why not); at each ride's start "sound: generation N: loops ... playing 11 of 11" (fewer, or "declined (IsPlaying says none of them plays: a Papyrus instance id may not be the sound's id)", means the plugin's way of reaching the loops is wrong: the most important line to send) and "sound: generation N driven (CMB_SndDriven N): 11 loops' pitch and level from the engine model, the speed and the keys from the steering; the levels by SetVolume (applied at once, no fade, no FadeTo), the engine volume folded in (CMB_EngineVolume 70: x0.70, read every frame), the first 400 ms a straight ramp from the script's levels (the idle at the engine volume, the rest silent)" (test 45's build: "…; FadeTo's attenuation taken as hundredths of a dB (0 = full, 10000 = -100 dB: an assumption), 25 ms fades, the first of each loop heard over 400 ms"); on the pull "sound: gear 2 at N u/s, N rpm, heard N u/s" (the bike's speed near its top already, the heard speed about 540), then 3 and 4; letting go perhaps "sound: gear 3 at N u/s, N rpm, heard N u/s, a blip", and at the stop "sound: gear 1 at N u/s, N rpm, heard N u/s (clutch in)"; the trace line ending "engine g4 1937 rpm load 0.45 heard 900" at the cruise (since test 47 "… heard 900 hand +1.23%"); getting off "sound: generation N let go (the ids went to 0, generation N): driven N s, N calls (SetFrequency N, FadeTo 0, SetVolume N: each posts its change to the audio thread), 860-N rpm, gears used 1 2 3 4" (since test 46; more calls than before, about 160 a second through a pull, a level moving 0.001 sending; since test 47 about 75 a second at a steady cruise too, the level moving with the throttle hand; ", N returned false" inside the parenthesis is news: send it; "(the ride is over)" in place of "(the ids went to 0, …)" is a ride that ended with the ids still set: send it with the time); at the quickload "sound: generation N let go (a load: the loops don't survive it): ...", perhaps "sound: generation N already answered (CMB_SndDriven N: a save's set, its ids from before the save): left alone", and the new set driven. Should they come, send "sound: pitch over 1 refused: the loops pitched down only (...)" and "sound: loop K (id N): 30 calls in a row returned false (they only post a message: not expected): ...". Since test 47 (test 46: "engine sounds way better, it doesn't fluctuates at all which also isn't ideal, bike engine RPM always either rises or decreases, slowly or fast depending on mantle and gear"; its steady riding wobbled about 0.4% in rpm and 0.16 dB in level in 4 s windows, the real rides 0.9 to 2.3% and 0.34 to 0.81 dB; its up-shifts dipped 2.4 dB, a real one about 5.5; you kept the engine volume at 90): at a steady cruise with forward held the pitch and the level wander together, slowly, a rise louder and more loaded, a fall lighter (the throttle hand; since the 2026-10-31a build swings of a second or two typically peaking 3 to 5% off the cruise's rpm, never past about 6%, and 1 to 1.5 dB, at most 1.8, as smooth as 27c's, whose swings peaked about 2.5% off: its notes' "about 1%" was 4 s windows with the trend taken out, 1.2% now), and only while the throttle is steady: none through a pull, a let-up, a shift, the idle, or while the plugin eases the throttle for something ahead, where it settles within about a second (a quarter up to 27c) and grows again after; at each up-shift a dip of about 4 dB over a quarter second (about 0.15 s under -3 dB), the last one, into the cruise, about 6, heard at the top of a pull too, never a hole; a new save's engine volume 90 (yours keeps its own); the engine's output model the game's SOMMono02000 but for its distances, the reverb send 5 where test 46's was 100 (the game's world sounds use 5; at 100 the engine was far wetter than any of them wherever the area has reverb). `CMB_Slope.log`: a fourth settings line "  sound: WanderLevel=0.3 WanderSteady=0.25 WanderSmooth=0.5 WanderMax=0.06 ShiftDip=4 ShiftDipTime=0.24: the wander (the throttle hand) only while the throttle is steady, settling to 0 in a pull, a let-up, a shift and the idle, smoothed, held softly under WanderMax, the family loops' level moving with it; a throttle-off dip at each up-shift's clutch-in, at most 6 dB under the level there"; the trace's engine word ending " hand +1.23%" (the wander, in % of the heard rpm: 0.00% through a pull from rest, up to 6% either way at the cruise, never past); the let-go line with more `SetVolume` calls (about 75 a second at a steady cruise: the harness 152 in 2 s, test 46's game about 11 a second). Say whether the cruise's wander sounds like a hand on the throttle or like a fault (too much, too quick), whether the dip at a shift sounds like the throttle closing (too deep or too long: `ShiftDip`, `ShiftDipTime`), and whether the engine sounds drier where there are buildings about. The clicking test 46 heard was the game's Geiger counter (row 17r). Say whether the pull-away and the roll-off now sound like the reference rides, whether the cruise holds steady, any clicks, the volume you settled on, and how it compares with demo E (51 s of test 44's own ride through this model). For an A/B in `Data\F4SE\Plugins\CMB_Slope.ini`'s `[Sound]` (get off and on again: it's read on getting on): `HeardSpeed=0`, `CoastFall=70`, `DownRpm=1750`, `ClutchFall=900`, `LevelScale=0.3` with `LevelOffset=0`, `LaunchDraw=0,0`, `LaunchRise=0`, `ShiftDraw=0,0`, `DownHold=0` and `DownHeld=0` together are test 44's model exactly (with `SetVolume=0` its FadeTo too); `SetVolume=0` with `LevelScale=0.7` and `LevelOffset=0` test 45's build (its drop-outs included: compare a gear change), `SetVolume=0` alone test 45's FadeTo at this build's levels; `LevelOffset=6.8` a louder cruise (-2 dB) with less between it and a pull; `ShiftFamily=0`, the quick A/B test 45's answer offered, is no longer needed (with `SetVolume=0` it still takes an up-shift's two drop-outs out); `Wander=0.006`, `WanderTau=0.8`, `WanderLevel=0`, `WanderSteady=0`, `WanderSmooth=0` and `ShiftDip=0` together are test 46's sound (each alone its part); the hotter files and the engine's own output model have no key (test 45's package's 13 files in `Data\Sound\FX\CMB` give back its files; since test 47 the model is SOMMono02000's own but its distances, the reverb send 5 where test 46's was 100, and test 46's ESP gives its back); and if it's silent or wrong, `Drive=0` gives the old crossfade, for a comparison. Since 2026-11-01a (test 47: "rpm could be slightly higher", "the sound could indicate that gears are shifted down"): steps 2 and 3 of the 2026-11-01a build. 1st and 2nd change up at a median of about 2,600 rpm, up to about 2,950 (`ShiftDraw=2300,3000`; test 47: 2,330), 3rd at about 2,340 after a short moment at its top; rolling to a stop gives three blipped down-shifts about half a second apart, braking two, then the clutch (`StopShift=1`; "sound: gear 3 at ..., a blip", then 2 and 1, then "gear 1 ... (clutch in)"), the last of it up to 0.4 s after the bike stops; a half-second let-off sounds as before. The brake key: Space by default (MCM Hotkeys "Brake key (scan code)", `CMB_BrakeKey` 57; `[Steer] BrakeKey=-1` takes the MCM's): it brakes with forward held, the brake light on and the engine blipping down as with back, holds the bike still once stopped (no creep, no reverse) and pulls away when let go with forward held; back still backs up; off the bike Space jumps. "steer: BrakeKey=-1: the MCM's CMB_BrakeKey 57, Space ..." in the settings and "steer: the brake key (Space) held at ... u/s: braking" at a ride's first press. The engine hand-over's Papyrus line ends ", N s after getting on), the engine volume in their levels." (N about 3; more is a slow script engine). A/B: `ShiftDraw=2000,2900` and `StopShift=0` (2026-10-31a's gears), `BrakeKey=0` (no brake key) Since 2026-11-02a (step 5 of its list): the idle at -6.0 dB, 2.5 under the cruise (`[Sound] IdleDb=-11`; `-17.2` the 2026-11-01a build's, 8.7 under), so a stop no longer goes quiet and the start and stop sounds meet it without a step; the settings line reads "IdleDb=-11 LevelRpm=3000". Since 2026-11-06a (step 7 of its list): the idle at -9 (`IdleDb`, -11 test 49's), each up-shift's gap 0.55 s (`ShiftTime`, 0.35) with the dip 0.4 (`ShiftDipTime`, 0.24), and a take-off revs over itself (`LaunchFlare=0.5` over `LaunchFlareTime=1.2` s; 0 none); a pull-away from rest starts at a quarter throttle (`[Steer] LaunchTau`, step 3). |
 | 17r | *(F4SE plugin and the controller; tests 46 and 47)* Ride a while and get off; sprint till the AP bar is part down, then walk 30 s; sprint it to 0 and walk a minute. Whenever AP stops refilling, type `player.getav ActionPointsRate` and `player.getav ActionPointsRateMult` in the console and note the numbers; then save, reload and say whether the refill comes back. Since test 47: first make sure AI processing is on (`tai` again if it was typed: "All AI Processing is On"); sprint AP to 0 on foot and walk a minute; then ride, get off, sprint it to 0 and walk a minute. Whenever the HUD's rads indicator shows with nothing radioactive near: `player.getav rads` twice, a minute apart; then save, reload and say whether it clears; and ride through the junkyard of test 46's 4:33, then walk through it. Note the times | AP refills as you walk (test 45: off the bike at 14:43, AP sat at exactly 77% through 30 s of walking after a sprint at 15:26, and at 0 for the 61 s after a sprint at 15:57 drained it at 15% a second: no drain and no refill, the sprint's drain itself working; "it has happened for a while"). The mod never touches AP, so this build only watches it. `CMB_Slope.log`: after the settings "  diag: APWatch=1 APWatchFor=120 APWatchEvery=2: off the bike, the gates of the player's AP refill (the sprinting bit, PlayerCamera+0x1A5, the AP regen delay and the CachedValues' bit 22) logged every APWatchEvery s for APWatchFor s after each getting off, and past that when one changes; read only"; from each getting off, every 2 s for 2 minutes, "AP watch (N s after getting off): sprinting no (the actor state's flags 0x…; "yes" while sprinting), PlayerCamera+0x1A5 N, the process …, its CachedValues …, flags 0x… (bit 22 set), apRegenDelay N (raw 0x…, HighProcessData … +0x68), the AP modifiers N, N, N (permanent, temporary, damage: AP under its max); refill gates shut: …", then "AP watch: the 120 s after getting off are over (APWatchFor): a line from now on only when one of the gates changes" and "AP watch (N s after getting off, a change): …" after it. AP refilling, the gates read "none" while it is under its max, and "(d) bit 22" alone at its max (the bit is set only while AP is under it). `Papyrus.0.log`: "[CMB] AP: N of N (N% of its max), rate N (base N), mult N (base N), sprinting no; getting on." at each getting on, "…; N s after getting off." every 2 s for 2 minutes, past them while AP is under its max "…, under its max." (an unchanged line every 20 s) and "…, back at its max." once it is. When AP is stuck send both logs around it with the time: which gate the plugin names shut while AP is under its max ((d) bit 22, or a CachedValues of "none", is the likelier, since (a) sprinting and (b) the scope's hold-breath would drain AP too), the rate and mult beside it, and the console's numbers. An apRegenDelay that reads nonsense (huge, or a raw value that isn't a small float) means its place is wrong: say so (+0x64 up to test 46, from CommonLibF4's headers, was Stamina's; since test 47 +0x68, AP's, by the build-27b check's reading of the game's GetRegenDelay). Since test 47 (test 46: AP full till 12:45, drained to 0 by a sprint by 12:51 and at exactly 0 for the last 5 minutes, every watch line "refill gates shut: none", the rate 6.0 and the mult 100; but all of it after the console's `tai` at 7:47, which alone stops every refill: with AI processing off the game's process lists return at once, nothing moves the actors' clock on, and nothing regenerates nor does any timed effect tick; test 45's AP checks came after its knock-overs, likely with AI off too; and the watch read Stamina's regen delay, not AP's): with AI on, AP refills after the sprint on foot and after the ride alike (most likely the mod has no AP bug: say if it does); the watch's lines show AP's own delay, "apRegenDelay N (raw 0x…, HighProcessData … +0x68)", a few seconds after a sprint, counting down to 0. If AP still sticks, send the watch's lines and the "[CMB] AP:" lines around it, the gate named shut and the console's two numbers, with the time. The rads indicator (test 46: "<1 RADS" from the junkyard at 4:33, about 2 s inside a radiation hazard's 1024 units, then "+2 RADS" from the getting off at 7:46 to the end, riding or not, with the Geiger counter's clicking, and the rad meter at the HP bar's end not growing; nothing in the mod reads or writes Rads): the two `player.getav rads` numbers (the same twice means no rads are being added), whether the reload cleared it, and whether the junkyard leaves it on after the bike, on foot, or both. `[Diag] APWatch=0` (read again on getting off) turns the plugin's lines off |
-| 17s | *(the bike's look, since the 2026-10-31a build; F4SE plugin for the needle, the lights and the mirrors' choice)* Steps 10 to 17 of this build's list: the parked and the riding bike by day and at night, close up and from across a street; the speedometer standing, at full speed and at 150%; the tail and brake light from behind; each mirror style (`[Look] Mirrors` 1, 2, 3, 0) by day and at night, at full lock; `Data\Materials\CMB` renamed and back; the frame rate against 27c's; the log's role lines. Screenshots of each; the two logs saved before steps 13's swap, 14 and 15 | Paint deep oxblood and glossy with a soft reflection and a cream double line, our winged-wheel badge, no lettering; chrome dark with the sky in it (not white); a black wrinkle engine with bright fin edges; a grained seat; matte tyres with tread; no seams, smears, stretched patches or flicker. The needle on 0 standing, about 50 at full speed (`[Speedo] Scale` 1.75; 1 = the true 28.8 mph at 900 units a second), about 30 at 150%, back to 0 within a couple of seconds of stopping, turning with the bars; the dial's numerals lit with the headlamp only. The tail lamp red while riding, brighter with both rear signals while braking and out about half a second after, plain when parked. The mirrors a sky over a dark ground (not the world: the game can't show real reflections), the under-bar ones (2, 3) from the seat mostly ground with a strip of sky at the top (say whether they should tip up further), the right way up (else `mirror_cube_zup_e.dds` over `mirror_cube_e.dds`); the chosen style on the riding bike, never into the tank at full lock, the stock ones on the parked bike. No change with `Materials\CMB` renamed. Every shape "by its name" on the role lines; the "time:" lines' "for 28 shape(s)". Every key's off value: the table under this build's steps. Since 2026-11-01a: steps 12 to 18 of its list. `Materials\CMB` is needed (test 47: renamed, the bike went magenta), so no materials-off step. The tank's double line one smooth curve with a round turn at the rear end and no break over the seat's nose; the seat a round bead along the seam, nothing standing off it; our own drilled discs, a smooth round edge, holes you can see into, a fine circular grain, turning with the wheels; the mirror glass silvered with a sky by day (if it reads plain grey: the optional folder "game mirror cube (A-B)"). The tail lamp's light (MCM "Tail lamp lights the road", `[TailLight]`): the road behind lit a soft red for 2-3 m, the rider's back and the seat unlit, about three times brighter while braking; "Tail light placed (N)." in the Papyrus log, "tail:" lines in `CMB_Slope.log` (`BrakeBy=dimmer` if braking doesn't brighten it). The bike in first person (MCM "Bike in first person", `[View]`): the tank, the bars, the dial (about 50 at full speed), the mirrors and the lamp under you, leaning, pitching and turning, never blinking or see-through over 2-3 minutes at full speed, one shadow, one bike in third person, no hands on the grips; "First-person bike placed (N)." and the "view:" lines (`Lead=0` or `2` if it slides). The cull bit (`[Look] Cull`): no visible change; the FPS with it at 0 and 1, in third and first person; the "time:" lines "for 30 shape(s)". The optional folder "2026-10-31a look (A-B)" gives 31a's look back whole Since 2026-11-02a: steps 9, 10, 12, 13 and 14 of its list. In first person the view bike is moved every frame so your eye sits on its seat (`[View] Eye`, `EyeAt`: "the view bike moved (dx, dy, dz) on its own axes to put EyeAt there"); the mirrors name the game's `Shared\Cubemaps\MetalBrushed02Cube_e.dds`; the chrome's material files at env 6, specular 2, screen-space reflections on; the front disc without its light ring; a frame-rate line every 10 s while riding (`[Diag] FpsLine`: "time: the last 10 s: N frames a second ..."), so the Cull A/B needs no counter; at most three skeleton stop/start pairs in 10 s (`[View] StaleLines`). The optional folder "2026-11-01a look (A-B)" gives 2026-11-01a's look back whole; the "2026-10-31a look" and "game mirror cube" folders are retired. Since 2026-11-06a (steps 9 to 11 of its list): the chrome's materials env 2.5, specular 1.5 and no screen-space reflections, the rims and discs env 0.25, specular 0.75 (no texture changed); going into first person eases the view 20 degrees down (MCM "Look down on getting into first person (deg)"), a riding field of view (MCM, 0 = off) and the eye's place on the bike (MCM and console `CMB_ViewEyeForward`, `CMB_ViewEyeUp`); `[Look] Cull=0` by default (1 is test 49's); the optional folder is "2026-11-02a look (A-B)" (test 49's look) and "2026-11-01a look (A-B)" is retired. |
+| 17s | *(the bike's look, since the 2026-10-31a build; F4SE plugin for the needle, the lights and the mirrors' choice)* Steps 10 to 17 of this build's list: the parked and the riding bike by day and at night, close up and from across a street; the speedometer standing, at full speed and at 150%; the tail and brake light from behind; each mirror style (`[Look] Mirrors` 1, 2, 3, 0) by day and at night, at full lock; `Data\Materials\CMB` renamed and back; the frame rate against 27c's; the log's role lines. Screenshots of each; the two logs saved before steps 13's swap, 14 and 15 | Paint deep oxblood and glossy with a soft reflection and a cream double line, our winged-wheel badge, no lettering; chrome dark with the sky in it (not white); a black wrinkle engine with bright fin edges; a grained seat; matte tyres with tread; no seams, smears, stretched patches or flicker. The needle on 0 standing, about 50 at full speed (`[Speedo] Scale` 1.75; 1 = the true 28.8 mph at 900 units a second), about 30 at 150%, back to 0 within a couple of seconds of stopping, turning with the bars; the dial's numerals lit with the headlamp only. The tail lamp red while riding, brighter with both rear signals while braking and out about half a second after, plain when parked. The mirrors a sky over a dark ground (not the world: the game can't show real reflections), the under-bar ones (2, 3) from the seat mostly ground with a strip of sky at the top (say whether they should tip up further), the right way up (else `mirror_cube_zup_e.dds` over `mirror_cube_e.dds`); the chosen style on the riding bike, never into the tank at full lock, the stock ones on the parked bike. No change with `Materials\CMB` renamed. Every shape "by its name" on the role lines; the "time:" lines' "for 28 shape(s)". Every key's off value: the table under this build's steps. Since 2026-11-01a: steps 12 to 18 of its list. `Materials\CMB` is needed (test 47: renamed, the bike went magenta), so no materials-off step. The tank's double line one smooth curve with a round turn at the rear end and no break over the seat's nose; the seat a round bead along the seam, nothing standing off it; our own drilled discs, a smooth round edge, holes you can see into, a fine circular grain, turning with the wheels; the mirror glass silvered with a sky by day (if it reads plain grey: the optional folder "game mirror cube (A-B)"). The tail lamp's light (MCM "Tail lamp lights the road", `[TailLight]`): the road behind lit a soft red for 2-3 m, the rider's back and the seat unlit, about three times brighter while braking; "Tail light placed (N)." in the Papyrus log, "tail:" lines in `CMB_Slope.log` (`BrakeBy=dimmer` if braking doesn't brighten it). The bike in first person (MCM "Bike in first person", `[View]`): the tank, the bars, the dial (about 50 at full speed), the mirrors and the lamp under you, leaning, pitching and turning, never blinking or see-through over 2-3 minutes at full speed, one shadow, one bike in third person, no hands on the grips; "First-person bike placed (N)." and the "view:" lines (`Lead=0` or `2` if it slides). The cull bit (`[Look] Cull`): no visible change; the FPS with it at 0 and 1, in third and first person; the "time:" lines "for 30 shape(s)". The optional folder "2026-10-31a look (A-B)" gives 31a's look back whole Since 2026-11-02a: steps 9, 10, 12, 13 and 14 of its list. In first person the view bike is moved every frame so your eye sits on its seat (`[View] Eye`, `EyeAt`: "the view bike moved (dx, dy, dz) on its own axes to put EyeAt there"); the mirrors name the game's `Shared\Cubemaps\MetalBrushed02Cube_e.dds`; the chrome's material files at env 6, specular 2, screen-space reflections on; the front disc without its light ring; a frame-rate line every 10 s while riding (`[Diag] FpsLine`: "time: the last 10 s: N frames a second ..."), so the Cull A/B needs no counter; at most three skeleton stop/start pairs in 10 s (`[View] StaleLines`). The optional folder "2026-11-01a look (A-B)" gives 2026-11-01a's look back whole; the "2026-10-31a look" and "game mirror cube" folders are retired. Since 2026-11-06a (steps 9 to 11 of its list): the chrome's materials env 2.5, specular 1.5 and no screen-space reflections, the rims and discs env 0.25, specular 0.75 (no texture changed); going into first person eases the view 20 degrees down (MCM "Look down on getting into first person (deg)"), a riding field of view (MCM, 0 = off) and the eye's place on the bike (MCM and console `CMB_ViewEyeForward`, `CMB_ViewEyeUp`); `[Look] Cull=0` by default (1 is test 49's); the optional folder is "2026-11-02a look (A-B)" (test 49's look) and "2026-11-01a look (A-B)" is retired. Since 2026-11-07a (its list's steps): the customisation build; with nothing chosen at the bike's field kit the bike is 2026-11-06a's (step 1); the badges, paint and mirrors chosen show on the parked, the ridden and the first-person bike (step 8); the 2026-11-06a package's optional folder must be off (its meshes have one badge); none ships. |
 | 17t | *(the bike's own sounds, since the 2026-11-01a build; the water and the landing's level need the F4SE plugin)* Step 9 of the 2026-11-01a build: ride off a kerb or a porch step, then off a ledge of about a second's fall (as row 17p), at full speed and at walking pace; then ride into a shallow pond or river at speed, cruise through it, stop in it, pull away and ride out | Your character's own jump and landing sound (the shoes' thud) gone while you ride, back once you get off. A tyre thump on every landing with a real fall, louder the higher the drop, a metal clunk on top of the big ones, a splash into water; in water a spray that grows with speed and depth and settles to a lap when you stop, with a burst as you hit the water fast. The sounds are the game's own, borrowed (`CMB_FxLandSounds`, `CMB_FxLandSoundsAlt`, `CMB_FxWaterLoops`: docs/ASSETS.md's list). Papyrus: "Bike sounds: the rider's own footstep sounds muted while riding (AudioCategoryFSTplayer)." at each getting on and "... back." at each getting off; per landing "Bike sounds: landing (JumpDown) at level 0.47: sound 1 instance N, volume 0.298." (or "(SyncRight)"); at each getting on "Bike sounds: the plugin drives the water loop 0 (instance N, poll P)."; "In water while riding (the wade watch): True" about a second after the plugin's "into the water". `CMB_Slope.log`: "globals: the fx globals 7 of 7 found" and the settings line "  fx: Land=1 ..."; per landing "fx: landing cue 3 after 0.68 s in the air (the fall 208 a second): level 0.47 (-9.6 dB at the script's -18 dB floor), onto the ground" and "fx: the script played cue 3's landing sound 0.031 s after the landing" (send any "not played by the script" and any time over 0.1 s); in water "fx: the water loop (id N) driven", "fx: into the water at 640 u/s: 12.3 deep (the surface ... by the loaded data, type ...; ... by the controller; its swim height ...)", "fx: out of the water after 6.2 s (the deepest 31.0)", and the dry readings at the ride's start. Send "declined", "doesn't play", "of 7 found (0x884-0x88A, an older ESP)", an "into the water" on dry land, or none in a pond. To pick other sounds: `cqf CMB_ControllerQuest FxAudition 0` to `4` (the landing set), `10` to `14` (the second set), `20` to `23` (the water loops, 3 s each), "Bike sounds: audition N: [Sound ...] instance N." (instance 0: it didn't play); `set CMB_FxLandPick to 1` (the second landing set), `set CMB_FxWaterPick to 1` to `3`, then get off and on. Say whether the thump comes with the touch-down or a beat after, whether a landing ever has none or two, and where the "Bike effects volume" (MCM Sound, 90) sits right with the engine. Off, each as 2026-10-31a: the MCM's "Landing sound", "Water sound", "Mute the rider's own jump and landing sounds", the volume at 0; `[Fx] Water=0`; `[Fx] Land=0` turns only the plugin's levels off (the script's one level, at `JumpDown` landings only: not 2026-10-31a's, whose landings had no sound), `WaterSource=controller` reads the water from the character controller Since 2026-11-02a (step 11 of its list): the landings and the water through 13 sound records of our own over the game's files (MCM "Bike sounds through the mod's own records"; docs/ASSETS.md's second table), heard at the riding camera's distance; the landing range 10 dB (MCM "Landing loudness range (dB)", 18 before: "level 0.34 (-6.6 dB at the script's -10 dB floor)", "(our records, a 10 dB range)"); `[Fx] WaterGain` on the water loop; `FxAudition` waits for the menus to close, `-1` plays every one of ours and `-2` every one of the game's, a slot plus 100 is the game's record ("..., after the menus closed."); a level-0 cue reads "fx: cue N silent by the script (level 0)", not "played". Since 2026-11-06a (step 8 of its list): landings without metal (MCM "Landing sounds without metal": tyres, and on big drops a dull thud at `CMB_FxThudDb` -11 dB: "(our records, no metal, ...)"), into water a splash (the two splash records now name the game's own files: test 49 played silence there), the water loop the mod's own wet road (MCM "Water sound loop": the spray, the churn or the wet road), its level by (speed / 900) squared (`[Fx] WaterSpeedFull`, `WaterCurve`; 600 and 1 test 49's), and `FxAudition -3` plays the landings as heard. |
 | 18 | Ride off small drops, then a big one (the Vault 111 cliff) | small drops cost nothing; the big one hurts, about 75% less than on foot; the log has a "Fall while riding" line per fall with the damage and percent of max health (send them: they tune `CMB_FreeFallDamage`, default 20%); seated all the way, landing included. Since 2026-11-06a (step 8 of its list): say which difficulty you play at (test 49's fall cost twice test 48's) |
 | 18b | Ride fast downhill over bumps, and jump-land from a ledge | seated in the air and on landing: no sideways bike swing, no arm going up; with the plugin (`[Steer] LandSoft`, since 2026-11-01a) no landing stops you; without it a hard landing stops you briefly, a running one keeps you going |
@@ -384,6 +289,10 @@ and, if you have one, a bag or other gear that sits in an unusual slot.
 | `set CMB_FxLandDull to 0` | the landing sets with the metal clunk, as in 2026-11-02a (MCM "Landing sounds without metal", since 2026-11-06a; default 1) |
 | `set CMB_FxThudDb to -14` | a softer thud under big landings (since 2026-11-06a; -40..0 dB, default -11; with `CMB_FxLandDull` 1) |
 | `set CMB_FxWaterLoop to 0` | the water loop picked by `CMB_FxWaterPick`, as in 2026-11-02a (MCM "Water sound loop", since 2026-11-06a; 1 the churn, default 2 the wet road; next time you get on) |
+| `set CMB_LookOn to 0` | no Customise in the parked bike's menu and the stock look on every bike, as 2026-11-06a (MCM Look "Customise at the bike", since 2026-11-07a; default 1; the bikes at the next getting on, activation of the parked bike, "Apply the look" or load) |
+| `set CMB_KitMode to 1` / `2` / `3` | the field kit forced: the toolbox / the toolbox with the armour bench's keyword / the armour bench (MCM "Field kit", since 2026-11-07a; default 0, automatic: the toolbox, then the armour bench, the one that worked remembered) |
+| `set CMB_KitWorked to -1` | automatic starts again from the toolbox (since 2026-11-07a, console only; automatic writes 1 or 3 here when a mode worked) |
+| `set CMB_KitBagLink to 0` | the field kit uses your own components (and a settlement's workshop) only (MCM "Parts from the side bag", since 2026-11-07a; default 1: outside your settlements the side bag's too) |
 | `set CMB_FxLandOn to 0`, `CMB_FxWaterOn`, `CMB_FxMuteRider` | no landing sound, no water sound, the rider's own footstep sounds kept (each default 1; the last two next time you get on) |
 | `set CMB_FxLandPick to 1` / `set CMB_FxWaterPick to 2` | the second set of landing sounds / the third water loop (defaults 0; the water next time you get on) |
 | `cqf CMB_ControllerQuest FxAudition 3`, then close the console | plays a candidate sound at the effects volume once the menus are closed (since 2026-11-02a: the console pauses the game): 0-4 the landing set, 10-14 the second set, 20-23 the water loops (3 s), through the mod's own records; 100 more the game's own records; -1 every one of ours and -2 every one of the game's, 2.5 s apart (about 47 s); since 2026-11-06a -3 the landings as heard, small to big, then two into water (seven, 2.5 s apart), and 22 is the wet road |

@@ -66,6 +66,9 @@
 #define VIEW_EYE_FORWARD_FORMID (0xFE000000u | (LIGHT_INDEX << 12) | 0x8B2u) /* CMB_ViewEyeForward (0) */
 #define VIEW_EYE_UP_FORMID    (0xFE000000u | (LIGHT_INDEX << 12) | 0x8B3u)   /* CMB_ViewEyeUp (0) */
 #define FX_WATER_LOOP_FORMID  (0xFE000000u | (LIGHT_INDEX << 12) | 0x8B4u)   /* CMB_FxWaterLoop (the ESP's 2) */
+/* The 2026-11-07a build's one (the customisation build, at the fixed 0x8AF the earlier builds kept free): made at 0 (the
+ * ESP's: nothing chosen at the bike); hidden in mode 15. */
+#define LOOK_CODE_FORMID      (0xFE000000u | (LIGHT_INDEX << 12) | 0x8AFu)   /* CMB_LookCode (0) */
 #define TAIL_REF_FORMID_A     0xFF001236u   /* the tail light reference "the script placed", and the fresh one of a handover */
 #define TAIL_REF_FORMID_B     0xFF001237u
 #define VIEW_REF_FORMID_A     0xFF001240u   /* the first-person bike's reference, and the fresh one of a handover */
@@ -222,7 +225,13 @@ static const LookPart g_lookParts[] = {
 	{ "static_black", { -3.62f, 5.44f, 56.49f }, 74.00f, "none", "none" },
 	{ "static_seat", { 0.25f, -15.81f, 62.81f }, 24.00f, "none", "none" },
 	{ "static_glass", { 0.28f, -47.90f, 54.59f }, 19.79f, "none", "none" },
-	{ "static_badge", { 0.62f, -8.69f, 70.92f }, 55.56f, "none", "none" },
+	/* 2026-11-07a (the customisation build, harley_meshes.py --look-slots 1): static_badge split by island into the tank
+	 * plates and the rear roundel, each with the three's union sphere (2026-11-06a's static_badge's), and the rear fender's
+	 * badge patch (the built worn nif's sphere): fixed by their names' "_static_", and by 27c's sphere rule too */
+	{ "static_badgeTankL", { 0.62f, -8.69f, 70.92f }, 55.56f, "none", "none" },
+	{ "static_badgeTankR", { 0.62f, -8.69f, 70.92f }, 55.56f, "none", "none" },
+	{ "static_badgeRear", { 0.62f, -8.69f, 70.92f }, 55.56f, "none", "none" },
+	{ "static_badgeFender", { 0.06f, -48.37f, 63.52f }, 7.65f, "none", "none" },
 	{ "rear_tail", { 0.33f, -64.22f, 54.31f }, 4.11f, "tail", "none" },
 	{ "rear_brake", { 0.28f, -59.64f, 54.69f }, 19.78f, "brake", "none" },
 	{ "front_chrome", { 0.09f, 60.56f, 81.06f }, 34.37f, "front", "front" },
@@ -261,9 +270,9 @@ static const LookPart g_lookParts[] = {
 	{ "wheelF", { 0.12f, 95.84f, 29.87f }, 29.93f, "wheelF", "wheelF" },
 	{ "wheelR", { 0.32f, -40.45f, 29.94f }, 29.91f, "wheelR", "wheelR" },
 };
-#define LOOK_NEW 30      /* the 2026-11-01a build's shapes (28 and the two discs) */
+#define LOOK_NEW 33      /* the 2026-11-07a build's shapes (the 2026-11-01a build's 28 and the two discs, static_badge split in three, the fender patch) */
 #define LOOK_OLD 12
-#define LOOK_EXTRA 19    /* LOOK_NEW + LOOK_EXTRA + the main shape = 50, two past MAX_SKINS 48 */
+#define LOOK_EXTRA 16    /* LOOK_NEW + LOOK_EXTRA + the main shape = 50, two past MAX_SKINS 48 */
 #define LOOK_ALL (LOOK_NEW + LOOK_OLD + LOOK_EXTRA)
 static bool g_lookMode;
 static uint8_t *g_lookShape[LOOK_ALL], *g_lookData[LOOK_ALL], *g_lookBones[LOOK_ALL];
@@ -535,6 +544,8 @@ static uint8_t *g_itemUseFake, *g_ramCombatFake, *g_fxRangeFake;   /* CMB_RiderI
 static bool g_new50Hidden;              /* mode 15: test 42's ESP, without the 2026-11-02a build's three (0x893-0x895) */
 static uint8_t *g_viewTipFake, *g_viewFovFake, *g_viewEyeFake[2], *g_fxWaterLoopFake;   /* CMB_ViewTip, CMB_ViewFov, CMB_ViewEyeForward/Up, CMB_FxWaterLoop (2026-11-06a) */
 static bool g_new51Hidden;              /* mode 15: test 42's ESP, without the 2026-11-06a build's five (0x8B0-0x8B4) */
+static uint8_t *g_lookCodeFake;         /* CMB_LookCode (2026-11-07a, the customisation build) */
+static bool g_new52Hidden;              /* mode 15: test 42's ESP, without the 2026-11-07a build's CMB_LookCode (0x8AF) */
 static int g_picks;
 static void *FakePickCtor(uint8_t *pick)
 {
@@ -1277,6 +1288,8 @@ static uintptr_t FakeLookupFormByID(uint32_t id)
 		return g_new51Hidden ? 0 : (uintptr_t)g_viewEyeFake[id - VIEW_EYE_FORWARD_FORMID];
 	if (id == FX_WATER_LOOP_FORMID)
 		return g_new51Hidden ? 0 : (uintptr_t)g_fxWaterLoopFake;
+	if (id == LOOK_CODE_FORMID)
+		return g_new52Hidden ? 0 : (uintptr_t)g_lookCodeFake;
 	return id == SLOPE_GLOBAL_FORMID ? (uintptr_t)g_global : id == CAMERA_GLOBAL_FORMID ? (uintptr_t)g_cameraGlobal
 	     : id == TILT_GLOBAL_FORMID ? (uintptr_t)g_tiltGlobal : 0;
 }
@@ -1461,6 +1474,7 @@ static void BuildGame(void)
 	g_viewEyeFake[0] = NewGlobal(VIEW_EYE_FORWARD_FORMID, "CMB_ViewEyeForward");
 	g_viewEyeFake[1] = NewGlobal(VIEW_EYE_UP_FORMID, "CMB_ViewEyeUp");
 	g_fxWaterLoopFake = NewGlobal(FX_WATER_LOOP_FORMID, "CMB_FxWaterLoop");
+	g_lookCodeFake = NewGlobal(LOOK_CODE_FORMID, "CMB_LookCode");   /* the 2026-11-07a build's, 0: nothing chosen at the bike */
 	static const char *ram[8] = { "CMB_RamSeenHi", "CMB_RamSeenLo", "CMB_RamSeen", "CMB_RamOk", "CMB_RamHitSpeed", "CMB_RamHit", "CMB_RamEnemies", "CMB_RamMinSpeed" };
 	for (int i = 0; i < 8; i++)
 		g_ramGlobalsFake[i] = NewGlobal(RAM_FORMID + (uint32_t)i, ram[i]);
@@ -16135,6 +16149,16 @@ static void OldEsp51Ids(void)
 	      LogLines("globals: the 2026-11-06a build's 0 of 5 found (0x8B0-0x8B4, an older ESP): none used"));
 }
 
+/* Mode 15 (test 42's ESP: no CMB_LookCode, 0x8AF): one line says so, and [Look] Mirrors=-1 reads as 1. */
+static void OldEsp52Ids(void)
+{
+	printf("the 2026-11-07a build's CMB_LookCode with an ESP without it:\n");
+	CHECK(LogLines("globals: no CMB_LookCode (0x8AF, an older ESP): [Look] Mirrors=-1 reads as 1") == 1 &&
+	      LogLines("globals: the 2026-11-07a build's CMB_LookCode found") == 0,
+	      "one \"no CMB_LookCode (0x8AF, an older ESP): [Look] Mirrors=-1 reads as 1\" line (%d), no \"CMB_LookCode found\" line",
+	      LogLines("globals: no CMB_LookCode (0x8AF, an older ESP): [Look] Mirrors=-1 reads as 1"));
+}
+
 static void RoomTests(bool old)
 {
 	SetNormal(0.0f, 0.0f, 1.0f);
@@ -20491,12 +20515,166 @@ static void ViewTests(void)
 	g_afterTask = NULL;
 }
 
+/* Mode 24 (2026-11-07a, the customisation build): the mirrors chosen at the bike (CMB_LookCode, [Look] Mirrors=-1),
+ * the split badges' and the fender patch's shapes, on mode 17's look bike (and mode 20's first-person bike). */
+static void SetLookCode(int code) { *(float *)(g_lookCodeFake + 0x30) = (float)code; }
+static int CustomMirrors(void)   /* which mirrors the worn bike shows: bit 0 the stock one, 1 the egg, 2 the D; -1 one neither shown nor a speck */
+{
+	const int idx[3] = { LookAt("front_mirrorStock", false), LookAt("front_mirrorUnderEgg", false), LookAt("front_mirrorUnderD", false) };
+	int bits = 0;
+	for (int k = 0; k < 3; k++) {
+		if (LookShown(idx[k]))
+			bits |= 1 << k;
+		else if (!LookSpeck(idx[k]))
+			return -1;
+	}
+	return bits;
+}
+static int CustomViewMirrors(void)   /* the same for the first-person bike (Cull=0: a speck's local scale 0.001) */
+{
+	const int idx[3] = { LookAt("front_mirrorStock", false), LookAt("front_mirrorUnderEgg", false), LookAt("front_mirrorUnderD", false) };
+	int bits = 0;
+	for (int k = 0; k < 3; k++) {
+		float sc = ((const float *)(g_viewShape[0][idx[k]] + 0x30))[15];
+		if (ShapeCulled(g_viewShape[0][idx[k]]))
+			return -1;
+		if (fabsf(sc - 1.0f) < 1e-4f)
+			bits |= 1 << k;
+		else if (fabsf(sc - 0.001f) > 1e-6f)
+			return -1;
+	}
+	return bits;
+}
+static int CustomLines(const char *a, const char *b)   /* the log's lines with both texts */
+{
+	static char line[4096];
+	FILE *f = OpenLog();
+	int n = 0;
+	if (!f)
+		return -1;
+	while (fgets(line, sizeof(line), f))
+		n += strstr(line, a) && strstr(line, b);
+	fclose(f);
+	return n;
+}
+static void CustomTests52(void)
+{
+	float *head = (float *)(g_player + 0xC8);
+	const char *now = "look: the mirrors now ";
+	const int iStock = LookAt("front_mirrorStock", false), iFront = LookAt("front_black", false);
+	*(float *)(g_turnRadius + 0x30) = 300.0f;   /* steering on, as mode 17's look tests */
+	*(float *)(g_turnSlow + 0x30) = 50.0f;
+	*(float *)(g_turnStand + 0x30) = 60.0f;
+	SetNormal(0.0f, 0.0f, 1.0f);
+	SetState(0);
+	FlatGround();
+	g_camYaw = *head;
+	g_handlerStyle = 2;
+	g_honour = 4;
+	Keys(0.0f, 0.0f);
+	g_lookSpeed = g_lookTurn = g_lookDecel = 0.0f;
+	g_lookKeys = false;
+	ViewSetup();
+	g_onFrame = ViewRide;
+	g_afterTask = ViewAfter;
+	SetTailRef(TAIL_REF_FORMID_A);
+	SetViewRef(VIEW_REF_FORMID_A);
+	SetLookCode(0);
+
+	printf("custom (2026-11-07a): [Look] Mirrors=-1, the mirrors as chosen at the bike (CMB_LookCode):\n");
+	LookGetOn(1500);
+	CHECK(CustomMirrors() == 1 && LogLines("look: the mirrors now 1, the stock one (CMB_LookCode 0x0, nothing chosen at the bike)") == 1,
+	      "code 0 (nothing chosen): the stock mirror shown, the egg and the D specks, as Mirrors=1 (shown %d); one \"the mirrors now 1, the stock one (CMB_LookCode 0x0, nothing chosen at the bike)\" line",
+	      CustomMirrors());
+	SetLookCode(4 | 2);
+	RunFrames(300);
+	CHECK(CustomMirrors() == 2, "code 6 (chosen: the egg): the egg alone (shown %d)", CustomMirrors());
+	SetLookCode(4 | 3);
+	RunFrames(300);
+	CHECK(CustomMirrors() == 4 && LookCentreOff(iStock, iFront) < 0.05f, "code 7 (the D): the D alone (shown %d), the stock one a speck turning with the bars (%.3f off)",
+	      CustomMirrors(), LookCentreOff(iStock, iFront));
+	SetLookCode(4 | 0);
+	RunFrames(300);
+	CHECK(CustomMirrors() == 0, "code 4 (chosen: none): all three specks (shown %d)", CustomMirrors());
+	SetLookCode(2);
+	RunFrames(300);
+	CHECK(CustomMirrors() == 1 && LogLines("look: the mirrors now 1, the stock one (CMB_LookCode 0x2, nothing chosen at the bike)") == 1,
+	      "code 2 (bit 2 clear: nothing chosen): the stock one (shown %d), its line", CustomMirrors());
+
+	printf("custom: a change mid-ride shows the next frame, one line a change:\n");
+	int lines0 = LogLines(now);
+	SetLookCode(4 | 3);
+	ViewStep();
+	int d1 = CustomMirrors(), l1 = LogLines(now);
+	SetLookCode(4 | 1);
+	ViewStep();
+	int d2 = CustomMirrors(), l2 = LogLines(now);
+	RunFrames(500);
+	int l3 = LogLines(now);
+	CHECK(d1 == 4 && d2 == 1 && l1 == lines0 + 1 && l2 == lines0 + 2 && l3 == lines0 + 2 &&
+	      LogLines("look: the mirrors now 3, under the bars, D (CMB_LookCode 0x7, as chosen at the bike)") >= 1 &&
+	      LogLines("look: the mirrors now 1, the stock one (CMB_LookCode 0x5, as chosen at the bike)") == 1,
+	      "code 2 -> 7 -> 5: the D the next frame (shown %d), then the stock one (%d); one line each (%d, %d after %d), none in the 500 ms after (%d)",
+	      d1, d2, l1, l2, lines0, l3);
+
+	printf("custom: the first-person bike follows the worn one:\n");
+	SetLookCode(4 | 2);
+	RunFrames(300);
+	SetCameraFirst(true);
+	ViewSteps(4);
+	int v6 = CustomViewMirrors(), w6 = CustomMirrors();
+	bool shows = ViewShows(0);
+	SetLookCode(4 | 0);
+	ViewSteps(4);
+	int v4 = CustomViewMirrors();
+	SetCameraFirst(false);
+	RunFrames(300);
+	CHECK(shows && v6 == 2 && w6 == 2 && v4 == 0, "first person: the view bike shown (%s), its egg alone with code 6 (view %d, worn %d), none with code 4 (%d)",
+	      shows ? "yes" : "no", v6, w6, v4);
+
+	printf("custom: the INI's own values win:\n");
+	SetLookCode(4 | 3);
+	LookAgain("\nMirrors=-1\n", "\nMirrors=2\n");
+	CHECK(CustomMirrors() == 2, "Mirrors=2 with code 7: the egg (the INI's; shown %d)", CustomMirrors());
+	SetLookCode(4 | 2);
+	LookAgain("\nMirrors=2\n", "\nMirrors=1\n");
+	int before = LogLines(now);
+	SetLookCode(4 | 3);
+	RunFrames(300);
+	CHECK(CustomMirrors() == 1 && LogLines(now) == before, "Mirrors=1 (2026-11-06a's): the stock one with code 6 and 7 (shown %d), no line for the code's change",
+	      CustomMirrors());
+	LookAgain("\nMirrors=1\n", "\nMirrors=-5\n");
+	CHECK(CustomMirrors() == 1, "Mirrors=-5 (out of range): read as 1, the stock one with code 7 (shown %d)", CustomMirrors());
+	LookAgain("\nMirrors=-5\n", "\nMirrors=-1\n");
+	CHECK(CustomMirrors() == 4 && LogLines("[Look] Mirrors=-1 (as chosen at the bike: nothing chosen yet, the stock one) Cull=0") == 1 &&
+	      LogLines("[Look] Mirrors=-1 (as chosen at the bike: under the bars, D) Cull=0 (read again on getting on)") == 1,
+	      "Mirrors=-1 again with code 7: the D (shown %d); the look's line says \"Mirrors=-1 (as chosen at the bike: nothing chosen yet, the stock one)\" at the start "
+	      "and \"Mirrors=-1 (as chosen at the bike: under the bars, D)\" on getting on again", CustomMirrors());
+
+	printf("custom: the split badges and the fender patch:\n");
+	const char *labels[4] = { "static_badgeTankL", "static_badgeTankR", "static_badgeRear", "static_badgeFender" };
+	int held = 0, byName = 0;
+	for (int k = 0; k < 4; k++) {
+		int i = LookAt(labels[k], false);
+		char key[96];
+		snprintf(key, sizeof(key), "tilt: %s is ", g_lookName[i]);
+		held += LookHeld(i, 1) == 1 && strcmp(g_lookParts[i].label, labels[k]) == 0;
+		byName += CustomLines(key, "[none, by its name]") >= 1 && LookShown(i);
+	}
+	CHECK(held == 4 && byName == 4 && LookHeld(0, LOOK_NEW) == LOOK_NEW, "the four new shapes held (%d), each fixed by its name's tag and shown (%d); all %d of the build's held",
+	      held, byName, LOOK_NEW);
+	SetLookCode(0);
+	LookGetOff();
+	g_onFrame = NULL;
+	g_afterTask = NULL;
+}
+
 int main(int argc, char **argv)
 {
 	const char *dllPath = argc > 1 ? argv[1] : "CMB_Slope.dll";
 	int mode = argc > 2 ? atoi(argv[2]) : 0;   /* 0 = full test, 1 = probe only, 2 = wrong game version */
 	g_haveParts = mode == 0 || mode == 7 || mode == 8 || mode == 9 || mode == 10 || mode == 11 || mode == 12 || mode == 13 || mode == 17 || (mode >= 18 && mode != 23);   /* run.sh gives those a [Parts] section (not mode 23, 2026-11-06a's launch) (mode 12 since test 43: the rear's clearance from it; mode 17, the 2026-10-31a build's look, the parts file of the 2026-10-31a build) */
-	g_lookMode = mode == 17 || mode == 20;   /* The 2026-10-31a build's look: its own bike (BuildGame) */
+	g_lookMode = mode == 17 || mode == 20 || mode == 24;   /* The 2026-10-31a build's look: its own bike (BuildGame); 24, the customisation build's, too */
 	g_base = (uintptr_t)GetModuleHandleA(NULL);
 	if ((uintptr_t)g_space > g_base + 0x00300000u || (uintptr_t)g_space + sizeof(g_space) < g_base + RVA_INI_SETTINGS + 8) {
 		printf("image layout doesn't cover the game addresses (g_space at +0x%llx)\n", (unsigned long long)((uintptr_t)g_space - g_base));
@@ -20514,6 +20692,7 @@ int main(int argc, char **argv)
 	g_new49Hidden = mode == 15;        /* ... and without the 2026-11-01a build's seven (0x872-0x878) */
 	g_new50Hidden = mode == 15;        /* ... and without the 2026-11-02a build's three (0x893-0x895) */
 	g_new51Hidden = mode == 15;        /* ... and without the 2026-11-06a build's five (0x8B0-0x8B4) */
+	g_new52Hidden = mode == 15;        /* ... and without the 2026-11-07a build's CMB_LookCode (0x8AF) */
 	g_robotsHidden = mode != 11 && mode != 22;   /* CMB_RamRobots (test 42) in modes 11 and 22 only: mode 14 checks the one "isn't there" line */
 	HMODULE dll = LoadLibraryA(dllPath);
 	if (!dll) { printf("can't load %s\n", dllPath); return 2; }
@@ -20618,6 +20797,8 @@ int main(int argc, char **argv)
 			OldEsp49Fx();   /* the 2026-11-01a build's bike sounds: none with that ESP */
 		if (mode == 15) { OldEsp50Ids(); OldEsp50Pose(); OldEsp50Hits(); OldEsp50Sound(); }   /* the 2026-11-02a build's: none with that ESP */
 		if (mode == 15) { OldEsp51Ids(); OldEsp51Sound(); }   /* the 2026-11-06a build's: none with that ESP */
+		if (mode == 15)
+			OldEsp52Ids();   /* the 2026-11-07a build's: none with that ESP */
 		printf("%s\n", g_failures ? "FAILED" : "all ok");
 		return g_failures ? 1 : 0;
 	}
@@ -20625,6 +20806,16 @@ int main(int argc, char **argv)
 		Send(10, 1);   /* GameDataReady */
 		RunFrames(300);
 		LookTests();
+		printf("%s\n", g_failures ? "FAILED" : "all ok");
+		return g_failures ? 1 : 0;
+	}
+	if (mode == 24) {   /* 2026-11-07a, the customisation build: the mirrors chosen at the bike, the new badge shapes (mode 17's look bike) */
+		Send(10, 1);   /* GameDataReady */
+		RunFrames(300);
+		printf("the 2026-11-07a build's global:\n");
+		CHECK(LogLines("globals: the 2026-11-07a build's CMB_LookCode found (FE0058AF)") == 1,
+		      "one \"the 2026-11-07a build's CMB_LookCode found (FE0058AF)\" line (%d)", LogLines("globals: the 2026-11-07a build's CMB_LookCode found"));
+		CustomTests52();
 		printf("%s\n", g_failures ? "FAILED" : "all ok");
 		return g_failures ? 1 : 0;
 	}

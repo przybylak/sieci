@@ -55,7 +55,9 @@ crushed (under 0.6 of its volume kept: the seat's piping cord) is cut again at t
 till it keeps 0.8 (the volume guard, --volume-guard 0 for 2026-10-31a's cut), and the brake
 discs are the mod's own drilled discs (bike_pieces.disc_pieces, --disc model for the model's,
 whose dented plates shade by the averaged normals).
-The parts go into 30 shapes (LABELS; 28 with --disc model), by what moves them (role_of: the fixed bike; the bar
+The parts go into 30 shapes (LABELS; 28 with --disc model; since the 2026-11-07a build 33, LOOK_LABELS: static_badge
+split into the two tank plates and the rear roundel, and our patch on the rear fender, the customisation slots' own
+shapes, --look-slots 0 for the 30), by what moves them (role_of: the fixed bike; the bar
 assembly, "front": the bars, grips, levers, mirrors, the fork tubes, both triple clamps, the
 speedometer and the headlamp, which the plugin turns about the steering axis with the rider's
 steering; the fork's lower end, "fork": the sliders, the front mudguard, the brake caliper, the
@@ -82,7 +84,7 @@ and takes each shape's shader values from bike_materials.json (see BUILD STAGES)
       [--seat <Data>/Meshes/Actors/Character/Animations/MT/CMB_Rider] [--tris 90000] [--body 7a1118]
       [--sit 0.27] [--grip 29.4,-10.7,96] [--peg 19,6,27]
       [--stage export|build --stage-dir S] [--materials bike_materials.json] [--uvs none|stage] [--bgsm 0|1]
-      [--volume-guard 1|0] [--disc ours|model] [--disc-bore shared|bolts] [--view 1|0]
+      [--volume-guard 1|0] [--disc ours|model] [--disc-bore shared|bolts] [--view 1|0] [--look-slots 1|0]
 
 BUILD STAGES (build_bike.sh runs them): with no --stage, the fallback build (--uvs none): palette
 textures, no materials files (the 27c way). The textured build is three steps: --stage export
@@ -209,6 +211,27 @@ FIXED_UV = ("static_badge", "rear_tail", "rear_brake", "front_dial", "front_dial
 WORN_ONLY = ("rear_tail", "rear_brake", "front_dialglow")   # lit overlays: the parked bike shows the plain lens and dial
 PARKED_HIDDEN = ("front_mirrorUnderEgg", "front_mirrorUnderD")   # variants: in the parked nif, hidden by the node flag
 MIRROR_VARIANTS = ("front_mirrorStock", "front_mirrorUnderEgg", "front_mirrorUnderD")
+# The customisation build (2026-11-07a, --look-slots 1, the default; 0 = LABELS, 2026-11-06a's nifs byte for byte): its
+# slots' shapes, each the source of its own materials file, so a material swap (MSWP) reaches that one shape alone.
+# static_badge splits by island into the tank plates, TankL (x > 0 parked: the bike's left) and TankR (x < 0), glTF mesh
+# BADGE_TANK_MESH, and the rear roundel (mesh BADGE_ROUNDEL_MESH, in no slot in C1): the same triangles and fixed UVs,
+# their materials static_badge's values over its textures ("textures_of"), and as their culling sphere the three's
+# union, 2026-11-06a's static_badge sphere (the plates' own sit at worn y 32.5, past FrontMinY's fixed side, 24.9:
+# they would move it, and with [Parts] RolesByName=0 the sphere rule would turn them with the bars). And static_badgeFender,
+# ours (bike_pieces.fender_badge_patch) on the rear fender's top (glTF mesh REAR_FENDER_MESH of static_paint), invisible
+# (materials "static_badgeFender": alpha test 255, off's textures) until a badge is swapped onto it. In the parked nif the
+# under-bar mirrors (PARKED_OFF) show instead of being node-hidden, naming <label>_off.bgsm (invisible), so an MSWP can
+# show them (their own <label>.bgsm the swap's target); the worn and view nifs keep their materials (the plugin's speck).
+BADGE_SPLIT = ("static_badgeTankL", "static_badgeTankR", "static_badgeRear")
+FENDER_BADGE = "static_badgeFender"
+BADGE_TANK_MESH, BADGE_ROUNDEL_MESH, REAR_FENDER_MESH = 2, 1, 14
+LOOK_LABELS = sum((tuple((b, "") for b in BADGE_SPLIT + (FENDER_BADGE,)) if label == "static_badge" else ((label, role),)
+                   for label, role in LABELS), ())
+ROLE_OF_LABEL.update(LOOK_LABELS)
+FIXED_UV = FIXED_UV + BADGE_SPLIT + (FENDER_BADGE,)
+BADGE_UV = ("static_badge",) + BADGE_SPLIT   # bike_pieces.badge_uvs' layout
+PARKED_OFF = ("front_mirrorUnderEgg", "front_mirrorUnderD")
+OFF_MAT = "off"   # bike_materials.json's invisible material (Materials\CMB\Bike\off.bgsm, Textures\CMB\Bike\off_*.dds)
 MAX_VERTS = 60000   # per shape, after the UV seams (the game's limit is 65535)
 # Routing (label_of): the glTF meshes that go somewhere their material alone wouldn't send them.
 DROP_MESHES = {9: "the speedometer's dial face (ours replaces it)"}
@@ -342,6 +365,9 @@ DEFAULT_SHADERS = {
     "static_paint": _ENV("DI", 0.5), "static_chrome": _ENV("CH", 1.0), "static_exhaust": _ENV("CH", 1.0),
     "static_engine": _ENV("DI", 0.3), "static_black": {}, "static_seat": {}, "static_glass": {**_ENV("GL", 1.0), **_GLASS},
     "static_badge": _ENV("CH", 0.8),
+    # 2026-11-07a (--look-slots 1): the split plates as static_badge (over its textures), the fender patch invisible
+    **{b: {**_ENV("CH", 0.8), "textures_of": "static_badge"} for b in BADGE_SPLIT},
+    FENDER_BADGE: dict(alpha=dict(mode="test", flags=4844, threshold=255), textures_of=OFF_MAT),
     "rear_tail": _GLOW((1.0, 0.012, 0.006), 2.5), "rear_brake": _GLOW((1.0, 0.005, 0.0025), 8.0),   # deep red, brake brighter
     "front_chrome": _ENV("CH", 1.0), "front_black": {}, "front_glass": {**_ENV("GL", 1.0), **_GLASS},
     "front_glow": _GLOW((1.0, 0.95, 0.9), 6.0, False), "front_dial": {}, "front_needle": _GLOW((1.0, 0.12, 0.03), 1.5),
@@ -353,6 +379,9 @@ DEFAULT_SHADERS = {
 }
 SHADER_BASE = dict(shader="default", cube=None, env_scale=1.0, smoothness=1.0, spec_colour=(1.0, 1.0, 1.0), spec_mult=1.0,
                    emit=None, alpha=None, two_sided=True, textures_of=None)
+# The invisible material (2026-11-07a): the parked nif's PARKED_OFF mirrors' blocks and bike_materials.json's "off"
+# (alpha test 255 over off_d.dds's alpha 0: nothing drawn, no shadow; look_paint.py writes its materials files)
+OFF_SHADER = dict(alpha=dict(mode="test", flags=4844, threshold=255), cast_shadows_worn=False, cast_shadows_parked=False)
 
 
 # --- glTF --------------------------------------------------------------------------------
@@ -1137,22 +1166,27 @@ def load_shaders(path):
     """Each shape's shader settings and material stem: SHADER_BASE, DEFAULT_SHADERS over it, and
     the shape's material in bike_materials.json over those ({"materials": {<mat>:
     {"labels": [...], and any of SHADER_KEYS}}}). The riding bike's front end never casts a
-    shadow (test 34: the bars, fork and front wheel shadowed the headlamp's beam)."""
-    mats = {label: SHAPE_MAT.get(label, label) for label, _ in LABELS}
+    shadow (test 34: the bars, fork and front wheel shadowed the headlamp's beam). Every shape of either label set
+    (LABELS, LOOK_LABELS: a materials file may name either's); spec[OFF_MAT] is the invisible material's (2026-11-07a:
+    OFF_SHADER, bike_materials.json's "off" over it), which no shape has as its own."""
+    known = dict(LABELS + LOOK_LABELS)
+    mats = {label: SHAPE_MAT.get(label, label) for label in known}
     spec = {}
-    for label, role in LABELS:
-        spec[label] = {**SHADER_BASE, **DEFAULT_SHADERS[label],
-                       "cast_shadows_worn": role in ("", "wheelR") and label not in ("rear_tail", "rear_brake"),
-                       "cast_shadows_parked": True}
+    for label, role in known.items():
+        spec[label] = {**SHADER_BASE, "cast_shadows_worn": role in ("", "wheelR") and label not in ("rear_tail", "rear_brake"),
+                       "cast_shadows_parked": True, **DEFAULT_SHADERS[label]}
+    off = {**SHADER_BASE, **OFF_SHADER}
     if path:
         data = json.loads(Path(path).read_text())
         for mat, m in data.get("materials", {}).items():
+            if mat == OFF_MAT:
+                off.update({k: m[k] for k in SHADER_KEYS if k in m})
             for label in m.get("labels", []):
                 if label not in spec:
                     raise ValueError(f"{path}: material {mat} names {label!r}, which isn't one of the shapes (LABELS)")
                 mats[label] = mat
                 spec[label].update({k: m[k] for k in SHADER_KEYS if k in m})
-    for label, role in LABELS:
+    for label, role in known.items():
         s = spec[label]
         if s["shader"] not in SHADER_TYPES:
             raise ValueError(f"{label}: shader {s['shader']!r} isn't one of {list(SHADER_TYPES)}")
@@ -1161,6 +1195,7 @@ def load_shaders(path):
         if role in ("front", "fork", "wheelF") and s["cast_shadows_worn"]:
             print(f"{label}: cast_shadows_worn ignored (the riding bike's front end must not shadow the headlamp)", file=sys.stderr)
             s["cast_shadows_worn"] = False
+    spec[OFF_MAT] = off
     return spec, mats
 
 
@@ -1444,6 +1479,12 @@ def main() -> int:
     ap.add_argument("--view", type=int, choices=(0, 1), default=1,
                     help="1 (since the 2026-11-01a build): also write CMB_BikeView.nif, the bike in first person (the worn "
                          "shapes unskinned under a hidden node, which the plugin shows and places); 0: not written")
+    ap.add_argument("--look-slots", type=int, choices=(0, 1), default=1,
+                    help="1 (since the 2026-11-07a build, the customisation slots): static_badge split into "
+                         "static_badgeTankL, static_badgeTankR and static_badgeRear, the rear fender's patch "
+                         "static_badgeFender (invisible), the parked nif's under-bar mirrors shown with invisible "
+                         "<label>_off.bgsm materials (PARKED_OFF) instead of node-hidden: 33 shapes; 0: LABELS' 30, "
+                         "2026-11-06a's nifs byte for byte")
     args = ap.parse_args()
     grip = np.array([float(t) for t in args.grip.split(",")])
     peg = np.array([float(t) for t in args.peg.split(",")])
@@ -1500,7 +1541,8 @@ def main() -> int:
     pieces = decimate(groups, corner_normals, args.tris, weight=lambda v: 2.5 if wheel_of(v, parts) else 1.0,
                       role=lambda v: role_of(v, parts, raked=False), sources=sources, guard=bool(args.volume_guard),
                       shape_of=lambda name, v, mesh: label_of(role_of(v, parts), name, mesh) or "", guard_report=guard_report)
-    labels_built = [(label, role) for label, role in LABELS if args.disc == "ours" or label not in DISC_LABELS]
+    look = bool(args.look_slots)
+    labels_built = [(label, role) for label, role in (LOOK_LABELS if look else LABELS) if args.disc == "ours" or label not in DISC_LABELS]
     seat_front, seat_back = float(seat_v[:, 1].min()), float(seat_v[:, 1].max())
     hips_y = args.seat_at if args.seat_at is not None else seat_front + args.sit * (seat_back - seat_front)
     # The worn bike is turned round and shifted so the hips' spot lands at HIPS_Y_WORN.
@@ -1586,6 +1628,12 @@ def main() -> int:
             dropped_meshes[mesh] = dropped_meshes.get(mesh, 0) + len(f)
             dropped_ours += 1
             continue
+        if look and label == "static_badge":   # 2026-11-07a: by island (each badge piece is one)
+            if mesh not in (BADGE_TANK_MESH, BADGE_ROUNDEL_MESH):
+                print(f"a badge piece of glTF mesh {mesh}, neither the tank plates' ({BADGE_TANK_MESH}) nor the "
+                      f"roundel's ({BADGE_ROUNDEL_MESH})", file=sys.stderr)
+                return 1
+            label = BADGE_SPLIT[2] if mesh == BADGE_ROUNDEL_MESH else BADGE_SPLIT[0] if v[:, 0].mean() > 0 else BADGE_SPLIT[1]
         if args.disc == "ours" and mesh in DISC_MESHES and role.startswith("wheel") and name == "silver":
             if not small:
                 plates.setdefault(role, []).append((pid, source[0], f))   # replaced by our own disc (below)
@@ -1701,6 +1749,17 @@ def main() -> int:
             n = unit(np.asarray(n, dtype=np.float64))
         collected[label].append((material, v, f, n, uv, -1, next_piece))
         next_piece += 1
+    if look:   # 2026-11-07a: the rear fender's badge patch, cast onto the fender's pieces (parked frame)
+        fender = [(v, f, n) for _, v, f, n, _, mesh, _ in collected["static_paint"] if mesh == REAR_FENDER_MESH]
+        try:
+            pv, pf, pn, puv = BP.fender_badge_patch(fender, flip)
+        except ValueError as e:
+            print(f"the rear fender's badge patch: {e}", file=sys.stderr)
+            return 1
+        collected[FENDER_BADGE].append(("logo_decals", pv, pf, unit(pn), puv.astype(np.float64), -1, next_piece))
+        next_piece += 1
+        print(f"  {FENDER_BADGE}: the rear fender's badge patch, {len(pf)} triangles, {len(pv)} vertices, lifted "
+              f"{BP.FENDER_PATCH_LIFT} over glTF mesh {REAR_FENDER_MESH}'s {sum(len(x[1]) for x in fender)} triangles")
     print(f"ours: {len(ours)} pieces (the speedometer's dial, backlight, needle and hub; the tail and brake light shells; "
           f"the under-bar mirrors, egg and D{'; the brake discs' if args.disc == 'ours' else ''}) ({made:.0f} s)")
 
@@ -1726,11 +1785,11 @@ def main() -> int:
             off += len(v)
         v, f, n = np.vstack(vs), np.vstack(fs), np.vstack(ns)
         uvc = None
-        if label in FIXED_UV and label != "static_badge":
+        if label in FIXED_UV and label not in BADGE_UV:
             if any(u is None for u in uvcs):
                 raise ValueError(f"{label}: a piece of bike_pieces' without the fixed UVs this shape needs")
             uvc = np.vstack(uvcs)
-        elif label == "static_badge":   # the badges' own layout, over our emblem
+        elif label in BADGE_UV:   # the badges' own layout, over our emblem (per island: the split plates' are the same)
             buv = np.asarray(BP.badge_uvs(worn_v(v), f), dtype=np.float64)
             uvc = buv[f] if buv.shape == (len(v), 2) else buv.reshape(len(f), 3, 2)
         if len(v) > MAX_VERTS:
@@ -1756,7 +1815,12 @@ def main() -> int:
              "tail and signal lenses": lens_all, "front_dialglow": worn_tris(shapes["front_dialglow"]),
              "rear_tail": worn_tris(shapes["rear_tail"])}
     started = time.time()
-    gaps = overlay_gaps([(name, base, worn_v(shapes[name]["v"]), bases[base], nominal) for name, base, nominal in OVERLAY_MIN])
+    overlays = [(name, base, worn_v(shapes[name]["v"]), bases[base], nominal) for name, base, nominal in OVERLAY_MIN]
+    if look:   # 2026-11-07a: the fender patch over the rear fender (static_paint's glTF mesh REAR_FENDER_MESH)
+        sp_ = shapes["static_paint"]
+        overlays.append((FENDER_BADGE, "rear fender", worn_v(shapes[FENDER_BADGE]["v"]),
+                         worn_tris(sp_, sp_["src"] == REAR_FENDER_MESH), BP.FENDER_PATCH_LIFT))
+    gaps = overlay_gaps(overlays)
     for name, base, nominal, exact, half in gaps:
         print(f"  overlay {name} over {base}: {exact:.3f} off ({half:.3f} in half floats; nominal {nominal})")
     sp_w, ax_w = np.array(to_worn(parts["steer_point"])), np.array(steer_axis_worn)
@@ -1778,6 +1842,10 @@ def main() -> int:
         return np.column_stack([-v[:, 0], -v[:, 1] + seat_at, v[:, 2]])
 
     spheres = {label: sphere_of(turned(s["v"])) for label, s in shapes.items()}
+    if look:   # the split badges share the three's union sphere, 2026-11-06a's static_badge's (see BADGE_SPLIT)
+        union = sphere_of(turned(np.vstack([shapes[b]["v"] for b in BADGE_SPLIT])))
+        for b in BADGE_SPLIT:
+            spheres[b] = union
     pivot = np.array([float(x) for x in (needle_keys["NeedlePoint"].split(",") if isinstance(needle_keys["NeedlePoint"], str)
                                          else needle_keys["NeedlePoint"])])
     # The needle turns about its pivot: its sphere there, as long as the needle, so the sweep never leaves it.
@@ -1822,7 +1890,8 @@ def main() -> int:
                 role=s["role"], mat=mat_of[label], verts=len(s["v"]), tris=len(s["f"]),
                 uv="fixed" if label in FIXED_UV else "unwrap", max_verts=MAX_VERTS,
                 sources=sorted(set(int(x) for x in s["src"]) - {-1}), ours=bool((s["src"] == -1).any()),
-                parked=label not in WORN_ONLY, parked_hidden=label in PARKED_HIDDEN)
+                parked=label not in WORN_ONLY, parked_hidden=label in PARKED_HIDDEN and not look,
+                **({"parked_off": label in PARKED_OFF} if look else {}))
         if exporting:
             (stage / "shapes").mkdir(parents=True, exist_ok=True)
             written, kept = [], []
@@ -1886,8 +1955,8 @@ def main() -> int:
                 if s["uvc"] is not None and np.abs(uvc - s["uvc"]).max() > 1e-3:
                     print(f"  {label}: the texture stage's UVs differ from the fixed ones by up to "
                           f"{np.abs(uvc - s['uvc']).max():.4f} (the stage's are used)")
-            elif s["uvc"] is not None:
-                uvc = s["uvc"]
+            elif s["uvc"] is not None:   # a fixed-UV shape the texture stage hasn't seen (2026-11-07a's): its rule
+                uvc = np.round(s["uvc"] * 32768.0) / 32768.0   # (bike_textures.write_uv: quantised to 1/32768)
             else:
                 print(f"{uv_file} is missing: run the texture stage (bike_textures.py) on {args.stage_dir}", file=sys.stderr)
                 return 1
@@ -1914,15 +1983,17 @@ def main() -> int:
     if not palette:
         print("the UV seams: " + ", ".join(f"{label} {len(shapes[label]['v'])}->{len(x['v'])}" for label, x in final.items()))
 
-    def material_name(label, worn):
+    def material_name(label, worn, off=False):
         if not use_bgsm:
             return ""
-        return f"Materials\\CMB\\Bike\\{final[label]['mat']}{'_worn' if worn else ''}.bgsm"
+        return f"Materials\\CMB\\Bike\\{final[label]['mat']}{'_off' if off else '_worn' if worn else ''}.bgsm"
 
     base = Base(vshape)
 
     # Parked: the vanilla nif, its shape hidden, ours added: not the lit overlays (the plain lens and dial show), the
-    # under-bar mirrors hidden by the node flag (there for a preview and a later swap; the stock mirror shows).
+    # under-bar mirrors hidden by the node flag (there for a preview and a later swap; the stock mirror shows); since
+    # 2026-11-07a (--look-slots 1) not hidden but drawn with the invisible material, <label>_off.bgsm (PARKED_OFF),
+    # which the mirror options' MSWPs swap for <label>.bgsm.
     parked = args.out / "CMB_BikeParked.nif"
     parked.write_bytes(args.vanilla.read_bytes())
     nif = NifFile(str(parked))
@@ -1931,10 +2002,11 @@ def main() -> int:
     for label, x in final.items():
         if label in WORN_ONLY:
             continue
+        off = look and label in PARKED_OFF
+        sh, tmat = (shaders[OFF_MAT], OFF_MAT) if off else (shaders[label], x["mat"])
         new = add_shape(nif, f"CMB_Bike_{label}", rows(x["v"]), rows(x["f"]), rows(x["uv"]), rows(x["n"]), base, base.use_type,
-                        shaders[label], False, False, texture_paths(shaders[label], x["mat"], False, palette),
-                        material_name(label, False))
-        if label in PARKED_HIDDEN:
+                        sh, False, False, texture_paths(sh, tmat, False, palette), material_name(label, False, off))
+        if label in PARKED_HIDDEN and not look:
             new.flags = new.flags | 1
     nif.save()
     check = NifFile(str(parked))

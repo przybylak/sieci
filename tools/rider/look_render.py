@@ -118,6 +118,23 @@ SETS["t49disc"] = ["t49_disc_r", "t49_discF_l", "t49_discR_close", "t49_discF_cl
 SETS["t49mirror"] = ["t49_mirror_eye", "t49_mirror_egg", "t49_mirror_out", "t49_night_mirror", "t49_night_mirror_out"]
 SETS["t49"] = [v for k in ("t49tank", "t49seat", "t49disc", "t49mirror") for v in SETS[k]]
 SHEETS = {"closeups": SETS["close"]}
+# the look sheets (--sheet all, since 2026-11-07a): every option of a slot on the parked bike, the worn one and the
+# bench's preview. The plates' centres and outward normals from the shipped static_badge (worn frame: the left plate
+# (-13.3, 32.5, 77) facing (-0.98, -0.19, 0.10), the right one mirrored); the fender patch at y -48, z 63 seen from
+# behind. The preview: the item's world model (the parked nif) turned 135 degrees about z (CMB_BikeLookPreview), seen
+# from the inventory camera's side, roughly: its real framing is the test's to tune.
+PREVIEW = dict(cam=(235, -205, 105), at=(0, 22, 50), lens=50, parked=True)
+LOOK_FRAMES = {
+    "TankL": {"parked": dict(cam=(-72, 21, 83), at=(-13.3, 32.5, 77), lens=60, parked=True),
+              "worn": dict(cam=(-72, 21, 83), at=(-13.3, 32.5, 77), lens=60), "preview": PREVIEW},
+    "TankR": {"parked": dict(cam=(73, 21, 83), at=(14.5, 32.5, 77), lens=60, parked=True),
+              "worn": dict(cam=(73, 21, 83), at=(14.5, 32.5, 77), lens=60), "preview": PREVIEW},
+    "Fender": {"parked": dict(cam=(0, -122, 100), at=(0, -48, 63), lens=75, parked=True),
+               "worn": dict(cam=(0, -122, 100), at=(0, -48, 63), lens=75), "preview": PREVIEW},
+    "Paint": {"parked": dict(VIEWS["parked34"]), "worn": dict(VIEWS["front34"]), "preview": PREVIEW},
+    "Mirrors": {"parked": dict(cam=(105, 118, 122), at=(22, 42, 93), lens=45, parked=True),
+                "worn": dict(cam=(105, 118, 122), at=(22, 42, 93), lens=45), "preview": PREVIEW},
+}
 
 # the plugin's roles by name (CMB_Slope.c g_roleTags, first fit wins); 27c's names give 27c's roles with it
 TURNING = {"front", "glow", "backlight", "needle", "fork", "wheelF"}
@@ -463,7 +480,6 @@ def read_parts(path):
 def shape_shader(P, nifly, f, s, data, use_bgsm):
     """The shader as the game reads it: the material file when the name is one found under data, else the block."""
     from ctypes import create_string_buffer
-    from pyn.bgsmaterial import BGSMaterial
     sp = s.properties
     block = P.NiShader(file=f, id=sp.shaderPropertyID, parent=s)
     p = block.properties
@@ -486,8 +502,19 @@ def shape_shader(P, nifly, f, s, data, use_bgsm):
               glow_on=bool(sf2 & 0x40) and bool(slot(2)), two_sided=bool(sf2 & 0x10), cast=bool(sf1 & 0x200),
               alpha=alpha, mat_alpha=p.Alpha,
               tex=dict(d=slot(0), n=slot(1), g=slot(2), cube=slot(4), s=slot(7)), under="")
+    return material_shader(sh, name, data, use_bgsm)
+
+
+def material_shader(block, name, data, use_bgsm):
+    """The shader from a nif block's values (`block`) and the material file `name` names, as the game reads it: the
+    file's values when it is found under data (the block is ignored then), else the block's. A material swap gives the
+    same with the swap's target as the name (since 2026-11-07a)."""
+    sh = {k: v for k, v in block.items() if k != "block"}
+    sh["name"] = name
+    sh["block"] = {k: v for k, v in block.items() if k != "block"}
     mat = data.find(name) if (use_bgsm and name.lower().endswith(".bgsm")) else None
     if mat is not None:
+        from pyn.bgsmaterial import BGSMaterial
         m = BGSMaterial(str(mat))
         t = m.textures
         sh.update(source="bgsm", path=str(mat), spec_on=bool(m.specularEnabled), smooth=float(np.clip(m.smoothness, 0, 1)),
@@ -499,11 +526,92 @@ def shape_shader(P, nifly, f, s, data, use_bgsm):
                          if (m.alphblend0 or m.alphatest) else None), mat_alpha=m.Alpha,
                   tex=dict(d=t.get("Diffuse", ""), n=t.get("Normal", ""), g=t.get("Glow", ""),
                            cube=t.get("EnvMap", ""), s=t.get("Specular", "")), under="textures")
+        sh["uv"] = material_uv(mat)
+        sh["palette"] = material_palette(mat)
     elif name.lower().endswith(".bgsm"):
         sh["source"] = "nif (no " + name + ")" if use_bgsm else "nif (--bgsm 0)"
     if not sh["emit_on"] or (max(sh["emit_col"]) * sh["emit_mult"] <= 0 and not sh["glow_on"]):
         sh["emit_on"] = False
     return sh
+
+
+def material_palette(path):
+    """(the palette texture, its row's v) when the material colours its diffuse through a palette (Fallout 4's
+    grayscale_to_palette_color: the diffuse's grey is u, grayscale_to_palette_scale v, the greyscale slot the
+    palette; the 2026-11-07a paint rows), else None."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import bgsm as bgsm_rw
+    m = bgsm_rw.read(path)
+    if m.get("grayscale_to_palette_color") and m["textures"].get("greyscale"):
+        return m["textures"]["greyscale"], float(m["grayscale_to_palette_scale"])
+    return None
+
+
+def material_uv(path):
+    """A material file's UV transform and tiling (bgsm.py; uv' = uv x scale + offset, tile bits 1 u, 2 v), or None when
+    it is the identity with both wrapped, as every material before the 2026-11-07a badges'."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import bgsm as bgsm_rw
+    m = bgsm_rw.read(path)
+    uv = (m["uv_scale_u"], m["uv_scale_v"], m["uv_offset_u"], m["uv_offset_v"], m["tile_flags"])
+    return None if uv == (1.0, 1.0, 0.0, 0.0, 3) else uv
+
+
+# ----------------------------------------------------------------------------------------------------------------
+# the customisation's choices (since 2026-11-07a): look_options.json's material swaps
+
+def mat_key(path):
+    """A material path as look_options.json writes it (relative to Data\\Materials), lower case, for matching."""
+    p = path.replace("/", "\\").strip("\\").lower()
+    return p[len("materials\\"):] if p.startswith("materials\\") else p
+
+
+def compose_swaps(opts, choice):
+    """{source key: target path} for the choices {slot key: option key} (unchosen slots keep their sources).
+    TankR's "Same as the left" shows the left's choice, as the controller composes it."""
+    slots = {s["key"]: s for s in opts["slots"]}
+    out = {}
+    for sk, key in choice.items():
+        s = slots[sk]
+        o = next((o for o in s["options"] if o["key"] == key), None)
+        if o is None:
+            raise SystemExit(f"--swap: no option {key!r} in {sk} ({', '.join(x['key'] for x in s['options'])})")
+        if o["kind"] == "follow":
+            tl = slots["TankL"]
+            left = choice.get("TankL", tl["options"][tl["default"]]["key"])
+            o = next(x for x in s["options"] if x["key"] == left)
+        for src, dst in o["swap"]:
+            out[mat_key(src)] = dst
+    return out
+
+
+def mirror_code(opts, choice):
+    """The worn bike's mirror for a Mirrors choice (the plugin's speck by CMB_LookCode), else None."""
+    if "Mirrors" not in choice:
+        return None
+    s = next(s for s in opts["slots"] if s["key"] == "Mirrors")
+    return next(o["mirror"] for o in s["options"] if o["key"] == choice["Mirrors"])
+
+
+def parse_choice(spec):
+    out = {}
+    for part in (spec or "").split(","):
+        if part.strip():
+            k, v = part.split(":", 1)
+            out[k.strip()] = v.strip()
+    return out
+
+
+def parse_alias(specs):
+    """OLD=NEW pairs (material paths): a shape naming OLD is taken as naming NEW before the swaps, e.g. a test of the
+    badge swaps on a build before the split badges (static_badge -> static_badgeTankL)."""
+    out = {}
+    for spec in specs or []:
+        for part in spec.split(","):
+            if "=" in part:
+                a, b = part.split("=", 1)
+                out[mat_key(a)] = mat_key(b)
+    return out
 
 
 def read_nif(pyn_dir, path, data, use_bgsm, to_worn=None):
@@ -536,6 +644,25 @@ def read_nif(pyn_dir, path, data, use_bgsm, to_worn=None):
 # ----------------------------------------------------------------------------------------------------------------
 # Blender
 
+def game_standin(game_path, kind, w=256, h=256):
+    """A game texture we don't hold (the "(game art)" badges, by path in the game): grey with its name on it, flat
+    normal, low specular. (h, w, 4) uint8, first row the top."""
+    if kind == "n":
+        return np.dstack([np.full((h, w), 128), np.full((h, w), 128), np.full((h, w), 255), np.full((h, w), 255)]).astype(np.uint8)
+    if kind == "s":
+        return np.dstack([np.full((h, w), 60), np.full((h, w), 90), np.zeros((h, w)), np.full((h, w), 255)]).astype(np.uint8)
+    img = np.full((h, w, 3), 128, np.uint8)
+    img[::32, :] = img[:, ::32] = 104
+    img[:6], img[-6:], img[:, :6], img[:, -6:] = 60, 60, 60, 60
+    draw_text(img, 10, h // 2 - 24, "GAME ART", 3, (235, 235, 235))
+    stem = Path(game_path.replace("\\", "/")).stem.upper()
+    for i in range(0, len(stem), 18):
+        draw_text(img, 10, h // 2 + 4 + 20 * (i // 18), stem[i:i + 18], 2, (235, 235, 235))
+    a = np.full((h, w), 255, np.uint8)
+    a[:2], a[-2:], a[:, :2], a[:, -2:] = 0, 0, 0, 0     # a clear edge, as a decal's: a clamped lookup stays clear
+    return np.dstack([img, a])
+
+
 class Scene:
     def __init__(self, args, data):
         import bpy
@@ -546,6 +673,8 @@ class Scene:
         self.env_dir = Path(args.env)
         self.env_dir.mkdir(parents=True, exist_ok=True)
         self.objects = {"worn": [], "parked": []}
+        self.standins = set()        # game texture paths (lower case) drawn as labelled grey stand-ins: we hold none
+        self.swapped = {}            # (shape, target) -> its Blender material, for the look sheets
 
     # --- images
     def image(self, key, rgba, colour):
@@ -567,6 +696,11 @@ class Scene:
         if not game_path:
             return None
         p = self.data.find(game_path, under) or self.data.find(game_path, "textures")
+        if p is None and game_path.replace("/", "\\").lower() in self.standins:
+            key = f"{kind}:standin:{game_path.lower()}"
+            if key not in self.images:
+                self.log.append(f"game texture {game_path}: a labelled grey stand-in (by path in the game)")
+            return self.image(key, game_standin(game_path, kind), "Non-Color" if kind in ("n", "s") else "sRGB")
         if p is None:
             self.log.append(f"missing texture {game_path}")
             return None
@@ -582,7 +716,19 @@ class Scene:
             g = (y + 1) / 2 if self.args.normal_green == "gl" else 1 - (y + 1) / 2
             a = np.stack([(x + 1) / 2, g, (z + 1) / 2, np.ones_like(x)], -1).astype(np.float32)
             a = (a * 255 + 0.5).astype(np.uint8)
-        return self.image(key, a, "Non-Color" if kind in ("n", "s") else "sRGB")
+        return self.image(key, a, "Non-Color" if kind in ("n", "s", "i") else "sRGB")
+
+    def palette(self, game_path, under):
+        """A palette texture (one mip, sRGB colours), or None when it isn't there."""
+        p = self.data.find(game_path, under) or self.data.find(game_path, "textures")
+        if p is None:
+            self.log.append(f"missing palette {game_path}")
+            return None
+        key = f"p:{p}"
+        if key not in self.images:
+            faces, fmt, _ = read_dds(p)
+            self.log.append(f"palette {game_path}: {faces[0].shape[1]}x{faces[0].shape[0]} {fmt}")
+        return self.images.get(key) or self.image(key, read_dds(p)[0][0], "sRGB")
 
     def env(self, game_path, under):
         """An equirect for a cube path: ours decoded, a vanilla one's stand-in."""
@@ -627,12 +773,24 @@ class Scene:
         uv = N_("ShaderNodeUVMap")
         uv.uv_map = "UVMap"
         geo = N_("ShaderNodeNewGeometry")
+        uvx = sh.get("uv")
+        uv_out = uv.outputs["UV"]
+        if uvx is not None:          # the material's UV transform (the badges' atlas cells); Blender's v runs up
+            su, sv, ou, ov, tiles = uvx
+            mad = N_("ShaderNodeVectorMath")
+            mad.operation = "MULTIPLY_ADD"
+            L_(uv_out, mad.inputs[0])
+            mad.inputs[1].default_value = (su, sv, 1.0)
+            mad.inputs[2].default_value = (ou, 1.0 - sv - ov, 0.0)
+            uv_out = mad.outputs["Vector"]
 
         def tex(img):
             t = N_("ShaderNodeTexImage")
             t.image = img
             t.interpolation = "Linear"
-            L_(uv.outputs["UV"], t.inputs["Vector"])
+            if uvx is not None and not (uvx[4] & 3):
+                t.extension = "EXTEND"       # clamped
+            L_(uv_out, t.inputs["Vector"])
             return t
 
         def math(op, a, b=None, c=None):
@@ -647,12 +805,26 @@ class Scene:
                     L_(x, n.inputs[i])
             return n.outputs[0]
 
-        td = self.texture(sh["tex"]["d"], sh["under"], "d")
+        pal = sh.get("palette")
+        td = self.texture(sh["tex"]["d"], sh["under"], "i" if pal else "d")    # a palette's index: its raw grey
         ts = self.texture(sh["tex"]["s"], sh["under"], "s")
         tn = self.texture(sh["tex"]["n"], sh["under"], "n")
         tg = self.texture(sh["tex"]["g"], sh["under"], "g") if sh["glow_on"] else None
         dnode = tex(td) if td else None
         base = dnode.outputs["Color"] if dnode else None
+        tp = self.palette(pal[0], sh["under"]) if (pal and dnode) else None
+        if tp is not None:           # the palette: u the index's grey (R), v the row (Blender's v runs up)
+            sep_i = N_("ShaderNodeSeparateColor")
+            L_(base, sep_i.inputs["Color"])
+            co = N_("ShaderNodeCombineXYZ")
+            L_(sep_i.outputs["Red"], co.inputs["X"])
+            co.inputs["Y"].default_value = 1.0 - pal[1]
+            pn = N_("ShaderNodeTexImage")
+            pn.image = tp
+            pn.interpolation = "Linear"
+            pn.extension = "EXTEND"
+            L_(co.outputs["Vector"], pn.inputs["Vector"])
+            base = pn.outputs["Color"]
         if tn:
             nm = N_("ShaderNodeNormalMap")
             nm.space = "TANGENT"
@@ -798,12 +970,43 @@ class Scene:
                 n = s["n"] / np.maximum(np.linalg.norm(s["n"], axis=1, keepdims=True), 1e-9)
                 me.normals_split_custom_set_from_vertices(n.tolist())
             me.materials.append(self.material(s["shader"], s["name"]))
+            s["mat0"] = me.materials[0]
             ob = bpy.data.objects.new(s["name"], me)
             self.sc.collection.objects.link(ob)
             ob.visible_glossy = False                  # no ray-traced reflections: the game has none
             ob.visible_shadow = bool(s["shader"]["cast"])
             s["ob"] = ob
             self.objects[which].append(s)
+
+    def apply_swaps(self, swaps, aliases=None):
+        """Point every shape whose material (after the aliases) is a swap's source at the target's material, as the
+        game's material swap does (since 2026-11-07a); a shape whose source isn't swapped, or is swapped to itself,
+        gets its own back. Returns how many shapes show a swapped material."""
+        aliases = aliases or {}
+        n = 0
+        self.swap_missing = set()
+        for which in ("worn", "parked"):
+            for s in self.objects[which]:
+                key = mat_key(s["shader"]["block"]["name"])
+                key = aliases.get(key, key)
+                target = swaps.get(key)
+                if target is None or mat_key(target) == key:
+                    want, sh = s["mat0"], s["shader"]
+                else:
+                    ck = (s["name"], mat_key(target))
+                    if ck not in self.swapped:
+                        sh = material_shader(s["shader"]["block"], "Materials\\" + target, self.data, self.args.bgsm)
+                        self.swapped[ck] = (self.material(sh, f"{s['name']}>{Path(target.replace(chr(92), '/')).stem}"), sh)
+                        self.log.append(f"swap {s['name']}: {target} ({sh['source']})")
+                    want, sh = self.swapped[ck]
+                    n += 1
+                    if sh["source"] != "bgsm":
+                        self.swap_missing.add(Path(target.replace(chr(92), "/")).name)
+                ob = s["ob"]
+                if ob.data.materials[0] != want:
+                    ob.data.materials[0] = want
+                ob.visible_shadow = bool(sh["cast"])
+        return n
 
     def setup(self):
         bpy, sc, a = self.bpy, self.sc, self.args
@@ -883,7 +1086,10 @@ class Scene:
         cy.use_adaptive_sampling = True
         cy.adaptive_threshold = 0.05
         cy.max_bounces, cy.diffuse_bounces, cy.glossy_bounces = 3, a.bounces, 1
-        cy.transmission_bounces, cy.volume_bounces, cy.transparent_max_bounces = 0, 0, 8
+        # transparent layers: 64 (2026-11-07a; was 8), so the parked bike's two overlapping invisible under-bar
+        # mirrors (PARKED_OFF) and the fender patch don't render black where a ray crosses more than 8 of them;
+        # the game's alpha test has no such limit
+        cy.transmission_bounces, cy.volume_bounces, cy.transparent_max_bounces = 0, 0, 64
         cy.caustics_reflective = cy.caustics_refractive = False
         cy.sample_clamp_indirect = 4.0
         try:                     # the indirect light past the first bounce as AO: cheap, and close to the game's
@@ -1035,7 +1241,19 @@ def main():
     ap.add_argument("--backlight", type=int, default=1, help="[Speedo] Backlight")
     ap.add_argument("--needle", type=int, default=1, help="[Speedo] Needle")
     ap.add_argument("--set", action="append", help="override a view's state, e.g. mirrors=2, mph=40, bar=10, lamp=1")
-    ap.add_argument("--sheet", nargs="+", metavar=("OUT", "PNG"))
+    ap.add_argument("--sheet", nargs="+", metavar=("OUT", "PNG"),
+                    help="a contact sheet of PNGs; or (since 2026-11-07a) `--sheet all` or `--sheet Slot[,Slot]`: render "
+                         "every option of look_options.json's slots on the parked, worn and preview frames into --out "
+                         "(<Slot>/<index>_<key>_<frame>.png) and a sheet each, <out>/<Slot>.png")
+    ap.add_argument("--look-options", type=Path,
+                    default=Path(__file__).resolve().parent.parent / "esp-generator" / "look_options.json",
+                    help="the customisation's option table (--swap, --sheet all)")
+    ap.add_argument("--swap", help="render with these choices' material swaps composed, e.g. TankL:bos,Paint:navy "
+                                   "(look_options.json's slot and option keys; a Mirrors choice also sets the worn "
+                                   "bike's mirror, as the plugin does)")
+    ap.add_argument("--alias", action="append",
+                    help="OLD=NEW[,...] material paths: a shape naming OLD counts as naming NEW before the swaps (a test "
+                         "on nifs before the split badges: CMB\\Bike\\static_badge.bgsm=CMB\\Bike\\static_badgeTankL.bgsm)")
     ap.add_argument("--compare", nargs=4, metavar=("DIR", "PREFIX_A", "PREFIX_B", "OUT"))
     ap.add_argument("--list-views", action="store_true")
     args = ap.parse_args()
@@ -1043,7 +1261,13 @@ def main():
         for k, v in SETS.items():
             print(f"{k}: {', '.join(v)}")
         return 0
-    if args.sheet:
+    opts = json.loads(args.look_options.read_text()) if (args.swap or args.sheet) and args.look_options.exists() else None
+    look_slots = None
+    if args.sheet and len(args.sheet) == 1 and opts is not None:
+        keys = [s["key"] for s in opts["slots"]]
+        parts_ = keys if args.sheet[0] == "all" else args.sheet[0].split(",")
+        look_slots = parts_ if all(k in keys for k in parts_) else None
+    if args.sheet and look_slots is None:
         print(sheet(args.sheet[0], args.sheet[1:]))
         return 0
     if args.compare:
@@ -1055,7 +1279,7 @@ def main():
     args.out.mkdir(parents=True, exist_ok=True)
     args.env = args.env or args.out / "env"
     names = []
-    for part in args.views.split(","):
+    for part in ("parked34" if look_slots else args.views).split(","):
         names += SETS.get(part, [part])
     names = list(dict.fromkeys(names))   # a view in two of the sets given renders once
     for n in names:
@@ -1067,6 +1291,8 @@ def main():
     fit = data.find("Meshes/CMB/CMB_BikeFit.json")
     seat_at = json.loads(fit.read_text()).get("seat_at", 27.69) if fit else 27.69
     scene = Scene(args, data)
+    if opts is not None:
+        scene.standins = {t.lower() for b in opts["badges"] for t in (b["textures"] or {}).values() if t}
     scene.setup()
     worn = read_nif(args.pynifly, data.find(args.nif), data, args.bgsm)
     scene.add_shapes(worn, "worn")
@@ -1074,6 +1300,14 @@ def main():
         pk = data.find(args.parked_nif)
         parked = read_nif(args.pynifly, pk, data, args.bgsm, to_worn=(np.array([-1.0, -1.0, 1.0]), np.array([0, seat_at, 0])))
         scene.add_shapes(parked, "parked")
+    aliases = parse_alias(args.alias)
+    choice = parse_choice(args.swap)
+    if choice:
+        n = scene.apply_swaps(compose_swaps(opts, choice), aliases)
+        mc = mirror_code(opts, choice)
+        if mc is not None:
+            args.set = (args.set or []) + [f"mirrors={mc}"]
+        print(f"--swap {args.swap}: {n} shapes swapped" + (f", the worn bike's mirrors {mc}" if mc is not None else ""))
     t_build = time.time() - t0
     lines = [f"data {args.data}, worn {args.nif}: {len(worn)} shapes, bgsm {args.bgsm}"]
     for s in worn:
@@ -1086,6 +1320,8 @@ def main():
     lines += sorted(set(scene.log))
     lines.append(f"scene built in {t_build:.1f} s")
     print("\n".join(lines), flush=True)
+    if look_slots:
+        return look_sheets(args, scene, parts, opts, look_slots, aliases, t0)
     timings, done = {}, {}
     for n in names:
         v = VIEWS[n]
@@ -1116,6 +1352,48 @@ def main():
                             size=list(args.size), samples=args.samples, threads=args.threads, views=names)
     tfile.write_text(json.dumps(old, indent=1))
     (args.out / f"{args.prefix}shapes.txt").write_text("\n".join(lines) + "\n")
+    print(f"total {time.time() - t0:.1f} s", flush=True)
+    return 0
+
+
+def look_sheets(args, scene, parts, opts, slot_keys, aliases, t0):
+    """--sheet all: every option of each slot on LOOK_FRAMES' frames, one sheet a slot (a row an option)."""
+    slots = {s["key"]: s for s in opts["slots"]}
+    timings = {}
+    for sk in slot_keys:
+        s = slots[sk]
+        d = args.out / sk
+        d.mkdir(parents=True, exist_ok=True)
+        paths, labels = [], []
+        for o in s["options"]:
+            choice = {sk: o["key"]}
+            n = scene.apply_swaps(compose_swaps(opts, choice), aliases)
+            mc = mirror_code(opts, choice)
+            for fname, v in LOOK_FRAMES[sk].items():
+                st = view_state(fname, v, args, parts)
+                if mc is not None:
+                    st["mirrors"] = mc
+                apply_state(scene, st, parts)
+                scene.set_preset(st["preset"], st["lamp"], parts)
+                scene.look(v["cam"], v["at"], v["lens"])
+                path = d / f"{o['index']:02d}_{o['key']}_{fname}.png"
+                scene.sc.render.filepath = str(path)
+                t1 = time.time()
+                scene.bpy.ops.render.render(write_still=True)
+                timings[f"{sk}/{path.name}"] = round(time.time() - t1, 1)
+                paths.append(path)
+                what = o["key"] + (" (= the left)" if o["kind"] == "follow" else "")
+                if scene.swap_missing:
+                    what += " (NO " + ", ".join(sorted(scene.swap_missing)) + ")"
+                labels.append(f"{sk} {o['index']} {what} - {fname}")
+            print(f"{sk} {o['index']:2d} {o['key']}: {n} shapes swapped, {len(LOOK_FRAMES[sk])} frames "
+                  f"({sum(timings[f'{sk}/{p.name}'] for p in paths[-len(LOOK_FRAMES[sk]):]):.1f} s)", flush=True)
+        out = sheet(args.out / f"{sk}.png", paths, cols=len(LOOK_FRAMES[sk]), tile_w=args.size[0], labels=labels)
+        print(f"{sk}: {len(s['options'])} options -> {out}", flush=True)
+    scene.apply_swaps({}, aliases)
+    (args.out / "look_sheets_log.txt").write_text("\n".join(sorted(set(scene.log))) + "\n")
+    (args.out / "look_sheets_timings.json").write_text(json.dumps(dict(timings, _wall_s=round(time.time() - t0, 1),
+                                                                       _size=list(args.size), _samples=args.samples), indent=1))
     print(f"total {time.time() - t0:.1f} s", flush=True)
     return 0
 

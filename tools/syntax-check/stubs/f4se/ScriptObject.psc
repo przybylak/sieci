@@ -5,6 +5,7 @@ Function GotoState(string asNewState) native
 string Function GetState() native
 Var Function CallFunction(string asFuncName, Var[] aParams) native
 ScriptObject Function CastAs(string asScriptName) native
+Var Function GetPropertyValue(string asPropertyName) native
 Function StartTimer(float afInterval, int aiTimerID = 0) native
 Function CancelTimer(int aiTimerID = 0) native
 Function RegisterForPlayerTeleport() native

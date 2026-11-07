@@ -529,6 +529,251 @@
     },
     {
       "type": "section",
+      "text": "Look"
+    },
+    {
+      "type": "switcher",
+      "text": "Customise at the bike",
+      "help": "A Customise button in the parked bike\u0027s menu: the field kit comes out of the side bag and you change the bike\u0027s badges, paint and mirrors at the armour menu. Off: no button, and the bike looks as it came.",
+      "valueOptions": {
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|8BA"
+      }
+    },
+    {
+      "type": "stepper",
+      "text": "Field kit",
+      "help": "Automatic tries the toolbox, then an armour bench, and remembers the one that worked. The others force one (for a test).",
+      "valueOptions": {
+        "options": [
+          "Automatic",
+          "Toolbox",
+          "Toolbox (armour bench keyword)",
+          "Armour bench"
+        ],
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|8C2"
+      }
+    },
+    {
+      "type": "switcher",
+      "text": "Parts from the side bag",
+      "help": "Outside your settlements the field kit uses the side bag\u0027s components as well as yours. Off: only yours (and a settlement\u0027s workshop).",
+      "valueOptions": {
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|8C4"
+      }
+    },
+    {
+      "type": "switcher",
+      "text": "Free customising (no field kit, no cost)",
+      "help": "Choose the look here instead: the choices below, then \u0022Apply the look\u0022. No field kit and no components. Off: the choices are hidden, and the bike keeps the look it has.",
+      "groupControl": 1,
+      "valueOptions": {
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|8BB"
+      }
+    },
+    {
+      "type": "dropdown",
+      "text": "Tank badge, left",
+      "help": "The badge on the tank\u0027s left side (Stock: the winged wheel, as it came).",
+      "groupCondition": 1,
+      "valueOptions": {
+        "options": [
+          "Stock (winged wheel)",
+          "None",
+          "Brotherhood of Steel",
+          "Brotherhood helmet",
+          "Enclave",
+          "Enclave helmet",
+          "Gunners",
+          "Minutemen",
+          "Railroad",
+          "Institute",
+          "Vault-Tec",
+          "Atom Cats",
+          "Raiders",
+          "Children of Atom",
+          "Pre-war army star",
+          "Gunners (game art)",
+          "Pre-war army star (game art)"
+        ],
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|8BC"
+      }
+    },
+    {
+      "type": "dropdown",
+      "text": "Tank badge, right",
+      "help": "The badge on the tank\u0027s right side. \u0022Same as the left\u0022 follows the left one.",
+      "groupCondition": 1,
+      "valueOptions": {
+        "options": [
+          "Stock (winged wheel)",
+          "None",
+          "Brotherhood of Steel",
+          "Brotherhood helmet",
+          "Enclave",
+          "Enclave helmet",
+          "Gunners",
+          "Minutemen",
+          "Railroad",
+          "Institute",
+          "Vault-Tec",
+          "Atom Cats",
+          "Raiders",
+          "Children of Atom",
+          "Pre-war army star",
+          "Gunners (game art)",
+          "Pre-war army star (game art)",
+          "Same as the left"
+        ],
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|8BD"
+      }
+    },
+    {
+      "type": "dropdown",
+      "text": "Rear fender badge",
+      "help": "A badge on the rear fender (None: as it came).",
+      "groupCondition": 1,
+      "valueOptions": {
+        "options": [
+          "None",
+          "Brotherhood of Steel",
+          "Brotherhood helmet",
+          "Enclave",
+          "Enclave helmet",
+          "Gunners",
+          "Minutemen",
+          "Railroad",
+          "Institute",
+          "Vault-Tec",
+          "Atom Cats",
+          "Raiders",
+          "Children of Atom",
+          "Pre-war army star",
+          "Gunners (game art)",
+          "Pre-war army star (game art)",
+          "Minutemen flag (game art)",
+          "Brotherhood flag (game art)"
+        ],
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|8BE"
+      }
+    },
+    {
+      "type": "dropdown",
+      "text": "Paint",
+      "help": "The tank\u0027s and fenders\u0027 paint and the coachline (Factory: the oxblood, as it came).",
+      "groupCondition": 1,
+      "valueOptions": {
+        "options": [
+          "Factory (oxblood)",
+          "Brotherhood of Steel",
+          "Enclave",
+          "Gunners",
+          "Minutemen",
+          "Railroad",
+          "Institute",
+          "Vault-Tec",
+          "Atom Cats",
+          "Raiders",
+          "Children of Atom",
+          "Pre-war army",
+          "Nuka-Cola",
+          "Red Rocket",
+          "Fire red",
+          "Oxblood",
+          "Tangerine",
+          "Rust orange",
+          "Atomic yellow",
+          "Mustard",
+          "Lime",
+          "Olive",
+          "Glow green",
+          "Forest green",
+          "Mint",
+          "Jade",
+          "Atomic teal",
+          "Deep teal",
+          "Sky blue",
+          "Steel blue",
+          "Cobalt",
+          "Navy",
+          "Violet",
+          "Plum",
+          "Hot pink",
+          "Wine",
+          "Rose",
+          "Raspberry",
+          "Gloss black",
+          "Pearl white",
+          "Silver",
+          "Gunmetal",
+          "Pre-war cream",
+          "Primer grey",
+          "Palette test: colour index"
+        ],
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|8BF"
+      }
+    },
+    {
+      "type": "stepper",
+      "text": "Mirrors",
+      "help": "The stock mirrors, mirrors under the bars (egg or D), or none.",
+      "groupCondition": 1,
+      "valueOptions": {
+        "options": [
+          "Stock",
+          "Under the bars, egg",
+          "Under the bars, D",
+          "None"
+        ],
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|8C0"
+      }
+    },
+    {
+      "type": "dropdown",
+      "text": "Faction set",
+      "help": "Sets the paint and all three badges to one faction\u0027s when you press Apply.",
+      "groupCondition": 1,
+      "valueOptions": {
+        "options": [
+          "(none)",
+          "Brotherhood of Steel",
+          "Enclave",
+          "Gunners",
+          "Minutemen",
+          "Railroad",
+          "Institute",
+          "Vault-Tec",
+          "Atom Cats",
+          "Raiders",
+          "Children of Atom",
+          "Pre-war army"
+        ],
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|8C1"
+      }
+    },
+    {
+      "type": "button",
+      "text": "Apply the look",
+      "help": "Puts these choices on the bike now (the ridden bike at the next getting on).",
+      "groupCondition": 1,
+      "action": {
+        "type": "CallGlobalFunction",
+        "script": "CMB_MCMRelay",
+        "function": "LookApply",
+        "params": []
+      }
+    },
+    {
+      "type": "section",
       "text": "Hotkeys"
     },
     {

@@ -53,8 +53,10 @@ The scripts need to be compiled to `Data\Scripts\*.pex`. Two ways:
 - **With the Creation Kit:** double-click **`compile_scripts.bat`**. It finds Fallout 4 through the registry
   (or `set FO4=D:\path\to\Fallout 4` first), unzips the vanilla script sources the first time, and compiles the
   nine core scripts (`CMB_StaggerWatchEffectScript` since 2026-11-01a). If F4SE's script sources are installed (in `Data\Scripts\Source`, `Source\F4SE` or
-  `Source\User`; with MO2 run it from MO2 so it sees them), it also compiles the two optional F4SE scripts
-  (hotkey, gear restore); otherwise it skips them, and the mod works without them.
+  `Source\User`; with MO2 run it from MO2 so it sees them), it also compiles the optional F4SE scripts (hotkey, gear
+  restore and, since 2026-11-07a, `CMB_LookF4SE`, the customised look's material swap on the parked and first-person
+  bikes: 12 `.pex` in all, as `check.sh` makes); otherwise it skips them, and the mod works without them (the bike's
+  look then stays stock on those two bikes).
 
 ## 3. Install the mod
 
@@ -119,6 +121,19 @@ This regenerates `Data/CommonwealthMotorbike.esp` and the MCM menu files (`Data/
 
 `tools/build.sh` also writes `tools/rider/template/CMB_RiderPose.esp`, the skeleton `make_rider_plugin.py` fills in.
 
+The customisation's records (since 2026-11-07a: 347, CMB_LookCode at 0x8AF and 0x8BA-0xA13) come from
+`tools/esp-generator/look_options.json`, built into the generator: the one table of the slots, options, badges, paint
+rows and faction sets, which the meshes' and badges' tools, `check_plugin.py` and `look_render.py` read too. Options
+keep their index and their records' IDs; a later build only appends. After adding options there, run `dotnet
+tools/esp-generator/bin/out/EspGenerator.dll --look-ids tools/esp-generator/look_ids.txt` and commit `look_ids.txt`: it
+only appends (it refuses to change or drop a line), and `check_plugin.py` fails when the plugin doesn't match it.
+`tools/build.sh`'s plugin check then prints `checked 102 look options in 5 slots: 101 swaps, 102 recipes on
+CMB_WorkbenchBike, 3 loose mods, sources unique per slot, CMB_LookCode 0008AF, highest 000A13; look_ids.txt 347 IDs; the
+MCM's Look section 11 controls`, `checked cmb_controllerscript: 174 properties` and `checked cmb_lookf4se: 10
+properties`; the ESP holds 562 in its header's count (208 + 347 records and the 7 new groups), its next ID 0xA14. The
+customisation's meshes, badges and paint are built by `tools/rider` ([ASSETS.md](ASSETS.md), *The customisation's
+files*).
+
 The vanilla form IDs the plugins use (PlayerRef, XMarker, HumanRace, HumanRaceSubGraphData, SpeedMult, CarryWeight, FallingDamageMod, Health, Pip-Boy, AnimArchetypePlayer) were checked against Mutagen's FormKey list generated from the real `Fallout4.esm`. The record layouts were also compared field by field with xEdit's Fallout 4 definitions.
 
 ## Appendix: building the plugin by hand in the Creation Kit
@@ -163,7 +178,9 @@ You only need this if the generated plugin turns out to have a problem and you'd
    variation), the mod's own (docs/ASSETS.md).
 2. *(no keyword: `CMB_AnimFlavorRider` lives in `CMB_RiderPose.esp`)*
 3. **Messages** (tick *Message Box*; button order matters):
-   `CMB_ParkedMenu` "Motorbike" / "What do you want to do?" with buttons `Ride`, `Open side bag`, `Cancel`.
+   `CMB_ParkedMenu` "Motorbike" / "What do you want to do?" with buttons `Ride`, `Open side bag`, `Cancel` (since
+   2026-11-07a `Ride`, `Open side bag`, `Customise`, `Cancel`, the third with the condition `GetGlobalValue CMB_LookOn
+   == 1`: the script reads 0 ride, 1 bag, 2 customise, 3 cancel).
    `CMB_KeysMenu` "Motorbike" / "Your motorbike isn't nearby." with buttons `Call it here`, `Open side bag`, `Cancel`.
 4. **Armor Addon** `CMB_BikeRiderAA`: race HumanRace, biped slot 57, male model `CMB\CMB_BikeWornRider.nif`, female model `CMB\CMB_BikeWornRiderF.nif`.
    **Armor** `CMB_BikeRiderArmor`: name "Motorbike", *Non-Playable*, slot 57, race HumanRace, addon `CMB_BikeRiderAA`, everything else 0.
@@ -183,13 +200,20 @@ You only need this if the generated plugin turns out to have a problem and you'd
 7. **Interior cell** `CMB_HoldingCell` holding four *persistent* references: `CMB_BikeRef` (the activator), `CMB_SideBagRef` (the container), `CMB_HoldingMarkerRef` (an XMarker) and `CMB_GroundProbeRef` (an XMarker that feels for the navmesh around the parked bike; once the unused `CMB_DrySpotMarkerRef`, same record).
 8. **Quest** `CMB_ControllerQuest`: *Start Game Enabled*, priority 50.
    - Reference alias `Player` (Specific Reference: PlayerRef) with script `CMB_PlayerAliasScript`.
-   - Scripts `CMB_ControllerScript` and, optionally (F4SE), `CMB_HotkeyF4SE` and `CMB_GearRestoreF4SE`.
+   - Scripts `CMB_ControllerScript` and, optionally (F4SE), `CMB_HotkeyF4SE` and `CMB_GearRestoreF4SE`, then
+     `CMB_RamScript` and, since 2026-11-07a, `CMB_LookF4SE` (F4SE; the quest's five in that order).
    - Since 2026-11-02a the controller's three new groups (`Rider_Pose_Fixes`, `Ram_Fixes`, `Fx_Own_Records`: 11
      properties, 138 in all) and `CMB_RamScript`'s `Kill_Experience` (`CMB_RamKillSpell`, `CMB_RamKillXP`: 17 in all)
      are filled with the records of the same names.
    - Since 2026-11-06a two more groups (`Rider_Fixes_51`: `CMB_KnockOffPower`, `CMB_RiderUseOwn`; `Fx_Fixes_51`:
      `CMB_FxLandDull`, `CMB_FxThudDb`, `CMB_FxLandSoundsDull`, `CMB_FxWaterLoop`, and `CMB_FxWaterRoad` =
      `CMB_FxWaterRoadLPSD`: 7 properties, 145 in all), none Mandatory.
+   - Since 2026-11-07a the group `Look_C1` (29 properties, 174 in all: the look's globals, lists, keywords, the kit's
+     furnitures, the controller's five arrays `LookSetPaint`, `LookSetTank`, `LookSetFender` (12 entries, [0] = -1),
+     `LookKeys` (102 "Slot:key"), `LookSlotStart` (0, 17, 35, 53, 98)) and `CMB_LookF4SE`'s 10, none Mandatory. The
+     customisation's 347 records are the generator's (`LookRecords`, from `look_options.json`); by hand they are too
+     many to list here: `dotnet tools/esp-generator/bin/out/EspGenerator.dll --dump Data/CommonwealthMotorbike.esp`
+     prints each.
    - The MCM's seven new controls (Riding: the four first-person sliders and "Power attacks throw you off"; Sound:
      "Landing sounds without metal" and the "Water sound loop" stepper) are in `config.json`, written by the generator.
 9. **Properties:** fill every *Mandatory* property ("Auto-Fill All" gets the vanilla ones). Script-typed properties called `Controller` point at `CMB_ControllerQuest`. `Pipboy` is the vanilla Pip-Boy armor (00021B3B), `FallingDamageMod` and `Health` the vanilla actor values (000BA43D, 000002D4).

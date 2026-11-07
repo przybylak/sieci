@@ -1,0 +1,985 @@
+{
+ "build": "2026-11-07a",
+ "about": "The customisation build's option table (since 2026-11-07a, C1): the one list of slots, options, badges, palette rows and faction sets, read by Program.cs (the records), look_paint.py (the palette and paint BGSMs), look_badges.py and look_render.py (the badge art and the contact sheets) and the checks. Save-stable: options keep their index and their records' IDs; later builds only append (at a list's end, IDs after 0xA13). Every slot's option 0 is the 2026-11-06a look (a slot's `default` is the index the game starts on: the right tank's 17 follows the left). Material paths are relative to Data\\Materials, texture paths to Data\\Textures. `swap` is the option's MSWP entries [source, target] (target = source: the identity, which puts a loaded 3D back); `follow` has no MSWP. `ids` = [MSWP, OMOD, COBJ] in CommonwealthMotorbike.esp (light; runtime FExxx + the low 12 bits). `cost` lists [component EditorID, count] (FormIDs in `components`); `perk` an EditorID of `perks`; `loose` the loose mod's MISC EditorID. Mirrors: `mirror` is CMB_LookCode's bits 0-1 (0 none, 1 stock, 2 egg, 3 D); the parked bike's swap only, the plugin does the worn and first-person bikes. Paint: `row` is the palette row of Textures\\CMB\\Bike\\paint_p.dds (256 x 64, one mip; BGSM grayscale_to_palette_scale (row + 0.5) / 64); colours a (the tank), b (the fenders), c (the coachline) are sRGB hex. `right_mirrored` (measured in step 0 on the shipped static_badge with bike_pieces.badge_uvs: the sign of (dP/du x dP/dv) . the outward normal is the same on both tank plates and the roundel, u running to the viewer's right and v down): false, both plates read true from outside, so the right slot targets the same badge_<key>.bgsm as the left.",
+ "right_mirrored": false,
+ "atlas": {
+  "diffuse": "CMB\\Bike\\badges_d.dds",
+  "normal": "CMB\\Bike\\badges_n.dds",
+  "smoothspec": "CMB\\Bike\\badges_s.dds",
+  "size": [2048, 2048],
+  "cols": 4,
+  "rows": 8,
+  "cell": [512, 256],
+  "draw": [512, 213],
+  "margin": 16,
+  "plate_rect": [0.02, 0.299, 0.98, 0.701]
+ },
+ "palette": {
+  "texture": "CMB\\Bike\\paint_p.dds",
+  "size": [256, 64],
+  "rows_used": 43,
+  "u": {
+   "primer": [0, 47],
+   "tank": [56, 127],
+   "fenders": [136, 207],
+   "coachline": [216, 255]
+  }
+ },
+ "off_material": "CMB\\Bike\\off.bgsm",
+ "slot_lists": {
+  "options": ["CMB_LookCategories", "000A12"],
+  "swaps": ["CMB_LookSwapLists", "000A13"]
+ },
+ "components": {
+  "c_Adhesive": "01FAA5",
+  "c_Cloth": "1223C7",
+  "c_Oil": "01FAB4",
+  "c_Steel": "01FABD",
+  "c_Glass": "01FAA4",
+  "c_Screws": "03D294"
+ },
+ "perks": {
+  "Armorer01": "04B254"
+ },
+ "slots": [
+  {
+   "key": "TankL",
+   "ap": "CMB_ap_TankL",
+   "name": "Tank badge, left",
+   "global": "CMB_Look_TankL",
+   "default": 0,
+   "list": "CMB_LookOptions_TankL",
+   "swaps": "CMB_LookSwaps_TankL",
+   "list_id": "000A08",
+   "swaps_id": "000A0D",
+   "sources": ["CMB\\Bike\\static_badgeTankL.bgsm", "CMB\\Bike\\static_badgeTankL_worn.bgsm"],
+   "options": [
+    {"index": 0, "key": "stock", "name": "Stock (winged wheel)", "kind": "identity", "badge": null, "row": null, "mirror": null, "cnam": null, "cost": [], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankL.bgsm", "CMB\\Bike\\static_badgeTankL.bgsm"], ["CMB\\Bike\\static_badgeTankL_worn.bgsm", "CMB\\Bike\\static_badgeTankL_worn.bgsm"]], "ids": ["0008D7", "0008D8", "0008D9"]},
+    {"index": 1, "key": "none", "name": "None", "kind": "off", "badge": null, "row": null, "mirror": null, "cnam": null, "cost": [], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankL.bgsm", "CMB\\Bike\\off.bgsm"], ["CMB\\Bike\\static_badgeTankL_worn.bgsm", "CMB\\Bike\\off.bgsm"]], "ids": ["0008DA", "0008DB", "0008DC"]},
+    {"index": 2, "key": "bos", "name": "Brotherhood of Steel", "kind": "badge", "badge": "bos", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankL.bgsm", "CMB\\Bike\\badge_bos.bgsm"], ["CMB\\Bike\\static_badgeTankL_worn.bgsm", "CMB\\Bike\\badge_bos.bgsm"]], "ids": ["0008DD", "0008DE", "0008DF"]},
+    {"index": 3, "key": "boshelm", "name": "Brotherhood helmet", "kind": "badge", "badge": "boshelm", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankL.bgsm", "CMB\\Bike\\badge_boshelm.bgsm"], ["CMB\\Bike\\static_badgeTankL_worn.bgsm", "CMB\\Bike\\badge_boshelm.bgsm"]], "ids": ["0008E0", "0008E1", "0008E2"]},
+    {"index": 4, "key": "enclave", "name": "Enclave", "kind": "badge", "badge": "enclave", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankL.bgsm", "CMB\\Bike\\badge_enclave.bgsm"], ["CMB\\Bike\\static_badgeTankL_worn.bgsm", "CMB\\Bike\\badge_enclave.bgsm"]], "ids": ["0008E3", "0008E4", "0008E5"]},
+    {"index": 5, "key": "enclavehelm", "name": "Enclave helmet", "kind": "badge", "badge": "enclavehelm", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankL.bgsm", "CMB\\Bike\\badge_enclavehelm.bgsm"], ["CMB\\Bike\\static_badgeTankL_worn.bgsm", "CMB\\Bike\\badge_enclavehelm.bgsm"]], "ids": ["0008E6", "0008E7", "0008E8"]},
+    {"index": 6, "key": "gunners", "name": "Gunners", "kind": "badge", "badge": "gunners", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankL.bgsm", "CMB\\Bike\\badge_gunners.bgsm"], ["CMB\\Bike\\static_badgeTankL_worn.bgsm", "CMB\\Bike\\badge_gunners.bgsm"]], "ids": ["0008E9", "0008EA", "0008EB"]},
+    {"index": 7, "key": "minutemen", "name": "Minutemen", "kind": "badge", "badge": "minutemen", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankL.bgsm", "CMB\\Bike\\badge_minutemen.bgsm"], ["CMB\\Bike\\static_badgeTankL_worn.bgsm", "CMB\\Bike\\badge_minutemen.bgsm"]], "ids": ["0008EC", "0008ED", "0008EE"]},
+    {"index": 8, "key": "railroad", "name": "Railroad", "kind": "badge", "badge": "railroad", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankL.bgsm", "CMB\\Bike\\badge_railroad.bgsm"], ["CMB\\Bike\\static_badgeTankL_worn.bgsm", "CMB\\Bike\\badge_railroad.bgsm"]], "ids": ["0008EF", "0008F0", "0008F1"]},
+    {"index": 9, "key": "institute", "name": "Institute", "kind": "badge", "badge": "institute", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankL.bgsm", "CMB\\Bike\\badge_institute.bgsm"], ["CMB\\Bike\\static_badgeTankL_worn.bgsm", "CMB\\Bike\\badge_institute.bgsm"]], "ids": ["0008F2", "0008F3", "0008F4"]},
+    {"index": 10, "key": "vaulttec", "name": "Vault-Tec", "kind": "badge", "badge": "vaulttec", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankL.bgsm", "CMB\\Bike\\badge_vaulttec.bgsm"], ["CMB\\Bike\\static_badgeTankL_worn.bgsm", "CMB\\Bike\\badge_vaulttec.bgsm"]], "ids": ["0008F5", "0008F6", "0008F7"]},
+    {"index": 11, "key": "atomcats", "name": "Atom Cats", "kind": "badge", "badge": "atomcats", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankL.bgsm", "CMB\\Bike\\badge_atomcats.bgsm"], ["CMB\\Bike\\static_badgeTankL_worn.bgsm", "CMB\\Bike\\badge_atomcats.bgsm"]], "ids": ["0008F8", "0008F9", "0008FA"]},
+    {"index": 12, "key": "raiders", "name": "Raiders", "kind": "badge", "badge": "raiders", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankL.bgsm", "CMB\\Bike\\badge_raiders.bgsm"], ["CMB\\Bike\\static_badgeTankL_worn.bgsm", "CMB\\Bike\\badge_raiders.bgsm"]], "ids": ["0008FB", "0008FC", "0008FD"]},
+    {"index": 13, "key": "atom", "name": "Children of Atom", "kind": "badge", "badge": "atom", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankL.bgsm", "CMB\\Bike\\badge_atom.bgsm"], ["CMB\\Bike\\static_badgeTankL_worn.bgsm", "CMB\\Bike\\badge_atom.bgsm"]], "ids": ["0008FE", "0008FF", "000900"]},
+    {"index": 14, "key": "army", "name": "Pre-war army star", "kind": "badge", "badge": "army", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankL.bgsm", "CMB\\Bike\\badge_army.bgsm"], ["CMB\\Bike\\static_badgeTankL_worn.bgsm", "CMB\\Bike\\badge_army.bgsm"]], "ids": ["000901", "000902", "000903"]},
+    {"index": 15, "key": "gunners_g", "name": "Gunners (game art)", "kind": "badge", "badge": "gunners_g", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankL.bgsm", "CMB\\Bike\\badge_gunners_g.bgsm"], ["CMB\\Bike\\static_badgeTankL_worn.bgsm", "CMB\\Bike\\badge_gunners_g.bgsm"]], "ids": ["000904", "000905", "000906"]},
+    {"index": 16, "key": "army_g", "name": "Pre-war army star (game art)", "kind": "badge", "badge": "army_g", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankL.bgsm", "CMB\\Bike\\badge_army_g.bgsm"], ["CMB\\Bike\\static_badgeTankL_worn.bgsm", "CMB\\Bike\\badge_army_g.bgsm"]], "ids": ["000907", "000908", "000909"]}
+   ]
+  },
+  {
+   "key": "TankR",
+   "ap": "CMB_ap_TankR",
+   "name": "Tank badge, right",
+   "global": "CMB_Look_TankR",
+   "default": 17,
+   "list": "CMB_LookOptions_TankR",
+   "swaps": "CMB_LookSwaps_TankR",
+   "list_id": "000A09",
+   "swaps_id": "000A0E",
+   "sources": ["CMB\\Bike\\static_badgeTankR.bgsm", "CMB\\Bike\\static_badgeTankR_worn.bgsm"],
+   "options": [
+    {"index": 0, "key": "stock", "name": "Stock (winged wheel)", "kind": "identity", "badge": null, "row": null, "mirror": null, "cnam": null, "cost": [], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankR.bgsm", "CMB\\Bike\\static_badgeTankR.bgsm"], ["CMB\\Bike\\static_badgeTankR_worn.bgsm", "CMB\\Bike\\static_badgeTankR_worn.bgsm"]], "ids": ["00090A", "00090B", "00090C"]},
+    {"index": 1, "key": "none", "name": "None", "kind": "off", "badge": null, "row": null, "mirror": null, "cnam": null, "cost": [], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankR.bgsm", "CMB\\Bike\\off.bgsm"], ["CMB\\Bike\\static_badgeTankR_worn.bgsm", "CMB\\Bike\\off.bgsm"]], "ids": ["00090D", "00090E", "00090F"]},
+    {"index": 2, "key": "bos", "name": "Brotherhood of Steel", "kind": "badge", "badge": "bos", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankR.bgsm", "CMB\\Bike\\badge_bos.bgsm"], ["CMB\\Bike\\static_badgeTankR_worn.bgsm", "CMB\\Bike\\badge_bos.bgsm"]], "ids": ["000910", "000911", "000912"]},
+    {"index": 3, "key": "boshelm", "name": "Brotherhood helmet", "kind": "badge", "badge": "boshelm", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankR.bgsm", "CMB\\Bike\\badge_boshelm.bgsm"], ["CMB\\Bike\\static_badgeTankR_worn.bgsm", "CMB\\Bike\\badge_boshelm.bgsm"]], "ids": ["000913", "000914", "000915"]},
+    {"index": 4, "key": "enclave", "name": "Enclave", "kind": "badge", "badge": "enclave", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankR.bgsm", "CMB\\Bike\\badge_enclave.bgsm"], ["CMB\\Bike\\static_badgeTankR_worn.bgsm", "CMB\\Bike\\badge_enclave.bgsm"]], "ids": ["000916", "000917", "000918"]},
+    {"index": 5, "key": "enclavehelm", "name": "Enclave helmet", "kind": "badge", "badge": "enclavehelm", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankR.bgsm", "CMB\\Bike\\badge_enclavehelm.bgsm"], ["CMB\\Bike\\static_badgeTankR_worn.bgsm", "CMB\\Bike\\badge_enclavehelm.bgsm"]], "ids": ["000919", "00091A", "00091B"]},
+    {"index": 6, "key": "gunners", "name": "Gunners", "kind": "badge", "badge": "gunners", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankR.bgsm", "CMB\\Bike\\badge_gunners.bgsm"], ["CMB\\Bike\\static_badgeTankR_worn.bgsm", "CMB\\Bike\\badge_gunners.bgsm"]], "ids": ["00091C", "00091D", "00091E"]},
+    {"index": 7, "key": "minutemen", "name": "Minutemen", "kind": "badge", "badge": "minutemen", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankR.bgsm", "CMB\\Bike\\badge_minutemen.bgsm"], ["CMB\\Bike\\static_badgeTankR_worn.bgsm", "CMB\\Bike\\badge_minutemen.bgsm"]], "ids": ["00091F", "000920", "000921"]},
+    {"index": 8, "key": "railroad", "name": "Railroad", "kind": "badge", "badge": "railroad", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankR.bgsm", "CMB\\Bike\\badge_railroad.bgsm"], ["CMB\\Bike\\static_badgeTankR_worn.bgsm", "CMB\\Bike\\badge_railroad.bgsm"]], "ids": ["000922", "000923", "000924"]},
+    {"index": 9, "key": "institute", "name": "Institute", "kind": "badge", "badge": "institute", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankR.bgsm", "CMB\\Bike\\badge_institute.bgsm"], ["CMB\\Bike\\static_badgeTankR_worn.bgsm", "CMB\\Bike\\badge_institute.bgsm"]], "ids": ["000925", "000926", "000927"]},
+    {"index": 10, "key": "vaulttec", "name": "Vault-Tec", "kind": "badge", "badge": "vaulttec", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankR.bgsm", "CMB\\Bike\\badge_vaulttec.bgsm"], ["CMB\\Bike\\static_badgeTankR_worn.bgsm", "CMB\\Bike\\badge_vaulttec.bgsm"]], "ids": ["000928", "000929", "00092A"]},
+    {"index": 11, "key": "atomcats", "name": "Atom Cats", "kind": "badge", "badge": "atomcats", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankR.bgsm", "CMB\\Bike\\badge_atomcats.bgsm"], ["CMB\\Bike\\static_badgeTankR_worn.bgsm", "CMB\\Bike\\badge_atomcats.bgsm"]], "ids": ["00092B", "00092C", "00092D"]},
+    {"index": 12, "key": "raiders", "name": "Raiders", "kind": "badge", "badge": "raiders", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankR.bgsm", "CMB\\Bike\\badge_raiders.bgsm"], ["CMB\\Bike\\static_badgeTankR_worn.bgsm", "CMB\\Bike\\badge_raiders.bgsm"]], "ids": ["00092E", "00092F", "000930"]},
+    {"index": 13, "key": "atom", "name": "Children of Atom", "kind": "badge", "badge": "atom", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankR.bgsm", "CMB\\Bike\\badge_atom.bgsm"], ["CMB\\Bike\\static_badgeTankR_worn.bgsm", "CMB\\Bike\\badge_atom.bgsm"]], "ids": ["000931", "000932", "000933"]},
+    {"index": 14, "key": "army", "name": "Pre-war army star", "kind": "badge", "badge": "army", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankR.bgsm", "CMB\\Bike\\badge_army.bgsm"], ["CMB\\Bike\\static_badgeTankR_worn.bgsm", "CMB\\Bike\\badge_army.bgsm"]], "ids": ["000934", "000935", "000936"]},
+    {"index": 15, "key": "gunners_g", "name": "Gunners (game art)", "kind": "badge", "badge": "gunners_g", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankR.bgsm", "CMB\\Bike\\badge_gunners_g.bgsm"], ["CMB\\Bike\\static_badgeTankR_worn.bgsm", "CMB\\Bike\\badge_gunners_g.bgsm"]], "ids": ["000937", "000938", "000939"]},
+    {"index": 16, "key": "army_g", "name": "Pre-war army star (game art)", "kind": "badge", "badge": "army_g", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankR.bgsm", "CMB\\Bike\\badge_army_g.bgsm"], ["CMB\\Bike\\static_badgeTankR_worn.bgsm", "CMB\\Bike\\badge_army_g.bgsm"]], "ids": ["00093A", "00093B", "00093C"]},
+    {"index": 17, "key": "sameleft", "name": "Same as the left", "kind": "follow", "badge": null, "row": null, "mirror": null, "cnam": null, "cost": [], "perk": null, "loose": null, "swap": null, "ids": [null, "00093D", "00093E"]}
+   ]
+  },
+  {
+   "key": "Fender",
+   "ap": "CMB_ap_Fender",
+   "name": "Rear fender badge",
+   "global": "CMB_Look_Fender",
+   "default": 0,
+   "list": "CMB_LookOptions_Fender",
+   "swaps": "CMB_LookSwaps_Fender",
+   "list_id": "000A0A",
+   "swaps_id": "000A0F",
+   "sources": ["CMB\\Bike\\static_badgeFender.bgsm", "CMB\\Bike\\static_badgeFender_worn.bgsm"],
+   "options": [
+    {"index": 0, "key": "none", "name": "None", "kind": "identity", "badge": null, "row": null, "mirror": null, "cnam": null, "cost": [], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeFender.bgsm", "CMB\\Bike\\static_badgeFender.bgsm"], ["CMB\\Bike\\static_badgeFender_worn.bgsm", "CMB\\Bike\\static_badgeFender_worn.bgsm"]], "ids": ["00093F", "000940", "000941"]},
+    {"index": 1, "key": "bos", "name": "Brotherhood of Steel", "kind": "badge", "badge": "bos", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeFender.bgsm", "CMB\\Bike\\badge_bos.bgsm"], ["CMB\\Bike\\static_badgeFender_worn.bgsm", "CMB\\Bike\\badge_bos.bgsm"]], "ids": ["000942", "000943", "000944"]},
+    {"index": 2, "key": "boshelm", "name": "Brotherhood helmet", "kind": "badge", "badge": "boshelm", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeFender.bgsm", "CMB\\Bike\\badge_boshelm.bgsm"], ["CMB\\Bike\\static_badgeFender_worn.bgsm", "CMB\\Bike\\badge_boshelm.bgsm"]], "ids": ["000945", "000946", "000947"]},
+    {"index": 3, "key": "enclave", "name": "Enclave", "kind": "badge", "badge": "enclave", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeFender.bgsm", "CMB\\Bike\\badge_enclave.bgsm"], ["CMB\\Bike\\static_badgeFender_worn.bgsm", "CMB\\Bike\\badge_enclave.bgsm"]], "ids": ["000948", "000949", "00094A"]},
+    {"index": 4, "key": "enclavehelm", "name": "Enclave helmet", "kind": "badge", "badge": "enclavehelm", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeFender.bgsm", "CMB\\Bike\\badge_enclavehelm.bgsm"], ["CMB\\Bike\\static_badgeFender_worn.bgsm", "CMB\\Bike\\badge_enclavehelm.bgsm"]], "ids": ["00094B", "00094C", "00094D"]},
+    {"index": 5, "key": "gunners", "name": "Gunners", "kind": "badge", "badge": "gunners", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeFender.bgsm", "CMB\\Bike\\badge_gunners.bgsm"], ["CMB\\Bike\\static_badgeFender_worn.bgsm", "CMB\\Bike\\badge_gunners.bgsm"]], "ids": ["00094E", "00094F", "000950"]},
+    {"index": 6, "key": "minutemen", "name": "Minutemen", "kind": "badge", "badge": "minutemen", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeFender.bgsm", "CMB\\Bike\\badge_minutemen.bgsm"], ["CMB\\Bike\\static_badgeFender_worn.bgsm", "CMB\\Bike\\badge_minutemen.bgsm"]], "ids": ["000951", "000952", "000953"]},
+    {"index": 7, "key": "railroad", "name": "Railroad", "kind": "badge", "badge": "railroad", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeFender.bgsm", "CMB\\Bike\\badge_railroad.bgsm"], ["CMB\\Bike\\static_badgeFender_worn.bgsm", "CMB\\Bike\\badge_railroad.bgsm"]], "ids": ["000954", "000955", "000956"]},
+    {"index": 8, "key": "institute", "name": "Institute", "kind": "badge", "badge": "institute", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeFender.bgsm", "CMB\\Bike\\badge_institute.bgsm"], ["CMB\\Bike\\static_badgeFender_worn.bgsm", "CMB\\Bike\\badge_institute.bgsm"]], "ids": ["000957", "000958", "000959"]},
+    {"index": 9, "key": "vaulttec", "name": "Vault-Tec", "kind": "badge", "badge": "vaulttec", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeFender.bgsm", "CMB\\Bike\\badge_vaulttec.bgsm"], ["CMB\\Bike\\static_badgeFender_worn.bgsm", "CMB\\Bike\\badge_vaulttec.bgsm"]], "ids": ["00095A", "00095B", "00095C"]},
+    {"index": 10, "key": "atomcats", "name": "Atom Cats", "kind": "badge", "badge": "atomcats", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeFender.bgsm", "CMB\\Bike\\badge_atomcats.bgsm"], ["CMB\\Bike\\static_badgeFender_worn.bgsm", "CMB\\Bike\\badge_atomcats.bgsm"]], "ids": ["00095D", "00095E", "00095F"]},
+    {"index": 11, "key": "raiders", "name": "Raiders", "kind": "badge", "badge": "raiders", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeFender.bgsm", "CMB\\Bike\\badge_raiders.bgsm"], ["CMB\\Bike\\static_badgeFender_worn.bgsm", "CMB\\Bike\\badge_raiders.bgsm"]], "ids": ["000960", "000961", "000962"]},
+    {"index": 12, "key": "atom", "name": "Children of Atom", "kind": "badge", "badge": "atom", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeFender.bgsm", "CMB\\Bike\\badge_atom.bgsm"], ["CMB\\Bike\\static_badgeFender_worn.bgsm", "CMB\\Bike\\badge_atom.bgsm"]], "ids": ["000963", "000964", "000965"]},
+    {"index": 13, "key": "army", "name": "Pre-war army star", "kind": "badge", "badge": "army", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeFender.bgsm", "CMB\\Bike\\badge_army.bgsm"], ["CMB\\Bike\\static_badgeFender_worn.bgsm", "CMB\\Bike\\badge_army.bgsm"]], "ids": ["000966", "000967", "000968"]},
+    {"index": 14, "key": "gunners_g", "name": "Gunners (game art)", "kind": "badge", "badge": "gunners_g", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeFender.bgsm", "CMB\\Bike\\badge_gunners_g.bgsm"], ["CMB\\Bike\\static_badgeFender_worn.bgsm", "CMB\\Bike\\badge_gunners_g.bgsm"]], "ids": ["000969", "00096A", "00096B"]},
+    {"index": 15, "key": "army_g", "name": "Pre-war army star (game art)", "kind": "badge", "badge": "army_g", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeFender.bgsm", "CMB\\Bike\\badge_army_g.bgsm"], ["CMB\\Bike\\static_badgeFender_worn.bgsm", "CMB\\Bike\\badge_army_g.bgsm"]], "ids": ["00096C", "00096D", "00096E"]},
+    {"index": 16, "key": "minutemen_g", "name": "Minutemen flag (game art)", "kind": "badge", "badge": "minutemen_g", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeFender.bgsm", "CMB\\Bike\\badge_minutemen_g.bgsm"], ["CMB\\Bike\\static_badgeFender_worn.bgsm", "CMB\\Bike\\badge_minutemen_g.bgsm"]], "ids": ["00096F", "000970", "000971"]},
+    {"index": 17, "key": "bosflag_g", "name": "Brotherhood flag (game art)", "kind": "badge", "badge": "bosflag_g", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeFender.bgsm", "CMB\\Bike\\badge_bosflag_g.bgsm"], ["CMB\\Bike\\static_badgeFender_worn.bgsm", "CMB\\Bike\\badge_bosflag_g.bgsm"]], "ids": ["000972", "000973", "000974"]}
+   ]
+  },
+  {
+   "key": "Paint",
+   "ap": "CMB_ap_Paint",
+   "name": "Paint",
+   "global": "CMB_Look_Paint",
+   "default": 0,
+   "list": "CMB_LookOptions_Paint",
+   "swaps": "CMB_LookSwaps_Paint",
+   "list_id": "000A0B",
+   "swaps_id": "000A10",
+   "sources": ["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_worn.bgsm"],
+   "options": [
+    {"index": 0, "key": "factory", "name": "Factory (oxblood)", "kind": "identity", "badge": null, "row": null, "mirror": null, "cnam": null, "cost": [["c_Oil", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_worn.bgsm"]], "ids": ["000975", "000976", "000977"]},
+    {"index": 1, "key": "bos", "name": "Brotherhood of Steel", "kind": "paint", "badge": null, "row": 0, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf00.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf00_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf00.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf00_worn.bgsm"]], "ids": ["000978", "000979", "00097A"]},
+    {"index": 2, "key": "enclave", "name": "Enclave", "kind": "paint", "badge": null, "row": 1, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf01.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf01_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf01.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf01_worn.bgsm"]], "ids": ["00097B", "00097C", "00097D"]},
+    {"index": 3, "key": "gunners", "name": "Gunners", "kind": "paint", "badge": null, "row": 2, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf02.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf02_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf02.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf02_worn.bgsm"]], "ids": ["00097E", "00097F", "000980"]},
+    {"index": 4, "key": "minutemen", "name": "Minutemen", "kind": "paint", "badge": null, "row": 3, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf03.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf03_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf03.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf03_worn.bgsm"]], "ids": ["000981", "000982", "000983"]},
+    {"index": 5, "key": "railroad", "name": "Railroad", "kind": "paint", "badge": null, "row": 4, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf04.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf04_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf04.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf04_worn.bgsm"]], "ids": ["000984", "000985", "000986"]},
+    {"index": 6, "key": "institute", "name": "Institute", "kind": "paint", "badge": null, "row": 5, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf05.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf05_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf05.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf05_worn.bgsm"]], "ids": ["000987", "000988", "000989"]},
+    {"index": 7, "key": "vaulttec", "name": "Vault-Tec", "kind": "paint", "badge": null, "row": 6, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf06.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf06_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf06.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf06_worn.bgsm"]], "ids": ["00098A", "00098B", "00098C"]},
+    {"index": 8, "key": "atomcats", "name": "Atom Cats", "kind": "paint", "badge": null, "row": 7, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf07.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf07_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf07.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf07_worn.bgsm"]], "ids": ["00098D", "00098E", "00098F"]},
+    {"index": 9, "key": "raiders", "name": "Raiders", "kind": "paint", "badge": null, "row": 8, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf08.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf08_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf08.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf08_worn.bgsm"]], "ids": ["000990", "000991", "000992"]},
+    {"index": 10, "key": "atom", "name": "Children of Atom", "kind": "paint", "badge": null, "row": 9, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf09.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf09_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf09.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf09_worn.bgsm"]], "ids": ["000993", "000994", "000995"]},
+    {"index": 11, "key": "army", "name": "Pre-war army", "kind": "paint", "badge": null, "row": 10, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf10.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf10_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf10.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf10_worn.bgsm"]], "ids": ["000996", "000997", "000998"]},
+    {"index": 12, "key": "nuka", "name": "Nuka-Cola", "kind": "paint", "badge": null, "row": 11, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf11.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf11_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf11.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf11_worn.bgsm"]], "ids": ["000999", "00099A", "00099B"]},
+    {"index": 13, "key": "redrocket", "name": "Red Rocket", "kind": "paint", "badge": null, "row": 12, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf12.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf12_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf12.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf12_worn.bgsm"]], "ids": ["00099C", "00099D", "00099E"]},
+    {"index": 14, "key": "firered", "name": "Fire red", "kind": "paint", "badge": null, "row": 13, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf13.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf13_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf13.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf13_worn.bgsm"]], "ids": ["00099F", "0009A0", "0009A1"]},
+    {"index": 15, "key": "oxblood", "name": "Oxblood", "kind": "paint", "badge": null, "row": 14, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf14.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf14_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf14.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf14_worn.bgsm"]], "ids": ["0009A2", "0009A3", "0009A4"]},
+    {"index": 16, "key": "tangerine", "name": "Tangerine", "kind": "paint", "badge": null, "row": 15, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf15.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf15_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf15.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf15_worn.bgsm"]], "ids": ["0009A5", "0009A6", "0009A7"]},
+    {"index": 17, "key": "rustorange", "name": "Rust orange", "kind": "paint", "badge": null, "row": 16, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf16.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf16_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf16.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf16_worn.bgsm"]], "ids": ["0009A8", "0009A9", "0009AA"]},
+    {"index": 18, "key": "atomicyellow", "name": "Atomic yellow", "kind": "paint", "badge": null, "row": 17, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf17.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf17_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf17.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf17_worn.bgsm"]], "ids": ["0009AB", "0009AC", "0009AD"]},
+    {"index": 19, "key": "mustard", "name": "Mustard", "kind": "paint", "badge": null, "row": 18, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf18.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf18_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf18.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf18_worn.bgsm"]], "ids": ["0009AE", "0009AF", "0009B0"]},
+    {"index": 20, "key": "lime", "name": "Lime", "kind": "paint", "badge": null, "row": 19, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf19.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf19_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf19.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf19_worn.bgsm"]], "ids": ["0009B1", "0009B2", "0009B3"]},
+    {"index": 21, "key": "olive", "name": "Olive", "kind": "paint", "badge": null, "row": 20, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf20.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf20_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf20.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf20_worn.bgsm"]], "ids": ["0009B4", "0009B5", "0009B6"]},
+    {"index": 22, "key": "glowgreen", "name": "Glow green", "kind": "paint", "badge": null, "row": 21, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf21.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf21_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf21.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf21_worn.bgsm"]], "ids": ["0009B7", "0009B8", "0009B9"]},
+    {"index": 23, "key": "forestgreen", "name": "Forest green", "kind": "paint", "badge": null, "row": 22, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf22.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf22_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf22.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf22_worn.bgsm"]], "ids": ["0009BA", "0009BB", "0009BC"]},
+    {"index": 24, "key": "mint", "name": "Mint", "kind": "paint", "badge": null, "row": 23, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf23.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf23_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf23.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf23_worn.bgsm"]], "ids": ["0009BD", "0009BE", "0009BF"]},
+    {"index": 25, "key": "jade", "name": "Jade", "kind": "paint", "badge": null, "row": 24, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf24.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf24_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf24.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf24_worn.bgsm"]], "ids": ["0009C0", "0009C1", "0009C2"]},
+    {"index": 26, "key": "atomicteal", "name": "Atomic teal", "kind": "paint", "badge": null, "row": 25, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf25.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf25_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf25.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf25_worn.bgsm"]], "ids": ["0009C3", "0009C4", "0009C5"]},
+    {"index": 27, "key": "deepteal", "name": "Deep teal", "kind": "paint", "badge": null, "row": 26, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf26.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf26_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf26.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf26_worn.bgsm"]], "ids": ["0009C6", "0009C7", "0009C8"]},
+    {"index": 28, "key": "skyblue", "name": "Sky blue", "kind": "paint", "badge": null, "row": 27, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf27.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf27_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf27.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf27_worn.bgsm"]], "ids": ["0009C9", "0009CA", "0009CB"]},
+    {"index": 29, "key": "steelblue", "name": "Steel blue", "kind": "paint", "badge": null, "row": 28, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf28.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf28_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf28.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf28_worn.bgsm"]], "ids": ["0009CC", "0009CD", "0009CE"]},
+    {"index": 30, "key": "cobalt", "name": "Cobalt", "kind": "paint", "badge": null, "row": 29, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf29.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf29_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf29.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf29_worn.bgsm"]], "ids": ["0009CF", "0009D0", "0009D1"]},
+    {"index": 31, "key": "navy", "name": "Navy", "kind": "paint", "badge": null, "row": 30, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf30.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf30_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf30.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf30_worn.bgsm"]], "ids": ["0009D2", "0009D3", "0009D4"]},
+    {"index": 32, "key": "violet", "name": "Violet", "kind": "paint", "badge": null, "row": 31, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf31.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf31_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf31.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf31_worn.bgsm"]], "ids": ["0009D5", "0009D6", "0009D7"]},
+    {"index": 33, "key": "plum", "name": "Plum", "kind": "paint", "badge": null, "row": 32, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf32.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf32_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf32.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf32_worn.bgsm"]], "ids": ["0009D8", "0009D9", "0009DA"]},
+    {"index": 34, "key": "hotpink", "name": "Hot pink", "kind": "paint", "badge": null, "row": 33, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf33.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf33_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf33.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf33_worn.bgsm"]], "ids": ["0009DB", "0009DC", "0009DD"]},
+    {"index": 35, "key": "wine", "name": "Wine", "kind": "paint", "badge": null, "row": 34, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf34.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf34_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf34.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf34_worn.bgsm"]], "ids": ["0009DE", "0009DF", "0009E0"]},
+    {"index": 36, "key": "rose", "name": "Rose", "kind": "paint", "badge": null, "row": 35, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf35.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf35_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf35.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf35_worn.bgsm"]], "ids": ["0009E1", "0009E2", "0009E3"]},
+    {"index": 37, "key": "raspberry", "name": "Raspberry", "kind": "paint", "badge": null, "row": 36, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf36.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf36_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf36.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf36_worn.bgsm"]], "ids": ["0009E4", "0009E5", "0009E6"]},
+    {"index": 38, "key": "glossblack", "name": "Gloss black", "kind": "paint", "badge": null, "row": 37, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf37.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf37_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf37.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf37_worn.bgsm"]], "ids": ["0009E7", "0009E8", "0009E9"]},
+    {"index": 39, "key": "pearlwhite", "name": "Pearl white", "kind": "paint", "badge": null, "row": 38, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf38.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf38_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf38.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf38_worn.bgsm"]], "ids": ["0009EA", "0009EB", "0009EC"]},
+    {"index": 40, "key": "silver", "name": "Silver", "kind": "paint", "badge": null, "row": 39, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf39.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf39_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf39.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf39_worn.bgsm"]], "ids": ["0009ED", "0009EE", "0009EF"]},
+    {"index": 41, "key": "gunmetal", "name": "Gunmetal", "kind": "paint", "badge": null, "row": 40, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf40.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf40_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf40.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf40_worn.bgsm"]], "ids": ["0009F0", "0009F1", "0009F2"]},
+    {"index": 42, "key": "prewarcream", "name": "Pre-war cream", "kind": "paint", "badge": null, "row": 41, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf41.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf41_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf41.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf41_worn.bgsm"]], "ids": ["0009F3", "0009F4", "0009F5"]},
+    {"index": 43, "key": "primergrey", "name": "Primer grey", "kind": "paint", "badge": null, "row": 42, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rf42.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rf42_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rf42.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rf42_worn.bgsm"]], "ids": ["0009F6", "0009F7", "0009F8"]},
+    {"index": 44, "key": "test", "name": "Palette test: colour index", "kind": "paint", "badge": null, "row": 42, "mirror": null, "cnam": 0.4609375, "cost": [["c_Adhesive", 2], ["c_Oil", 2]], "perk": "Armorer01", "loose": null, "swap": [["CMB\\Bike\\static_paint.bgsm", "CMB\\Bike\\static_paint_rftest.bgsm"], ["CMB\\Bike\\static_paint_worn.bgsm", "CMB\\Bike\\static_paint_rftest_worn.bgsm"], ["CMB\\Bike\\fork_paint.bgsm", "CMB\\Bike\\fork_paint_rftest.bgsm"], ["CMB\\Bike\\fork_paint_worn.bgsm", "CMB\\Bike\\fork_paint_rftest_worn.bgsm"]], "ids": ["0009F9", "0009FA", "0009FB"]}
+   ]
+  },
+  {
+   "key": "Mirrors",
+   "ap": "CMB_ap_Mirrors",
+   "name": "Mirrors",
+   "global": "CMB_Look_Mirrors",
+   "default": 0,
+   "list": "CMB_LookOptions_Mirrors",
+   "swaps": "CMB_LookSwaps_Mirrors",
+   "list_id": "000A0C",
+   "swaps_id": "000A11",
+   "sources": ["CMB\\Bike\\front_mirrorStock.bgsm", "CMB\\Bike\\front_mirrorUnderEgg_off.bgsm", "CMB\\Bike\\front_mirrorUnderD_off.bgsm"],
+   "options": [
+    {"index": 0, "key": "stock", "name": "Stock", "kind": "mirror", "badge": null, "row": null, "mirror": 1, "cnam": null, "cost": [["c_Steel", 1], ["c_Glass", 1]], "perk": null, "loose": "CMB_miscmod_Mirrors_stock", "swap": [["CMB\\Bike\\front_mirrorStock.bgsm", "CMB\\Bike\\front_mirrorStock.bgsm"], ["CMB\\Bike\\front_mirrorUnderEgg_off.bgsm", "CMB\\Bike\\front_mirrorUnderEgg_off.bgsm"], ["CMB\\Bike\\front_mirrorUnderD_off.bgsm", "CMB\\Bike\\front_mirrorUnderD_off.bgsm"]], "ids": ["0009FC", "0009FD", "0009FE"]},
+    {"index": 1, "key": "egg", "name": "Under the bars, egg", "kind": "mirror", "badge": null, "row": null, "mirror": 2, "cnam": null, "cost": [["c_Steel", 2], ["c_Glass", 2], ["c_Screws", 1]], "perk": null, "loose": "CMB_miscmod_Mirrors_egg", "swap": [["CMB\\Bike\\front_mirrorStock.bgsm", "CMB\\Bike\\off.bgsm"], ["CMB\\Bike\\front_mirrorUnderEgg_off.bgsm", "CMB\\Bike\\front_mirrorUnderEgg.bgsm"], ["CMB\\Bike\\front_mirrorUnderD_off.bgsm", "CMB\\Bike\\front_mirrorUnderD_off.bgsm"]], "ids": ["0009FF", "000A00", "000A01"]},
+    {"index": 2, "key": "d", "name": "Under the bars, D", "kind": "mirror", "badge": null, "row": null, "mirror": 3, "cnam": null, "cost": [["c_Steel", 2], ["c_Glass", 2], ["c_Screws", 1]], "perk": null, "loose": "CMB_miscmod_Mirrors_d", "swap": [["CMB\\Bike\\front_mirrorStock.bgsm", "CMB\\Bike\\off.bgsm"], ["CMB\\Bike\\front_mirrorUnderEgg_off.bgsm", "CMB\\Bike\\front_mirrorUnderEgg_off.bgsm"], ["CMB\\Bike\\front_mirrorUnderD_off.bgsm", "CMB\\Bike\\front_mirrorUnderD.bgsm"]], "ids": ["000A02", "000A03", "000A04"]},
+    {"index": 3, "key": "none", "name": "None", "kind": "mirror", "badge": null, "row": null, "mirror": 0, "cnam": null, "cost": [["c_Screws", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\front_mirrorStock.bgsm", "CMB\\Bike\\off.bgsm"], ["CMB\\Bike\\front_mirrorUnderEgg_off.bgsm", "CMB\\Bike\\front_mirrorUnderEgg_off.bgsm"], ["CMB\\Bike\\front_mirrorUnderD_off.bgsm", "CMB\\Bike\\front_mirrorUnderD_off.bgsm"]], "ids": ["000A05", "000A06", "000A07"]}
+   ]
+  }
+ ],
+ "badges": [
+  {
+   "key": "bos",
+   "name": "Brotherhood of Steel",
+   "art": "ours",
+   "cell": [0, 0],
+   "motif": "winged sword over a cog",
+   "colours": {
+    "ground": "9a1b1f",
+    "emblem": ["c9a227", "a8adb3"]
+   },
+   "textures": null,
+   "material": "CMB\\Bike\\badge_bos.bgsm",
+   "slots": ["TankL", "TankR", "Fender"]
+  },
+  {
+   "key": "boshelm",
+   "name": "Brotherhood helmet",
+   "art": "ours",
+   "cell": [1, 0],
+   "motif": "a T-60-like helmet from the front, steel, a crimson visor band",
+   "colours": {
+    "ground": "3a3f45",
+    "emblem": ["a8adb3", "9a1b1f"]
+   },
+   "textures": null,
+   "material": "CMB\\Bike\\badge_boshelm.bgsm",
+   "slots": ["TankL", "TankR", "Fender"]
+  },
+  {
+   "key": "enclave",
+   "name": "Enclave",
+   "art": "ours",
+   "cell": [2, 0],
+   "motif": "a ring of stars over stripes (not the Creation Club art)",
+   "colours": {
+    "ground": "0e0f12",
+    "emblem": ["e8e8e2"]
+   },
+   "textures": null,
+   "material": "CMB\\Bike\\badge_enclave.bgsm",
+   "slots": ["TankL", "TankR", "Fender"]
+  },
+  {
+   "key": "enclavehelm",
+   "name": "Enclave helmet",
+   "art": "ours",
+   "cell": [3, 0],
+   "motif": "an X-01-like helmet from the front, black, a glowing visor slit",
+   "colours": {
+    "ground": "3a3f45",
+    "emblem": ["0e0f12", "e05a1a"]
+   },
+   "textures": null,
+   "material": "CMB\\Bike\\badge_enclavehelm.bgsm",
+   "slots": ["TankL", "TankR", "Fender"]
+  },
+  {
+   "key": "gunners",
+   "name": "Gunners",
+   "art": "ours",
+   "cell": [0, 1],
+   "motif": "a stencilled emblem",
+   "colours": {
+    "ground": "4b5320",
+    "emblem": ["0e0f12"]
+   },
+   "textures": null,
+   "material": "CMB\\Bike\\badge_gunners.bgsm",
+   "slots": ["TankL", "TankR", "Fender"]
+  },
+  {
+   "key": "minutemen",
+   "name": "Minutemen",
+   "art": "ours",
+   "cell": [1, 1],
+   "motif": "a minuteman with a musket in a ring of stars",
+   "colours": {
+    "ground": "1f3a6e",
+    "emblem": ["e6dcc0"]
+   },
+   "textures": null,
+   "material": "CMB\\Bike\\badge_minutemen.bgsm",
+   "slots": ["TankL", "TankR", "Fender"]
+  },
+  {
+   "key": "railroad",
+   "name": "Railroad",
+   "art": "ours",
+   "cell": [2, 1],
+   "motif": "a lantern",
+   "colours": {
+    "ground": "0e0f12",
+    "emblem": ["b3201c"]
+   },
+   "textures": null,
+   "material": "CMB\\Bike\\badge_railroad.bgsm",
+   "slots": ["TankL", "TankR", "Fender"]
+  },
+  {
+   "key": "institute",
+   "name": "Institute",
+   "art": "ours",
+   "cell": [3, 1],
+   "motif": "a ring emblem",
+   "colours": {
+    "ground": "e9ebe6",
+    "emblem": ["1d8a8a"]
+   },
+   "textures": null,
+   "material": "CMB\\Bike\\badge_institute.bgsm",
+   "slots": ["TankL", "TankR", "Fender"]
+  },
+  {
+   "key": "vaulttec",
+   "name": "Vault-Tec",
+   "art": "ours",
+   "cell": [0, 2],
+   "motif": "a vault-door cog, no lettering",
+   "colours": {
+    "ground": "1e4fa0",
+    "emblem": ["f2c230"]
+   },
+   "textures": null,
+   "material": "CMB\\Bike\\badge_vaulttec.bgsm",
+   "slots": ["TankL", "TankR", "Fender"]
+  },
+  {
+   "key": "atomcats",
+   "name": "Atom Cats",
+   "art": "ours",
+   "cell": [1, 2],
+   "motif": "a cat's head in an atom ring",
+   "colours": {
+    "ground": "2a7fb8",
+    "emblem": ["e05a9a"]
+   },
+   "textures": null,
+   "material": "CMB\\Bike\\badge_atomcats.bgsm",
+   "slots": ["TankL", "TankR", "Fender"]
+  },
+  {
+   "key": "raiders",
+   "name": "Raiders",
+   "art": "ours",
+   "cell": [2, 2],
+   "motif": "a spray-painted skull, ragged edges (no plate ground)",
+   "colours": {
+    "ground": null,
+    "emblem": ["c0201a", "0e0f12"]
+   },
+   "textures": null,
+   "material": "CMB\\Bike\\badge_raiders.bgsm",
+   "slots": ["TankL", "TankR", "Fender"]
+  },
+  {
+   "key": "atom",
+   "name": "Children of Atom",
+   "art": "ours",
+   "cell": [3, 2],
+   "motif": "an atom with a glowing nucleus",
+   "colours": {
+    "ground": "c08a2a",
+    "emblem": ["6a8f2a", "9cff3a"]
+   },
+   "textures": null,
+   "material": "CMB\\Bike\\badge_atom.bgsm",
+   "slots": ["TankL", "TankR", "Fender"]
+  },
+  {
+   "key": "army",
+   "name": "Pre-war army star",
+   "art": "ours",
+   "cell": [0, 3],
+   "motif": "a white five-point star in a ring",
+   "colours": {
+    "ground": "4b5320",
+    "emblem": ["e8e8e2"]
+   },
+   "textures": null,
+   "material": "CMB\\Bike\\badge_army.bgsm",
+   "slots": ["TankL", "TankR", "Fender"]
+  },
+  {
+   "key": "gunners_g",
+   "name": "Gunners (game art)",
+   "art": "game",
+   "cell": null,
+   "motif": "the game's own emblem, whole, by path",
+   "colours": null,
+   "textures": {
+    "diffuse": "Armor\\CombatArmor\\ChestDecalGunner_d.dds",
+    "normal": null,
+    "smoothspec": null
+   },
+   "material": "CMB\\Bike\\badge_gunners_g.bgsm",
+   "slots": ["TankL", "TankR", "Fender"]
+  },
+  {
+   "key": "army_g",
+   "name": "Pre-war army star (game art)",
+   "art": "game",
+   "cell": null,
+   "motif": "the game's own emblem, whole, by path",
+   "colours": null,
+   "textures": {
+    "diffuse": "Armor\\CombatArmor\\ChestDecalStar_d.dds",
+    "normal": "Armor\\CombatArmor\\ChestDecal_n.dds",
+    "smoothspec": null
+   },
+   "material": "CMB\\Bike\\badge_army_g.bgsm",
+   "slots": ["TankL", "TankR", "Fender"]
+  },
+  {
+   "key": "minutemen_g",
+   "name": "Minutemen flag (game art)",
+   "art": "game",
+   "cell": null,
+   "motif": "the game's own emblem, whole, by path",
+   "colours": null,
+   "textures": {
+    "diffuse": "SetDressing\\Minutemen\\FlagMinutemen01_d.dds",
+    "normal": "SetDressing\\Minutemen\\FlagMinutemen01_n.dds",
+    "smoothspec": "SetDressing\\Minutemen\\FlagMinutemen01_s.dds"
+   },
+   "material": "CMB\\Bike\\badge_minutemen_g.bgsm",
+   "slots": ["Fender"]
+  },
+  {
+   "key": "bosflag_g",
+   "name": "Brotherhood flag (game art)",
+   "art": "game",
+   "cell": null,
+   "motif": "the game's own emblem, whole, by path",
+   "colours": null,
+   "textures": {
+    "diffuse": "SetDressing\\BOSFlag01_d.dds",
+    "normal": "SetDressing\\BOSFlag01_n.dds",
+    "smoothspec": "SetDressing\\BOSFlag01_s.dds"
+   },
+   "material": "CMB\\Bike\\badge_bosflag_g.bgsm",
+   "slots": ["Fender"]
+  }
+ ],
+ "paint_rows": [
+  {
+   "key": "bos",
+   "name": "Brotherhood of Steel",
+   "row": 0,
+   "group": "scheme",
+   "a": "3a3f45",
+   "b": "3a3f45",
+   "c": "9a1b1f"
+  },
+  {
+   "key": "enclave",
+   "name": "Enclave",
+   "row": 1,
+   "group": "scheme",
+   "a": "0e0f12",
+   "b": "0e0f12",
+   "c": "e8e8e2"
+  },
+  {
+   "key": "gunners",
+   "name": "Gunners",
+   "row": 2,
+   "group": "scheme",
+   "a": "4b5320",
+   "b": "9a8a5c",
+   "c": "0e0f12"
+  },
+  {
+   "key": "minutemen",
+   "name": "Minutemen",
+   "row": 3,
+   "group": "scheme",
+   "a": "1f3a6e",
+   "b": "1f3a6e",
+   "c": "e6dcc0"
+  },
+  {
+   "key": "railroad",
+   "name": "Railroad",
+   "row": 4,
+   "group": "scheme",
+   "a": "0e0f12",
+   "b": "0e0f12",
+   "c": "b3201c"
+  },
+  {
+   "key": "institute",
+   "name": "Institute",
+   "row": 5,
+   "group": "scheme",
+   "a": "e9ebe6",
+   "b": "e9ebe6",
+   "c": "1d8a8a"
+  },
+  {
+   "key": "vaulttec",
+   "name": "Vault-Tec",
+   "row": 6,
+   "group": "scheme",
+   "a": "1e4fa0",
+   "b": "1e4fa0",
+   "c": "f2c230"
+  },
+  {
+   "key": "atomcats",
+   "name": "Atom Cats",
+   "row": 7,
+   "group": "scheme",
+   "a": "2a7fb8",
+   "b": "2a7fb8",
+   "c": "e05a9a"
+  },
+  {
+   "key": "raiders",
+   "name": "Raiders",
+   "row": 8,
+   "group": "scheme",
+   "a": "7a3b22",
+   "b": "6d6d68",
+   "c": "c0201a"
+  },
+  {
+   "key": "atom",
+   "name": "Children of Atom",
+   "row": 9,
+   "group": "scheme",
+   "a": "6a8f2a",
+   "b": "3f4a22",
+   "c": "c08a2a"
+  },
+  {
+   "key": "army",
+   "name": "Pre-war army",
+   "row": 10,
+   "group": "scheme",
+   "a": "4b5320",
+   "b": "4b5320",
+   "c": "e8e8e2"
+  },
+  {
+   "key": "nuka",
+   "name": "Nuka-Cola",
+   "row": 11,
+   "group": "scheme",
+   "a": "b8141c",
+   "b": "b8141c",
+   "c": "e8e8e2"
+  },
+  {
+   "key": "redrocket",
+   "name": "Red Rocket",
+   "row": 12,
+   "group": "scheme",
+   "a": "e6dcc0",
+   "b": "c21d1d",
+   "c": "c21d1d"
+  },
+  {
+   "key": "firered",
+   "name": "Fire red",
+   "row": 13,
+   "group": "swatch",
+   "a": "d92121",
+   "b": "d92121",
+   "c": "e6dcc0",
+   "hue": 0
+  },
+  {
+   "key": "oxblood",
+   "name": "Oxblood",
+   "row": 14,
+   "group": "swatch",
+   "a": "731d1d",
+   "b": "731d1d",
+   "c": "e6dcc0",
+   "hue": 0
+  },
+  {
+   "key": "tangerine",
+   "name": "Tangerine",
+   "row": 15,
+   "group": "swatch",
+   "a": "d97d21",
+   "b": "d97d21",
+   "c": "e6dcc0",
+   "hue": 30
+  },
+  {
+   "key": "rustorange",
+   "name": "Rust orange",
+   "row": 16,
+   "group": "swatch",
+   "a": "73481d",
+   "b": "73481d",
+   "c": "e6dcc0",
+   "hue": 30
+  },
+  {
+   "key": "atomicyellow",
+   "name": "Atomic yellow",
+   "row": 17,
+   "group": "swatch",
+   "a": "d9d921",
+   "b": "d9d921",
+   "c": "e6dcc0",
+   "hue": 60
+  },
+  {
+   "key": "mustard",
+   "name": "Mustard",
+   "row": 18,
+   "group": "swatch",
+   "a": "73731d",
+   "b": "73731d",
+   "c": "e6dcc0",
+   "hue": 60
+  },
+  {
+   "key": "lime",
+   "name": "Lime",
+   "row": 19,
+   "group": "swatch",
+   "a": "7dd921",
+   "b": "7dd921",
+   "c": "e6dcc0",
+   "hue": 90
+  },
+  {
+   "key": "olive",
+   "name": "Olive",
+   "row": 20,
+   "group": "swatch",
+   "a": "48731d",
+   "b": "48731d",
+   "c": "e6dcc0",
+   "hue": 90
+  },
+  {
+   "key": "glowgreen",
+   "name": "Glow green",
+   "row": 21,
+   "group": "swatch",
+   "a": "21d921",
+   "b": "21d921",
+   "c": "e6dcc0",
+   "hue": 120
+  },
+  {
+   "key": "forestgreen",
+   "name": "Forest green",
+   "row": 22,
+   "group": "swatch",
+   "a": "1d731d",
+   "b": "1d731d",
+   "c": "e6dcc0",
+   "hue": 120
+  },
+  {
+   "key": "mint",
+   "name": "Mint",
+   "row": 23,
+   "group": "swatch",
+   "a": "21d97d",
+   "b": "21d97d",
+   "c": "e6dcc0",
+   "hue": 150
+  },
+  {
+   "key": "jade",
+   "name": "Jade",
+   "row": 24,
+   "group": "swatch",
+   "a": "1d7348",
+   "b": "1d7348",
+   "c": "e6dcc0",
+   "hue": 150
+  },
+  {
+   "key": "atomicteal",
+   "name": "Atomic teal",
+   "row": 25,
+   "group": "swatch",
+   "a": "21d9d9",
+   "b": "21d9d9",
+   "c": "e6dcc0",
+   "hue": 180
+  },
+  {
+   "key": "deepteal",
+   "name": "Deep teal",
+   "row": 26,
+   "group": "swatch",
+   "a": "1d7373",
+   "b": "1d7373",
+   "c": "e6dcc0",
+   "hue": 180
+  },
+  {
+   "key": "skyblue",
+   "name": "Sky blue",
+   "row": 27,
+   "group": "swatch",
+   "a": "217dd9",
+   "b": "217dd9",
+   "c": "e6dcc0",
+   "hue": 210
+  },
+  {
+   "key": "steelblue",
+   "name": "Steel blue",
+   "row": 28,
+   "group": "swatch",
+   "a": "1d4873",
+   "b": "1d4873",
+   "c": "e6dcc0",
+   "hue": 210
+  },
+  {
+   "key": "cobalt",
+   "name": "Cobalt",
+   "row": 29,
+   "group": "swatch",
+   "a": "2121d9",
+   "b": "2121d9",
+   "c": "e6dcc0",
+   "hue": 240
+  },
+  {
+   "key": "navy",
+   "name": "Navy",
+   "row": 30,
+   "group": "swatch",
+   "a": "1d1d73",
+   "b": "1d1d73",
+   "c": "e6dcc0",
+   "hue": 240
+  },
+  {
+   "key": "violet",
+   "name": "Violet",
+   "row": 31,
+   "group": "swatch",
+   "a": "7d21d9",
+   "b": "7d21d9",
+   "c": "e6dcc0",
+   "hue": 270
+  },
+  {
+   "key": "plum",
+   "name": "Plum",
+   "row": 32,
+   "group": "swatch",
+   "a": "481d73",
+   "b": "481d73",
+   "c": "e6dcc0",
+   "hue": 270
+  },
+  {
+   "key": "hotpink",
+   "name": "Hot pink",
+   "row": 33,
+   "group": "swatch",
+   "a": "d921d9",
+   "b": "d921d9",
+   "c": "e6dcc0",
+   "hue": 300
+  },
+  {
+   "key": "wine",
+   "name": "Wine",
+   "row": 34,
+   "group": "swatch",
+   "a": "731d73",
+   "b": "731d73",
+   "c": "e6dcc0",
+   "hue": 300
+  },
+  {
+   "key": "rose",
+   "name": "Rose",
+   "row": 35,
+   "group": "swatch",
+   "a": "d9217d",
+   "b": "d9217d",
+   "c": "e6dcc0",
+   "hue": 330
+  },
+  {
+   "key": "raspberry",
+   "name": "Raspberry",
+   "row": 36,
+   "group": "swatch",
+   "a": "731d48",
+   "b": "731d48",
+   "c": "e6dcc0",
+   "hue": 330
+  },
+  {
+   "key": "glossblack",
+   "name": "Gloss black",
+   "row": 37,
+   "group": "neutral",
+   "a": "0e0f12",
+   "b": "0e0f12",
+   "c": "e6dcc0"
+  },
+  {
+   "key": "pearlwhite",
+   "name": "Pearl white",
+   "row": 38,
+   "group": "neutral",
+   "a": "e9ebe6",
+   "b": "e9ebe6",
+   "c": "e6dcc0"
+  },
+  {
+   "key": "silver",
+   "name": "Silver",
+   "row": 39,
+   "group": "neutral",
+   "a": "b8bcc0",
+   "b": "b8bcc0",
+   "c": "e6dcc0"
+  },
+  {
+   "key": "gunmetal",
+   "name": "Gunmetal",
+   "row": 40,
+   "group": "neutral",
+   "a": "3a3f45",
+   "b": "3a3f45",
+   "c": "e6dcc0"
+  },
+  {
+   "key": "prewarcream",
+   "name": "Pre-war cream",
+   "row": 41,
+   "group": "neutral",
+   "a": "e6dcc0",
+   "b": "e6dcc0",
+   "c": "e6dcc0"
+  },
+  {
+   "key": "primergrey",
+   "name": "Primer grey",
+   "row": 42,
+   "group": "neutral",
+   "a": "6d6d68",
+   "b": "6d6d68",
+   "c": "e6dcc0"
+  }
+ ],
+ "sets": [
+  {
+   "index": 0,
+   "key": "none",
+   "name": "(none)",
+   "paint": null,
+   "tank_left": null,
+   "tank_right": null,
+   "fender": null
+  },
+  {
+   "index": 1,
+   "key": "bos",
+   "name": "Brotherhood of Steel",
+   "paint": 1,
+   "tank_left": 2,
+   "tank_right": 17,
+   "fender": 1
+  },
+  {
+   "index": 2,
+   "key": "enclave",
+   "name": "Enclave",
+   "paint": 2,
+   "tank_left": 4,
+   "tank_right": 17,
+   "fender": 3
+  },
+  {
+   "index": 3,
+   "key": "gunners",
+   "name": "Gunners",
+   "paint": 3,
+   "tank_left": 6,
+   "tank_right": 17,
+   "fender": 5
+  },
+  {
+   "index": 4,
+   "key": "minutemen",
+   "name": "Minutemen",
+   "paint": 4,
+   "tank_left": 7,
+   "tank_right": 17,
+   "fender": 6
+  },
+  {
+   "index": 5,
+   "key": "railroad",
+   "name": "Railroad",
+   "paint": 5,
+   "tank_left": 8,
+   "tank_right": 17,
+   "fender": 7
+  },
+  {
+   "index": 6,
+   "key": "institute",
+   "name": "Institute",
+   "paint": 6,
+   "tank_left": 9,
+   "tank_right": 17,
+   "fender": 8
+  },
+  {
+   "index": 7,
+   "key": "vaulttec",
+   "name": "Vault-Tec",
+   "paint": 7,
+   "tank_left": 10,
+   "tank_right": 17,
+   "fender": 9
+  },
+  {
+   "index": 8,
+   "key": "atomcats",
+   "name": "Atom Cats",
+   "paint": 8,
+   "tank_left": 11,
+   "tank_right": 17,
+   "fender": 10
+  },
+  {
+   "index": 9,
+   "key": "raiders",
+   "name": "Raiders",
+   "paint": 9,
+   "tank_left": 12,
+   "tank_right": 17,
+   "fender": 11
+  },
+  {
+   "index": 10,
+   "key": "atom",
+   "name": "Children of Atom",
+   "paint": 10,
+   "tank_left": 13,
+   "tank_right": 17,
+   "fender": 12
+  },
+  {
+   "index": 11,
+   "key": "army",
+   "name": "Pre-war army",
+   "paint": 11,
+   "tank_left": 14,
+   "tank_right": 17,
+   "fender": 13
+  }
+ ]
+}
