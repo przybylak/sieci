@@ -34,6 +34,11 @@ hold. The texture stage (bike_textures.py) turns them into DDS and the materials
   mirror_cube_zup_<f>.png the same sky with +Z up (a one-file swap if the game shows it sideways)
   cube.json               the cube's conventions
 
+--plates (since the 2026-11-08a build) writes only the licence plate's index maps (look_plates.py makes the DDS, the
+palettes and the materials): plates_d/_part/_h/_s.png (2048 x 1024: the 12 designs, our own art: backgrounds, beads,
+legends in our plate font and our script, emblems from the badge drawers scaled down, stickers), plate_text_d/_h/_s.png
+(2048: the 60 preset texts, stamped in our plate font) and plates.json; the other outputs are untouched by it.
+
 Normal maps are tangent space in Fallout 4's (Direct3D) convention: red along +u, green along +v
 (down the image), blue out of the surface; written as they are (no green flip). Colours are 8-bit
 as displayed; specular/smoothness maps are linear values.
@@ -1290,6 +1295,809 @@ def cube_seams(faces):
     return float(np.mean(across)), float(np.mean(inside))
 
 
+# --- the licence plate (since the 2026-11-08a build): the plate font, the 60 texts, the 12 designs ----------------------
+# Every piece is ours: a stamped plate font drawn as stroked polylines and arcs (signed distances, so the emboss comes
+# from the same field), a monoline script of our own for two legends, and the designs' backgrounds, beads, legends and
+# emblems (the badge drawers above, scaled down). No real seal, slogan or plate layout. The plate's face is 21.62 x 9.86
+# units (look_options.json "plate_atlas" "face"); a design cell draws it in 496 x 226 at (8, 8) of 512 x 256, a text
+# cell its 20.0 x 4.52 overlay in 496 x 112 at (8, 8) of 512 x 128. Every map is an index map: a texel's grey is the U of
+# its palette row (look_plates.py makes plate_p.dds and plate_text_p.dds from plates.json), so no colour is baked here.
+
+PLATE_CAP, PLATE_STROKE, PLATE_GLYPH_W, PLATE_PITCH = 92.0, 13.0, 54.0, 70.0   # px in a text cell (24.8 a unit)
+PLATE_FIT, PLATE_CONDENSE = 480.0, 0.08          # the widest text, and how much it may be condensed to fit (at most)
+PLATE_SPACE, PLATE_NARROW = 0.6, 0.5             # advances in pitches: the space; "-", ".", "?"
+PLATE_BEVEL_PX, PLATE_BEVEL_UNITS = 3.0, 0.12    # the stamped character's cosine ramp: its width (px) and height (units)
+PLATE_LIGHT = (-0.6, -0.8)                       # the baked shade's light (screen x, y: from above, a little left)
+PLATE_LIT, PLATE_DARK = 0.15, 0.25               # the ramp facing it up to 1.15, the ramp away down to 0.75
+PLATE_TEXT_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-.?\u2665\u2605 "   # the texts' set (the 41 and the space)
+PLATE_LEGEND_EXTRA = "!'"                        # two more for the designs' legends only
+
+
+def _plate_glyphs():
+    """The plate font: {char: (centreline width, [polylines], [(filled polygon, grow)])} in a 79-px-tall centreline box
+    (the 92-px cap less the 13-px stroke), x right, y down; a regular glyph's box is 41 wide (54 inked). A polygon is
+    grown by `grow` half strokes (1: drawn on the centreline like a stroke; small: drawn at its inked size)."""
+    W, H = 41.0, 79.0
+    hr = W / 2
+
+    def stadium(x0, x1, y0=0.0, y1=H):
+        r = (x1 - x0) / 2
+        c = (x0 + x1) / 2
+        return _arc(c, y0 + r, r, 180, 360) + [(x1, y1 - r)] + _arc(c, y1 - r, r, 0, 180) + [(x0, y0 + r)]
+
+    def circle(cx, cy, r, n=24):
+        t = np.linspace(0, 2 * math.pi, n, endpoint=False)
+        return list(zip(cx + r * np.cos(t), cy + r * np.sin(t)))
+
+    g = {}
+    g["A"] = (W, [[(0, H), (15.5, 0), (25.5, 0), (W, H)], [(5.3, 52), (35.7, 52)]], [])
+    g["B"] = (W, [[(19.5, H), (0, H), (0, 0), (21, 0)] + _arc(21, 18, 18, 270, 450) + [(0, 36)],
+                  [(0, 36), (19.5, 36)] + _arc(19.5, 57.5, 21.5, 270, 450)], [])
+    g["C"] = (W, [_arc(hr, hr, hr, 330, 180) + [(0, H - hr)] + _arc(hr, H - hr, hr, 180, 30)], [])
+    g["D"] = (W, [[(0, 0), (hr, 0)] + _arc(hr, hr, hr, 270, 360) + [(W, H - hr)] + _arc(hr, H - hr, hr, 0, 90)
+                  + [(0, H), (0, 0)]], [])
+    g["E"] = (W, [[(W, 0), (0, 0), (0, H), (W, H)], [(0, 38), (34, 38)]], [])
+    g["F"] = (W, [[(W, 0), (0, 0), (0, H)], [(0, 38), (34, 38)]], [])
+    g["G"] = (W, [_arc(hr, hr, hr, 330, 180) + [(0, H - hr)] + _arc(hr, H - hr, hr, 180, 0) + [(W, 43), (23, 43)]], [])
+    g["H"] = (W, [[(0, 0), (0, H)], [(W, 0), (W, H)], [(0, 39), (W, 39)]], [])
+    g["I"] = (W, [[(hr, 0), (hr, H)], [(9, 0), (32, 0)], [(9, H), (32, H)]], [])
+    g["J"] = (W, [[(W, 0), (W, H - hr)] + _arc(hr, H - hr, hr, 0, 180) + [(0, 51)]], [])
+    g["K"] = (W, [[(0, 0), (0, H)], [(W, 0), (3, 47)], [(15, 33), (W, H)]], [])
+    g["L"] = (W, [[(0, 0), (0, H), (W, H)]], [])
+    g["M"] = (W, [[(0, H), (0, 0), (hr, 45), (W, 0), (W, H)]], [])
+    g["N"] = (W, [[(0, H), (0, 0), (W, H), (W, 0)]], [])
+    g["O"] = (W, [stadium(0, W) + [stadium(0, W)[0]]], [])
+    g["P"] = (W, [[(0, H), (0, 0), (21, 0)] + _arc(21, 20, 20, 270, 450) + [(0, 40)]], [])
+    g["Q"] = (W, [stadium(0, W) + [stadium(0, W)[0]], [(24, 56), (W, H)]], [])
+    g["R"] = (W, [[(0, H), (0, 0), (21, 0)] + _arc(21, 20, 20, 270, 450) + [(0, 40)], [(17, 40), (W, H)]], [])
+    g["S"] = (W, [_arc(hr, 19.75, 19.75, 335, 90) + _arc(hr, 59.25, 19.75, 270, 515)], [])
+    g["T"] = (W, [[(0, 0), (W, 0)], [(hr, 0), (hr, H)]], [])
+    g["U"] = (W, [[(0, 0), (0, H - hr)] + _arc(hr, H - hr, hr, 180, 0) + [(W, 0)]], [])
+    g["V"] = (W, [[(0, 0), (hr, H), (W, 0)]], [])
+    g["W"] = (W, [[(0, 0), (9, H), (hr, 28), (32, H), (W, 0)]], [])
+    g["X"] = (W, [[(0, 0), (W, H)], [(W, 0), (0, H)]], [])
+    g["Y"] = (W, [[(0, 0), (hr, 42), (W, 0)], [(hr, 42), (hr, H)]], [])
+    g["Z"] = (W, [[(0, 0), (W, 0), (0, H), (W, H)]], [])
+    g["0"] = (W, [stadium(3, 38) + [stadium(3, 38)[0]]], [])
+    g["1"] = (W, [[(6, 16), (23, 0), (23, H)], [(8, H), (38, H)]], [])
+    g["2"] = (W, [_arc(hr, 20, 20, 200, 385) + [(0, H), (W, H)]], [])
+    g["3"] = (W, [[(3, 0), (39, 0), (17, 33)] + _arc(hr, 57.5, 21.5, 262, 510)], [])
+    g["4"] = (W, [[(30, H), (30, 0), (0, 55), (W, 55)]], [])
+    g["5"] = (W, [[(38, 0), (5, 0), (3, 36)] + _arc(20, 57, 21, 232, 510)], [])
+    g["6"] = (W, [_arc(hr, hr, hr, 320, 180) + [(0, H - hr)] + _arc(hr, H - hr, hr, 180, 540)], [])
+    g["7"] = (W, [[(0, 0), (W, 0), (13, H)]], [])
+    g["8"] = (W, [_arc(hr, 18.5, 18.5, 0, 360), _arc(hr, 58, 21, 0, 360)], [])
+    g["9"] = (W, [[(W - x, H - y) for x, y in line] for line in g["6"][1]], [])
+    g["-"] = (18.0, [[(0, 42), (18, 42)]], [])
+    g["."] = (6.0, [], [(circle(3, 75, 3.5), 1.0)])
+    g["?"] = (21.0, [_arc(10.5, 12, 10.5, 180, 420) + [(10.5, 38), (10.5, 50)]], [(circle(10.5, 75, 3.5), 1.0)])
+    t = np.linspace(0, 2 * math.pi, 96, endpoint=False)
+    hx, hy = 16 * np.sin(t) ** 3, 13 * np.cos(t) - 5 * np.cos(2 * t) - 2 * np.cos(3 * t) - np.cos(4 * t)
+    g["\u2665"] = (W, [], [(list(zip(hr + hx * 1.6, 33.6 - hy * 2.3)), 0.25)])
+    g["\u2605"] = (W, [], [(star_pts(hr, 43, 31, 13), 0.25)])
+    g["!"] = (2.0, [[(1, 0), (1, 52)]], [(circle(1, 75, 3.5), 1.0)])
+    g["'"] = (4.0, [[(2, 0), (1, 20)]], [])
+    return g
+
+
+PLATE_GLYPHS = _plate_glyphs()
+
+
+def _window_sd(cv, strokes, half, fills, grow):
+    """The signed distance (negative inside) of polylines stroked 2 x half wide (round joins and caps) and of filled
+    polygons [(points, g)] grown by g x `grow`, over the canvas; 1e3 outside their box."""
+    pts = [np.asarray(s, np.float64) for s in strokes if len(s)] + [np.asarray(f, np.float64) for f, _ in fills]
+    full = np.full((cv.h, cv.w), 1e3)
+    if not pts:
+        return full
+    allp = np.concatenate(pts)
+    lo, hi = allp.min(0) - half - grow - 6, allp.max(0) + half + grow + 6
+    sl, x, y = cv.window(lo[0], lo[1], hi[0], hi[1])
+    d = np.full((sl[0].stop - sl[0].start, sl[1].stop - sl[1].start), np.inf)
+    for s in strokes:
+        s = np.asarray(s, np.float64)
+        for a, b in zip(s[:-1], s[1:]) if len(s) > 1 else [(s[0], s[0])]:
+            d = np.minimum(d, seg_dist(x, y, a, b))
+    d = d - half
+    for f, g in fills:
+        p = np.asarray(f, np.float64)
+        e = np.full(d.shape, np.inf)
+        inside = np.zeros(d.shape, bool)
+        for k in range(len(p)):
+            a, b = p[k], p[(k + 1) % len(p)]
+            e = np.minimum(e, seg_dist(x, y, a, b))
+            cond = (a[1] > y) != (b[1] > y)
+            xint = a[0] + (y - a[1]) * (b[0] - a[0]) / (b[1] - a[1] if b[1] != a[1] else 1e-12)
+            inside ^= cond & (x < xint)
+        d = np.minimum(d, np.where(inside, -e, e) - grow * g)
+    full[sl] = np.minimum(full[sl], d)
+    return full
+
+
+def plate_layout(text, cap=PLATE_CAP, stroke=PLATE_STROKE, pitch=None, fit=None, max_condense=PLATE_CONDENSE,
+                 proportional=False, gap=None):
+    """Where each character goes: ([(char, left of its centreline box, x scale)], total width, condense) for a text
+    centred on 0, in px. Monospace (the texts): each glyph centred in its advance (pitch; the space PLATE_SPACE, "-" "."
+    "?" PLATE_NARROW); proportional (the legends): each glyph's inked width plus `gap`, the space 0.5 cap. A text wider
+    than `fit` is condensed (x only) to fit, by at most max_condense (else ValueError)."""
+    k = (cap - stroke) / (PLATE_CAP - PLATE_STROKE)
+    pitch = PLATE_PITCH * cap / PLATE_CAP if pitch is None else pitch
+    gap = 0.2 * cap if gap is None else gap
+    adv = []
+    for ch in text:
+        if ch == " ":
+            adv.append(PLATE_SPACE * pitch if not proportional else 0.42 * cap)
+            continue
+        wc = PLATE_GLYPHS[ch][0] * k
+        if proportional:
+            adv.append(wc + stroke + gap)
+        else:
+            adv.append(pitch * (PLATE_NARROW if ch in "-.?!'" else 1.0))
+    total = sum(adv) - (gap if proportional and text else 0.0)
+    cond = 1.0
+    if fit is not None and total > fit:
+        cond = fit / total
+        if cond < 1 - max_condense - 1e-9:
+            raise ValueError(f"{text!r}: {total:.0f} px, more than {max_condense:.0%} over {fit:.0f}")
+    x = -total * cond / 2
+    out = []
+    for ch, a in zip(text, adv):
+        if ch != " ":
+            wc = PLATE_GLYPHS[ch][0] * k * cond
+            mid = x + (a * cond - (gap * cond if proportional else 0.0)) / 2
+            out.append((ch, mid - wc / 2, k * cond))
+        x += a * cond
+    return out, total * cond, cond
+
+
+def plate_text_sd(cv, text, cx, cy, cap=PLATE_CAP, stroke=PLATE_STROKE, slant=0.0, **kw):
+    """The signed distance (px, negative inside) of `text` in the plate font, centred at (cx, cy) (the cap's middle),
+    and its layout's (width, condense). slant: x shift per px up (an italic lean)."""
+    lay, width, cond = plate_layout(text, cap, stroke, **kw)
+    k = (cap - stroke) / (PLATE_CAP - PLATE_STROKE)
+    top = cy - cap / 2 + stroke / 2
+    sd = np.full((cv.h, cv.w), 1e3)
+    for ch, x0, kx in lay:
+        _, lines, fills = PLATE_GLYPHS[ch]
+
+        def tr(p):
+            px, py = cx + x0 + p[0] * kx, top + p[1] * k
+            return (px + slant * (cy - py), py)
+
+        sd = np.minimum(sd, _window_sd(cv, [[tr(p) for p in ln] for ln in lines], stroke / 2,
+                                       [([tr(p) for p in f], g) for f, g in fills], stroke / 2))
+    return sd, width, cond
+
+
+def emboss(sd, ramp_px, light=PLATE_LIGHT, lit=PLATE_LIT, dark=PLATE_DARK):
+    """A stamped shape's relief from its signed distance: (height 0-1, a cosine ramp `ramp_px` wide inside the
+    outline to the plateau; the baked shade, 1.0 on the plateau and outside, the ramp facing `light` up to 1 + lit and
+    the ramp away down to 1 - dark)."""
+    t = np.clip(-sd / ramp_px, 0.0, 1.0)
+    h = 0.5 - 0.5 * np.cos(math.pi * t)
+    gy, gx = np.gradient(np.clip(sd, -ramp_px - 2, ramp_px + 2))
+    n = np.hypot(gx, gy)
+    facing = (gx * light[0] + gy * light[1]) / np.maximum(n, 1e-9) * np.sin(math.pi * t)
+    shade = 1.0 + np.where(facing > 0, lit * facing, dark * facing)
+    return h, shade
+
+
+def plate_u(seg, shade, s0, s1):
+    """The U of a shade inside a palette segment (u0, u1) spanning shades s0..s1 (float; rounded by the caller)."""
+    u0, u1 = seg
+    return u0 + (u1 - u0) * np.clip((np.asarray(shade, np.float64) - s0) / (s1 - s0), 0.0, 1.0)
+
+
+def draw_plate_text(text, pal):
+    """One text cell (128 x 512): (index U uint8, alpha uint8, height 0-1, spec RGB uint8, info). pal: the table's
+    plate_palette["text"] (the ink segment and its shades)."""
+    cw, ch, dx, dy, dw, dh = 512, 128, 8, 8, 496, 112
+    cv = Canvas(cw, ch)
+    sd, width, cond = plate_text_sd(cv, text, dx + dw / 2, dy + dh / 2, fit=PLATE_FIT)
+    edge = np.minimum(np.minimum(cv.x - dx, dx + dw - cv.x), np.minimum(cv.y - dy, dy + dh - cv.y))
+    sd = np.maximum(sd, -edge)                                     # nothing outside the drawn area, whatever
+    alpha = coverage(sd, 1.0)
+    h, shade = emboss(sd, PLATE_BEVEL_PX)
+    u = plate_u(pal["u"]["ink"], shade, *pal["ink_shade"])
+    spec = np.dstack([to8(0.35 + 0.10 * np.sin(math.pi * np.clip(-sd / PLATE_BEVEL_PX, 0, 1))), to8(np.full(sd.shape, 0.5)),
+                      np.zeros(sd.shape, np.uint8)])
+    on = alpha >= 0.5
+    ys, xs = np.nonzero(on)
+    info = dict(width=round(width, 1), condense=round(cond, 4), coverage=round(float(on[dy:dy + dh, dx:dx + dw].mean()), 4),
+                box=[int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1] if len(xs) else [0, 0, 0, 0])
+    return np.clip(np.rint(u), 0, 255).astype(np.uint8), to8(alpha), h, spec, info
+
+
+def draw_plate_texts(opts):
+    """The text atlas from the table's plate_texts and plate_atlas["texts"]: (U, alpha, height, spec, {key: info})."""
+    at = opts["plate_atlas"]["texts"]
+    pal = opts["plate_palette"]["text"]
+    (W, H), (cw, ch) = at["size"], at["cell"]
+    plateau = int(round(float(plate_u(pal["u"]["ink"], 1.0, *pal["ink_shade"]))))
+    U = np.full((H, W), plateau, np.uint8)
+    A = np.zeros((H, W), np.uint8)
+    Hh = np.zeros((H, W))
+    S = np.zeros((H, W, 3), np.uint8)
+    S[..., 0], S[..., 1] = to8(0.35), to8(0.5)
+    info = {}
+    for t in opts["plate_texts"]:
+        c, r = t["cell"]
+        u, a, h, s, inf = draw_plate_text(t["text"], pal)
+        sl = (slice(r * ch, (r + 1) * ch), slice(c * cw, (c + 1) * cw))
+        U[sl], A[sl], Hh[sl], S[sl] = u, a, h, s
+        info[t["key"]] = dict(cell=[c, r], text=t["text"], set=t["set"], theme=t["theme"], index=t["index"], **inf)
+    return U, A, Hh, S, info
+
+
+# The designs. Parts (a texel's palette segment): base (the plate's background colour, shaded), legend (the design's
+# legend colour, swapped for contrast row by row), accent (a second colour, or a tint of the base) and the fixed
+# colours (the same in every row; each its own part for the mips). A fixed colour's U is a grey BC1 keeps exactly in
+# both R (5 bits) and G (6 bits), so its texels decode to their own colour whatever channel the game reads.
+PLATE_FIXED = (("hole", 0, "0b0b0c"), ("white", 8, "ece9df"), ("orange", 16, "d8641c"), ("red", 24, "b0201c"),
+               ("steel", 33, "8f9296"), ("rust", 41, "5a2a18"))
+BASE, LEGEND, ACCENT = 0, 1, 2
+FIXED = {k: 3 + i for i, (k, _, _) in enumerate(PLATE_FIXED)}
+PLATE_PART_NAMES = ["base", "legend", "accent"] + [f"fixed {k}" for k, _, _ in PLATE_FIXED]
+FACE_X0, FACE_Y0, FACE_W, FACE_H, FACE_R = 8.0, 8.0, 496.0, 226.0, 33.3   # px in a design cell; corner r 1.45 units
+FACE_PX = FACE_W / 21.62                       # px a unit (22.9)
+EDGE_SHADE = 0.85                              # the rows below the face (the edges and the front face's strip)
+BEAD_IN, BEAD_W, BEAD_UNITS = 0.475 * FACE_PX, 0.25 * FACE_PX, 0.10   # the border bead's middle, width; its height
+FINISHES = {                                   # R specular, G smoothness (linear)
+    "sheet": (0.40, 0.55), "enamel": (0.50, 0.70), "matt": (0.22, 0.34), "flat": (0.18, 0.30),
+    "metal": (0.62, 0.60), "rust": (0.12, 0.20), "paint": (0.26, 0.36), "steel": (0.70, 0.66), "print": (0.36, 0.50)}
+# per design: the face's finish and its accent ("tint": the base mixed toward a colour, as is; "colour": a colour of
+# the list, swapped for contrast as the legend is; None: no accent texel). The legend colour is the table's.
+PLATE_DESIGN = {
+    "standard": dict(finish="sheet", accent=("tint", "a6c8f0", 0.30)),
+    "vintage": dict(finish="enamel", accent=None),
+    "blank": dict(finish="sheet", accent=None),
+    "vaulttec": dict(finish="enamel", accent=("colour", 7)),
+    "robco": dict(finish="enamel", accent=("tint", "3cf06a", 0.10)),
+    "nuka": dict(finish="enamel", accent=("colour", 0)),
+    "redrocket": dict(finish="enamel", accent=("colour", 3)),
+    "bos": dict(finish="metal", accent=None),
+    "minutemen": dict(finish="sheet", accent=None),
+    "institute": dict(finish="matt", accent=("colour", 12)),
+    "raider": dict(finish="paint", accent=None),
+    "army": dict(finish="flat", accent=None),
+}
+
+
+def FX(u):
+    return FACE_X0 + u * FACE_W
+
+
+def FY(v):
+    return FACE_Y0 + v * FACE_H
+
+
+class PlateArt:
+    """One design cell: per texel a part, a shade (of that part's colour), a height (units) and a finish."""
+
+    def __init__(self, finish="sheet"):
+        self.cv = Canvas(512, 256)
+        cv = self.cv
+        self.part = np.zeros((cv.h, cv.w), np.int16)
+        self.shade = np.ones((cv.h, cv.w))
+        self.height = np.zeros((cv.h, cv.w))
+        self.fin = np.zeros((cv.h, cv.w, 2)) + np.array(FINISHES[finish])
+        self.face = sd_box(cv, FACE_X0, FACE_Y0, FACE_X0 + FACE_W, FACE_Y0 + FACE_H, FACE_R)
+        self.shade[self.face > 0] = EDGE_SHADE
+
+    def put(self, sd, part, shade=None, finish=None, inside_face=True):
+        """Paint where sd <= 0 (an index can't be blended: a texel is one part or another)."""
+        m = sd <= 0
+        if inside_face:
+            m &= self.face <= -1.0
+        self.part[m] = part
+        if shade is not None:
+            self.shade[m] = shade[m] if np.ndim(shade) else shade
+        if finish is not None:
+            self.fin[m] = FINISHES[finish]
+        return m
+
+    def raise_(self, h_units):
+        self.height = np.where(np.abs(h_units) > np.abs(self.height), h_units, self.height)
+
+    def bead(self, inset=BEAD_IN, width=BEAD_W, units=BEAD_UNITS, part=None, shade=None):
+        d = np.abs(self.face + inset) - width / 2
+        t = np.clip(1 - np.abs(self.face + inset) / (width / 2), 0, 1)
+        self.raise_(units * (0.5 - 0.5 * np.cos(math.pi * t)))
+        if part is not None:
+            self.put(d, part, shade)
+        return d
+
+    def legend(self, text, cx, cy, cap, part=LEGEND, fit=None, stroke=None, emboss_units=0.0, shade=1.0, slant=0.0,
+               max_condense=0.35, rough=None, finish=None):
+        """A legend in the plate font (proportional), its shade flat (printed) or embossed (raised, the bevel baked)."""
+        stroke = stroke or max(2.6, 0.17 * cap)
+        sd, w, cond = plate_text_sd(self.cv, text, cx, cy, cap, stroke, slant=slant, proportional=True, fit=fit,
+                                    max_condense=max_condense)
+        if rough is not None:
+            sd = sd + rough
+        sh = shade
+        if emboss_units:
+            h, sh_e = emboss(sd, max(1.5, stroke * 0.3))
+            self.raise_(h * emboss_units)
+            sh = sh_e * shade
+        self.put(sd, part, sh if np.ndim(sh) else np.full(sd.shape, sh), finish)
+        return sd
+
+    def emblem(self, E, box, centre, height, mask=None, keep=None):
+        """A badge drawer's art (an EmblemRec at the badges' 512 x 240 scale) scaled down: `box` (x0, y0, x1, y1) of
+        its canvas into `height` px tall at `centre`; `mask` a signed distance on its canvas (outside not drawn)."""
+        x0, y0, x1, y1 = box
+        s = height / (y1 - y0)
+        w = (x1 - x0) * s
+        dx0, dy0 = centre[0] - w / 2, centre[1] - height / 2
+        j0, j1 = int(math.floor(dx0)), int(math.ceil(dx0 + w))
+        i0, i1 = int(math.floor(dy0)), int(math.ceil(dy0 + height))
+        on = E.alpha >= 0.5
+        if mask is not None:
+            on &= mask <= 0
+        Rx = _box_weights(j0, j1, lambda j: x0 + (j - dx0) / s, 1 / s, E.cv.w)
+        Ry = _box_weights(i0, i1, lambda i: y0 + (i - dy0) / s, 1 / s, E.cv.h)
+        parts = sorted({int(p) for p in np.unique(E.lab[on])})
+        cov = {p: Ry @ ((E.lab == p) & on).astype(np.float64) @ Rx.T for p in parts}
+        hgt = Ry @ (E.relief * on) @ Rx.T
+        tot = sum(cov.values()) if cov else np.zeros((i1 - i0, j1 - j0))
+        best = np.full(tot.shape, -1)
+        bc = np.zeros(tot.shape)
+        for p in parts:
+            take = cov[p] > bc
+            best[take], bc[take] = p, cov[p][take]
+        sl = (slice(i0, i1), slice(j0, j1))
+        for p in parts:
+            m = np.zeros(self.part.shape, bool)
+            m[sl] = (tot >= 0.5) & (best == p)
+            self.put(np.where(m, -1.0, 1.0), p, 1.0, finish={BASE: None}.get(p, "print"))
+        hh = np.zeros(self.height.shape)
+        hh[sl] = hgt
+        self.raise_(hh * 0.05)
+
+
+def _box_weights(i0, i1, src_of, span, n):
+    """(i1 - i0, n): row k averages the source cells under destination cell i0 + k (an exact box filter)."""
+    out = np.zeros((i1 - i0, n))
+    for k, i in enumerate(range(i0, i1)):
+        a = src_of(i)
+        b = a + span
+        lo, hi = max(0, int(math.floor(a))), min(n, int(math.ceil(b)))
+        for c in range(lo, hi):
+            out[k, c] = max(0.0, min(b, c + 1) - max(a, c))
+        out[k] /= span
+    return out
+
+
+class EmblemRec:
+    """A badge drawer's canvas (BadgeArt's calls) that records which colour lies on top of each texel, as a part:
+    colours are matched to the sentinels the drawer was given (`cmap`: [(colour, part or None)])."""
+
+    def __init__(self, cmap):
+        self.cv = Canvas(512, 240)
+        self.rgb = np.zeros((240, 512, 3))
+        self.alpha = np.zeros((240, 512))
+        self.relief = np.zeros((240, 512))
+        self.lab = np.full((240, 512), -1, np.int16)
+        self.cmap = cmap
+
+    def _part(self, colour):
+        c = np.asarray(colour, np.float64)
+        best = min(self.cmap, key=lambda e: float(np.sum((np.asarray(e[0], np.float64) - c) ** 2)))
+        return best[1]
+
+    def paint(self, cov, colour, finish="enamel"):
+        p = self._part(colour)
+        m = cov >= 0.5
+        if p is None:
+            self.lab[m] = -1
+            self.alpha[m] = 0.0
+            return cov
+        self.lab[m] = p
+        self.alpha = np.maximum(self.alpha, cov)
+        level = FINISH[finish][2]
+        if level is not None:
+            self.relief = self.relief * (1 - cov) + level * cov
+        return cov
+
+    def fill(self, sd, colour, finish="enamel", aa=0.8):
+        return self.paint(coverage(sd, aa), colour, finish)
+
+    def rimmed(self, sd, colour, rim=7.0, finish="enamel", rim_colour=CHROME, rim_finish="chrome"):
+        self.fill(sd, rim_colour, rim_finish)
+        self.fill(sd + rim, colour, finish)
+
+    def cut(self, cov):
+        self.alpha = self.alpha * (1 - cov)
+
+
+S_GROUND, S_E0, S_E1 = "ff0000", "00ff00", "0000ff"     # the sentinels handed to a drawer as its colours
+
+
+def emblem_rec(key, ground, e0, e1=None, chrome=None, extra=()):
+    """Run badge drawer `key` with sentinel colours; the parts: ground, emblem[0], emblem[1], the chrome."""
+    cmap = [(hexrgb(S_GROUND), ground), (hexrgb(S_GROUND, 0.78), ground), (hexrgb(S_E0), e0), (metal(S_E0), e0),
+            (hexrgb(S_E1), e1), (CHROME, chrome)] + list(extra)
+    E = EmblemRec(cmap)
+    BADGE_DRAW[key](E, {"ground": S_GROUND, "emblem": [S_E0, S_E1]})
+    return E
+
+
+# --- a monoline script of our own (two legends): cubic strokes in x-heights, y up; each letter (advance, strokes,
+# entry, exit); lower-case letters join entry to exit with a short curve
+def _bz(*p):
+    return [tuple(q) for q in bezier(*p, n=14)]
+
+
+def _ln(a, b):
+    return [tuple(a), tuple(b)]
+
+
+def _script_letters():
+    L = {}
+    loop = _bz((0.0, 0.20), (0.30, 0.60), (0.50, 1.30), (0.40, 1.65)) + _bz((0.40, 1.65), (0.32, 1.85), (0.12, 1.70), (0.15, 1.20))
+    L["C"] = (1.02, [_bz((0.80, 1.20), (0.92, 1.38), (1.02, 1.62), (0.86, 1.70)) + _bz((0.86, 1.70), (0.62, 1.82), (0.30, 1.62), (0.18, 1.25))
+                     + _bz((0.18, 1.25), (0.04, 0.88), (0.00, 0.32), (0.26, 0.08)) + _bz((0.26, 0.08), (0.48, -0.10), (0.82, 0.00), (1.02, 0.30))],
+              None, (1.02, 0.30))
+    L["N"] = (1.05, [_bz((-0.05, 0.10), (0.02, 0.02), (0.10, 0.05), (0.10, 0.30)) + _bz((0.10, 0.30), (0.12, 0.80), (0.14, 1.40), (0.18, 1.72))
+                     + _bz((0.18, 1.72), (0.36, 1.20), (0.56, 0.50), (0.76, 0.0)) + _bz((0.76, 0.0), (0.82, 0.60), (0.88, 1.30), (0.94, 1.72))
+                     + _bz((0.94, 1.72), (0.98, 1.84), (1.06, 1.80), (1.10, 1.68))], None, None)
+    L["o"] = (0.80, [_bz((0.36, 0.98), (0.12, 0.98), (0.03, 0.70), (0.05, 0.45)) + _bz((0.05, 0.45), (0.08, 0.10), (0.32, -0.04), (0.48, 0.10))
+                     + _bz((0.48, 0.10), (0.66, 0.28), (0.66, 0.82), (0.44, 0.97)) + _bz((0.44, 0.97), (0.60, 1.00), (0.72, 0.92), (0.80, 0.84))],
+              (0.36, 0.98), (0.80, 0.84))
+    m1 = _bz((0.0, 0.66), (0.05, 0.90), (0.12, 1.0), (0.12, 0.74)) + _ln((0.12, 0.74), (0.10, 0.0))
+    arch = lambda x0, x1: _bz((x0, 0.45), (x0 + 0.05, 0.95), (x1, 1.10), (x1, 0.60))
+    tail = lambda x: _bz((x, 0.60), (x, 0.20), (x, 0.0), (x + 0.08, 0.0)) + _bz((x + 0.08, 0.0), (x + 0.14, 0.0), (x + 0.20, 0.10), (x + 0.26, 0.25))
+    L["m"] = (0.98, [m1, arch(0.10, 0.42) + _ln((0.42, 0.60), (0.40, 0.0)), arch(0.40, 0.72) + tail(0.72)], (0.0, 0.66), (0.98, 0.25))
+    L["n"] = (0.68, [m1, arch(0.10, 0.42) + tail(0.42)], (0.0, 0.66), (0.68, 0.25))
+    L["w"] = (0.92, [_bz((0.0, 0.66), (0.05, 0.92), (0.10, 0.98), (0.10, 0.80)) + _bz((0.10, 0.80), (0.08, 0.40), (0.12, 0.0), (0.25, 0.0))
+                     + _bz((0.25, 0.0), (0.38, 0.0), (0.40, 0.40), (0.40, 0.75)) + _bz((0.40, 0.75), (0.40, 0.40), (0.44, 0.0), (0.57, 0.0))
+                     + _bz((0.57, 0.0), (0.72, 0.0), (0.74, 0.55), (0.70, 0.95)) + _bz((0.70, 0.95), (0.76, 0.86), (0.84, 0.84), (0.92, 0.84))],
+              (0.0, 0.66), (0.92, 0.84))
+    L["e"] = (0.62, [_bz((0.0, 0.25), (0.25, 0.35), (0.55, 0.55), (0.50, 0.82)) + _bz((0.50, 0.82), (0.45, 1.05), (0.08, 0.95), (0.08, 0.50))
+                     + _bz((0.08, 0.50), (0.08, 0.10), (0.35, -0.05), (0.62, 0.22))], (0.0, 0.25), (0.62, 0.22))
+    L["a"] = (0.80, [_bz((0.58, 0.82), (0.45, 1.02), (0.10, 0.98), (0.06, 0.50)) + _bz((0.06, 0.50), (0.04, 0.10), (0.35, -0.05), (0.56, 0.28)),
+                     _ln((0.62, 0.98), (0.58, 0.16)) + _bz((0.58, 0.16), (0.60, 0.0), (0.72, 0.0), (0.80, 0.20))], (0.58, 0.82), (0.80, 0.20))
+    L["l"] = (0.52, [loop + _bz((0.15, 1.20), (0.17, 0.70), (0.18, 0.0), (0.32, 0.0)) + _bz((0.32, 0.0), (0.40, 0.0), (0.46, 0.10), (0.52, 0.22))],
+              (0.0, 0.20), (0.52, 0.22))
+    L["t"] = (0.50, [_bz((0.0, 0.20), (0.15, 0.45), (0.25, 0.90), (0.28, 1.40)) + _ln((0.28, 1.40), (0.22, 0.25))
+                     + _bz((0.22, 0.25), (0.22, 0.0), (0.38, -0.02), (0.50, 0.20)), _ln((0.04, 0.96), (0.50, 0.99))], (0.0, 0.20), (0.50, 0.20))
+    L["h"] = (0.74, [loop + _ln((0.15, 1.20), (0.12, 0.0)), arch(0.13, 0.48) + tail(0.48)], (0.0, 0.20), (0.74, 0.25))
+    L["u"] = (0.78, [_bz((0.0, 0.66), (0.06, 0.92), (0.12, 1.0), (0.12, 0.75)) + _bz((0.12, 0.75), (0.10, 0.30), (0.12, 0.0), (0.30, 0.0))
+                     + _bz((0.30, 0.0), (0.45, 0.0), (0.52, 0.40), (0.52, 0.98)),
+                     _bz((0.52, 0.98), (0.50, 0.40), (0.50, 0.0), (0.60, 0.0)) + _bz((0.60, 0.0), (0.66, 0.0), (0.72, 0.10), (0.78, 0.25))],
+              (0.0, 0.66), (0.78, 0.25))
+    L["k"] = (0.72, [loop + _ln((0.15, 1.20), (0.12, 0.0)),
+                     _bz((0.13, 0.40), (0.30, 0.70), (0.55, 1.00), (0.50, 0.80)) + _bz((0.50, 0.80), (0.45, 0.55), (0.25, 0.50), (0.18, 0.50))
+                     + _bz((0.18, 0.50), (0.35, 0.45), (0.45, 0.0), (0.58, 0.0)) + _bz((0.58, 0.0), (0.64, 0.0), (0.68, 0.10), (0.72, 0.22))],
+              (0.0, 0.20), (0.72, 0.22))
+    L["-"] = (0.52, [_ln((0.10, 0.50), (0.42, 0.54))], None, None)
+    return L
+
+
+SCRIPT_LETTERS = _script_letters()
+
+
+def script_sd(cv, word, cx, baseline, xh, stroke, slant=0.22):
+    """A word in our script centred on cx, its baseline at `baseline` px, x-height `xh` px: the signed distance and
+    its width (px)."""
+    strokes, x = [], 0.0
+    prev = None
+    for ch in word:
+        adv, lines, entry, exit_ = SCRIPT_LETTERS[ch]
+        for ln in lines:
+            strokes.append([(x + px, py) for px, py in ln])
+        if prev is not None and entry is not None:
+            ex, ey = prev
+            nx, ny = x + entry[0], entry[1]
+            strokes.append(_bz((ex, ey), (ex + 0.12, ey + 0.10 * (ny - ey) + 0.05), (nx - 0.10, ny - 0.15), (nx, ny)))
+        prev = (x + exit_[0], exit_[1]) if exit_ is not None else None
+        x += adv + (0.08 if ch in "CN-" else 0.0)
+    w = x * xh
+    x0 = cx - w / 2
+
+    def tr(p):
+        return (x0 + (p[0] + slant * p[1]) * xh, baseline - p[1] * xh)
+
+    return _window_sd(cv, [[tr(p) for p in s] for s in strokes], stroke / 2, [], 0.0), w
+
+
+# --- the 12 designs (plates.md 3): each paints a PlateArt -----------------------------------------------------------
+TOP_Y, BOT_Y = FY(0.15), FY(0.85)          # the top and bottom bands' middles
+
+
+def _legend_cap(text, width, cap=21.0, lo=13.0):
+    """The largest cap (lo..cap) a legend fits `width` px at (no condensing)."""
+    c = cap
+    while c > lo:
+        if plate_layout(text, c, max(2.6, 0.17 * c), proportional=True)[1] <= width:
+            return c
+        c -= 0.5
+    return lo
+
+
+def _std_legends(P, top, bottom, top_span=(FX(0.15), FX(0.85)), bot_span=(FX(0.08), FX(0.92)), emboss_units=0.0, cap=21.0):
+    for text, (a, b), y in ((top, top_span, TOP_Y), (bottom, bot_span, BOT_Y)):
+        if text:
+            c = _legend_cap(text, b - a, cap)
+            P.legend(text, (a + b) / 2, y, c, fit=b - a, emboss_units=emboss_units)
+
+
+def _sticker(P, cx, cy, w, h, ground, text, ink, cap=14.0, hole=False):
+    cv = P.cv
+    P.put(sd_box(cv, cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2, 3.0), ground, 1.0, "print")
+    if hole:
+        P.put(sd_circle(cv, cx - w / 2 + 5.5, cy, 2.6), FIXED["hole"], 1.0)
+        cx += 3.5
+        w -= 7
+    P.legend(text, cx, cy, cap, part=ink, fit=w - 6, stroke=max(1.8, 0.16 * cap), max_condense=0.45)
+
+
+def plate_standard(P):
+    cv = P.cv
+    band = sd_box(cv, FX(0.0), FY(0.31), FX(1.0), FY(0.69))
+    t = np.clip((cv.y - FY(0.31)) / (FY(0.69) - FY(0.31)), 0, 1) + np.zeros((cv.h, cv.w))
+    P.put(band, ACCENT, 1.10 - 0.16 * t)
+    P.bead()
+    sd, w = script_sd(cv, "Commonwealth", (FX(0.15) + FX(0.85)) / 2, TOP_Y + 11.5, 15.5, 3.4)
+    P.put(sd, LEGEND, 1.0, "print")
+    _std_legends(P, None, "POWERED BY ATOMS")
+    E = emblem_rec("atom", FIXED["white"], LEGEND, FIXED["red"], LEGEND, extra=[(hexrgb("e8ffd0"), FIXED["red"])])
+    P.emblem(E, (BADGE_C[0] - 86, BADGE_C[1] - 86, BADGE_C[0] + 86, BADGE_C[1] + 86), (FX(0.075), TOP_Y), 36.0,
+             mask=sd_circle(E.cv, *BADGE_C, 86))
+    sx = FX(0.915)
+    P.put(sd_box(cv, sx - 26, TOP_Y - 14, sx - 15, TOP_Y + 14, 2.0), FIXED["white"], 1.0, "print")      # the month tab
+    P.legend("11", sx - 20.5, TOP_Y, 9.0, part=FIXED["hole"], stroke=1.8, fit=9.0, max_condense=0.6)
+    _sticker(P, sx + 5, TOP_Y, 38, 28, FIXED["orange"], "77", FIXED["hole"], cap=17.0)
+
+
+def plate_vintage(P):
+    cv = P.cv
+    border = np.maximum(P.face + 1.0, -(P.face + 13.5))         # the wide border, raised and painted
+    h, sh = emboss(border, 3.0)
+    P.raise_(h * 0.12)
+    P.put(border, LEGEND, sh)
+    for x in (FX(0.06), FX(0.94)):                              # the bolt holes, chipped round
+        chips = sd_circle(cv, x, TOP_Y, 9.5) + hash_noise(cv, 2.2, 41 + int(x)) * 3.2
+        P.put(chips, FIXED["steel"], 1.0, "steel")
+        r = np.hypot(cv.x - x, cv.y - TOP_Y)
+        P.raise_(0.06 * np.clip(1 - np.abs(r - 7.0) / 2.0, 0, 1))
+        P.put(sd_circle(cv, x, TOP_Y, 4.6), FIXED["hole"], 1.0)
+        P.raise_(-0.12 * (r < 4.6))
+    _std_legends(P, "COMMONWEALTH", None, top_span=(FX(0.13), FX(0.87)), emboss_units=0.12)
+    for x, yr in ((FX(0.17), "20"), (FX(0.83), "77")):         # the year tabs: an embossed box, its numbers
+        box = np.abs(sd_box(cv, x - 22, BOT_Y - 13, x + 22, BOT_Y + 13, 3.0)) - 1.4
+        hh, sh2 = emboss(box, 1.2)
+        P.raise_(hh * 0.08)
+        P.put(box, LEGEND, sh2)
+        P.legend(yr, x, BOT_Y, 16.0, fit=36, emboss_units=0.10)
+    P.legend("MOTORCYCLE", (FX(0.27) + FX(0.73)) / 2, BOT_Y, _legend_cap("MOTORCYCLE", FX(0.73) - FX(0.27)),
+             fit=FX(0.73) - FX(0.27), emboss_units=0.12)
+
+
+def plate_blank(P):
+    P.bead()
+
+
+def plate_vaulttec(P):
+    cv = P.cv
+    P.bead()
+    stripe = np.abs(P.face + 18.0) - 1.3
+    P.put(stripe, ACCENT, 1.0, "print")
+    _std_legends(P, "VAULT-TEC", "PREPARING FOR THE FUTURE!", top_span=(FX(0.17), FX(0.83)), bot_span=(FX(0.08), FX(0.92)))
+    E = emblem_rec("vaulttec", BASE, LEGEND, None, LEGEND)
+    c = BADGE_C
+    P.emblem(E, (c[0] - 96, c[1] - 96, c[0] + 96, c[1] + 96), (FX(0.085), TOP_Y), 34.0, mask=sd_circle(E.cv, *c, 96))
+    _sticker(P, FX(0.905), TOP_Y, 44, 24, LEGEND, "V-T", BASE, cap=14.0, hole=True)
+
+
+def plate_robco(P):
+    cv = P.cv
+    lines = (np.floor(cv.y) % 4 == 0) & (P.face < -14)
+    P.shade = np.where(lines, 1.35, P.shade)
+    P.bead()
+    _std_legends(P, "ROBCO INDUSTRIES", "UNIFIED OPERATING SYSTEM", top_span=(FX(0.16), FX(0.82)))
+    x, y = FX(0.08), TOP_Y - 2                                  # the terminal: a monitor, its screen, a prompt
+    P.put(np.abs(sd_box(cv, x - 19, y - 14, x + 19, y + 12, 4.0)) - 1.8, LEGEND, 1.0, "print")
+    P.put(sd_box(cv, x - 5, y + 13, x + 5, y + 18, 1.0), LEGEND, 1.0, "print")
+    P.put(sd_stroke(cv, [(x - 11, y - 6), (x - 5, y - 1), (x - 11, y + 4)], 2.6), LEGEND, 1.0, "print")
+    P.put(sd_stroke(cv, [(x - 1, y + 4), (x + 8, y + 4)], 2.6), LEGEND, 1.0, "print")
+    _sticker(P, FX(0.90), TOP_Y, 62, 22, LEGEND, "SERVICED", BASE, cap=10.0)
+
+
+def plate_nuka(P):
+    cv = P.cv
+    wave = (FY(0.748) + 5.0 * np.sin(2 * math.pi * (cv.x - FX(0.0)) / 165.0 + 0.6)) - cv.y + np.zeros((cv.h, cv.w))
+    P.put(wave, ACCENT, 1.0, "print")
+    P.bead()
+    c = _legend_cap("ENJOY NUKA-COLA!", FX(0.86) - FX(0.14), 19.0)
+    P.legend("ENJOY NUKA-COLA!", FX(0.5), BOT_Y + 2, c, part=BASE, fit=FX(0.86) - FX(0.14), finish="print")
+    sd, w = script_sd(cv, "Nuka-Cola", FX(0.5), TOP_Y + 11.5, 15.5, 3.5)
+    P.put(sd, LEGEND, 1.0, "print")
+    x, y = FX(0.075), TOP_Y                                     # the bottle cap: crimped steel, red, a white ring
+    P.put(sd_poly(cv, gear_pts(x, y, 15.0, 17.5, 21, duty=0.45)), FIXED["steel"], 1.0, "steel")
+    P.put(sd_circle(cv, x, y, 13.0), FIXED["red"], 1.0, "enamel")
+    P.put(sd_ring(cv, x, y, 9.0, 2.2), FIXED["white"], 1.0, "enamel")
+    P.put(sd_poly(cv, star_pts(x, y + 0.5, 6.0)), FIXED["white"], 1.0, "enamel")
+    r = np.hypot(cv.x - x, cv.y - y)
+    P.raise_(0.06 * np.clip((17.5 - r) / 3.0, 0, 1))
+
+
+def plate_redrocket(P):
+    cv = P.cv
+    end = [(FX(0.915), FY(-0.1)), (FX(1.05), FY(-0.1)), (FX(1.05), FY(1.1)), (FX(0.985), FY(1.1))]
+    P.put(sd_poly(cv, end), ACCENT, 1.0, "print")                # the red end stripe, clear of the text's reach
+    thin = [(FX(0.885), FY(-0.1)), (FX(0.897), FY(-0.1)), (FX(0.935), FY(0.24)), (FX(0.923), FY(0.24))]
+    P.put(sd_poly(cv, thin), ACCENT, 1.0, "print")
+    P.bead()
+    _std_legends(P, "RED ROCKET", "TRUCK STOP - SERVICE", top_span=(FX(0.16), FX(0.80)), bot_span=(FX(0.08), FX(0.88)))
+    x, y = FX(0.075), TOP_Y                                     # the rocket, nose up and to the right
+    ang = math.radians(-35)
+    ca, sa = math.cos(ang), math.sin(ang)
+
+    def rot(pts):
+        return [(x + px * ca - py * sa, y + px * sa + py * ca) for px, py in pts]
+
+    body = rot([(-14, -4.5), (6, -4.5), (17, 0), (6, 4.5), (-14, 4.5)])
+    fins = rot([(-15, -4), (-9, -4), (-15, -11)]), rot([(-15, 4), (-9, 4), (-15, 11)])
+    P.put(np.minimum.reduce([sd_poly(cv, body)] + [sd_poly(cv, f) for f in fins]), LEGEND, 1.0, "print")
+    P.put(sd_circle(cv, *rot([(1, 0)])[0], 2.2), BASE, 1.0)
+
+
+def plate_bos(P):
+    cv = P.cv
+    rng = np.random.default_rng(808)
+    streak = rng.normal(0, 1, (cv.h, cv.w // 16 + 2))
+    xs = (np.arange(cv.w) + 0.5) / 16
+    i = np.floor(xs).astype(int)
+    f = smooth01(xs - i)
+    brushed = streak[:, i] * (1 - f) + streak[:, i + 1] * f
+    P.shade = np.where(P.face <= 0, 1.0 + 0.045 * brushed + 0.05 * hash_noise(cv, 60, 81), P.shade)
+    P.raise_(0.004 * brushed)
+    P.bead()
+    _std_legends(P, "BROTHERHOOD OF STEEL", "AD VICTORIAM", top_span=(FX(0.235), FX(0.94)), bot_span=(FX(0.2), FX(0.8)))
+    E = emblem_rec("bos", BASE, LEGEND, None, LEGEND)
+    c = BADGE_C
+    P.emblem(E, (c[0] - 218, 28, c[0] + 218, 206), (FX(0.12), TOP_Y), 34.0)
+
+
+def plate_minutemen(P):
+    P.bead()
+    _std_legends(P, "COMMONWEALTH MINUTEMEN", "AT A MINUTE'S NOTICE", top_span=(FX(0.16), FX(0.94)))
+    E = emblem_rec("minutemen", BASE, LEGEND, None, LEGEND)
+    c = BADGE_C
+    P.emblem(E, (c[0] - 93, c[1] - 93, c[0] + 93, c[1] + 93), (FX(0.085), TOP_Y), 36.0, mask=sd_circle(E.cv, *c, 93))
+
+
+def plate_institute(P):
+    cv = P.cv
+    P.bead()
+    for y in (FY(0.255), FY(0.745)):
+        P.put(sd_stroke(cv, [(FX(0.06), y), (FX(0.94), y)], 1.6), ACCENT, 1.0, "print")
+    _std_legends(P, "THE INSTITUTE", "MANKIND REDEFINED", top_span=(FX(0.18), FX(0.82)))
+    E = emblem_rec("institute", BASE, LEGEND, None, LEGEND)
+    c = BADGE_C
+    P.emblem(E, (c[0] - 87, c[1] - 87, c[0] + 87, c[1] + 87), (FX(0.085), TOP_Y), 34.0, mask=sd_circle(E.cv, *c, 87))
+
+
+def plate_raider(P):
+    cv = P.cv
+    grime = hash_noise(cv, 18, 111) * 0.6 + hash_noise(cv, 5, 112) * 0.4
+    P.shade = np.where(P.face <= 0, 0.92 + 0.16 * grime, P.shade)
+    flake = hash_noise(cv, 11, 113) + 0.45 * hash_noise(cv, 3.5, 114)
+    edge_rust = np.clip((P.face + 26.0) / 26.0, 0, 1)          # more flaking toward the edges
+    P.put(-(flake + 0.55 * edge_rust - 0.62) * 8.0, FIXED["rust"], 1.0, "rust")
+    P.raise_(-0.025 * np.clip((flake + 0.55 * edge_rust - 0.62) * 4, 0, 1) + 0.008 * hash_noise(cv, 2.5, 115))
+    for (a, b) in (((FX(0.0), FY(0.27)), (FX(1.0), FY(0.255))), ((FX(0.955), FY(0.0)), (FX(0.949), FY(1.0)))):
+        L = math.hypot(b[0] - a[0], b[1] - a[1])
+        ux, uy = (b[0] - a[0]) / L, (b[1] - a[1]) / L
+        along = (cv.x - a[0]) * ux + (cv.y - a[1]) * uy
+        d = sd_stroke(cv, [a, b], 6.0)
+        ripple = 0.5 + 0.5 * np.cos(along / 3.2 * 2 * math.pi)
+        P.put(d, FIXED["steel"], 1.0, "steel")
+        t = np.clip(-d / 3.0, 0, 1)
+        P.raise_(0.10 * (0.5 - 0.5 * np.cos(math.pi * t)) * (0.75 + 0.25 * ripple))
+    rng = np.random.default_rng(1101)
+    for x, y in ((FX(0.03), FY(0.08)), (FX(0.035), FY(0.90)), (FX(0.935), FY(0.88)), (FX(0.30), FY(0.92)), (FX(0.62), FY(0.07))):
+        P.put(sd_circle(cv, x, y, 4.2) + hash_noise(cv, 1.6, int(x * 7 + y)) * 1.2, FIXED["hole"], 1.0)
+        P.raise_(-0.12 * (np.hypot(cv.x - x, cv.y - y) < 4.0))
+    for x, y in ((FX(0.03), FY(0.36)), (FX(0.035), FY(0.64)), (FX(0.982), FY(0.40)), (FX(0.982), FY(0.62))):
+        r = np.hypot(cv.x - x, cv.y - y)
+        P.put(r - 5.0, FIXED["steel"], 1.0, "steel")
+        P.raise_(0.14 * np.sqrt(np.clip(1 - (r / 5.0) ** 2, 0, 1)))
+        P.put(sd_stroke(cv, [(x - 2.6, y + rng.uniform(-1, 1)), (x + 2.6, y + rng.uniform(-1, 1))], 1.2), FIXED["hole"], 1.0)
+    E = emblem_rec("raiders", None, LEGEND, FIXED["hole"])
+    c = BADGE_C
+    P.emblem(E, (c[0] - 186, c[1] - 98, c[0] + 186, c[1] + 98), (FX(0.115), TOP_Y + 2), 40.0)
+    tmp = Canvas(512, 256)
+    sd, w, _ = plate_text_sd(tmp, "KEEP OFF", FX(0.56), TOP_Y + 3, 27.0, 5.2, proportional=True, slant=0.12)
+    sd = _rotate(sd, FX(0.56), TOP_Y + 3, -4.0)
+    sd = sd + hash_noise(cv, 2.0, 117) * 1.3
+    spat = np.full(sd.shape, 1e3)
+    for _ in range(40):
+        x, y = rng.uniform(FX(0.30), FX(0.84)), rng.uniform(TOP_Y - 20, TOP_Y + 24)
+        spat = np.minimum(spat, sd_circle(cv, x, y, rng.uniform(0.6, 1.5)))
+    drips = np.full(sd.shape, 1e3)
+    for x in rng.uniform(FX(0.38), FX(0.76), 5):
+        y0 = TOP_Y + 10
+        drips = np.minimum(drips, sd_stroke(cv, [(x, y0), (x + 0.5, y0 + rng.uniform(5, 13))], 2.2))
+    P.put(np.minimum.reduce([sd, spat, np.maximum(drips, -(P.face + 20))]), LEGEND, 1.0, "paint")
+
+
+def _rotate(f, cx, cy, deg):
+    """A field turned `deg` degrees (screen clockwise) about (cx, cy), sampled bilinearly (edges clamped)."""
+    h, w = f.shape
+    t = math.radians(deg)
+    yy, xx = np.mgrid[0:h, 0:w] + 0.5
+    sx = cx + (xx - cx) * math.cos(t) + (yy - cy) * math.sin(t) - 0.5
+    sy = cy - (xx - cx) * math.sin(t) + (yy - cy) * math.cos(t) - 0.5
+    x0, y0 = np.clip(np.floor(sx).astype(int), 0, w - 2), np.clip(np.floor(sy).astype(int), 0, h - 2)
+    fx, fy = np.clip(sx - x0, 0, 1), np.clip(sy - y0, 0, 1)
+    return (f[y0, x0] * (1 - fx) + f[y0, x0 + 1] * fx) * (1 - fy) + (f[y0 + 1, x0] * (1 - fx) + f[y0 + 1, x0 + 1] * fx) * fy
+
+
+def plate_army(P):
+    cv = P.cv
+    P.bead()
+    _std_legends(P, "U.S. ARMY", "MOTOR POOL - COMMONWEALTH", top_span=(FX(0.2), FX(0.8)))
+    E = emblem_rec("army", BASE, LEGEND, None, LEGEND)
+    c = BADGE_C
+    P.emblem(E, (c[0] - 91, c[1] - 91, c[0] + 91, c[1] + 91), (FX(0.085), TOP_Y), 36.0, mask=sd_circle(E.cv, *c, 91))
+    x = FX(0.895)
+    P.put(np.abs(sd_box(cv, x - 27, TOP_Y - 11, x + 27, TOP_Y + 11, 1.5)) - 1.0, LEGEND, 1.0, "print")
+    P.legend("W-7713", x, TOP_Y, 11.0, stroke=2.0, fit=46, max_condense=0.5)
+
+
+PLATE_DRAW = {"standard": plate_standard, "vintage": plate_vintage, "blank": plate_blank, "vaulttec": plate_vaulttec,
+              "robco": plate_robco, "nuka": plate_nuka, "redrocket": plate_redrocket, "bos": plate_bos,
+              "minutemen": plate_minutemen, "institute": plate_institute, "raider": plate_raider, "army": plate_army}
+
+
+def plate_index(P, pal):
+    """A design cell's index map (U per texel, uint8) from its parts and shades."""
+    u = np.zeros(P.part.shape)
+    seg = pal["u"]
+    for part, key, (s0, s1) in ((BASE, "base", pal["base_shade"]), (LEGEND, "legend", pal["legend_shade"]),
+                                (ACCENT, "accent", pal["legend_shade"])):
+        m = P.part == part
+        u[m] = plate_u(seg[key], P.shade[m], s0, s1)
+    for k, (_, fu, _) in enumerate(PLATE_FIXED):
+        u[P.part == 3 + k] = fu
+    return np.clip(np.rint(u), 0, 255).astype(np.uint8)
+
+
+def draw_plate_designs(opts):
+    """The design atlas from the table's plates and plate_atlas["designs"]: (U, part, height units, spec RGB, info)."""
+    at = opts["plate_atlas"]["designs"]
+    pal = opts["plate_palette"]["plate"]
+    (W, H), (cw, ch) = at["size"], at["cell"]
+    plain = PlateArt()
+    U = np.zeros((H, W), np.uint8)
+    PART = np.zeros((H, W), np.uint8)
+    HT = np.zeros((H, W))
+    S = np.zeros((H, W, 3), np.uint8)
+    blank_u = plate_index(plain, pal)
+    for r in range(H // ch):
+        for c in range(W // cw):
+            U[r * ch:(r + 1) * ch, c * cw:(c + 1) * cw] = blank_u
+    info = {}
+    for d in opts["plates"]:
+        if d["cell"] is None:
+            continue
+        c, r = d["cell"]
+        P = PlateArt(PLATE_DESIGN[d["key"]]["finish"])
+        PLATE_DRAW[d["key"]](P)
+        sl = (slice(r * ch, (r + 1) * ch), slice(c * cw, (c + 1) * cw))
+        U[sl], PART[sl], HT[sl] = plate_index(P, pal), P.part, P.height
+        S[sl] = np.dstack([to8(P.fin[..., 0]), to8(P.fin[..., 1]), np.zeros(P.part.shape, np.uint8)])
+        face = P.face <= 0
+        share = {PLATE_PART_NAMES[k]: round(float((P.part[face] == k).mean()), 4) for k in np.unique(P.part[face])}
+        info[d["key"]] = dict(cell=[c, r], index=d["index"], name=d["name"], legend=d["legend"], own_back=d["own_back"],
+                              own_ink=d["own_ink"], own_text=d["own_text"], parts=share,
+                              finish=PLATE_DESIGN[d["key"]]["finish"], accent=PLATE_DESIGN[d["key"]]["accent"])
+    return U, PART, HT, S, info
+
+
 # --- main ---------------------------------------------------------------------------------------------------
 
 
@@ -1305,6 +2113,48 @@ def write_badges(out, look_options):
     cov = ", ".join(f"{k} {v['coverage']:.2f}" for k, v in meta["badges"].items())
     print(f"wrote badges_d.png {d.shape[1]}x{d.shape[0]}, badges_n.png and badges_s.png {n.shape[1]}x{n.shape[0]}, "
           f"badges.json to {out}: {len(meta['badges'])} badges (coverage of the plate: {cov})")
+    return 0
+
+
+PLATE_H_ZERO, PLATE_H_SPAN = -0.15, 0.33       # plates_h.png: level 0 = -0.15 units, 255 = +0.18
+PLATE_TEXT_H_SPAN = PLATE_BEVEL_UNITS          # plate_text_h.png: 255 = the stamped plateau
+
+
+def write_plates(out, look_options):
+    """--plates: the plate's design and text atlases as index maps (look_plates.py makes the DDS, the palettes and the
+    materials from them) and plates.json."""
+    opts = json.loads(Path(look_options).read_text())
+    out.mkdir(parents=True, exist_ok=True)
+    U, PART, HT, S, dinfo = draw_plate_designs(opts)
+    write_png(out / "plates_d.png", U)
+    write_png(out / "plates_part.png", PART)
+    write_png(out / "plates_h.png", to8((HT - PLATE_H_ZERO) / PLATE_H_SPAN))
+    write_png(out / "plates_s.png", S)
+    TU, TA, TH, TS, tinfo = draw_plate_texts(opts)
+    write_png(out / "plate_text_d.png", np.dstack([TU, TU, TU, TA]))
+    write_png(out / "plate_text_h.png", to8(TH))
+    write_png(out / "plate_text_s.png", TS)
+    meta = {"version": 1,
+            "maps": {"plates_d.png": "grey: the U of the design's palette row (plate_p.dds), 2048 x 1024",
+                     "plates_part.png": "each texel's part (parts[]), for the mips per part",
+                     "plates_h.png": "the relief (units = zero + level x span / 255)",
+                     "plates_s.png": "R specular, G smoothness, B unused (linear)",
+                     "plate_text_d.png": "RGB grey: the U of the ink's row (plate_text_p.dds); A the characters (alpha test 128)",
+                     "plate_text_h.png": "the stamped characters' relief (units = level x span / 255)",
+                     "plate_text_s.png": "R specular, G smoothness, B unused (linear)"},
+            "parts": PLATE_PART_NAMES, "fixed": [list(f) for f in PLATE_FIXED],
+            "height": {"designs": {"zero": PLATE_H_ZERO, "span": PLATE_H_SPAN}, "texts": {"zero": 0.0, "span": PLATE_TEXT_H_SPAN}},
+            "face": {"px": [FACE_X0, FACE_Y0, FACE_W, FACE_H], "corner_px": FACE_R, "px_a_unit": round(FACE_PX, 4),
+                     "edge_shade": EDGE_SHADE},
+            "font": {"cap_px": PLATE_CAP, "stroke_px": PLATE_STROKE, "glyph_px": PLATE_GLYPH_W, "pitch_px": PLATE_PITCH,
+                     "fit_px": PLATE_FIT, "max_condense": PLATE_CONDENSE, "space": PLATE_SPACE, "narrow": PLATE_NARROW,
+                     "bevel_px": PLATE_BEVEL_PX, "bevel_units": PLATE_BEVEL_UNITS, "light": list(PLATE_LIGHT),
+                     "lit": PLATE_LIT, "dark": PLATE_DARK, "chars": PLATE_TEXT_CHARS, "legend_extra": PLATE_LEGEND_EXTRA,
+                     "glyphs": len([c for c in PLATE_GLYPHS if c not in PLATE_LEGEND_EXTRA])},
+            "designs": dinfo, "texts": tinfo}
+    (out / "plates.json").write_text(json.dumps(meta, indent=1) + "\n")
+    print(f"wrote plates_d/_part/_h/_s.png {U.shape[1]}x{U.shape[0]} ({len(dinfo)} designs), plate_text_d/_h/_s.png "
+          f"{TU.shape[1]}x{TU.shape[0]} ({len(tinfo)} texts) and plates.json to {out}")
     return 0
 
 
@@ -1326,10 +2176,16 @@ def main():
                          "badges_n.png and badges_s.png (1024) and badges.json, from --look-options; nothing else")
     ap.add_argument("--look-options", type=Path,
                     default=Path(__file__).resolve().parent.parent / "esp-generator" / "look_options.json",
-                    help="the option table (its atlas and badges) for --badges")
+                    help="the option table (its atlas and badges; its plates) for --badges and --plates")
+    ap.add_argument("--plates", action="store_true",
+                    help="(since 2026-11-08a) write only the licence plate's atlases into --out: plates_d/_part/_h/_s.png "
+                         "(2048 x 1024, the 12 designs), plate_text_d/_h/_s.png (2048, the 60 texts) and plates.json, "
+                         "from --look-options; nothing else")
     args = ap.parse_args()
     if args.badges:
         return write_badges(args.out, args.look_options)
+    if args.plates:
+        return write_plates(args.out, args.look_options)
     if args.stage_manifest and args.stage_manifest.exists():
         man = json.loads(args.stage_manifest.read_text())
         if man.get("disc", "model") == "ours" and man.get("disc_bore", "bolts") != args.disc_bore:

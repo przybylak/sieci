@@ -26,12 +26,14 @@
 # the player's own items and power attacks, the headlamp let go, the landings without metal, the water loop's law and
 # kinds, the longer gear change and the launch's flare; the 2026-11-07a build's customisation: the CMB_LookCode global
 # (an older ESP without it), the mirrors as chosen at the bike ([Look] Mirrors=-1) on the worn and first-person bikes,
-# and the split tank badges and the rear fender's patch held (in a mode of its own: custom). 25 modes (0-24). Needs
-# MinGW-w64 and wine64.
-# The 2026-11-07a build: 1580 checks ok (full 382, probe 10, guard 8, wrongversion 4, transposed 76, disagree 6,
+# and the split tank badges and the rear fender's patch held (in a mode of its own: custom); the 2026-11-08a build's
+# rim styles held and hidden as chosen at the bike ([Look] Rims, CMB_LookCode bits 3-6), the plate's two shapes, the
+# look colours written into the worn bike's materials ([Look] PaintWheel and PlateColours) and 64 skins (custom), and an
+# older ESP without the colour globals (roomold; the writer with three of the four on look's bike, and only into its
+# V's palette in custom: reviews B3, B2). 25 modes (0-24). Needs MinGW-w64 and wine64.
+# The 2026-11-08a build: 1611 checks ok (full 382, probe 10, guard 8, wrongversion 4, transposed 76, disagree 6,
 # backpush 6, riderinplace 18, riderheldonly 8, load 43, climb 125, wall 75, ram 110, hits 22, launch 13, backing 56,
-# arms 36, room 131, roomold 55, decals 77, sound 100, look 57, view 103, fx 42, custom 17); 1562 in 24 modes at
-# 2026-11-06a.
+# arms 36, room 131, roomold 56, decals 77, sound 100, look 58, view 103, fx 42, custom 46); 1580 at 2026-11-07a.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 WORK="$(mktemp -d)"

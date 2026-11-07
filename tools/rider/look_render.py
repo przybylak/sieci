@@ -23,6 +23,11 @@ lighting shader does, as far as is cheap:
   turned about SteerAxis, and the shapes the plugin shrinks to a speck (the lamp's lit parts and the dial's
   backlight with the lamp off, the brake shell unless braking, the tail shell with [Tail] Glow=0, the mirror
   variants but the [Look] Mirrors one) left out;
+- the customisation (look_options.json, since 2026-11-07a): --swap composes the chosen options' material swaps as
+  the controller does; since 2026-11-08a with their colour indices (a palette material's row: Free colour's hue and
+  shade, a body-colour rim's paint row, a plate design's background, its text's ink), the follows (TankR, the plate's
+  own text), the crude-text switch and the echo entries (target -> target), and the worn bike's rim group (the styles
+  but CMB_LookCode's specked, as the plugin does); --compose prints the composed swap and the four colour values;
 - shapes without Cast_Shadows cast none, single-sided ones are culled from behind;
 - day and night presets (night: the lamp on, its beam a spot light where the plugin puts the game's light).
 
@@ -31,6 +36,9 @@ lighting shader does, as far as is cheap:
     <bpy python> -I tools/rider/look_render.py --sheet <out.png> <png>...           (contact sheet)
     <bpy python> -I tools/rider/look_render.py --compare <dir> <prefixA> <prefixB> <out.png>
     <bpy python> -I tools/rider/look_render.py --list-views
+    python3 -I tools/rider/look_render.py --compose --swap Rims:laced_body,Paint:free [--hue 120 --shade 2] [--crude 0]
+    <bpy python> -I tools/rider/look_render.py --pynifly ... --data <Data> --out <dir> --sheet rims,tyres,plates,hue \
+        [--swap <the other slots>] [--extra-shapes <a stage with the rim-style shapes, when the nifs lack them>]
 
 --data is a Data folder: Meshes\\CMB (the nifs, CMB_BikeParts.ini, CMB_BikeFit.json), Textures, Materials.
 Paths are matched without regard to case, as the game does. Nothing from the files read is ever executed.
@@ -103,6 +111,15 @@ VIEWS = {
     "t49_mirror_out": dict(cam=(70, 10, 110), at=(30, 38, 90), lens=60, mirrors=1),
     "t49_night_mirror": dict(cam=EYE, at=(30, 40, 94), lens=50, mirrors=1, preset=NIGHT),
     "t49_night_mirror_out": dict(cam=(70, 10, 110), at=(30, 38, 90), lens=60, mirrors=1, preset=NIGHT),
+    # since 2026-11-08a (C2): a wheel at 60 units from its axle (CMB_BikeParts.ini's, worn frame), the rear from the
+    # bike's left (its disc side: the right has the exhausts in the way), the front from its right (the side without
+    # the disc); the licence plate (its face's centre (-22.9, -49.7, 46.1), facing -y): from 200 behind at a riding
+    # camera's height, from 60 behind it (the side the field kit is used from), and from the rear left at 45 degrees
+    "wheel_l": dict(cam=(-59.6, -40.45, 36), at=(0.38, -40.45, 29.94), lens=30),
+    "wheel_r": dict(cam=(60.4, 95.83, 36), at=(0.38, 95.83, 29.86), lens=30),
+    "plate_rear": dict(cam=(0, -249.7, 110), at=(-22.9, -49.7, 46.1), lens=50),
+    "plate_kit": dict(cam=(-34, -108, 54), at=(-22.9, -49.7, 46.1), lens=50),
+    "plate_45": dict(cam=(-86.5, -113.4, 60), at=(-22.9, -49.7, 46.1), lens=50),
 }
 SETS = {
     "day": ["front34", "rear34", "side_r", "side_l", "cockpit_0", "cockpit_50", "tail_off", "tail_on"],
@@ -117,6 +134,7 @@ SETS["t49seat"] = ["t49_seat_l", "t49_seat_r", "t49_seatseam_l"]
 SETS["t49disc"] = ["t49_disc_r", "t49_discF_l", "t49_discR_close", "t49_discF_close", "close_wheel"]
 SETS["t49mirror"] = ["t49_mirror_eye", "t49_mirror_egg", "t49_mirror_out", "t49_night_mirror", "t49_night_mirror_out"]
 SETS["t49"] = [v for k in ("t49tank", "t49seat", "t49disc", "t49mirror") for v in SETS[k]]
+SETS["c2"] = ["wheel_l", "wheel_r", "plate_rear", "plate_kit", "plate_45"]
 SHEETS = {"closeups": SETS["close"]}
 # the look sheets (--sheet all, since 2026-11-07a): every option of a slot on the parked bike, the worn one and the
 # bench's preview. The plates' centres and outward normals from the shipped static_badge (worn frame: the left plate
@@ -134,11 +152,31 @@ LOOK_FRAMES = {
     "Paint": {"parked": dict(VIEWS["parked34"]), "worn": dict(VIEWS["front34"]), "preview": PREVIEW},
     "Mirrors": {"parked": dict(cam=(105, 118, 122), at=(22, 42, 93), lens=45, parked=True),
                 "worn": dict(cam=(105, 118, 122), at=(22, 42, 93), lens=45), "preview": PREVIEW},
+    # since 2026-11-08a: the wheels (the rear parked from the left, the front worn from the right: both wheels, both
+    # sides, both bikes in a row) and the plate
+    "Rims": {"parked": dict(VIEWS["wheel_l"], parked=True), "worn": dict(VIEWS["wheel_r"]), "preview": PREVIEW},
+    "Tyres": {"parked": dict(VIEWS["wheel_l"], parked=True), "worn": dict(VIEWS["wheel_r"]), "preview": PREVIEW},
 }
+for _k in ("Plate", "PlateText", "PlateInk", "PlateBack"):
+    LOOK_FRAMES[_k] = {"parked": dict(VIEWS["plate_kit"], parked=True), "worn": dict(VIEWS["plate_45"]), "preview": PREVIEW}
+# --sheet groups (since 2026-11-08a): rims, tyres, plates (the four plate slots), hue (Paint 45 "Free colour" at
+# HUE_STEPS hues x the 4 shades on one frame)
+SHEET_GROUPS = {"rims": ["Rims"], "tyres": ["Tyres"], "plates": ["Plate", "PlateText", "PlateInk", "PlateBack"]}
+HUE_STEPS = 24
+HUE_FRAME = dict(VIEWS["parked34"])
+# a sheet's other slots (unless --swap says otherwise): a plate's colours and texts on a design that shows them
+SHEET_CONTEXT = {"PlateText": {"Plate": "standard"}, "PlateInk": {"Plate": "standard"}, "PlateBack": {"Plate": "standard"}}
 
 # the plugin's roles by name (CMB_Slope.c g_roleTags, first fit wins); 27c's names give 27c's roles with it
 TURNING = {"front", "glow", "backlight", "needle", "fork", "wheelF"}
 MIRROR_TAGS = (("_front_mirrorstock", 1), ("_front_mirrorunderegg", 2), ("_front_mirrorunderd", 3))
+# the rim group (since 2026-11-08a; CMB_Slope.c's g_lookGroups): a name ending in _wheelF_rim or _wheelR_rim is the cast
+# rim (style 0), in _wheelF_rim<Style> or _wheelR_rim<Style> style 1-7 (look_options.json's rim_styles); the worn bike
+# shows only CMB_LookCode's style (bits 3-6 with bit 2 set, else 0) and specks the rest ([Look] Rims=1); the parked
+# bike's styles not chosen are invisible by their own materials files
+RIM_STYLES = ("laced", "disc", "star", "turbine", "prewar", "atomic", "scrap")
+RIM_TAGS = tuple((f"_wheel{w}_rim", 0) for w in "fr") + tuple((f"_wheel{w}_rim{k}", i + 1)
+                                                           for i, k in enumerate(RIM_STYLES) for w in "fr")
 
 
 def role_of(name):
@@ -161,6 +199,17 @@ def role_of(name):
     if "_front_" in n:
         return "front", 0
     return "none", 0
+
+
+def rim_of(name):
+    """The rim style a shape's name gives (0 the cast rim, 1-7 the styles), or None: not a rim."""
+    n = name.lower()
+    if ":" in n and n.rsplit(":", 1)[1].isdigit():
+        n = n.rsplit(":", 1)[0]
+    for end, v in RIM_TAGS:
+        if n.endswith(end):
+            return v
+    return None
 
 
 # ----------------------------------------------------------------------------------------------------------------
@@ -566,23 +615,112 @@ def mat_key(path):
     return p[len("materials\\"):] if p.startswith("materials\\") else p
 
 
-def compose_swaps(opts, choice):
-    """{source key: target path} for the choices {slot key: option key} (unchosen slots keep their sources).
-    TankR's "Same as the left" shows the left's choice, as the controller composes it."""
+def hue_v(hue, shade):
+    """The Free colour paint's V (look_options.json's hue_palette): (shade x 256 + round(hue x 255 / 359) + 0.5) / 1024."""
+    return (int(shade) * 256 + int(round(float(hue) * 255 / 359)) + 0.5) / 1024
+
+
+def resolve(opts, choice, crude=1):
+    """{slot key: its option} for every slot (the unchosen at their default), as the controller resolves them:
+    TankR's "Same as the left" the left's; PlateText 0 "The plate's own" the design's own text (plates[].own_text); a
+    crude text with "Crude plate texts" off (crude 0) the design's own too."""
     slots = {s["key"]: s for s in opts["slots"]}
     out = {}
-    for sk, key in choice.items():
-        s = slots[sk]
+    for sk, s in slots.items():
+        key = choice.get(sk, s["options"][s["default"]]["key"])
         o = next((o for o in s["options"] if o["key"] == key), None)
         if o is None:
             raise SystemExit(f"--swap: no option {key!r} in {sk} ({', '.join(x['key'] for x in s['options'])})")
-        if o["kind"] == "follow":
-            tl = slots["TankL"]
-            left = choice.get("TankL", tl["options"][tl["default"]]["key"])
-            o = next(x for x in s["options"] if x["key"] == left)
-        for src, dst in o["swap"]:
-            out[mat_key(src)] = dst
+        out[sk] = o
+    if "TankR" in out and out["TankR"]["kind"] == "follow":
+        out["TankR"] = next(x for x in slots["TankR"]["options"] if x["key"] == out["TankL"]["key"])
+    if "PlateText" in out:
+        own = opts["plates"][out["Plate"].get("design") or 0]["own_text"]
+        if out["PlateText"]["kind"] == "follow" or (out["PlateText"].get("crude") and not crude):
+            out["PlateText"] = slots["PlateText"]["options"][own]
     return out
+
+
+def compose_entries(opts, choice, hue=None, shade=None, crude=1):
+    """The composed swap as CMB_LookF4SE's Compose makes it (since 2026-11-08a): [(source, target, colour index or
+    None)] over the chosen slots in table order, then the echo entries (target -> target, the same index, for each
+    entry with one, once a source; a body target renamed to its bodyhue twin also echoes from its own name: original
+    -> twin, as Compose's AddColoured; none whose source an entry has), and the four colour values {CMB_LookPaintV, CMB_LookRimV, CMB_LookPlateV, CMB_LookPlateTextV}
+    (-1 unused). The colour indices: Paint 45 (Free colour) on its entries, the hue's V; a body-colour rim on its body
+    targets, the paint's row's V ((paint_row_of_option + 0.5) / 64), or with Free colour the hue's V on the body
+    targets' bodyhue twins (rim_body_targets); a plate design d on its entries, ((d - 1) x 16 + background + 0.5) / 256
+    (PlateBack - 1, or the design's own background); a plate text on its entries, (ink + 0.5) / 16 (PlateInk - 1, or the
+    design's own ink). The slots not in `choice` are left out (their sources keep their own materials), but their
+    defaults count for the colours."""
+    hp = opts.get("hue_palette") or {}
+    hue = hp.get("default", [210, 1])[0] if hue is None else hue
+    shade = hp.get("default", [210, 1])[1] if shade is None else shade
+    res = resolve(opts, choice, crude)
+    V = {"CMB_LookPaintV": -1.0, "CMB_LookRimV": -1.0, "CMB_LookPlateV": -1.0, "CMB_LookPlateTextV": -1.0}
+    paint = res.get("Paint")
+    free = paint is not None and paint["kind"] == "hue"
+    if free and "Paint" in choice:
+        V["CMB_LookPaintV"] = hue_v(hue, shade)
+    rim = res.get("Rims")
+    body = {mat_key(a): b for a, b in opts.get("rim_body_targets", [])}
+    if rim is not None and rim.get("finish") == "body" and "Rims" in choice:
+        if free:
+            V["CMB_LookRimV"] = hue_v(hue, shade)
+        else:
+            V["CMB_LookRimV"] = (opts["paint_row_of_option"][paint["index"]] + 0.5) / opts["palette"]["size"][1]
+    plate = res.get("Plate")
+    d = (plate or {}).get("design") or 0
+    if d >= 1 and "Plate" in choice:
+        back = res["PlateBack"]["colour"] if res["PlateBack"]["colour"] is not None else opts["plates"][d]["own_back"]
+        V["CMB_LookPlateV"] = ((d - 1) * 16 + back + 0.5) / 256
+    text = res.get("PlateText")
+    if text is not None and text["kind"] == "text" and ("PlateText" in choice or "Plate" in choice):
+        ink = res["PlateInk"]["colour"] if res["PlateInk"]["colour"] is not None else opts["plates"][d]["own_ink"]
+        V["CMB_LookPlateTextV"] = (ink + 0.5) / 16
+    entries, originals = [], []
+    for s in opts["slots"]:
+        sk = s["key"]
+        if sk not in choice and not (sk == "PlateText" and "Plate" in choice):
+            continue
+        o = res[sk]
+        for src, dst in o["swap"] or []:
+            ci, o_dst = None, dst
+            if sk == "Paint" and free:
+                ci = V["CMB_LookPaintV"]
+            elif sk == "Rims" and V["CMB_LookRimV"] >= 0 and mat_key(dst) in body:
+                ci = V["CMB_LookRimV"]
+                if free:
+                    dst = body[mat_key(dst)]
+            elif sk == "Plate" and V["CMB_LookPlateV"] >= 0:
+                ci = V["CMB_LookPlateV"]
+            elif sk == "PlateText" and V["CMB_LookPlateTextV"] >= 0:
+                ci = V["CMB_LookPlateTextV"]
+            entries.append((src, dst, ci))
+            originals.append(o_dst)
+    echoes = {}
+    for (_, dst, ci), orig in zip(entries, originals):
+        if ci is not None:   # Compose's AddColoured: QueueEcho(original, target), then (target, target) when renamed
+            for name in (orig, dst):
+                echoes.setdefault(mat_key(name), (name, dst, ci))
+    sources = {mat_key(src) for src, _, _ in entries}
+    return entries + [e for k, e in echoes.items() if k not in sources], V
+
+
+def compose_swaps(opts, choice, hue=None, shade=None, crude=1):
+    """{source key: (target path, colour index or None)} for the choices {slot key: option key} (unchosen slots keep
+    their sources): compose_entries' entries, the last for a source winning (as F4SE applies them in order)."""
+    out = {}
+    for src, dst, ci in compose_entries(opts, choice, hue, shade, crude)[0]:
+        out[mat_key(src)] = (dst, ci)
+    return out
+
+
+def rim_code(opts, choice):
+    """The worn bike's rim style for a Rims choice (the plugin's speck by CMB_LookCode bits 3-6), else None."""
+    if "Rims" not in choice:
+        return None
+    s = next(s for s in opts["slots"] if s["key"] == "Rims")
+    return next(o.get("rim_style") or 0 for o in s["options"] if o["key"] == choice["Rims"])
 
 
 def mirror_code(opts, choice):
@@ -636,9 +774,44 @@ def read_nif(pyn_dir, path, data, use_bgsm, to_worn=None):
         if to_worn is not None and np.prod(to_worn[0]) < 0:
             tri = tri[:, [0, 2, 1]]                      # a mirroring keeps the faces outward
         role, variant = role_of(s.name)
-        shapes.append(dict(name=s.name, v=v, n=nrm, uv=uv, tri=tri, role=role, variant=variant,
+        shapes.append(dict(name=s.name, v=v, n=nrm, uv=uv, tri=tri, role=role, variant=variant, rim=rim_of(s.name),
                            shader=shape_shader(P, nifly, f, s, data, use_bgsm)))
     return shapes
+
+
+def extra_shapes(stage, labels, shapes, seat_at, data, use_bgsm, worn):
+    """Shapes a nif doesn't have yet, from a stage folder (shapes/<label>.npz in the parked frame, uv/<label>.npz per
+    corner, or the shape file's uv_fixed): each named as the nif names its wheel's cast rim with the label in its place, with that rim's shader
+    block and the label's own materials file (<label>.bgsm, or _worn.bgsm on the worn bike). For looking at the rim
+    styles before the nifs carry them (look_wheels.py --standin, or the mesh unit's stage)."""
+    out = []
+    names = {s["name"].lower(): s for s in shapes}
+    for label in labels:
+        if any(n.endswith("_" + label.lower()) for n in names):
+            continue
+        w = "wheelF" if "wheelF" in label else "wheelR"
+        cast = next((s for n, s in names.items() if n.endswith(f"_{w.lower()}_rim")), None)
+        sp, up = Path(stage) / "shapes" / f"{label}.npz", Path(stage) / "uv" / f"{label}.npz"
+        if cast is None or not sp.exists():
+            continue
+        with np.load(sp) as z:
+            pos, tri = z["pos"].astype(np.float64), z["tri"].astype(np.int64)
+            nrm = z["nrm"].astype(np.float64) if "nrm" in z.files else None
+            uvc = z["uv_fixed"].astype(np.float64) if "uv_fixed" in z.files else None
+        if up.exists():
+            with np.load(up) as z:
+                uvc = z["uv"].astype(np.float64)
+        if uvc is None:
+            continue
+        v = pos[tri].reshape(-1, 3)
+        v = np.c_[-v[:, 0], seat_at - v[:, 1], v[:, 2]]
+        n = None if nrm is None else nrm[tri].reshape(-1, 3) * np.array([-1.0, -1.0, 1.0])
+        name = cast["name"][:-len(w + "_rim")] + label
+        mat = "Materials\\CMB\\Bike\\" + label + ("_worn" if worn else "") + ".bgsm"
+        out.append(dict(name=name, v=v, n=n, uv=uvc.reshape(-1, 2), tri=np.arange(len(v)).reshape(-1, 3), role=cast["role"],
+                        variant=0, rim=rim_of(name), shader=material_shader(dict(cast["shader"]["block"], name=mat), mat, data,
+                                                                            use_bgsm)))
+    return out
 
 
 # ----------------------------------------------------------------------------------------------------------------
@@ -990,14 +1163,19 @@ class Scene:
                 key = mat_key(s["shader"]["block"]["name"])
                 key = aliases.get(key, key)
                 target = swaps.get(key)
-                if target is None or mat_key(target) == key:
+                target, ci = target if isinstance(target, tuple) else (target, None)
+                if target is None or (mat_key(target) == key and ci is None):
                     want, sh = s["mat0"], s["shader"]
                 else:
-                    ck = (s["name"], mat_key(target))
+                    ck = (s["name"], mat_key(target), ci)
                     if ck not in self.swapped:
                         sh = material_shader(s["shader"]["block"], "Materials\\" + target, self.data, self.args.bgsm)
-                        self.swapped[ck] = (self.material(sh, f"{s['name']}>{Path(target.replace(chr(92), '/')).stem}"), sh)
-                        self.log.append(f"swap {s['name']}: {target} ({sh['source']})")
+                        if ci is not None and sh.get("palette"):        # the entry's colour index: the palette's row
+                            sh["palette"] = (sh["palette"][0], float(ci))
+                        tag = f"{Path(target.replace(chr(92), '/')).stem}{'' if ci is None else '@%.5f' % ci}"
+                        self.swapped[ck] = (self.material(sh, f"{s['name']}>{tag}"), sh)
+                        self.log.append(f"swap {s['name']}: {target}{'' if ci is None else ' colour index %.6f' % ci} "
+                                        f"({sh['source']})")
                     want, sh = self.swapped[ck]
                     n += 1
                     if sh["source"] != "bgsm":
@@ -1151,7 +1329,8 @@ def turn_matrix(axis, point, deg):
 
 def view_state(name, v, args, parts):
     st = dict(preset=v.get("preset", DAY), parked=v.get("parked", False), mph=v.get("mph", 0.0),
-              brake=v.get("brake", False), mirrors=v.get("mirrors", 1), bar=v.get("bar", 0) * parts.get("BarAngle", 20.0))
+              brake=v.get("brake", False), mirrors=v.get("mirrors", 1), bar=v.get("bar", 0) * parts.get("BarAngle", 20.0),
+              rim=v.get("rim", 0))
     st["lamp"] = st["preset"] == NIGHT                       # MCM "On at night", the default
     st.update(tail=args.tail, backlight=args.backlight, needle=args.needle)
     for kv in args.set or []:
@@ -1188,6 +1367,8 @@ def apply_state(scene, st, parts):
                         M = turn_matrix(na, np_, -theta)       # clockwise as the rider sees it
                 if s["variant"]:
                     show = show and s["variant"] == st["mirrors"]
+                if s.get("rim") is not None and st.get("rim", 0) >= 0:      # rim=-1: [Look] Rims=0, none specked
+                    show = show and s["rim"] == st.get("rim", 0)
                 if role in TURNING and st["bar"] and sa and sp:
                     M = turn_matrix(sa, sp, st["bar"]) @ M
             ob.hide_render = not show
@@ -1244,7 +1425,9 @@ def main():
     ap.add_argument("--sheet", nargs="+", metavar=("OUT", "PNG"),
                     help="a contact sheet of PNGs; or (since 2026-11-07a) `--sheet all` or `--sheet Slot[,Slot]`: render "
                          "every option of look_options.json's slots on the parked, worn and preview frames into --out "
-                         "(<Slot>/<index>_<key>_<frame>.png) and a sheet each, <out>/<Slot>.png")
+                         "(<Slot>/<index>_<key>_<frame>.png) and a sheet each, <out>/<Slot>.png; since 2026-11-08a also "
+                         "`--sheet rims|tyres|plates|hue` (hue: Free colour at 24 hues x 4 shades, <out>/Hue.png); "
+                         "--swap's choices are every sheet's other slots")
     ap.add_argument("--look-options", type=Path,
                     default=Path(__file__).resolve().parent.parent / "esp-generator" / "look_options.json",
                     help="the customisation's option table (--swap, --sheet all)")
@@ -1254,6 +1437,14 @@ def main():
     ap.add_argument("--alias", action="append",
                     help="OLD=NEW[,...] material paths: a shape naming OLD counts as naming NEW before the swaps (a test "
                          "on nifs before the split badges: CMB\\Bike\\static_badge.bgsm=CMB\\Bike\\static_badgeTankL.bgsm)")
+    ap.add_argument("--hue", type=float, help="Free colour's hue, 0-359 (MCM \"Paint hue\"; default the table's 210)")
+    ap.add_argument("--shade", type=int, help="Free colour's shade, 0-3 Deep, Normal, Light, Pastel (default 1)")
+    ap.add_argument("--crude", type=int, default=1, help="MCM \"Crude plate texts\" (0: a crude text shows the plate's own)")
+    ap.add_argument("--compose", action="store_true",
+                    help="print the composed swap of --swap (its entries with their colour indices, the echo entries, the "
+                         "four colour values) and exit: no render (since 2026-11-08a)")
+    ap.add_argument("--extra-shapes", type=Path,
+                    help="a stage folder whose rim-style shapes (shapes/, uv/) join the nifs' when the nifs lack them")
     ap.add_argument("--compare", nargs=4, metavar=("DIR", "PREFIX_A", "PREFIX_B", "OUT"))
     ap.add_argument("--list-views", action="store_true")
     args = ap.parse_args()
@@ -1261,12 +1452,20 @@ def main():
         for k, v in SETS.items():
             print(f"{k}: {', '.join(v)}")
         return 0
-    opts = json.loads(args.look_options.read_text()) if (args.swap or args.sheet) and args.look_options.exists() else None
+    opts = json.loads(args.look_options.read_text()) if (args.swap or args.sheet or args.compose) and args.look_options.exists() else None
+    if args.compose:
+        entries, V = compose_entries(opts, parse_choice(args.swap), args.hue, args.shade, args.crude)
+        for src, dst, ci in entries:
+            print(f"{src} -> {dst}" + ("" if ci is None else f"  colorIndex {ci:.6f}"))
+        print(f"{len(entries)} entries; " + ", ".join(f"{k} {v:.6f}" if v >= 0 else f"{k} -1" for k, v in V.items()))
+        return 0
     look_slots = None
     if args.sheet and len(args.sheet) == 1 and opts is not None:
         keys = [s["key"] for s in opts["slots"]]
-        parts_ = keys if args.sheet[0] == "all" else args.sheet[0].split(",")
-        look_slots = parts_ if all(k in keys for k in parts_) else None
+        parts_ = []
+        for part in args.sheet[0].split(","):
+            parts_ += keys if part == "all" else SHEET_GROUPS.get(part, ["Hue"] if part == "hue" else [part])
+        look_slots = parts_ if all(k in keys or k == "Hue" for k in parts_) else None
     if args.sheet and look_slots is None:
         print(sheet(args.sheet[0], args.sheet[1:]))
         return 0
@@ -1295,24 +1494,33 @@ def main():
         scene.standins = {t.lower() for b in opts["badges"] for t in (b["textures"] or {}).values() if t}
     scene.setup()
     worn = read_nif(args.pynifly, data.find(args.nif), data, args.bgsm)
+    rim_labels = [lab for st in (opts or {}).get("rim_styles", []) for lab in st["shapes"]]
+    if args.extra_shapes:
+        worn += extra_shapes(args.extra_shapes, rim_labels, worn, seat_at, data, args.bgsm, True)
     scene.add_shapes(worn, "worn")
-    if any(VIEWS[n].get("parked") for n in names):
+    if any(VIEWS[n].get("parked") for n in names) or look_slots:
         pk = data.find(args.parked_nif)
         parked = read_nif(args.pynifly, pk, data, args.bgsm, to_worn=(np.array([-1.0, -1.0, 1.0]), np.array([0, seat_at, 0])))
+        if args.extra_shapes:
+            parked += extra_shapes(args.extra_shapes, rim_labels, parked, seat_at, data, args.bgsm, False)
         scene.add_shapes(parked, "parked")
     aliases = parse_alias(args.alias)
     choice = parse_choice(args.swap)
-    if choice:
-        n = scene.apply_swaps(compose_swaps(opts, choice), aliases)
-        mc = mirror_code(opts, choice)
+    if choice and not look_slots:
+        n = scene.apply_swaps(compose_swaps(opts, choice, args.hue, args.shade, args.crude), aliases)
+        mc, rc = mirror_code(opts, choice), rim_code(opts, choice)
         if mc is not None:
             args.set = (args.set or []) + [f"mirrors={mc}"]
-        print(f"--swap {args.swap}: {n} shapes swapped" + (f", the worn bike's mirrors {mc}" if mc is not None else ""))
+        if rc is not None:
+            args.set = (args.set or []) + [f"rim={rc}"]
+        print(f"--swap {args.swap}: {n} shapes swapped" + (f", the worn bike's mirrors {mc}" if mc is not None else "")
+              + (f", the worn bike's rims style {rc}" if rc is not None else ""))
     t_build = time.time() - t0
     lines = [f"data {args.data}, worn {args.nif}: {len(worn)} shapes, bgsm {args.bgsm}"]
     for s in worn:
         sh = s["shader"]
-        lines.append(f"  {s['name']:<38} {s['role']:<9}{'v' + str(s['variant']) if s['variant'] else '  '} "
+        lines.append(f"  {s['name']:<38} {s['role']:<9}{'v' + str(s['variant']) if s['variant'] else '  '}"
+                     f"{' r' + str(s['rim']) if s.get('rim') is not None else ''} "
                      f"type {sh['type']} {sh['source']:<6} env {'%.2f %s' % (sh['env_scale'], Path(sh['tex']['cube'].replace(chr(92), '/')).stem) if sh['env_on'] else '-':<40} "
                      f"emit {'%.1f' % sh['emit_mult'] if sh['emit_on'] else '-':<5} smooth {sh['smooth']:.2f} spec {sh['spec_mult']:.2f} "
                      f"{'2-sided' if sh['two_sided'] else '1-sided'} {'shadow' if sh['cast'] else 'no-shadow'}"
@@ -1357,38 +1565,64 @@ def main():
 
 
 def look_sheets(args, scene, parts, opts, slot_keys, aliases, t0):
-    """--sheet all: every option of each slot on LOOK_FRAMES' frames, one sheet a slot (a row an option)."""
+    """--sheet all (or a group): every option of each slot on LOOK_FRAMES' frames, one sheet a slot (a row an option),
+    the other slots at --swap's choices (or SHEET_CONTEXT's); "Hue": Free colour at HUE_STEPS hues x 4 shades."""
     slots = {s["key"]: s for s in opts["slots"]}
+    base = parse_choice(args.swap)
     timings = {}
+
+    def shot(choice, frames, d, stem, label, hue=None, shade=None):
+        n = scene.apply_swaps(compose_swaps(opts, choice, hue, shade, args.crude), aliases)
+        mc, rc = mirror_code(opts, choice), rim_code(opts, choice)
+        out = []
+        for fname, v in frames.items():
+            st = view_state(fname, v, args, parts)
+            if mc is not None:
+                st["mirrors"] = mc
+            if rc is not None:
+                st["rim"] = rc
+            apply_state(scene, st, parts)
+            scene.set_preset(st["preset"], st["lamp"], parts)
+            scene.look(v["cam"], v["at"], v["lens"])
+            path = d / f"{stem}_{fname}.png"
+            scene.sc.render.filepath = str(path)
+            t1 = time.time()
+            scene.bpy.ops.render.render(write_still=True)
+            timings[f"{d.name}/{path.name}"] = round(time.time() - t1, 1)
+            what = label + (" (NO " + ", ".join(sorted(scene.swap_missing)) + ")" if scene.swap_missing else "")
+            out.append((path, f"{what} - {fname}" if len(frames) > 1 else what))
+        return n, out
+
     for sk in slot_keys:
-        s = slots[sk]
         d = args.out / sk
         d.mkdir(parents=True, exist_ok=True)
         paths, labels = [], []
+        if sk == "Hue":
+            hues = [round(i * 360 / HUE_STEPS) for i in range(HUE_STEPS)]
+            free = next(o["key"] for o in slots["Paint"]["options"] if o["kind"] == "hue")
+            shades = (opts.get("hue_palette") or {}).get("shades", [["Deep"], ["Normal"], ["Light"], ["Pastel"]])
+            for sh in range(len(shades)):
+                for h in hues:
+                    n, got = shot(dict(base, Paint=free), {"parked": HUE_FRAME}, d, f"{sh}_{h:03d}",
+                                  f"{shades[sh][0]} {h}", hue=h, shade=sh)
+                    paths += [p for p, _ in got]
+                    labels += [lb for _, lb in got]
+                print(f"Hue: shade {sh} ({shades[sh][0]}), {HUE_STEPS} hues", flush=True)
+            out = sheet(args.out / "Hue.png", paths, cols=HUE_STEPS, tile_w=args.size[0], labels=labels)
+            print(f"Hue: {len(paths)} renders -> {out}", flush=True)
+            continue
+        s = slots[sk]
+        frames = LOOK_FRAMES[sk]
+        ctx = dict(SHEET_CONTEXT.get(sk, {}), **base)
         for o in s["options"]:
-            choice = {sk: o["key"]}
-            n = scene.apply_swaps(compose_swaps(opts, choice), aliases)
-            mc = mirror_code(opts, choice)
-            for fname, v in LOOK_FRAMES[sk].items():
-                st = view_state(fname, v, args, parts)
-                if mc is not None:
-                    st["mirrors"] = mc
-                apply_state(scene, st, parts)
-                scene.set_preset(st["preset"], st["lamp"], parts)
-                scene.look(v["cam"], v["at"], v["lens"])
-                path = d / f"{o['index']:02d}_{o['key']}_{fname}.png"
-                scene.sc.render.filepath = str(path)
-                t1 = time.time()
-                scene.bpy.ops.render.render(write_still=True)
-                timings[f"{sk}/{path.name}"] = round(time.time() - t1, 1)
-                paths.append(path)
-                what = o["key"] + (" (= the left)" if o["kind"] == "follow" else "")
-                if scene.swap_missing:
-                    what += " (NO " + ", ".join(sorted(scene.swap_missing)) + ")"
-                labels.append(f"{sk} {o['index']} {what} - {fname}")
-            print(f"{sk} {o['index']:2d} {o['key']}: {n} shapes swapped, {len(LOOK_FRAMES[sk])} frames "
-                  f"({sum(timings[f'{sk}/{p.name}'] for p in paths[-len(LOOK_FRAMES[sk]):]):.1f} s)", flush=True)
-        out = sheet(args.out / f"{sk}.png", paths, cols=len(LOOK_FRAMES[sk]), tile_w=args.size[0], labels=labels)
+            choice = dict(ctx, **{sk: o["key"]})
+            what = o["key"] + (" (= the left)" if o["kind"] == "follow" and sk == "TankR" else "")
+            n, got = shot(choice, frames, d, f"{o['index']:02d}_{o['key']}", f"{sk} {o['index']} {what}")
+            paths += [p for p, _ in got]
+            labels += [lb for _, lb in got]
+            print(f"{sk} {o['index']:2d} {o['key']}: {n} shapes swapped, {len(frames)} frames "
+                  f"({sum(timings[f'{sk}/{p.name}'] for p, _ in got):.1f} s)", flush=True)
+        out = sheet(args.out / f"{sk}.png", paths, cols=len(frames), tile_w=args.size[0], labels=labels)
         print(f"{sk}: {len(s['options'])} options -> {out}", flush=True)
     scene.apply_swaps({}, aliases)
     (args.out / "look_sheets_log.txt").write_text("\n".join(sorted(set(scene.log))) + "\n")

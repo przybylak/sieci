@@ -3,7 +3,7 @@
 
   python check_bike_meshes.py --pynifly <io_scene_nifly> --data <Data> [--reference <27c Data>/Meshes/CMB]
       [--stage-dir <stage>] [--look-reference <the previous build's Data>] [--look-options <look_options.json>]
-      [--look-targets art|all]
+      [--look-targets art|all] [--look-c2]
 
 What it checks (FAIL lines make the exit status 1; INFO lines are numbers for the notes):
   shapes     every worn nif has the 30 shapes of harley_meshes.LABELS (the stage's, with --stage-dir: 28 with --disc
@@ -44,6 +44,20 @@ What it checks (FAIL lines make the exit status 1; INFO lines are numbers for th
              real-world brand in the option table's names; with --look-reference (2026-11-06a's Data) CMB_BikeParts.ini
              and CMB_BikeFit.json its bytes and the three split badges together its static_badge (every vertex with
              its UV, each split shape its culling sphere); the texture budget TEX_BUDGET_LOOK
+  c2         (2026-11-08a, the second customisation build: harley_meshes.py --look-rims 1 --look-plate 1, found by the
+             plate's text overlay or a rim style in the worn nif; --look-c2 demands it) 49 shapes in the worn and view nifs
+             (46 in the parked); static_plate glTF mesh 24's 316 triangles and, with --c2-reference (2026-11-07a's
+             Data), static_black and static_plate together 2026-11-07a's static_black (triangle multisets of the worn
+             nif's half-float positions) with its culling sphere, CMB_BikeParts.ini and CMB_BikeFit.json its bytes; the plate's rear face read true from behind (u to the
+             viewer's right, v down, 0..1); static_plateText at least 0.25 over the face in the worn nif's half floats,
+             0.4 inside its outline, its UVs 0..1; every rim style (the parked nif's full precision about the parts file's
+             axles) inside bike_pieces.RIM_ENVELOPE below the hoop's top and the stock hoop's outline above it, its
+             culling sphere within 1.0 of its axle, 0.3 clear of its wheel's disc and (with --stage-dir) the belt
+             pulley; the new shapes' own materials files (the rim styles' and the text overlay's invisible, static_plate's
+             naming static_plate_d/_n/_s); every MSWP source and target of the option table in Materials (art-wheels' and
+             art-plates' listed until the merge, --look-targets all to demand them); the texture budget TEX_BUDGET_C2.
+             static_plate's edges and front face lie on the design cell's strip (v 1.04-1.06: bike_pieces.PLATE_STRIP_V),
+             the one UV allowed past 1
   overlays   the dial's backlight, the needle and the light shells clear of what they cover in the worn nif's half
              floats; the needle's culling sphere on NeedlePoint and long enough; where the needle points at rest
   mirrors    every mirror variant clear of the tank with the bars anywhere within BarAngle
@@ -87,6 +101,11 @@ TEX_BUDGET = (93, 89.0)  # Textures/CMB/Bike: files, MB (since the 2026-11-01a b
 # The customisation build's (2026-11-07a, harley_meshes.py --look-slots 1): look_paint.py's index maps (3.5 MB), palette
 # and off's three, and the art's badge atlas (badges_d/_n/_s, 8.4 MB): 99 files and 92.6 MB without the atlas
 TEX_BUDGET_LOOK = (104, 102.0)
+# The second customisation build's (2026-11-08a, C2: art-wheels' rim atlas, cast maps, tyres and hue palette, art-plates'
+# plate atlases, palettes and the stock re-sample): plan t53 2.2's budget; 2026-11-07a's tree keeps TEX_BUDGET_LOOK
+TEX_BUDGET_C2 = (124, 125.0)
+ART_WHEELS = ("rim", "cast", "wheelf_tyre_", "wheelr_tyre_", "paint_hue", "static_paint_hue", "fork_paint_hue", "paint_p")
+ART_PLATES = ("plate_", "text_", "plates_", "static_plate_d", "static_plate_n", "static_plate_s")
 LOOK_OPTIONS = Path(__file__).resolve().parent.parent / "esp-generator" / "look_options.json"
 # The option table's names are scanned for the brand words above (BRAND: Fallout's own factions and fictional brands
 # are fine; the scan keeps real-world names out of the menus)
@@ -226,6 +245,18 @@ def ini_keys(path: Path):
     return out
 
 
+def art_owner(leaf):
+    """The art unit whose file a C2 materials or texture file is (2026-11-08a: they arrive at the merge), or None (ours)."""
+    low = leaf.lower().split("\\")[-1]
+    if low.startswith(("wheelf_rim", "wheelr_rim")):   # the cast rims' and the rim styles' own files: the mesh build's
+        return None
+    if low.startswith(ART_PLATES):
+        return "art-plates"
+    if low.startswith(ART_WHEELS):
+        return "art-wheels"
+    return None
+
+
 def look_checks(rep, args, opts, labels, materials, textures, worn_geo, worn_names, parked_names, parked_flags, P):
     """The customisation build's (2026-11-07a, harley_meshes.py --look-slots 1) shapes and the option table's swaps."""
     import re
@@ -245,7 +276,8 @@ def look_checks(rep, args, opts, labels, materials, textures, worn_geo, worn_nam
             bad.append(f"{label} parked {parked_names.get(label)!r} flags {parked_flags.get(label)}")
         if (worn_names.get(label) or "").lower() != mat(label + "_worn"):
             bad.append(f"{label} worn {worn_names.get(label)!r}")
-    rep.check(not bad and len(labels) == len(H.LOOK_LABELS),
+    c2_rims, c2_plate = H.RIM_STYLE_LABELS[0][0] in labels, H.PLATE_TEXT in labels
+    rep.check(not bad and len(labels) == len(H.look_labels(c2_rims, c2_plate)),
               f"custom: {len(labels)} shapes; {', '.join(new)} in the worn, parked and view nifs (the view's names the worn's), "
               f"each its own materials file and the plugin's fixed role by name; the parked nif's under-bar mirrors "
               f"({', '.join(H.PARKED_OFF)}) not hidden, naming <label>_off.bgsm", "; ".join(bad))
@@ -278,6 +310,7 @@ def look_checks(rep, args, opts, labels, materials, textures, worn_geo, worn_nam
                   f"{g.min():.3f} to {g.max():.3f}")
     # every MSWP source and target there (the art unit's badge files listed until the merge)
     missing, art, n = set(), set(), 0
+    c2_art = {}   # 2026-11-08a: art-wheels' and art-plates' files, until the merge
     for slot in opts["slots"]:
         for o in slot["options"]:
             for pair in o["swap"] or []:
@@ -286,12 +319,19 @@ def look_checks(rep, args, opts, labels, materials, textures, worn_geo, worn_nam
                     if x.replace("/", "\\").lower() in materials:
                         continue
                     leaf = x.split("\\")[-1]
+                    owner = art_owner(leaf) if args.look_targets == "art" else None
+                    if owner:
+                        c2_art.setdefault(owner, set()).add(leaf)
+                        continue
                     (art if leaf.lower().startswith("badge_") and args.look_targets == "art" else missing).add(leaf)
+    aside = [f"the art unit's {len(art)} badge materials files"] if art else []
+    aside += [f"{owner}'s {len(v)}" for owner, v in sorted(c2_art.items())]
     rep.check(not missing, f"custom: the option table's {n} MSWP sources and targets in Materials"
-                           + (f" (the art unit's {len(art)} badge materials files aside)" if art else ""),
-              ", ".join(sorted(missing)[:12]))
+                           + (f" ({', '.join(aside)} aside)" if aside else ""), ", ".join(sorted(missing)[:12]))
     if art:
         rep.info("custom: the art unit's badge materials files not here yet", ", ".join(sorted(art)))
+    for owner, v in sorted(c2_art.items()):
+        rep.info(f"custom: {owner}'s materials files not here yet (the merge brings them)", f"{len(v)}: " + ", ".join(sorted(v)[:6]) + " ...")
     # the option table's names: no real-world brand
     names = [x.get("name", "") for x in opts["slots"]]
     names += [o.get("name", "") for s in opts["slots"] for o in s["options"]]
@@ -333,6 +373,158 @@ def look_checks(rep, args, opts, labels, materials, textures, worn_geo, worn_nam
                       f"{'the same' if all(x == rsph for x in sph) else 'differ'}")
 
 
+def c2_checks(rep, args, labels, materials, worn_geo, worn_names, parked_geo, parked_names, P):
+    """The second customisation build's (2026-11-08a, harley_meshes.py --look-rims 1 --look-plate 1) shapes."""
+    import bgsm as B   # ours (tools/rider/bgsm.py)
+    import bike_pieces as BP
+    meshes = args.data / "Meshes" / "CMB"
+    want = [lb for lb, _ in H.look_labels(True, True)]
+    rep.check(labels == want, f"c2: {len(labels)} shapes in the worn and view nifs, {len([x for x in labels if x not in H.WORN_ONLY])} "
+                              f"in the parked (49 and 46: 2026-11-07a's 33 and 30, the plate's two, the 14 rim styles)",
+              "" if labels == want else f"missing {sorted(set(want) - set(labels))}, extra {sorted(set(labels) - set(want))}")
+    mat = lambda name: f"materials\\cmb\\bike\\{name}.bgsm".lower()   # noqa: E731
+    # the new shapes' own materials files: named, the invisible ones invisible, static_plate's over its own textures
+    bad = []
+    for label, _ in H.C2_LABELS:
+        if (worn_names.get(label) or "").lower() != mat(label + "_worn") or (parked_names.get(label) or "").lower() != mat(label):
+            bad.append(f"{label}: worn {worn_names.get(label)!r} parked {parked_names.get(label)!r}")
+            continue
+        for name in (label, label + "_worn"):
+            path = materials.get(mat(name)[len("materials\\"):])
+            if path is None:
+                bad.append(f"{name}.bgsm missing")
+                continue
+            m = B.read(path)
+            if label == H.PLATE_LABEL:
+                if m["textures"]["diffuse"].lower() != "cmb\\bike\\static_plate_d.dds" or m["alpha_test"]:
+                    bad.append(f"{name}: diffuse {m['textures']['diffuse']}, alpha test {m['alpha_test']}")
+            elif not (m["alpha_test"] and m["alpha_test_ref"] == 255 and m["alpha"] == 0.0 and not m["cast_shadows"]
+                      and m["textures"]["diffuse"].lower() == "cmb\\bike\\off_d.dds" and bool(m["decal"]) == (label == H.PLATE_TEXT)):
+                bad.append(f"{name}: not invisible (alpha test {m['alpha_test']} ref {m['alpha_test_ref']} alpha {m['alpha']} "
+                           f"shadows {m['cast_shadows']} decal {m['decal']})")
+    rep.check(not bad, f"c2: the 16 new shapes' own materials files: the 14 rim styles' and {H.PLATE_TEXT}'s invisible (alpha test "
+                       f"255, alpha 0, no shadow, off's textures; the text's decal), {H.PLATE_LABEL}'s naming static_plate_d/_n/_s",
+              "; ".join(bad[:8]))
+    if H.PLATE_LABEL not in worn_geo or H.PLATE_TEXT not in worn_geo:
+        rep.check(False, "c2: the plate's shapes in CMB_BikeWorn.nif")
+        return
+    # the plate: glTF mesh 24's 316 triangles; with 2026-11-07a's Data, static_black and static_plate its static_black
+    pv, pf, puv = worn_geo[H.PLATE_LABEL]
+    rep.check(len(pf) == 316, f"c2: {H.PLATE_LABEL} glTF mesh 24's 316 triangles", f"{len(pf)}")
+    if args.c2_reference:
+        ref = P.NifFile(str(args.c2_reference / "Meshes" / "CMB" / "CMB_BikeWorn.nif"))
+        rs = next((x for x in ref.shapes if x.name == "CMB_BikeWorn_static_black"), None)
+
+        def tri_rows(v, f):   # each triangle its three corners' keys, sorted (the corner order and the winding aside)
+            q = np.round(np.asarray(v, np.float64) * 2 ** 12).astype(np.int64) + 2 ** 20   # within 2^21 for |x| < 256
+            key = (q[:, 0] << 42) | (q[:, 1] << 21) | q[:, 2]
+            t = np.sort(key[np.asarray(f, np.int64)], axis=1)
+            return t[np.lexsort(t.T[::-1])]
+        if rs is None or "static_black" not in worn_geo:
+            rep.check(False, "c2: static_black and static_plate together 2026-11-07a's static_black", "no static_black")
+        else:
+            bv, bf, _ = worn_geo["static_black"]
+            ours = np.vstack([tri_rows(bv, bf), tri_rows(pv, pf)])
+            ours = ours[np.lexsort(ours.T[::-1])]
+            theirs = tri_rows(rs.verts, rs.tris)
+            data = (meshes / "CMB_BikeWorn.nif").read_bytes()
+            rdata = (args.c2_reference / "Meshes" / "CMB" / "CMB_BikeWorn.nif").read_bytes()
+            bone = [off for off, nm in _block_offsets(data) if nm == "BSSkin::BoneData"]
+            rbone = [off for off, nm in _block_offsets(rdata) if nm == "BSSkin::BoneData"]
+            rl = [x.name[len("CMB_BikeWorn_"):] for x in ref.shapes]
+            sph = data[bone[labels.index("static_black")] + 4:bone[labels.index("static_black")] + 20]
+            rsph = rdata[rbone[rl.index("static_black")] + 4:rbone[rl.index("static_black")] + 20]
+            same = ours.shape == theirs.shape and np.array_equal(ours, theirs)
+            rep.check(same and sph == rsph, "c2: static_black and static_plate together 2026-11-07a's static_black (every triangle's "
+                                            "half-float corners, as multisets) and static_black its culling sphere",
+                      f"{len(bf)} + {len(pf)} triangles (the reference {len(rs.tris)}); "
+                      f"{'the same' if same else 'differ'}; sphere {'the same' if sph == rsph else 'differs'}")
+    if args.c2_reference:
+        rm = args.c2_reference / "Meshes" / "CMB"
+        diff = [n_ for n_ in ("CMB_BikeParts.ini", "CMB_BikeFit.json") if (meshes / n_).read_bytes() != (rm / n_).read_bytes()]
+        rep.check(not diff, "c2: CMB_BikeParts.ini and CMB_BikeFit.json 2026-11-07a's bytes (--c2-reference: the plate's split and "
+                            "the rims move no key, FrontMinY included)", ", ".join(diff))
+    # the rear face read true from behind (worn: the rear is -y, the viewer's right from behind +x)
+    t = pv[pf]
+    fn = np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0])
+    fn /= np.maximum(np.linalg.norm(fn, axis=1, keepdims=True), 1e-12)
+    cen = t.mean(axis=1)
+    face = (np.abs(fn[:, 1]) > BP.PLATE_FACE_DOT) & (cen[:, 1] < 0.5 * (pv[:, 1].min() + pv[:, 1].max()))
+    fv, fu = t[face].reshape(-1, 3), puv[pf[face]].reshape(-1, 2)
+    A = np.column_stack([fv[:, 0], fv[:, 2], np.ones(len(fv))])
+    cu = np.linalg.lstsq(A, fu[:, 0], rcond=None)[0]
+    cv = np.linalg.lstsq(A, fu[:, 1], rcond=None)[0]
+    rep.check(face.sum() > 0 and cu[0] > 0 and cv[1] < 0 and abs(cu[1]) < 1e-3 and abs(cv[0]) < 1e-3 and fu.min() > -1e-3
+              and fu.max() < 1 + 1e-3 and np.ptp(fu[:, 0]) > 0.99 and np.ptp(fu[:, 1]) > 0.99,
+              f"c2: the plate's rear face ({int(face.sum())} triangles) read true from behind over 0..1 (u to the viewer's right, "
+              f"v down)", f"u = {cu[0]:.4f} x + {cu[1]:.4f} z, v = {cv[0]:.4f} x + {cv[1]:.4f} z")
+    # the text overlay: 0.25 over the face in half floats, 0.4 inside its outline, UVs 0..1
+    ov, of, ouv = worn_geo[H.PLATE_TEXT]
+    g = TriangleGrid(t[face], 0.6).closest(ov, reach=1.0)[2]
+    e = np.vstack([pf[face][:, [0, 1]], pf[face][:, [1, 2]], pf[face][:, [2, 0]]])
+    es = np.sort(e, axis=1)
+    u_, inv, cnt = np.unique(es, axis=0, return_inverse=True, return_counts=True)
+    border = u_[cnt == 1]
+    a2, b2 = pv[border[:, 0]][:, [0, 2]], pv[border[:, 1]][:, [0, 2]]
+    q = ov[:, [0, 2]]
+    ab = b2 - a2
+    tt = np.clip(np.einsum("pij,ij->pi", q[:, None, :] - a2[None], ab) / np.maximum((ab * ab).sum(1), 1e-12), 0, 1)
+    d = np.linalg.norm(q[:, None, :] - (a2[None] + tt[..., None] * ab[None]), axis=2).min(axis=1)
+    lo2, hi2 = pv[np.unique(pf[face])][:, [0, 2]].min(0), pv[np.unique(pf[face])][:, [0, 2]].max(0)
+    inside = ((q > lo2) & (q < hi2)).all(axis=1)
+    rep.check(len(of) == 32 and g.min() >= 0.25 and d.min() >= 0.4 and inside.all() and ouv.min() > -1e-4 and ouv.max() < 1 + 1e-4,
+              f"c2: {H.PLATE_TEXT} ({len(of)} triangles) at least 0.25 over the plate's face at every vertex in the worn nif's half "
+              f"floats, 0.4 inside its rounded outline, its UVs 0..1", f"{g.min():.3f} to {g.max():.3f} over; {d.min():.2f} inside")
+    # the rim styles: the envelope and the hoop (the parked nif, full precision), the spheres, the clearances
+    parts = {}
+    for line in (meshes / "CMB_BikeParts.ini").read_text().splitlines():
+        if "=" in line:
+            k, v = line.split("=", 1)
+            parts[k.strip()] = v.strip()
+    seat_at = json.loads((meshes / "CMB_BikeFit.json").read_text())["seat_at"]
+    data = (meshes / "CMB_BikeWorn.nif").read_bytes()
+    bone = [off for off, nm in _block_offsets(data) if nm == "BSSkin::BoneData"]
+    pulley = None
+    if args.stage_dir and (args.stage_dir / "shapes" / "wheelR_tyre.npz").exists():
+        with np.load(args.stage_dir / "shapes" / "wheelR_tyre.npz") as z:
+            pulley = z["pos"][z["tri"][z["src"] == 79]]
+    bad, worst_sphere, worst_disc, worst_pulley = [], 0.0, 1e9, 1e9
+    tol = 0.01   # the parts file's axles are to 0.01
+    for label, role in H.RIM_STYLE_LABELS:
+        wheel = role[-1]
+        ax_w = np.array([float(x) for x in parts["FrontAxle" if wheel == "F" else "RearAxle"].split(",")])
+        ax = np.array([-ax_w[0], seat_at - ax_w[1], ax_w[2]])   # parked
+        v = parked_geo.get(label)
+        if v is None:
+            bad.append(f"{label} not in the parked nif")
+            continue
+        x, r = v[:, 0] - ax[0], np.hypot(v[:, 1] - ax[1], v[:, 2] - ax[2])
+        for r0, r1, x0, x1 in BP.RIM_ENVELOPE[wheel]:
+            sel = (r >= r0) & (r < r1)
+            if sel.any() and (x[sel].min() < x0 - tol or x[sel].max() > x1 + tol):
+                bad.append(f"{label}: x {x[sel].min():.2f}..{x[sel].max():.2f} at r {r0}-{r1}")
+        prof = np.asarray(BP.RIM_HOOP[wheel])
+        hoop = r >= BP.RIM_HOOP_MIN[wheel]
+        if r.max() > prof[:, 1].max() + tol or (hoop.any() and np.abs(x[hoop]).max() > np.abs(prof[:, 0]).max() + tol):
+            bad.append(f"{label}: past the stock hoop (r {r.max():.3f})")
+        c = np.frombuffer(data[bone[labels.index(label)] + 4:bone[labels.index(label)] + 16], "<f4").astype(np.float64)
+        worst_sphere = max(worst_sphere, float(np.linalg.norm(c - ax_w)))
+        dv, df_, _ = worn_geo[f"wheel{wheel}_disc"]
+        dpk = np.column_stack([-dv[:, 0], seat_at - dv[:, 1], dv[:, 2]])
+        near = TriangleGrid(dpk[df_], 1.0).closest(v, reach=3.0)[2]
+        worst_disc = min(worst_disc, float(near.min()))
+        if wheel == "R" and pulley is not None:
+            worst_pulley = min(worst_pulley, float(TriangleGrid(pulley, 1.0).closest(v, reach=4.0)[2].min()))
+    rep.check(not bad, "c2: every rim style inside bike_pieces.RIM_ENVELOPE below the hoop's top and the stock hoop's outline "
+                       "above it (the parked nif about the parts file's axles)", "; ".join(bad[:6]))
+    rep.check(worst_sphere <= 1.0, "c2: every rim style's culling sphere within 1.0 of its axle (the 6-unit rule's wheel)",
+              f"the worst {worst_sphere:.3f} off")
+    rep.check(worst_disc >= 0.3 and (pulley is None or worst_pulley >= 0.3),
+              "c2: every rim style 0.3 or more clear of its wheel's brake disc" + (" and the belt pulley (the stage's glTF mesh 79)"
+                                                                                    if pulley is not None else ""),
+              f"the disc {worst_disc:.2f}" + (f", the pulley {worst_pulley:.2f}" if pulley is not None else " (no --stage-dir: the pulley not checked)"))
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--pynifly", type=Path, required=True)
@@ -344,6 +536,12 @@ def main() -> int:
     ap.add_argument("--look-options", type=Path,
                     help="the customisation build's option table (default: tools/esp-generator/look_options.json when the "
                          "nifs are that build's, harley_meshes.py --look-slots 1); given, the nifs must be that build's")
+    ap.add_argument("--c2-reference", type=Path,
+                    help="2026-11-07a's Data (the second customisation build's reference): static_black and static_plate "
+                         "together its static_black, CMB_BikeParts.ini and CMB_BikeFit.json its bytes")
+    ap.add_argument("--look-c2", action="store_true",
+                    help="the nifs must be the second customisation build's (2026-11-08a: harley_meshes.py --look-rims 1 "
+                         "--look-plate 1); without it, its checks run when the nifs have its shapes")
     ap.add_argument("--look-targets", choices=("art", "all"), default="art",
                     help="art (until the art unit's files are in the tree): the badge materials files (badge_*.bgsm) the "
                          "option table's swaps target are listed when missing; all: every target must be there")
@@ -368,9 +566,11 @@ def main() -> int:
         labels = list(manifest["labels"])
     else:
         worn0 = meshes / "CMB_BikeWorn.nif"
-        look0 = worn0.exists() and f"CMB_BikeWorn_{H.FENDER_BADGE}".encode() in worn0.read_bytes()
-        labels = [label for label, _ in (H.LOOK_LABELS if look0 else H.LABELS)]
-    roles = dict(H.LABELS + H.LOOK_LABELS)
+        wb = worn0.read_bytes() if worn0.exists() else b""
+        look0 = f"CMB_BikeWorn_{H.FENDER_BADGE}".encode() in wb
+        rims0, plate0 = f"CMB_BikeWorn_{H.RIM_STYLE_LABELS[0][0]}".encode() in wb, f"CMB_BikeWorn_{H.PLATE_TEXT}".encode() in wb
+        labels = [label for label, _ in (H.look_labels(rims0, plate0) if look0 else H.LABELS)]
+    roles = dict(H.LABELS + H.LOOK_LABELS + H.C2_LABELS)
     look = H.FENDER_BADGE in labels   # the customisation build's nifs (2026-11-07a, --look-slots 1)
     look_path = args.look_options or (LOOK_OPTIONS if look and LOOK_OPTIONS.exists() else None)
     look_opts = json.loads(look_path.read_text()) if look_path else None
@@ -380,6 +580,8 @@ def main() -> int:
             for o in slot["options"]:
                 for pair in o["swap"] or []:
                     swap_files.update(x.replace("/", "\\").lower() for x in pair)
+        for pair in look_opts.get("rim_body_targets", []):   # 2026-11-08a: Compose's own targets, the body finishes' bodyhue
+            swap_files.update(x.replace("/", "\\").lower() for x in pair)   # twins (Free colour), which no MSWP names
     if args.look_options:
         rep.check(look, "custom: the customisation build's shapes (harley_meshes.py --look-slots 1: "
                         f"{', '.join(H.BADGE_SPLIT + (H.FENDER_BADGE,))})", "" if look else f"{len(labels)} shapes, none of them")
@@ -437,7 +639,11 @@ def main() -> int:
             if sp.vertexCount > H.MAX_VERTS:
                 too_big.append(f"{label} {sp.vertexCount}")
             uv = np.asarray(s.uvs, dtype=np.float64)
-            if len(uv) and (uv.min() < -1e-4 or uv.max() > 1 + 1e-4):
+            top = 1 + 1e-4
+            if label == H.PLATE_LABEL:   # 2026-11-08a: its edges on the design cell's strip, past 1 (bike_pieces.PLATE_STRIP_V)
+                import bike_pieces as BPc
+                top = BPc.PLATE_STRIP_V + BPc.PLATE_STRIP_DV + 1e-3
+            if len(uv) and (uv.min() < -1e-4 or uv[:, 0].max() > 1 + 1e-4 or uv[:, 1].max() > top):
                 bad_uv.append(f"{label} [{uv.min():.3f},{uv.max():.3f}]")
             if (sp.skinInstanceID != P.NODEID_NONE) != worn:
                 bad_skin.append(label)
@@ -592,12 +798,22 @@ def main() -> int:
             for t in (b.get("textures") or {}).values():
                 if t:
                     vanilla_cubes.add(("textures\\" + t.replace("/", "\\")).lower())
-    missing_tex, bad_dds, seen = [], [], set()
+    look_palettes = set()   # the option table's palettes: one mip, no row blur (2026-11-07a's paint_p; 2026-11-08a's
+    if look_opts:           # paint_hue_p, rim_p, plate_p and plate_text_p)
+        for pal in (look_opts["palette"], look_opts.get("hue_palette"), look_opts.get("rim_palette"),
+                    *(look_opts.get("plate_palette") or {}).values()):
+            if isinstance(pal, dict) and pal.get("texture"):
+                look_palettes.add(pal["texture"].replace("/", "\\").lower())
+    missing_tex, bad_dds, seen, art_tex = [], [], set(), {}
     for t in sorted({u.lower() for u in used_textures}):
         rel = t.removeprefix("textures\\")
         path = textures.get(rel)
         if path is None:
             if t in vanilla_cubes:
+                continue
+            owner = art_owner(rel) if args.look_targets == "art" else None
+            if owner:   # 2026-11-08a: an art unit's texture (static_plate.bgsm names art-plates' re-sample), until the merge
+                art_tex.setdefault(owner, []).append(rel.split("\\")[-1])
                 continue
             missing_tex.append(t)
             continue
@@ -613,7 +829,7 @@ def main() -> int:
         palette = tex_stem.startswith(H.PALETTE.lower() + "_")
         full = int(math.log2(max(w, h))) + 1
         suffix = tex_stem[-2:]
-        if palette or (look_opts and rel == look_opts["palette"]["texture"].lower()):
+        if palette or rel in look_palettes:
             if fmt != "A8R8G8B8" or (not palette and mips != 1):   # 2026-11-07a's paint palette: one mip, no row blur
                 bad_dds.append(f"{rel}: {fmt}, {mips} mips")
             continue
@@ -625,14 +841,17 @@ def main() -> int:
             bad_dds.append(f"{rel}: {fmt} for {suffix}")
         if suffix == "_e" and not cube:
             bad_dds.append(f"{rel}: not a cube map")
-    rep.check(not missing_tex, f"textures: {len(seen)} named, every one in {args.data / 'Textures'} (vanilla cube maps aside)",
+    rep.check(not missing_tex, f"textures: {len(seen)} named, every one in {args.data / 'Textures'} (vanilla cube maps aside"
+                               + "".join(f"; {o}'s {len(v)} until the merge" for o, v in sorted(art_tex.items())) + ")",
               ", ".join(missing_tex[:12]))
+    for owner, v in sorted(art_tex.items()):
+        rep.info(f"textures: {owner}'s not here yet (the merge brings them)", ", ".join(sorted(v)))
     rep.check(not bad_dds, "textures: DDS formats by suffix, every mip, no BC7", "; ".join(bad_dds[:12]))
     bike_tex = args.data / "Textures" / "CMB" / "Bike"
     if bike_tex.exists():
         dds = list(bike_tex.rglob("*.dds"))
         total = sum(p.stat().st_size for p in dds)
-        budget = TEX_BUDGET_LOOK if look else TEX_BUDGET
+        budget = TEX_BUDGET_C2 if any(lb in labels for lb, _ in H.C2_LABELS) else TEX_BUDGET_LOOK if look else TEX_BUDGET
         rep.check(len(dds) <= budget[0] and total <= budget[1] * 1024 * 1024,
                   f"textures: Textures/CMB/Bike {len(dds)} files, {total / 1048576:.1f} MB of DDS (budget {budget[0]} "
                   f"files, {budget[1]:g} MB)")
@@ -977,6 +1196,12 @@ def main() -> int:
     # --- the customisation build (2026-11-07a) ------------------------------------------------------------------------
     if look or args.look_options:   # (on another build with --look-options, each fails)
         look_checks(rep, args, look_opts, labels, materials, textures, worn_geo, worn_names, parked_names, parked_flags, P)
+    c2 = any(lb in labels for lb, _ in H.C2_LABELS)
+    if args.look_c2:
+        rep.check(c2, "c2: the second customisation build's shapes (harley_meshes.py --look-rims 1 --look-plate 1)",
+                  "" if c2 else f"{len(labels)} shapes, none of them")
+    if c2 or args.look_c2:
+        c2_checks(rep, args, labels, materials, worn_geo, worn_names, parked_geo, parked_names, P)
 
     # --- brand ----------------------------------------------------------------------------------------------------
     hits = []

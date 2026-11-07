@@ -292,7 +292,14 @@
 #define FX_WATER_LOOP_ID      0x8B4u        /* CMB_FxWaterLoop (the MCM's "Water sound loop"): 0 spray (2026-11-02a), 1 churn, 2 the wet road */
 /* The 2026-11-07a build (the customisation build, C1): one fixed global (Program.cs makes it by FormKey at the ID
  * the earlier builds kept free; fake_game.c's LOOK_CODE_FORMID), found in FindGlobals with its own line. */
-#define LOOK_CODE_ID          0x8AFu        /* CMB_LookCode (the customisation build, 2026-11-07a): bits 0-1 the mirror (0 none, 1 stock, 2 under-bar egg, 3 under-bar D), bit 2 set (chosen at the bike), bits 3-8 kept for later builds; 0 = [Look] Mirrors' */
+#define LOOK_CODE_ID          0x8AFu        /* CMB_LookCode (the customisation build, 2026-11-07a): bits 0-1 the mirror (0 none, 1 stock, 2 under-bar egg, 3 under-bar D), bit 2 set (chosen at the bike), bits 3-6 the rim style (2026-11-08a: 0 the cast rim, 1-7 the styles, LookRimNow), bits 7-8 kept for later builds; 0 = [Look] Mirrors' */
+/* The 2026-11-08a build (C2: rims, tyres, the paint's hue, the plates): its four colour values at fixed IDs (Program.cs's
+ * fixed_globals in look_options.json; fake_game.c's LOOK_PAINT_V_FORMID ..), written only by CMB_LookF4SE's Compose: a
+ * palette row's V (the material's fLookupScale), -1 = don't write. Found in FindGlobals, all four or none, one line. */
+#define LOOK_PAINT_V_ID       0xA14u        /* CMB_LookPaintV: the Free colour paint's V (paint_hue_p.dds), for static_paint and fork_paint; -1 = don't write */
+#define LOOK_RIM_V_ID         0xA15u        /* CMB_LookRimV: a body-colour rim's V, for the shown rim; -1 = don't write */
+#define LOOK_PLATE_V_ID       0xA16u        /* CMB_LookPlateV: the plate's V(design, background), for static_plate; -1 = don't write */
+#define LOOK_PLATETEXT_V_ID   0xA17u        /* CMB_LookPlateTextV: the plate text's V(ink), for static_plateText; -1 = don't write */
 #define OFF_AV_FLAGS          0x108         /* NiAVObject::flags (bit 0: hidden, app culled); +0x100 is the collision object (test 30); [Lamp] FlagsOffset= overrides */
 #define OFF_MOVE_INPUT        0x44          /* PlayerControls: moveInputVec x (strafe), y (forward +1, back -1) */
 #define OFF_PREV_MOVE         0x5C          /* PlayerControls: prevMoveVec (what the movement used last) */
@@ -884,6 +891,7 @@ static uintptr_t g_itemUseGlobal, g_ramCombatGlobal, g_fxRangeGlobal;   /* CMB_R
 /* CMB_ViewTip, CMB_ViewFov, CMB_ViewEyeForward and CMB_ViewEyeUp, CMB_FxWaterLoop (2026-11-06a): all five or none (0, an older ESP) */
 static uintptr_t g_viewTipGlobal, g_viewFovGlobal, g_viewEyeGlobals[2], g_fxWaterLoopGlobal;
 static uintptr_t g_lookCodeGlobal;            /* CMB_LookCode (2026-11-07a; 0: not found, an older ESP): the mirrors chosen at the bike (LookMirrorsNow) */
+static uintptr_t g_lookColourGlobal[4];       /* CMB_LookPaintV, CMB_LookRimV, CMB_LookPlateV, CMB_LookPlateTextV (2026-11-08a): all four or none (0, an older ESP) */
 static void ReadSoundSettings(const char *ini, bool log);   /* the engine sound, with its driver below */
 static const char *SoundTraceWord(void);
 static void ReadBrakeKey(const char *ini, bool log);        /* the 2026-11-01a build: [Steer] BrakeKey, the key reader above AfterInput */
@@ -1094,8 +1102,10 @@ static int g_lastState = -1, g_stateLogs;
  * one per material and moving part (eight static, the tail and brake lights' shells, ten of
  * the bar assembly with the speedometer's dial, its backlight and needle and the three
  * mirrors, four of the lower fork, a tyre and a rim per wheel). Up to 16 shapes were held
- * till the 2026-10-31a build: the rest were silently left where they were (a frozen wheel or bar part). */
-#define MAX_SKINS 48
+ * till the 2026-10-31a build: the rest were silently left where they were (a frozen wheel or bar part). Up to 48
+ * till the 2026-11-08a build, whose worn bike has 49 (the 2026-11-07a build's 33, the licence plate and its text, the
+ * seven rim styles on each wheel) and the main shape: 64 now. */
+#define MAX_SKINS 64
 #define MAX_BONES 4
 enum { ROLE_UNKNOWN = -1, ROLE_NONE, ROLE_WHEEL_F, ROLE_WHEEL_R, ROLE_FRONT, ROLE_GLOW, ROLE_FORK, ROLE_NEEDLE, ROLE_TAIL, ROLE_BRAKE };   /* GLOW: the headlamp's lit parts, with the bar assembly; FORK: the lower fork legs, the front mudguard and the caliper, with the bars and the front wheel's travel; NEEDLE (since the 2026-10-31a build): the speedometer's needle, turned by the speed about NeedleAxis, then with the bar assembly; TAIL, BRAKE (since the 2026-10-31a build): the tail light's lit shell and the brake light's, fixed parts */
 typedef struct {
@@ -1118,9 +1128,20 @@ typedef struct {
 	bool culled;                        /* bit 0 set by us last frame (to tell the game clearing it) */
 	bool hide;                          /* this frame: hidden by the look's rules (the speck, or the lamp-off glow) */
 	float vM[9], vm[3];                 /* this frame's map in the bike's space, before the speck: the first-person bike's shape of the same label takes it */
+	int rim;                            /* 1 + the rim style (2026-11-08a: 0 the cast rim, 1-7 the styles), 0 = not a rim */
+	int colourRow;                      /* the look colours writer's row (2026-11-08a), -1 = none */
+	uintptr_t colourMat;                /* the material the writer last wrote (2026-11-08a; 0 none yet): another one (a swap) is written again */
+	bool colourRefused;                 /* the writer refused this shape this ride (said once) */
 } HeldSkin;
 static HeldSkin g_skins[MAX_SKINS];
 static int g_skinCount;
+#define LOOK_COLOUR_LINES 64            /* the look colours' write lines a ride, at most (2026-11-08a) */
+static int g_lookColourLines;           /* this ride's (from the first skin held) */
+/* 2026-11-08a (C2) hooks, the mesh unit's bodies: the rim style CMB_LookCode chose (-1: hide no rim), the look colours
+ * written once a frame after the skins' loop, and a held skin's rim group and colour row (at DetectRole's end). */
+static int LookRimNow(void);
+static void LookColoursFrame(void);
+static void DetectLookGroups(HeldSkin *h);
 static void LetGoCarried(const char *why);   /* 2026-11-01a: the tail lamp's light and the first-person bike let go (LetGoAll) */
 static bool CameraIsFirst(void);             /* 2026-11-02a: for the seat watch (SeatFrame), which comes before them */
 static bool BikeSkeletonStale(void);
@@ -2502,6 +2523,9 @@ static void ReadParts(const char *ini)
 /* 2026-11-01a (test 47's items 11a and 12, the 2026-10-31a build note's culling question): the tail lamp's light,
  * the bike in first person and hidden parts culled. Read with the look's keys, at the start and on getting on; each
  * off value is the 2026-10-31a build's behaviour. */
+static int g_lookRims = 1;                /* [Look] Rims (2026-11-08a): 1 = the rim styles not chosen at the bike (CMB_LookCode bits 3-6) hidden on the worn and first-person bikes (the speck, and Cull's bit 0); 0 = no rim shape hidden by the plugin (the materials alone: 2026-11-07a had no rim styles) */
+static int g_lookPaintWheel = 1;          /* [Look] PaintWheel (2026-11-08a): 1 = CMB_LookPaintV and CMB_LookRimV written into the worn bike's paint and rim materials' fLookupScale; 0 = never (as 2026-11-07a) */
+static int g_lookPlateColours = 1;        /* [Look] PlateColours (2026-11-08a): 1 = CMB_LookPlateV and CMB_LookPlateTextV written into the plate's and its text's; 0 = never (as 2026-11-07a) */
 static int g_lookCull = 0;                /* [Look] Cull: 0 = specks only, the game's flags never touched (the default since 2026-11-06a: test 49 measured 0-3%, inside the scatter; as 2026-10-31a); 1 = a part the look hides gets its NiAVObject flags' bit 0 (app culled) set as well as its speck (2026-11-01a/02a) */
 static int g_tailEnabled = 1;             /* [TailLight] Enabled: 1 = the light reference the script placed kept at the tail lamp; 0 = parked far below, lighting nothing (2026-10-31a) */
 static bool g_tailPointSet;               /* [TailLight] Point given ("x,y,z" in the bike's space); else the held tail shell's culling centre */
@@ -2560,6 +2584,13 @@ static void ReadTailLightSettings(const char *ini, bool log);
 static void ReadViewSettings(const char *ini, bool log);
 
 static const char *LookMirrorsName(void);   /* 2026-11-07a: [Look] Mirrors=-1's mirror as chosen at the bike */
+/* A [Look] switch of the 2026-11-08a build: 0 or 1, default 1, anything else 1. */
+static int IniSwitch(const char *ini, const char *key)
+{
+	int v = (int)GetPrivateProfileIntA("Look", key, 1, ini);
+	return v == 0 ? 0 : 1;
+}
+
 /* The 2026-10-31a build's look ([Parts] RolesByName, [Speedo], [Tail], [Look]): read at the start and again on
  * getting on, so an A/B needs no restart; each off value is build 27c's behaviour. */
 static void ReadLookSettings(const char *ini, bool log)
@@ -2578,6 +2609,10 @@ static void ReadLookSettings(const char *ini, bool log)
 	if (g_lookMirrors < -1 || g_lookMirrors > 3)
 		g_lookMirrors = 1;
 	g_lookCull = (int)GetPrivateProfileIntA("Look", "Cull", 0, ini) != 0;   /* 2026-11-01a; the default 0 since 2026-11-06a (1 = 2026-11-02a) */
+	int wasC2[3] = { g_lookRims, g_lookPaintWheel, g_lookPlateColours };
+	g_lookRims = IniSwitch(ini, "Rims");                 /* 2026-11-08a: 0-1, default 1, out of range 1 */
+	g_lookPaintWheel = IniSwitch(ini, "PaintWheel");
+	g_lookPlateColours = IniSwitch(ini, "PlateColours");
 	bool changed = was[0] != g_rolesByName || was[1] != g_speedoNeedle || was[2] != g_speedoBacklight || was[3] != g_tailGlow || was[4] != g_tailBrake ||
 	               was[5] != g_lookMirrors || was[6] != g_lookCull || wasF[0] != g_speedoScale || wasF[1] != g_speedoTau || wasF[2] != g_tailBrakeHold;
 	static const char *mirrorNames[4] = { "none", "the stock one", "under the bars, egg", "under the bars, D" };
@@ -2590,6 +2625,10 @@ static void ReadLookSettings(const char *ini, bool log)
 		Log("  look: RolesByName=%d [Speedo] Needle=%d Scale=%g Tau=%g Backlight=%d [Tail] Glow=%d Brake=%d BrakeHold=%g [Look] Mirrors=%d (%s) Cull=%d%s", g_rolesByName,
 		    g_speedoNeedle, g_speedoScale, g_speedoTau, g_speedoBacklight, g_tailGlow, g_tailBrake, g_tailBrakeHold, g_lookMirrors, chosen,
 		    g_lookCull, log ? "" : " (read again on getting on)");
+	if (log || changed || wasC2[0] != g_lookRims || wasC2[1] != g_lookPaintWheel || wasC2[2] != g_lookPlateColours)
+		Log("  look: [Look] Rims=%d PaintWheel=%d PlateColours=%d (2026-11-08a: the rim styles hidden as chosen at the bike; the paint's "
+		    "and rims' colour, the plate's colours written)%s", g_lookRims, g_lookPaintWheel, g_lookPlateColours,
+		    log ? "" : " (read again on getting on)");
 	ReadTailLightSettings(ini, log);   /* 2026-11-01a: the tail lamp's light and the first-person bike, read with the look */
 	ReadViewSettings(ini, log);
 }
@@ -3170,6 +3209,27 @@ static void FindGlobals(void)
 			Log("globals: the 2026-11-07a build's CMB_LookCode found (%08X)", *(const uint32_t *)(g_lookCodeGlobal + OFF_FORM_ID));
 		else
 			Log("globals: no CMB_LookCode (0x%03X, an older ESP): [Look] Mirrors=-1 reads as 1", LOOK_CODE_ID);
+	}
+	/* The 2026-11-08a build's four look colours (C2), CMB_LookPaintV to CMB_LookPlateTextV at the fixed 0xA14-0xA17: the V
+	 * values Compose writes for the worn bike's materials ([Look] PaintWheel, PlateColours). All four or none. */
+	{
+		static const uint32_t ids[4] = { LOOK_PAINT_V_ID, LOOK_RIM_V_ID, LOOK_PLATE_V_ID, LOOK_PLATETEXT_V_ID };
+		static const char *const names[4] = { "CMB_LookPaintV", "CMB_LookRimV", "CMB_LookPlateV", "CMB_LookPlateTextV" };
+		int n = 0;
+		for (int i = 0; i < 4; i++)
+			n += (g_lookColourGlobal[i] = FindGlobalQuiet(prefix, shift, ids[i], names[i])) != 0;
+		if (n == 4)
+			Log("globals: the 2026-11-08a build's look colours found, CMB_LookPaintV to CMB_LookPlateTextV (%08X-%08X)",
+			    *(const uint32_t *)(g_lookColourGlobal[0] + OFF_FORM_ID), *(const uint32_t *)(g_lookColourGlobal[3] + OFF_FORM_ID));
+		else {
+			memset(g_lookColourGlobal, 0, sizeof(g_lookColourGlobal));
+			if (n == 0)
+				Log("globals: no look colours (0x%03X-0x%03X, an older ESP): [Look] PaintWheel and PlateColours write nothing",
+				    LOOK_PAINT_V_ID, LOOK_PLATETEXT_V_ID);
+			else
+				Log("globals: the 2026-11-08a build's look colours, %d of 4 found (0x%03X-0x%03X): none used, [Look] PaintWheel and "
+				    "PlateColours write nothing", n, LOOK_PAINT_V_ID, LOOK_PLATETEXT_V_ID);
+		}
 	}
 	g_globalsMissingLogged = true;   /* found or not, don't look again */
 }
@@ -3991,6 +4051,8 @@ static void HoldSkin(uintptr_t data, uintptr_t skin, const char *name)
 			return;
 		}
 	HeldSkin *h = &g_skins[g_skinCount++];
+	if (g_skinCount == 1)
+		g_lookColourLines = 0;   /* 2026-11-08a: a ride's look colour lines */
 	InterlockedIncrement((volatile LONG *)(data + OFF_REFCOUNT));
 	h->boneData = data;
 	h->bones = bones;
@@ -3998,6 +4060,10 @@ static void HoldSkin(uintptr_t data, uintptr_t skin, const char *name)
 	h->role = ROLE_UNKNOWN;
 	h->byName = h->backlight = false;
 	h->variant = 0;
+	h->rim = 0;
+	h->colourRow = -1;
+	h->colourMat = 0;
+	h->colourRefused = false;
 	h->skin = skin;
 	h->node = 0;
 	uintptr_t nodes = SkinBoneNodes(skin, count);
@@ -4332,6 +4398,23 @@ static const struct { const char *tag; bool atEnd; int role, variant; bool backl
 	{ "_static_", false, ROLE_NONE, 0, false, false },
 };
 
+/* The 2026-11-08a build's look groups (C2), matched at the name's end, the first that fits: a rim's group (1 + its style:
+ * 1 the cast rim, 2-8 the styles, CMB_LookCode bits 3-6 = 0-7; the plugin shows the one chosen, LookRimNow) and the look
+ * colours writer's row (LOOK_ROW_*: which fixed global's V goes into the shape's material, LookColoursFrame). The worn
+ * nif's labels (harley_meshes.py: wheelF_rim, wheelR_rim, wheel?_rim<Style>, static_paint, fork_paint, static_plate,
+ * static_plateText); "_static_plate" at the end isn't "_static_plateText". */
+enum { LOOK_ROW_PAINT, LOOK_ROW_RIM, LOOK_ROW_PLATE, LOOK_ROW_TEXT, LOOK_ROWS };
+static const struct { const char *tag; int rim, row; } g_lookGroups[] = {
+	{ "_wheelF_rim", 1, LOOK_ROW_RIM }, { "_wheelR_rim", 1, LOOK_ROW_RIM },
+	{ "_rimLaced", 2, LOOK_ROW_RIM }, { "_rimDisc", 3, LOOK_ROW_RIM }, { "_rimStar", 4, LOOK_ROW_RIM },
+	{ "_rimTurbine", 5, LOOK_ROW_RIM }, { "_rimPrewar", 6, LOOK_ROW_RIM }, { "_rimAtomic", 7, LOOK_ROW_RIM },
+	{ "_rimScrap", 8, LOOK_ROW_RIM },
+	{ "_static_paint", 0, LOOK_ROW_PAINT }, { "_fork_paint", 0, LOOK_ROW_PAINT },
+	{ "_static_plate", 0, LOOK_ROW_PLATE }, { "_static_plateText", 0, LOOK_ROW_TEXT },
+};
+static const char *const g_lookRimNames[8] = { "the cast rim (stock)", "Laced", "Solid disc", "Star five", "Turbine", "Pre-war steel",
+                                               "Atomic", "Scrap plate" };
+
 /* Which moving part a held skin is: by where its culling sphere's centre lands in the
  * bike's own space (A^T (c - t), the bind undone), or, for the fork's lower end, by its name
  * ("_fork": the mesh tool names the lower fork legs, the front mudguard and the caliper so;
@@ -4358,6 +4441,8 @@ static void DetectRole(HeldSkin *h)
 	h->byName = false;
 	h->backlight = false;
 	h->variant = 0;
+	h->rim = 0;
+	h->colourRow = -1;
 	if (g_rolesByName && h->count == 1)
 		for (size_t k = 0; k < sizeof(g_roleTags) / sizeof(g_roleTags[0]); k++) {
 			if (!(g_roleTags[k].atEnd ? NameEnds(h->name, g_roleTags[k].tag) : NameHas(h->name, g_roleTags[k].tag)))
@@ -4385,9 +4470,13 @@ static void DetectRole(HeldSkin *h)
 		if (lx * lx + ly * ly + lz * lz < 400.0f)
 			h->role = ROLE_GLOW;   /* test 30: the lit ring and face shone with the lamp off */
 	}
+	DetectLookGroups(h);   /* 2026-11-08a: the rim group and the colour writer's row */
 	char word[48];
-	snprintf(word, sizeof(word), "%s%s%s", SkinRoleWord(h->role), h->backlight ? "+backlight" : "",
-	         h->variant == 1 ? "+mirror1" : h->variant == 2 ? "+mirror2" : h->variant == 3 ? "+mirror3" : "");
+	char rimWord[8] = "";
+	if (h->rim > 1)
+		snprintf(rimWord, sizeof(rimWord), "+rim%d", h->rim);   /* 2026-11-08a: a rim style (2-8) */
+	snprintf(word, sizeof(word), "%s%s%s%s", SkinRoleWord(h->role), h->backlight ? "+backlight" : "",
+	         h->variant == 1 ? "+mirror1" : h->variant == 2 ? "+mirror2" : h->variant == 3 ? "+mirror3" : "", rimWord);
 	Log("tilt: %s is %s [%s, by its %s] (its culling sphere's centre (%.0f, %.0f, %.0f) in the bike's space, radius %.0f)", h->name,
 	    RoleName(h), word, h->byName ? "name" : "sphere", h->centre[0], h->centre[1], h->centre[2], radius);
 }
@@ -10169,6 +10258,129 @@ static int LookMirrorsNow(void)
 	return now;
 }
 
+/* The 2026-11-08a build (C2). The rim style chosen at the bike: with [Look] Rims=1, CMB_LookCode's bits 3-6 when its
+ * bit 2 is set (0 the cast rim, 1-7 the styles; another value the cast rim), else the cast rim (nothing chosen, or an
+ * older ESP without CMB_LookCode); -1 with Rims=0 (hide no rim shape: the materials alone). One line a change. */
+static int LookRimNow(void)
+{
+	static int lastCode = -1, lastRims = -1;
+	if (!g_lookRims) {
+		lastCode = lastRims = -1;
+		return -1;
+	}
+	int code = LookMirrorsCode(), k = (code & 4) ? (code >> 3) & 15 : 0;
+	int now = k <= 7 ? k : 0;
+	if (code != lastCode || lastRims != g_lookRims) {
+		lastCode = code;
+		lastRims = g_lookRims;
+		Log("look: the rims now %d, %s (CMB_LookCode 0x%X, %s)%s", now, g_lookRimNames[now], (unsigned)code,
+		    (code & 4) ? "as chosen at the bike" : g_lookCodeGlobal ? "nothing chosen at the bike" : "no CMB_LookCode in the ESP",
+		    k > 7 ? ": no such style, the cast rim" : "");
+	}
+	return now;
+}
+
+/* A held skin's look groups (at DetectRole's end): its rim group and its colour row, by its name's end. */
+static void DetectLookGroups(HeldSkin *h)
+{
+	h->rim = 0;
+	h->colourRow = -1;
+	if (h->count != 1)
+		return;
+	for (size_t k = 0; k < sizeof(g_lookGroups) / sizeof(g_lookGroups[0]); k++)
+		if (NameEnds(h->name, g_lookGroups[k].tag)) {
+			h->rim = g_rolesByName ? g_lookGroups[k].rim : 0;   /* by name, as the mirrors' variants (RolesByName=0: 27c's rules, none hidden) */
+			h->colourRow = g_lookGroups[k].row;
+			return;
+		}
+}
+
+/* The palette a look colour's V is a row of (review B2): the paint's, Free colour's paint_hue_p.dds; a rim's the same with
+ * Free colour (CMB_LookPaintV at 0 or more: the body-colour rim follows the hue), else paint_p.dds (the paint's row); the
+ * plate's plate_p.dds, its text's plate_text_p.dds (look_options.json's palettes, the materials' greyscale textures). */
+static const char *LookPaletteOf(int row)
+{
+	if (row == LOOK_ROW_PAINT)
+		return "paint_hue_p.dds";
+	if (row == LOOK_ROW_RIM)
+		return GlobalValue(g_lookColourGlobal[LOOK_ROW_PAINT]) >= 0.0f ? "paint_hue_p.dds" : "paint_p.dds";
+	return row == LOOK_ROW_PLATE ? "plate_p.dds" : "plate_text_p.dds";
+}
+
+/* A texture's name (its file's path) is that file: the whole name, or its end after a \ or /, in any case. */
+static bool TextureIs(const char *name, const char *file)
+{
+	size_t n = strlen(name), f = strlen(file);
+	if (n < f || (n > f && name[n - f - 1] != '\\' && name[n - f - 1] != '/'))
+		return false;
+	for (size_t i = 0; i < f; i++)
+		if ((name[n - f + i] | 0x20) != (file[i] | 0x20))
+			return false;
+	return true;
+}
+
+/* The look colours (2026-11-08a): for each held worn shape with a colour row whose key is on ([Look] PaintWheel for the
+ * paint and the rims, PlateColours for the plate and its text), its fixed global's V at 0 or more (CMB_LookPaintV ..
+ * CMB_LookPlateTextV; -1 = don't write) and the shape not hidden this frame: BSGeometry +0x138 its BSLightingShaderProperty
+ * (refused unless its flags +0x30 have kShaderFlags_GrayscaleToPalette, 0x80000000), +0x58 its material (refused unless
+ * its lookup texture +0x68 is set), whose fLookupScale +0xB8 is written when it isn't the V or the material isn't the one
+ * written last (a swap put another), and (review B2) the lookup texture is the V's palette (LookPaletteOf: its NiTexture
+ * name +0x10, the file's path; refused when it names another, as the mods' castF_body_worn on paint_p.dds under Free
+ * colour's paint_hue_p V; a texture without a readable name written as before): one line a write with the value read back
+ * (at most LOOK_COLOUR_LINES a ride), one a refusal a shape a ride. The view bike's shapes are no held skins: F4SE's
+ * ApplyTo colours them. */
+static void LookColoursFrame(void)
+{
+	static const char *const what[LOOK_ROWS] = { "the paint", "the rim", "the plate", "the plate's text" };
+	if (!g_lookColourGlobal[0])
+		return;   /* an older ESP: nothing to write (FindGlobals said so) */
+	for (int i = 0; i < g_skinCount; i++) {
+		HeldSkin *hs = &g_skins[i];
+		if (hs->colourRow < 0 || hs->hide || !hs->shape)
+			continue;
+		int row = hs->colourRow;
+		if (!((row == LOOK_ROW_PAINT || row == LOOK_ROW_RIM) ? g_lookPaintWheel : g_lookPlateColours))
+			continue;
+		float v = GlobalValue(g_lookColourGlobal[row]);
+		if (!(v >= 0.0f))
+			continue;
+		const char *why = NULL;
+		uintptr_t prop = ReadPtr(hs->shape + 0x138), mat = 0;
+		if (!prop)
+			why = "no shader property";
+		else if (!Accessible(prop + 0x30, 8, false) || !(*(const volatile uint64_t *)(prop + 0x30) & 0x80000000ull))
+			why = "its shader property has no palette flag (0x80000000)";
+		else if (!(mat = ReadPtr(prop + 0x58)))
+			why = "no material";
+		else if (!ReadPtr(mat + 0x68))
+			why = "its material has no lookup texture";
+		else if (!Accessible(mat + 0xB8, 4, true))
+			why = "its fLookupScale isn't writable";
+		if (why) {
+			if (!hs->colourRefused)
+				Log("look: %s colour %.4f not written: %s (%s)", hs->name, v, why, what[row]);
+			hs->colourRefused = true;
+			continue;
+		}
+		volatile float *scale = (volatile float *)(mat + 0xB8);
+		if (*scale == v && mat == hs->colourMat)
+			continue;
+		const char *lut = ObjectName(ReadPtr(mat + 0x68)), *palette = LookPaletteOf(row);
+		if (lut && !TextureIs(lut, palette)) {
+			if (!hs->colourRefused)
+				Log("look: %s colour %.4f not written: its lookup texture is %s, not %s (%s)", hs->name, v, lut, palette, what[row]);
+			hs->colourRefused = true;
+			continue;
+		}
+		*scale = v;
+		hs->colourMat = mat;
+		hs->colourRefused = false;
+		if (g_lookColourLines < LOOK_COLOUR_LINES)
+			Log("look: %s colour %.4f written (read back %.4f; %s)%s", hs->name, v, *scale, what[row],
+			    ++g_lookColourLines == LOOK_COLOUR_LINES ? "; no more of these lines this ride" : "");
+	}
+}
+
 /* Every frame while riding: the ground's pitch and roll under the rider, filtered (a
  * median drops one-frame contacts with a curb or a lip of rock, then smoothing, then a
  * rate limit), capped, and put on the bike's mesh before it goes onto its bone: turned
@@ -10606,7 +10818,8 @@ static void FrameTilt(void)
 		 * mirror [Look] Mirrors picks. */
 		bool speck = (hs->backlight && (!lampLit || !g_speedoBacklight)) || (hs->role == ROLE_TAIL && !g_tailGlow) ||
 		             (hs->role == ROLE_BRAKE && (!g_tailBrake || !g_brakeOn)) || (hs->role == ROLE_NEEDLE && !g_speedoNeedle) ||
-		             (hs->variant && hs->variant != LookMirrorsNow());
+		             (hs->variant && hs->variant != LookMirrorsNow()) ||
+		             (hs->rim && LookRimNow() >= 0 && hs->rim - 1 != LookRimNow());   /* 2026-11-08a: a rim style not chosen */
 		if (speck)
 			Speck(M, m, hs->centre);
 		hs->hide = glowOff || speck;
@@ -10636,6 +10849,7 @@ static void FrameTilt(void)
 			*(float *)(live + OFF_BONE_RADIUS) = radius + sqrtf(dx * dx + dy * dy + dz * dz);
 		}
 	}
+	LookColoursFrame();   /* 2026-11-08a: the look colours on the held shapes' materials */
 	TimeAdd(&g_tTilt, tBike);
 	double tRider = Clock();
 	FrameRider(tilt, R, P);

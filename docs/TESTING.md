@@ -17,147 +17,131 @@ The log goes to `Documents\My Games\Fallout4\Logs\Script\Papyrus.0.log`. Every m
 
 Without F4SE you'll see one or two harmless errors about the `F4SE` / `CMB_HotkeyF4SE` scripts not being found. That's the mod checking whether they're there. When something breaks, send the log, plus a screenshot or a short clip if it's visual.
 
-## The 2026-11-07a build: customising, in this order
+## The 2026-11-08a build: rims, tyres, the hue, the plates, in this order
 
-This is the first customisation build: badges on both sides of the tank and on the rear fender, faction paint and
-colours, and mirrors, chosen at a field kit that comes out of the side bag beside the parked bike. **Nothing changes
-until you choose**: with nothing chosen the bike is the 2026-11-06a build's, parked, ridden and in first person. This
-test answers what only the game can (twelve unknowns: does the toolbox take you, does the armour menu list the bike,
-does its preview show the choices, do the components count, does the game tell the script what you chose, do the three
-bikes show it); each step names the log line that answers it.
+This is the second customisation build: rims and tyres, a free paint colour from the MCM, and the licence plate, all
+at the field kit as before (and in the MCM's free mode). **Nothing changes until you choose**: with nothing chosen the
+bike is the 2026-11-07a build's, parked, ridden and in first person (the plate is a re-sampled copy of the old one:
+step 1 asks). This test answers what only the game can (does a palette colour take on the rims' shiny materials, does
+the plugin's colour write reach the ridden bike, do the hidden rim styles stay hidden, do the plate's colours show
+without a preview, does the crude switch hide the recipes at once); each step names the log line that answers it.
 
 Before you start:
-- install as a Replace; F4SE and `CMB_Slope.dll` as before (the parked and first-person bikes' look needs F4SE, the
-  riding bike's mirrors the plugin);
-- **untick (or remove) "Commonwealth Motorbike - 2026-11-02a look (A-B)"** from the 2026-11-06a package: its meshes have
-  one badge and hidden parked mirrors, so with it ticked no badge, paint or mirror choice shows on the parked bike. This
-  zip ships no optional folder;
-- load test 50's save;
-- put Adhesive, Cloth, Oil, Steel, Glass and Screws (a few of each) in Sanctuary's workshop, some in the side bag and
-  none on you (step 6 moves them); Armorer 1 for the paints (or `player.addperk 4B254`);
+- install as a Replace; F4SE and `CMB_Slope.dll` as before (the colours on every bike need F4SE, the ridden bike's rim
+  styles the plugin);
+- load the 2026-11-07a test's save (or test 50's). If the 2026-11-07a build's test hasn't been run yet, its twelve
+  steps are in that build's package (README.txt, WHAT TO TEST) and in this file at that build's commit; this test
+  takes for granted that the field kit opens the armour menu with the bike listed (its steps 3 and 4);
+- put Steel, Screws, Oil and Adhesive (a few of each) in the workshop or the side bag; Armorer 1 for the rim styles and
+  Free colour (or `player.addperk 4B254`);
 - copy both logs aside before every quit (`CMB_Slope_stepN.log`, `Papyrus_stepN.log`): the plugin keeps only one
   earlier session.
 
-The log's first lines: `CMB_Slope.log` has `globals: the 2026-11-07a build's CMB_LookCode found (...)` and, in the look
-settings line, `[Look] Mirrors=-1 (as chosen at the bike: nothing chosen yet, the stock one) Cull=0`. A line
-`globals: no CMB_LookCode (0x8AF, an older ESP): [Look] Mirrors=-1 reads as 1` means an older ESP is loaded: stop and
-say so.
+The log's first lines: `CMB_Slope.log` has `globals: the 2026-11-07a build's CMB_LookCode found (...)`, `globals: the
+2026-11-08a build's look colours found, CMB_LookPaintV to CMB_LookPlateTextV (...)` and the settings line `look: [Look]
+Rims=1 PaintWheel=1 PlateColours=1 (2026-11-08a: the rim styles hidden as chosen at the bike; the paint's and rims'
+colour, the plate's colours written)`. At the first getting on the parts' lines name the 14 rim shapes, `tilt:
+CMB_BikeWornRider_wheelF_rimLaced is the front wheel [wheelF+rim2, by its name] (...)` up to `...wheelR_rimScrap is
+the rear wheel [wheelR+rim8, by its name]`, and the plate's two, `tilt: CMB_BikeWornRider_static_plate is a fixed
+part [none, by its name] (...)` and `...static_plateText ...`. A line `globals: no look colours (0xA14-0xA17, an older
+ESP): [Look] PaintWheel and PlateColours write nothing` means an older ESP is loaded: stop and say so.
 
-1. **The stock bike, before any choice** (row 17s): parked, ridden and in first person, in daylight beside test 50's
-   spot.
-   - Expected: exactly as the 2026-11-06a build. Say anything that differs (the badges, the rear fender, the mirrors).
-   - Log: `Papyrus.0.log` has no `Look:` line yet (a stock look calls nothing); `CMB_Slope.log` at the first getting
-     on `look: the mirrors now 1, the stock one (CMB_LookCode 0x5, as chosen at the bike)` (with nothing chosen every
-     load writes 5, the stock mirror; before the script's first load the code is 0x0, `nothing chosen at the bike`).
-2. **The button** (the menu's condition): activate the parked bike.
-   - Expected: "Ride", "Open side bag", "Customise", "Cancel". Cancel: `Parked bike activated: choice 3.`
-   - Then MCM Look "Customise at the bike" off: the menu reads "Ride", "Open side bag", "Cancel", and Cancel still logs
-     `Parked bike activated: choice 3.`; turn it on again.
-3. **The field kit** (in Sanctuary): Customise.
-   - Expected: a toolbox on the ground beside the bike on your side opens (its lid's sound), you stand at it in the
-     armour bench's hammering idle and the armour menu opens.
-   - Log, `Papyrus.0.log`: `Customise: field kit mode 1 (the toolbox) at X, Y, right of the bike` (or `left`), then
-     `Field kit: mode 1: entered (after N s)`, `Field kit: mode 1: the menu open after N s` and `Field kit: mode 1
-     worked: remembered (CMB_KitWorked 1)`.
-   - If instead `Field kit: mode 1: not in it after 4 s: SnapIntoInteraction False` and `Field kit: mode 1: no menu
-     after 6 s: trying mode 3`: the toolbox is put away and an armour bench comes beside the bike (`Field kit: mode 3:
-     entered (after N s)`, `... mode 3 worked: remembered (CMB_KitWorked 3)`). Say whether it came and worked. The
-     mode that worked is remembered: the next Customise starts with it.
-   - The switch happens once, also when you step out of the toolbox just as the 6 s run out: one `Field kit: mode 1:
-     ...: trying mode 3` line, one `Customise: field kit mode 3 (the armour bench) at X, Y, ...` line, and no
-     `Customise: no menu after 6 s ...` line (one bench, one box beside the bike).
-   - A/B: MCM "Field kit" "Toolbox", then "Armour bench" (each forced, not remembered); back to "Automatic", and `set
-     CMB_KitWorked to -1` lets it try the toolbox first again.
-4. **The menu**: is "Motorbike" listed, with "Tank badge, left", "Tank badge, right", "Rear fender badge", "Paint" and
-   "Mirrors"? Is the bike's preview whole, the right size and angle (a screenshot)? Is other armour of yours listed too?
-   If the menu opens without "Motorbike": leave it, MCM "Field kit" "Toolbox (armour bench keyword)", Customise again;
-   say which listed it.
-5. **Hover every list** (the preview; nothing is paid until you take one):
-   - each badge on both tank plates and on the fender: in place, upright and reading the same way on both sides (not
-     mirrored), no edge of a neighbour's art, no sliver or smear (a different badge, a sliver or a smear: a
-     screenshot); the four "(game art)" ones show (not purple, not blank): the chest decals a square emblem with clear
-     edges, the two flags (fender only) stretched over the patch (say if they look squashed);
-   - the Raiders' red spray is close to the factory oxblood: say if it needs to be brighter;
-   - Paint: the 13 schemes two-tone (the tank against the fenders) with their coachline; neighbouring swatches differ
-     (Fire red and Oxblood, Sky blue and Steel blue); the six neutrals; **"Palette test: colour index": cobalt blue**
-     (the colour index works) or **primer grey** (it doesn't);
-   - for any option that shows grey, white, black or purple, name it.
-6. **Components** (do they count?): take three badges, one session each:
-   - (a) in Sanctuary, with Adhesive and Cloth only in the workshop: `Customise: the settlement's workshop N linked
-     (both keywords)`;
-   - (b) away from settlements, with them only in the side bag: `Customise: not in one of your settlements (no
-     settlement location).`, `Customise: the side bag linked as the bench's container (N items)`, and on leaving
-     `Customise: components from the bag: n (N -> M items)`;
-   - (c) with them only on you.
-   - Say which could pay. A/B: MCM "Parts from the side bag" off (`Customise: no workshop here and the bag not linked:
-     your own components only`).
-7. **The choices read** (does the game tell the script?): tank left "Brotherhood of Steel", Paint "Enclave", Mirrors
-   "Under the bars, egg"; leave the menu.
-   - Log, `Papyrus.0.log`: `Customise: tank left = TankL:bos (2)`, `Customise: paint = Paint:enclave (2)`, `Customise:
-     mirrors = Mirrors:egg (1)`, then `Customise: the menu closed after N s, 3 changes; the look: tank left TankL:bos,
-     tank right TankR:sameleft, fender Fender:none, paint Paint:enclave, mirrors Mirrors:egg`, `Customise: the right
-     tank badge follows the left: TankL:bos`, `Look: put on (the field kit): ...; CMB_LookCode 6` and `Look: the
-     parked bike's swap holds N entries, M applied now (the field kit)`.
-   - If `Customise: the menu was open and no mod event came (OnPlayerModArmorWeapon)`, say so.
-8. **The three bikes**: the parked bike shows the look at once; get on: the ridden bike; then first person. The egg
-   mirrors on all three, and no stock mirror beside them (on the parked bike the stock ones take an invisible material
-   whose shape has no alpha property: say if they still show).
-   - Log, `Papyrus.0.log`: on getting on `Look: 3 of 3 mods on the worn bike`, or `Look: N refused on the worn bike
-     (AttachModToInventoryItem): the F4SE swap instead, N entries applied` (and a second later `Look: the worn bike's
-     F4SE swap again: N entries applied`); in first person `Look: the first-person bike: N of N entries applied`.
-     When the first-person bike is brought back to you (`First-person bike moved to the player: its 3D was gone.`)
-     the same `Look: the first-person bike: ...` line follows, and it shows the look again (not stock).
-   - `CMB_Slope.log`: `look: the mirrors now 2, under the bars, egg (CMB_LookCode 0x6, as chosen at the bike)`.
-   - Fast travel away and back; save, quit, load: parked and ridden again (`Look: the parked bike's swap holds N
-     entries, M applied now (load)`: after a load the parked look comes back within a second).
-   - A/B: `[Look] Mirrors=1` (the stock mirrors on the ridden bike whatever is chosen, as 2026-11-06a).
-9. **Left and right**: change the left only (both sides change as you close the menu); give the right its own
-   ("Enclave"): they differ; "Same as the left": it follows again. While the right follows, the preview shows it as
-   the left was when the menu opened (the bike shows the new left after you close it).
-10. **The MCM**: Look "Free customising (no field kit, no cost)" on; set the dropdowns, "Apply the look": the parked
-    bike at once, the ridden one at the next getting on (`Look: from the MCM: tank left ...`, `Look: put on (the MCM):
-    ...`). "Faction set" "Minutemen" and Apply: `Look: faction set 4: paint Paint:minutemen (4), tanks TankL:minutemen
-    (7), fender Fender:minutemen (6)`. "Customise at the bike" off and Apply (or a load): the bike stock everywhere and
-    no button (`Look: put on (the MCM): ... (Customise at the bike is off: the stock look); CMB_LookCode 0`); on and
-    Apply: the look back.
-    - Without Apply: customise at the kit, then "Customise at the bike" off and get on (no Apply, no load): `Look: put
-      on (getting on): ... (Customise at the bike is off: the stock look); CMB_LookCode 0` and `Look: the parked bike's
-      swap holds N entries, M applied now (getting on); the stock look: none kept on the bike`; the stock mirrors on
-      the ridden and first-person bikes, and the parked bike stock after you get off. Activating the parked bike does
-      the same before its menu (`Look: put on (the bike's activation): ...; CMB_LookCode 0`). A dropdown changed
-      without Apply is put on the same way. These lines come only when the MCM changed the look since it was last put
-      on.
-11. **Costs**: a badge took Adhesive 1 and Cloth 1; a colour Adhesive 2 and Oil 2 (and needs Armorer 1; Factory Oil 1);
-    the egg Steel 2, Glass 2, Screws 1; egg back to stock gave "Motorbike mirrors: under the bars, egg" back as a
-    loose mod; back to the egg cost nothing (the loose mod).
-12. **Refusals and the frame rate**: Customise in a fight (`Not in a fight.`, `Customise refused: in a fight.`) and
-    swimming (`Not while swimming.`); getting on during a session is ignored (`Getting on ignored: customising.`). The
-    frame rate at one spot in Sanctuary with the stock look and with three badges and a paint (note both).
+1. **The stock bike, before any choice**: parked, ridden and in first person, beside the 2026-11-07a test's spot.
+   - Expected: exactly as 2026-11-07a: the cast rims, black tyres, the plain plate. The plate is now a shape of its own
+     with a re-sampled copy of its old texture: say if it looks any different (lighter, darker, blurred, its edges).
+   - Log: `CMB_Slope.log` at getting on `look: the rims now 0, the cast rim (stock) (CMB_LookCode 0x5, as chosen at the
+     bike)`, and no `look: ... colour ... written` line (nothing to colour).
+2. **The new lists** (at the field kit): "Rims" (48), "Tyres", "Plate", "Plate text", "Plate letters", "Plate
+   background", and "Paint" ends with "Free colour (hue in the MCM)". Hover them (nothing is paid until you take one):
+   - does the preview show each rim style whole on both wheels, round, with nothing of another style and no cast rim
+     showing through? No purple anywhere?
+   - the plate designs and texts on the preview's plate; the two colour lists change nothing in the preview (expected:
+     their colours show on the parked bike once taken, step 8).
+3. **Rims on the three bikes**: take "Turbine, chrome", leave the kit.
+   - Log, `Papyrus.0.log`: `Customise: rims = Rims:turbine_chrome (24)` and `Look: put on (the field kit): ..., rims
+     Rims:turbine_chrome, ...; CMB_LookCode 37`; on getting on `CMB_Slope.log` `look: the rims now 4, Turbine
+     (CMB_LookCode 0x25, as chosen at the bike)`.
+   - Parked, ridden and in first person: Turbine on both wheels. Ridden: do the rims spin with the tyres, steer with the
+     front wheel and ride the suspension with it? Any cast rim, or another style, showing through?
+   - A/B: `[Look] Rims=0` (the plugin hides no rim shape; the cast rim may show inside the new one on the ridden bike:
+     expected with 0), then back to the default.
+   - Mid-ride: in the MCM's free mode Rims "Laced, chrome", "Apply the look". Within about a second the ridden bike is
+     put on again with Laced: you stay seated, the bike gone for a moment (`Papyrus.0.log`: `Look: the rims' style
+     changed while riding (Rims:turbine_chrome worn, CMB_LookCode's style 1): the worn bike put on again with the look's
+     mods`). How long is it gone? Does the camera, the rider or the speed jump?
+4. **Finishes** (the palette on a shiny, env-mapped material: the 2026-11-07a build's open question again): Laced in
+   satin black, gloss black, bronze and gunmetal, then "Cast, bronze".
+   - Grey, white or black where a colour should be means the palette doesn't take on these materials (a later build then
+     bakes the finishes): say which. Chrome has no palette and shows regardless. "Cast, satin black" should look like
+     the stock rim.
+   - Body colour: "Laced, body colour" with the Enclave paint: the rims the paint's colour, the trims the coachline's
+     (`Look: the parked bike's swap holds N entries, M applied now (the field kit), colours: paint -1 rims 0.023438
+     plate -1 text -1`; ridden, `look: CMB_BikeWornRider_wheelF_rimLaced colour 0.0234 written (read back 0.0234; the
+     rim)`). Then Paint "Free colour": do the rims follow the hue (rims and paint 0.3960 at the default hue)? At getting
+     on a line per rim shape such as `look: CMB_BikeWornRider_wheelF_rimLaced colour 0.3960 not written: its lookup
+     texture is ...paint_p.dds, not paint_hue_p.dds (the rim)` may show once, before F4SE's swap puts the rim's hue
+     material on (the plugin writes a colour only into its own palette): send the log if one shows later in a ride. It
+     also names the lookup texture as the game holds it; a `written (read back ...)` line means the name matched (or the
+     game keeps none).
+5. **Tyres**: "Whitewall", then "Red line": on both sidewalls of both tyres, round, on the rubber only (not the tread,
+   not the rim), no seam across the band.
+6. **The hue** (the MCM's free mode): Paint "Free colour", "Paint hue" 120, "Paint shade" Light, "Apply the look".
+   - The parked bike at once, the ridden one at the next getting on. Log, `Papyrus.0.log`: `Look: from the MCM: paint
+     hue 120 shade Light` and `Look: put on (the MCM): ...`; `CMB_Slope.log` on getting on `look:
+     CMB_BikeWornRider_static_paint colour 0.5835 written (read back 0.5835; the paint)` and the same for `fork_paint`.
+   - Then hue 300, shade Deep (0.2085). Ride, save and load mid-ride: does the ridden bike keep its colour?
+   - Do the four shades differ, and does a step of a few degrees move the colour without a jump?
+7. **Plates** (readable? raised?): "Commonwealth standard" with "The plate's own" text (AB 1234), then "Vault-Tec"
+   (VLT 111). From the riding camera: can you read them? Up close at the kit: do the letters look raised (stamped)? Then
+   every design once, and a few texts (a screenshot of each design). Log: `Customise: plate = Plate:standard (1)`.
+8. **Plate colours** (no preview): on the Commonwealth standard, "Plate letters" "Vault yellow", then "Plate
+   background" "Black".
+   - Does the parked bike's plate change at once? Log, `Papyrus.0.log`: `Customise: plate letters =
+     PlateInk:vaultyellow (8): the parked bike re-composed` and `Customise: plate background = PlateBack:black (3): the
+     parked bike re-composed`.
+   - The ridden bike (`look: CMB_BikeWornRider_static_plate colour 0.0098 written (read back 0.0098; the plate)` and
+     `look: CMB_BikeWornRider_static_plateText colour 0.4688 written (read back 0.4688; the plate's text)`)? First
+     person, if you look back? The menu's bike keeps the design's own colours (expected).
+9. **The crude switch**: take "BITE ME (crude)" on the Commonwealth standard; MCM Look "Crude plate texts" off; reopen
+   the kit: the 14 crude texts are gone from the list; activate the parked bike (or get on): it shows the plate's own
+   text, AB 1234 (`Look: the plate text PlateText:biteme is crude and "Crude plate texts" is off: the plate's own
+   (PlateText:ab1234)`). On again: BITE ME is back on the bike and in the list.
+10. **Staying put**: leave the parked bike's cell and come back; save, quit, load: the rims, tyres, plate and its
+    colours on the parked and the ridden bike (`Look: the parked bike's swap holds N entries, M applied now (load),
+    colours: ...`, within a second of the load).
+11. **Off values**: `[Look] PaintWheel=0` with a Free colour: no `look: ... colour ... written` line for the paint;
+    does the ridden bike still show the hue (then F4SE's swap alone reaches its materials; if it shows the default
+    steel blue instead, the plugin's write is what colours it: say which), also after a load mid-ride; `[Look]
+    PlateColours=0` likewise for the plate; MCM "Customise at the bike" off and Apply: everything stock, the rims, tyres
+    and plate too (`Look: put on (the MCM): ... (Customise at the bike is off: the stock look); CMB_LookCode 0`). Do
+    that once while riding on a rim style: within about a second the ridden bike is put on again with the cast rims
+    (`Look: the rims' style changed while riding (...)`).
+12. **Frame rate**: one spot in Sanctuary, the stock look, then "Laced, chrome" and the Vault-Tec plate: note both, and
+    `CMB_Slope.log`'s frame-time line for each (`time: frame N us avg, N max, over N (bike N/N for 50 shape(s), ...`).
 
-If a session hangs (no menu, no kit going away), `cqf CMB_ControllerQuest EmergencyReset` ends it and puts the kit away
-(`Customise: the emergency reset after N s, N changes; the look: ...`).
+Every new thing has an off value that gives the 2026-11-07a build: each new slot's first choice (with every slot there
+the bike is 2026-11-07a's), `[Look] Rims=0`, `[Look] PaintWheel=0`, `[Look] PlateColours=0`, and MCM Look "Customise at
+the bike" off (every slot stock). "Crude plate texts" off hides the 14 crude texts (a content switch; on is the
+default). The 2026-11-07a build's own switches back to 2026-11-06a's are all still there (README's second key table).
 
-Every new thing has an off value that gives the 2026-11-06a build: MCM Look "Customise at the bike" off (`set CMB_LookOn
-to 0`; the parked bike at the next getting on, activation of the parked bike, Apply or load), `[Look] Mirrors=1`, MCM
-"Field kit" "Armour bench" (`set CMB_KitMode to 3`, the first plan's armour bench), "Parts from the side bag" off. With
-every slot on its first entry (the defaults) the bike is 2026-11-06a's. The 2026-11-06a build's own switches back to
-2026-11-02a's are all still there (README's second key table).
-
-Send both logs per session, screenshots of step 4's preview and step 5's lists (or a recording).
+Send both logs per session, screenshots of steps 2, 4, 7 and 8 (or a recording).
 
 ### Questions for you
 
-- **T-C1 (step 3).** The kit: which mode worked? Is the toolbox right at your feet, or where should it sit?
-- **T-C2 (step 4).** The preview's size and angle.
-- **T-C3 (step 5).** Each badge: recognisable, too big or small? Ours or the game art's?
-- **T-C4 (step 5).** The schemes' colours, the swatches' order.
-- **T-C5 (step 9).** The right badge following the left: right, or should the two always match?
-- **T-C6 (step 11).** The costs.
-- **T-C7 (step 5).** The army star and the Nuka-Cola and Red Rocket names: keep them?
-- **T-C8 (later).** The side bag: on the left only, or a pair?
-- **T-C9 (later).** Weathered paint as the default when it comes?
+- **T-C2-1 (steps 3, 4).** Which rim styles and finishes would you keep? Any too busy at riding distance?
+- **T-C2-2 (step 6).** The hue's shades (Deep, Normal, Light, Pastel): the right steps?
+- **T-C2-3 (step 5).** The whitewall's width.
+- **T-C2-4 (steps 7-9).** The plates: the 60 texts (strike or add any, 5 to 7 characters); the crude set's strength
+  (is BASTARD or PISSOFF as strong as it should go?); the 12 designs (keep all, swap any?); the 16 colours; Stock (the
+  plain plate) as the default, or a new game on the Commonwealth standard with AB 1234?
+- **T-C2-5 (steps 3, 5, 7).** The costs (a rim style needs Armorer 1, as the paint colours).
+- **T-C2-6 (from the 2026-11-07a test).** Did the palette show on the paint, and did "Palette test: colour index" show
+  cobalt? It decides whether a later build bakes the rims' finishes.
+- **T-C2-7 (step 7).** The Institute plate's own letters are teal on its pearl white: readable, but a weak contrast
+  (2.7 to 1; its legends are black for that reason). Keep the teal, or make its letters black (11.9 to 1; its emblem
+  black too)?
 
-### Questions for your checker (data only; nothing of the game's ships)
+### Questions for your checker, still open from the 2026-11-07a build (data only; nothing of the game's ships)
 
 - **Q-K1 (the bench's type).** The TNAM (type) of `WorkbenchArmor` 0657FF and `Workbench_General` 091FD4.
 - **Q-K2 (the menu's order).** An armour bench's mod order within a slot: the form order, the name, or the recipe's?
@@ -178,6 +162,9 @@ The bike's look has these keys in `CMB_Slope.ini`, all read again on getting on;
 | `[Tail] Brake` | 1 | 0 | 1: the brake light; 0: never lit |
 | `[Tail] BrakeHold` | 0.3 | 0 | seconds the brake light stays on after you let go of the brake |
 | `[Look] Mirrors` | -1 (since 2026-11-07a; 1 before) | 1 | the riding bike's mirrors: 1 the stock ones (27c's), 2 egg-shaped under the bar ends, 3 D-shaped under the bar ends, 0 none; since 2026-11-07a -1, the default: the ones fitted at the bike's field kit (`CMB_LookCode`), the stock ones while nothing is chosen, and the parked bike shows the fitted ones too (before, it kept the stock ones) |
+| `[Look] Rims` | 1 (since 2026-11-08a) | 0 | the rim styles: 1, the ridden and first-person bikes show the style fitted at the bike's field kit (`CMB_LookCode` bits 3-6; the cast rim while none is) and the others shrunk to specks, as the mirrors; 0, no rim shape hidden by the plugin (the materials alone decide what shows, as 2026-11-07a) |
+| `[Look] PaintWheel` | 1 (since 2026-11-08a) | 0 | 1: the Free colour paint's hue and a body-colour rim's colour written into the ridden bike's paint and rim materials (their palette row, `fLookupScale`), read back and logged; 0: never written, as 2026-11-07a (the ridden bike's colours F4SE's swap's alone, at getting on and after a load) |
+| `[Look] PlateColours` | 1 (since 2026-11-08a) | 0 | the same for the licence plate's background and letters |
 
 With `RolesByName` left at 1 and every other key at its off value this build's bike looks like 27c's but for its
 textures and the lower triple clamp turning with the bars: no needle, no lit tail, brake or dial, the stock mirrors.
@@ -293,6 +280,9 @@ and, if you have one, a bag or other gear that sits in an unusual slot.
 | `set CMB_KitMode to 1` / `2` / `3` | the field kit forced: the toolbox / the toolbox with the armour bench's keyword / the armour bench (MCM "Field kit", since 2026-11-07a; default 0, automatic: the toolbox, then the armour bench, the one that worked remembered) |
 | `set CMB_KitWorked to -1` | automatic starts again from the toolbox (since 2026-11-07a, console only; automatic writes 1 or 3 here when a mode worked) |
 | `set CMB_KitBagLink to 0` | the field kit uses your own components (and a settlement's workshop) only (MCM "Parts from the side bag", since 2026-11-07a; default 1: outside your settlements the side bag's too) |
+| `set CMB_LookHue to 120` | the Free colour paint's hue, 0-359 round the colour wheel (MCM Look "Paint hue", since 2026-11-08a; default 210; used only with Paint "Free colour", from "Apply the look" or the next getting on or activation of the parked bike) |
+| `set CMB_LookShade to 2` | the Free colour paint's shade: 0 Deep, 1 Normal (the default), 2 Light, 3 Pastel (MCM Look "Paint shade", since 2026-11-08a) |
+| `set CMB_LookPlateCrude to 0` | the 14 crude plate texts not offered at the field kit, and a plate wearing one shows its design's own text (MCM Look "Crude plate texts", since 2026-11-08a; default 1) |
 | `set CMB_FxLandOn to 0`, `CMB_FxWaterOn`, `CMB_FxMuteRider` | no landing sound, no water sound, the rider's own footstep sounds kept (each default 1; the last two next time you get on) |
 | `set CMB_FxLandPick to 1` / `set CMB_FxWaterPick to 2` | the second set of landing sounds / the third water loop (defaults 0; the water next time you get on) |
 | `cqf CMB_ControllerQuest FxAudition 3`, then close the console | plays a candidate sound at the effects volume once the menus are closed (since 2026-11-02a: the console pauses the game): 0-4 the landing set, 10-14 the second set, 20-23 the water loops (3 s), through the mod's own records; 100 more the game's own records; -1 every one of ours and -2 every one of the game's, 2.5 s apart (about 47 s); since 2026-11-06a -3 the landings as heard, small to big, then two into water (seven, 2.5 s apart), and 22 is the wet road |

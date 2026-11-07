@@ -36,6 +36,10 @@ below (DIAL_*, NEEDLE_PATCH, LENS_*, BADGE_*), so the two can't drift apart.
       frame in and out
   disc_pieces(centre_yz, x0, x1, r_out, r_hub, flip, bore) -> (verts, tris, normals, uvs), the brake discs (bore "shared"
       at DISC_HUB_REF of the outer radius, art and geometry alike; "bolts" the 2026-11-01a build's, at r_hub)
+  plate_uvs(verts, tris) -> uvs (m, 3, 2), static_plate's own (2026-11-08a), parked frame
+  plate_text_overlay(face_tris, flip) -> (verts, tris, normals, uvs), static_plateText over the plate's face (2026-11-08a)
+  rim_style_pieces(style, wheel, axle, flip) -> [(material, verts, tris, normals, uvs, part)], a rim style's wheel
+      (2026-11-08a: RIM_STYLES, parked frame about the axle); rim_check(...) its envelope, hoop, winding and cell
 
 Run it (python3 -I bike_pieces.py) for a self-test of the geometry on synthetic inputs.
 """
@@ -1080,6 +1084,90 @@ def fender_badge_patch(fender, flip=False, size=FENDER_PATCH_SIZE, centre_y=FEND
     return v, f, n, uvc
 
 
+# --- the licence plate (since the 2026-11-08a build, C2: plates.md 2) --------------------------------------
+# static_plate is the model's plate (glTF mesh 24, split from static_black) with UVs of its own: the rear face (its
+# triangles facing the rear, parked +y, by PLATE_FACE_DOT, on the slab's rear half) fills 0..1 both ways read true from
+# behind (u to the viewer's right, the bike's right, parked -x; v down), in the face's fitted plane, its bounding box (the
+# rounded corners leave the box's corners unused); the front face and the edges lie on PLATE_STRIP_V, the design cell's
+# plain strip (plates_d.dds row 245 of the 256-row cell, the face drawn in 226 rows from row 8: a design material's UV
+# transform takes 0..1 to the drawn face), squashed to +-PLATE_STRIP_DV so no triangle's UVs are degenerate.
+# static_plateText is ours: an 8 x 2 grid over the face's text band (PLATE_TEXT_BAND_U/V of the face: 20.0 x 4.52 on
+# this model) in the fitted plane, lifted PLATE_TEXT_LIFT along its normal (DESIGN's overlay rule, 0.25 and up in the worn
+# nif's half floats), its UVs 0..1 over the band (the text cell's drawn area through the text material's transform).
+PLATE_FACE_DOT = 0.9
+PLATE_STRIP_V = (245.0 - 8.0) / 226.0
+PLATE_STRIP_DV = 0.012
+PLATE_TEXT_LIFT = 0.30
+PLATE_TEXT_BAND_U = (0.0375, 0.9625)
+PLATE_TEXT_BAND_V = (0.271, 0.729)
+PLATE_TEXT_GRID = (8, 2)
+
+
+def plate_face(verts, tris, whole=False):
+    """The plate's rear face: (mask over tris, frame (centre, e_u, e_v, normal), extent (u0, u1, v0, v1)) in the parked
+    frame; e_u the viewer's right from behind (parked -x laid into the face's plane), e_v down (-z laid in), the
+    normal toward the rear; the plane fitted to the face's vertices (least squares). whole: tris are the face alone."""
+    v = np.asarray(verts, dtype=np.float64)
+    f = np.asarray(tris, dtype=np.int64)
+    fn = unit(face_normals(v, f))
+    cen = v[f].mean(axis=1)
+    mid = 0.5 * (v[:, 1].min() + v[:, 1].max())
+    face = np.ones(len(f), bool) if whole else (np.abs(fn[:, 1]) > PLATE_FACE_DOT) & (cen[:, 1] > mid)
+    if not face.any():
+        raise ValueError("plate_face: no triangle faces the rear")
+    p = v[np.unique(f[face])]
+    c = p.mean(axis=0)
+    _, _, vt = np.linalg.svd(p - c)
+    n = vt[2] if vt[2][1] > 0 else -vt[2]
+    e_u = unit(np.array([-1.0, 0.0, 0.0]) - (np.array([-1.0, 0.0, 0.0]) @ n) * n)
+    e_v = unit(np.cross(e_u, n))   # (the viewer's right) x (toward the viewer) = down
+    q = p - c
+    u, w = q @ e_u, q @ e_v
+    return face, (c, e_u, e_v, n), (float(u.min()), float(u.max()), float(w.min()), float(w.max()))
+
+
+def plate_uvs(verts, tris):
+    """static_plate's UVs per corner (T, 3, 2): the rear face read true from behind over 0..1, the rest on the
+    design cell's strip (see above)."""
+    v = np.asarray(verts, dtype=np.float64)
+    f = np.asarray(tris, dtype=np.int64)
+    face, (c, e_u, e_v, n), (u0, u1, v0, v1) = plate_face(v, f)
+    q = v - c
+    U = np.clip((q @ e_u - u0) / (u1 - u0), 0.0, 1.0)
+    V = np.clip((q @ e_v - v0) / (v1 - v0), 0.0, 1.0)
+    depth = q @ n
+    span = max(float(depth.max() - depth.min()), 1e-6)
+    deep = (depth - depth.min()) / span
+    strip = PLATE_STRIP_V + PLATE_STRIP_DV * ((V - 0.5) + 0.5 * (deep - 0.5))
+    uv_face = np.column_stack([U, V])
+    uv_rest = np.column_stack([0.98 * U + 0.02 * deep, strip])   # the depth too: no edge's UVs are a line
+    return np.where(face[:, None, None], uv_face[f], uv_rest[f])
+
+
+def plate_text_overlay(face_tris, flip=False, lift=PLATE_TEXT_LIFT, grid=PLATE_TEXT_GRID):
+    """static_plateText: face_tris (T, 3, 3) the plate's rear face (parked frame). Returns (verts, tris, normals, uvs
+    per corner (T, 3, 2)) in the parked frame, wound toward the rear (pre-flipped with flip, as piece())."""
+    t = np.asarray(face_tris, dtype=np.float64)
+    v, f = weld(t)
+    face, (c, e_u, e_v, n), (u0, u1, v0, v1) = plate_face(v, f, whole=True)
+    nu, nv = grid
+    U = np.linspace(PLATE_TEXT_BAND_U[0], PLATE_TEXT_BAND_U[1], nu + 1)
+    V = np.linspace(PLATE_TEXT_BAND_V[0], PLATE_TEXT_BAND_V[1], nv + 1)
+    gu, gv = np.meshgrid(U, V)
+    pos = (c + np.outer(u0 + gu.ravel() * (u1 - u0), e_u) + np.outer(v0 + gv.ravel() * (v1 - v0), e_v) + lift * n)
+    uv = np.column_stack([(gu.ravel() - U[0]) / (U[-1] - U[0]), (gv.ravel() - V[0]) / (V[-1] - V[0])])
+    idx = np.arange((nu + 1) * (nv + 1)).reshape(nv + 1, nu + 1)
+    a, b, cc, d = idx[:-1, :-1].ravel(), idx[:-1, 1:].ravel(), idx[1:, 1:].ravel(), idx[1:, :-1].ravel()
+    tris = np.vstack([np.column_stack([a, b, cc]), np.column_stack([a, cc, d])]).astype(np.int64)
+    if (face_normals(pos, tris) @ n <= 0).any():
+        tris = tris[:, [0, 2, 1]]
+    normals = np.tile(n, (len(pos), 1))
+    uvc = uv[tris].astype(np.float32)
+    if flip:
+        tris, uvc = tris[:, [0, 2, 1]], uvc[:, [0, 2, 1]]
+    return pos, tris, normals, uvc
+
+
 # --- the brake discs (since the 2026-11-01a build) ---------------------------------------------------------
 # Test 47: the model's discs (glTF meshes 78 and 100) read as low-quality plates: a 36-48 segment outline, the face cut
 # into long thin triangles from the rim to octagonal holes, dented in the source. Ours: a drilled disc with a 96-segment
@@ -1261,6 +1349,611 @@ def disc_check(v, f, n, flip=False):
     return int((cnt == 1).sum()), int((cnt > 2).sum()), int((dcnt > 1).sum()), against
 
 
+# --- the rim styles (since the 2026-11-08a build, C2) ------------------------------------------------------
+# Seven styles, each wheel its own shape wheelF_rim<Style> / wheelR_rim<Style> (harley_meshes.RIM_STYLE_LABELS; the
+# plugin's rim group 1-7, CMB_LookCode bits 3-6): procedural, in the parked frame about the axle, x across from the
+# axle's x (+ the bike's left: the brake discs' side), r from the axle. Every style keeps the stock hoop's profile
+# (RIM_HOOP: the cast rim's cross-section, read off wheelF_rim and wheelR_rim at fdb5b3a: its tyre side, where the bead
+# sits, point for point; its axle side a little thicker than the cast's sheet so the hoop is a closed solid) and stays
+# within RIM_ENVELOPE between r 2 and the hoop (look_options.json's rim_envelope: clear of the discs, the front fork's
+# rings and legs, the rear caliper and the belt pulley). A spoke, blade or plate ends RIM_ATTACH inside the hoop's well,
+# so no joint shows. Each style's triangles carry one of three parts, by material: "body" (black_m: the finish's
+# palette segment, U 56-127 of rim_p.dds), "trim" (chrome: U 216-255, the silver trims: nipples, caps, the nucleus) and
+# "steel" (silver: U 0-47, Scrap's rivets and weld beads, which the art rusts). The UVs are the style's cell of the rim
+# atlas (look_options.json's rim_atlas: 2048 square, 4 x 4 cells of 512, cell 2 x style + wheel, an 8-px margin), each
+# part in a region of its own (RIM_REGIONS, fractions of the cell inside its margin): the faces planar (u = 0.5 +
+# dy / 2R, v = 0.5 - dz / 2R across the face region, R the hoop's outer radius; both sides of a plate share their
+# texels), the hoop and the hubs cylindrical (u round, v along the profile), the bars (spokes, blades, rings) along
+# their length; no two parts share a texel. art-wheels' look_wheels.py paints by part per texel.
+RIM_STYLES = ("Laced", "Disc", "Star", "Turbine", "Prewar", "Atomic", "Scrap")
+RIM_KEYS = ("laced", "disc", "star", "turbine", "prewar", "atomic", "scrap")   # look_options.json's rim_styles keys
+RIM_WHEELS = ("F", "R")
+# The design's triangle estimates per wheel (custom.md 5) did not count the hoop: the stock hoop's profile alone is
+# RIM_HOOP_SEGMENTS x 2 x its points; RIM_TRIS_MAX is the estimate plus RIM_HOOP_ALLOWANCE (checked by the self-test)
+RIM_TRIS_DESIGN = {"Laced": 8000, "Disc": 2000, "Star": 3000, "Turbine": 5000, "Prewar": 3000, "Atomic": 5000, "Scrap": 3000}
+RIM_HOOP_ALLOWANCE = 1800
+RIM_HOOP_SEGMENTS = 48
+# The hoop's cross-section (x, r), a closed polygon: the tyre side from the -x flange's lip to the +x one's (the cast's
+# points within 0.05), then the axle side back. The front: lips at x +-4.62 r 23.42-23.80, bead seats to (3.20, 21.88),
+# (2.02, 21.72), the well's floor r 21.12 within x +-1.92, its underside r 19.5. The rear: lips at x +-4.10 r 21.62, the
+# flange's wall at x 3.85 down to r 19.62, seats to (2.70, 18.30), (1.72, 18.20), the well's floor r 17.70 within
+# x +-1.62, its rib r 17.05 within x +-0.6.
+RIM_HOOP = {
+    "F": ((-4.62, 23.80), (-4.42, 23.42), (-3.20, 21.88), (-2.02, 21.72), (-1.92, 21.12), (1.92, 21.12), (2.02, 21.72),
+          (3.20, 21.88), (4.42, 23.42), (4.62, 23.80), (4.62, 23.15), (3.25, 21.55), (2.00, 19.50), (-2.00, 19.50),
+          (-3.25, 21.55), (-4.62, 23.15)),
+    "R": ((-4.10, 21.62), (-3.85, 19.62), (-2.70, 18.30), (-1.72, 18.20), (-1.62, 17.70), (1.62, 17.70), (1.72, 18.20),
+          (2.70, 18.30), (3.85, 19.62), (4.10, 21.62), (4.05, 19.45), (2.80, 18.00), (1.90, 17.40), (0.60, 17.05),
+          (-0.60, 17.05), (-1.90, 17.40), (-2.80, 18.00), (-4.05, 19.45)),
+}
+RIM_HOOP_TYRE_SIDE = {"F": 10, "R": 10}   # the profile's first points: the tyre side (the stock's outer profile)
+RIM_HOOP_MIN = {"F": 20.5, "R": 18.4}     # the envelope's top: above it the hoop alone
+# (r0, r1, x0, x1): between r0 and r1 a style stays within x0..x1 (look_options.json's rim_envelope)
+RIM_ENVELOPE = {"F": ((2.0, 6.0, -5.5, 4.9), (6.0, 20.5, -5.3, 3.9)), "R": ((2.0, 18.4, -5.5, 4.9),)}
+RIM_ATTACH = {"F": (20.2, 1.5), "R": (17.5, 0.5)}   # (r, |x| at most): a bar's end inside the hoop's well (F: the
+#                                                     box x +-1.92 r 19.5-21.12; R: the rib x +-0.6 r 17.05-17.70)
+RIM_ATLAS = 2048
+RIM_CELL = 512
+RIM_MARGIN = 8
+RIM_REGIONS = {"face": (0.0, 0.0, 0.72, 0.72), "hub": (0.76, 0.0, 1.0, 0.44), "trim": (0.76, 0.48, 1.0, 0.60),
+               "steel": (0.76, 0.64, 1.0, 0.72), "hoop": (0.0, 0.76, 1.0, 0.86), "bars": (0.0, 0.90, 1.0, 1.0)}
+RIM_PART_MATERIAL = {"body": "black_m", "trim": "chrome", "steel": "silver"}
+RIM_PART_REGIONS = {"body": ("face", "hub", "hoop", "bars"), "trim": ("trim",), "steel": ("steel",)}
+RIM_SPLIT_DEG = 35.0       # the normals part at sharper edges than this (lathes, plates)
+RIM_BAR_SPLIT_DEG = 80.0   # and the bars' (round: 5-8 sides smooth; a blade's or a cap's square edges stay hard)
+
+
+def rim_cell(style, wheel):
+    """The (style, wheel)'s cell of the rim atlas, (x, y, w, h) in texels: cell 2 x style index + (0 F, 1 R), four
+    to a row (look_options.json's rim_atlas cells)."""
+    i = 2 * RIM_STYLES.index(style) + RIM_WHEELS.index(wheel)
+    return (i % 4) * RIM_CELL, (i // 4) * RIM_CELL, RIM_CELL, RIM_CELL
+
+
+def rim_to_atlas(uvl, region, style, wheel):
+    """Region-local UVs (0..1 each way) -> the atlas's."""
+    x, y, w, h = rim_cell(style, wheel)
+    u0, v0, u1, v1 = RIM_REGIONS[region]
+    inner = RIM_CELL - 2 * RIM_MARGIN
+    uvl = np.asarray(uvl, dtype=np.float64)
+    u = (x + RIM_MARGIN + (u0 + uvl[..., 0] * (u1 - u0)) * inner) / RIM_ATLAS
+    v = (y + RIM_MARGIN + (v0 + uvl[..., 1] * (v1 - v0)) * inner) / RIM_ATLAS
+    return np.stack([u, v], axis=-1)
+
+
+def _signed_volume(v, f):
+    t = v[f]
+    return float(np.einsum("ij,ij->i", t[:, 0], np.cross(t[:, 1], t[:, 2])).sum() / 6.0)
+
+
+def _lathe_rings(profile, segs, closed, theta0=0.0):
+    """A surface of revolution about the x axis: profile [(x, r)] (r 0 = a pole), segs + 1 columns (the last the first
+    again, for the UVs' seam). Returns (verts, tris, uvs per corner (u round 0..1, v along the profile 0..1)); poles'
+    degenerate triangles dropped; winding as it falls (the caller orients)."""
+    P = np.asarray(profile, dtype=np.float64)
+    m = len(P)
+    th = theta0 + 2.0 * math.pi * np.arange(segs + 1) / segs
+    v = np.stack([np.repeat(P[:, :1], segs + 1, axis=1), P[:, 1:2] * np.cos(th), P[:, 1:2] * np.sin(th)], axis=-1).reshape(-1, 3)
+    edges = [(i, i + 1) for i in range(m - 1)] + ([(m - 1, 0)] if closed else [])
+    seg_len = [math.hypot(*(P[b] - P[a])) for a, b in edges]
+    total = max(sum(seg_len), 1e-9)
+    s = np.concatenate([[0.0], np.cumsum(seg_len)]) / total
+    tris, uvs = [], []
+    S = segs + 1
+    for e, (a, b) in enumerate(edges):
+        sa, sb = s[e], s[e + 1]
+        for j in range(segs):
+            A, B, C, D = a * S + j, a * S + j + 1, b * S + j + 1, b * S + j
+            ua, ub = j / segs, (j + 1) / segs
+            tris += [(A, B, C), (A, C, D)]
+            uvs += [((ua, sa), (ub, sa), (ub, sb)), ((ua, sa), (ub, sb), (ua, sb))]
+    f = np.array(tris, dtype=np.int64)
+    uv = np.array(uvs, dtype=np.float64)
+    keep = tri_areas(v, f) > 1e-9
+    return v, f[keep], uv[keep]
+
+
+def _bar(stations, sides, closed=False, caps=True, phase=0.0):
+    """A tube through stations [(centre, e1, e2, a, b)]: each ring centre + a cos(t) e1 + b sin(t) e2 (sides points);
+    closed: the last station joins the first (a ring); caps close the ends. Returns (verts, tris, uvs per corner: u along
+    the length 0..1, v round 0..1), the caps' UVs on the end rings' line. Winding as it falls (the caller orients)."""
+    k = len(stations)
+    t = phase + 2.0 * math.pi * np.arange(sides + 1) / sides
+    rings = []
+    for c, e1, e2, a, b in stations:
+        rings.append(np.asarray(c) + np.outer(a * np.cos(t), e1) + np.outer(b * np.sin(t), e2))
+    v = np.vstack(rings)
+    S = sides + 1
+    cs = [np.asarray(s[0], dtype=np.float64) for s in stations]
+    seg = [float(np.linalg.norm(cs[i + 1] - cs[i])) for i in range(k - 1)] + ([float(np.linalg.norm(cs[0] - cs[-1]))] if closed else [])
+    total = max(sum(seg), 1e-9)
+    s = np.concatenate([[0.0], np.cumsum(seg)]) / total
+    pairs = [(i, i + 1) for i in range(k - 1)] + ([(k - 1, 0)] if closed else [])
+    tris, uvs = [], []
+    for e, (i, i2) in enumerate(pairs):
+        for j in range(sides):
+            A, B, C, D = i * S + j, i * S + j + 1, i2 * S + j + 1, i2 * S + j
+            va, vb = j / sides, (j + 1) / sides
+            tris += [(A, B, C), (A, C, D)]
+            uvs += [((s[e], va), (s[e], vb), (s[e + 1], vb)), ((s[e], va), (s[e + 1], vb), (s[e + 1], va))]
+    if caps and not closed:
+        for i, u in ((0, 0.0), (k - 1, 1.0)):
+            ci = len(v)
+            v = np.vstack([v, cs[i][None]])
+            for j in range(sides):
+                tris.append((ci, i * S + j, i * S + j + 1))
+                uvs.append(((u, 0.5), (u, j / sides), (u, (j + 1) / sides)))
+    f = np.array(tris, dtype=np.int64)
+    uv = np.array(uvs, dtype=np.float64)
+    keep = tri_areas(v, f) > 1e-9
+    return v, f[keep], uv[keep]
+
+
+def _orient_closed(v, f):
+    """A closed body's triangles, all flipped if they wind inward (by the signed volume)."""
+    return f if _signed_volume(v, f) >= 0 else f[:, [0, 2, 1]]
+
+
+def _orient_toward(v, f, direction):
+    """Each triangle flipped where its normal points against direction(centres) (an open sheet's outside)."""
+    fn = face_normals(v, f)
+    d = direction(v[f].mean(axis=1))
+    bad = np.einsum("ij,ij->i", fn, d) < 0
+    f = f.copy()
+    f[bad] = f[bad][:, [0, 2, 1]]
+    return f
+
+
+def _flip_uv(f, uv, flipped):
+    """The corners' UVs follow a per-triangle flip (columns 1 and 2 swapped where flipped)."""
+    uv = uv.copy()
+    uv[flipped] = uv[flipped][:, [0, 2, 1]]
+    return uv
+
+
+def _orient(v, f, uv, how):
+    """Orient (closed: by the signed volume; else a direction function) keeping each corner's UV."""
+    g = _orient_closed(v, f) if how == "closed" else _orient_toward(v, f, how)
+    flipped = (g != f).any(axis=1)
+    return g, _flip_uv(f, uv, flipped)
+
+
+def _radial(c):
+    """Away from the axle in the wheel's plane (for sheets facing out round it)."""
+    d = np.column_stack([np.zeros(len(c)), c[:, 1], c[:, 2]])
+    return unit(d)
+
+
+def _axial_out(c):
+    """Away from the wheel's middle plane, along x."""
+    return np.column_stack([np.sign(c[:, 0]) + (c[:, 0] == 0), np.zeros(len(c)), np.zeros(len(c))])
+
+
+def _frame_at(theta):
+    """(radial, tangential) unit vectors in the wheel's plane at angle theta (from +y toward +z)."""
+    return np.array([0.0, math.cos(theta), math.sin(theta)]), np.array([0.0, -math.sin(theta), math.cos(theta)])
+
+
+def _planar(v, R):
+    """The face region's UVs: the wheel's plane, R the hoop's outer radius at the region's edge."""
+    return np.stack([0.5 + v[..., 1] / (2 * R), 0.5 - v[..., 2] / (2 * R)], axis=-1)
+
+
+class _Rim:
+    """One style's parts as they're made: (part, verts, tris, region-local uvs per corner, region). phase: the style's
+    surfaces of revolution start this fraction of a segment round (each style its own, RIM_STYLES' index / 7), so no two
+    styles' hoops or hubs lie on the same triangles: the parked bike carries every style, the ones not chosen invisible
+    (a renderer's ray, or a depth test, then always meets the shown style's surface, never a twin)."""
+
+    def __init__(self, wheel, phase=0.0):
+        self.wheel = wheel
+        self.phase = phase
+        self.parts = []
+        self.R = max(r for _, r in RIM_HOOP[wheel])
+
+    def add(self, part, v, f, uv, region, orient, split=RIM_SPLIT_DEG):
+        f, uv = _orient(v, f, uv, orient)
+        self.parts.append((part, v, f, uv, region, split))
+
+    def lathe(self, part, profile, region, segs, closed=True, orient="closed", theta0=0.0, uv="round"):
+        v, f, uv_ = _lathe_rings(profile, segs, closed, theta0 + self.phase * 2.0 * math.pi / segs)
+        if uv == "planar":
+            uv_ = _planar(v[f], self.R)
+        self.add(part, v, f, uv_, region, orient)
+
+    def bar(self, part, stations, sides, region, closed=False, caps=True, phase=0.0):
+        v, f, uv = _bar(stations, sides, closed, caps, phase)
+        self.add(part, v, f, uv, region, "closed", RIM_BAR_SPLIT_DEG)
+
+
+def _hoop(rim, segs=RIM_HOOP_SEGMENTS):
+    rim.lathe("body", RIM_HOOP[rim.wheel], "hoop", segs)
+
+
+def _straight_stations(p0, p1, widths, thick, positions, twist=None, curve=None):
+    """Stations along a radial bar from p0 to p1 (local points): at each fraction in positions, the half width
+    (tangential) and half thickness (along x) given; twist(fraction) turns the section about the bar (radians)."""
+    p0, p1 = np.asarray(p0, np.float64), np.asarray(p1, np.float64)
+    ax = unit(p1 - p0)
+    out = []
+    for s, a, b in zip(positions, widths, thick):
+        c = p0 + s * (p1 - p0)
+        if curve is not None:
+            c = curve(s, c)
+        th = math.atan2(c[2], c[1])
+        _, tang = _frame_at(th)
+        e_x = np.array([1.0, 0.0, 0.0])
+        e1 = unit(tang - (tang @ ax) * ax)
+        e2 = unit(e_x - (e_x @ ax) * ax - (e_x @ e1) * e1)
+        if twist is not None:
+            q = twist(s)
+            e1, e2 = math.cos(q) * e1 + math.sin(q) * e2, -math.sin(q) * e1 + math.cos(q) * e2
+        out.append((c, e1, e2, a, b))
+    return out
+
+
+def _polar(r, th, x=0.0):
+    return np.array([x, r * math.cos(th), r * math.sin(th)])
+
+
+def _hub_barrel(rim, x0, x1, r_end, r_mid, segs=32, part="body"):
+    """An open barrel (its ends r_end at x0 and x1, r_mid between) and two trim caps closing it."""
+    prof = [(x0, r_end), (x0 + 0.25 * (x1 - x0), r_mid), (x1 - 0.25 * (x1 - x0), r_mid), (x1, r_end)]
+    rim.lathe(part, prof, "hub", segs, closed=False, orient=_radial)
+    for x, sgn in ((x0, -1.0), (x1, 1.0)):
+        cap = [(x + sgn * 0.15, 0.0), (x + sgn * 0.12, 0.55 * r_end), (x - sgn * 0.05, r_end + 0.12)]
+        rim.lathe("trim", cap, "trim", segs, closed=False, orient=_axial_out, uv="planar")
+
+
+def _laced(rim):
+    w = rim.wheel
+    r_att, x_att = RIM_ATTACH[w]
+    x_fl = 3.5
+    # the hub: a barrel between two flanges (r 4.5, 0.6 thick, at x +-3.5), its ends trim caps
+    prof = [(-5.0, 1.9), (-4.4, 2.3), (-3.8, 2.4), (-3.8, 4.5), (-3.2, 4.5), (-3.2, 2.6), (3.2, 2.6), (3.2, 4.5),
+            (3.8, 4.5), (3.8, 2.4), (4.3, 2.3), (4.7, 1.9)]
+    rim.lathe("body", prof, "hub", 32, closed=False, orient=_radial)
+    for x, sgn in ((-5.0, -1.0), (4.7, 1.0)):
+        rim.lathe("trim", [(x + sgn * 0.12, 0.0), (x + sgn * 0.08, 1.2), (x - sgn * 0.05, 2.0)], "trim", 24,
+                  closed=False, orient=_axial_out, uv="planar")
+    # 40 spokes cross-3: 20 a flange, its holes 18 degrees apart (the other flange's 9 degrees on), leading and
+    # trailing alternate; the rim end 54 degrees (720 x 3 / 40) on; the rim's holes 9 degrees apart, either side of the
+    # well's middle by x_att / 3
+    r_hole, sp_r, alpha = 4.0, 0.225, math.radians(54.0)
+    for side, x_hub in ((-1.0, -x_fl), (1.0, x_fl)):
+        for k in range(20):
+            th = math.radians(18.0 * k + (9.0 if side > 0 else 0.0))
+            th_rim = th + (alpha if k % 2 == 0 else -alpha)
+            p0 = _polar(r_hole, th, x_hub)
+            p1 = _polar(r_att, th_rim, side * x_att / 3.0)
+            ax = unit(p1 - p0)
+            e1 = unit(np.cross(ax, [1.0, 0.0, 0.0]))
+            e2 = np.cross(ax, e1)
+            rim.bar("body", [(p0 - 0.2 * ax, e1, e2, sp_r, sp_r), (p1, e1, e2, sp_r, sp_r)], 5, "bars")
+            # the nipple: a short collar where the spoke meets the hoop
+            n0 = p1 - 1.1 * ax
+            rim.bar("trim", [(n0, e1, e2, 0.33, 0.33), (p1 + 0.15 * ax, e1, e2, 0.33, 0.33)], 6, "trim")
+    _hoop(rim)
+
+
+def _disc(rim):
+    """Two dished covers from the hoop's lips to the hub, sunk to x +-2.5 at r 6, and a domed cap each side."""
+    w = rim.wheel
+    if w == "F":
+        neg = [(-4.30, 23.00), (-4.80, 20.4), (-4.15, 15.0), (-3.20, 9.5), (-2.55, 6.3), (-2.70, 5.8), (-4.40, 5.1),
+               (-5.05, 3.4), (-5.30, 1.4), (-5.35, 0.0)]
+        pos = [(4.30, 23.00), (3.85, 20.4), (3.40, 15.0), (2.85, 9.5), (2.50, 6.3), (2.65, 5.8), (4.10, 5.1), (4.60, 3.4),
+               (4.85, 1.4), (4.90, 0.0)]
+    else:
+        neg = [(-3.95, 20.80), (-4.70, 18.2), (-4.10, 13.5), (-3.20, 9.0), (-2.55, 6.3), (-2.70, 5.8), (-4.40, 5.1),
+               (-5.05, 3.4), (-5.30, 1.4), (-5.35, 0.0)]
+        pos = [(3.95, 20.80), (4.60, 18.2), (4.10, 13.5), (3.20, 9.0), (2.55, 6.3), (2.70, 5.8), (4.30, 5.1), (4.65, 3.4),
+               (4.85, 1.4), (4.90, 0.0)]
+    for prof in (neg, pos):
+        cover, cap = prof[:6], prof[5:]
+        rim.lathe("body", cover, "face", 40, closed=False, orient=_axial_out, uv="planar")
+        rim.lathe("trim", cap, "trim", 32, closed=False, orient=_axial_out, uv="planar")
+    _hoop(rim)
+
+
+def _spokes(rim, n, th0, widths, thick, positions, r0=5.4, sides=8, twist=None, curve_deg=0.0, region="bars"):
+    r_att, _ = RIM_ATTACH[rim.wheel]
+    for k in range(n):
+        th = th0 + 2.0 * math.pi * k / n
+
+        def curve(s, c, th=th):
+            if not curve_deg:
+                return c
+            r = r0 + s * (r_att - r0)
+            q = th + math.radians(curve_deg) * s ** 1.3
+            return _polar(r, q, c[0])
+
+        st = _straight_stations(_polar(r0, th), _polar(r_att, th), widths, thick, positions, twist=twist,
+                                curve=curve if curve_deg else None)
+        rim.bar("body", st, sides, region)
+
+
+def _star(rim):
+    """Five straight spokes, 3.5 wide, flaring to the hub and the hoop (the cast look's fillets), on a hub barrel."""
+    w = rim.wheel
+    _hub_barrel(rim, -4.9, 4.2 if w == "F" else 4.7, 4.2, 6.8)
+    t_end = 0.85 if w == "F" else 0.5
+    _spokes(rim, 5, math.pi / 2, (2.7, 2.15, 1.75, 1.75, 2.05, 2.45), (1.25, 1.05, 0.85, 0.85, 0.85, t_end),
+            (0.0, 0.1, 0.25, 0.75, 0.92, 1.0))
+    _hoop(rim)
+
+
+def _turbine(rim):
+    """Twelve blades curving 22 degrees from the hub to the hoop, pitched 50 degrees across the wheel's plane (a fan's
+    faces show from the side) and twisted 10 degrees more along their length."""
+    w = rim.wheel
+    _hub_barrel(rim, -4.9, 4.2 if w == "F" else 4.7, 4.2, 6.8)
+    pitch = math.radians(50.0)
+    chord_end = 1.45 if w == "F" else 0.95   # the end's x extent (chord x cos(pitch + twist)) inside the well
+    pos = (0.0, 0.15, 0.3, 0.45, 0.6, 0.75, 0.9, 1.0)
+    half_chord = tuple(2.2 - (2.2 - chord_end) * s for s in pos)
+    _spokes(rim, 12, 0.0, (0.2,) * 8, half_chord, pos, sides=4,
+            twist=lambda s: pitch + math.radians(10.0 * s), curve_deg=22.0)
+    _hoop(rim)
+
+
+def _sector_face(r_in, r_out, th0, th1, hole_c, hole_r, rings, x_of, n_out=4, n_rad=3, n_in=2):
+    """One sector's face with a round hole (prewar's vents): the sector's outline (its outer arc, the radial edge at
+    th1, the inner arc, the radial edge at th0, counter-clockwise: the corners and the radial edges' points shared with
+    the next sector's), each outline point joined to the hole's circle where the ray from the hole's centre meets it
+    (the sector is star-shaped from there), rings blending the two. Returns (verts, tris)."""
+    cy, cz = hole_c
+    o = []
+    for t in np.linspace(th0, th1, n_out + 1)[:-1]:
+        o.append((r_out * math.cos(t), r_out * math.sin(t)))
+    for r in np.linspace(r_out, r_in, n_rad + 1)[:-1]:
+        o.append((r * math.cos(th1), r * math.sin(th1)))
+    for t in np.linspace(th1, th0, n_in + 1)[:-1]:
+        o.append((r_in * math.cos(t), r_in * math.sin(t)))
+    for r in np.linspace(r_in, r_out, n_rad + 1)[:-1]:
+        o.append((r * math.cos(th0), r * math.sin(th0)))
+    o = np.array(o)
+    phi = np.unwrap(np.arctan2(o[:, 1] - cz, o[:, 0] - cy))
+    h = np.column_stack([cy + hole_r * np.cos(phi), cz + hole_r * np.sin(phi)])
+    rays = len(o)
+    pts = []
+    for i in range(rings + 1):
+        b = i / rings
+        q = (1 - b) * h + b * o
+        r = np.hypot(q[:, 0], q[:, 1])
+        pts.append(np.column_stack([x_of(r), q[:, 0], q[:, 1]]))
+    v = np.vstack(pts)
+    tris = []
+    for i in range(rings):
+        for j in range(rays):
+            j2 = (j + 1) % rays
+            a, b, c, d = i * rays + j, i * rays + j2, (i + 1) * rays + j2, (i + 1) * rays + j
+            tris += [(a, b, c), (a, c, d)]
+    return v, np.array(tris, dtype=np.int64)
+
+
+def _prewar(rim):
+    """A pressed steel disc, dished, with eight round vents, and a dog-dish cap (r 9) either side."""
+    w = rim.wheel
+    r_att, _ = RIM_ATTACH[w]
+    r_in, thick = 7.0, 0.32
+    dish = 1.1
+
+    def x_mid(r):
+        return -dish * (1.0 - np.clip((np.asarray(r) - r_in) / (r_att - r_in), 0.0, 1.0)) ** 1.5
+
+    r_c = 0.5 * (r_in + r_att) + 0.3
+    hole = 2.55 if w == "F" else 2.15
+    for k in range(8):
+        th0 = 2.0 * math.pi * k / 8
+        th1 = th0 + 2.0 * math.pi / 8
+        thc = 0.5 * (th0 + th1)
+        c = (r_c * math.cos(thc), r_c * math.sin(thc))
+        for sgn in (-1.0, 1.0):
+            v, f = _sector_face(r_in, r_att, th0, th1, c, hole, 2, lambda r, s=sgn: x_mid(r) + s * thick / 2)
+            rim.add("body", v, f, _planar(v[f], rim.R), "face", lambda q, s=sgn: np.tile([s, 0.0, 0.0], (len(q), 1)))
+        # the vent's lip: a short tube between the faces round the hole
+        st = []
+        for j in range(25):
+            phi = 2.0 * math.pi * j / 24
+            p = np.array([c[0] + hole * math.cos(phi), c[1] + hole * math.sin(phi)])
+            st.append(p)
+        ring = np.array(st)
+        xm = x_mid(np.hypot(ring[:, 0], ring[:, 1]))
+        v = np.vstack([np.column_stack([xm - thick / 2, ring]), np.column_stack([xm + thick / 2, ring])])
+        tris, uvs = [], []
+        for j in range(24):
+            a, b, c2, d = j, j + 1, 25 + j + 1, 25 + j
+            tris += [(a, b, c2), (a, c2, d)]
+            uvs += [((j / 24, 0.0), ((j + 1) / 24, 0.0), ((j + 1) / 24, 1.0)), ((j / 24, 0.0), ((j + 1) / 24, 1.0), (j / 24, 1.0))]
+        cen = np.array([0.0, c[0], c[1]])
+        rim.add("body", v, np.array(tris, np.int64), np.array(uvs) * np.array([1.0, 0.3]), "hub", lambda q, cen=cen: -np.column_stack([np.zeros(len(q)), q[:, 1] - cen[1], q[:, 2] - cen[2]]))
+    # the dog-dish caps: a dome from r 9 to the axle, its edge rolled under
+    xp = 3.75 if w == "F" else 4.3
+    for prof in ([(-1.0, 8.7), (-1.6, 9.2), (-2.4, 8.6), (-3.7, 7.0), (-4.6, 4.8), (-5.1, 2.4), (-5.25, 0.0)],
+                 [(0.5, 8.7), (1.0, 9.2), (1.9, 8.6), (xp - 0.15, 6.0), (4.5, 4.4), (4.8, 2.4), (4.9, 0.0)]):
+        rim.lathe("trim", prof, "trim", 32, closed=False, orient=_axial_out, uv="planar")
+    _hoop(rim)
+
+
+def _ellipse_ring(rim, a, b, rot, tube, steps=64, sides=6):
+    st = []
+    for j in range(steps):
+        t = 2.0 * math.pi * j / steps
+        y, z = a * math.cos(t), b * math.sin(t)
+        c = np.array([0.0, y * math.cos(rot) - z * math.sin(rot), y * math.sin(rot) + z * math.cos(rot)])
+        dt = np.array([0.0, -a * math.sin(t), b * math.cos(t)])
+        dt = np.array([0.0, dt[1] * math.cos(rot) - dt[2] * math.sin(rot), dt[1] * math.sin(rot) + dt[2] * math.cos(rot)])
+        tang = unit(dt)
+        e1 = np.array([1.0, 0.0, 0.0])
+        e2 = np.cross(tang, e1)
+        st.append((c, e1, e2, tube, tube))
+    rim.bar("body", st, sides, "bars", closed=True)
+
+
+def _atomic(rim):
+    """Three spokes and two elliptical rings round the hub, its ends the nucleus (trim domes)."""
+    w = rim.wheel
+    r_att, _ = RIM_ATTACH[w]
+    prof = [(-4.6, 2.6), (-3.6, 5.6), (-1.0, 6.4), (1.0, 6.4), (3.0, 5.6), (4.0, 2.6)]
+    rim.lathe("body", prof, "hub", 32, closed=False, orient=_radial)
+    for x, sgn in ((-4.6, -1.0), (4.0, 1.0)):
+        rim.lathe("trim", [(x + sgn * 0.9, 0.0), (x + sgn * 0.75, 1.4), (x + sgn * 0.35, 2.3), (x - sgn * 0.1, 2.75)],
+                  "trim", 24, closed=False, orient=_axial_out, uv="planar")
+    t_end = 0.6 if w == "F" else 0.45
+    _spokes(rim, 3, math.pi / 2, (1.6, 1.25, 1.1, 1.1, 1.3), (0.8, 0.7, 0.6, 0.6, t_end), (0.0, 0.12, 0.4, 0.88, 1.0),
+            r0=5.6)
+    a, b = (15.4, 7.9) if w == "F" else (13.4, 7.6)
+    for rot in (math.radians(30.0), math.radians(150.0)):
+        _ellipse_ring(rim, a, b, rot, 0.42)
+    _hoop(rim)
+
+
+def _rivet(rim, centre, normal, r=0.32, h=0.18):
+    """A low dome (6 sides) standing on a plate at centre, facing normal."""
+    n = unit(np.asarray(normal, np.float64))
+    e1 = unit(np.cross(n, [0.0, 0.0, 1.0] if abs(n[2]) < 0.9 else [0.0, 1.0, 0.0]))
+    e2 = np.cross(n, e1)
+    c = np.asarray(centre, np.float64)
+    rim.bar("steel", [(c - 0.05 * n, e1, e2, r, r), (c + 0.6 * h * n, e1, e2, 0.75 * r, 0.75 * r),
+                      (c + h * n, e1, e2, 0.05, 0.05)], 6, "steel")
+
+
+def _scrap(rim):
+    """Three plates riveted over each other, each a third of the wheel and a bit (their x stepped), a hub barrel, weld
+    beads round the hub."""
+    w = rim.wheel
+    r_att, _ = RIM_ATTACH[w]
+    _hub_barrel(rim, -4.9, 4.2 if w == "F" else 4.7, 4.2, 6.6)
+    thick = 0.28
+    rings = (5.6, 8.5, 12.0, 15.5, r_att)
+    for k in range(3):
+        x0 = (k - 1) * 0.36
+        th0 = math.radians(120.0 * k - 9.0 + 90.0)
+        th1 = th0 + math.radians(138.0)
+        steps = 23
+        ths = np.linspace(th0, th1, steps + 1)
+        grid = np.array([[(x0, r * math.cos(t), r * math.sin(t)) for t in ths] for r in rings])   # (rings, steps+1, 3)
+        nr, ns = grid.shape[:2]
+        for sgn in (-1.0, 1.0):
+            v = (grid + np.array([sgn * thick / 2, 0.0, 0.0])).reshape(-1, 3)
+            tris = []
+            for i in range(nr - 1):
+                for j in range(ns - 1):
+                    a, b, c, d = i * ns + j, i * ns + j + 1, (i + 1) * ns + j + 1, (i + 1) * ns + j
+                    tris += [(a, b, c), (a, c, d)]
+            f = np.array(tris, np.int64)
+            rim.add("body", v, f, _planar(v[f], rim.R), "face", lambda q, s=sgn: np.tile([s, 0.0, 0.0], (len(q), 1)))
+        # the radial edges' walls (the overlaps show them)
+        for j in (0, ns - 1):
+            col = grid[:, j]
+            v = np.vstack([col - [thick / 2, 0, 0], col + [thick / 2, 0, 0]])
+            tris, uvs = [], []
+            for i in range(nr - 1):
+                a, b, c, d = i, i + 1, nr + i + 1, nr + i
+                tris += [(a, b, c), (a, c, d)]
+                uvs += [((i / (nr - 1), 0.0), ((i + 1) / (nr - 1), 0.0), ((i + 1) / (nr - 1), 1.0)),
+                        ((i / (nr - 1), 0.0), ((i + 1) / (nr - 1), 1.0), (i / (nr - 1), 1.0))]
+            th = ths[j]
+            tang = np.array([0.0, -math.sin(th), math.cos(th)]) * (1.0 if j else -1.0)
+            rim.add("body", v, np.array(tris, np.int64), np.array(uvs) * np.array([1.0, 0.25]), "hub",
+                    lambda q, t=tang: np.tile(t, (len(q), 1)))
+        # rivets along the plate's leading edge, both faces, inside the next plate's overlap
+        for rr in (8.5, 12.5, r_att - 3.0):
+            t = th1 - math.radians(4.5)
+            for sgn in (-1.0, 1.0):
+                _rivet(rim, _polar(rr, t, x0 + sgn * thick / 2), (sgn, 0.0, 0.0))
+    # weld beads round the hub, either side: a lumpy ring
+    for x in (-0.36 - thick / 2 - 0.05, 0.36 + thick / 2 + 0.05):
+        st = []
+        for j in range(36):
+            t = 2.0 * math.pi * j / 36
+            rr = 6.75 + 0.06 * math.sin(7.0 * t)
+            c = _polar(rr, t, x)
+            tang = np.array([0.0, -math.sin(t), math.cos(t)])
+            e1 = np.array([1.0, 0.0, 0.0])
+            e2 = np.cross(tang, e1)
+            g = 0.3 + 0.07 * math.sin(11.0 * t) ** 2
+            st.append((c, e1, e2, g, g))
+        rim.bar("steel", st, 5, "steel", closed=True)
+    _hoop(rim)
+
+
+RIM_MAKERS = {"Laced": _laced, "Disc": _disc, "Star": _star, "Turbine": _turbine, "Prewar": _prewar,
+              "Atomic": _atomic, "Scrap": _scrap}
+
+
+def rim_style_pieces(style, wheel, axle, flip=False):
+    """One rim style's wheel (style one of RIM_STYLES, wheel "F" or "R"), about the axle (parked x, y, z), in the
+    parked frame: [(material, verts (n, 3), tris (m, 3), normals (n, 3), uvs (m, 3, 2) atlas, part)] one a part
+    (RIM_PART_MATERIAL), wound outward (pre-flipped with flip, as piece()), the vertices split where the normals part
+    by more than RIM_SPLIT_DEG."""
+    rim = _Rim(wheel, RIM_STYLES.index(style) / len(RIM_STYLES))
+    RIM_MAKERS[style](rim)
+    out = []
+    for part in ("body", "trim", "steel"):
+        vs, fs, ns, uvs, off = [], [], [], [], 0
+        for p, v, f, uv, region, split in rim.parts:
+            if p != part:
+                continue
+            if region not in RIM_PART_REGIONS[part]:
+                raise ValueError(f"rim {style} {wheel}: a {part} part in the {region} region")
+            vw, fw = weld(v[f], tol=1e-5)   # the seams' twins one vertex for the normals (the UVs are per corner)
+            v2, f2, n2 = corner_split(vw, fw, split)
+            vs.append(v2)
+            fs.append(f2 + off)
+            ns.append(n2)
+            uvs.append(rim_to_atlas(np.clip(uv, 0.0, 1.0), region, style, wheel))
+            off += len(v2)
+        if not vs:
+            continue
+        v, f, n, uv = np.vstack(vs) + np.asarray(axle, dtype=np.float64), np.vstack(fs), np.vstack(ns), np.vstack(uvs)
+        if flip:
+            f, uv = f[:, [0, 2, 1]], uv[:, [0, 2, 1]]
+        out.append((RIM_PART_MATERIAL[part], v, f, n, uv.astype(np.float32), part))
+    return out
+
+
+def rim_check(pieces, style, wheel, axle, flip=False):
+    """For tests and the build: [messages] for one style's wheel: inside the envelope below the hoop's top, the hoop
+    part inside the stock profile's outline (x within its lips, r at most its lips' top), its triangles winding with
+    their normals, every UV in its cell; and (tris, x range, r range)."""
+    msgs = []
+    ax = np.asarray(axle, dtype=np.float64)
+    n_tris = 0
+    lo_x, hi_x, hi_r = 1e9, -1e9, 0.0
+    P = np.asarray(RIM_HOOP[wheel])
+    cx, cy, cw, ch = rim_cell(style, wheel)
+    for mat, v, f, n, uv, part in pieces:
+        if flip:
+            f = f[:, [0, 2, 1]]
+        q = v - ax
+        r = np.hypot(q[:, 1], q[:, 2])
+        x = q[:, 0]
+        n_tris += len(f)
+        lo_x, hi_x, hi_r = min(lo_x, x.min()), max(hi_x, x.max()), max(hi_r, r.max())
+        for r0, r1, x0, x1 in RIM_ENVELOPE[wheel]:
+            s = (r >= r0) & (r < r1)
+            if s.any() and (x[s].min() < x0 - 1e-6 or x[s].max() > x1 + 1e-6):
+                msgs.append(f"{part}: x {x[s].min():.2f}..{x[s].max():.2f} between r {r0} and {r1}, outside {x0}..{x1}")
+        s = r < RIM_ENVELOPE[wheel][0][0]
+        if s.any() and (x[s].min() < RIM_ENVELOPE[wheel][0][2] - 1e-6 or x[s].max() > RIM_ENVELOPE[wheel][0][3] + 1e-6):
+            msgs.append(f"{part}: x {x[s].min():.2f}..{x[s].max():.2f} inside r {RIM_ENVELOPE[wheel][0][0]}")
+        if r.max() > P[:, 1].max() + 1e-6 or np.abs(x[r >= RIM_HOOP_MIN[wheel]]).max(initial=0.0) > np.abs(P[:, 0]).max() + 1e-6:
+            msgs.append(f"{part}: beyond the stock hoop (r up to {r.max():.3f}, its {P[:, 1].max()})")
+        fn = unit(face_normals(v, f))
+        agree = np.einsum("ij,ij->i", fn, n[f].mean(axis=1))
+        if (agree <= 0).any():
+            msgs.append(f"{part}: {(agree <= 0).sum()} of {len(f)} triangles wind against their normals")
+        if (tri_areas(v, f) <= 1e-9).any():
+            msgs.append(f"{part}: degenerate triangles")
+        px = np.asarray(uv, np.float64) * RIM_ATLAS
+        if (px[..., 0].min() < cx + RIM_MARGIN - 1e-3 or px[..., 0].max() > cx + cw - RIM_MARGIN + 1e-3
+                or px[..., 1].min() < cy + RIM_MARGIN - 1e-3 or px[..., 1].max() > cy + ch - RIM_MARGIN + 1e-3):
+            msgs.append(f"{part}: UVs outside the cell's {cw - 2 * RIM_MARGIN}-texel square at ({cx}, {cy})")
+    return msgs, n_tris, (lo_x, hi_x), hi_r
+
+
 # --- self-test ------------------------------------------------------------------------------------------
 
 def _synthetic_dial():
@@ -1338,6 +2031,46 @@ def _selftest():
         raise AssertionError("a bore outside the bolt heads was accepted")
     except ValueError as e:
         print(f"disc: a bolt circle inside the shared bore refused ({e})")
+    # 2026-11-08a: the plate (a synthetic slab like glTF mesh 24: 21.62 x 9.86, 0.68 thick, facing the rear, parked +y)
+    # and the 14 rim styles about this model's axles (parked)
+    x0, x1, y0, y1, z0, z1 = 12.12, 33.74, 76.81, 77.49, 41.16, 51.02
+    corners = np.array([[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1], [x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1]])
+    quads = [(0, 1, 2, 3), (1, 5, 6, 2), (5, 4, 7, 6), (4, 0, 3, 7), (3, 2, 6, 7), (4, 5, 1, 0)]
+    pf = orient_outward(corners, np.array([t for q in quads for t in ((q[0], q[1], q[2]), (q[0], q[2], q[3]))]), corners.mean(axis=0))
+    puv = plate_uvs(corners, pf)
+    face, (c, e_u, e_v, n), _ = plate_face(corners, pf)
+    fu = puv[face].reshape(-1, 2)
+    fp = corners[pf[face]].reshape(-1, 3)
+    du = np.polyfit(fp[:, 0], fu[:, 0], 1)[0] if np.ptp(fp[:, 0]) else 0.0
+    assert face.sum() == 2 and du < 0 and fu.min() >= 0 and fu.max() <= 1, "the plate's face isn't read true from behind"
+    ov, of, on, ouv = plate_text_overlay(corners[pf[face]])
+    lift = (ov - c) @ n
+    assert len(of) == 2 * PLATE_TEXT_GRID[0] * PLATE_TEXT_GRID[1] and np.allclose(lift, PLATE_TEXT_LIFT)
+    assert (unit(face_normals(ov, of)) @ n > 0.99).all() and ouv.min() == 0 and ouv.max() == 1
+    print(f"plate: face {face.sum()} triangles read true (du/dx {du:.4f}), the rest on v {puv[~face][..., 1].min():.3f}.."
+          f"{puv[~face][..., 1].max():.3f}; the text overlay {len(of)} triangles, lifted {lift.min():.3f}")
+    axles = {"F": (-0.38, -68.14, 29.86), "R": (-0.38, 68.14, 29.94)}
+    total = 0
+    for style in RIM_STYLES:
+        for wheel in RIM_WHEELS:
+            p = rim_style_pieces(style, wheel, axles[wheel])
+            msgs, n_tris, (lo, hi), r_max = rim_check(p, style, wheel, axles[wheel])
+            welded = [disc_check(v, f, nrm) for _, v, f, nrm, _, _ in p]
+            total += n_tris
+            print(f"rim {style} {wheel}: {n_tris} triangles (design {RIM_TRIS_DESIGN[style]} + the hoop), x {lo:.2f}..{hi:.2f}, "
+                  f"r up to {r_max:.2f}; parts " + ", ".join(f"{q[5]} {len(q[2])}" for q in p))
+            for m in msgs:
+                print("   ", m)
+            assert not msgs and n_tris <= RIM_TRIS_DESIGN[style] + RIM_HOOP_ALLOWANCE, f"rim {style} {wheel}"
+            assert all(w[3] == 0 for w in welded), f"rim {style} {wheel}: triangles against their normals"
+    for wheel in RIM_WHEELS:   # no triangle of one style's on another's (the parked bike carries them all, invisible but one)
+        cents = {}
+        for style in RIM_STYLES:
+            p = rim_style_pieces(style, wheel, axles[wheel])
+            cents[style] = {tuple(c) for _, v, f, _, _, _ in p for c in np.round(v[f].mean(axis=1) * 1e3).astype(np.int64)}
+        twins = [(a, b, len(cents[a] & cents[b])) for i, a in enumerate(RIM_STYLES) for b in RIM_STYLES[i + 1:] if cents[a] & cents[b]]
+        assert not twins, f"rims {wheel}: styles sharing triangles {twins}"
+    print(f"rims: 14 shapes, {total} triangles; no two styles of a wheel share a triangle")
 
 
 if __name__ == "__main__":

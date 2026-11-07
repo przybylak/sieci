@@ -69,6 +69,12 @@
 /* The 2026-11-07a build's one (the customisation build, at the fixed 0x8AF the earlier builds kept free): made at 0 (the
  * ESP's: nothing chosen at the bike); hidden in mode 15. */
 #define LOOK_CODE_FORMID      (0xFE000000u | (LIGHT_INDEX << 12) | 0x8AFu)   /* CMB_LookCode (0) */
+/* The 2026-11-08a build's four look colours (C2, the fixed 0xA14-0xA17): made at -1 (the ESP's: don't write); hidden in
+ * mode 15. */
+#define LOOK_PAINT_V_FORMID   (0xFE000000u | (LIGHT_INDEX << 12) | 0xA14u)   /* CMB_LookPaintV (-1) */
+#define LOOK_RIM_V_FORMID     (0xFE000000u | (LIGHT_INDEX << 12) | 0xA15u)   /* CMB_LookRimV (-1) */
+#define LOOK_PLATE_V_FORMID   (0xFE000000u | (LIGHT_INDEX << 12) | 0xA16u)   /* CMB_LookPlateV (-1) */
+#define LOOK_PLATETEXT_V_FORMID (0xFE000000u | (LIGHT_INDEX << 12) | 0xA17u) /* CMB_LookPlateTextV (-1) */
 #define TAIL_REF_FORMID_A     0xFF001236u   /* the tail light reference "the script placed", and the fresh one of a handover */
 #define TAIL_REF_FORMID_B     0xFF001237u
 #define VIEW_REF_FORMID_A     0xFF001240u   /* the first-person bike's reference, and the fresh one of a handover */
@@ -223,6 +229,10 @@ static const LookPart g_lookParts[] = {
 	{ "static_exhaust", { 8.89f, -1.02f, 34.02f }, 60.32f, "none", "none" },
 	{ "static_engine", { 2.29f, 24.88f, 38.73f }, 39.30f, "none", "none" },
 	{ "static_black", { -3.62f, 5.44f, 56.49f }, 74.00f, "none", "none" },
+	/* 2026-11-08a (C2, harley_meshes.py --look-plate 1): the licence plate split from static_black and its text overlay (the
+	 * built worn nif's spheres): fixed by their names' "_static_", and by 27c's sphere rule (at the rear, past no axle's 6) */
+	{ "static_plate", { -22.93f, -49.46f, 46.09f }, 12.48f, "none", "none" },
+	{ "static_plateText", { -22.93f, -50.04f, 46.09f }, 11.25f, "none", "none" },
 	{ "static_seat", { 0.25f, -15.81f, 62.81f }, 24.00f, "none", "none" },
 	{ "static_glass", { 0.28f, -47.90f, 54.59f }, 19.79f, "none", "none" },
 	/* 2026-11-07a (the customisation build, harley_meshes.py --look-slots 1): static_badge split by island into the tank
@@ -256,6 +266,22 @@ static const LookPart g_lookParts[] = {
 	 * 27c's sphere rule (RolesByName=0) their centres sit 6.4 and 7.5 off the axle, past its 6: the bars' and fixed */
 	{ "wheelF_disc", { -5.98f, 95.83f, 29.86f }, 14.73f, "wheelF", "front" },
 	{ "wheelR_disc", { -7.12f, -40.45f, 29.94f }, 13.56f, "wheelR", "none" },
+	/* 2026-11-08a (C2, harley_meshes.py --look-rims 1): the seven rim styles on each wheel (the built worn nif's spheres, on
+	 * the axles within 0.3): the wheels by the names' tags, with the rim group +rim2..8; by 27c's sphere rule the wheels */
+	{ "wheelF_rimLaced", { 0.53f, 95.83f, 29.86f }, 25.27f, "wheelF+rim2", "wheelF" },
+	{ "wheelR_rimLaced", { 0.53f, -40.45f, 29.94f }, 23.03f, "wheelR+rim2", "wheelR" },
+	{ "wheelF_rimDisc", { 0.61f, 95.83f, 29.86f }, 25.29f, "wheelF+rim3", "wheelF" },
+	{ "wheelR_rimDisc", { 0.61f, -40.45f, 29.94f }, 23.05f, "wheelR+rim3", "wheelR" },
+	{ "wheelF_rimStar", { 0.60f, 95.83f, 29.86f }, 25.29f, "wheelF+rim4", "wheelF" },
+	{ "wheelR_rimStar", { 0.48f, -40.45f, 29.94f }, 23.02f, "wheelR+rim4", "wheelR" },
+	{ "wheelF_rimTurbine", { 0.60f, 95.83f, 29.86f }, 25.29f, "wheelF+rim5", "wheelF" },
+	{ "wheelR_rimTurbine", { 0.48f, -40.45f, 29.94f }, 23.02f, "wheelR+rim5", "wheelR" },
+	{ "wheelF_rimPrewar", { 0.56f, 95.83f, 29.86f }, 25.28f, "wheelF+rim6", "wheelF" },
+	{ "wheelR_rimPrewar", { 0.56f, -40.45f, 29.94f }, 23.04f, "wheelR+rim6", "wheelR" },
+	{ "wheelF_rimAtomic", { 0.68f, 95.83f, 29.86f }, 25.30f, "wheelF+rim7", "wheelF" },
+	{ "wheelR_rimAtomic", { 0.68f, -40.45f, 29.94f }, 23.06f, "wheelR+rim7", "wheelR" },
+	{ "wheelF_rimScrap", { 0.60f, 95.83f, 29.86f }, 25.29f, "wheelF+rim8", "wheelF" },
+	{ "wheelR_rimScrap", { 0.48f, -40.45f, 29.94f }, 23.02f, "wheelR+rim8", "wheelR" },
 	/* 27c's twelve, its spheres; the same role either way */
 	{ "metal", { -2.91f, 3.59f, 52.13f }, 72.65f, "none", "none" },
 	{ "matte", { -3.62f, 9.25f, 56.59f }, 77.30f, "none", "none" },
@@ -270,12 +296,24 @@ static const LookPart g_lookParts[] = {
 	{ "wheelF", { 0.12f, 95.84f, 29.87f }, 29.93f, "wheelF", "wheelF" },
 	{ "wheelR", { 0.32f, -40.45f, 29.94f }, 29.91f, "wheelR", "wheelR" },
 };
-#define LOOK_NEW 33      /* the 2026-11-07a build's shapes (the 2026-11-01a build's 28 and the two discs, static_badge split in three, the fender patch) */
+#define LOOK_NEW 49      /* the 2026-11-08a build's shapes (the 2026-11-01a build's 28 and the two discs, static_badge split in three, the fender patch; the plate and its text, the 14 rim styles) */
 #define LOOK_OLD 12
-#define LOOK_EXTRA 16    /* LOOK_NEW + LOOK_EXTRA + the main shape = 50, two past MAX_SKINS 48 */
+#define LOOK_EXTRA 16    /* LOOK_NEW + LOOK_EXTRA + the main shape = 66, two past MAX_SKINS 64 (48 till the 2026-11-08a build) */
+#define FAKE_MAX_SKINS 64   /* the plugin's MAX_SKINS */
 #define LOOK_ALL (LOOK_NEW + LOOK_OLD + LOOK_EXTRA)
 static bool g_lookMode;
 static uint8_t *g_lookShape[LOOK_ALL], *g_lookData[LOOK_ALL], *g_lookBones[LOOK_ALL];
+/* 2026-11-08a (C2): each look part's fake BSLightingShaderProperty (BSGeometry::shaderProperty +0x138; its flags +0x30 with
+ * kShaderFlags_GrayscaleToPalette 0x80000000 set, its material +0x58) and BSLightingShaderMaterialBase (the lookup texture
+ * +0x68, one shared fake texture; fLookupScale +0xB8, 0.5), F4SE 0.7.9's offsets: the look colours' writer reads and writes
+ * these (step 0 builds them; nothing reads them yet). */
+static uint8_t *g_lookProp[LOOK_ALL], *g_lookMat[LOOK_ALL], *g_lookLut;
+#define FAKE_PROP_FLAGS 0x30
+#define FAKE_PROP_MATERIAL 0x58
+#define FAKE_MAT_LOOKUP 0x68
+#define FAKE_MAT_LOOKUP_SCALE 0xB8
+#define FAKE_GEOM_PROPERTY 0x138
+#define FAKE_FLAG_PALETTE 0x80000000ull
 static uint8_t g_lookOrig[LOOK_ALL][0x50];
 static char g_lookName[LOOK_ALL][48];
 static bool g_handRaised;         /* the left hand swung up about the elbow, 20% nearer the shoulder (a Pip-Boy raise: test 37's lean solved from it) */
@@ -546,6 +584,9 @@ static uint8_t *g_viewTipFake, *g_viewFovFake, *g_viewEyeFake[2], *g_fxWaterLoop
 static bool g_new51Hidden;              /* mode 15: test 42's ESP, without the 2026-11-06a build's five (0x8B0-0x8B4) */
 static uint8_t *g_lookCodeFake;         /* CMB_LookCode (2026-11-07a, the customisation build) */
 static bool g_new52Hidden;              /* mode 15: test 42's ESP, without the 2026-11-07a build's CMB_LookCode (0x8AF) */
+static uint8_t *g_lookColourFake[4];    /* CMB_LookPaintV, CMB_LookRimV, CMB_LookPlateV, CMB_LookPlateTextV (2026-11-08a, C2) */
+static bool g_new53Hidden;              /* mode 15: test 42's ESP, without the 2026-11-08a build's four look colours (0xA14-0xA17) */
+static bool g_new53Partial;             /* mode 17 (review B3): three of the four look colours (0xA17 not found, the others set): none used */
 static int g_picks;
 static void *FakePickCtor(uint8_t *pick)
 {
@@ -1290,6 +1331,8 @@ static uintptr_t FakeLookupFormByID(uint32_t id)
 		return g_new51Hidden ? 0 : (uintptr_t)g_fxWaterLoopFake;
 	if (id == LOOK_CODE_FORMID)
 		return g_new52Hidden ? 0 : (uintptr_t)g_lookCodeFake;
+	if (id >= LOOK_PAINT_V_FORMID && id <= LOOK_PLATETEXT_V_FORMID)
+		return g_new53Hidden || (g_new53Partial && id == LOOK_PLATETEXT_V_FORMID) ? 0 : (uintptr_t)g_lookColourFake[id - LOOK_PAINT_V_FORMID];
 	return id == SLOPE_GLOBAL_FORMID ? (uintptr_t)g_global : id == CAMERA_GLOBAL_FORMID ? (uintptr_t)g_cameraGlobal
 	     : id == TILT_GLOBAL_FORMID ? (uintptr_t)g_tiltGlobal : 0;
 }
@@ -1475,6 +1518,11 @@ static void BuildGame(void)
 	g_viewEyeFake[1] = NewGlobal(VIEW_EYE_UP_FORMID, "CMB_ViewEyeUp");
 	g_fxWaterLoopFake = NewGlobal(FX_WATER_LOOP_FORMID, "CMB_FxWaterLoop");
 	g_lookCodeFake = NewGlobal(LOOK_CODE_FORMID, "CMB_LookCode");   /* the 2026-11-07a build's, 0: nothing chosen at the bike */
+	static const char *lookColours[4] = { "CMB_LookPaintV", "CMB_LookRimV", "CMB_LookPlateV", "CMB_LookPlateTextV" };
+	for (int i = 0; i < 4; i++) {   /* the 2026-11-08a build's four, -1: don't write */
+		g_lookColourFake[i] = NewGlobal(LOOK_PAINT_V_FORMID + (uint32_t)i, lookColours[i]);
+		*(float *)(g_lookColourFake[i] + 0x30) = -1.0f;
+	}
 	static const char *ram[8] = { "CMB_RamSeenHi", "CMB_RamSeenLo", "CMB_RamSeen", "CMB_RamOk", "CMB_RamHitSpeed", "CMB_RamHit", "CMB_RamEnemies", "CMB_RamMinSpeed" };
 	for (int i = 0; i < 8; i++)
 		g_ramGlobalsFake[i] = NewGlobal(RAM_FORMID + (uint32_t)i, ram[i]);
@@ -1904,6 +1952,17 @@ static void BuildGame(void)
 		uint8_t *part = NewNode(vtTri, g_lookName[i], 0);
 		g_lookShape[i] = part;
 		*(uint8_t **)(part + 0x28) = g_bikeNode;
+		if (!g_lookLut)
+			g_lookLut = (uint8_t *)VirtualAlloc(NULL, 0x100, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+		g_lookProp[i] = (uint8_t *)VirtualAlloc(NULL, 0x200, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+		g_lookMat[i] = (uint8_t *)VirtualAlloc(NULL, 0x200, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+		*(int32_t *)(g_lookProp[i] + 0x08) = 1;
+		*(int32_t *)(g_lookMat[i] + 0x08) = 1;
+		*(uint64_t *)(g_lookProp[i] + FAKE_PROP_FLAGS) = FAKE_FLAG_PALETTE;
+		*(uint8_t **)(g_lookProp[i] + FAKE_PROP_MATERIAL) = g_lookMat[i];
+		*(uint8_t **)(g_lookMat[i] + FAKE_MAT_LOOKUP) = g_lookLut;
+		*(float *)(g_lookMat[i] + FAKE_MAT_LOOKUP_SCALE) = 0.5f;
+		*(uint8_t **)(part + FAKE_GEOM_PROPERTY) = g_lookProp[i];   /* 2026-11-08a: the shape's shader property and material */
 		uint8_t *inst = (uint8_t *)NewObject(vtSkin, 0x100);
 		*(uint8_t **)(part + 0x140) = inst;
 		g_lookData[i] = (uint8_t *)NewObject(vtBone, 0x100);
@@ -16159,6 +16218,32 @@ static void OldEsp52Ids(void)
 	      LogLines("globals: no CMB_LookCode (0x8AF, an older ESP): [Look] Mirrors=-1 reads as 1"));
 }
 
+/* Mode 15 (test 42's ESP: none of the 2026-11-08a build's four look colours, 0xA14-0xA17): one line says so. */
+static void OldEsp53Ids(void)
+{
+	printf("the 2026-11-08a build's look colours with an ESP without them:\n");
+	const char *none = "globals: no look colours (0xA14-0xA17, an older ESP): [Look] PaintWheel and PlateColours write nothing";
+	CHECK(LogLines(none) == 1 && LogLines("globals: the 2026-11-08a build's look colours found") == 0,
+	      "one \"no look colours (0xA14-0xA17, an older ESP)\" line (%d), no \"look colours found\" line", LogLines(none));
+}
+
+/* 2026-11-08a (C2; review B3 moved it from mode 15, whose bike has no shape with a colour row), mode 17: its look bike's
+ * colour rows (the paint, the rims, the plate and its text) with an ESP that has three of the four look colours (0xA17 not
+ * found, the other three at 0.25 to 0.35): none is used, so over the mode's rides the writer neither writes nor refuses. A
+ * DLL without the older-ESP guard (GlobalValue(0) reads 0: written into each), or one keeping a partial set (CMB_LookPaintV
+ * 0.25 into the paint), writes. */
+static void LookColoursPartial53(void)
+{
+	printf("the 2026-11-08a build's look colours' writer with three of the four (0xA17 missing):\n");
+	const char *line = "globals: the 2026-11-08a build's look colours, 3 of 4 found (0xA14-0xA17): none used, [Look] PaintWheel and PlateColours write nothing";
+	CHECK(LogLines(line) == 1 && LogLines("globals: the 2026-11-08a build's look colours found") == 0 &&
+	      LogLines("tilt: CMB_BikeWornRider_static_paint is ") >= 1 && LogLines("tilt: CMB_BikeWornRider_static_plateText is ") >= 1 &&
+	      LogLines(" written (read back ") == 0 && LogLines(" not written: ") == 0,
+	      "the \"3 of 4 found ... none used\" line (%d), the colour rows' shapes held (static_paint %d, static_plateText %d), and over the mode's rides "
+	      "no look colour written (%d lines) or refused (%d)", LogLines(line), LogLines("tilt: CMB_BikeWornRider_static_paint is "),
+	      LogLines("tilt: CMB_BikeWornRider_static_plateText is "), LogLines(" written (read back "), LogLines(" not written: "));
+}
+
 static void RoomTests(bool old)
 {
 	SetNormal(0.0f, 0.0f, 1.0f);
@@ -17818,6 +17903,14 @@ static int LookAt(const char *label, bool old)   /* the index of a label in set 
 	return 0;
 }
 
+/* 2026-11-08a: a rim style's shape (wheelF_rimLaced ... wheelR_rimScrap, LOOK_RIM_STYLES of them), which the worn and
+ * first-person bikes hide while the bike's CMB_LookCode chooses the cast rim (nothing chosen: every older ride) */
+#define LOOK_RIM_STYLES 14
+static bool LookRimStyle(int i)
+{
+	const char *r = i >= 0 && i < LOOK_NEW ? strstr(g_lookParts[i].label, "_rim") : NULL;
+	return r && r[4] >= 'A' && r[4] <= 'Z';
+}
 static void LookMap(int i, float M[9], float m[3]) { AppliedMapOf(g_lookOrig[i], g_lookBones[i], M, m); }
 static float LookScale(int i)   /* the size the plugin's map gives the shape: 1 shown, 0.001 a speck */
 {
@@ -18377,7 +18470,7 @@ static void LookTests(void)
 	SetHeadlamp(0.0f);
 	LookGetOff();
 
-	printf("look: %d bike shapes (the 2026-11-01a build's %d, %d more and the main shape), two past MAX_SKINS 48:\n", LOOK_NEW + LOOK_EXTRA + 1, LOOK_NEW, LOOK_EXTRA);
+	printf("look: %d bike shapes (the 2026-11-08a build's %d, %d more and the main shape), two past MAX_SKINS %d:\n", LOOK_NEW + LOOK_EXTRA + 1, LOOK_NEW, LOOK_EXTRA, FAKE_MAX_SKINS);
 	char leftTwo[96];
 	snprintf(leftTwo, sizeof(leftTwo), "CMB_BikeWornRider_static_extra%02d, CMB_BikeWornRider_static_extra%02d", LOOK_EXTRA - 1, LOOK_EXTRA);
 	LookAttach(0, LOOK_NEW, LOOK_NEW + LOOK_OLD, LOOK_EXTRA);
@@ -18388,9 +18481,12 @@ static void LookTests(void)
 	held = LookHeld(0, LOOK_NEW) + LookHeld(LOOK_NEW + LOOK_OLD, LOOK_EXTRA) + (*BoneDataRefs() == 3);
 	int overLines = LogLines("this plugin holds, left where they are") - overBefore;
 	const char *overLine = LastLogLine("this plugin holds, left where they are");
-	CHECK(held == 48 && overLines == 1 && overLine && strstr(overLine, "2 bike shape(s) past the 48") && strstr(overLine, leftTwo),
-	      "48 held (%d), one line in 3 s of riding (%d) naming the two left: %s", held, overLines, overLine ? overLine : "(none)\n");
-	CHECK(LogLines(" for 48 shape(s), rider ") > 0, "the frame-time line with 48 shapes (the bike's average %.0f us a frame)", LastLogNumber("(bike "));
+	char pastMax[48], forMax[48];
+	snprintf(pastMax, sizeof(pastMax), "2 bike shape(s) past the %d", FAKE_MAX_SKINS);
+	snprintf(forMax, sizeof(forMax), " for %d shape(s), rider ", FAKE_MAX_SKINS);
+	CHECK(held == FAKE_MAX_SKINS && overLines == 1 && overLine && strstr(overLine, pastMax) && strstr(overLine, leftTwo),
+	      "%d held (%d), one line in 3 s of riding (%d) naming the two left: %s", FAKE_MAX_SKINS, held, overLines, overLine ? overLine : "(none)\n");
+	CHECK(LogLines(forMax) > 0, "the frame-time line with %d shapes (the bike's average %.0f us a frame)", FAKE_MAX_SKINS, LastLogNumber("(bike "));
 	g_lookSpeed = 0.0f;
 	LookGetOff();
 	int back = LookLetGo(0, LOOK_NEW) + LookLetGo(LOOK_NEW + LOOK_OLD, LOOK_EXTRA) + (*BoneDataRefs() == 2);
@@ -20158,7 +20254,7 @@ static void ViewTests(void)
 	const int hidden[5] = { iEgg, iD, iBrake, iDialGlow, iGlow };
 	int setOk = 0, specks = 0, clearOk = 0, others = 0;
 	for (int i = 0; i < LOOK_NEW; i++) {
-		bool h = i == hidden[0] || i == hidden[1] || i == hidden[2] || i == hidden[3] || i == hidden[4];
+		bool h = i == hidden[0] || i == hidden[1] || i == hidden[2] || i == hidden[3] || i == hidden[4] || LookRimStyle(i);   /* (the rim styles: 2026-11-08a) */
 		uint64_t f = WornFlags(i);
 		others += (f & ~1ull) == VIEW_FLAGS0;
 		if (h) {
@@ -20168,9 +20264,9 @@ static void ViewTests(void)
 			clearOk += !(f & 1);
 		}
 	}
-	CHECK(setOk == 5 && specks == 5 && clearOk == LOOK_NEW - 5 && others == LOOK_NEW,
-	      "the egg and D mirrors, the brake shell, the dial's backlight and the lamp's glow culled (bit 0: %d of 5) and still specks (%d), the other %d not (%d), every other bit as it was (%d of %d)",
-	      setOk, specks, LOOK_NEW - 5, clearOk, others, LOOK_NEW);
+	CHECK(setOk == 5 + LOOK_RIM_STYLES && specks == 5 + LOOK_RIM_STYLES && clearOk == LOOK_NEW - 5 - LOOK_RIM_STYLES && others == LOOK_NEW,
+	      "the egg and D mirrors, the brake shell, the dial's backlight, the lamp's glow and the %d rim styles not chosen culled (bit 0: %d of %d) and still specks (%d), the other %d not (%d), every other bit as it was (%d of %d)",
+	      LOOK_RIM_STYLES, setOk, 5 + LOOK_RIM_STYLES, specks, LOOK_NEW - 5 - LOOK_RIM_STYLES, clearOk, others, LOOK_NEW);
 	CHECK(*(int32_t *)(g_lookShape[iEgg] + 0x08) == 2, "each shape held while riding (the egg's references %d)", *(int32_t *)(g_lookShape[iEgg] + 0x08));
 	g_lookKeys = true;
 	g_lookSpeed = 600.0f;
@@ -20263,7 +20359,7 @@ static void ViewTests(void)
 			culledOk += ShapeCulled(g_viewShape[0][i]);
 		}
 	}
-	CHECK(worst < 0.05f && shown + wornHidden == LOOK_NEW && culledOk == wornHidden && wornHidden == 5,
+	CHECK(worst < 0.05f && shown + wornHidden == LOOK_NEW && culledOk == wornHidden && wornHidden == 5 + LOOK_RIM_STYLES,   /* (the rim styles: 2026-11-08a) */
 	      "every shape: the %d the worn bike shows shown at its place (the worst centre %.4f off), the %d it hides culled (%d)", shown, worst, wornHidden, culledOk);
 	float boundWorst = 0.0f, rootR = ((const float *)(g_viewRoot[0] + 0xB0))[3];
 	int inside = 0;
@@ -20669,6 +20765,379 @@ static void CustomTests52(void)
 	g_afterTask = NULL;
 }
 
+/* 2026-11-08a (C2: rims, tyres, the paint's hue, the plates), mode 24: the four look colours found (step 0), then the
+ * mesh unit's: the rim styles' shapes held and their group ([Look] Rims, CMB_LookCode bits 3-6), the look colours' writer
+ * (CMB_LookPaintV .. CMB_LookPlateTextV into the held shapes' fake materials, g_lookProp/g_lookMat: [Look] PaintWheel,
+ * PlateColours), the plate's shapes, the settings line, the first-person bike's materials left alone. */
+static const char *const g_rimStyles53[7] = { "Laced", "Disc", "Star", "Turbine", "Prewar", "Atomic", "Scrap" };
+static int Rim53(int style, int wheel)   /* a rim's look part: style 0 the cast rim, 1-7 the styles; wheel 0 front, 1 rear */
+{
+	char label[32];
+	if (style == 0)
+		snprintf(label, sizeof(label), "wheel%c_rim", wheel ? 'R' : 'F');
+	else
+		snprintf(label, sizeof(label), "wheel%c_rim%s", wheel ? 'R' : 'F', g_rimStyles53[style - 1]);
+	return LookAt(label, false);
+}
+/* Which rim each wheel shows: front + 8 x rear (0-7 each) when each wheel shows exactly one and the rest are specks
+ * (counted in *specks); -1 a wheel showing none or two; -2 a rim neither shown nor a speck. view: the first-person bike's
+ * (its shapes' local scale, 1 or 0.001), else the worn bike's maps. *shown: how many shown. */
+static int Rims53(bool view, int *specks, int *shown)
+{
+	int which[2] = { -1, -1 }, n = 0, sh = 0;
+	bool two = false;
+	for (int w = 0; w < 2; w++)
+		for (int st = 0; st < 8; st++) {
+			int i = Rim53(st, w);
+			float sc = view ? ((const float *)(g_viewShape[0][i] + 0x30))[15] : LookScale(i);
+			bool on = fabsf(sc - 1.0f) < 1e-3f, off = fabsf(sc - 0.001f) < 5e-4f;
+			if (view && ShapeCulled(g_viewShape[0][i]))
+				return -2;
+			if (on) {
+				sh++;
+				two |= which[w] >= 0;
+				which[w] = st;
+			} else if (off)
+				n++;
+			else
+				return -2;
+		}
+	if (specks)
+		*specks = n;
+	if (shown)
+		*shown = sh;
+	return two || which[0] < 0 || which[1] < 0 ? -1 : which[0] + 8 * which[1];
+}
+static void SetLookColour53(int k, float v) { *(float *)(g_lookColourFake[k] + 0x30) = v; }
+static float MatScale53(int i) { return *(const float *)(*(uint8_t **)(g_lookProp[i] + FAKE_PROP_MATERIAL) + FAKE_MAT_LOOKUP_SCALE); }
+static int ColourLines53(int i, const char *what)   /* this shape's colour lines with `what` ("written (read back" or "not written:") */
+{
+	char key[96];
+	snprintf(key, sizeof(key), "look: %s colour ", g_lookName[i]);
+	return CustomLines(key, what);
+}
+static int AllColourLines53(void) { return CustomLines("look: CMB_BikeWorn", "written"); }   /* written and not written */
+static uint8_t *NewFakeMaterial53(float scale)   /* another fake BSLightingShaderMaterialBase (a swap's), the shared lookup texture */
+{
+	uint8_t *m = (uint8_t *)VirtualAlloc(NULL, 0x200, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+	*(int32_t *)(m + 0x08) = 1;
+	*(uint8_t **)(m + FAKE_MAT_LOOKUP) = g_lookLut;
+	*(float *)(m + FAKE_MAT_LOOKUP_SCALE) = scale;
+	return m;
+}
+static uint8_t *NewFakeTexture53(const char *name)   /* a fake NiTexture: its name +0x10 the file's path, as the game's */
+{
+	uint8_t *t = (uint8_t *)VirtualAlloc(NULL, 0x100, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+	*(int32_t *)(t + 0x08) = 1;
+	*(uint8_t **)(t + 0x10) = NewString(name);
+	return t;
+}
+static void SetLut53(int i, uint8_t *lut) { *(uint8_t **)(*(uint8_t **)(g_lookProp[i] + FAKE_PROP_MATERIAL) + FAKE_MAT_LOOKUP) = lut; }
+static float g_rimMapOff53;   /* the most a rim style's map was off its tyre's over the watched frames */
+static int g_rimFrames53;
+static void RimWatch53(float dt)
+{
+	(void)dt;
+	const int tyre[2] = { LookAt("wheelF_tyre", false), LookAt("wheelR_tyre", false) };
+	for (int w = 0; w < 2; w++)
+		for (int st = 1; st < 8; st++)
+			g_rimMapOff53 = fmaxf(g_rimMapOff53, LookMapOff(Rim53(st, w), tyre[w]));
+	g_rimFrames53++;
+}
+static void CustomTests53(void)
+{
+	printf("the 2026-11-08a build's look colours:\n");
+	const char *found = "globals: the 2026-11-08a build's look colours found, CMB_LookPaintV to CMB_LookPlateTextV (FE005A14-FE005A17)";
+	CHECK(LogLines(found) == 1, "one \"the 2026-11-08a build's look colours found (FE005A14-FE005A17)\" line (%d)",
+	      LogLines("globals: the 2026-11-08a build's look colours found"));
+
+	float *head = (float *)(g_player + 0xC8);
+	const int iPaint = LookAt("static_paint", false), iFork = LookAt("fork_paint", false), iPlate = LookAt("static_plate", false),
+	          iText = LookAt("static_plateText", false);
+	char bad[400];
+	*(float *)(g_turnRadius + 0x30) = 300.0f;
+	*(float *)(g_turnSlow + 0x30) = 50.0f;
+	*(float *)(g_turnStand + 0x30) = 60.0f;
+	SetNormal(0.0f, 0.0f, 1.0f);
+	SetState(0);
+	FlatGround();
+	g_camYaw = *head;
+	g_handlerStyle = 2;
+	g_honour = 4;
+	Keys(0.0f, 0.0f);
+	g_lookSpeed = g_lookTurn = g_lookDecel = 0.0f;
+	g_lookKeys = false;
+	ViewSetup();
+	g_onFrame = ViewRide;
+	g_afterTask = ViewAfter;
+	SetTailRef(TAIL_REF_FORMID_A);
+	SetViewRef(VIEW_REF_FORMID_A);
+	SetLookCode(0);
+	for (int k = 0; k < 4; k++)
+		SetLookColour53(k, -1.0f);
+	/* the first-person bike's static_paint with a fake shader property and material too (none of the plugin's to write) */
+	uint8_t *viewProp = (uint8_t *)VirtualAlloc(NULL, 0x200, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE), *viewMat = NewFakeMaterial53(0.5f);
+	*(int32_t *)(viewProp + 0x08) = 1;
+	*(uint64_t *)(viewProp + FAKE_PROP_FLAGS) = FAKE_FLAG_PALETTE;
+	*(uint8_t **)(viewProp + FAKE_PROP_MATERIAL) = viewMat;
+	*(uint8_t **)(g_viewShape[0][iPaint] + FAKE_GEOM_PROPERTY) = viewProp;
+
+	printf("custom (2026-11-08a): the rim styles, held and grouped:\n");
+	int linesBefore = AllColourLines53();
+	LookGetOn(1500);
+	int held = 0, named = 0;
+	for (int w = 0; w < 2; w++)
+		for (int st = 1; st < 8; st++) {
+			int i = Rim53(st, w);
+			held += LookHeld(i, 1) == 1;
+			named += strcmp(LookRoleOf(g_lookName[i]), g_lookParts[i].role) == 0;
+		}
+	CHECK(held == 14 && named == 14 && LogLines("tilt: CMB_BikeWornRider_wheelF_rimLaced is the front wheel [wheelF+rim2, by its name]") >= 1 &&
+	      LogLines("tilt: CMB_BikeWornRider_wheelR_rimScrap is the rear wheel [wheelR+rim8, by its name]") >= 1,
+	      "the 14 rim style shapes held (%d), each the front or rear wheel by its name with its group, +rim2 (Laced) to +rim8 (Scrap) (%d)", held, named);
+	CHECK(LookHeld(0, LOOK_NEW) == LOOK_NEW && *BoneDataRefs() == 3, "50 skins held: the build's %d (%d) and the main shape (%s)", LOOK_NEW,
+	      LookHeld(0, LOOK_NEW), *BoneDataRefs() == 3 ? "yes" : "no");
+	int sp = 0, shown = 0, r0 = Rims53(false, &sp, &shown);
+	const char *line4 = "look: the rims now 0, the cast rim (stock) (CMB_LookCode 0x4, as chosen at the bike)";
+	int lines4 = LogLines(line4);
+	SetLookCode(4);
+	RunFrames(300);
+	int sp4 = 0, r4 = Rims53(false, &sp4, NULL);
+	CHECK(r0 == 0 && sp == 14 && r4 == 0 && sp4 == 14 && LogLines(line4) == lines4 + 1,
+	      "code 0 (nothing chosen) and code 4 (chosen: the cast rim): the cast rims shown (%d, %d), the 14 styles specks (%d, %d); the line for code 4",
+	      r0, r4, sp, sp4);
+	int rimLines = LogLines("look: the rims now ");
+	SetLookCode(4 | (4 << 3));
+	RunFrames(300);
+	int sp36 = 0, r36 = Rims53(false, &sp36, NULL);
+	CHECK(r36 == 4 + 8 * 4 && sp36 == 14 && LogLines("look: the rims now 4, Turbine (CMB_LookCode 0x24, as chosen at the bike)") == 1 &&
+	      LogLines("look: the rims now ") == rimLines + 1,
+	      "code 0x24 (Turbine): the two turbine shapes shown (%d), the cast rims and the 12 other styles specks (%d); one \"the rims now 4, Turbine\" line", r36, sp36);
+	rimLines = LogLines("look: the rims now ");
+	SetLookCode(4 | (1 << 3));
+	ViewStep();
+	int rA = Rims53(false, NULL, NULL);
+	SetLookCode(4 | (7 << 3));
+	ViewStep();
+	int rB = Rims53(false, NULL, NULL);
+	RunFrames(500);
+	CHECK(rA == 1 + 8 && rB == 7 + 56 && LogLines("look: the rims now ") == rimLines + 2, "a change mid-ride shows the next frame: Laced (%d), then Scrap (%d), one line each (%d)",
+	      rA, rB, LogLines("look: the rims now ") - rimLines);
+	SetLookCode(5 << 3);
+	RunFrames(300);
+	CHECK(Rims53(false, NULL, NULL) == 0 && LogLines("look: the rims now 0, the cast rim (stock) (CMB_LookCode 0x28, nothing chosen at the bike)") == 1,
+	      "code 0x28 (style bits, bit 2 clear: nothing chosen): the cast rims (%d)", Rims53(false, NULL, NULL));
+	SetLookCode(4 | (2 << 3));
+	RunFrames(300);
+	SetCameraFirst(true);
+	ViewSteps(4);
+	int v18 = Rims53(true, NULL, NULL), w18 = Rims53(false, NULL, NULL);
+	bool viewShows = ViewShows(0);
+	SetLookCode(4 | (6 << 3));
+	ViewSteps(4);
+	int v54 = Rims53(true, NULL, NULL);
+	SetCameraFirst(false);
+	RunFrames(300);
+	CHECK(viewShows && v18 == 2 + 16 && w18 == 2 + 16 && v54 == 6 + 48, "first person: the view bike's rims follow the worn bike's: Solid disc (view %d, worn %d), then Atomic (%d)",
+	      v18, w18, v54);
+	printf("custom: the frame time with 50 shapes:\n");
+	g_lookSpeed = 300.0f;
+	RunFrames(2500);
+	g_lookSpeed = 0.0f;
+	RunFrames(300);
+	CHECK(LogLines(" for 50 shape(s), rider ") > 0, "the frame-time line for 50 shapes (the bike's average %.1f us a frame)", LastLogNumber("(bike "));
+
+	printf("custom: [Look] Rims=0 (no rim hidden by the plugin), and the maps:\n");
+	LookAgain("\nMirrors=-1\n", "\nMirrors=-1\nRims=0\n");
+	int spR0 = -1, shR0 = 0;
+	Rims53(false, &spR0, &shR0);
+	CHECK(spR0 == 0 && shR0 == 16 && LogLines("  look: [Look] Rims=0 PaintWheel=1 PlateColours=1") == 1, "Rims=0 with code 0x34 (Atomic): no rim a speck (%d), all 16 shown (%d)", spR0, shR0);
+	g_lookSpeed = 600.0f;
+	g_lookTurn = 20.0f / DEG;
+	RunFrames(1500);
+	void (*was)(float) = g_afterTask;
+	g_rimMapOff53 = 0.0f;
+	g_rimFrames53 = 0;
+	g_afterTask = RimWatch53;
+	RunFrames(500);
+	g_afterTask = was;
+	float bars = LookBars();
+	CHECK(g_rimFrames53 > 20 && g_rimMapOff53 < 1e-6f && fabsf(bars) > 5.0f,
+	      "at 600 a second with the bars %.1f deg: each of the 14 styles' maps its tyre's to %.1e in every one of %d frames (they spin and steer as the tyres)", bars,
+	      g_rimMapOff53, g_rimFrames53);
+	g_lookSpeed = 0.0f;
+	g_lookTurn = 0.0f;
+	RunFrames(1000);
+	LookAgain("\nMirrors=-1\nRims=0\n", "\nMirrors=-1\n");
+
+	printf("custom: [Parts] RolesByName=0 (27c's rules):\n");
+	LookGetOff();
+	RewriteIni("RolesByName=1", "RolesByName=0");
+	LookGetOn(1000);
+	int wrong = 0;
+	bad[0] = 0;
+	for (int w = 0; w < 2; w++)
+		for (int st = 1; st < 8; st++)
+			wrong += LookRolesWrong(Rim53(st, w), 1, true, bad + strlen(bad), sizeof(bad) - strlen(bad));
+	bool plateZero = strcmp(LookRoleOf(g_lookName[iPlate]), "none") == 0 && strcmp(LookRoleOf(g_lookName[iText]), "none") == 0;
+	CHECK(wrong == 0, "the 14 styles the wheels by their spheres (on the axles)%s%s", wrong ? ": " : "", bad);
+	LookGetOff();
+	RewriteIni("RolesByName=0", "RolesByName=1");
+	LookGetOn(1000);
+	CHECK(plateZero && strcmp(LookRoleOf(g_lookName[iPlate]), "none") == 0 && strcmp(LookRoleOf(g_lookName[iText]), "none") == 0 &&
+	      LogLines("tilt: CMB_BikeWornRider_static_plate is a fixed part [none, by its name]") >= 1 && LookShown(iPlate) && LookShown(iText),
+	      "static_plate and static_plateText fixed parts by their names and by their spheres, shown");
+	CHECK(LogLines("  look: [Look] Rims=1 PaintWheel=1 PlateColours=1 (2026-11-08a") >= 1 &&
+	      LogLines("  look: [Look] Rims=0 PaintWheel=1 PlateColours=1 (2026-11-08a: the rim styles hidden as chosen at the bike; the paint's and rims' colour, the plate's colours written) (read again on getting on)") == 1,
+	      "the settings line: \"[Look] Rims=1 PaintWheel=1 PlateColours=1\" at the start, Rims=0 read again on getting on");
+
+	printf("custom: the look colours (CMB_LookPaintV .. CMB_LookPlateTextV into the worn bike's materials):\n");
+	g_lookSpeed = 300.0f;
+	RunFrames(800);
+	int written = 0;
+	for (int i = 0; i < LOOK_NEW; i++)
+		written += MatScale53(i) != 0.5f;
+	CHECK(written == 0 && AllColourLines53() == linesBefore, "all four -1: nothing written over the rides (%d materials off 0.5, %d lines)", written,
+	      AllColourLines53() - linesBefore);
+	SetLookColour53(0, 0.396f);
+	RunFrames(300);
+	CHECK(fabsf(MatScale53(iPaint) - 0.396f) < 1e-6f && fabsf(MatScale53(iFork) - 0.396f) < 1e-6f &&
+	      LogLines("look: CMB_BikeWornRider_static_paint colour 0.3960 written (read back 0.3960; the paint)") == 1 &&
+	      LogLines("look: CMB_BikeWornRider_fork_paint colour 0.3960 written (read back 0.3960; the paint)") == 1,
+	      "PaintV 0.396: static_paint and fork_paint written (%.4f, %.4f) and read back, one line each", MatScale53(iPaint), MatScale53(iFork));
+	RunFrames(500);
+	int once = ColourLines53(iFork, "written (read back");
+	uint8_t *forkMat = *(uint8_t **)(g_lookProp[iFork] + FAKE_PROP_MATERIAL), *swapped = NewFakeMaterial53(0.5f);
+	*(uint8_t **)(g_lookProp[iFork] + FAKE_PROP_MATERIAL) = swapped;   /* a swap: another material */
+	ViewStep();
+	float afterSwap = MatScale53(iFork);
+	RunFrames(300);
+	CHECK(once == 1 && fabsf(afterSwap - 0.396f) < 1e-6f && ColourLines53(iFork, "written (read back") == 2 && ColourLines53(iPaint, "written (read back") == 1,
+	      "unchanged: written once in 0.8 s (%d); a swap's material written the next frame (%.4f), one line more (%d), static_paint's not again", once, afterSwap,
+	      ColourLines53(iFork, "written (read back"));
+	*(uint64_t *)(g_lookProp[iFork] + FAKE_PROP_FLAGS) = 0;   /* no palette flag */
+	SetLookColour53(0, 0.55f);
+	RunFrames(300);
+	RunFrames(300);
+	CHECK(fabsf(MatScale53(iPaint) - 0.55f) < 1e-6f && fabsf(MatScale53(iFork) - 0.396f) < 1e-6f &&
+	      ColourLines53(iFork, "not written: its shader property has no palette flag (0x80000000)") == 1,
+	      "fork_paint's flags without 0x80000000: refused, one line in 0.6 s, not written (%.4f); static_paint written (%.4f)", MatScale53(iFork), MatScale53(iPaint));
+	*(uint64_t *)(g_lookProp[iFork] + FAKE_PROP_FLAGS) = FAKE_FLAG_PALETTE;
+	*(uint8_t **)(g_lookMat[iPlate] + FAKE_MAT_LOOKUP) = NULL;   /* no lookup texture */
+	SetLookColour53(2, 0.2f);
+	RunFrames(600);
+	CHECK(MatScale53(iPlate) == 0.5f && ColourLines53(iPlate, "not written: its material has no lookup texture") == 1,
+	      "static_plate's material without a lookup texture: refused, one line, not written (%.4f)", MatScale53(iPlate));
+	*(uint8_t **)(g_lookMat[iPlate] + FAKE_MAT_LOOKUP) = g_lookLut;
+	SetLookColour53(2, 0.1191f);
+	SetLookColour53(3, 0.4063f);
+	RunFrames(300);
+	CHECK(fabsf(MatScale53(iPlate) - 0.1191f) < 1e-6f && fabsf(MatScale53(iText) - 0.4063f) < 1e-6f &&
+	      LogLines("look: CMB_BikeWornRider_static_plate colour 0.1191 written (read back 0.1191; the plate)") == 1 &&
+	      LogLines("look: CMB_BikeWornRider_static_plateText colour 0.4063 written (read back 0.4063; the plate's text)") == 1,
+	      "PlateV 0.1191 to static_plate (%.4f), PlateTextV 0.4063 to static_plateText (%.4f): each its own, one line each", MatScale53(iPlate), MatScale53(iText));
+	SetLookCode(4 | (3 << 3));   /* Star five */
+	SetLookColour53(1, 0.6484f);
+	RunFrames(300);
+	int others = 0;
+	for (int w = 0; w < 2; w++)
+		for (int st = 0; st < 8; st++)
+			if (st != 3)
+				others += MatScale53(Rim53(st, w)) == 0.5f;
+	CHECK(fabsf(MatScale53(Rim53(3, 0)) - 0.6484f) < 1e-6f && fabsf(MatScale53(Rim53(3, 1)) - 0.6484f) < 1e-6f && others == 14,
+	      "RimV 0.6484 with Star five chosen: the shown style's materials written (%.4f, %.4f), the cast rims' and the hidden styles' untouched (%d of 14)",
+	      MatScale53(Rim53(3, 0)), MatScale53(Rim53(3, 1)), others);
+	SetCameraFirst(true);
+	ViewSteps(30);
+	SetCameraFirst(false);
+	RunFrames(200);
+	CHECK(*(float *)(viewMat + FAKE_MAT_LOOKUP_SCALE) == 0.5f, "the first-person bike's static_paint material never written by the plugin (%.4f; F4SE's ApplyTo colours it)",
+	      *(float *)(viewMat + FAKE_MAT_LOOKUP_SCALE));
+
+	printf("custom: [Look] PlateColours=0 and PaintWheel=0:\n");
+	LookAgain("\nMirrors=-1\n", "\nMirrors=-1\nPlateColours=0\n");
+	SetLookColour53(2, 0.3f);
+	SetLookColour53(0, 0.7f);
+	RunFrames(600);
+	CHECK(fabsf(MatScale53(iPlate) - 0.1191f) < 1e-6f && fabsf(MatScale53(iText) - 0.4063f) < 1e-6f && fabsf(MatScale53(iPaint) - 0.7f) < 1e-6f,
+	      "PlateColours=0: the plate's and its text's not written (%.4f, %.4f), the paint still (%.4f)", MatScale53(iPlate), MatScale53(iText), MatScale53(iPaint));
+	LookAgain("\nMirrors=-1\nPlateColours=0\n", "\nMirrors=-1\nPaintWheel=0\n");
+	SetLookColour53(0, 0.8f);
+	SetLookColour53(1, 0.9f);
+	RunFrames(600);
+	CHECK(fabsf(MatScale53(iPaint) - 0.7f) < 1e-6f && fabsf(MatScale53(iFork) - 0.7f) < 1e-6f && fabsf(MatScale53(Rim53(3, 0)) - 0.6484f) < 1e-6f &&
+	      fabsf(MatScale53(iPlate) - 0.3f) < 1e-6f,
+	      "PaintWheel=0: neither the paint (%.4f) nor the rim (%.4f) written; the plate is (%.4f)", MatScale53(iPaint), MatScale53(Rim53(3, 0)), MatScale53(iPlate));
+	LookAgain("\nMirrors=-1\nPaintWheel=0\n", "\nMirrors=-1\n");
+
+	printf("custom: each look colour only into a material on its own palette (review B2):\n");
+	{
+		/* the shapes' lookup textures named as the game's (the materials' greyscale textures): the paint on Free colour's
+		 * paint_hue_p, Star five's rims as the mods' rimF/R_body_worn on paint_p (F4SE's swap to the _bodyhue twins not
+		 * yet there), the plate on plate_p, its text on plate_text_p */
+		uint8_t *lutP = NewFakeTexture53("CMB\\Bike\\paint_p.dds"), *lutH = NewFakeTexture53("Textures\\CMB\\Bike\\PAINT_HUE_P.dds"),
+		        *lutPl = NewFakeTexture53("CMB\\Bike\\plate_p.dds"), *lutT = NewFakeTexture53("CMB\\Bike\\plate_text_p.dds");
+		const int sF = Rim53(3, 0), sR = Rim53(3, 1);
+		uint8_t *rimMat = *(uint8_t **)(g_lookProp[sF] + FAKE_PROP_MATERIAL);
+		SetLut53(iPaint, lutH);
+		SetLut53(iFork, lutH);
+		SetLut53(sF, lutP);
+		SetLut53(sR, lutP);
+		SetLut53(iPlate, lutT);   /* the plate on the text's palette: refused */
+		SetLut53(iText, lutT);
+		float rimWas = MatScale53(sF), plateWas = MatScale53(iPlate);
+		SetLookColour53(0, 0.5835f);   /* Free colour, hue 120 shade 2 */
+		SetLookColour53(1, 0.5835f);   /* its body-colour rim */
+		SetLookColour53(2, 0.2129f);
+		SetLookColour53(3, 0.4688f);
+		RunFrames(300);
+		int refusedF = ColourLines53(sF, "not written: its lookup texture is CMB\\Bike\\paint_p.dds, not paint_hue_p.dds (the rim)"),
+		    refusedR = ColourLines53(sR, "not written: its lookup texture is CMB\\Bike\\paint_p.dds, not paint_hue_p.dds (the rim)");
+		CHECK(fabsf(MatScale53(iPaint) - 0.5835f) < 1e-6f && fabsf(MatScale53(iFork) - 0.5835f) < 1e-6f && MatScale53(sF) == rimWas && MatScale53(sR) == rimWas &&
+		      refusedF == 1 && refusedR == 1,
+		      "Free colour's V (0.5835): the paint on Textures\\...\\PAINT_HUE_P.dds written (%.4f, %.4f); the body-colour rims still on the mods' paint_p "
+		      "refused (%.4f, %.4f), one line each (%d, %d)", MatScale53(iPaint), MatScale53(iFork), MatScale53(sF), MatScale53(sR), refusedF, refusedR);
+		CHECK(MatScale53(iPlate) == plateWas && ColourLines53(iPlate, "not written: its lookup texture is CMB\\Bike\\plate_text_p.dds, not plate_p.dds (the plate)") == 1 &&
+		      fabsf(MatScale53(iText) - 0.4688f) < 1e-6f,
+		      "the plate's V into a material on plate_text_p: refused (%.4f), one line; the text's on plate_text_p written (%.4f)", MatScale53(iPlate), MatScale53(iText));
+		uint8_t *hueTwin = NewFakeMaterial53(0.5f);
+		*(uint8_t **)(hueTwin + FAKE_MAT_LOOKUP) = lutH;
+		*(uint8_t **)(g_lookProp[sF] + FAKE_PROP_MATERIAL) = hueTwin;   /* F4SE's swap: rimF_bodyhue_worn, on paint_hue_p */
+		SetLut53(iPlate, lutPl);
+		ViewStep();
+		float twinNext = MatScale53(sF);
+		RunFrames(300);
+		CHECK(fabsf(twinNext - 0.5835f) < 1e-6f && MatScale53(sR) == rimWas && fabsf(MatScale53(iPlate) - 0.2129f) < 1e-6f,
+		      "the front rim's swap to its hue twin (paint_hue_p): written the next frame (%.4f), the rear still refused (%.4f); the plate on plate_p written (%.4f)",
+		      twinNext, MatScale53(sR), MatScale53(iPlate));
+		SetLookColour53(0, -1.0f);     /* a paint row (Factory): the rim's V a paint_p row */
+		SetLookColour53(1, 0.6797f);
+		RunFrames(300);
+		CHECK(fabsf(MatScale53(sR) - 0.6797f) < 1e-6f && fabsf(MatScale53(sF) - 0.5835f) < 1e-6f &&
+		      ColourLines53(sF, "not written: its lookup texture is Textures\\CMB\\Bike\\PAINT_HUE_P.dds, not paint_p.dds (the rim)") == 1,
+		      "without Free colour the rim's V (0.6797) is paint_p's: the rear on paint_p written (%.4f), the front on the hue twin refused (%.4f), one line",
+		      MatScale53(sR), MatScale53(sF));
+		SetLut53(iPaint, lutP);        /* a C1 paint's row material (static_paint_rf01_worn, paint_p) under Free colour's V */
+		SetLookColour53(0, 0.6f);
+		RunFrames(300);
+		CHECK(fabsf(MatScale53(iPaint) - 0.5835f) < 1e-6f && fabsf(MatScale53(iFork) - 0.6f) < 1e-6f,
+		      "Free colour's V (0.6) with static_paint on a C1 paint's paint_p: refused (%.4f); fork_paint on paint_hue_p written (%.4f)", MatScale53(iPaint), MatScale53(iFork));
+		*(uint8_t **)(g_lookProp[sF] + FAKE_PROP_MATERIAL) = rimMat;
+		const int named[6] = { iPaint, iFork, sF, sR, iPlate, iText };
+		for (int k = 0; k < 6; k++)
+			SetLut53(named[k], g_lookLut);
+	}
+	for (int k = 0; k < 4; k++)
+		SetLookColour53(k, -1.0f);
+	g_lookSpeed = 0.0f;
+	SetLookCode(0);
+	*(uint8_t **)(g_viewShape[0][iPaint] + FAKE_GEOM_PROPERTY) = NULL;
+	*(uint8_t **)(g_lookProp[iFork] + FAKE_PROP_MATERIAL) = forkMat;
+	LookGetOff();
+	g_onFrame = NULL;
+	g_afterTask = NULL;
+}
+
 int main(int argc, char **argv)
 {
 	const char *dllPath = argc > 1 ? argv[1] : "CMB_Slope.dll";
@@ -20693,6 +21162,8 @@ int main(int argc, char **argv)
 	g_new50Hidden = mode == 15;        /* ... and without the 2026-11-02a build's three (0x893-0x895) */
 	g_new51Hidden = mode == 15;        /* ... and without the 2026-11-06a build's five (0x8B0-0x8B4) */
 	g_new52Hidden = mode == 15;        /* ... and without the 2026-11-07a build's CMB_LookCode (0x8AF) */
+	g_new53Hidden = mode == 15;        /* ... and without the 2026-11-08a build's four look colours (0xA14-0xA17) */
+	g_new53Partial = mode == 17;       /* review B3: mode 17's look bike (its colour rows) with three of the four (0xA17 missing) */
 	g_robotsHidden = mode != 11 && mode != 22;   /* CMB_RamRobots (test 42) in modes 11 and 22 only: mode 14 checks the one "isn't there" line */
 	HMODULE dll = LoadLibraryA(dllPath);
 	if (!dll) { printf("can't load %s\n", dllPath); return 2; }
@@ -20799,13 +21270,18 @@ int main(int argc, char **argv)
 		if (mode == 15) { OldEsp51Ids(); OldEsp51Sound(); }   /* the 2026-11-06a build's: none with that ESP */
 		if (mode == 15)
 			OldEsp52Ids();   /* the 2026-11-07a build's: none with that ESP */
+		if (mode == 15)
+			OldEsp53Ids();   /* the 2026-11-08a build's: none with that ESP (its writer's check is mode 17's, LookColoursPartial53) */
 		printf("%s\n", g_failures ? "FAILED" : "all ok");
 		return g_failures ? 1 : 0;
 	}
 	if (mode == 17) {   /* The 2026-10-31a build's look: set 0's shapes' roles (LOOK_NEW), the needle, the lights, the mirrors, 27c's names, 50 shapes */
+		for (int k = 0; k < 3; k++)
+			*(float *)(g_lookColourFake[k] + 0x30) = 0.25f + 0.05f * (float)k;   /* review B3: set, so a writer using them writes */
 		Send(10, 1);   /* GameDataReady */
 		RunFrames(300);
 		LookTests();
+		LookColoursPartial53();
 		printf("%s\n", g_failures ? "FAILED" : "all ok");
 		return g_failures ? 1 : 0;
 	}
@@ -20816,6 +21292,7 @@ int main(int argc, char **argv)
 		CHECK(LogLines("globals: the 2026-11-07a build's CMB_LookCode found (FE0058AF)") == 1,
 		      "one \"the 2026-11-07a build's CMB_LookCode found (FE0058AF)\" line (%d)", LogLines("globals: the 2026-11-07a build's CMB_LookCode found"));
 		CustomTests52();
+		CustomTests53();
 		printf("%s\n", g_failures ? "FAILED" : "all ok");
 		return g_failures ? 1 : 0;
 	}

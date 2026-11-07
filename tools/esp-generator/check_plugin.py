@@ -18,7 +18,15 @@ Reads the generator's --dump output on stdin and the .psc files, and fails if:
     and the riding armours' attach points, the item's one default template of each slot's option 0; the field kit's
     furnitures; the loose mods); the parked menu's Customise button isn't on CMB_LookOn; the controller's look tables
     don't match the table or a Look_C1 or CMB_LookF4SE property isn't filled; a record is past 0xF00; a line of
-    look_ids.txt changed or a record from 0x8BA on isn't in it; or the MCM's Look section isn't the table's.
+    look_ids.txt changed or a record from 0x8BA on isn't in it; or the MCM's Look section isn't the table's,
+  - (2026-11-08a, C2) the second block isn't the table's: its records not exactly c2_ids' 477 (0xA14-0xBF0) at the table's
+    IDs; the four colour values (-1) not at their IDs or not at CMB_Slope.c's LOOK_*_V_ID; the hue (210), shade (1) or
+    crude switch (1) off its default; the six new attach points not on the item and both armours, or the template not one
+    option 0 per slot (11); a `colour` option (PlateInk, PlateBack) with a swap or a swap list; a `follow` option other
+    than TankR's 17 and PlateText's 0; a crude text's recipe without GetGlobalValue CMB_LookPlateCrude == 1 or another
+    recipe with it; Paint's option 45 not appended to its lists; CMB_LookCategories not 11 lists or CMB_LookSwapLists not
+    9; the Look_C2 and CMB_LookF4SE arrays not the table's, or a property not filled or not on its record; look_ids.txt
+    not in ID order; or the MCM's Look section not its 20 controls (the hue a 0-359 slider, the shade a stepper).
 
   dotnet run -c Release -- --dump CommonwealthMotorbike.esp | python3 check_plugin.py <Scripts/Source/User>
 """
@@ -364,6 +372,26 @@ def links(text):
     return [x for x in text.split(",") if x]
 
 
+# 2026-11-08a (C2): the second block. The table's C2 entries (each "since": "2026-11-08a": six slots, Paint's option 45,
+# the colour values and the MCM's three) are made after C1's lists at the IDs from c2_ids' first, in the table's order; the
+# four colour values sit at the IDs CMB_Slope.dll's #defines name. The defaults below are the build's off values: every
+# slot at its stock option, the colour values -1 (the plugin writes nothing), the hue 210, the shade 1 (Normal), the crude
+# texts offered (1, the user's default).
+LOOK_GLOBALS_C2 = {"CMB_LookPaintV": "-1", "CMB_LookRimV": "-1", "CMB_LookPlateV": "-1", "CMB_LookPlateTextV": "-1",
+                   "CMB_LookHue": "210", "CMB_LookShade": "1", "CMB_LookPlateCrude": "1"}
+SLOPE_C = HERE.parent / "f4se-slope" / "CMB_Slope.c"
+DEFINE = re.compile(r"^\s*#define\s+(LOOK_\w+_V_ID)\s+0x([0-9A-Fa-f]+)u?\b", re.MULTILINE)
+CRUDE_SWITCH = "CMB_LookPlateCrude"
+
+
+def slope_defines():
+    """CMB_Slope.c's colour-value IDs: {define: id}."""
+    try:
+        return {m.group(1): int(m.group(2), 16) for m in DEFINE.finditer(SLOPE_C.read_text(encoding="utf-8", errors="replace"))}
+    except OSError:
+        return {}
+
+
 def look_group(scripts_folder: Path, script, group):
     """The property names of a .psc's Group <group> (or of the whole script with group None)."""
     text = (scripts_folder / f"{script}.psc").read_text(encoding="utf-8", errors="replace")
@@ -392,14 +420,33 @@ def check_look(lines, scripts_folder: Path):
         r = by_edid.get(edid)
         return f"{r['id']}{OURS}" if r else f"<no {edid}>"
 
+    def at(edid, rid, what):
+        r = by_edid.get(edid)
+        if r and r["id"] != rid:
+            problems.append(f"{edid}: at {r['id']}, expected {rid} ({what})")
+
     code = by_id.get(f"{LOOK_CODE_ID}")
     if code is None or code["edid"] != "CMB_LookCode" or code["type"] != "GlobalFloat" or (code.get("global") or [[None]])[0][0] != "0":
         problems.append(f"0x8AF: {None if code is None else (code['edid'], code['type'])}, expected CMB_LookCode, a GlobalFloat of 0 "
                         "(CMB_Slope.dll finds it by ID)")
-    for name, value in list(LOOK_GLOBALS.items()) + [(s["global"], str(s["default"])) for s in table["slots"]]:
+    # The globals and their defaults: C1's, every slot's (the table's default: its stock option), C2's seven (the table
+    # agrees with LOOK_GLOBALS_C2), each C2 one at its ID.
+    c2_globals = table["fixed_globals"] + table["script_globals"]
+    for g in c2_globals:
+        if str(g["value"]) != LOOK_GLOBALS_C2.get(g["edid"]):
+            problems.append(f"look_options.json {g['edid']}: {g['value']}, expected {LOOK_GLOBALS_C2.get(g['edid'])} (the off value)")
+        at(g["edid"], g["id"], "look_options.json")
+    for name, value in list(LOOK_GLOBALS.items()) + list(LOOK_GLOBALS_C2.items()) + [(s["global"], str(s["default"])) for s in table["slots"]]:
         r = rec(name, "GlobalFloat")
         if r and (r.get("global") or [[None]])[0][0] != value:
             problems.append(f"{name}: {r.get('global')}, expected {value}")
+    # The four colour values: at their IDs and at CMB_Slope.c's #defines (the plugin finds them by ID).
+    defines = slope_defines()
+    for g in table["fixed_globals"]:
+        if defines.get(g["define"]) != int(g["id"], 16) or (by_edid.get(g["edid"]) or {}).get("id") != f"{defines.get(g['define'], 0):06X}":
+            problems.append(f"{g['edid']}: at {(by_edid.get(g['edid']) or {}).get('id')}, CMB_Slope.c's {g['define']} "
+                            f"{'none' if g['define'] not in defines else hex(defines[g['define']])}, the table's {g['id']}: all three the same")
+    colours = [(by_edid.get(g["edid"]) or {}).get("id", "none") for g in table["fixed_globals"]]
     ma = rec("CMB_ma_Bike", "Keyword")
     if ma and ma.get("keyword", [[None]])[0][0] != "ModAssociation":
         problems.append(f"CMB_ma_Bike: type {ma.get('keyword')}, expected ModAssociation")
@@ -410,26 +457,44 @@ def check_look(lines, scripts_folder: Path):
         if r and r.get("keyword", [[None, None]])[0] != ("AttachPoint", s["name"]):
             problems.append(f"{s['ap']}: {r.get('keyword')}, expected an AttachPoint named {s['name']!r}")
         aps.append(fk(s["ap"]))
+        if "global_id" in s:
+            at(s["global"], s["global_id"], "the slot's global_id")
+            at(s["ap"], s["ap_id"], "the slot's ap_id")
 
-    # The options: a swap, an object mod and a recipe each, at the table's IDs, as the table says.
-    swaps_total = recipes = loose = 0
-    omod_ids, slot_sources = set(), {}
+    # The options: a swap (none for `follow` and `colour`), an object mod and a recipe each, at the table's IDs, as the
+    # table says. A slot's swap list holds its options' swaps in option order (PlateText's from its option 1: its 0, the
+    # plate's own, has none; TankR's 17, "Same as the left", last, none); the colour slots have no swap list.
+    swaps_total = recipes = loose = crude = 0
+    omod_ids, slot_sources, follows = set(), {}, []
+    want_crude = ("GetGlobalValue", fk(CRUDE_SWITCH), "EqualTo", "1", "Subject")
     for s in table["slots"]:
         ap = fk(s["ap"])
         listed = (by_id.get(s["list_id"]) or {}).get("item", [])
-        swap_listed = (by_id.get(s["swaps_id"]) or {}).get("item", [])
-        if (by_id.get(s["list_id"]) or {}).get("edid") != s["list"] or (by_id.get(s["swaps_id"]) or {}).get("edid") != s["swaps"]:
-            problems.append(f"{s['key']}: its lists aren't {s['list']} at {s['list_id']} and {s['swaps']} at {s['swaps_id']}")
+        if (by_id.get(s["list_id"]) or {}).get("edid") != s["list"]:
+            problems.append(f"{s['key']}: its option list isn't {s['list']} at {s['list_id']}")
+        if s["swaps_id"] is None:
+            swap_listed = []
+            if s["swaps"] is not None or s["sources"] or any(o["kind"] != "colour" for o in s["options"]):
+                problems.append(f"{s['key']}: a slot without a swap list holds only `colour` options and no sources")
+            if by_edid.get(f"CMB_LookSwaps_{s['key']}"):
+                problems.append(f"CMB_LookSwaps_{s['key']}: in the plugin, but {s['key']} has no swaps")
+        else:
+            swap_listed = (by_id.get(s["swaps_id"]) or {}).get("item", [])
+            if (by_id.get(s["swaps_id"]) or {}).get("edid") != s["swaps"]:
+                problems.append(f"{s['key']}: its swap list isn't {s['swaps']} at {s['swaps_id']}")
         if len(listed) != len(s["options"]):
             problems.append(f"{s['list']}: {len(listed)} entries, {len(s['options'])} options")
         n_swaps = sum(o["swap"] is not None for o in s["options"])
-        if len(swap_listed) != n_swaps or any(o["kind"] == "follow" for o in s["options"][:n_swaps]):
-            problems.append(f"{s['swaps']}: {len(swap_listed)} entries, expected {n_swaps} (only the last options may be `follow`)")
+        if len(swap_listed) != n_swaps:
+            problems.append(f"{s['swaps']}: {len(swap_listed)} entries, expected {n_swaps}")
+        position = 0   # the option's place in the swap list
         for o in s["options"]:
             sw_id, mod_id, co_id = o["ids"]
             name = f"{s['key']}_{o['key']}"
             omod, cobj = by_id.get(mod_id), by_id.get(co_id)
             sw = by_id.get(sw_id) if sw_id else None
+            if o["kind"] == "follow":
+                follows.append(f"{s['key']}:{o['index']}")
             if not omod or omod["edid"] != f"CMB_mod_{name}" or omod["type"] != "ArmorModification" or not omod.get("omod"):
                 problems.append(f"CMB_mod_{name}: not at {mod_id}")
                 continue
@@ -446,39 +511,51 @@ def check_look(lines, scripts_folder: Path):
                 problems.append(f"{s['list']}[{o['index']}]: not CMB_mod_{name}")
             if sw_id:
                 swaps_total += 1
+                if o["kind"] in ("follow", "colour"):
+                    problems.append(f"{s['key']}:{o['key']}: a `{o['kind']}` option with a swap")
                 entries = [(a, b, "none" if o["cnam"] is None else repr(float(o["cnam"]))) for a, b in o["swap"]]
                 got = [(a, b, c if c == "none" else repr(float(c))) for a, b, c in (sw or {}).get("entry", [])]
                 if not sw or sw["edid"] != f"CMB_sw_{name}" or got != entries:
                     problems.append(f"CMB_sw_{name} at {sw_id}: {None if not sw else (sw['edid'], got)}, expected {entries}")
-                if o["index"] >= len(swap_listed) or swap_listed[o["index"]] != (f"{sw_id}{OURS}", "MaterialSwap"):
-                    problems.append(f"{s['swaps']}[{o['index']}]: not CMB_sw_{name} (the object mod's own swap, index for index)")
+                if position >= len(swap_listed) or swap_listed[position] != (f"{sw_id}{OURS}", "MaterialSwap"):
+                    problems.append(f"{s['swaps']}[{position}]: not CMB_sw_{name} (the object mods' own swaps, in option order)")
+                position += 1
                 for a, _, _ in got:   # the plugin's own entries
                     slot_sources.setdefault(a.lower(), set()).add(s["key"])
-            elif o["kind"] != "follow":
-                problems.append(f"{s['key']}:{o['key']}: no swap, and not the `follow` kind")
+            elif o["kind"] not in ("follow", "colour"):
+                problems.append(f"{s['key']}:{o['key']}: no swap, and not the `follow` or `colour` kind")
+            elif by_edid.get(f"CMB_sw_{name}"):
+                problems.append(f"CMB_sw_{name}: in the plugin, but a `{o['kind']}` option has no swap")
             want_components = [(f"{table['components'][c]}{GAME}", str(n)) for c, n in o["cost"]]
             want_conditions = [("HasPerk", f"{table['perks'][o['perk']]}{GAME}", "EqualTo", "1", "Subject")] if o["perk"] else []
+            if o.get("crude"):
+                want_conditions.append(want_crude)
             if not cobj or cobj["edid"] != f"CMB_co_{name}" or cobj.get("cobj") != [(f"{mod_id}{OURS}", fk("CMB_WorkbenchBike"), "1/0")] \
                     or cobj.get("component", []) != want_components or cobj.get("condition", []) != want_conditions:
                 problems.append(f"CMB_co_{name} at {co_id}: {None if not cobj else (cobj['edid'], cobj.get('cobj'), cobj.get('component'), cobj.get('condition'))}, "
                                 f"expected CMB_mod_{name} on CMB_WorkbenchBike, {want_components}, {want_conditions}")
             else:
                 recipes += 1
+                crude += want_crude in want_conditions
+    if follows != ["TankR:17", "PlateText:0"]:
+        problems.append(f"`follow` options {follows}, expected TankR's 17 (Same as the left) and PlateText's 0 (the plate's own) only")
     shared = {src: sorted(keys) for src, keys in slot_sources.items() if len(keys) > 1}
     if shared:
         problems.append(f"sources in more than one slot (a swap on one would reach the other): {shared}")
-    # Every recipe in the plugin: an object mod in a list, on CMB_WorkbenchBike.
+    # Every recipe in the plugin: an object mod in a list, on CMB_WorkbenchBike; the crude switch only on crude texts' (checked
+    # per option above: a recipe's conditions are exactly the table's).
     for r in recs:
         if r["type"] == "ConstructibleObject":
             c = (r.get("cobj") or [(None, None, None)])[0]
             if c[0] not in omod_ids or c[1] != fk("CMB_WorkbenchBike"):
                 problems.append(f"{r['edid']}: creates {c[0]} on {c[1]}: not a look option's object mod on CMB_WorkbenchBike")
-    for name, lists in (("CMB_LookCategories", [s["list_id"] for s in table["slots"]]), ("CMB_LookSwapLists", [s["swaps_id"] for s in table["slots"]])):
+    for name, lists in (("CMB_LookCategories", [s["list_id"] for s in table["slots"]]),
+                        ("CMB_LookSwapLists", [s["swaps_id"] for s in table["slots"] if s["swaps_id"]])):
         r = rec(name, "FormList")
         if r and r.get("item", []) != [(f"{i}{OURS}", "FormList") for i in lists]:
-            problems.append(f"{name}: {r.get('item')}, expected the five lists {lists} in slot order")
+            problems.append(f"{name}: {r.get('item')}, expected the {len(lists)} lists {lists} in slot order")
 
-    # The look item and the riding armours: the keyword and the five attach points (every object mod's among them); the
+    # The look item and the riding armours: the keyword and every slot's attach point (every object mod's among them); the
     # item playable with one default template, each slot's option 0, one per attach point.
     option0 = [f"{s['options'][0]['ids'][1]}{OURS}@0" for s in table["slots"]]
     for name in ["CMB_BikeLook"] + RIDING_ARMOURS:
@@ -487,7 +564,7 @@ def check_look(lines, scripts_folder: Path):
             continue
         playable, keywords, appr, model, preview, _, _, _ = r["armor"][0]
         if fk("CMB_ma_Bike") not in links(keywords) or links(appr) != aps:
-            problems.append(f"{name}: keywords [{keywords}] aps [{appr}], expected CMB_ma_Bike and the five attach points {aps}")
+            problems.append(f"{name}: keywords [{keywords}] aps [{appr}], expected CMB_ma_Bike and the {len(aps)} attach points {aps}")
         templates = r.get("template", [])
         if name == "CMB_BikeLook":
             if (playable, model, preview) != ("True", r"CMB\CMB_BikeParked.nif", fk("CMB_BikeLookPreview")):
@@ -531,31 +608,59 @@ def check_look(lines, scripts_folder: Path):
         if texts != PARKED_MENU or conds != want:
             problems.append(f"CMB_ParkedMenu: {list(zip(texts, conds))}, expected {PARKED_MENU} with GetGlobalValue CMB_LookOn == 1 on Customise")
 
-    # The controller's look tables and every Look_C1 property filled; CMB_LookF4SE's ten.
+    # The controller's look tables (C1's and C2's), CMB_LookF4SE's (C2's), every Look_C1, Look_C2 and CMB_LookF4SE property
+    # filled, and each of their properties named for one of our records pointing at it.
     values = script_values(lines)
     ctl = values.get("cmb_controllerscript", {})
+    f4se = values.get("cmb_lookf4se", {})
     keys = [f"{s['key']}:{o['key']}" for s in table["slots"] for o in s["options"]]
     starts = [sum(len(x["options"]) for x in table["slots"][:i]) for i in range(len(table["slots"]))]
     sets = table["sets"]
+    slot = {s["key"]: s for s in table["slots"]}
+    ints = lambda xs: f"[{','.join(str(x) for x in xs)}] IntList"
+    strs = lambda xs: f"[{','.join(xs)}] StringList"
+    plates = table["plates"]
     want_arrays = {
-        "LookKeys": f"[{','.join(keys)}] StringList",
-        "LookSlotStart": f"[{','.join(map(str, starts))}] IntList",
-        "LookSetPaint": f"[{','.join(str(-1 if x['paint'] is None else x['paint']) for x in sets)}] IntList",
-        "LookSetTank": f"[{','.join(str(-1 if x['tank_left'] is None else x['tank_left']) for x in sets)}] IntList",
-        "LookSetFender": f"[{','.join(str(-1 if x['fender'] is None else x['fender']) for x in sets)}] IntList",
+        "LookKeys": strs(keys),
+        "LookSlotStart": ints(starts),
+        "LookSetPaint": ints(-1 if x["paint"] is None else x["paint"] for x in sets),
+        "LookSetTank": ints(-1 if x["tank_left"] is None else x["tank_left"] for x in sets),
+        "LookSetFender": ints(-1 if x["fender"] is None else x["fender"] for x in sets),
+        "LookRimStyle": ints(o["rim_style"] for o in slot["Rims"]["options"]),
+        "LookTextCrude": ints(int(o["crude"]) for o in slot["PlateText"]["options"]),
+        "LookPlateOwnText": ints(p["own_text"] for p in plates),
+        "LookSetPlate": ints(-1 if x["plate"] is None else x["plate"] for x in sets),
     }
-    for name, want in want_arrays.items():
-        if ctl.get(name) != want:
-            problems.append(f"CMB_ControllerScript.{name}: {ctl.get(name)}, expected {want[:120]}")
+    want_f4se = {
+        "PaintRow": ints(table["paint_row_of_option"]),
+        "RimBody": ints(int(o["finish"] == "body") for o in slot["Rims"]["options"]),
+        "TextCrude": want_arrays["LookTextCrude"],
+        "PlateOwnText": want_arrays["LookPlateOwnText"],
+        "PlateOwnInk": ints(p["own_ink"] for p in plates),
+        "PlateOwnBack": ints(p["own_back"] for p in plates),
+        "RimBodyTargets": strs(t[0] for t in table["rim_body_targets"]),
+        "RimBodyHueTargets": strs(t[1] for t in table["rim_body_targets"]),
+    }
+    if len(table["paint_row_of_option"]) != len(slot["Paint"]["options"]):
+        problems.append(f"paint_row_of_option: {len(table['paint_row_of_option'])} rows, {len(slot['Paint']['options'])} Paint options")
+    for script, have, arrays in (("CMB_ControllerScript", ctl, want_arrays), ("CMB_LookF4SE", f4se, want_f4se)):
+        for name, want in arrays.items():
+            if have.get(name) != want:
+                problems.append(f"{script}.{name}: {(have.get(name) or 'none')[:120]}, expected {want[:120]}")
     if sum(len((by_id.get(s["list_id"]) or {}).get("item", [])) for s in table["slots"]) != len(keys):
         problems.append("LookKeys doesn't count the option lists' entries")
-    for script, group, have in (("CMB_ControllerScript", "Look_C1", ctl), ("CMB_LookF4SE", None, values.get("cmb_lookf4se", {}))):
-        missing = [p for p in look_group(scripts_folder, script, group) if p not in have]
+    for script, group, have in (("CMB_ControllerScript", "Look_C1", ctl), ("CMB_ControllerScript", "Look_C2", ctl),
+                                ("CMB_LookF4SE", None, f4se)):
+        declared = look_group(scripts_folder, script, group)
+        missing = [p for p in declared if p not in have]
         if missing:
             problems.append(f"{script}: {', '.join(missing)} not filled in the plugin")
+        for p in declared:
+            if p in by_edid and p in have and not have[p].startswith(f"{fk(p)} "):
+                problems.append(f"{script}.{p}: {have[p]}, expected {p} ({fk(p)})")
 
-    # The IDs: none past the reserve; look_ids.txt's lines unchanged (a save's look keeps its records), and every record
-    # from 0x8BA on (and 0x8AF) in it.
+    # The IDs: none past the reserve; look_ids.txt's lines unchanged (a save's look keeps its records) and in ID order (a
+    # later build only appends), every record from 0x8BA on (and 0x8AF) in it; C2's block exactly the table's IDs.
     highest = max(recs, key=lambda r: int(r["id"], 16))["id"] if recs else "000000"
     if int(highest, 16) >= ESL_RESERVE_FROM:
         problems.append(f"{by_id[highest]['edid']} at {highest}: past 0x{ESL_RESERVE_FROM:X} (the light plugin's last IDs stay free)")
@@ -564,20 +669,33 @@ def check_look(lines, scripts_folder: Path):
     if moved:
         problems.append(f"look_ids.txt: {len(moved)} ID(s) not as committed (save-stable: a later build only appends), the first: "
                         f"{moved[0]} (now {(by_edid.get(moved[0].split()[0]) or {}).get('id')})")
+    if [i for _, i in committed] != sorted(i for _, i in committed):
+        problems.append("look_ids.txt: not in ID order (a later build only appends)")
     listed = {i for _, i in committed}
     new = [f"{r['edid']} {r['id']}" for r in recs if (int(r["id"], 16) >= LOOK_FIRST_ID or r["id"] == LOOK_CODE_ID) and r["id"] not in listed]
     if new:
         problems.append(f"look_ids.txt: {len(new)} record(s) not in it (append them: the generator's --look-ids), the first: {new[0]}")
+    c2 = table["c2_ids"]
+    first, last = int(c2["first"], 16), int(c2["last"], 16)
+    c2_table = {g["id"] for g in c2_globals} | {s[k] for s in table["slots"] if "global_id" in s for k in ("global_id", "ap_id", "list_id")} \
+        | {s["swaps_id"] for s in table["slots"] if "global_id" in s and s["swaps_id"]} \
+        | {i for s in table["slots"] for o in s["options"] if o.get("since") or "global_id" in s for i in o["ids"] if i}
+    c2_plugin = {r["id"] for r in recs if first <= int(r["id"], 16) <= last}
+    if c2_plugin != c2_table or len(c2_table) != c2["count"] or last - first + 1 != c2["count"]:
+        problems.append(f"C2's block: {len(c2_plugin)} records in {c2['first']}-{c2['last']}, the table's {len(c2_table)} IDs "
+                        f"(c2_ids {c2['count']}); not in the plugin {sorted(c2_table - c2_plugin)[:3]}, not in the table {sorted(c2_plugin - c2_table)[:3]}")
 
     n_options = sum(len(s["options"]) for s in table["slots"])
     line = (f"checked {n_options} look options in {len(table['slots'])} slots: {swaps_total} swaps, {recipes} recipes on CMB_WorkbenchBike, "
-            f"{loose} loose mods, sources {'unique' if not shared else 'SHARED'} per slot, CMB_LookCode {code['id'] if code else 'none'}, "
+            f"{loose} loose mods, {crude} crude behind {CRUDE_SWITCH}, sources {'unique' if not shared else 'SHARED'} per slot, "
+            f"CMB_LookCode {code['id'] if code else 'none'}, colours {colours[0]}-{colours[-1]}, "
             f"highest {highest}; look_ids.txt {len(committed)} IDs")
     return problems, line
 
 
 def check_mcm_look(scripts_folder: Path, lines):
-    """The MCM's Look section: its controls in order, each on its global (the plugin's ID) with the table's names."""
+    """The MCM's Look section: its controls in order, each on its global (the plugin's ID) with the table's names (a
+    slider with its range), in or outside the free-mode group."""
     table = json.loads(LOOK_OPTIONS.read_text(encoding="utf-8"))
     config = json.loads((scripts_folder.parents[2] / "MCM" / "Config" / "CommonwealthMotorbike" / "config.json").read_text(encoding="utf-8"))
     ids = {r["edid"]: r["id"] for r in look_records(lines)}
@@ -592,15 +710,26 @@ def check_mcm_look(scripts_folder: Path, lines):
         section.append(c)
     names = {s["global"]: [o["name"] for o in s["options"]] for s in table["slots"]}
     sets = [x["name"] for x in table["sets"]]
+    shades = [x[0] for x in table["hue_palette"]["shades"]]
+    in_group = lambda ctype, text, glob: (ctype, text, glob, names[glob], "condition")
     want = [("switcher", "Customise at the bike", "CMB_LookOn", None, None),
             ("stepper", "Field kit", "CMB_KitMode", ["Automatic", "Toolbox", "Toolbox (armour bench keyword)", "Armour bench"], None),
             ("switcher", "Parts from the side bag", "CMB_KitBagLink", None, None),
+            ("switcher", "Crude plate texts", "CMB_LookPlateCrude", None, None),
             ("switcher", "Free customising (no field kit, no cost)", "CMB_LookFree", None, "control"),
-            ("dropdown", "Tank badge, left", "CMB_Look_TankL", names["CMB_Look_TankL"], "condition"),
-            ("dropdown", "Tank badge, right", "CMB_Look_TankR", names["CMB_Look_TankR"], "condition"),
-            ("dropdown", "Rear fender badge", "CMB_Look_Fender", names["CMB_Look_Fender"], "condition"),
-            ("dropdown", "Paint", "CMB_Look_Paint", names["CMB_Look_Paint"], "condition"),
-            ("stepper", "Mirrors", "CMB_Look_Mirrors", names["CMB_Look_Mirrors"], "condition"),
+            in_group("dropdown", "Tank badge, left", "CMB_Look_TankL"),
+            in_group("dropdown", "Tank badge, right", "CMB_Look_TankR"),
+            in_group("dropdown", "Rear fender badge", "CMB_Look_Fender"),
+            in_group("dropdown", "Paint", "CMB_Look_Paint"),
+            ("slider", "Paint hue", "CMB_LookHue", (0, 359, 1), "condition"),
+            ("stepper", "Paint shade", "CMB_LookShade", shades, "condition"),
+            in_group("stepper", "Mirrors", "CMB_Look_Mirrors"),
+            in_group("dropdown", "Rims", "CMB_Look_Rims"),
+            in_group("stepper", "Tyres", "CMB_Look_Tyres"),
+            in_group("dropdown", "Plate", "CMB_Look_Plate"),
+            in_group("dropdown", "Plate text", "CMB_Look_PlateText"),
+            in_group("dropdown", "Plate letters", "CMB_Look_PlateInk"),
+            in_group("dropdown", "Plate background", "CMB_Look_PlateBack"),
             ("dropdown", "Faction set", "CMB_LookFactionSet", sets, "condition"),
             ("button", "Apply the look", "LookApply", None, "condition")]
     problems = []
@@ -611,9 +740,10 @@ def check_mcm_look(scripts_folder: Path, lines):
         got_target = (c.get("action") or {}).get("function") if ctype == "button" else vo.get("sourceForm")
         want_target = target if ctype == "button" else f"CommonwealthMotorbike.esp|{int(ids.get(target, '0'), 16):X}"
         got_group = "control" if c.get("groupControl") == 1 else "condition" if c.get("groupCondition") == 1 else None
-        if (c.get("type"), c.get("text"), got_target, vo.get("options"), got_group) != (ctype, text, want_target, options, group) \
+        got_options = (vo.get("min"), vo.get("max"), vo.get("step")) if ctype == "slider" else vo.get("options")
+        if (c.get("type"), c.get("text"), got_target, got_options, got_group) != (ctype, text, want_target, options, group) \
                 or not c.get("help"):
-            problems.append(f"MCM Look: {c.get('type')} {c.get('text')!r} on {got_target} options {vo.get('options')} group {got_group}; "
+            problems.append(f"MCM Look: {c.get('type')} {c.get('text')!r} on {got_target} options {got_options} group {got_group}; "
                             f"expected {ctype} {text!r} on {want_target} options {options} group {group}, with a help text")
     return problems, len(section)
 

@@ -481,8 +481,8 @@ Group Look_C1
 	GlobalVariable Property CMB_LookCode Auto Const
 	{At a fixed ID, 0x8AF: CMB_Slope.dll reads it for the worn and first-person bikes' mirrors. Bits
 	0-1 the mirror (0 none, 1 stock, 2 under the bars egg, 3 under the bars D), bit 2 set (a choice
-	was made), bits 3-8 kept for later builds. 0 = the plugin's own [Look] Mirrors. Written only by
-	ApplyLook.}
+	was made), bits 3-6 the rim style (2026-11-08a: 0 the cast rim, 1-7 the styles, LookRimStyle),
+	bits 7-8 kept for later builds. 0 = the plugin's own [Look] Mirrors. Written only by ApplyLook.}
 	GlobalVariable Property CMB_LookOn Auto Const
 	{MCM "Customise at the bike": 1 (the default) = the parked bike's menu has Customise and the
 	chosen look is put on every bike; 0 or None = no button, nothing attached on getting on, the
@@ -549,6 +549,40 @@ Group Look_C1
 	{"<slot>:<key>" for every option, slot-major in slot order (the log's names; look_options.json).}
 	int[] Property LookSlotStart Auto Const
 	{Each slot's first index in LookKeys (five entries).}
+EndGroup
+
+; 2026-11-08a (C2): rims, tyres, the paint's hue, the plates (look_options.json's entries "since"
+; 2026-11-08a: slots 5-10 Rims, Tyres, Plate, PlateText, PlateInk, PlateBack). None is Mandatory:
+; an older ESP leaves them None, and then the bike looks as the 2026-11-07a build.
+Group Look_C2
+	GlobalVariable Property CMB_Look_Rims Auto Const
+	{0xA1B: the rims, an index into CMB_LookOptions_Rims (0 = stock, the cast rims; 1-5 a cast
+	finish, 6-47 a style and finish).}
+	GlobalVariable Property CMB_Look_Tyres Auto Const
+	{0xA1C: the tyres (0 black, as they came; 1 whitewall, 2 red line).}
+	GlobalVariable Property CMB_Look_Plate Auto Const
+	{0xA1D: the licence plate's design (0 = stock, the plain plate; 1-12 the designs).}
+	GlobalVariable Property CMB_Look_PlateText Auto Const
+	{0xA1E: the plate's text (0 = the plate's own, 1 none, 2-61 the texts; 48-61 crude).}
+	GlobalVariable Property CMB_Look_PlateInk Auto Const
+	{0xA1F: the plate's letters' colour (0 = the plate's own, 1-16 the colours).}
+	GlobalVariable Property CMB_Look_PlateBack Auto Const
+	{0xA20: the plate's background colour (0 = the plate's own, 1-16 the colours).}
+	GlobalVariable Property CMB_LookHue Auto Const
+	{0xA18, MCM "Paint hue" (0-359, default 210): the Free colour paint's hue (Paint 45 only).}
+	GlobalVariable Property CMB_LookShade Auto Const
+	{0xA19, MCM "Paint shade" (0 deep, 1 normal (the default), 2 light, 3 pastel).}
+	GlobalVariable Property CMB_LookPlateCrude Auto Const
+	{0xA1A, MCM "Crude plate texts" (1, the default, = offered; 0 = the crude recipes hidden and a
+	plate wearing one shows its own text).}
+	int[] Property LookRimStyle Auto Const
+	{Per Rims option: 0 the cast rim, 1-7 the styles (CMB_LookCode bits 3-6).}
+	int[] Property LookTextCrude Auto Const
+	{Per PlateText option: 1 a crude text, else 0.}
+	int[] Property LookPlateOwnText Auto Const
+	{Per Plate option: its own text's PlateText index (1 = None).}
+	int[] Property LookSetPlate Auto Const
+	{Per faction set: its Plate index (-1 unchanged).}
 EndGroup
 
 ; ---------------------------------------------------------------------------
@@ -3239,6 +3273,12 @@ Function RideTick()
 	if !StillRiding()
 		return
 	endif
+	if LookRimsMoved()
+		; 2026-11-08a: CMB_LookCode's rim style isn't the worn bike's mods' (ApplyLook moved it): put on
+		; again, so the mods follow the look (one place equips mid-ride: here).
+		Log("Look: the rims' style changed while riding (" + LookName(LookSlotRims, lookRimMods) + " worn, CMB_LookCode's style " + lookRimCode + "): the worn bike put on again with the look's mods")
+		RemoveBikeArmor()
+	endif
 	EquipBike()
 	if !riding
 		; The ride ended while the bike was going on: take it off again.
@@ -3959,6 +3999,11 @@ Function EquipBike()
 		if PlayerRef.GetItemCount(wanted) == 0
 			PlayerRef.AddItem(wanted, 1, true)
 		endif
+		; 2026-11-08a: an MCM change since the look was last put on (free mode without Apply, or Customise
+		; at the bike switched) put on first, as at getting on, so a swap mid-ride (a weapon drawn, a hit)
+		; gives this armour mods of the look CMB_LookCode's rim style and the colour values are of.
+		LookSync("the worn bike's equip")
+		lookWorn = lookApplied
 		; 2026-11-07a: the chosen look's mods on it before it goes on (no call with a stock look).
 		int refused = AttachLook(wanted, true)
 		PlayerRef.EquipItem(wanted, true, true)
@@ -3967,7 +4012,9 @@ Function EquipBike()
 		wornSlotToLog = true
 		wornRefused = refused > 0
 		if wornRefused
-			WornLookRefused(refused)
+			WornLookRefused(refused)   ; the composed swap, its colours included
+		elseif LookColoursOn() || lookColoursWorn
+			WornLookColours()   ; 2026-11-08a: the look's colours, or the last ones taken off (neither with a stock look: no call)
 		endif
 	endif
 	RemoveArmor(other)
@@ -4005,16 +4052,29 @@ EndFunction
 
 string Property LookMenuName = "ExamineMenu" AutoReadOnly
 {The armour bench's menu (the field kit opens it).}
-int Property LookSlots = 5 AutoReadOnly
+int Property LookSlots = 11 AutoReadOnly
 {The slots, in CMB_LookCategories' order: 0 the left tank badge, 1 the right, 2 the rear fender badge,
-3 the paint, 4 the mirrors.}
+3 the paint, 4 the mirrors; since 2026-11-08a 5 the rims, 6 the tyres, 7 the plate, 8 the plate's text,
+9 its letters' colour, 10 its background colour (an older ESP has the first five only: the others'
+globals None, nothing done for them).}
 int Property LookSlotTankL = 0 AutoReadOnly
 int Property LookSlotTankR = 1 AutoReadOnly
 int Property LookSlotFender = 2 AutoReadOnly
 int Property LookSlotPaint = 3 AutoReadOnly
 int Property LookSlotMirrors = 4 AutoReadOnly
+int Property LookSlotRims = 5 AutoReadOnly
+int Property LookSlotTyres = 6 AutoReadOnly
+int Property LookSlotPlate = 7 AutoReadOnly
+int Property LookSlotPlateText = 8 AutoReadOnly
+int Property LookSlotPlateInk = 9 AutoReadOnly
+int Property LookSlotPlateBack = 10 AutoReadOnly
 int Property LookFollowLeft = 17 AutoReadOnly
 {The right tank's option "Same as the left" (its default): the left's choice, wherever a look is put on.}
+int Property LookPaintFree = 45 AutoReadOnly
+{2026-11-08a: Paint's option "Free colour" (the MCM's hue and shade; CMB_LookF4SE composes its colour).}
+int Property LookTextOwn = 0 AutoReadOnly
+int Property LookTextNone = 1 AutoReadOnly
+{The plate text's "The plate's own" (its default: the design's own text, LookPlateOwnText) and "None".}
 float Property KitSpotSide = 52.0 AutoReadOnly
 {Where the player stands at the kit: this far out from the bike's middle, on the side they stood on
 (the parked half width at the tank, about 16, the capsule and a gap), facing the bike.}
@@ -4071,6 +4131,11 @@ string lookApplied = ""        ; LookState() when ApplyLook last ran ("" not yet
 bool lookViewDue = false       ; LookFollowUp: the look on the first-person bike
 bool wornSwapDue = false       ; LookFollowUp: the worn bike's F4SE swap again
 bool wornRefused = false       ; the worn bike's mods were refused at its last equip (the F4SE swap instead)
+int lookCrudeSaid = -1         ; 2026-11-08a: the crude plate text last logged as shown as the plate's own (-1 none)
+int lookRimMods = 0            ; 2026-11-08a: the Rims option the worn bike's mods carry (AttachLook at its equip)
+int lookRimCode = 0            ; 2026-11-08a: the rim style CMB_LookCode names (ApplyLook; 0 the cast rim, also with Customise off)
+string lookWorn = ""           ; 2026-11-08a: lookApplied when the worn bike was last put on (the look its mods carry)
+bool lookColoursWorn = false   ; 2026-11-08a: the worn bike was last given colours (the colour values may be set): the next equip clears them
 
 ; MCM "Customise at the bike" (CMB_LookOn 1) with the look's records there.
 bool Function LookIsOn()
@@ -4088,28 +4153,47 @@ GlobalVariable Function LookGlobal(int aiSlot)
 		return CMB_Look_Paint
 	elseif aiSlot == LookSlotMirrors
 		return CMB_Look_Mirrors
+	elseif aiSlot == LookSlotRims
+		return CMB_Look_Rims
+	elseif aiSlot == LookSlotTyres
+		return CMB_Look_Tyres
+	elseif aiSlot == LookSlotPlate
+		return CMB_Look_Plate
+	elseif aiSlot == LookSlotPlateText
+		return CMB_Look_PlateText
+	elseif aiSlot == LookSlotPlateInk
+		return CMB_Look_PlateInk
+	elseif aiSlot == LookSlotPlateBack
+		return CMB_Look_PlateBack
 	endif
 	return None
 EndFunction
 
-; The slot's option list (CMB_LookOptions_<slot>: the OMODs, index = the choice).
+; The slot's option list (CMB_LookOptions_<slot>: the OMODs, index = the choice). None past
+; CMB_LookCategories' end (an older ESP's five lists).
 FormList Function LookList(int aiSlot)
-	if !CMB_LookCategories
+	if !CMB_LookCategories || aiSlot < 0 || aiSlot >= CMB_LookCategories.GetSize()
 		return None
 	endif
 	return CMB_LookCategories.GetAt(aiSlot) as FormList
 EndFunction
 
 ; The slot's choice: its global, or 0 (the stock look) when it is missing or past its list. With
-; abResolved the right tank's "Same as the left" (17) is the left's choice (the two lists agree on 0-16).
+; abResolved the right tank's "Same as the left" (17) is the left's choice (the two lists agree on 0-16),
+; and (2026-11-08a) the plate text as shown: "The plate's own" (0) is the plate's own text
+; (LookPlateOwnText: "None", 1, on the stock plate), and so is a crude one while "Crude plate texts"
+; (CMB_LookPlateCrude) is off, said once a change.
 int Function LookChoice(int aiSlot, bool abResolved)
 	GlobalVariable g = LookGlobal(aiSlot)
 	if !g
 		return 0
 	endif
 	int i = g.GetValue() as int
+	if abResolved && aiSlot == LookSlotPlateText
+		return LookTextShown(i)
+	endif
 	if i == 0
-		return 0   ; the stock look: no list looked at (getting on with it reads the five globals only)
+		return 0   ; the stock look: no list looked at (getting on with it reads the globals only)
 	endif
 	if abResolved && aiSlot == LookSlotTankR && i == LookFollowLeft
 		return LookChoice(LookSlotTankL, true)
@@ -4121,14 +4205,50 @@ int Function LookChoice(int aiSlot, bool abResolved)
 	return i
 EndFunction
 
-; A look other than the stock one is chosen (and Customise at the bike is on).
+; 2026-11-08a: the plate text shown for the choice aiChosen (LookChoice's abResolved).
+int Function LookTextShown(int aiChosen)
+	int i = aiChosen
+	FormList options = LookList(LookSlotPlateText)
+	if i < 0 || (options && i >= options.GetSize())
+		i = LookTextOwn
+	endif
+	if i != LookTextOwn && LookTextIsCrude(i) && CMB_LookPlateCrude && CMB_LookPlateCrude.GetValue() <= 0.0
+		int own = LookPlateOwnTextOf(LookChoice(LookSlotPlate, true))
+		if lookCrudeSaid != i
+			lookCrudeSaid = i
+			Log("Look: the plate text " + LookName(LookSlotPlateText, i) + " is crude and \"Crude plate texts\" is off: the plate's own (" + LookName(LookSlotPlateText, own) + ")")
+		endif
+		return own
+	endif
+	lookCrudeSaid = -1
+	if i == LookTextOwn
+		return LookPlateOwnTextOf(LookChoice(LookSlotPlate, true))
+	endif
+	return i
+EndFunction
+
+bool Function LookTextIsCrude(int aiText)
+	return LookTextCrude && aiText >= 0 && aiText < LookTextCrude.Length && LookTextCrude[aiText] == 1
+EndFunction
+
+; A plate design's own text (a PlateText index; "None", 1, for the stock plate and when unknown).
+int Function LookPlateOwnTextOf(int aiPlate)
+	if LookPlateOwnText && aiPlate >= 0 && aiPlate < LookPlateOwnText.Length
+		return LookPlateOwnText[aiPlate]
+	endif
+	return LookTextNone
+EndFunction
+
+; A look other than the stock one is chosen (and Customise at the bike is on). The 2026-11-08a slots
+; count as chosen (resolving nothing): the plate text's default "The plate's own" is stock even where
+; it shows as "None".
 bool Function LookActive()
 	if !LookIsOn()
 		return false
 	endif
 	int s = 0
 	while s < LookSlots
-		if LookChoice(s, true) != 0
+		if LookChoice(s, s < LookSlotRims) != 0
 			return true
 		endif
 		s += 1
@@ -4141,6 +4261,46 @@ int Function LookMirrorCode()
 	return (LookChoice(LookSlotMirrors, false) + 1) % 4
 EndFunction
 
+; 2026-11-08a: CMB_LookCode as ApplyLook writes it with Customise at the bike on: bit 2 set, the
+; mirror (bits 0-1) and the rim style (bits 3-6: 0 the cast rim, 1-7 the styles, LookRimStyle; the
+; plugin hides the other styles' shapes on the worn and first-person bikes).
+int Function LookCodeNow()
+	return 4 + LookMirrorCode() + 8 * LookRimStyleOf(LookChoice(LookSlotRims, false))
+EndFunction
+
+int Function LookRimStyleOf(int aiRims)
+	if LookRimStyle && aiRims >= 0 && aiRims < LookRimStyle.Length && LookRimStyle[aiRims] >= 0 && LookRimStyle[aiRims] <= 15
+		return LookRimStyle[aiRims]
+	endif
+	return 0
+EndFunction
+
+; 2026-11-08a: the chosen look may carry a colour CMB_LookF4SE composes (Free colour, a rim's body
+; colour, a plate design, a plate text): the worn bike is given it after each equip (its own mods
+; carry none). Reads the globals only (no call); CMB_LookF4SE's ApplyWornColours decides.
+bool Function LookColoursOn()
+	if !CMB_Look_Rims || !LookActive()
+		return false
+	endif
+	return LookChoice(LookSlotPaint, false) == LookPaintFree || LookChoice(LookSlotRims, false) != 0 || LookChoice(LookSlotPlate, false) != 0 || LookChoice(LookSlotPlateText, false) != 0
+EndFunction
+
+; 2026-11-08a: riding while CMB_LookCode names a rim style other than the one the worn bike's mods carry
+; (ApplyLook moved it: "Apply the look" with another rim style, or Customise at the bike off and a load).
+; The plugin would show only that style's rim, whose material the mods leave invisible (and the cast rim's
+; mods set off.bgsm, which no F4SE swap can match if the engine renamed it), so the ride tick puts the worn
+; bike on again: its mods follow the look. An MCM change without Apply moves nothing (EquipBike puts it on
+; first). Script variables only.
+bool Function LookRimsMoved()
+	return riding && CMB_Look_Rims && lookRimCode != LookRimStyleOf(lookRimMods)
+EndFunction
+
+; 2026-11-08a: the look as it stands is the one the worn bike was put on with, so CMB_LookF4SE's composed
+; swap (its colour values) fits the worn bike's materials.
+bool Function LookIsWorn()
+	return LookState() == lookWorn
+EndFunction
+
 string Function LookSlotText(int aiSlot)
 	if aiSlot == LookSlotTankL
 		return "tank left"
@@ -4150,8 +4310,30 @@ string Function LookSlotText(int aiSlot)
 		return "fender"
 	elseif aiSlot == LookSlotPaint
 		return "paint"
+	elseif aiSlot == LookSlotMirrors
+		return "mirrors"
+	elseif aiSlot == LookSlotRims
+		return "rims"
+	elseif aiSlot == LookSlotTyres
+		return "tyres"
+	elseif aiSlot == LookSlotPlate
+		return "plate"
+	elseif aiSlot == LookSlotPlateText
+		return "plate text"
+	elseif aiSlot == LookSlotPlateInk
+		return "plate letters"
 	endif
-	return "mirrors"
+	return "plate background"
+EndFunction
+
+; 2026-11-08a: a slot the ESP has (an older one: the first five only).
+bool Function LookSlotThere(int aiSlot)
+	return aiSlot < LookSlotRims || LookGlobal(aiSlot) != None
+EndFunction
+
+; 2026-11-08a: the slots without a material swap (the plate's colours: CMB_LookF4SE composes them).
+bool Function LookSlotColour(int aiSlot)
+	return aiSlot == LookSlotPlateInk || aiSlot == LookSlotPlateBack
 EndFunction
 
 ; An option's name for the log: its "<slot>:<key>" in LookKeys (look_options.json's keys).
@@ -4170,20 +4352,27 @@ string Function LookNow()
 	string text = ""
 	int s = 0
 	while s < LookSlots
-		if s > 0
-			text += ", "
+		if LookSlotThere(s)
+			if s > 0
+				text += ", "
+			endif
+			text += LookSlotText(s) + " " + LookName(s, LookChoice(s, false))
 		endif
-		text += LookSlotText(s) + " " + LookName(s, LookChoice(s, false))
 		s += 1
 	endwhile
 	return text
 EndFunction
 
 ; The current non-stock choices as mods on an item in the player's inventory: the worn bike before it
-; goes on (abWorn: not the mirrors, which the plugin hides by CMB_LookCode), or the look item at the
-; field kit (every slot, the right tank as itself or, while it follows, as the left). Nothing with
-; CMB_LookOn 0 or every slot stock (the 2026-11-06a path: no call). Returns how many were refused.
+; goes on (abWorn: not the mirrors, which the plugin hides by CMB_LookCode, nor the plate's colours,
+; whose mods carry no swap: CMB_LookF4SE colours the worn bike), or the look item at the field kit
+; (every slot, the right tank as itself or, while it follows, as the left; the plate text as shown, so
+; the menu's preview shows a design's own text). Nothing with CMB_LookOn 0 or every slot stock (the
+; 2026-11-06a path: no call). Returns how many were refused.
 int Function AttachLook(Armor akArmor, bool abWorn)
+	if abWorn
+		lookRimMods = 0
+	endif
 	if !akArmor || !LookActive()
 		return 0
 	endif
@@ -4191,8 +4380,14 @@ int Function AttachLook(Armor akArmor, bool abWorn)
 	int took = 0
 	int s = 0
 	while s < LookSlots
-		if !abWorn || s != LookSlotMirrors
+		if !abWorn || (s != LookSlotMirrors && !LookSlotColour(s))
 			int i = LookChoice(s, true)
+			if s == LookSlotPlateText && i == LookTextNone && LookChoice(s, false) == LookTextOwn
+				i = 0   ; the plate's own text is "None": the overlay's own material already shows none
+			endif
+			if abWorn && s == LookSlotRims
+				lookRimMods = i
+			endif
 			FormList options = LookList(s)
 			if i > 0 && options
 				ObjectMod om = options.GetAt(i) as ObjectMod
@@ -4220,11 +4415,27 @@ EndFunction
 ; on the player instead (its sources are the bike's own files only), now and once more a moment later.
 Function WornLookRefused(int aiRefused)
 	int applied = CallLookF4SE("ApplyWorn")
+	lookColoursWorn = applied >= 0   ; 2026-11-08a: ApplyWorn wrote the colour values
 	if applied < 0
 		Log("Look: " + aiRefused + " refused on the worn bike (AttachModToInventoryItem), and no CMB_LookF4SE (F4SE): the worn bike stays stock")
 		return
 	endif
 	Log("Look: " + aiRefused + " refused on the worn bike (AttachModToInventoryItem): the F4SE swap instead, " + applied + " entries applied")
+	wornSwapDue = true
+	StartTimer(WornSwapAgain, TimerLook)
+EndFunction
+
+; 2026-11-08a, EquipBike (the worn bike's mods taken) and LookAfterLoad: the look's colours (Free colour,
+; a rim's body colour, the plate's design and text colours) aren't in the mods' swaps, so CMB_LookF4SE
+; puts the composed swap, with its colour indices, on the player: now and once more a moment later, as
+; WornLookRefused. It does nothing (-2) when the look composes no colour but set the colour values to
+; -1 (the last ride's taken off); nothing without F4SE (-1).
+Function WornLookColours()
+	int applied = CallLookF4SE("ApplyWornColours")
+	lookColoursWorn = applied >= 0
+	if applied < 0
+		return
+	endif
 	wornSwapDue = true
 	StartTimer(WornSwapAgain, TimerLook)
 EndFunction
@@ -4251,9 +4462,17 @@ Function LookFollowUp()
 	endif
 	if wornSwapDue
 		wornSwapDue = false
-		int applied = CallLookF4SE("ApplyWorn")
-		if applied >= 0
-			Log("Look: the worn bike's F4SE swap again: " + applied + " entries applied")
+		string again = "ApplyWorn"
+		if !wornRefused
+			again = "ApplyWornColours"   ; 2026-11-08a: only the colours were due (the mods were taken)
+		endif
+		; 2026-11-08a: the colours only while the look is the one the worn bike was put on with (another
+		; look's colour values don't fit its materials: they wait for its next equip)
+		if wornRefused || LookIsWorn()
+			int applied = CallLookF4SE(again)
+			if applied >= 0
+				Log("Look: the worn bike's F4SE swap again: " + applied + " entries applied")
+			endif
 		endif
 	endif
 	if lookViewDue
@@ -4266,7 +4485,9 @@ Function LookFollowUp()
 EndFunction
 
 ; What the bikes show as the MCM stands: "off" with Customise at the bike off (every bike stock),
-; else "on" and each slot's choice as put on (the right tank's "Same as the left" as the left's).
+; else "on" and each slot's choice as put on (the right tank's "Same as the left" as the left's; the
+; plate text as shown, so "Crude plate texts" switched over a crude text counts), and (2026-11-08a)
+; with Free colour the MCM's hue and shade.
 string Function LookState()
 	if !LookIsOn()
 		return "off"
@@ -4277,6 +4498,9 @@ string Function LookState()
 		text += " " + LookChoice(s, true)
 		s += 1
 	endwhile
+	if LookChoice(LookSlotPaint, false) == LookPaintFree && CMB_LookHue && CMB_LookShade
+		text += " hue " + CMB_LookHue.GetValue() + " " + CMB_LookShade.GetValue()
+	endif
 	return text
 EndFunction
 
@@ -4295,9 +4519,11 @@ Function LookSync(string asFrom)
 EndFunction
 
 ; The chosen look put on the bikes: CMB_LookCode for the plugin (the worn and first-person bikes'
-; mirrors: CMB_LookOn ? 4 + the mirror : 0), the parked bike's composed swap (kept on it), and the
-; first-person bike when one is out. With the stock look and nothing to put back, CMB_LookCode only
-; (no call on any bike: 2026-11-06a's).
+; mirrors and, since 2026-11-08a, rim style: CMB_LookOn ? LookCodeNow() : 0), the parked bike's
+; composed swap (kept on it; the colour values for the plugin are the worn bike's, written at its equip),
+; and the first-person bike when one is out. While riding, a rim style moved puts the worn bike on again
+; at the next ride tick (LookRimsMoved); the rest of the worn look waits for its next equip. With the
+; stock look and nothing to put back, CMB_LookCode only (no call on any bike: 2026-11-06a's).
 Function ApplyLook(string asFrom)
 	if !CMB_LookCode && !CMB_LookOn
 		return   ; an older ESP: no look
@@ -4305,8 +4531,10 @@ Function ApplyLook(string asFrom)
 	lookApplied = LookState()
 	bool active = LookActive()
 	float code = 0.0
+	lookRimCode = 0
 	if LookIsOn()
-		code = (4 + LookMirrorCode()) as float
+		code = LookCodeNow() as float
+		lookRimCode = ((code as int) / 8) % 16   ; bits 3-6 (LookRimsMoved)
 	endif
 	if CMB_LookCode
 		CMB_LookCode.SetValue(code)
@@ -4328,6 +4556,7 @@ EndFunction
 ; swap again if its mods were refused (the load gives the player new 3D).
 Function LookAfterLoad()
 	lookNoF4seSaid = false
+	lookCrudeSaid = -1   ; 2026-11-08a: said again in this session's log
 	lookViewDue = false
 	wornSwapDue = false
 	if customising || lookKit || lookBox
@@ -4340,7 +4569,10 @@ Function LookAfterLoad()
 		Log("Look: a stray CMB_BikeLook taken back after the load (" + stray + ").")
 	endif
 	ApplyLook("load")
-	if riding && wornRefused
+	; 2026-11-08a: or its colours, while the look is the one the worn bike was put on with (else its mods
+	; keep their look, the save's colour values theirs, till its next equip: a moved rim style at the next
+	; ride tick, LookRimsMoved)
+	if riding && (wornRefused || (LookColoursOn() && lookWorn == lookApplied))
 		wornSwapDue = true
 		StartTimer(ReloadPoseDelay, TimerLook)
 	endif
@@ -4375,7 +4607,9 @@ string Function CustomiseBlocker()
 	endif
 	int s = 0
 	while s < LookSlots
-		if !LookGlobal(s)
+		if !LookSlotThere(s)
+			; 2026-11-08a's slots: an older ESP has none (the bike as the 2026-11-07a build)
+		elseif !LookGlobal(s)
 			missing += " the " + LookSlotText(s) + " global"
 		elseif CMB_LookCategories && !LookList(s)
 			missing += " the " + LookSlotText(s) + " list"
@@ -4784,7 +5018,14 @@ Function LookModded(Form akBase, ObjectMod akMod)
 				endif
 				g.SetValue(i as float)
 			endif
-			Log("Customise: " + LookSlotText(s) + " = " + LookName(s, i) + " (" + i + ")")
+			if LookSlotColour(s)
+				; 2026-11-08a: a plate colour's mod carries no swap, so the menu can't preview it: the
+				; parked bike beside the kit is re-composed at once instead.
+				int applied = CallLookF4SE("ApplyParked", None, "the field kit")
+				Log("Customise: " + LookSlotText(s) + " = " + LookName(s, i) + " (" + i + ")" + Ternary(applied >= 0, ": the parked bike re-composed", ""))
+			else
+				Log("Customise: " + LookSlotText(s) + " = " + LookName(s, i) + " (" + i + ")")
+			endif
 			return
 		endif
 		s += 1
@@ -4860,8 +5101,10 @@ Function KitTidy()
 EndFunction
 
 ; MCM "Apply the look" (CMB_MCMRelay.LookApply): a faction set (1-11) first (the paint and both tanks'
-; and the fender's badge, the right following), then every slot clamped to its list, then put on (the
-; ridden bike's worn look at the next getting on). Also the way back to stock with free customising off.
+; and the fender's badge, the right following; since 2026-11-08a the set's plate, if it has one, with
+; the plate's own text and colours), then every slot clamped to its list and the Free colour's hue
+; (0-359, whole) and shade (0-3), then put on (the ridden bike's worn look at the next getting on).
+; Also the way back to stock with free customising off.
 Function LookApplyFromMcm()
 	if !CMB_LookCode || !CMB_LookCategories
 		Log("Look: from the MCM: no look records (an older ESP): nothing done.")
@@ -4877,7 +5120,7 @@ Function LookApplyFromMcm()
 			CMB_Look_TankL.SetValue(LookSetTank[set] as float)
 			CMB_Look_TankR.SetValue(LookFollowLeft as float)
 			CMB_Look_Fender.SetValue(LookSetFender[set] as float)
-			Log("Look: faction set " + set + ": paint " + LookName(LookSlotPaint, LookSetPaint[set]) + " (" + LookSetPaint[set] + "), tanks " + LookName(LookSlotTankL, LookSetTank[set]) + " (" + LookSetTank[set] + "), fender " + LookName(LookSlotFender, LookSetFender[set]) + " (" + LookSetFender[set] + ")")
+			Log("Look: faction set " + set + ": paint " + LookName(LookSlotPaint, LookSetPaint[set]) + " (" + LookSetPaint[set] + "), tanks " + LookName(LookSlotTankL, LookSetTank[set]) + " (" + LookSetTank[set] + "), fender " + LookName(LookSlotFender, LookSetFender[set]) + " (" + LookSetFender[set] + ")" + LookSetPlateNow(set))
 		else
 			Log("Look: faction set " + set + " is not among the plugin's sets: nothing set.")
 		endif
@@ -4902,7 +5145,74 @@ Function LookApplyFromMcm()
 		s += 1
 	endwhile
 	Log("Look: from the MCM: " + LookNow())
+	LookHueFromMcm()
 	ApplyLook("the MCM")
+EndFunction
+
+; 2026-11-08a, LookApplyFromMcm's faction set: its plate (LookSetPlate, -1 = none: unchanged) with the
+; plate's own text, letters and background; returns the line's ", plate ..." ("" with an older ESP).
+string Function LookSetPlateNow(int aiSet)
+	if !CMB_Look_Plate || !LookSetPlate
+		return ""
+	endif
+	int plate = -1
+	if aiSet >= 0 && aiSet < LookSetPlate.Length
+		plate = LookSetPlate[aiSet]
+	endif
+	FormList options = LookList(LookSlotPlate)
+	if plate < 0 || (options && plate >= options.GetSize())
+		return ", plate unchanged"
+	endif
+	CMB_Look_Plate.SetValue(plate as float)
+	int s = LookSlotPlateText
+	while s <= LookSlotPlateBack
+		GlobalVariable g = LookGlobal(s)
+		if g
+			g.SetValue(0.0)
+		endif
+		s += 1
+	endwhile
+	return ", plate " + LookName(LookSlotPlate, plate) + " (" + plate + ") with its own text and colours"
+EndFunction
+
+; 2026-11-08a, LookApplyFromMcm: the MCM's "Paint hue" (whole, 0-359) and "Paint shade" (0-3) clamped,
+; and said (they colour the paint only with Paint "Free colour").
+Function LookHueFromMcm()
+	if !CMB_LookHue || !CMB_LookShade
+		return
+	endif
+	float hue = CMB_LookHue.GetValue()
+	int h = Math.Floor(hue + 0.5)
+	if h < 0
+		h = 0
+	elseif h > 359
+		h = 359
+	endif
+	if hue != (h as float)
+		CMB_LookHue.SetValue(h as float)
+	endif
+	float shade = CMB_LookShade.GetValue()
+	int sh = Math.Floor(shade + 0.5)
+	if sh < 0
+		sh = 0
+	elseif sh > 3
+		sh = 3
+	endif
+	if shade != (sh as float)
+		CMB_LookShade.SetValue(sh as float)
+	endif
+	Log("Look: from the MCM: paint hue " + h + " shade " + LookShadeName(sh) + Ternary(LookChoice(LookSlotPaint, false) == LookPaintFree, "", " (used with Paint \"Free colour\" only)"))
+EndFunction
+
+string Function LookShadeName(int aiShade)
+	if aiShade == 0
+		return "Deep"
+	elseif aiShade == 1
+		return "Normal"
+	elseif aiShade == 2
+		return "Light"
+	endif
+	return "Pastel"
 EndFunction
 
 ; ---------------------------------------------------------------------------

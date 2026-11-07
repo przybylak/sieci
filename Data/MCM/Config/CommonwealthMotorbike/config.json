@@ -566,6 +566,15 @@
     },
     {
       "type": "switcher",
+      "text": "Crude plate texts",
+      "help": "Crude wasteland humour and mild swearing among the plate texts at the field kit. Off: they aren\u0027t offered, and a plate wearing one shows its own text (at the next getting on, activation or Apply).",
+      "valueOptions": {
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|A1A"
+      }
+    },
+    {
+      "type": "switcher",
       "text": "Free customising (no field kit, no cost)",
       "help": "Choose the look here instead: the choices below, then \u0022Apply the look\u0022. No field kit and no components. Off: the choices are hidden, and the bike keeps the look it has.",
       "groupControl": 1,
@@ -714,10 +723,40 @@
           "Gunmetal",
           "Pre-war cream",
           "Primer grey",
-          "Palette test: colour index"
+          "Palette test: colour index",
+          "Free colour (hue in the MCM)"
         ],
         "sourceType": "GlobalValue",
         "sourceForm": "CommonwealthMotorbike.esp|8BF"
+      }
+    },
+    {
+      "type": "slider",
+      "text": "Paint hue",
+      "help": "The colour of the Free colour paint, round the colour wheel (0 red, 120 green, 240 blue). Pick Paint \u0022Free colour\u0022, then Apply.",
+      "groupCondition": 1,
+      "valueOptions": {
+        "min": 0,
+        "max": 359,
+        "step": 1,
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|A18"
+      }
+    },
+    {
+      "type": "stepper",
+      "text": "Paint shade",
+      "help": "How deep or pale the Free colour paint is.",
+      "groupCondition": 1,
+      "valueOptions": {
+        "options": [
+          "Deep",
+          "Normal",
+          "Light",
+          "Pastel"
+        ],
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|A19"
       }
     },
     {
@@ -738,8 +777,240 @@
     },
     {
       "type": "dropdown",
+      "text": "Rims",
+      "help": "The wheels\u0027 style and finish (Stock: the cast wheels, as they came). Body colour follows the paint.",
+      "groupCondition": 1,
+      "valueOptions": {
+        "options": [
+          "Stock (cast)",
+          "Cast, satin black",
+          "Cast, gloss black",
+          "Cast, bronze",
+          "Cast, gunmetal",
+          "Cast, body colour",
+          "Laced, chrome",
+          "Laced, satin black",
+          "Laced, gloss black",
+          "Laced, bronze",
+          "Laced, gunmetal",
+          "Laced, body colour",
+          "Solid disc, chrome",
+          "Solid disc, satin black",
+          "Solid disc, gloss black",
+          "Solid disc, bronze",
+          "Solid disc, gunmetal",
+          "Solid disc, body colour",
+          "Star five, chrome",
+          "Star five, satin black",
+          "Star five, gloss black",
+          "Star five, bronze",
+          "Star five, gunmetal",
+          "Star five, body colour",
+          "Turbine, chrome",
+          "Turbine, satin black",
+          "Turbine, gloss black",
+          "Turbine, bronze",
+          "Turbine, gunmetal",
+          "Turbine, body colour",
+          "Pre-war steel, chrome",
+          "Pre-war steel, satin black",
+          "Pre-war steel, gloss black",
+          "Pre-war steel, bronze",
+          "Pre-war steel, gunmetal",
+          "Pre-war steel, body colour",
+          "Atomic, chrome",
+          "Atomic, satin black",
+          "Atomic, gloss black",
+          "Atomic, bronze",
+          "Atomic, gunmetal",
+          "Atomic, body colour",
+          "Scrap plate, chrome",
+          "Scrap plate, satin black",
+          "Scrap plate, gloss black",
+          "Scrap plate, bronze",
+          "Scrap plate, gunmetal",
+          "Scrap plate, body colour"
+        ],
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|A1B"
+      }
+    },
+    {
+      "type": "stepper",
+      "text": "Tyres",
+      "help": "Black (as they came), whitewalls or a red line.",
+      "groupCondition": 1,
+      "valueOptions": {
+        "options": [
+          "Black (as it came)",
+          "Whitewall",
+          "Red line"
+        ],
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|A1C"
+      }
+    },
+    {
+      "type": "dropdown",
+      "text": "Plate",
+      "help": "The licence plate\u0027s design (Stock: the plain plate, as it came).",
+      "groupCondition": 1,
+      "valueOptions": {
+        "options": [
+          "Stock (plain)",
+          "Commonwealth standard",
+          "Commonwealth vintage",
+          "Blank",
+          "Vault-Tec",
+          "RobCo",
+          "Nuka-Cola",
+          "Red Rocket",
+          "Brotherhood of Steel",
+          "Minutemen",
+          "Institute",
+          "Raider scrap",
+          "Army motor pool"
+        ],
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|A1D"
+      }
+    },
+    {
+      "type": "dropdown",
+      "text": "Plate text",
+      "help": "The plate\u0027s lettering. \u0022The plate\u0027s own\u0022 is the design\u0027s; the crude ones show as the plate\u0027s own while \u0022Crude plate texts\u0022 is off.",
+      "groupCondition": 1,
+      "valueOptions": {
+        "options": [
+          "The plate\u0027s own",
+          "None",
+          "AB 1234 (Commonwealth standard)",
+          "7GH 077 (Commonwealth standard)",
+          "BOSTON (Commonwealth standard)",
+          "DIAMOND (Commonwealth standard)",
+          "MC 4471 (Commonwealth vintage)",
+          "CONCORD (Commonwealth vintage)",
+          "PRE-WAR (Commonwealth vintage)",
+          "VLT 111 (Vault-Tec)",
+          "VLT-101 (Vault-Tec)",
+          "VAULT88 (Vault-Tec)",
+          "OVRSEER (Vault-Tec)",
+          "ROBCO (RobCo)",
+          "PIP-BOY (RobCo)",
+          "UOS-77 (RobCo)",
+          "NUKA 4U (Nuka-Cola)",
+          "QUANTUM (Nuka-Cola)",
+          "CHERRY (Nuka-Cola)",
+          "FUEL UP (Red Rocket)",
+          "RED RKT (Red Rocket)",
+          "PALADIN (Brotherhood of Steel)",
+          "PRYDWEN (Brotherhood of Steel)",
+          "AD VIC (Brotherhood of Steel)",
+          "MM 1776 (Minutemen)",
+          "GENERAL (Minutemen)",
+          "CASTLE (Minutemen)",
+          "GEN-3 (Institute)",
+          "COURSER (Institute)",
+          "C.I.T. (Institute)",
+          "LOOTED (Raider scrap)",
+          "PSYCHO (Raider scrap)",
+          "ARMY 07 (Army motor pool)",
+          "T-51B (Army motor pool)",
+          "DOGMEAT (funny)",
+          "GOODBOY (funny)",
+          "ANOTHER (funny)",
+          "SYNTH? (funny)",
+          "B4 BOMB (funny)",
+          "NO RADS (funny)",
+          "I\u003C3RADS (funny)",
+          "GLOWING (funny)",
+          "STIMPAK (funny)",
+          "SGR BMB (funny)",
+          "MOO MOO (funny)",
+          "NO CAPS (funny)",
+          "STOLEN (funny)",
+          "HOTWIRE (funny)",
+          "BITE ME (crude)",
+          "U SUCK (crude)",
+          "SCREW U (crude)",
+          "EATDUST (crude)",
+          "DAMN IT (crude)",
+          "HELL YA (crude)",
+          "OH CRAP (crude)",
+          "PISSOFF (crude)",
+          "JACKASS (crude)",
+          "BADASS (crude)",
+          "DIRTBAG (crude)",
+          "BASTARD (crude)",
+          "UR NEXT (crude)",
+          "STAYMAD (crude)"
+        ],
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|A1E"
+      }
+    },
+    {
+      "type": "dropdown",
+      "text": "Plate letters",
+      "help": "The letters\u0027 colour (\u0022The plate\u0027s own\u0022: the design\u0027s).",
+      "groupCondition": 1,
+      "valueOptions": {
+        "options": [
+          "The plate\u0027s own",
+          "Plate white",
+          "Cream",
+          "Black",
+          "Plate red",
+          "Maroon",
+          "Commonwealth blue",
+          "Vault blue",
+          "Vault yellow",
+          "Orange",
+          "Forest green",
+          "Olive drab",
+          "Gunmetal",
+          "Teal",
+          "Phosphor green",
+          "Silver",
+          "Rust"
+        ],
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|A1F"
+      }
+    },
+    {
+      "type": "dropdown",
+      "text": "Plate background",
+      "help": "The plate\u0027s colour (\u0022The plate\u0027s own\u0022: the design\u0027s).",
+      "groupCondition": 1,
+      "valueOptions": {
+        "options": [
+          "The plate\u0027s own",
+          "Plate white",
+          "Cream",
+          "Black",
+          "Plate red",
+          "Maroon",
+          "Commonwealth blue",
+          "Vault blue",
+          "Vault yellow",
+          "Orange",
+          "Forest green",
+          "Olive drab",
+          "Gunmetal",
+          "Teal",
+          "Phosphor green",
+          "Silver",
+          "Rust"
+        ],
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|A20"
+      }
+    },
+    {
+      "type": "dropdown",
       "text": "Faction set",
-      "help": "Sets the paint and all three badges to one faction\u0027s when you press Apply.",
+      "help": "Sets the paint, all three badges and, for some factions, the plate to one faction\u0027s when you press Apply.",
       "groupCondition": 1,
       "valueOptions": {
         "options": [

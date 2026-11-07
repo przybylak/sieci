@@ -8,10 +8,10 @@ from your own copy of the game and the downloaded model:
 
 | File (under `Data\`) | Built by | What it is |
 |---|---|---|
-| `Meshes\CMB\CMB_BikeParked.nif` | `harley_meshes.py` (`build_bike_meshes.py` for the vanilla bike) | the vanilla motorcycle nif with its own shape hidden and the model's 27 shapes added, `CMB_Bike_<label>` (30 since the 2026-11-07a build: the badge split in three and the rear fender's badge patch, and the two under-bar mirrors no longer hidden by their node flag but naming invisible materials; 25 in the 2026-10-31a build, before the brake discs were shapes of their own; twelve from test 38 to 27c, nine before; the two under-bar mirror styles among them hidden by their node flag; not the tail and brake lights' shells nor the dial's backlight, which only light on the riding bike), so its collision is kept; it keeps its sun shadow whole (the no-shadow flag below is the worn nifs' alone: test 35 found the parked bike's front end shadowless too) |
+| `Meshes\CMB\CMB_BikeParked.nif` | `harley_meshes.py` (`build_bike_meshes.py` for the vanilla bike) | the vanilla motorcycle nif with its own shape hidden and the model's 27 shapes added, `CMB_Bike_<label>` (46 since the 2026-11-08a build: the licence plate a shape of its own with our text overlay over it, and our seven rim styles on each wheel, invisible until chosen; 30 in the 2026-11-07a build: the badge split in three and the rear fender's badge patch, and the two under-bar mirrors no longer hidden by their node flag but naming invisible materials; 25 in the 2026-10-31a build, before the brake discs were shapes of their own; twelve from test 38 to 27c, nine before; the two under-bar mirror styles among them hidden by their node flag; not the tail and brake lights' shells nor the dial's backlight, which only light on the riding bike), so its collision is kept; it keeps its sun shadow whole (the no-shadow flag below is the worn nifs' alone: test 35 found the parked bike's front end shadowless too) |
 | `Meshes\CMB\CMB_BikeWornRider.nif`, `CMB_BikeWornRiderF.nif` | `harley_meshes.py --seat` | the same model as wearable armor: faces forward, seat over the origin, hanging off the rider's `COM` bone (male and female seat heights); no light nodes since test 32 (the game keeps only a skinned nif's shapes; the beam is a light the controller places, kept at the lens by `CMB_Slope.dll`); the bar assembly's, the lower fork's and front wheel's shapes cast no shadow (test 34: the bike shadowed its own headlamp; the worn nifs only), the lower fork (the sliders, front mudguard, caliper, axle and boots: three `_fork` shapes) rides with the front wheel's suspension travel since test 38, and the bar assembly takes the grips, levers, switch housings and the left mirror since test 35 (they sit 45 to 57 behind the steering head and stayed with the frame while the bars turned) |
 | `Meshes\CMB\CMB_BikeWorn.nif` | `harley_meshes.py` | the same again (shapes, shadow flag and bar assembly), skinned to the `AnimObjectA` bone on the ground: used when the rider isn't seated |
-| `Meshes\CMB\CMB_BikeView.nif` | `harley_meshes.py` (`--view 0` leaves it out) | since the 2026-11-01a build: the bike in first person, where the game hides the worn bike with the rest of the player's third-person 3D. The worn nif's 30 shapes with the same vertices (in full precision, as the parked nif's), materials and shadow flags, unskinned, named `CMB_BikeView_<label>` under one NiNode `CMB_BikeView` hidden by its flag bit 0 (without `CMB_Slope.dll` a placed copy shows nothing), no collision. The controller places it (the `CMB_BikeView` MovableStatic) and the plugin shows and moves it in first person (DESIGN.md) |
+| `Meshes\CMB\CMB_BikeView.nif` | `harley_meshes.py` (`--view 0` leaves it out) | since the 2026-11-01a build: the bike in first person, where the game hides the worn bike with the rest of the player's third-person 3D. The worn nif's 30 shapes (33 in the 2026-11-07a build, 49 since the 2026-11-08a build) with the same vertices (in full precision, as the parked nif's), materials and shadow flags, unskinned, named `CMB_BikeView_<label>` under one NiNode `CMB_BikeView` hidden by its flag bit 0 (without `CMB_Slope.dll` a placed copy shows nothing), no collision. The controller places it (the `CMB_BikeView` MovableStatic) and the plugin shows and moves it in first person (DESIGN.md) |
 | `Meshes\CMB\CMB_BikeFit.json` | `harley_meshes.py` | where the bike's seat, grips, pegs and steering axis are, for the riding clips (`riding_anims.py --fit`); the grip centre at (29.4, -10.7, 96) since test 38 (`--grip 29.4,-10.7,96`, the rubber sleeve's centre by a fit of its vertices; test 34's 24.5,-15,98 put the hands on the lever perches, and 20 on the lever clamps) |
 | `Meshes\CMB\CMB_BikeParts.ini` | `harley_meshes.py` | the axles, wheel radius, steering axis, `FrontMinY` (the line between the fixed shapes' culling spheres and the bar assembly's and lower fork's, halfway between the nearest two, 31.3 since test 38; it comes out of each build's shapes, so the grips joining the assembly in test 35 needed nothing of the plugin), `Grip` (the +x grip's centre in the worn bike's space, the fit's grip_r, 29.4, 38.39, 96.0: the wrist roll's pivot since test 39) and the headlamp's lens for `CMB_Slope.dll`, which spins the wheels, turns the bars and places the lamp's light (install it with the meshes); since the 2026-10-31a build also the speedometer's needle (`NeedlePoint`, `NeedleAxis`, `NeedleZero`, `NeedleMax`, `NeedlePerMph`: without them the needle is never turned), and `FrontMinY` 31.7 (31.3 in 27c); every other key as 27c's |
 | `Textures\CMB\Bike\<mat>_d.dds`, `_n.dds`, `_s.dds`, `_g.dds`; `mirror_cube_e.dds`, `mirror_cube_zup_e.dds` | `bike_textures.py` (`build_bike.sh`'s `textures` stage) | since the 2026-10-31a build: one texture set per material on the shape's own UV atlas, baked from the full model and authored procedurally (DESIGN.md, *The bike's look*); the mirrors' sky (the zup file the same sky with +Z up, a one-file swap if the game shows it sideways), since the 2026-11-02a build only in the optional "2026-11-01a look (A-B)" folder: the mirrors name the game's `Shared\Cubemaps\MetalBrushed02Cube_e.dds`, and a cube of ours is written only if a material names it. 91 files, 86.6 MB since the 2026-11-02a build (93 and 88.6 in the 2026-11-01a build, 90 and 85.3 in the 2026-10-31a build): 30 materials, the needle's its own (the dial's art and a glow map on the blade), the two brake discs on one set, `wheelF_disc_*` (`bike_art.py`'s disc art; the rear disc's material names the front's textures, `"textures_of"`). 27c's three palette textures directly in `Textures\CMB` (`*_d.dds`, `_n`, `_s`: one colour block per part) are no longer used; `--uvs none` (the emergency build) writes that palette again as `Textures\CMB\CMB_Bike_d.dds`, `_n`, `_s` |
@@ -21,6 +21,12 @@ from your own copy of the game and the downloaded model:
 | `Textures\CMB\Bike\static_paint_rf_d.dds`, `fork_paint_rf_d.dds`, `paint_p.dds` | `look_paint.py` | since the 2026-11-07a build: the paint's Restored index maps (2048 and 1024, BC1: each texel's part and shade as a grey, mips per part) and the palette (256 x 64, A8R8G8B8, one mip: 43 rows of `look_options.json`'s colours, rows 43-63 copies of row 42); ours, computed from the 2026-11-06a paint |
 | `Materials\CMB\Bike\static_paint_rf<rr>.bgsm`, `..._worn.bgsm`, `fork_paint_rf<rr>.bgsm`, `..._worn.bgsm` (rr 00-42, and `_rftest`) | `look_paint.py` | since the 2026-11-07a build: 176, the 2026-11-06a paint materials pointed at the index map and the palette row (row + 0.5) / 64; Factory is 2026-11-06a's own files |
 | `Materials\CMB\Bike\static_badgeTankL`, `static_badgeTankR`, `static_badgeRear` (`.bgsm`, `_worn.bgsm`); `off.bgsm`, `static_badgeFender(.bgsm, _worn.bgsm)`, `front_mirrorUnderEgg_off.bgsm`, `front_mirrorUnderD_off.bgsm`; `Textures\CMB\Bike\off_d.dds`, `off_n.dds`, `off_s.dds` | `look_paint.py` | since the 2026-11-07a build: the split badge's three shapes (2026-11-06a's `static_badge(.bgsm, _worn)` byte for byte, which are gone from the tree) and the five invisible materials (alpha test 255, alpha 0, no shadows; the fender patch's with decal on) over 4 x 4 textures; the build then has 100 DDS and 259 BGSM |
+| `Materials\CMB\Bike\static_plate`, `static_plateText`, `wheelF_rim<Style>`, `wheelR_rim<Style>` (`.bgsm`, `_worn.bgsm`; Style Laced, Disc, Star, Turbine, Prewar, Atomic, Scrap) | `look_shapes.py` | since the 2026-11-08a build: 32, the new shapes' own files: the plate's (2026-11-07a's `static_black` ones with its three textures renamed `static_plate_d/_n/_s`) and the overlay's and the rim styles' invisible ones (as `off.bgsm`, no shadows) |
+| `Textures\CMB\Bike\rims_d.dds`, `rims_chrome_d.dds`, `rims_n.dds`, `rims_s.dds`, `rim_p.dds`; `castF_i_d.dds`, `castR_i_d.dds` | `look_wheels.py` | since the 2026-11-08a build: our own rim atlas for the 14 rim shapes, 4 x 4 cells of 512: the index map (2048 BC1: the finish's shade, the trims, rust and bare steel as greys, mips per part), the chrome finish's own diffuse (1024 BC1), the normal and smoothness maps (1024 BC5), the finishes' palette (256 x 8: satin black, gloss black, bronze, gunmetal); the cast rims' index maps (1024 BC1), re-sampled per texel from our own 2026-11-07a rim diffuse. Procedural shading: no game texture |
+| `Textures\CMB\Bike\wheelF_tyre_ww_d.dds`, `wheelR_tyre_ww_d.dds`, `wheelF_tyre_rl_d.dds`, `wheelR_tyre_rl_d.dds`; `paint_hue_p.dds`; `paint_p.dds` (changed) | `look_wheels.py` | since the 2026-11-08a build: the whitewall and red-line tyres, our 2026-11-07a tyre diffuse with a band on both sidewalls (1024 BC1); the free colour's palette (256 x 1024, one mip: 4 shades x 256 hues); the paint palette with Factory added as row 43 (rows 0-42 2026-11-07a's byte for byte) |
+| `Materials\CMB\Bike\rimF_<f>`, `rimR_<f>` (f chrome, satin, gloss, bronze, gunmetal, body, bodyhue), `castF_<f>`, `castR_<f>` (the same but chrome), `wheelF_tyre_ww`, `wheelR_tyre_ww`, `wheelF_tyre_rl`, `wheelR_tyre_rl`, `static_paint_hue`, `fork_paint_hue` (`.bgsm`, `_worn.bgsm`) | `look_wheels.py` | since the 2026-11-08a build: 64, the rims' finishes on 2026-11-07a's `wheel?_rim` files (palette rows, or chrome's own diffuse and cube), the tyres' on its tyre files, the free colour's on C1's paint materials |
+| `Textures\CMB\Bike\plates_d.dds`, `plates_n.dds`, `plates_s.dds`, `plate_text_d.dds`, `plate_text_n.dds`, `plate_text_s.dds`, `plate_p.dds`, `plate_text_p.dds`; `static_plate_d.dds`, `static_plate_n.dds`, `static_plate_s.dds` | `bike_art.py --plates` (the drawings, PNG) and `look_plates.py` (the DDS) | since the 2026-11-08a build: our own licence plates: the 12 designs' atlas (BC1 2048 x 1024, BC5 1024 x 512 and 512 x 256), the 60 texts' atlas (BC3 2048 with the letters in its alpha, BC5 1024 and 512), their palettes (256 x 256 and 256 x 16, one mip) and the stock plate's own textures (256 x 128, 2026-11-07a's `static_black` texels re-sampled into the plate's new UVs): 11 files, 10,001,376 bytes. The plate font (41 glyphs and two for legends), a monoline script, the designs and their emblems drawn as strokes and shapes in `bike_art.py`: no font file, no image, no real plate, seal or slogan |
+| `Materials\CMB\Bike\plate_<key>.bgsm`, `text_<key>.bgsm` | `look_plates.py` | since the 2026-11-08a build: 12 designs (2026-11-07a's `static_black` material on the plate atlas's cell, palette on) and 60 texts (the badges' material, alpha test, decal, on the text atlas's cell, palette on); the build then has 123 DDS (124.3 MB: 2026-11-07a's 102.8 MB, 114.3 with the rims', tyres' and hue's 12, then the plates' 10.0) and 427 BGSM |
 | `Meshes\Actors\Character\Animations\MT\CMB_Rider\*.hkx` and `...\CMB_Rider\Female\*.hkx` | `riding_anims.py` | seated riding versions of the holstered walk/run/turn/start/stop/idle clips (the arms' IK pole mostly down since test 39, (0.35, -0.3, -1.0) in the rig's root space, the left mirrored in x; before, (1, -0.6, -0.7), mostly sideways, which put the elbows out at shoulder height; the hand's frame from the forearm since test 40, its long axis along it seen along the grip, `HAND_PITCH` degrees above it, 0: before, a fixed frame, the wrists bent down 30 degrees in the cruise pose, test 39's "cat paw"), and of the jump/fall/land clips when those were extracted |
 | `...\CMB_Rider\CMB_RiderClips.json` (and `Female\`) | `riding_anims.py` | each clip's root motion and events, for the step below |
 | `...\CMB_Rider\CMB_RiderSeat.json` (and `Female\`) | `riding_anims.py` | where the seated rider's `COM` bone sits, for the bike that hangs off it |
@@ -185,6 +191,37 @@ about 10 minutes; 64 transparent layers, `transparent_max_bounces`, since the pa
 under-bar mirrors rendered black past 8); `--swap Slot:key[,...]` one look. The option table, `look_options.json`, is
 read only: the options and their files come from it.
 
+**The second customisation build's files (2026-11-08a).** `export` and `build` make the 49-shape nifs (46 parked:
+`MESH_ARGS="--look-rims 1 --look-plate 1"`, the defaults; both 0 give the 2026-11-07a build's five nifs byte for byte):
+`bike_pieces.py` draws the seven rim styles for each wheel and the plate's text overlay, `harley_meshes.py` splits the
+plate from `static_black` and exports the new shapes to the stage with their UVs and parts. Then, after the first
+build's three steps (the paint's, the badges'), with the DDS Python and from the repository's root:
+
+```
+<DDS python> -I tools/rider/look_shapes.py --data <Data> --base <2026-11-07a's Data>           # then --check
+<DDS python> -I tools/rider/look_wheels.py --data <Data> --base <2026-11-07a's Data> \
+    --stage <2026-11-07a's stage> --rim-stage <stage>                                            # then --check
+python3 -I tools/rider/bike_art.py --plates --out <art folder>
+<DDS python> -I tools/rider/look_plates.py --art <art folder> --out <Data> \
+    --old-stage <2026-11-07a's stage> --stage <stage>                          # then --check, --sheet <folder>
+```
+
+`look_shapes.py` writes the new shapes' 32 own materials files (the plate's from `static_black`'s, the overlay's and
+the rim styles' invisible). `look_wheels.py` writes the rim atlas from the stage's rim shapes (their UVs and parts), the
+cast rims' index maps and the tyres' bands from 2026-11-07a's own textures and stage (`--stage`: its cast rims' and
+tyres' bakes, unchanged), the hue palette, `paint_p.dds` with Factory's row and its 64 materials; `--check` reads them
+all back (21 checks: the palettes against their generators, every finish through BC1, the palette proof, the bands'
+radii). `bike_art.py --plates` draws the 12 designs and 60 texts into PNGs and `plates.json` (a run without `--plates`
+is byte for byte as before); `look_plates.py` writes the two atlases, their palettes, the stock plate's re-sampled
+textures (from 2026-11-07a's stage and the new one's `static_plate` UVs) and the 72 materials; `--check` reads them
+back (21 checks, the brand and plate-slogan scan among them) and `--sheet` writes contact sheets of every design and
+text. `check_bike_meshes.py --look-c2 --c2-reference <2026-11-07a's Data>` checks the new shapes, the plate's split and
+the rims' clearances, and with the art in `--look-targets all` every swap's target; it counts the 8 `_bodyhue` twins
+(named by the table's `rim_body_targets`, by no swap) as the table's, and holds every palette the table names (C1's
+`paint_p`, `paint_hue_p`, `rim_p`, `plate_p`, `plate_text_p`) to the palette's rule: A8R8G8B8, exactly one mip.
+`look_render.py --sheet rims,tyres,plates,hue` renders them on the bikes, `--compose --swap Slot:key[,...]` prints a
+look's composed swap and colours without Blender.
+
 To look before going in game, `tools/rider/look_render.py` renders the built bike as the game shades it (DESIGN.md,
 *The bike's look*), in Blender's Python:
 
@@ -206,9 +243,9 @@ enable below the main one:
   four, parked and worn, and the five nifs of `Meshes\CMB` (their shader blocks): 21 files, 43.5 MB (43,471,117 bytes),
   each equal to the 2026-11-02a package's. No texture changed, so none is in it. One restart shows test 49's look: the
   brighter, pearly chrome and the whiter discs and rims. No `CMB_BikeFit.json`, no `CMB_BikeParts.ini`: the packager's
-  guard refuses them, and any file that isn't nif, dds, bgsm or bgem. **The 2026-11-07a package ships no optional
-  folder**: this one's meshes have one badge and the parked under-bar mirrors hidden by their node flag, so with it
-  ticked no badge, paint or mirror choice shows on the parked bike: untick it.
+  guard refuses them, and any file that isn't nif, dds, bgsm or bgem. **The 2026-11-07a and 2026-11-08a packages ship no
+  optional folder**: this one's meshes have one badge and the parked under-bar mirrors hidden by their node flag, so
+  with it ticked no badge, paint or mirror choice shows on the parked bike: untick it.
 
 The 2026-11-02a package's folder, *Commonwealth Motorbike - 2026-11-01a look (A-B)*, is retired: the 2026-11-01a build's
 bytes of every art file the 2026-11-02a build changed or dropped: the five nifs of `Meshes\CMB` (the disc bore, and the
@@ -483,7 +520,17 @@ badge.
 
 Everything else the customisation ships is ours: the 13 badges (above: drawn from shapes, no source), the atlas, the
 palette and the index maps (computed from our own 2026-11-06a paint), the 187 materials files of `look_paint.py` and the
-17 of `look_badges.py`. Our badges add no credit line. The badges and the paint schemes are named for the game's own
+17 of `look_badges.py`. Our badges add no credit line.
+
+**The second customisation build (2026-11-08a) borrows no new file.** Its art is all ours: the seven rim styles'
+geometry (procedural, `bike_pieces.py`), the rim atlas, its palette and the cast rims' index maps (procedural shading
+and our own 2026-11-07a textures re-sampled), the tyres' bands (our 2026-11-07a tyre diffuse with a band added), the
+hue palette (computed), and the plates: the plate font, the monoline script, the 12 designs, their emblems (our badge
+drawers) and the 60 texts, drawn by `bike_art.py --plates`, no font file, image, real seal, slogan or plate layout. By
+path it names only what the first build did: the chrome finish the game's `Shared\Cubemaps\MetalChrome01Cube_e.dds`
+(as our badges and the bike's chrome), the other finishes `Shared\Cubemaps\mipblur_DefaultOutside1_dielectric.dds`
+(as the stock rims). By FormID: the same components (`c_Steel`, `c_Screws`, `c_Oil`, `c_Adhesive`) and `Armorer01`.
+No credit line is added. The badges and the paint schemes are named for the game's own
 factions and fictional brands (the Brotherhood, the Minutemen, Vault-Tec, Nuka-Cola, Red Rocket and the others), drawn
 as our own art.
 

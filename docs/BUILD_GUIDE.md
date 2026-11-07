@@ -127,12 +127,25 @@ rows and faction sets, which the meshes' and badges' tools, `check_plugin.py` an
 keep their index and their records' IDs; a later build only appends. After adding options there, run `dotnet
 tools/esp-generator/bin/out/EspGenerator.dll --look-ids tools/esp-generator/look_ids.txt` and commit `look_ids.txt`: it
 only appends (it refuses to change or drop a line), and `check_plugin.py` fails when the plugin doesn't match it.
-`tools/build.sh`'s plugin check then prints `checked 102 look options in 5 slots: 101 swaps, 102 recipes on
-CMB_WorkbenchBike, 3 loose mods, sources unique per slot, CMB_LookCode 0008AF, highest 000A13; look_ids.txt 347 IDs; the
-MCM's Look section 11 controls`, `checked cmb_controllerscript: 174 properties` and `checked cmb_lookf4se: 10
-properties`; the ESP holds 562 in its header's count (208 + 347 records and the 7 new groups), its next ID 0xA14. The
-customisation's meshes, badges and paint are built by `tools/rider` ([ASSETS.md](ASSETS.md), *The customisation's
-files*).
+In the 2026-11-07a build `tools/build.sh`'s plugin check printed `checked 102 look options in 5 slots: 101 swaps, 102
+recipes on CMB_WorkbenchBike, 3 loose mods, sources unique per slot, CMB_LookCode 0008AF, highest 000A13; look_ids.txt
+347 IDs; the MCM's Look section 11 controls`, `checked cmb_controllerscript: 174 properties` and `checked cmb_lookf4se:
+10 properties`, and the ESP held 562 in its header's count (208 + 347 records and the 7 new groups), its next ID 0xA14.
+
+Since 2026-11-08a (the second customisation build) the table also holds six new slots and Paint's 46th option, and the
+generator makes their 477 records as a second block after the first build's, at 0xA14-0xBF0 (the four colour values at
+the fixed 0xA14-0xA17, then the hue, the shade, the crude switch, the slots' globals and attach points, the options and
+their lists: `look_ids.txt` 824 IDs). `tools/build.sh` prints `checked 263 look options in 11 slots: 227 swaps, 263
+recipes on CMB_WorkbenchBike, 3 loose mods, 14 crude behind CMB_LookPlateCrude, sources unique per slot, CMB_LookCode
+0008AF, colours 000A14-000A17, highest 000BF0; look_ids.txt 824 IDs; the MCM's Look section 20 controls`, `checked
+cmb_controllerscript: 187 properties` and `checked cmb_lookf4se: 31 properties`; the ESP holds 1039 in its header's
+count (562 + 477, no new group), its next ID 0xBF1. `dotnet tools/esp-generator/bin/out/EspGenerator.dll --look-build
+2026-11-07a <folder>/CommonwealthMotorbike.esp` makes the 2026-11-07a build's ESP (and its MCM `config.json` and
+`keybinds.json` in `<folder>/MCM/Config/CommonwealthMotorbike/`) byte for byte: every `look_options.json` entry
+`"since": "2026-11-08a"` dropped; any build name but 2026-11-07a and 2026-11-08a is refused. The customisation's
+meshes, badges, paint, rims, tyres and plates are built by `tools/rider` ([ASSETS.md](ASSETS.md), *The
+customisation's files* and *The second customisation build's files*: `harley_meshes.py --look-rims 1 --look-plate 1`,
+the defaults, then `look_shapes.py`, `look_wheels.py`, `bike_art.py --plates` and `look_plates.py`).
 
 The vanilla form IDs the plugins use (PlayerRef, XMarker, HumanRace, HumanRaceSubGraphData, SpeedMult, CarryWeight, FallingDamageMod, Health, Pip-Boy, AnimArchetypePlayer) were checked against Mutagen's FormKey list generated from the real `Fallout4.esm`. The record layouts were also compared field by field with xEdit's Fallout 4 definitions.
 
@@ -214,6 +227,14 @@ You only need this if the generated plugin turns out to have a problem and you'd
      customisation's 347 records are the generator's (`LookRecords`, from `look_options.json`); by hand they are too
      many to list here: `dotnet tools/esp-generator/bin/out/EspGenerator.dll --dump Data/CommonwealthMotorbike.esp`
      prints each.
+   - Since 2026-11-08a the group `Look_C2` (13 properties, 187 in all: the six new slots' globals `CMB_Look_Rims`,
+     `CMB_Look_Tyres`, `CMB_Look_Plate`, `CMB_Look_PlateText`, `CMB_Look_PlateInk`, `CMB_Look_PlateBack`, then
+     `CMB_LookHue`, `CMB_LookShade`, `CMB_LookPlateCrude` and the arrays `LookRimStyle` (48), `LookTextCrude` (62),
+     `LookPlateOwnText` (13) and `LookSetPlate` (12)) and `CMB_LookF4SE`'s 21 more (31: the same nine globals, the four
+     colour values `CMB_LookPaintV` to `CMB_LookPlateTextV`, the arrays `PaintRow`, `RimBody`, `TextCrude`,
+     `PlateOwnText`, `PlateOwnInk`, `PlateOwnBack` and the string arrays `RimBodyTargets`, `RimBodyHueTargets`), none
+     Mandatory; `LookKeys` now 263 ("Paint:free" after "Paint:test", so `LookSlotStart` is 0, 17, 35, 53, 99, 103, 151,
+     154, 167, 229, 246). The 477 records are the generator's (`BuildC2`), `--dump` prints them (1009 records).
    - The MCM's seven new controls (Riding: the four first-person sliders and "Power attacks throw you off"; Sound:
      "Landing sounds without metal" and the "Water sound loop" stepper) are in `config.json`, written by the generator.
 9. **Properties:** fill every *Mandatory* property ("Auto-Fill All" gets the vanilla ones). Script-typed properties called `Controller` point at `CMB_ControllerQuest`. `Pipboy` is the vanilla Pip-Boy armor (00021B3B), `FallingDamageMod` and `Health` the vanilla actor values (000BA43D, 000002D4).

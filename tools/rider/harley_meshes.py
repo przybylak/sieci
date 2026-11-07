@@ -57,7 +57,8 @@ discs are the mod's own drilled discs (bike_pieces.disc_pieces, --disc model for
 whose dented plates shade by the averaged normals).
 The parts go into 30 shapes (LABELS; 28 with --disc model; since the 2026-11-07a build 33, LOOK_LABELS: static_badge
 split into the two tank plates and the rear roundel, and our patch on the rear fender, the customisation slots' own
-shapes, --look-slots 0 for the 30), by what moves them (role_of: the fixed bike; the bar
+shapes, --look-slots 0 for the 30; since the 2026-11-08a build 49, look_labels(): the licence plate split from
+static_black with its text overlay, --look-plate, and the seven rim styles on each wheel, --look-rims), by what moves them (role_of: the fixed bike; the bar
 assembly, "front": the bars, grips, levers, mirrors, the fork tubes, both triple clamps, the
 speedometer and the headlamp, which the plugin turns about the steering axis with the rider's
 steering; the fork's lower end, "fork": the sliders, the front mudguard, the brake caliper, the
@@ -73,7 +74,8 @@ A shape's name is <stem>_<label> and says its role (static_, rear_, front_, fork
 wheelR_; the plugin reads the role from the name first and from the culling sphere
 otherwise, CMB_BikeParts.ini), so it can be told apart however many there are (the plugin
 holds up to 48 since the 2026-10-31a build; before, at most 16, which is why 27c had twelve), and the game
-shows at most 65535 vertices per shape (MAX_VERTS keeps a margin for the UV seams). The
+shows at most 65535 vertices per shape (MAX_VERTS keeps a margin for the UV seams; the plugin holds 64 since the
+2026-11-08a build). The
 fallback build (--uvs none) shades them from palette textures as 27c did (MATERIALS below;
 the body colour is --body); the textured build (--stage) names a materials file per shape
 and takes each shape's shader values from bike_materials.json (see BUILD STAGES).
@@ -85,6 +87,7 @@ and takes each shape's shader values from bike_materials.json (see BUILD STAGES)
       [--sit 0.27] [--grip 29.4,-10.7,96] [--peg 19,6,27]
       [--stage export|build --stage-dir S] [--materials bike_materials.json] [--uvs none|stage] [--bgsm 0|1]
       [--volume-guard 1|0] [--disc ours|model] [--disc-bore shared|bolts] [--view 1|0] [--look-slots 1|0]
+      [--look-rims 1|0] [--look-plate 1|0]
 
 BUILD STAGES (build_bike.sh runs them): with no --stage, the fallback build (--uvs none): palette
 textures, no materials files (the 27c way). The textured build is three steps: --stage export
@@ -231,6 +234,37 @@ ROLE_OF_LABEL.update(LOOK_LABELS)
 FIXED_UV = FIXED_UV + BADGE_SPLIT + (FENDER_BADGE,)
 BADGE_UV = ("static_badge",) + BADGE_SPLIT   # bike_pieces.badge_uvs' layout
 PARKED_OFF = ("front_mirrorUnderEgg", "front_mirrorUnderD")
+# The second customisation build (2026-11-08a, C2; --look-rims 1 and --look-plate 1, the defaults; both 0 = LOOK_LABELS,
+# 2026-11-07a's nifs byte for byte). The plate: glTF mesh 24 (PLATE_MESHES) out of static_black into static_plate, with
+# fixed UVs of its own (bike_pieces.plate_uvs: the rear face read true from behind over 0..1, the rest on the design
+# cell's strip), its materials static_black's values over its own re-sampled textures (static_plate_d/_n/_s); and ours,
+# static_plateText (bike_pieces.plate_text_overlay: the text band 0.30 over the face), invisible until a text is swapped
+# on, as static_badgeFender. static_black is assembled whole as 2026-11-07a's and split after, so the texture stage's
+# UVs serve it less the plate's rows, and it keeps 2026-11-07a's culling sphere (the union with the plate's: FrontMinY
+# and the sphere rules unmoved). The rims: bike_pieces.rim_style_pieces, one shape a style a wheel (RIM_STYLE_LABELS,
+# wheelF_rim<Style> / wheelR_rim<Style>, roles wheelF / wheelR: they spin and steer as the tyres), made after the
+# wheels are measured (measure_parts never sees them), fixed UVs in the rim atlas's cells, each its own materials file,
+# invisible (bike_materials.json, as static_badgeFender) until a Rims option swaps its style on and the cast rim to
+# off.bgsm; the plugin hides the styles not chosen on the worn and view bikes (its rim group).
+RIM_STYLES = ("Laced", "Disc", "Star", "Turbine", "Prewar", "Atomic", "Scrap")   # bike_pieces.RIM_STYLES, rim 1-7
+RIM_STYLE_LABELS = tuple((f"wheel{w}_rim{style}", f"wheel{w}") for style in RIM_STYLES for w in ("F", "R"))
+PLATE_LABEL, PLATE_TEXT = "static_plate", "static_plateText"
+C2_LABELS = ((PLATE_LABEL, ""), (PLATE_TEXT, "")) + RIM_STYLE_LABELS
+
+
+def look_labels(rims=True, plate=True):
+    """The customisation build's shapes: LOOK_LABELS, with the plate's two after static_black (plate) and the 14 rim
+    styles after wheelR_disc (rims)."""
+    out = []
+    for label, role in LOOK_LABELS:
+        out.append((label, role))
+        if plate and label == "static_black":
+            out += [(PLATE_LABEL, ""), (PLATE_TEXT, "")]
+    return tuple(out) + (RIM_STYLE_LABELS if rims else ())
+
+
+ROLE_OF_LABEL.update(C2_LABELS)
+FIXED_UV = FIXED_UV + tuple(label for label, _ in C2_LABELS)
 OFF_MAT = "off"   # bike_materials.json's invisible material (Materials\CMB\Bike\off.bgsm, Textures\CMB\Bike\off_*.dds)
 MAX_VERTS = 60000   # per shape, after the UV seams (the game's limit is 65535)
 # Routing (label_of): the glTF meshes that go somewhere their material alone wouldn't send them.
@@ -368,6 +402,12 @@ DEFAULT_SHADERS = {
     # 2026-11-07a (--look-slots 1): the split plates as static_badge (over its textures), the fender patch invisible
     **{b: {**_ENV("CH", 0.8), "textures_of": "static_badge"} for b in BADGE_SPLIT},
     FENDER_BADGE: dict(alpha=dict(mode="test", flags=4844, threshold=255), textures_of=OFF_MAT),
+    # 2026-11-08a: the plate as static_black (over its own textures), the text overlay and the rim styles invisible
+    "static_plate": {}, "static_plateText": dict(alpha=dict(mode="test", flags=4844, threshold=255), textures_of="off"),
+    **{label: dict(alpha=dict(mode="test", flags=4844, threshold=255), textures_of="off") for label in
+       ("wheelF_rimLaced", "wheelR_rimLaced", "wheelF_rimDisc", "wheelR_rimDisc", "wheelF_rimStar", "wheelR_rimStar",
+        "wheelF_rimTurbine", "wheelR_rimTurbine", "wheelF_rimPrewar", "wheelR_rimPrewar", "wheelF_rimAtomic",
+        "wheelR_rimAtomic", "wheelF_rimScrap", "wheelR_rimScrap")},
     "rear_tail": _GLOW((1.0, 0.012, 0.006), 2.5), "rear_brake": _GLOW((1.0, 0.005, 0.0025), 8.0),   # deep red, brake brighter
     "front_chrome": _ENV("CH", 1.0), "front_black": {}, "front_glass": {**_ENV("GL", 1.0), **_GLASS},
     "front_glow": _GLOW((1.0, 0.95, 0.9), 6.0, False), "front_dial": {}, "front_needle": _GLOW((1.0, 0.12, 0.03), 1.5),
@@ -1169,7 +1209,7 @@ def load_shaders(path):
     shadow (test 34: the bars, fork and front wheel shadowed the headlamp's beam). Every shape of either label set
     (LABELS, LOOK_LABELS: a materials file may name either's); spec[OFF_MAT] is the invisible material's (2026-11-07a:
     OFF_SHADER, bike_materials.json's "off" over it), which no shape has as its own."""
-    known = dict(LABELS + LOOK_LABELS)
+    known = dict(LABELS + LOOK_LABELS + C2_LABELS)
     mats = {label: SHAPE_MAT.get(label, label) for label in known}
     spec = {}
     for label, role in known.items():
@@ -1485,6 +1525,16 @@ def main() -> int:
                          "static_badgeFender (invisible), the parked nif's under-bar mirrors shown with invisible "
                          "<label>_off.bgsm materials (PARKED_OFF) instead of node-hidden: 33 shapes; 0: LABELS' 30, "
                          "2026-11-06a's nifs byte for byte")
+    ap.add_argument("--look-rims", type=int, choices=(0, 1), default=1,
+                    help="1 (since the 2026-11-08a build): the seven rim styles, each wheel's its own shape "
+                         "(wheelF_rimLaced ... wheelR_rimScrap, bike_pieces.rim_style_pieces), invisible materials "
+                         "files until a Rims option swaps one on; 0: none (with --look-plate 0, 2026-11-07a's nifs "
+                         "byte for byte). Only with --look-slots 1")
+    ap.add_argument("--look-plate", type=int, choices=(0, 1), default=1,
+                    help="1 (since the 2026-11-08a build): the licence plate split from static_black into "
+                         "static_plate (its own UVs and materials), and static_plateText over its face, invisible "
+                         "until a text is swapped on; 0: the plate in static_black, as 2026-11-07a. Only with "
+                         "--look-slots 1")
     args = ap.parse_args()
     grip = np.array([float(t) for t in args.grip.split(",")])
     peg = np.array([float(t) for t in args.peg.split(",")])
@@ -1542,7 +1592,12 @@ def main() -> int:
                       role=lambda v: role_of(v, parts, raked=False), sources=sources, guard=bool(args.volume_guard),
                       shape_of=lambda name, v, mesh: label_of(role_of(v, parts), name, mesh) or "", guard_report=guard_report)
     look = bool(args.look_slots)
-    labels_built = [(label, role) for label, role in (LOOK_LABELS if look else LABELS) if args.disc == "ours" or label not in DISC_LABELS]
+    look_rims, look_plate = look and bool(args.look_rims), look and bool(args.look_plate)   # 2026-11-08a
+    if look_rims and tuple(getattr(BP, "RIM_STYLES", ())) != RIM_STYLES:
+        print(f"bike_pieces.RIM_STYLES isn't {RIM_STYLES}", file=sys.stderr)
+        return 1
+    labels_built = [(label, role) for label, role in (look_labels(look_rims, look_plate) if look else LABELS)
+                    if args.disc == "ours" or label not in DISC_LABELS]
     seat_front, seat_back = float(seat_v[:, 1].min()), float(seat_v[:, 1].max())
     hips_y = args.seat_at if args.seat_at is not None else seat_front + args.sit * (seat_back - seat_front)
     # The worn bike is turned round and shifted so the hips' spot lands at HIPS_Y_WORN.
@@ -1760,12 +1815,39 @@ def main() -> int:
         next_piece += 1
         print(f"  {FENDER_BADGE}: the rear fender's badge patch, {len(pf)} triangles, {len(pv)} vertices, lifted "
               f"{BP.FENDER_PATCH_LIFT} over glTF mesh {REAR_FENDER_MESH}'s {sum(len(x[1]) for x in fender)} triangles")
+    rim_parts = {}   # 2026-11-08a: piece -> its part (bike_pieces.RIM_PART_MATERIAL's keys) for the stage export
+    if look_plate:   # the plate's text overlay over its rear face (static_black's glTF mesh 24 pieces, parked frame)
+        pv_ = [(v, f) for _, v, f, _, _, mesh, _ in collected["static_black"] if mesh in PLATE_MESHES]
+        if not pv_:
+            print(f"--look-plate 1: no piece of glTF mesh {PLATE_MESHES} in static_black", file=sys.stderr)
+            return 1
+        tris_ = np.concatenate([v[f] for v, f in pv_])
+        wv, wf = BP.weld(tris_)
+        face, _, _ = BP.plate_face(wv, wf)
+        tv, tf, tn, tuv = BP.plate_text_overlay(wv[wf[face]], flip)
+        collected[PLATE_TEXT].append(("logo_decals", tv, tf, unit(tn), tuv.astype(np.float64), -1, next_piece))
+        next_piece += 1
+        print(f"  {PLATE_TEXT}: the plate's text band, {len(tf)} triangles, lifted {BP.PLATE_TEXT_LIFT} over glTF mesh "
+              f"{PLATE_MESHES[0]}'s rear face ({int(face.sum())} of its {len(wf)} triangles)")
+    if look_rims:   # the rim styles about the axles (parked frame)
+        for wheel, axle in (("F", "front_axle"), ("R", "rear_axle")):
+            for style in RIM_STYLES:
+                label = f"wheel{wheel}_rim{style}"
+                for material, v, f, n, uv, part in BP.rim_style_pieces(style, wheel, [float(x) for x in parts[axle]], flip):
+                    rim_parts[next_piece] = part
+                    collected[label].append((material, v, f, unit(n), uv.astype(np.float64), -1, next_piece))
+                    next_piece += 1
+        print(f"  the rim styles: {', '.join(RIM_STYLES)} on each wheel, "
+              f"{sum(len(p[2]) for lb, _ in RIM_STYLE_LABELS for p in collected[lb])} triangles")
     print(f"ours: {len(ours)} pieces (the speedometer's dial, backlight, needle and hub; the tail and brake light shells; "
           f"the under-bar mirrors, egg and D{'; the brake discs' if args.disc == 'ours' else ''}) ({made:.0f} s)")
 
     # The shapes, each its pieces together (the vanilla's winding).
     shapes = {}   # label -> dict(v, f, n, mat, src, piece, uvc (fixed UVs per corner or None), role)
+    black_keep = None   # 2026-11-08a (--look-plate 1): which of the whole static_black's triangles stay in it
     for label, role in labels_built:
+        if look_plate and label == PLATE_LABEL:   # made by static_black's split (below)
+            continue
         if not collected[label]:
             print(f"the {label} shape has no pieces", file=sys.stderr)
             return 1
@@ -1800,6 +1882,21 @@ def main() -> int:
             return 1
         shapes[label] = dict(v=v, f=f, n=unit(n), mat=np.array(mats, np.int16), src=np.array(srcs, np.int16),
                              piece=np.array(pids, np.int32), uvc=uvc, role=role)
+        if look_plate and label == "static_black":   # 2026-11-08a: the plate out of the whole, as 2026-11-07a made it
+            whole = shapes.pop(label)
+            plate = np.isin(whole["src"], PLATE_MESHES)
+            black_keep = ~plate
+            for name, sel, rl in ((label, black_keep, role), (PLATE_LABEL, plate, ROLE_OF_LABEL[PLATE_LABEL])):
+                used = np.zeros(len(whole["v"]), bool)
+                used[whole["f"][sel].ravel()] = True
+                remap = np.cumsum(used) - 1
+                shapes[name] = dict(v=whole["v"][used], f=remap[whole["f"][sel]], n=whole["n"][used], mat=whole["mat"][sel],
+                                    src=whole["src"][sel], piece=whole["piece"][sel], uvc=None, role=rl)
+            pl = shapes[PLATE_LABEL]
+            pl["uvc"] = np.asarray(BP.plate_uvs(pl["v"], pl["f"]), dtype=np.float64)
+            print(f"  {PLATE_LABEL}: glTF mesh {PLATE_MESHES[0]}'s {int(plate.sum())} triangles out of static_black's "
+                  f"{len(plate)} ({len(pl['v'])} vertices), its own UVs")
+    shapes = {label: shapes[label] for label, _ in labels_built}   # the nifs' order
 
     # Checks: the overlays clear of what they cover in half floats; every mirror clear of the tank at full lock.
     def worn_tris(s, sel=None):
@@ -1820,6 +1917,10 @@ def main() -> int:
         sp_ = shapes["static_paint"]
         overlays.append((FENDER_BADGE, "rear fender", worn_v(shapes[FENDER_BADGE]["v"]),
                          worn_tris(sp_, sp_["src"] == REAR_FENDER_MESH), BP.FENDER_PATCH_LIFT))
+    if look_plate:   # 2026-11-08a: the text overlay over the plate's rear face
+        pl = shapes[PLATE_LABEL]
+        pface, _, _ = BP.plate_face(pl["v"], pl["f"])
+        overlays.append((PLATE_TEXT, "plate face", worn_v(shapes[PLATE_TEXT]["v"]), worn_tris(pl, pface), BP.PLATE_TEXT_LIFT))
     gaps = overlay_gaps(overlays)
     for name, base, nominal, exact, half in gaps:
         print(f"  overlay {name} over {base}: {exact:.3f} off ({half:.3f} in half floats; nominal {nominal})")
@@ -1846,6 +1947,8 @@ def main() -> int:
         union = sphere_of(turned(np.vstack([shapes[b]["v"] for b in BADGE_SPLIT])))
         for b in BADGE_SPLIT:
             spheres[b] = union
+    if look_plate:   # 2026-11-08a: static_black keeps 2026-11-07a's sphere (with the plate's vertices)
+        spheres["static_black"] = sphere_of(turned(np.vstack([shapes["static_black"]["v"], shapes[PLATE_LABEL]["v"]])))
     pivot = np.array([float(x) for x in (needle_keys["NeedlePoint"].split(",") if isinstance(needle_keys["NeedlePoint"], str)
                                          else needle_keys["NeedlePoint"])])
     # The needle turns about its pivot: its sphere there, as long as the needle, so the sweep never leaves it.
@@ -1892,6 +1995,22 @@ def main() -> int:
                 sources=sorted(set(int(x) for x in s["src"]) - {-1}), ours=bool((s["src"] == -1).any()),
                 parked=label not in WORN_ONLY, parked_hidden=label in PARKED_HIDDEN and not look,
                 **({"parked_off": label in PARKED_OFF} if look else {}))
+            if label in dict(RIM_STYLE_LABELS):   # 2026-11-08a: the rim atlas's cell and the parts by material
+                style, wheel = label[len("wheelF_rim"):], label[len("wheel")]
+                manifest["labels"][label]["rim"] = dict(
+                    style=style, index=RIM_STYLES.index(style) + 1, wheel=wheel, cell=list(BP.rim_cell(style, wheel)),
+                    atlas=BP.RIM_ATLAS, margin=BP.RIM_MARGIN, regions={k: list(v) for k, v in BP.RIM_REGIONS.items()},
+                    parts={p: m for p, m in BP.RIM_PART_MATERIAL.items()},
+                    part_codes={p: i for i, p in enumerate(BP.RIM_PART_MATERIAL)})
+            if look_plate and label == "static_black":
+                manifest["labels"][label]["split"] = dict(
+                    plate=PLATE_LABEL, meshes=list(PLATE_MESHES), whole_tris=int(len(black_keep)),
+                    uv="the texture stage's static_black rows less the plate's (uv/static_black.npz of the whole)")
+            if look_plate and label == PLATE_LABEL:
+                manifest["labels"][label]["plate"] = dict(
+                    face="0..1 read true from behind (u the viewer's right, v down)", strip_v=BP.PLATE_STRIP_V,
+                    strip_dv=BP.PLATE_STRIP_DV, text=PLATE_TEXT, text_lift=BP.PLATE_TEXT_LIFT,
+                    text_band_u=list(BP.PLATE_TEXT_BAND_U), text_band_v=list(BP.PLATE_TEXT_BAND_V))
         if exporting:
             (stage / "shapes").mkdir(parents=True, exist_ok=True)
             written, kept = [], []
@@ -1900,6 +2019,9 @@ def main() -> int:
                               mat=s["mat"], src=s["src"], piece=s["piece"])
                 if s["uvc"] is not None:
                     arrays["uv_fixed"] = s["uvc"].astype(np.float32)
+                if label in dict(RIM_STYLE_LABELS):   # 2026-11-08a: each triangle's part (0 body, 1 trim, 2 steel)
+                    codes = list(BP.RIM_PART_MATERIAL)
+                    arrays["part"] = np.array([codes.index(rim_parts[int(p)]) for p in s["piece"]], dtype=np.int8)
                 # Written only if it changed (since the 2026-11-01a build): savez stamps the time into the file, and the
                 # texture stage keys its caches on the files' bytes, so a rewrite of the same arrays re-keyed every bake
                 path = stage / "shapes" / f"{label}.npz"
@@ -1949,6 +2071,9 @@ def main() -> int:
             if uv_file.exists():
                 with np.load(uv_file) as e:
                     uvc = np.asarray(e["uv"], dtype=np.float64)
+                if label == "static_black" and black_keep is not None and uvc.shape == (len(black_keep), 3, 2):
+                    uvc = uvc[black_keep]   # 2026-11-08a: the whole's UVs (the texture stage's) less the plate's
+                    info_file = None
                 if uvc.shape != (len(s["f"]), 3, 2):
                     print(f"{uv_file}: UVs {uvc.shape} for {len(s['f'])} triangles", file=sys.stderr)
                     return 1
@@ -1960,7 +2085,7 @@ def main() -> int:
             else:
                 print(f"{uv_file} is missing: run the texture stage (bike_textures.py) on {args.stage_dir}", file=sys.stderr)
                 return 1
-            info = json.loads(info_file.read_text()) if info_file.exists() else {}
+            info = json.loads(info_file.read_text()) if info_file is not None and info_file.exists() else {}
             mat = info.get("mat", mat_of[label])
             if mat != mat_of[label]:
                 print(f"  {label}: material {mat} (the texture stage's), not {mat_of[label]}")

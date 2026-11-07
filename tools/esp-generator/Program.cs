@@ -241,6 +241,19 @@ public static class Program
 
     public static int Main(string[] args)
     {
+        // 2026-11-08a: `--look-build <build>` first makes the look as that build had it: `--look-build 2026-11-07a` drops
+        // every C2 entry of look_options.json, so the ESP and the MCM's files are 2026-11-07a's byte for byte (the off
+        // value of the C2 build). The rest of the arguments as without it.
+        if (args.Length >= 2 && args[0] == "--look-build")
+        {
+            if (!LookRecords.Builds.Contains(args[1]))
+            {
+                Console.Error.WriteLine($"--look-build {args[1]}: look_options.json knows {string.Join(" and ", LookRecords.Builds)}.");
+                return 1;
+            }
+            LookRecords.Through = args[1];
+            args = args[2..];
+        }
         if (args.Length == 2 && args[0] == "--dump")
         {
             Dump(args[1]);
@@ -344,16 +357,78 @@ public static class Program
         var lookTable = LookRecords.LoadTable();
         var lookSlots = LookRecords.ReadSlots(lookTable).ToDictionary(s => s.Key);
         string[] Names(string slot) => lookSlots[slot].Options.Select(o => o.Name).ToArray();
-        object Look(string type, string text, string help, string global, string[]? options = null, int? groupControl = null, int? groupCondition = null)
+        // 2026-11-08a: and a slider (range: min, max, step) in the group.
+        object Look(string type, string text, string help, string global, string[]? options = null, int? groupControl = null, int? groupCondition = null,
+                    (float Min, float Max, float Step)? range = null)
         {
             var c = new Dictionary<string, object> { ["type"] = type, ["text"] = text, ["help"] = help };
             if (groupControl is int gc)
                 c["groupControl"] = gc;
             if (groupCondition is int g)
                 c["groupCondition"] = g;
-            c["valueOptions"] = options == null ? Global(global) : new { options, sourceType = "GlobalValue", sourceForm = Form(Rec(global)) };
+            c["valueOptions"] = range is var (min, max, step)
+                ? new { min, max, step, sourceType = "GlobalValue", sourceForm = Form(Rec(global)) }
+                : options == null ? Global(global) : new { options, sourceType = "GlobalValue", sourceForm = Form(Rec(global)) };
             return c;
         }
+        // The Look section: 2026-11-07a's 11 controls, and since 2026-11-08a 20 (the crude switch outside the free-mode group;
+        // in it the hue and shade after Paint, the rims, tyres and the plate's four after Mirrors). `--look-build 2026-11-07a`
+        // writes 07a's 11 as they were.
+        bool c2 = lookSlots.ContainsKey("Rims");
+        var lookSection = new List<object>
+        {
+            Section("Look"),
+            Look("switcher", "Customise at the bike", "A Customise button in the parked bike's menu: the field kit comes out of the side bag and you change the bike's badges, paint and mirrors at the armour menu. Off: no button, and the bike looks as it came.",
+                "CMB_LookOn"),
+            Look("stepper", "Field kit", "Automatic tries the toolbox, then an armour bench, and remembers the one that worked. The others force one (for a test).",
+                "CMB_KitMode", new[] { "Automatic", "Toolbox", "Toolbox (armour bench keyword)", "Armour bench" }),
+            Look("switcher", "Parts from the side bag", "Outside your settlements the field kit uses the side bag's components as well as yours. Off: only yours (and a settlement's workshop).",
+                "CMB_KitBagLink"),
+        };
+        if (c2)
+            lookSection.Add(Look("switcher", "Crude plate texts", "Crude wasteland humour and mild swearing among the plate texts at the field kit. Off: they aren't offered, and a plate wearing one shows its own text (at the next getting on, activation or Apply).",
+                "CMB_LookPlateCrude"));
+        lookSection.AddRange(new[]
+        {
+            Look("switcher", "Free customising (no field kit, no cost)", "Choose the look here instead: the choices below, then \"Apply the look\". No field kit and no components. Off: the choices are hidden, and the bike keeps the look it has.",
+                "CMB_LookFree", groupControl: 1),
+            Look("dropdown", "Tank badge, left", "The badge on the tank's left side (Stock: the winged wheel, as it came).", "CMB_Look_TankL", Names("TankL"), groupCondition: 1),
+            Look("dropdown", "Tank badge, right", "The badge on the tank's right side. \"Same as the left\" follows the left one.", "CMB_Look_TankR", Names("TankR"), groupCondition: 1),
+            Look("dropdown", "Rear fender badge", "A badge on the rear fender (None: as it came).", "CMB_Look_Fender", Names("Fender"), groupCondition: 1),
+            Look("dropdown", "Paint", "The tank's and fenders' paint and the coachline (Factory: the oxblood, as it came).", "CMB_Look_Paint", Names("Paint"), groupCondition: 1),
+        });
+        if (c2)
+            lookSection.AddRange(new[]
+            {
+                Look("slider", "Paint hue", "The colour of the Free colour paint, round the colour wheel (0 red, 120 green, 240 blue). Pick Paint \"Free colour\", then Apply.",
+                    "CMB_LookHue", groupCondition: 1, range: (0, 359, 1)),
+                Look("stepper", "Paint shade", "How deep or pale the Free colour paint is.", "CMB_LookShade",
+                    lookTable.GetProperty("hue_palette").GetProperty("shades").EnumerateArray().Select(x => x[0].GetString()!).ToArray(), groupCondition: 1),
+            });
+        lookSection.Add(Look("stepper", "Mirrors", "The stock mirrors, mirrors under the bars (egg or D), or none.", "CMB_Look_Mirrors", Names("Mirrors"), groupCondition: 1));
+        if (c2)
+            lookSection.AddRange(new[]
+            {
+                Look("dropdown", "Rims", "The wheels' style and finish (Stock: the cast wheels, as they came). Body colour follows the paint.", "CMB_Look_Rims", Names("Rims"), groupCondition: 1),
+                Look("stepper", "Tyres", "Black (as they came), whitewalls or a red line.", "CMB_Look_Tyres", Names("Tyres"), groupCondition: 1),
+                Look("dropdown", "Plate", "The licence plate's design (Stock: the plain plate, as it came).", "CMB_Look_Plate", Names("Plate"), groupCondition: 1),
+                Look("dropdown", "Plate text", "The plate's lettering. \"The plate's own\" is the design's; the crude ones show as the plate's own while \"Crude plate texts\" is off.",
+                    "CMB_Look_PlateText", Names("PlateText"), groupCondition: 1),
+                Look("dropdown", "Plate letters", "The letters' colour (\"The plate's own\": the design's).", "CMB_Look_PlateInk", Names("PlateInk"), groupCondition: 1),
+                Look("dropdown", "Plate background", "The plate's colour (\"The plate's own\": the design's).", "CMB_Look_PlateBack", Names("PlateBack"), groupCondition: 1),
+            });
+        lookSection.AddRange(new[]
+        {
+            Look("dropdown", "Faction set", c2 ? "Sets the paint, all three badges and, for some factions, the plate to one faction's when you press Apply."
+                                              : "Sets the paint and all three badges to one faction's when you press Apply.", "CMB_LookFactionSet",
+                LookRecords.ReadSets(lookTable).Select(x => x.Name).ToArray(), groupCondition: 1),
+            new Dictionary<string, object>
+            {
+                ["type"] = "button", ["text"] = "Apply the look",
+                ["help"] = "Puts these choices on the bike now (the ridden bike at the next getting on).",
+                ["groupCondition"] = 1, ["action"] = Call("LookApply"),
+            },
+        });
 
         var config = new
         {
@@ -452,28 +527,8 @@ public static class Program
                 new { type = "hotkey", id = "ToggleHeadlamp", text = "Headlamp on / off", help = "Switches the headlamp while riding, until you get off or the next dusk or dawn; the setting above stays as it is." },
                 Switcher("Headlamp casts shadows", "The beam casts shadows (costlier: the game runs only a few shadow lights at once). Takes effect the next time you get on.", "CMB_HeadlampShadows"),
                 Switcher("Tail lamp lights the road", "The tail lamp casts a small red light behind the bike, brighter while you brake (needs F4SE and CMB_Slope.dll). Takes effect the next time you get on.", "CMB_TailLightMode"),
-                Section("Look"),
-                Look("switcher", "Customise at the bike", "A Customise button in the parked bike's menu: the field kit comes out of the side bag and you change the bike's badges, paint and mirrors at the armour menu. Off: no button, and the bike looks as it came.",
-                    "CMB_LookOn"),
-                Look("stepper", "Field kit", "Automatic tries the toolbox, then an armour bench, and remembers the one that worked. The others force one (for a test).",
-                    "CMB_KitMode", new[] { "Automatic", "Toolbox", "Toolbox (armour bench keyword)", "Armour bench" }),
-                Look("switcher", "Parts from the side bag", "Outside your settlements the field kit uses the side bag's components as well as yours. Off: only yours (and a settlement's workshop).",
-                    "CMB_KitBagLink"),
-                Look("switcher", "Free customising (no field kit, no cost)", "Choose the look here instead: the choices below, then \"Apply the look\". No field kit and no components. Off: the choices are hidden, and the bike keeps the look it has.",
-                    "CMB_LookFree", groupControl: 1),
-                Look("dropdown", "Tank badge, left", "The badge on the tank's left side (Stock: the winged wheel, as it came).", "CMB_Look_TankL", Names("TankL"), groupCondition: 1),
-                Look("dropdown", "Tank badge, right", "The badge on the tank's right side. \"Same as the left\" follows the left one.", "CMB_Look_TankR", Names("TankR"), groupCondition: 1),
-                Look("dropdown", "Rear fender badge", "A badge on the rear fender (None: as it came).", "CMB_Look_Fender", Names("Fender"), groupCondition: 1),
-                Look("dropdown", "Paint", "The tank's and fenders' paint and the coachline (Factory: the oxblood, as it came).", "CMB_Look_Paint", Names("Paint"), groupCondition: 1),
-                Look("stepper", "Mirrors", "The stock mirrors, mirrors under the bars (egg or D), or none.", "CMB_Look_Mirrors", Names("Mirrors"), groupCondition: 1),
-                Look("dropdown", "Faction set", "Sets the paint and all three badges to one faction's when you press Apply.", "CMB_LookFactionSet",
-                    LookRecords.ReadSets(lookTable).Select(x => x.Name).ToArray(), groupCondition: 1),
-                new Dictionary<string, object>
-                {
-                    ["type"] = "button", ["text"] = "Apply the look",
-                    ["help"] = "Puts these choices on the bike now (the ridden bike at the next getting on).",
-                    ["groupCondition"] = 1, ["action"] = Call("LookApply"),
-                },
+            }.Concat(lookSection).Concat(new object[]
+            {
                 Section("Hotkeys"),
                 new { type = "hotkey", id = "ToggleRide", text = "Get on / off / call the bike", help = "If you use this, set the built-in hotkey below to 0 so the key doesn't fire twice." },
                 Slider("Built-in hotkey (scan code)", "The F4SE hotkey that works without MCM. 48 = B, 34 = G, 47 = V, 0 = off. Press Apply after changing it.",
@@ -484,7 +539,7 @@ public static class Program
                 Section("Troubleshooting"),
                 Button("Give me the keys", "For alternative starts that skip the Pip-Boy: hands over the Motorbike Keys now.", "ForceGiveKeys"),
                 Button("Emergency reset", "Gets you off the bike and undoes everything riding changed: speed, controls, animations, hidden companions.", "EmergencyReset"),
-            },
+            }).ToArray(),
         };
         var keybinds = new
         {
@@ -1128,6 +1183,11 @@ public static class Program
         // globals, keywords and attach points, the look item, the field kit's three furnitures and its box, the composed
         // swap, the mirrors' loose mods, a material swap, an object mod and a recipe per option, the lists. And in place:
         // the parked menu's Customise button, the riding armours' keyword and attach points (LookRecords).
+        // 2026-11-08a (C2): then 0xA14-0xBF0 (LookRecords.BuildC2, look_options.json's entries "since": "2026-11-08a"): the
+        // four colour values at fixed IDs, the MCM's hue, shade and crude switch, the six slots' globals and attach points,
+        // Paint's option 45, the rims', tyres' and the plate's four slots' options, their lists; in place the look item's and
+        // the riding armours' six more attach points, the template's six more option 0s, Paint's lists' 46th entries, the
+        // lists of lists. `--look-build 2026-11-07a`: none of it (2026-11-07a's ESP byte for byte).
         var look = LookRecords.Build(mod, armor, armorFrame, msgParked);
 
         // --- Controller quest ---
@@ -1366,6 +1426,39 @@ public static class Program
             Obj("CMB_Look_Fender", look.SlotGlobal("Fender")),
             Obj("CMB_Look_Paint", look.SlotGlobal("Paint")),
             Obj("CMB_Look_Mirrors", look.SlotGlobal("Mirrors")));
+        // 2026-11-08a (C2): the controller's Look_C2 group, 13, after LookSlotStart (the six slots' globals, the hue, the
+        // shade, the crude switch; per Rims option its style, per PlateText option its crude flag, per Plate option its own
+        // text, per faction set its plate), and CMB_LookF4SE's 21 after the C1 ten (the six globals, the three the MCM sets,
+        // the four colour values; per Paint option its paint_p row, per Rims option its body finish, per PlateText option
+        // its crude flag, per Plate option its own text, letters and background, the body-colour targets and their hue
+        // twins). Not with `--look-build 2026-11-07a` (None in every one: the 2026-11-07a look).
+        if (look.HasC2)
+        {
+            string[] c2Slots = { "Rims", "Tyres", "Plate", "PlateText", "PlateInk", "PlateBack" };
+            ScriptProperty[] Globals(params string[] editorIds) => editorIds.Select(e => (ScriptProperty)Obj(e, look.C2Global(e))).ToArray();
+            ScriptProperty[] SlotGlobals() => c2Slots.Select(k => (ScriptProperty)Obj(look.SlotOf(k).Global, look.SlotGlobal(k))).ToArray();
+            controller.Properties.InsertRange(controller.Properties.FindIndex(p => p.Name == "LookSlotStart") + 1,
+                SlotGlobals().Concat(Globals("CMB_LookHue", "CMB_LookShade", "CMB_LookPlateCrude")).Concat(new ScriptProperty[]
+                {
+                    IntList("LookRimStyle", look.RimStyle),
+                    IntList("LookTextCrude", look.TextCrude),
+                    IntList("LookPlateOwnText", look.PlateOwnText),
+                    IntList("LookSetPlate", look.SetPlate),
+                }));
+            lookF4se.Properties.AddRange(SlotGlobals()
+                .Concat(Globals("CMB_LookHue", "CMB_LookShade", "CMB_LookPlateCrude", "CMB_LookPaintV", "CMB_LookRimV", "CMB_LookPlateV", "CMB_LookPlateTextV"))
+                .Concat(new ScriptProperty[]
+                {
+                    IntList("PaintRow", look.PaintRow),
+                    IntList("RimBody", look.RimBody),
+                    IntList("TextCrude", look.TextCrude),
+                    IntList("PlateOwnText", look.PlateOwnText),
+                    IntList("PlateOwnInk", look.PlateOwnInk),
+                    IntList("PlateOwnBack", look.PlateOwnBack),
+                    StringList("RimBodyTargets", look.RimBodyTargets.Select(t => t.Body)),
+                    StringList("RimBodyHueTargets", look.RimBodyTargets.Select(t => t.Hue)),
+                }));
+        }
 
         quest.VirtualMachineAdapter = new QuestAdapter
         {
@@ -1614,14 +1707,25 @@ public static class Program
     // attaches or applies a choice (CMB_LookOn 0: no Customise button, nothing attached).
     public sealed class LookRecords
     {
+        // Since 2026-11-08a (C2) an option or a slot may carry `since` (the build that added it), a slot its own global's and
+        // attach point's IDs (C1's are made in one run from FirstId), an option `crude` (PlateText), `rim_style` and `finish`
+        // (Rims). A slot without swaps (the plate's two colour slots) has Swaps and SwapsId null and no sources.
         public sealed record Option(int Index, string Key, string Name, string Kind, float? Cnam, (string Component, uint Count)[] Cost,
-                                    string? Perk, string? Loose, (string From, string To)[]? Swap, string?[] Ids);
-        public sealed record Slot(string Key, string Ap, string Name, string Global, int Default, string List, string Swaps,
-                                  string ListId, string SwapsId, string[] Sources, Option[] Options);
-        public sealed record Set(int Index, string Key, string Name, int? Paint, int? TankLeft, int? TankRight, int? Fender);
+                                    string? Perk, string? Loose, (string From, string To)[]? Swap, string?[] Ids,
+                                    string? Since, bool Crude, int? RimStyle, string? Finish);
+        public sealed record Slot(string Key, string Ap, string Name, string Global, int Default, string List, string? Swaps,
+                                  string ListId, string? SwapsId, string[] Sources, Option[] Options,
+                                  string? Since, string? GlobalId, string? ApId);
+        public sealed record Set(int Index, string Key, string Name, int? Paint, int? TankLeft, int? TankRight, int? Fender, int? Plate);
 
         // The first ID after 2026-11-06a's forms; CMB_LookCode is LookCodeId (0x8AF), the one below it.
         public const uint FirstId = 0x8BA;
+        // The builds the table knows: C1's entries carry no `since`, C2's "2026-11-08a". The generator's `--look-build <b>`
+        // sets Through, and LoadTable drops every entry of a later build: `--look-build 2026-11-07a` makes 2026-11-07a's
+        // ESP (and MCM) byte for byte, the off value of everything C2 adds.
+        public const string C1Build = "2026-11-07a", C2Build = "2026-11-08a";
+        public static readonly string[] Builds = { C1Build, C2Build };
+        public static string Through = C2Build;
         public const string ToolboxModel = @"SetDressing\Toolbox\Toolbox_Large.nif";                       // the game's, by path
         public const string BenchModel = @"Furniture\Workstations\WorkbenchArmor\WorkstationArmorB01.nif"; // WorkbenchArmorA's, by path
         public const string LooseModModel = @"Props\ModsPartBox\ModCrate.nif";                              // the game's loose mods'
@@ -1652,6 +1756,21 @@ public static class Program
         public FormList SwapLists { get; private set; } = null!;
         readonly Dictionary<string, GlobalFloat> slotGlobals = new();
         public GlobalFloat SlotGlobal(string slot) => slotGlobals[slot];
+        // 2026-11-08a: the four colour values at fixed IDs and the three the MCM sets, by EditorID; the table's C2 parts the
+        // fills read. HasC2 false (`--look-build 2026-11-07a`): none made, nothing filled.
+        readonly Dictionary<string, GlobalFloat> c2Globals = new();
+        public GlobalFloat C2Global(string editorId) => c2Globals[editorId];
+        public bool HasC2 => Slots.Any(s => s.Since != null) || Slots.Any(s => s.Options.Any(o => o.Since != null));
+        public Slot SlotOf(string key) => Slots.First(s => s.Key == key);
+        public int[] PaintRow { get; private set; } = Array.Empty<int>();
+        public int[] PlateOwnText { get; private set; } = Array.Empty<int>();
+        public int[] PlateOwnInk { get; private set; } = Array.Empty<int>();
+        public int[] PlateOwnBack { get; private set; } = Array.Empty<int>();
+        public (string Body, string Hue)[] RimBodyTargets { get; private set; } = Array.Empty<(string, string)>();
+        public int[] SetPlate => Sets.Select(s => s.Plate ?? -1).ToArray();
+        public int[] RimStyle => SlotOf("Rims").Options.Select(o => o.RimStyle ?? 0).ToArray();
+        public int[] RimBody => SlotOf("Rims").Options.Select(o => o.Finish == "body" ? 1 : 0).ToArray();
+        public int[] TextCrude => SlotOf("PlateText").Options.Select(o => o.Crude ? 1 : 0).ToArray();
         // The controller's arrays: per faction set (index = CMB_LookFactionSet; 0 "(none)" -1) its Paint, left tank and fender
         // indices; "<slot>:<key>" for every option, slot-major; each slot's first index in Keys.
         public int[] SetPaint => Sets.Select(s => s.Paint ?? -1).ToArray();
@@ -1666,15 +1785,45 @@ public static class Program
             using var stream = typeof(LookRecords).Assembly.GetManifestResourceStream("look_options.json")
                 ?? throw new InvalidOperationException("look_options.json isn't in the generator (EspGenerator.csproj embeds it)");
             using var doc = JsonDocument.Parse(stream);
-            return doc.RootElement.Clone();
+            return Until(doc.RootElement, Through);
+        }
+        // The table up to a build: every entry (an array's element, an object's member) whose `since` is a later build than
+        // `through` is dropped. Through 2026-11-07a that is every C2 entry (the six slots, Paint's option 45, paint row 43,
+        // c2_ids, hue_palette; the C2-only sections the C1 code never reads stay), so the ESP is 2026-11-07a's.
+        static JsonElement Until(JsonElement root, string through)
+        {
+            static bool Later(System.Text.Json.Nodes.JsonNode? n, string through) =>
+                n is System.Text.Json.Nodes.JsonObject o && o.TryGetPropertyValue("since", out var s)
+                && string.CompareOrdinal(s?.GetValue<string>(), through) > 0;
+            static void Drop(System.Text.Json.Nodes.JsonNode? n, string through)
+            {
+                if (n is System.Text.Json.Nodes.JsonArray a)
+                {
+                    for (int i = a.Count - 1; i >= 0; i--)
+                        if (Later(a[i], through)) a.RemoveAt(i); else Drop(a[i], through);
+                }
+                else if (n is System.Text.Json.Nodes.JsonObject o)
+                {
+                    foreach (var key in o.Select(p => p.Key).ToList())
+                        if (Later(o[key], through)) o.Remove(key); else Drop(o[key], through);
+                }
+            }
+            if (!Builds.Contains(through))
+                throw new InvalidOperationException($"--look-build {through}: the table knows {string.Join(" and ", Builds)}");
+            var node = System.Text.Json.Nodes.JsonNode.Parse(root.GetRawText())!;
+            Drop(node, through);
+            using var filtered = JsonDocument.Parse(node.ToJsonString());
+            return filtered.RootElement.Clone();
         }
         static string? S(JsonElement e, string name) => e.GetProperty(name).ValueKind == JsonValueKind.Null ? null : e.GetProperty(name).GetString();
         static int? I(JsonElement e, string name) => e.GetProperty(name).ValueKind == JsonValueKind.Null ? null : e.GetProperty(name).GetInt32();
+        // An optional field (C2's: absent from C1's entries).
+        static JsonElement? Opt(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.ValueKind != JsonValueKind.Null ? v : null;
         static uint Id(string hex) => Convert.ToUInt32(hex, 16);
 
         public static Slot[] ReadSlots(JsonElement root) => root.GetProperty("slots").EnumerateArray().Select(s => new Slot(
-            S(s, "key")!, S(s, "ap")!, S(s, "name")!, S(s, "global")!, s.GetProperty("default").GetInt32(), S(s, "list")!, S(s, "swaps")!,
-            S(s, "list_id")!, S(s, "swaps_id")!, s.GetProperty("sources").EnumerateArray().Select(x => x.GetString()!).ToArray(),
+            S(s, "key")!, S(s, "ap")!, S(s, "name")!, S(s, "global")!, s.GetProperty("default").GetInt32(), S(s, "list")!, S(s, "swaps"),
+            S(s, "list_id")!, S(s, "swaps_id"), s.GetProperty("sources").EnumerateArray().Select(x => x.GetString()!).ToArray(),
             s.GetProperty("options").EnumerateArray().Select(o => new Option(
                 o.GetProperty("index").GetInt32(), S(o, "key")!, S(o, "name")!, S(o, "kind")!,
                 o.GetProperty("cnam").ValueKind == JsonValueKind.Null ? null : o.GetProperty("cnam").GetSingle(),
@@ -1682,11 +1831,13 @@ public static class Program
                 S(o, "perk"), S(o, "loose"),
                 o.GetProperty("swap").ValueKind == JsonValueKind.Null ? null
                     : o.GetProperty("swap").EnumerateArray().Select(e => (e[0].GetString()!, e[1].GetString()!)).ToArray(),
-                o.GetProperty("ids").EnumerateArray().Select(x => x.ValueKind == JsonValueKind.Null ? null : x.GetString()).ToArray()))
-            .ToArray())).ToArray();
+                o.GetProperty("ids").EnumerateArray().Select(x => x.ValueKind == JsonValueKind.Null ? null : x.GetString()).ToArray(),
+                Opt(o, "since")?.GetString(), Opt(o, "crude")?.GetBoolean() ?? false, Opt(o, "rim_style")?.GetInt32(), Opt(o, "finish")?.GetString()))
+            .ToArray(), Opt(s, "since")?.GetString(), Opt(s, "global_id")?.GetString(), Opt(s, "ap_id")?.GetString())).ToArray();
 
         public static Set[] ReadSets(JsonElement root) => root.GetProperty("sets").EnumerateArray().Select(s => new Set(
-            s.GetProperty("index").GetInt32(), S(s, "key")!, S(s, "name")!, I(s, "paint"), I(s, "tank_left"), I(s, "tank_right"), I(s, "fender")))
+            s.GetProperty("index").GetInt32(), S(s, "key")!, S(s, "name")!, I(s, "paint"), I(s, "tank_left"), I(s, "tank_right"), I(s, "fender"),
+            Opt(s, "plate")?.GetInt32()))
             .ToArray();
 
         // The table's own rules, before anything is made from it.
@@ -1699,7 +1850,9 @@ public static class Program
             foreach (var (name, fk) in Vanilla.Perks)
                 if (!root.GetProperty("perks").TryGetProperty(name, out var v) || Id(v.GetString()!) != fk.ID)
                     fail.Add($"perks.{name}: not {fk.ID:X6} (Vanilla.Perks)");
-            var kinds = new[] { "identity", "off", "badge", "paint", "mirror", "follow" };
+            // 2026-11-08a's kinds: hue (Paint 45), rim, tyre, design (Plate), text (PlateText), colour (PlateInk, PlateBack: an
+            // object mod and a recipe, no swap). `follow` is TankR's last ("Same as the left") or PlateText's 0 (the plate's own).
+            var kinds = new[] { "identity", "off", "badge", "paint", "mirror", "follow", "hue", "rim", "tyre", "design", "text", "colour" };
             foreach (var s in slots)
             {
                 for (int i = 0; i < s.Options.Length; i++)
@@ -1707,26 +1860,115 @@ public static class Program
                     var o = s.Options[i];
                     if (o.Index != i) fail.Add($"{s.Key}:{o.Key}: index {o.Index} at position {i}");
                     if (!kinds.Contains(o.Kind)) fail.Add($"{s.Key}:{o.Key}: kind {o.Kind}");
-                    if ((o.Kind == "follow") != (o.Swap == null) || (o.Swap == null) != (o.Ids[0] == null))
-                        fail.Add($"{s.Key}:{o.Key}: only a `follow` option has no swap (and no MSWP ID)");
+                    if ((o.Kind is "follow" or "colour") != (o.Swap == null) || (o.Swap == null) != (o.Ids[0] == null))
+                        fail.Add($"{s.Key}:{o.Key}: only a `follow` or `colour` option has no swap (and no MSWP ID)");
+                    if (o.Kind == "follow" && !(s.Key == "TankR" && i == s.Options.Length - 1) && !(s.Key == "PlateText" && i == 0))
+                        fail.Add($"{s.Key}:{o.Key}: `follow` is only TankR's last option and PlateText's first");
+                    if ((o.Kind == "colour") != (s.Swaps == null))
+                        fail.Add($"{s.Key}:{o.Key}: a `colour` option is in a slot without swaps, and only there");
+                    if (o.Crude && (s.Key != "PlateText" || o.Kind != "text"))
+                        fail.Add($"{s.Key}:{o.Key}: only a plate text is crude");
                     if (o.Swap != null && !o.Swap.Select(e => e.From).SequenceEqual(s.Sources))
                         fail.Add($"{s.Key}:{o.Key}: its swap's sources aren't the slot's, in order");
                     foreach (var (c, _) in o.Cost)
                         if (!Vanilla.Components.ContainsKey(c)) fail.Add($"{s.Key}:{o.Key}: component {c}");
                     if (o.Perk != null && !Vanilla.Perks.ContainsKey(o.Perk)) fail.Add($"{s.Key}:{o.Key}: perk {o.Perk}");
                     if (o.Loose != null && s.Key != "Mirrors") fail.Add($"{s.Key}:{o.Key}: a loose mod outside the mirrors");
+                    if (o.Since != null && o.Since != s.Since && s.Since != null) fail.Add($"{s.Key}:{o.Key}: since {o.Since}, its slot's {s.Since}");
                 }
-                if (s.Options[0].Kind is not ("identity" or "mirror") || s.Options[0].Swap!.Any(e => e.From != e.To))
-                    fail.Add($"{s.Key}: option 0 isn't the identity (the 2026-11-06a look)");
+                var o0 = s.Options[0];
+                if (!(o0.Kind is "identity" or "mirror" && o0.Swap!.All(e => e.From == e.To)) && !(o0.Kind == "follow" && s.Key == "PlateText")
+                    && !(o0.Kind == "colour" && o0.Cost.Length == 0))
+                    fail.Add($"{s.Key}: option 0 isn't the identity, PlateText's `follow` or a free `colour` (the 2026-11-07a look)");
                 if (s.Default < 0 || s.Default >= s.Options.Length) fail.Add($"{s.Key}: default {s.Default}");
+                if ((s.Swaps == null) != (s.SwapsId == null) || (s.Swaps == null) != (s.Sources.Length == 0))
+                    fail.Add($"{s.Key}: a slot without swaps has no swap list and no sources, and only it");
             }
+            // The colour slots last (the swap lists' list holds the others' in slot order: index = slot).
+            var firstColour = Array.FindIndex(slots, s => s.Swaps == null);
+            if (firstColour >= 0 && slots.Skip(firstColour).Any(s => s.Swaps != null))
+                fail.Add("the slots without swaps (PlateInk, PlateBack) must be the last");
             var sources = slots.SelectMany(s => s.Sources.Select(src => (s.Key, src))).ToArray();
             foreach (var g in sources.GroupBy(x => x.src.ToLowerInvariant()).Where(g => g.Count() > 1))
                 fail.Add($"the source {g.Key} is in {string.Join(" and ", g.Select(x => x.Key))}: a source belongs to one slot");
             for (int i = 0; i < sets.Length; i++)
                 if (sets[i].Index != i || (i == 0) != (sets[i].Paint == null)) fail.Add($"set {sets[i].Key}: index {sets[i].Index} at {i}");
+            if (slots.Any(s => s.Since != null) || slots.Any(s => s.Options.Any(o => o.Since != null)))
+                CheckTableC2(root, slots, sets, fail);
             if (fail.Count > 0)
                 throw new InvalidOperationException("look_options.json:\n  " + string.Join("\n  ", fail));
+        }
+
+        // 2026-11-08a: the second block's IDs (every one once, 0xA14 on, contiguous: c2_ids), C1's all below it, and the
+        // C2 sections the fills read (the plates against the Plate options, the texts against PlateText's, the colours
+        // against the colour slots', the rim styles and finishes, the paint rows of the Paint options).
+        static void CheckTableC2(JsonElement root, Slot[] slots, Set[] sets, List<string> fail)
+        {
+            var c2 = root.GetProperty("c2_ids");
+            uint first = Id(c2.GetProperty("first").GetString()!), last = Id(c2.GetProperty("last").GetString()!);
+            var c2Ids = new List<(string What, string Id)>();
+            foreach (var g in root.GetProperty("fixed_globals").EnumerateArray().Concat(root.GetProperty("script_globals").EnumerateArray()))
+                c2Ids.Add((S(g, "edid")!, S(g, "id")!));
+            foreach (var s in slots.Where(s => s.Since != null))
+            {
+                if (s.GlobalId == null || s.ApId == null) fail.Add($"{s.Key}: a C2 slot without global_id or ap_id");
+                c2Ids.Add((s.Global, s.GlobalId ?? "-"));
+            }
+            foreach (var s in slots.Where(s => s.Since != null)) c2Ids.Add((s.Ap, s.ApId ?? "-"));
+            foreach (var s in slots.Where(s => s.Since == null))
+                foreach (var o in s.Options.Where(o => o.Since != null))
+                    c2Ids.AddRange(o.Ids.Where(x => x != null).Select(x => ($"{s.Key}:{o.Key}", x!)));
+            foreach (var s in slots.Where(s => s.Since != null))
+                foreach (var o in s.Options)
+                    c2Ids.AddRange(o.Ids.Where(x => x != null).Select(x => ($"{s.Key}:{o.Key}", x!)));
+            foreach (var s in slots.Where(s => s.Since != null)) c2Ids.Add((s.List, s.ListId));
+            foreach (var s in slots.Where(s => s.Since != null && s.SwapsId != null)) c2Ids.Add((s.Swaps!, s.SwapsId!));
+            // In that order, the generator's: each ID the one after the last.
+            for (int i = 0; i < c2Ids.Count; i++)
+                if (c2Ids[i].Id == "-" || Id(c2Ids[i].Id) != first + (uint)i)
+                    fail.Add($"{c2Ids[i].What}: {c2Ids[i].Id}, expected {first + (uint)i:X6} (C2's IDs from {first:X6} in the table's order, once each)");
+            if (c2Ids.Count != c2.GetProperty("count").GetInt32() || first + (uint)c2Ids.Count - 1 != last
+                || Id(c2.GetProperty("next").GetString()!) != last + 1)
+                fail.Add($"c2_ids: {c2Ids.Count} IDs from {first:X6}, the table says {c2.GetProperty("count").GetInt32()} to {last:X6}");
+            var c1Ids = slots.Where(s => s.Since == null).SelectMany(s => s.Options.Where(o => o.Since == null).SelectMany(o => o.Ids)
+                .Append(s.ListId).Append(s.SwapsId)).Where(x => x != null).Select(x => Id(x!)).ToArray();
+            if (c1Ids.Any(x => x >= first)) fail.Add($"a C1 ID at or past {first:X6} (C1's block ends below C2's)");
+            if (root.GetProperty("fixed_globals").EnumerateArray().Any(g => g.GetProperty("value").GetSingle() != -1)) fail.Add("fixed_globals: a colour value's default isn't -1 (= don't write)");
+
+            Slot Of(string key) => slots.First(s => s.Key == key);
+            var paint = Of("Paint");
+            var rows = root.GetProperty("paint_row_of_option").EnumerateArray().Select(x => x.GetInt32()).ToArray();
+            if (rows.Length != paint.Options.Length || rows[0] != 43 || paint.Options.Any(o => (o.Kind == "hue") != (rows[o.Index] == -1)))
+                fail.Add($"paint_row_of_option: {rows.Length} rows for {paint.Options.Length} Paint options (Factory 43, -1 only the hue)");
+            var finishes = root.GetProperty("rim_finishes").EnumerateArray().Select(f => S(f, "key")!).ToArray();
+            foreach (var o in Of("Rims").Options)
+                if (o.RimStyle is not (>= 0 and <= 7) || (o.Index == 0) != (o.Finish == null) || (o.Finish != null && !finishes.Contains(o.Finish)))
+                    fail.Add($"Rims:{o.Key}: rim_style {o.RimStyle} finish {o.Finish} (0-7; a rim_finishes key, Stock none)");
+            var bodyTargets = root.GetProperty("rim_body_targets").EnumerateArray().Select(x => x[0].GetString()!).ToArray();
+            var bodyUsed = Of("Rims").Options.Where(o => o.Finish == "body").SelectMany(o => o.Swap!.Select(e => e.To)).Where(t => t.Contains("_body")).Distinct();
+            if (!bodyUsed.OrderBy(x => x).SequenceEqual(bodyTargets.OrderBy(x => x)))
+                fail.Add("rim_body_targets: not the body-colour options' targets");
+            var plates = root.GetProperty("plates").EnumerateArray().ToArray();
+            var plate = Of("Plate");
+            var text = Of("PlateText");
+            for (int i = 0; i < Math.Max(plates.Length, plate.Options.Length); i++)
+            {
+                if (i >= plates.Length || i >= plate.Options.Length || plates[i].GetProperty("index").GetInt32() != i || S(plates[i], "key") != plate.Options[i].Key)
+                { fail.Add($"plates[{i}]: not the Plate option {i}"); continue; }
+                int own = plates[i].GetProperty("own_text").GetInt32(), ink = plates[i].GetProperty("own_ink").GetInt32(), back = plates[i].GetProperty("own_back").GetInt32();
+                if (own < 1 || own >= text.Options.Length || text.Options[own].Crude || ink is < 0 or > 15 || back < (i == 0 ? -1 : 0) || back > 15)
+                    fail.Add($"plates[{i}]: own text {own} (a PlateText index, not crude), ink {ink}, background {back} (0-15; Stock -1)");
+            }
+            var texts = root.GetProperty("plate_texts").EnumerateArray().ToArray();
+            if (texts.Length != text.Options.Length - 2 || texts.Any(t => t.GetProperty("index").GetInt32() is var k && (k < 2 || k >= text.Options.Length
+                    || text.Options[k].Key != S(t, "key") || text.Options[k].Kind != "text" || text.Options[k].Crude != (S(t, "set") == "crude"))))
+                fail.Add("plate_texts: not PlateText's options 2 on (key, crude = the set `crude`)");
+            var colours = root.GetProperty("plate_colours").EnumerateArray().ToArray();
+            foreach (var s in slots.Where(s => s.Swaps == null))
+                if (s.Options.Length != colours.Length + 1 || s.Options.Skip(1).Select(o => o.Key).Where((k, j) => k != S(colours[j], "key")).Any())
+                    fail.Add($"{s.Key}: its options 1 on aren't plate_colours");
+            foreach (var x in sets)
+                if (x.Plate is int p && (p < 1 || p >= plate.Options.Length)) fail.Add($"set {x.Key}: plate {p}");
         }
 
         public static LookRecords Build(Fallout4Mod mod, Armor ridingArmor, Armor ridingArmorFrame, Message parkedMenu)
@@ -1734,6 +1976,9 @@ public static class Program
             var root = LoadTable();
             var look = new LookRecords(ReadSlots(root), ReadSets(root));
             CheckTable(root, look.Slots, look.Sets);
+            // The C1 block is made exactly as 2026-11-07a's, from the entries without `since` (C1's five slots and their
+            // first options); C2's (BuildC2) follows it, then the in-place work over every slot.
+            var c1 = look.Slots.Where(s => s.Since == null).Select(s => s with { Options = s.Options.Where(o => o.Since == null).ToArray() }).ToArray();
             if (mod.ModHeader.Stats.NextFormID != FirstId)
                 throw new InvalidOperationException($"the look's records start at 0x{FirstId:X} (look_options.json's IDs), the next ID is 0x{mod.ModHeader.Stats.NextFormID:X}");
             var before = mod.EnumerateMajorRecords().Count();
@@ -1743,7 +1988,8 @@ public static class Program
             T At<T>(T r, string id) where T : IMajorRecordGetter { made.Add((r, Id(id))); return r; }
 
             // The fixed one: CMB_LookCode at 0x8AF by FormKey (CMB_Slope.dll finds it by ID; the next ID stays 0x8BA). Bits 0-1
-            // the mirror, bit 2 set, written only by the controller's ApplyLook; 0 = the plugin's own [Look] Mirrors.
+            // the mirror, bit 2 set, bits 3-6 the rim style (2026-11-08a: 0 the cast rim, 1-7 the styles; bits 7-8 kept for later
+            // builds), written only by the controller's ApplyLook; 0 = the plugin's own [Look] Mirrors.
             look.LookCode = new GlobalFloat(new FormKey(mod.ModKey, LookCodeId), Fallout4Release.Fallout4)
             {
                 EditorID = "CMB_LookCode",
@@ -1758,21 +2004,21 @@ public static class Program
             // the side bag's parts (1).
             look.LookOn = Next(Global(mod, "CMB_LookOn", 1));
             look.LookFree = Next(Global(mod, "CMB_LookFree", 0));
-            foreach (var s in look.Slots)
+            foreach (var s in c1)
                 look.slotGlobals[s.Key] = Next(Global(mod, s.Global, s.Default));
             look.FactionSet = Next(Global(mod, "CMB_LookFactionSet", 0));
             look.KitMode = Next(Global(mod, "CMB_KitMode", 0));
             look.KitWorked = Next(Global(mod, "CMB_KitWorked", -1));
             look.KitBagLink = Next(Global(mod, "CMB_KitBagLink", 1));
             // The keywords: the bike's mod association (the object mods' target, the three armours' keyword), the field kit's
-            // workbench keyword (every recipe's; type None as the game's WorkbenchArmor), the five attach points named for
+            // workbench keyword (every recipe's; type None as the game's WorkbenchArmor), C1's five attach points named for
             // the menu.
             look.MaBike = Next(Kw(mod, "CMB_ma_Bike", Keyword.TypeEnum.ModAssociation, null));
             look.WorkbenchBike = Next(Kw(mod, "CMB_WorkbenchBike", Keyword.TypeEnum.None, null));
-            var aps = look.Slots.ToDictionary(s => s.Key, s => Next(Kw(mod, s.Ap, Keyword.TypeEnum.AttachPoint, s.Name)));
+            var aps = c1.ToDictionary(s => s.Key, s => Next(Kw(mod, s.Ap, Keyword.TypeEnum.AttachPoint, s.Name)));
             // The look as an item (held only while customising, so the armour menu lists it): playable, slot 57, the parked
-            // nif, previewed small and turned (the test tunes the transform), the five attach points, each slot's option 0 as
-            // its default template.
+            // nif, previewed small and turned (the test tunes the transform); its attach points and default template (each
+            // slot's option 0) come with the in-place work, after the C2 block.
             var preview = Next(mod.Transforms.AddNew("CMB_BikeLookPreview"));
             preview.Scale = 0.45f;
             preview.Rotation = new P3Float(0, 0, 135);
@@ -1788,8 +2034,6 @@ public static class Program
             item.PreviewTransform.SetTo(preview);
             item.Keywords = new() { look.MaBike };
             item.AttachParentSlots = new();
-            foreach (var s in look.Slots)
-                item.AttachParentSlots.Add(aps[s.Key]);
             // The field kit (custom 6.1, the plan's ladder): 1 the toolbox (the game's by path) with an armour bench's data, our
             // marker and keyword; 2 the same with the armour bench's own keywords too; 3 the armour bench's model by path with
             // its own marker and keywords plus ours, and the toolbox beside it as a movable static. No scripts on them.
@@ -1809,7 +2053,7 @@ public static class Program
             look.LookSwap = Next(mod.MaterialSwaps.AddNew("CMB_LookSwap"));
             // The mirrors' loose mods (the three mirrors; "None" is no part), as the game's armour loose mods.
             var loose = new Dictionary<string, MiscItem>();
-            foreach (var o in look.Slots.SelectMany(s => s.Options).Where(o => o.Loose != null))
+            foreach (var o in c1.SelectMany(s => s.Options).Where(o => o.Loose != null))
             {
                 var m = Next(mod.MiscItems.AddNew(o.Loose));
                 m.Name = "Motorbike mirrors: " + char.ToLowerInvariant(o.Name[0]) + o.Name[1..];
@@ -1821,55 +2065,36 @@ public static class Program
                 m.Weight = 0.5f;
                 loose.Add(o.Loose!, m);
             }
-            // Per option, at the table's IDs: the material swap (none for "Same as the left"), the object mod on the slot's
-            // attach point (the swap added; the loose mod for a mirror), the recipe on CMB_WorkbenchBike (the components; the
-            // perk for a paint colour).
+            // Per option, at the table's IDs: the material swap, the object mod and the recipe (MakeOption).
             var mods = new Dictionary<string, List<ArmorModification>>();
             var swaps = new Dictionary<string, List<MaterialSwap>>();
-            foreach (var s in look.Slots)
+            foreach (var s in c1)
             {
                 mods[s.Key] = new();
                 swaps[s.Key] = new();
                 foreach (var o in s.Options)
-                {
-                    MaterialSwap? sw = null;
-                    if (o.Swap != null)
-                    {
-                        sw = At(mod.MaterialSwaps.AddNew($"CMB_sw_{s.Key}_{o.Key}"), o.Ids[0]!);
-                        foreach (var (from, to) in o.Swap)
-                            sw.Substitutions.Add(new MaterialSubstitution { OriginalMaterial = from, ReplacementMaterial = to, ColorRemappingIndex = o.Cnam });
-                        swaps[s.Key].Add(sw);
-                    }
-                    var omod = At(new ArmorModification(mod.GetNextFormKey(), Fallout4Release.Fallout4) { EditorID = $"CMB_mod_{s.Key}_{o.Key}" }, o.Ids[1]!);
-                    omod.Name = o.Name;
-                    omod.AttachPoint.SetTo(aps[s.Key]);
-                    omod.TargetOmodKeywords = new() { look.MaBike };
-                    if (sw != null)
-                        omod.Properties.Add(new ObjectModFormLinkIntProperty<Armor.Property>
-                        {
-                            Property = Armor.Property.MaterialSwaps,
-                            Record = new FormLink<IFallout4MajorRecordGetter>(sw.FormKey),
-                            FunctionType = ObjectModProperty.FormLinkFunctionType.Add,
-                        });
-                    if (o.Loose != null)
-                        omod.LooseMod.SetTo(loose[o.Loose]);
-                    mod.ObjectModifications.Add(omod);
-                    mods[s.Key].Add(omod);
-                    var cobj = At(mod.ConstructibleObjects.AddNew($"CMB_co_{s.Key}_{o.Key}"), o.Ids[2]!);
-                    cobj.CreatedObject.SetTo(omod.FormKey);
-                    cobj.WorkbenchKeyword.SetTo(look.WorkbenchBike);
-                    if (o.Cost.Length > 0)
-                        cobj.Components = new(o.Cost.Select(c => new ConstructibleObjectComponent
-                        {
-                            Component = new FormLink<IItemGetter>(Vanilla.Components[c.Component]),
-                            Count = c.Count,
-                        }));
-                    if (o.Perk != null)
-                        cobj.Conditions.Add(Is(Condition.Function.HasPerk, Vanilla.Perks[o.Perk], 1));
-                    cobj.CreatedObjectCounts = new() { new ConstructibleCreatedObjectCount { Count = 1, Priority = 0 } };
-                }
+                    MakeOption(mod, look, s, o, aps[s.Key], loose, mods, swaps, made);
             }
-            // The default template: each slot's option 0 (the stock look) on its attach point.
+            // The lists, index = choice: the options (the object mods) and the swaps (TankR's 17 entries: its 18th option has
+            // none), then the two lists of lists in slot order.
+            var optionLists = c1.Select(s => At(List(mod, s.List, mods[s.Key].Select(m => m.FormKey)), s.ListId)).ToList();
+            var swapLists = c1.Select(s => At(List(mod, s.Swaps!, swaps[s.Key].Select(m => m.FormKey)), s.SwapsId!)).ToList();
+            var slotLists = root.GetProperty("slot_lists");
+            look.Categories = At(List(mod, slotLists.GetProperty("options")[0].GetString()!, optionLists.Select(l => l.FormKey)),
+                                 slotLists.GetProperty("options")[1].GetString()!);
+            look.SwapLists = At(List(mod, slotLists.GetProperty("swaps")[0].GetString()!, swapLists.Select(l => l.FormKey)),
+                                slotLists.GetProperty("swaps")[1].GetString()!);
+
+            // 2026-11-08a (C2): the second block, 0xA14 on (the table's c2_ids), after C1's lists.
+            if (look.HasC2)
+                BuildC2(mod, look, root, c1, aps, loose, mods, swaps, optionLists, swapLists, made);
+
+            // In place, one loop over every slot (C1's five in their order, then C2's): the look item's attach points and its
+            // default template (each slot's option 0, the stock look, on its attach point); the riding armours take the
+            // look's mods (the keyword, the attach points; no template); C1's option lists and swap lists take C2's options
+            // of their slots (Paint's 46th, Free colour); the lists of lists take C2's lists (the colour slots have no swaps).
+            foreach (var s in look.Slots)
+                item.AttachParentSlots.Add(aps[s.Key]);
             item.ObjectTemplates = new()
             {
                 new ObjectTemplate<Armor.Property>
@@ -1879,17 +2104,6 @@ public static class Program
                     Includes = new(look.Slots.Select(s => new ObjectTemplateInclude { Mod = mods[s.Key][0].ToLink<IAObjectModificationGetter>(), AttachPointIndex = 0 })),
                 },
             };
-            // The lists, index = choice: the options (the object mods) and the swaps (TankR's 17 entries: its 18th option has
-            // none), then the two lists of lists in slot order.
-            var optionLists = look.Slots.Select(s => At(List(mod, s.List, mods[s.Key].Select(m => m.FormKey)), s.ListId)).ToArray();
-            var swapLists = look.Slots.Select(s => At(List(mod, s.Swaps, swaps[s.Key].Select(m => m.FormKey)), s.SwapsId)).ToArray();
-            var slotLists = root.GetProperty("slot_lists");
-            look.Categories = At(List(mod, slotLists.GetProperty("options")[0].GetString()!, optionLists.Select(l => l.FormKey)),
-                                 slotLists.GetProperty("options")[1].GetString()!);
-            look.SwapLists = At(List(mod, slotLists.GetProperty("swaps")[0].GetString()!, swapLists.Select(l => l.FormKey)),
-                                slotLists.GetProperty("swaps")[1].GetString()!);
-
-            // In place: the riding armours take the look's mods (the keyword, the attach points; no template).
             foreach (var a in new[] { ridingArmor, ridingArmorFrame })
             {
                 a.Keywords ??= new();
@@ -1898,6 +2112,17 @@ public static class Program
                 foreach (var s in look.Slots)
                     a.AttachParentSlots.Add(aps[s.Key]);
             }
+            for (int i = 0; i < c1.Length; i++)
+            {
+                foreach (var m in mods[c1[i].Key].Skip(optionLists[i].Items.Count))
+                    optionLists[i].Items.Add(new FormLink<IFallout4MajorRecordGetter>(m.FormKey));
+                foreach (var w in swaps[c1[i].Key].Skip(swapLists[i].Items.Count))
+                    swapLists[i].Items.Add(new FormLink<IFallout4MajorRecordGetter>(w.FormKey));
+            }
+            foreach (var l in optionLists.Skip(look.Categories.Items.Count))
+                look.Categories.Items.Add(new FormLink<IFallout4MajorRecordGetter>(l.FormKey));
+            foreach (var l in swapLists.Skip(look.SwapLists.Items.Count))
+                look.SwapLists.Items.Add(new FormLink<IFallout4MajorRecordGetter>(l.FormKey));
             // The parked bike's menu: Customise (shown while CMB_LookOn is 1) between Open side bag and Cancel: 0 ride, 1 the
             // bag, 2 customise, 3 cancel (a hidden button keeps the others' indices).
             if (!parkedMenu.MenuButtons.Select(b => b.Text?.String).SequenceEqual(new[] { "Ride", "Open side bag", "Cancel" }))
@@ -1906,7 +2131,7 @@ public static class Program
             customise.Conditions.Add(Is(Condition.Function.GetGlobalValue, look.LookOn.FormKey, 1));
             parkedMenu.MenuButtons.Insert(2, customise);
 
-            // Every record at the table's ID, 347 of them, none past the last list.
+            // Every record at the table's ID (C1's 347, C2's 477), none past the last list.
             var wrong = made.Where(x => x.Record.FormKey.ID != x.Id).ToArray();
             if (wrong.Length > 0)
                 throw new InvalidOperationException("look records off their IDs (look_options.json): " +
@@ -1917,6 +2142,98 @@ public static class Program
             if (mod.ModHeader.Stats.NextFormID != made.Max(x => x.Id) + 1)
                 throw new InvalidOperationException($"the next ID after the look is 0x{mod.ModHeader.Stats.NextFormID:X}, not 0x{made.Max(x => x.Id) + 1:X}");
             return look;
+        }
+
+        // Per option, at the table's IDs: the material swap (none for a `follow` or `colour` option), the object mod on the
+        // slot's attach point (the swap added; the loose mod for a mirror), the recipe on CMB_WorkbenchBike (the components;
+        // the perk for a paint colour or a rim style; 2026-11-08a: a crude plate text's GetGlobalValue CMB_LookPlateCrude == 1).
+        static void MakeOption(Fallout4Mod mod, LookRecords look, Slot s, Option o, Keyword ap, Dictionary<string, MiscItem> loose,
+                               Dictionary<string, List<ArmorModification>> mods, Dictionary<string, List<MaterialSwap>> swaps,
+                               List<(IMajorRecordGetter Record, uint Id)> made)
+        {
+            T At<T>(T r, string id) where T : IMajorRecordGetter { made.Add((r, Id(id))); return r; }
+            MaterialSwap? sw = null;
+            if (o.Swap != null)
+            {
+                sw = At(mod.MaterialSwaps.AddNew($"CMB_sw_{s.Key}_{o.Key}"), o.Ids[0]!);
+                foreach (var (from, to) in o.Swap)
+                    sw.Substitutions.Add(new MaterialSubstitution { OriginalMaterial = from, ReplacementMaterial = to, ColorRemappingIndex = o.Cnam });
+                swaps[s.Key].Add(sw);
+            }
+            var omod = At(new ArmorModification(mod.GetNextFormKey(), Fallout4Release.Fallout4) { EditorID = $"CMB_mod_{s.Key}_{o.Key}" }, o.Ids[1]!);
+            omod.Name = o.Name;
+            omod.AttachPoint.SetTo(ap);
+            omod.TargetOmodKeywords = new() { look.MaBike };
+            if (sw != null)
+                omod.Properties.Add(new ObjectModFormLinkIntProperty<Armor.Property>
+                {
+                    Property = Armor.Property.MaterialSwaps,
+                    Record = new FormLink<IFallout4MajorRecordGetter>(sw.FormKey),
+                    FunctionType = ObjectModProperty.FormLinkFunctionType.Add,
+                });
+            if (o.Loose != null)
+                omod.LooseMod.SetTo(loose[o.Loose]);
+            mod.ObjectModifications.Add(omod);
+            mods[s.Key].Add(omod);
+            var cobj = At(mod.ConstructibleObjects.AddNew($"CMB_co_{s.Key}_{o.Key}"), o.Ids[2]!);
+            cobj.CreatedObject.SetTo(omod.FormKey);
+            cobj.WorkbenchKeyword.SetTo(look.WorkbenchBike);
+            if (o.Cost.Length > 0)
+                cobj.Components = new(o.Cost.Select(c => new ConstructibleObjectComponent
+                {
+                    Component = new FormLink<IItemGetter>(Vanilla.Components[c.Component]),
+                    Count = c.Count,
+                }));
+            if (o.Perk != null)
+                cobj.Conditions.Add(Is(Condition.Function.HasPerk, Vanilla.Perks[o.Perk], 1));
+            if (o.Crude)
+                cobj.Conditions.Add(Is(Condition.Function.GetGlobalValue, look.C2Global("CMB_LookPlateCrude").FormKey, 1));
+            cobj.CreatedObjectCounts = new() { new ConstructibleCreatedObjectCount { Count = 1, Priority = 0 } };
+        }
+
+        // 2026-11-08a (C2): the second block, in the table's order (c2_ids, from 0xA14; each record at its ID, checked by
+        // Build): the four colour values at their fixed IDs (-1 = the plugin writes nothing), the three globals the MCM sets
+        // (the hue 210, the shade 1, the crude texts 1), the six slots' globals (0, the stock look) and attach points, Paint's
+        // option 45 (Free colour), each C2 slot's options (a swap, an object mod and a recipe; PlateText's 0 and the colour
+        // slots' without a swap), the six option lists and the four swap lists (index = choice; PlateText's from its option 1).
+        static void BuildC2(Fallout4Mod mod, LookRecords look, JsonElement root, Slot[] c1, Dictionary<string, Keyword> aps,
+                            Dictionary<string, MiscItem> loose, Dictionary<string, List<ArmorModification>> mods,
+                            Dictionary<string, List<MaterialSwap>> swaps, List<FormList> optionLists, List<FormList> swapLists,
+                            List<(IMajorRecordGetter Record, uint Id)> made)
+        {
+            T At<T>(T r, string id) where T : IMajorRecordGetter { made.Add((r, Id(id))); return r; }
+            var first = Id(root.GetProperty("c2_ids").GetProperty("first").GetString()!);
+            if (mod.ModHeader.Stats.NextFormID != first)
+                throw new InvalidOperationException($"C2's records start at 0x{first:X} (look_options.json's c2_ids), the next ID is 0x{mod.ModHeader.Stats.NextFormID:X}");
+            foreach (var g in root.GetProperty("fixed_globals").EnumerateArray().Concat(root.GetProperty("script_globals").EnumerateArray()))
+                look.c2Globals[S(g, "edid")!] = At(Global(mod, S(g, "edid")!, g.GetProperty("value").GetSingle()), S(g, "id")!);
+            var c2 = look.Slots.Where(s => s.Since != null).ToArray();
+            foreach (var s in c2)
+                look.slotGlobals[s.Key] = At(Global(mod, s.Global, s.Default), s.GlobalId!);
+            foreach (var s in c2)
+                aps[s.Key] = At(Kw(mod, s.Ap, Keyword.TypeEnum.AttachPoint, s.Name), s.ApId!);
+            foreach (var s in look.Slots.Where(s => s.Since == null))
+                foreach (var o in s.Options.Where(o => o.Since != null))
+                    MakeOption(mod, look, s, o, aps[s.Key], loose, mods, swaps, made);
+            foreach (var s in c2)
+            {
+                mods[s.Key] = new();
+                swaps[s.Key] = new();
+                foreach (var o in s.Options)
+                    MakeOption(mod, look, s, o, aps[s.Key], loose, mods, swaps, made);
+            }
+            foreach (var s in c2)
+                optionLists.Add(At(List(mod, s.List, mods[s.Key].Select(m => m.FormKey)), s.ListId));
+            foreach (var s in c2.Where(s => s.Swaps != null))
+                swapLists.Add(At(List(mod, s.Swaps!, swaps[s.Key].Select(m => m.FormKey)), s.SwapsId!));
+            // The fills' tables: the Paint options' palette rows, the plates' own text, letters and background, the body-colour
+            // rims' targets and their Free colour twins.
+            look.PaintRow = root.GetProperty("paint_row_of_option").EnumerateArray().Select(x => x.GetInt32()).ToArray();
+            var plates = root.GetProperty("plates").EnumerateArray().ToArray();
+            look.PlateOwnText = plates.Select(p => p.GetProperty("own_text").GetInt32()).ToArray();
+            look.PlateOwnInk = plates.Select(p => p.GetProperty("own_ink").GetInt32()).ToArray();
+            look.PlateOwnBack = plates.Select(p => p.GetProperty("own_back").GetInt32()).ToArray();
+            look.RimBodyTargets = root.GetProperty("rim_body_targets").EnumerateArray().Select(x => (x[0].GetString()!, x[1].GetString()!)).ToArray();
         }
 
         static Keyword Kw(Fallout4Mod mod, string editorId, Keyword.TypeEnum type, string? name)
