@@ -39,13 +39,14 @@ Writes, under --out (a Data folder's layout; Textures\\CMB\\Bike, Materials\\CMB
   text_<key>.bgsm     60: a fender badge's material (alpha test 128, decal, two-sided) without the chrome cube, the
                       text atlas, plate_text_p.dds at the text's preview ink, clamped, the cell's transform
 
---check: formats, sizes, full mips; the per-part mips (no texel in a part its level-0 footprint lacks, R or G; the legends
-kept at mips 1-3); alpha coverage per cell within 5 % of level 0's down to mip 4; the 8-px margins clear to mip 3 (the
-text's alpha 0, the designs' base); every text inside its drawn area and 480 px; the palettes' rows; the palette proof
-(the designs and the texts in their own colours through the DDS at 33 dB or more against the art's own colours); the
-stock re-sample within 2 levels mean of static_black's texels; every material read back; the text list (5-7
-characters, the set, unique, the crude flag); the brand and real-plate scan over every legend, text and name (the
-brand words, the US states, their plates' slogans); no game texture under --out.
+--check: formats, sizes, full mips; the per-part mips (no texel in a part its level-0 footprint lacks, R or G; the
+legends kept at mips 1-3); the Vault-Tec emblem (since the 2026-11-09a build) never next to its stripe at mips 0-3, its
+area at mips 1-3 within 0.7-1.6 of level 0's; alpha coverage per cell within 5 % of level 0's down to mip 4; the 8-px
+margins clear to mip 3 (the text's alpha 0, the designs' base); every text inside its drawn area and 480 px; the
+palettes' rows; the palette proof (the designs and the texts in their own colours through the DDS at 33 dB or more
+against the art's own colours); the stock re-sample within 2 levels mean of static_black's texels; every material read
+back; the text list (5-7 characters, the set, unique, the crude flag); the brand and real-plate scan over every legend,
+text and name (the brand words, the US states, their plates' slogans); no game texture under --out.
 
 --sheet <folder>: designs.png (every design with its own text and colours, lit, and at the riding view's mips 2 and 3),
 texts.png (every text on the standard plate), backgrounds.png (every design on every background: no legend vanishes),
@@ -81,6 +82,8 @@ LEGALISED_MAX = 400   # --check: level-0 texels of the designs BC1 can't show in
 RESAMPLE_LEVELS = 2.0
 CONTRAST = 3.0
 STOCK = (256, 128)
+EMBLEM_KEY, EMBLEM_BOX = "vaulttec", (0.17, 0.5)   # --check: the Vault-Tec emblem's part of its cell: left of the top
+EMBLEM_AREA = (0.7, 1.6)                           # legend's span (face u), the top half (face v); its area at mips 1-3
 # the real-plate scan (besides check_bike_meshes' brand words): the US states and slogans their plates carry
 STATES = ("alabama alaska arizona arkansas california colorado connecticut delaware florida georgia hawaii idaho "
           "illinois indiana iowa kansas kentucky louisiana maine maryland massachusetts michigan minnesota mississippi "
@@ -748,6 +751,43 @@ def any2(a):
     return W.half(a.astype(np.float64)) > 0
 
 
+def emblem_check(rep, levels, segs, opts):
+    """The Vault-Tec plate's emblem (since the 2026-11-09a build, bike_art._plate_gear): its legend texels (R or G)
+    never 8-adjacent to the stripe's accent texels (R or G) at mips 0-3, and its legend area (G) at mips 1-3 within
+    EMBLEM_AREA of level 0's (the 2026-11-08a emblem, the badge's drawer scaled down, touched the stripe at level 0)."""
+    dat = opts["plate_atlas"]["designs"]
+    (cw, ch), (ox, oy), (dw, dh) = dat["cell"], dat["offset"], dat["draw"]
+    d = next(x for x in opts["plates"] if x["key"] == EMBLEM_KEY)
+    c, r = d["cell"]
+    x1, y1 = int(round(ox + EMBLEM_BOX[0] * dw)), int(round(oy + EMBLEM_BOX[1] * dh))
+    touch, area, boxes = [], [], []
+    for k, lv in enumerate(levels[:4]):
+        s = 1 << k
+        cell = lv[r * ch // s:(r + 1) * ch // s, c * cw // s:(c + 1) * cw // s]
+        rg = [seg_of(cell[..., i], segs) for i in (0, 1)]
+        em = np.zeros(rg[0].shape, bool)
+        em[:y1 // s, :x1 // s] = True
+        leg = em & ((rg[0] == 1) | (rg[1] == 1))
+        acc = (rg[0] == 2) | (rg[1] == 2)
+        near = np.zeros(acc.shape, bool)
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                near[max(0, dy):acc.shape[0] + min(0, dy), max(0, dx):acc.shape[1] + min(0, dx)] |= \
+                    acc[max(0, -dy):acc.shape[0] + min(0, -dy), max(0, -dx):acc.shape[1] + min(0, -dx)]
+        touch.append(int((leg & near).sum()))
+        area.append(int((em & (rg[1] == 1)).sum()) * 4 ** k)
+        ys, xs = np.nonzero(em & (rg[1] == 1))
+        boxes.append(f"mip {k} {int(xs.min()) * s}-{(int(xs.max()) + 1) * s} x "
+                     f"{int(ys.min()) * s}-{(int(ys.max()) + 1) * s}" if len(xs) else f"mip {k} none")
+    keep = [a / max(area[0], 1) for a in area[1:]]
+    print(f"INFO  the {EMBLEM_KEY} emblem's legend texels in its cell (px of level 0): " + "; ".join(boxes))
+    rep.check(max(touch) == 0, f"plates_d.dds: the {EMBLEM_KEY} emblem's legend texels never 8-adjacent to the "
+                               f"stripe's accent texels, mips 0-3", f"next to it per level {touch}")
+    rep.check(area[0] > 0 and EMBLEM_AREA[0] <= min(keep) and max(keep) <= EMBLEM_AREA[1],
+              f"plates_d.dds: the {EMBLEM_KEY} emblem's area at mips 1-3 within {EMBLEM_AREA[0]:g}-{EMBLEM_AREA[1]:g} "
+              f"of level 0's ({area[0]} texels)", ", ".join(f"{x:.2f}" for x in keep))
+
+
 def check(args, opts):
     rep = Report()
     meta = json.loads(Path(args.art, "plates.json").read_text())
@@ -816,6 +856,7 @@ def check(args, opts):
                 if (seg_of(cell[ring], segs) != 0).any():
                     mb.append(f"{d['key']} mip {k}")
         rep.check(not mb, "plates_d.dds: each cell's margin and the rows below its face base colour, mips 0-3", "; ".join(mb))
+        emblem_check(rep, levels, segs, opts)
     # the texts
     if "plate_text_d.dds" in dec:
         levels = dec["plate_text_d.dds"]

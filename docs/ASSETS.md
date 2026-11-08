@@ -25,7 +25,7 @@ from your own copy of the game and the downloaded model:
 | `Textures\CMB\Bike\rims_d.dds`, `rims_chrome_d.dds`, `rims_n.dds`, `rims_s.dds`, `rim_p.dds`; `castF_i_d.dds`, `castR_i_d.dds` | `look_wheels.py` | since the 2026-11-08a build: our own rim atlas for the 14 rim shapes, 4 x 4 cells of 512: the index map (2048 BC1: the finish's shade, the trims, rust and bare steel as greys, mips per part), the chrome finish's own diffuse (1024 BC1), the normal and smoothness maps (1024 BC5), the finishes' palette (256 x 8: satin black, gloss black, bronze, gunmetal); the cast rims' index maps (1024 BC1), re-sampled per texel from our own 2026-11-07a rim diffuse. Procedural shading: no game texture |
 | `Textures\CMB\Bike\wheelF_tyre_ww_d.dds`, `wheelR_tyre_ww_d.dds`, `wheelF_tyre_rl_d.dds`, `wheelR_tyre_rl_d.dds`; `paint_hue_p.dds`; `paint_p.dds` (changed) | `look_wheels.py` | since the 2026-11-08a build: the whitewall and red-line tyres, our 2026-11-07a tyre diffuse with a band on both sidewalls (1024 BC1); the free colour's palette (256 x 1024, one mip: 4 shades x 256 hues); the paint palette with Factory added as row 43 (rows 0-42 2026-11-07a's byte for byte) |
 | `Materials\CMB\Bike\rimF_<f>`, `rimR_<f>` (f chrome, satin, gloss, bronze, gunmetal, body, bodyhue), `castF_<f>`, `castR_<f>` (the same but chrome), `wheelF_tyre_ww`, `wheelR_tyre_ww`, `wheelF_tyre_rl`, `wheelR_tyre_rl`, `static_paint_hue`, `fork_paint_hue` (`.bgsm`, `_worn.bgsm`) | `look_wheels.py` | since the 2026-11-08a build: 64, the rims' finishes on 2026-11-07a's `wheel?_rim` files (palette rows, or chrome's own diffuse and cube), the tyres' on its tyre files, the free colour's on C1's paint materials |
-| `Textures\CMB\Bike\plates_d.dds`, `plates_n.dds`, `plates_s.dds`, `plate_text_d.dds`, `plate_text_n.dds`, `plate_text_s.dds`, `plate_p.dds`, `plate_text_p.dds`; `static_plate_d.dds`, `static_plate_n.dds`, `static_plate_s.dds` | `bike_art.py --plates` (the drawings, PNG) and `look_plates.py` (the DDS) | since the 2026-11-08a build: our own licence plates: the 12 designs' atlas (BC1 2048 x 1024, BC5 1024 x 512 and 512 x 256), the 60 texts' atlas (BC3 2048 with the letters in its alpha, BC5 1024 and 512), their palettes (256 x 256 and 256 x 16, one mip) and the stock plate's own textures (256 x 128, 2026-11-07a's `static_black` texels re-sampled into the plate's new UVs): 11 files, 10,001,376 bytes. The plate font (41 glyphs and two for legends), a monoline script, the designs and their emblems drawn as strokes and shapes in `bike_art.py`: no font file, no image, no real plate, seal or slogan |
+| `Textures\CMB\Bike\plates_d.dds`, `plates_n.dds`, `plates_s.dds`, `plate_text_d.dds`, `plate_text_n.dds`, `plate_text_s.dds`, `plate_p.dds`, `plate_text_p.dds`; `static_plate_d.dds`, `static_plate_n.dds`, `static_plate_s.dds` | `bike_art.py --plates` (the drawings, PNG) and `look_plates.py` (the DDS) | since the 2026-11-08a build: our own licence plates: the 12 designs' atlas (BC1 2048 x 1024, BC5 1024 x 512 and 512 x 256), the 60 texts' atlas (BC3 2048 with the letters in its alpha, BC5 1024 and 512), their palettes (256 x 256 and 256 x 16, one mip) and the stock plate's own textures (256 x 128, 2026-11-07a's `static_black` texels re-sampled into the plate's new UVs): 11 files, 10,001,376 bytes. The plate font (41 glyphs and two for legends), a monoline script, the designs and their emblems drawn as strokes and shapes in `bike_art.py`: no font file, no image, no real plate, seal or slogan. Since the 2026-11-09a build the Vault-Tec design's emblem is a cog drawn at the plate's own scale (`bike_art.py`'s `_plate_gear`: 8 teeth, 40 px across the tips, one 14-px hub hole, clear of the pinstripe at every mip), our own like the rest; only `plates_d.dds`, `plates_n.dds` and `plates_s.dds` change (the same sizes), every other plate file is 2026-11-08a's byte for byte |
 | `Materials\CMB\Bike\plate_<key>.bgsm`, `text_<key>.bgsm` | `look_plates.py` | since the 2026-11-08a build: 12 designs (2026-11-07a's `static_black` material on the plate atlas's cell, palette on) and 60 texts (the badges' material, alpha test, decal, on the text atlas's cell, palette on); the build then has 123 DDS (124.3 MB: 2026-11-07a's 102.8 MB, 114.3 with the rims', tyres' and hue's 12, then the plates' 10.0) and 427 BGSM |
 | `Meshes\Actors\Character\Animations\MT\CMB_Rider\*.hkx` and `...\CMB_Rider\Female\*.hkx` | `riding_anims.py` | seated riding versions of the holstered walk/run/turn/start/stop/idle clips (the arms' IK pole mostly down since test 39, (0.35, -0.3, -1.0) in the rig's root space, the left mirrored in x; before, (1, -0.6, -0.7), mostly sideways, which put the elbows out at shoulder height; the hand's frame from the forearm since test 40, its long axis along it seen along the grip, `HAND_PITCH` degrees above it, 0: before, a fixed frame, the wrists bent down 30 degrees in the cruise pose, test 39's "cat paw"), and of the jump/fall/land clips when those were extracted |
 | `...\CMB_Rider\CMB_RiderClips.json` (and `Female\`) | `riding_anims.py` | each clip's root motion and events, for the step below |
@@ -33,6 +33,7 @@ from your own copy of the game and the downloaded model:
 | `CMB_RiderPose.esp` + `Meshes\AnimTextData\...` | `make_rider_pose.bat` | small plugin that makes the game use those clips while you ride, and the animation data it needs. Built from your load order; no Creation Kit |
 | `Meshes\CMB\CMB_Keys.nif` (optional) | you: copy any vanilla key mesh | 3D preview of the keys in the Pip-Boy |
 | `Sound\FX\CMB\CMB_FxWaterRoadLP.wav` | `tools/sound/make_water_loop.py` (`run_all.sh`'s optional `WATER=<example.wav>` stage) | since the 2026-11-06a build: the mod's own wet-road water loop, named by `CMB_FxWaterRoadLPSD` (0x8A9; the MCM's "Water sound loop" 2, the default): 7.90 s, 44.1 kHz mono 16-bit, -23 dB A-weighted, made from "Cars driving on a wet road 3" by freesound_community (Pixabay, 101246), under the Pixabay Content License: three stretches cut, filtered, re-levelled and looped into a file of our own. That licence allows the sound inside a project such as this mod, not on its own, so the recording (and anything decoded from it) is in neither this repository nor the package, only the loop inside the mod; the credit is README's. Decode the mp3 with ffmpeg in a folder of its own, then `python3 -I -B tools/sound/make_water_loop.py --ex1 <ex1.wav> --out <dir>` (numpy only; it checks the input is 24 kHz stereo 11.98 s and the loop's wrap, band shares and level, 8 checks, and a second run is byte-identical) |
+| `Sound\FX\CMB\CMB_FxWaterRoadSoftLP.wav` | `tools/sound/make_water_loop.py --variant gentle` (`run_all.sh`'s `WATER=` stage builds both loops) | since the 2026-11-09a build: the mod's own gentle wet-road loop (test 50 heard the first as "staticky"), named by `CMB_FxWaterRoadSoftLPSD` (0xBF3; the MCM's "Water sound loop" 3, "Wet road, gentle", the default): 7.90 s, 44.1 kHz mono 16-bit, 696,824 bytes, -26.5 dB A-weighted (sha256 412a7627...7b41). The same recording, licence and credit as the wet road above: the same three stretches cut, then filtered (a 60 Hz high-pass, a 2.5 kHz roll-off, +5 dB under 300 Hz, a 3 dB dip at 1.5 kHz), spliced, re-levelled and looped into a file of our own; under 250 Hz 11% of its power (the wet road's 2%), 1-2 kHz 30% (41%), over 4 kHz 1% (7%). Neither the recording nor the loop is in the repository; the package ships the loop. `python3 -I -B tools/sound/make_water_loop.py --variant gentle --ex1 <ex1.wav> --out <dir>` (its 11 checks: the wrap, the band shares, the centroid, the level, the peak; a second run byte-identical; `--measure <WAV>` checks a loop already made) |
 
 If someone already handed you the meshes and the `CMB_Rider` folder, skip to
 [the rider-pose plugin](#4-the-rider-pose-plugin-and-animation-data). That step always runs on your own PC.
@@ -214,13 +215,14 @@ all back (21 checks: the palettes against their generators, every finish through
 radii). `bike_art.py --plates` draws the 12 designs and 60 texts into PNGs and `plates.json` (a run without `--plates`
 is byte for byte as before); `look_plates.py` writes the two atlases, their palettes, the stock plate's re-sampled
 textures (from 2026-11-07a's stage and the new one's `static_plate` UVs) and the 72 materials; `--check` reads them
-back (21 checks, the brand and plate-slogan scan among them) and `--sheet` writes contact sheets of every design and
-text. `check_bike_meshes.py --look-c2 --c2-reference <2026-11-07a's Data>` checks the new shapes, the plate's split and
-the rims' clearances, and with the art in `--look-targets all` every swap's target; it counts the 8 `_bodyhue` twins
-(named by the table's `rim_body_targets`, by no swap) as the table's, and holds every palette the table names (C1's
-`paint_p`, `paint_hue_p`, `rim_p`, `plate_p`, `plate_text_p`) to the palette's rule: A8R8G8B8, exactly one mip.
-`look_render.py --sheet rims,tyres,plates,hue` renders them on the bikes, `--compose --swap Slot:key[,...]` prints a
-look's composed swap and colours without Blender.
+back (23 checks, the brand and plate-slogan scan among them, and since the 2026-11-09a build the Vault-Tec emblem's
+two: never next to its stripe at mips 0-3, its area at mips 1-3 within 0.7-1.6 of level 0's) and `--sheet` writes
+contact sheets of every design and text. `check_bike_meshes.py --look-c2 --c2-reference <2026-11-07a's Data>` checks the
+new shapes, the plate's split and the rims' clearances, and with the art in `--look-targets all` every swap's target; it
+counts the 8 `_bodyhue` twins (named by the table's `rim_body_targets`, by no swap) as the table's, and holds every
+palette the table names (C1's `paint_p`, `paint_hue_p`, `rim_p`, `plate_p`, `plate_text_p`) to the palette's rule:
+A8R8G8B8, exactly one mip. `look_render.py --sheet rims,tyres,plates,hue` renders them on the bikes, `--compose --swap
+Slot:key[,...]` prints a look's composed swap and colours without Blender.
 
 To look before going in game, `tools/rider/look_render.py` renders the built bike as the game shades it (DESIGN.md,
 *The bike's look*), in Blender's Python:
@@ -466,7 +468,8 @@ for the water only with "Water sound loop" on its first choice ("As the 2026-11-
 turn all three to their 2026-11-02a values.
 
 **The game's sound files our own records name by path (2026-11-02a).** 13 sound descriptors of the mod's own
-(`CMB_Fx*SD`, FExxx89E-FExxx8AA), each but 8A9 (since 2026-11-06a the mod's own wet road) following the game's record in
+(`CMB_Fx*SD`, FExxx89E-FExxx8AA), each but 8A9 (since 2026-11-06a the mod's own wet road; since 2026-11-09a also
+BF3, the gentle one, last in the table) following the game's record in
 the third column: the same files, in the order
 its dump gives them, letter case kept, the same pitch and loudness variation, but static attenuation 0,
 `AudioCategorySFX` and our output model `CMB_SOMMonoFx` (FExxx89D, the engine model's fields: full to 600, so heard at
@@ -488,6 +491,7 @@ Sounds.ba2`). Each file is to be replaced by our own for a standalone mod.
 | `CMB_FxWaterSprayLargeLPSD` (8A8) | `CMB_FxWaterLoopsOwn` 1 | `AMBWaterfallSplatterLargeLP` 1E4F2C | `data\Sound\FX\AMB\Waterfall\AMB_WaterfallSplatter_Large_01_LP.wav`, `_Large_02_LP.wav` (a loop, pitch -15) | our own file |
 | `CMB_FxWaterRoadLPSD` (8A9; `CMB_FxWaterStreamLPSD` up to 2026-11-02a) | `CMB_FxWaterLoopsOwn` 2; the MCM's "Water sound loop" 2 | (none: since 2026-11-06a the mod's own; it followed `AMBWaterStream01LPSD` 03D0A7, whose `fx\amb\water\exterior\amb_water_stream_01_lp.wav` isn't in the game) | `FX\CMB\CMB_FxWaterRoadLP.wav` (a loop; the package ships it: the first table) | (ours already) |
 | `CMB_FxWaterChurnLPSD` (8AA) | `CMB_FxWaterLoopsOwn` 3 | `AMBWaterfallChurn` 1E4F1B | `data\Sound\FX\AMB\Waterfall\AMB_Waterfall_Churn_02_LP.wav`, `_Churn_01_LP.wav` (a loop) | our own file |
+| `CMB_FxWaterRoadSoftLPSD` (BF3, since 2026-11-09a) | in no list; the MCM's "Water sound loop" 3 ("Wet road, gentle", the default) | (none: the mod's own, made as 8A9's) | `FX\CMB\CMB_FxWaterRoadSoftLP.wav` (a loop; the package ships it: the first table) | (ours already) |
 
 The sounds are candidates, not chosen by ear yet: `cqf CMB_ControllerQuest FxAudition 0` to `4`, `10` to `14` and `20`
 to `23` play our own records, `100` more the game's (`100` to `104`, `110` to `114`, `120` to `123`), `-1` all of ours
@@ -533,6 +537,19 @@ path it names only what the first build did: the chrome finish the game's `Share
 No credit line is added. The badges and the paint schemes are named for the game's own
 factions and fictional brands (the Brotherhood, the Minutemen, Vault-Tec, Nuka-Cola, Red Rocket and the others), drawn
 as our own art.
+
+**The fixes build (2026-11-09a) borrows no new file and changes no material or mesh.** Its one new file is the gentle
+wet-road loop (the first table), ours, from the same recording under the same licence as the first loop: the credit
+stays one line, widened to "loops". Its one texture change is test 51's: the Vault-Tec plate's emblem, redrawn as our
+own cog in `plates_d.dds`, `plates_n.dds` and `plates_s.dds` (the plates row above; sha256 b5eacce3..., 78b75210...,
+8892936a...; the other 554 files of the asset tree are 2026-11-08a's). Its new records name nothing of the game's:
+three globals (`CMB_Caution`, `CMB_ViewMenu` and, for test 51's fixes, `CMB_LookOptions`) and the loop's sound record,
+on the mod's own output model `CMB_SOMMonoFx`, in `AudioCategorySFX` (0172A1) as the other twelve; the controller's
+new property `WorkbenchArmorA` names the game's armour bench furniture by its ID (Fallout4.esm 0x12EA9B, the field
+kit's mode 4, placed at run time as mode 3's bench is; its model is the game's own, resolved in its archives, as the
+by-path list's). The plugin's new calls into the game (the animation graph's `IdleStop` and `IdleForceDefaultState`
+through the slot it already wraps, the camera's frustum and the scene graph's bounds read and written in memory, a
+shader property's type read through its RTTI) ship nothing of it.
 
 ## Background: why custom clips
 

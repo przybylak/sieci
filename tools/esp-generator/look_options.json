@@ -1722,7 +1722,7 @@
    "border": "bead",
    "top": "VAULT-TEC",
    "bottom": "PREPARING FOR THE FUTURE!",
-   "emblem": "the gear-ring roundel (draw_vaulttec, small)",
+   "emblem": "a plate-scale cog (bike_art._plate_gear)",
    "sticker": "a yellow \"V-T\" inspection tag",
    "texts": [9, 10, 11, 12]
   },

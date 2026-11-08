@@ -507,12 +507,13 @@ Group Look_C1
 	{MCM "Faction set" (0 = none, 1-11): at "Apply the look" sets the paint, both tank badges (the
 	right following) and the fender badge to one faction's, then goes back to 0.}
 	GlobalVariable Property CMB_KitMode Auto Const
-	{MCM "Field kit": 0 (the default) = automatic (the toolbox, then the armour bench; the one that
-	worked is remembered in CMB_KitWorked), 1 the toolbox, 2 the toolbox with the armour bench's
-	keyword, 3 the armour bench (the first plan's way).}
+	{MCM "Field kit": 0 (the default) = automatic (2026-11-09a, [Look] KitHeld: the armour bench, then
+	the game's own; the one that worked is remembered in CMB_KitWorked), 1 the toolbox, 2 the toolbox
+	with the armour bench's keyword (tests: the toolbox can't be sat in), 3 the armour bench, 4 the
+	game's armour bench (WorkbenchArmorA).}
 	GlobalVariable Property CMB_KitWorked Auto Const
-	{Console: the field kit mode automatic found working (-1, the default, = none yet: it starts again
-	from mode 1).}
+	{Console: the field kit mode automatic found working (-1, the default, = none yet: it starts at
+	the armour bench; a 1 or 2 from an older build is forgotten).}
 	GlobalVariable Property CMB_KitBagLink Auto Const
 	{MCM "Parts from the side bag": 1 (the default) = outside your settlements the field kit counts the
 	side bag's components; 0 = only yours (and a settlement's workshop).}
@@ -583,6 +584,26 @@ Group Look_C2
 	{Per Plate option: its own text's PlateText index (1 = None).}
 	int[] Property LookSetPlate Auto Const
 	{Per faction set: its Plate index (-1 unchanged).}
+EndGroup
+
+; 2026-11-09a (test 50's answer): the Pip-Boy's flag for the first-person tip (0xBF2, which CMB_Slope.dll reads too) and
+; the gentle wet-road loop (0xBF3). None is Mandatory: an older ESP leaves them None (2026-11-08a).
+Group Fixes_54
+	GlobalVariable Property CMB_ViewMenu Auto Const
+	{1 while the Pip-Boy is open on the bike, else 0: CMB_Slope.dll's [View] TipMenu gives no tip then. At a fixed ID,
+	0xBF2. None = 2026-11-08a.}
+	Sound Property CMB_FxWaterRoadSoft Auto Const
+	{0xBF3 CMB_FxWaterRoadSoftLPSD, the gentle wet-road loop (CMB_FxWaterLoop 3). None: 3 plays the wet road (2).}
+EndGroup
+
+; 2026-11-09a, test 51's fixes: the plugin's [Look] switches for this script (0xBF4) and the game's armour bench (field kit
+; mode 4). None = 2026-11-09a as of t54-merge.
+Group Fixes_55
+	GlobalVariable Property CMB_LookOptions Auto Const
+	{CMB_Slope.dll's [Look] switches (bits 1 FastMount, 2 KitHeld, 4 ParkedReload, 8 PaletteIndex, 16 MountGuard, 32 HueFree;
+	64 the plugin writes the worn bike's colours). At a fixed ID, 0xBF4; 63 in the plugin.}
+	Furniture Property WorkbenchArmorA Auto Const
+	{Fallout4.esm 0x12EA9B, the game's armour bench: field kit mode 4. None: no mode 4.}
 EndGroup
 
 ; ---------------------------------------------------------------------------
@@ -1076,6 +1097,7 @@ Function OnGameReloaded()
 	if !riding
 		; 2026-11-01a: nothing a save carries from a ride stays on off the bike.
 		LoadedOffTheBike()
+		ParkGuardAfterLoad()   ; 2026-11-09a: a parked bike the save kept hidden (ParkGuard) looked at again
 	endif
 	if riding
 		; Input layers and the engine's cached movement speed do not reliably
@@ -1949,20 +1971,42 @@ Function Mount()
 	; Claim the lock before calling anything on other objects: those calls let
 	; other threads (hotkey, timer, activation) run in between.
 	busy = true
+	mounting = true   ; 2026-11-09a (test 51): to "Mounted." (ApplyLook's parked compose waits; no parked reload)
 	NoteBusy("getting on")
 	string blocker = GetMountBlocker()
 	if blocker != ""
 		busy = false
+		mounting = false
+		ParkedLookDueNow("getting on refused")   ; 2026-11-09a: a look put on meanwhile, on the bike still standing
 		Debug.Notification(blocker)
 		Log("Getting on refused: " + blocker)
 		return
 	endif
+	; 2026-11-09a: a parked bike kept hidden (ParkGuard) is the ride's now. The review of 2026-11-09a (A3): only once getting on
+	; goes ahead (a refused one left the bike hidden with no poll).
+	ParkGuardEnd("getting on")
 	EnsureArrays()
+	; 2026-11-09a (test 51's black screen; the plugin's [Look] MountGuard, CMB_LookOptions bit 16): the parked bike's
+	; look work under way waited for (ParkedLookWait), then this attempt numbered and watched (MountWatch: the fade-in at
+	; MountWatchdog, the give-up at MountGiveUp), and after the wait, the disable and the worn bike's equip, an attempt
+	; the watchdog gave up is undone (MountUndo). Without the bit: none of it (2026-11-09a as of t54-merge).
+	bool guarded = LookOption(16)
+	int ticket = 0
+	if guarded
+		ParkedLookWait()
+		ticket = MountWatchStart()
+	endif
+	mountStage = "the wait"
 
 	Game.FadeOutGame(true, true, 0.0, 0.25, true)
 	; The plugin moves the camera within a tenth of a second: the wait covers it.
 	SetCameraLive(true)
 	Utility.Wait(0.3)
+	if guarded && MountStopped(ticket)
+		MountUndo(ticket)
+		return
+	endif
+	mountStage = "the camera"
 
 	if CMB_ForceThirdPerson.GetValue() > 0.0
 		if CMB_CameraLive && CMB_CameraLive.GetValue() > 0.0
@@ -1986,11 +2030,24 @@ Function Mount()
 		mountPlayerY = PlayerRef.GetPositionY()
 		mountPlayerZ = PlayerRef.GetPositionZ()
 	endif
+	mountStage = "the parked bike's disable"
 	BikeRef.Disable()
+	if guarded && MountStopped(ticket)
+		MountUndo(ticket)
+		return
+	endif
+	mountStage = "the gear and the pose"
 	CallGearRestore("RememberSlot")
 	ApplyRiderPose()
+	mountStage = "the look"
 	LookSync("getting on")   ; 2026-11-07a: an MCM change since the look was last put on
+	mountStage = "the worn bike"
 	EquipBike()
+	if guarded && MountStopped(ticket)
+		MountUndo(ticket)
+		return
+	endif
+	mountStage = "the rest"
 	ApplyControls()
 	playerSpeedDelta = ApplySpeed(PlayerRef)
 	ApplyFallDamageCut()
@@ -2054,6 +2111,8 @@ Function Mount()
 	PlaySound(CMB_EngineStartSound)
 	StartTimer(EngineStartLength, TimerEngine)
 	Log("Mounted. SpeedMult +" + playerSpeedDelta + ", stowed " + stowedFollowers.Length + ", running " + boostedFollowers.Length)
+	mountStage = ""   ; 2026-11-09a: MountWatch ends
+	mounting = false
 
 	Game.FadeOutGame(false, true, 0.0, 0.35)
 	busy = false
@@ -2061,6 +2120,210 @@ Function Mount()
 		Debug.Notification("Fuel: " + CountFuel())
 	endif
 	APWatchRideStart()   ; test 46: AP once at getting on (after the fade: its reads take a few frames)
+EndFunction
+
+; ---------------------------------------------------------------------------
+; 2026-11-09a (test 51's black screen, s2 19:50:57 and s3 20:00:15): getting on guarded (the plugin's [Look] MountGuard,
+; CMB_LookOptions bit 16). Test 51: a second activation during the first's 2-3 s of look work queued a second parked-bike
+; box; Ride on one faded the screen out and kept it so, the other opened behind the fade, and its menu mode held Mount's
+; Utility.Wait (and every timer) until a key answered it (s3: 57 s; s2: never). So: one activation at a time
+; (ActivationBegin/End, CMB_BikeActivatorScript), no look work before the menu (the activator), getting on waits for the
+; parked bike's look work (ParkedLookWait), and a watchdog (MountWatch, its own thread: CallFunctionNoWait) counts menu
+; time too (Utility.WaitMenuMode): MountWatchdog after the fade it fades back in, naming Mount's stage and the menus open;
+; MountGiveUp after it, out of every menu, it gives the ride up, and Mount, when it goes on, undoes what it did (MountUndo).
+; ---------------------------------------------------------------------------
+float Property ActivationStale = 60.0 AutoReadOnly
+{An activation still noted this long after its start is old (a load mid-activation): the next one goes ahead.}
+float Property MountLookWait = 3.0 AutoReadOnly
+{Getting on waits up to this long for the parked bike's look work under way (ApplyLook's ApplyParked and what follows).}
+float Property MountLookStep = 0.1 AutoReadOnly
+float Property MountWatchdog = 8.0 AutoReadOnly
+{Not mounted this long after getting on's fade (menu time counted): faded back in, and the stage and menus logged.}
+float Property MountGiveUp = 25.0 AutoReadOnly
+{...and this long after it, out of every menu: the ride given up (MountUndo when Mount goes on). Not past the worn
+bike's equip: from there the ride goes on.}
+float Property MountWatchStep = 0.25 AutoReadOnly
+
+int activationTicket = 0       ; the latest activation's number (ActivationBegin)
+float activationAt = -1.0      ; its real time while its menu or choice is under way (-1 none)
+int mountTicket = 0            ; the latest getting on's number (MountWatchStart)
+string mountStage = ""         ; where Mount is ("" outside it, and after "Mounted.")
+float mountWatchFrom = 0.0     ; the real time of its fade
+int mountGivenUp = 0           ; the attempt the watchdog gave up (0 none)
+string mountGivenUpAt = ""     ; ...at this stage
+int lookParkedWork = 0         ; parked look work under way (ApplyLook's ApplyParked and ParkedLookAfter, ParkedLookDueNow)
+bool parkedLookDue = false     ; (FastMount) a look put on while getting on or riding: the parked bike's at its enable
+
+; CMB_BikeActivatorScript, first: this activation's number, or 0 refused (logged). Checked and set with no call out
+; between, so of two presses one passes: refused while another activation's menu or choice is under way (activationAt
+; under ActivationStale old; over a second negative, real time from another launch, is old too, though a load clears it:
+; LookAfterLoad), or while busy, riding or customising. The time is read before the check (two presses' reads can land
+; in either order: a few milliseconds negative is the other press), the line written after it.
+int Function ActivationBegin()
+	float now = Utility.GetCurrentRealTime()
+	float age = now - activationAt
+	string why = ""
+	if activationAt >= 0.0 && age > -1.0 && age < ActivationStale
+		why = "again"
+	elseif busy
+		why = "busy"
+	elseif riding
+		why = "riding"
+	elseif customising
+		why = "customising"
+	else
+		activationTicket += 1
+		activationAt = now
+		return activationTicket
+	endif
+	if why == "again"
+		Log("Parked bike activated again " + age + " s into the last activation (its menu or choice under way): ignored")
+	elseif why == "busy"
+		Log("Parked bike activated while busy (" + BusyText() + "): ignored")
+	else
+		Log("Parked bike activated while " + why + ": ignored")
+	endif
+	return 0
+EndFunction
+
+; CMB_BikeActivatorScript, after the choice's call returned: that activation is over (a later one's number keeps its own).
+Function ActivationEnd(int aiTicket)
+	if aiTicket == activationTicket
+		activationAt = -1.0
+	endif
+EndFunction
+
+; Mount, before its fade: the parked bike's look work under way (another thread's ApplyLook: its compose and what follows
+; it, the reload included) waited for, up to MountLookWait, in MountLookStep steps; its line only when it waited.
+Function ParkedLookWait()
+	if lookParkedWork <= 0
+		return
+	endif
+	float from = Utility.GetCurrentRealTime()
+	float waited = 0.0
+	while lookParkedWork > 0 && waited < MountLookWait
+		Utility.Wait(MountLookStep)
+		waited = Utility.GetCurrentRealTime() - from
+	endwhile
+	if lookParkedWork > 0
+		Log("Getting on: waited " + waited + " s for the parked bike's look (still under way: getting on all the same)")
+	else
+		Log("Getting on: waited " + waited + " s for the parked bike's look")
+	endif
+EndFunction
+
+; Mount, right before its fade: the attempt numbered, and its watchdog started on a thread of its own. Returns the number.
+int Function MountWatchStart()
+	mountTicket += 1
+	int ticket = mountTicket
+	mountGivenUp = 0
+	mountGivenUpAt = ""
+	mountStage = "the wait"
+	mountWatchFrom = Utility.GetCurrentRealTime()
+	Var[] params = new Var[1]
+	params[0] = ticket
+	CallFunctionNoWait("MountWatch", params)
+	return ticket
+EndFunction
+
+; Mount's checks after its wait, the disable and the worn bike's equip: this attempt was given up (or a later one began).
+bool Function MountStopped(int aiTicket)
+	return aiTicket != mountTicket || mountGivenUp == aiTicket
+EndFunction
+
+; The watchdog (MountWatchStart's thread): while its attempt is the latest and not mounted, every MountWatchStep of real
+; time, menus included (WaitMenuMode, where Mount's Wait and every timer stop). Ends at "Mounted.", a later attempt, the
+; give-up, or real time from another launch (a load).
+Function MountWatch(int aiTicket)
+	bool fadedIn = false
+	bool lateSaid = false
+	while aiTicket == mountTicket && mountStage != "" && mountGivenUp != aiTicket
+		Utility.WaitMenuMode(MountWatchStep)
+		bool menu = Utility.IsInMenuMode()
+		float t = Utility.GetCurrentRealTime() - mountWatchFrom
+		string stage = mountStage
+		if t < 0.0
+			return
+		endif
+		if aiTicket == mountTicket && stage != "" && mountGivenUp != aiTicket
+			if !fadedIn && t >= MountWatchdog
+				fadedIn = true
+				string open = LookF4SEText("MenusOpenText")
+				Game.FadeOutGame(false, true, 0.0, 0.35)
+				string menus = "menu mode " + Ternary(menu, "yes", "no")
+				if open != ""
+					menus += ", open: " + open
+				endif
+				Log("Getting on: not mounted " + t + " s after its fade (at " + stage + "; " + menus + "): faded back in (the watchdog)")
+			elseif t >= MountGiveUp && !menu
+				if stage == "the rest"
+					if !lateSaid
+						lateSaid = true
+						Log("Getting on: not mounted " + t + " s after its fade (at the rest: past the worn bike, the ride goes on): not given up")
+					endif
+				else
+					MountGiveUpNow(aiTicket, t, stage)
+				endif
+			endif
+		endif
+	endwhile
+EndFunction
+
+; The watchdog's give-up (out of every menu): the attempt marked (Mount's next check undoes it), busy and the activation
+; let go, the camera back.
+Function MountGiveUpNow(int aiTicket, float afAfter, string asStage)
+	mountGivenUp = aiTicket
+	mountGivenUpAt = asStage
+	mounting = false
+	if busy && busyBy == "getting on"
+		busy = false
+	endif
+	activationAt = -1.0   ; its activation's thread is still in Mount: the next press goes ahead
+	SetCameraLive(false)
+	Game.FadeOutGame(false, true, 0.0, 0.35)
+	Log("Getting on given up " + afAfter + " s after its fade (at " + asStage + "): the ride not started")
+	Debug.Notification("The motorbike couldn't be got on. Try again.")
+EndFunction
+
+; Mount, at a check that found its attempt given up: what it did so far undone (the parked bike enabled where it stood if
+; it was disabled, the worn bike off, the slot's own gear back, the pose cleared). An attempt overtaken by a later one only
+; stops (the later one's state is left).
+Function MountUndo(int aiTicket)
+	if aiTicket != mountTicket
+		Log("Getting on: an earlier attempt went on after a later one began: stopped there")
+		return
+	endif
+	string stage = mountGivenUpAt
+	mountStage = ""
+	mounting = false
+	bool claimed = !busy
+	if claimed
+		busy = true
+		NoteBusy("undoing a getting on")
+	endif
+	if claimed && !riding && BikeRef.IsDisabled()
+		EnableParked(false, 0, 0.0, true)   ; where it stood, the player at it to get on (the review's A1: not counted)
+	else
+		ParkedLookDueNow("getting on undone")
+	endif
+	RemoveBikeArmor()
+	CallGearRestore("RestoreSlot")
+	ClearRiderPose()
+	SetCameraLive(false)
+	Game.FadeOutGame(false, true, 0.0, 0.35)
+	Log("Getting on: undone after the watchdog gave up (at " + stage + ")")
+	if claimed
+		busy = false
+	endif
+EndFunction
+
+; A CMB_LookF4SE function's text answer ("" without it: no F4SE).
+string Function LookF4SEText(string asFunction)
+	ScriptObject look = CastAs("CMB_LookF4SE")
+	if !look
+		return ""
+	endif
+	return look.CallFunction(asFunction, new Var[0]) as string
 EndFunction
 
 Function Dismount()
@@ -2114,7 +2377,7 @@ Function CallBike()
 		Log("Calling the bike refused: " + refusal + ": " + notice)
 		return
 	endif
-	RollBikeUp()
+	RollBikeUp(false, true)
 	if rollRefused
 		; Test 46 (the plugin's [Room] LineFallback=0): no spot with room around the player, nor one
 		; to take for the most room: the bike stays where it was rather than past a fence or inside
@@ -2137,8 +2400,10 @@ EndFunction
 ; room at none of them it's left there (false then); a call takes the one with the most room
 ; (test 43, CallTakesBestSpot), or the first spot as before. Test 46: with none of those either
 ; and the plugin's [Room] LineFallback=0, nothing is brought: rollRefused, the bike shown again
-; where it was if it was shown, false.
-bool Function RollBikeUp(bool abFromDoor = false)
+; where it was if it was shown, false. 2026-11-09a (abCall): a call brings a bike kept hidden (ParkGuard) wherever it waits:
+; its hold ends here, once the call goes ahead (the review of 2026-11-09a, A3: ended before the refusals, a refused call left
+; it hidden with no poll); refused, it stays held.
+bool Function RollBikeUp(bool abFromDoor = false, bool abCall = false)
 	rollRefused = false
 	bool wasShown = !BikeRef.IsDisabled()
 	; Disabled before the asks: standing where it waited, the bike would be in its own way at a
@@ -2148,14 +2413,17 @@ bool Function RollBikeUp(bool abFromDoor = false)
 	if spot == -2
 		rollRefused = true
 		if wasShown
-			BikeRef.Enable(false)
+			EnableParked(false, 0, 0.0, true)   ; where it stood shown till this call's Disable (the review's A1: the player not counted)
 		endif
 		return false
-	elseif spot < 0
+	endif
+	if abCall
+		ParkGuardEnd("calling it")
+	endif
+	if spot < 0
 		; Where it waited: the shadow move put it there at the rider's height, and LeaveBikeOutside
 		; only showed it. Shown again, and settled on the ground there like any park.
-		BikeRef.Enable(false)
-		SettleBike()
+		EnableParked(false, 3)
 	else
 		PlaceOnSpot(spot)
 	endif
@@ -2176,8 +2444,13 @@ Function PlaceOnSpot(int aiSpot)
 	else
 		PlaceBike(SpotForward(aiSpot), SpotRight(aiSpot))
 	endif
-	BikeRef.Enable(true)
-	SettleBike(false, spotKnown && spotGroundKnown)
+	; The review of 2026-11-09a (A2): a spot chosen around the player (by its offset, or the plugin's Slide off them): the guard
+	; without the player.
+	if spotKnown && spotGroundKnown
+		EnableParked(true, 2, 0.0, true)
+	else
+		EnableParked(true, 3, 0.0, true)
+	endif
 EndFunction
 
 ; Test 47 (the plugin's [Room] SnapNext; test 46's calls onto a wrecked sedan and onto the truck the
@@ -2261,6 +2534,8 @@ int Function PickBikeSpot(bool abFromDoor, bool abPark = false)
 	float bestPitch = 0.0
 	float bestRoll = 0.0
 	float bestGround = 0.0
+	; 2026-11-09a (SnapOrder): its ground as the plugin wrote it, with a tilt or without (0: none).
+	float bestGroundSeen = 0.0
 	; Test 47 (SnapNext): the first spot with room whose navmesh snap went too far, as it was read.
 	bool snapNext = RoomOption(8) && SpotSettleMax > 0.0
 	int farSpot = -1
@@ -2387,6 +2662,7 @@ int Function PickBikeSpot(bool abFromDoor, bool abPark = false)
 			bestPitch = lastRoomPitch
 			bestRoll = lastRoomRoll
 			bestGround = lastRoomGround
+			bestGroundSeen = lastRoomGroundSeen
 		elseif room == 0
 			if farSpot >= 0
 				; Test 47: no answer after a spot with room whose snap went too far: that one (below).
@@ -2409,7 +2685,71 @@ int Function PickBikeSpot(bool abFromDoor, bool abPark = false)
 			spots = BikeSpots + AroundSpots
 		endif
 	endwhile
-	if farSpot >= 0
+	; 2026-11-09a (SnapOrder): the most room's snaps measured in 3-D on its ground when the plugin wrote one (with a tilt, or without).
+	bool snapOrder = RoomOption(64)
+	float bestGroundUse = bestGround
+	bool bestFlat = !bestTilted
+	if snapOrder && !bestTilted && bestGroundSeen != 0.0
+		bestGroundUse = bestGroundSeen
+		bestFlat = false
+	endif
+	if farSpot >= 0 && snapOrder
+		; 2026-11-09a, the plugin's [Room] SnapOrder (CMB_RoomOptions bit 64; test 50's call from the truck bed, 14:50:03: spot 10 room
+		; off the navmesh, spot 9 refused but the most room, its snap measured flat for want of a tilt, the bike put on the truck): a
+		; call with a spot with room off the navmesh asks in this order: 1, that spot's navmesh point (SnapSpot); 2, the most room by
+		; its snap measured in 3-D on the ground the plugin wrote for it (taken below, its line as before); 3, the most room's navmesh
+		; point (SnapBest); 4, that first spot as before. A checked spot with room beats one that had none.
+		if RoomOption(16) && !abPark && CMB_RoomAskKind && farSnap > SpotSettleMax && farSnap <= SpotSnapReach
+			string orderLabel = "Bike's spot " + (farSpot + 1) + "'s navmesh point (" + Whole(farSnap) + " from it)"
+			int orderRoom = RoomAt(farSnapX, farSnapY, pz, farSpot, farAngle, ".", orderLabel, 1)
+			if orderRoom > 0
+				float orderAgain = SnapOff(lastRoomX, lastRoomY, pz - lastRoomClear, false)
+				if orderAgain <= SpotSettleMax
+					spotX = lastRoomX
+					spotY = lastRoomY
+					spotAngle = lastRoomAngle
+					spotKnown = true
+					spotGround = pz - lastRoomClear
+					spotGroundKnown = true
+					spotPitch = lastRoomPitch
+					spotRoll = lastRoomRoll
+					spotTiltKnown = lastRoomTilted
+					if bestSpot >= 0 && !unanswered
+						Log(who + orderLabel + ", heading " + Whole(spotAngle) + ": room, walkable (its own snap " + Whole(orderAgain) + "): taken before the most room (spot " + (bestSpot + 1) + ", none there) (the plugin's [Room] SnapOrder).")
+					else
+						Log(who + orderLabel + ", heading " + Whole(spotAngle) + ": room, walkable (its own snap " + Whole(orderAgain) + "): taken (the plugin's [Room] SnapSpot).")
+					endif
+					return farSpot
+				endif
+				Log(orderLabel + ": its own navmesh snap " + Whole(orderAgain) + ", over " + Whole(SpotSettleMax) + ".")
+			endif
+		endif
+		if bestSpot >= 0 && !unanswered
+			float orderSnap = SnapOff(bestX, bestY, bestGroundUse, bestFlat)
+			if orderSnap > SpotSettleMax
+				Log("Bike's spot " + (bestSpot + 1) + " (" + SpotText(bestSpot) + "), the most room: its navmesh snap " + Whole(orderSnap) + " from it" + Ternary(bestFlat, "", " in 3-D on its ground") + ", over " + Whole(SpotSettleMax) + ": not walkable either.")
+				if RoomOption(32) && CMB_RoomAskKind && SpotSettleMax > 0.0 && SnapBestTry(who, bestSpot, bestX, bestY, bestAngle, pz, orderSnap, "the first spot with room as before (the plugin's [Room] SnapOrder)")
+					return bestSpot
+				endif
+				bestSpot = -1
+			endif
+		else
+			bestSpot = -1
+		endif
+		if bestSpot < 0
+			spotX = farX
+			spotY = farY
+			spotAngle = farAngle
+			spotKnown = true
+			spotGround = farGround
+			spotGroundKnown = true
+			spotPitch = farPitch
+			spotRoll = farRoll
+			spotTiltKnown = farTilted
+			Log(who + (farSpot + 1) + " (" + SpotText(farSpot) + "), heading " + Whole(spotAngle) + ": the first with room, its navmesh snap too far, and no other spot passes (the plugin's [Room] SnapOrder): taken as before.")
+			return farSpot
+		endif
+	elseif farSpot >= 0
 		; Test 47 (SnapNext): a call's most-room spot first, if its own snap passes (test 46's truck:
 		; the spots beside it refused for the ground below, a step down, the spots on it with room).
 		if bestSpot >= 0 && !unanswered
@@ -2475,30 +2815,9 @@ int Function PickBikeSpot(bool abFromDoor, bool abPark = false)
 		; it found asked as a navmesh point, taken with room there and its own snap within SpotSettleMax. Off (bit 32 clear:
 		; SnapBest=0, an older plugin, or no CMB_RoomAskKind): the most room taken as before.
 		if RoomOption(32) && CMB_RoomAskKind && SpotSettleMax > 0.0 && !unanswered
-			float mostSnap = SnapOff(bestX, bestY, bestGround, !bestTilted)
-			if mostSnap > SpotSettleMax && mostSnap <= SpotSnapReach
-				float mostX = snapX
-				float mostY = snapY
-				string mostLabel = "Bike's spot " + (bestSpot + 1) + "'s navmesh point, the most room's (" + Whole(mostSnap) + " from it)"
-				int mostRoom = RoomAt(mostX, mostY, pz, bestSpot, bestAngle, ".", mostLabel, 1)
-				if mostRoom > 0
-					float mostAgain = SnapOff(lastRoomX, lastRoomY, pz - lastRoomClear, false)
-					if mostAgain <= SpotSettleMax
-						spotX = lastRoomX
-						spotY = lastRoomY
-						spotAngle = lastRoomAngle
-						spotKnown = true
-						spotGround = pz - lastRoomClear
-						spotGroundKnown = true
-						spotPitch = lastRoomPitch
-						spotRoll = lastRoomRoll
-						spotTiltKnown = lastRoomTilted
-						Log(who + mostLabel + ", heading " + Whole(spotAngle) + ": room, walkable (its own snap " + Whole(mostAgain) + "): taken (the plugin's [Room] SnapBest).")
-						return bestSpot
-					endif
-					Log(mostLabel + ": its own navmesh snap " + Whole(mostAgain) + ", over " + Whole(SpotSettleMax) + ".")
-				endif
-				Log("Bike's spot " + (bestSpot + 1) + ", the most room: its navmesh snap " + Whole(mostSnap) + ", over " + Whole(SpotSettleMax) + ", its navmesh point not taken: the most room as before (the plugin's [Room] SnapBest).")
+			; 2026-11-09a: the block in SnapBestTry (SnapOrder asks it too); with SnapOrder the snap in 3-D on its ground when known.
+			if SnapBestTry(who, bestSpot, bestX, bestY, bestAngle, pz, SnapOff(bestX, bestY, bestGroundUse, bestFlat), "the most room as before (the plugin's [Room] SnapBest)")
+				return bestSpot
 			endif
 		endif
 		Log("The bike's spot: " + (bestSpot + 1) + " (" + SpotText(bestSpot) + "), heading " + Whole(bestAngle) + ", the most room of the " + spots + " (the nearest hit " + Whole(bestClear) + " along a ray, on the bike's 110, or the ground " + Whole(bestClear) + " below; none has room, a call takes the most room).")
@@ -2527,6 +2846,40 @@ int Function PickBikeSpot(bool abFromDoor, bool abPark = false)
 	return 0
 EndFunction
 
+; 2026-11-06a's SnapBest (the plugin's [Room] SnapBest, CMB_RoomOptions bit 32), PickBikeSpot's block till 2026-11-09a, a
+; function since (its SnapOrder asks it too): the most room (aiSpot at afX, afY, heading afAngle) whose own snap afSnap (just
+; measured: snapX/snapY hold where it took the probe) is past SpotSettleMax and within SpotSnapReach: the place it found asked about
+; as a navmesh point, taken with room there and its own snap within SpotSettleMax (true, spotX... set). Else false, and past
+; SpotSettleMax a line ending "its navmesh point not taken: " + asElse.
+bool Function SnapBestTry(string asWho, int aiSpot, float afX, float afY, float afAngle, float afZ, float afSnap, string asElse)
+	if !(afSnap > SpotSettleMax && afSnap <= SpotSnapReach)
+		return false
+	endif
+	float mostX = snapX
+	float mostY = snapY
+	string mostLabel = "Bike's spot " + (aiSpot + 1) + "'s navmesh point, the most room's (" + Whole(afSnap) + " from it)"
+	int mostRoom = RoomAt(mostX, mostY, afZ, aiSpot, afAngle, ".", mostLabel, 1)
+	if mostRoom > 0
+		float mostAgain = SnapOff(lastRoomX, lastRoomY, afZ - lastRoomClear, false)
+		if mostAgain <= SpotSettleMax
+			spotX = lastRoomX
+			spotY = lastRoomY
+			spotAngle = lastRoomAngle
+			spotKnown = true
+			spotGround = afZ - lastRoomClear
+			spotGroundKnown = true
+			spotPitch = lastRoomPitch
+			spotRoll = lastRoomRoll
+			spotTiltKnown = lastRoomTilted
+			Log(asWho + mostLabel + ", heading " + Whole(spotAngle) + ": room, walkable (its own snap " + Whole(mostAgain) + "): taken (the plugin's [Room] SnapBest).")
+			return true
+		endif
+		Log(mostLabel + ": its own navmesh snap " + Whole(mostAgain) + ", over " + Whole(SpotSettleMax) + ".")
+	endif
+	Log("Bike's spot " + (aiSpot + 1) + ", the most room: its navmesh snap " + Whole(afSnap) + ", over " + Whole(SpotSettleMax) + ", its navmesh point not taken: " + asElse + ".")
+	return false
+EndFunction
+
 ; Test 46: a bit of CMB_RoomOptions, the plugin's [Room] keys for this script (1 Around, 2 a call
 ; with no spot refused); false without the global or the plugin (0: test 45's build).
 bool Function RoomOption(int aiBit)
@@ -2535,6 +2888,145 @@ bool Function RoomOption(int aiBit)
 	endif
 	int options = CMB_RoomOptions.GetValue() as int
 	return (options / aiBit) % 2 == 1
+EndFunction
+
+; 2026-11-09a (test 51): a bit of CMB_LookOptions (0xBF4), the plugin's [Look] switches for this script (1 FastMount, 2
+; KitHeld, 4 ParkedReload, 8 PaletteIndex, 16 MountGuard, 32 HueFree; 64 the plugin writes the worn bike's colours); the
+; ESP's 63 without the plugin. false without the global (an older ESP: 2026-11-09a as of t54-merge).
+bool Function LookOption(int aiBit)
+	if !CMB_LookOptions
+		return false
+	endif
+	int options = CMB_LookOptions.GetValue() as int
+	return (options / aiBit) % 2 == 1
+EndFunction
+
+; 2026-11-09a (test 51): Mount's start to its "Mounted." line (the mount unit sets it, the kitpaint unit reads it).
+bool mounting = false
+
+; 2026-11-09a (test 51): hooks the round's units fill; nothing calls them yet (step 0).
+; After a parked look's apply (asFrom: who applied it, aiApplied: the entries applied): the kitpaint unit's (ParkedReload).
+; [Look] ParkedReload (bit 4): the parked bike's 3D loaded again for its colours (ParkedReload, after KitTidy).
+Function ParkedLookAfter(string asFrom, int aiApplied)
+	if aiApplied > 0 && LookOption(4)
+		ParkedReload(asFrom)
+	endif
+EndFunction
+
+; The MCM's hue or shade moved (asFrom: who noticed): the kitpaint unit's (HueFree).
+; [Look] HueFree (bit 32), first in LookSync (the activation, getting on, the worn equip) and LookApplyFromMcm: the MCM's
+; "Paint hue" (whole, 0-359) and "Paint shade" (0-3) read against what was last seen (-1 at first: the first read only
+; records). Moved with Paint not "Free colour" and no faction set pending: Paint becomes "Free colour" (the hue only
+; colours that paint; test 51 moved it three times and nothing changed). A faction set pending (chosen with it) wins:
+; the hue is recorded, Paint left. Off: nothing (the record dropped, so turning it on starts afresh). The review of
+; 2026-11-09a: (A4) the record is also made where the look is put on (ApplyLook's LookHueRecord, a load's included), so the
+; first move after a load of an older save, or after the switch is turned on, counts; (A5) Paint is recorded with them, and a
+; Paint chosen since the record (with the move, in the same MCM visit) wins as a set does.
+int lookHueSeen = -1
+int lookShadeSeen = -1
+int lookPaintSeen = -1   ; the review of 2026-11-09a (A5): Paint as last seen or put on (-1: none)
+
+; The MCM's hue and shade, whole and clamped as LookHueFromMcm clamps them.
+int Function LookHueRead()
+	int h = Math.Floor(CMB_LookHue.GetValue() + 0.5)
+	if h < 0
+		h = 0
+	elseif h > 359
+		h = 359
+	endif
+	return h
+EndFunction
+
+int Function LookShadeRead()
+	int sh = Math.Floor(CMB_LookShade.GetValue() + 0.5)
+	if sh < 0
+		sh = 0
+	elseif sh > 3
+		sh = 3
+	endif
+	return sh
+EndFunction
+
+; The review of 2026-11-09a (A4, A5; ApplyLook's first line): the look as put on recorded for LookHueWanted: Paint always (a
+; field kit's, a faction set's or a clamp's Paint is no choice made with a later move), the hue and shade only when nothing is
+; recorded (a save from before this build, HueFree just turned on: the first move after it counts; a move not yet seen,
+; which a save keeps, isn't taken as the record). Off: nothing (LookHueWanted drops the record).
+Function LookHueRecord()
+	if !LookOption(32) || !CMB_LookHue || !CMB_LookShade || !CMB_Look_Paint
+		return
+	endif
+	int h = LookHueRead()
+	int sh = LookShadeRead()
+	int paint = LookChoice(LookSlotPaint, false)
+	if lookHueSeen < 0 || lookShadeSeen < 0
+		lookHueSeen = h
+		lookShadeSeen = sh
+	endif
+	lookPaintSeen = paint
+EndFunction
+
+Function LookHueWanted(string asFrom)
+	if !LookOption(32) || !CMB_LookHue || !CMB_LookShade || !CMB_Look_Paint
+		lookHueSeen = -1
+		lookShadeSeen = -1
+		lookPaintSeen = -1
+		return
+	endif
+	int h = LookHueRead()
+	int sh = LookShadeRead()
+	int paint = LookChoice(LookSlotPaint, false)
+	; Read and recorded with no call between (another thread's read sees this one's record).
+	int hueWas = lookHueSeen
+	int shadeWas = lookShadeSeen
+	int paintWas = lookPaintSeen
+	lookHueSeen = h
+	lookShadeSeen = sh
+	lookPaintSeen = paint
+	if hueWas < 0 || shadeWas < 0 || (h == hueWas && sh == shadeWas)
+		return
+	endif
+	string moved = "hue"
+	string hues = "" + hueWas + " -> " + h
+	if h == hueWas
+		moved = "shade"
+		hues = "" + h
+	endif
+	string shades = LookShadeName(sh)
+	if sh != shadeWas
+		shades = LookShadeName(shadeWas) + " -> " + shades
+	endif
+	string said = "Look: the MCM's paint " + moved + " moved (" + hues + ", shade " + shades + ") (" + asFrom + ")"
+	int set = 0
+	if CMB_LookFactionSet
+		set = CMB_LookFactionSet.GetValue() as int
+	endif
+	if set >= 1
+		Log(said + ": faction set " + set + " chosen with it wins: Paint left")
+	elseif paint != LookPaintFree && paintWas >= 0 && paint != paintWas
+		; The review of 2026-11-09a (A5): a Paint chosen with it (since the record) wins, as a set does.
+		Log(said + ": Paint " + LookName(LookSlotPaint, paint) + " (" + paint + ") chosen with it wins: Paint left")
+	elseif paint != LookPaintFree
+		CMB_Look_Paint.SetValue(LookPaintFree as float)
+		lookPaintSeen = LookPaintFree
+		Log(said + ": Paint is now \"Free colour\"")
+	endif
+EndFunction
+
+; The parked look's work due now, not waiting for getting off (asFrom: who asks): the mount unit's.
+; 2026-11-09a (test 51, getting on 5-6 s; [Look] FastMount, bit 1): a look put on while getting on or riding (ApplyLook's
+; parkedLookDue) composed on the parked bike now, still disabled: SetMaterialSwap keeps it, so the enable that follows loads
+; the bike with it ("0 applied now"). Nothing when none is due. EnableParked's first line (every enable of the parked bike),
+; Mount's refusal and its undo.
+Function ParkedLookDueNow(string asFrom)
+	if !parkedLookDue
+		return
+	endif
+	parkedLookDue = false
+	lookParkedWork += 1
+	CallLookF4SE("ApplyParked", None, asFrom)
+	if lookParkedWork > 0
+		lookParkedWork -= 1
+	endif
 EndFunction
 
 ; Asks CMB_Slope.dll whether the parked bike has room at (afX, afY, afZ), facing afAngle (the
@@ -2549,7 +3041,8 @@ EndFunction
 ; older plugin), and lastRoomPitch/Roll the ground's tilt under the wheels there (CMB_RoomPitch and
 ; Roll, lastRoomTilted; -1000 none: its ParkTilt off, or an older plugin or ESP). Test 47: asSpot
 ; names a spot that isn't one of the BikeSpots in its lines (ParkChecked's "The park spot (...)").
-; 2026-11-01a: aiKind is CMB_RoomAskKind's value for the ask (1: a navmesh point, the plugin's [Room] SnapSpot).
+; 2026-11-01a: aiKind is CMB_RoomAskKind's value for the ask (1: a navmesh point, the plugin's [Room] SnapSpot; 2026-11-09a: 2
+; the parked bike's guard, ParkGuard; 3 the same without the player, the review of 2026-11-09a).
 int Function RoomAt(float afX, float afY, float afZ, int aiSpot, float afAngle, string asUnchecked = ".", string asSpot = "", int aiKind = 0)
 	string try = "Bike's spot " + (aiSpot + 1) + " (" + SpotText(aiSpot) + "): "
 	if asSpot != ""
@@ -2635,6 +3128,14 @@ int Function RoomAt(float afX, float afY, float afZ, int aiSpot, float afAngle, 
 			elseif clear == -3.0
 				; Test 44 (the plugin's [Room] Line): a fence or a wall between the player and the spot.
 				Log(try + "none (no clear line from the player to it).")
+			elseif clear == -4.0
+				; 2026-11-09a (the plugin's [Room] ActorRoom; its ParkGuard's ask, kind 2): an actor in the spot's place,
+				; or anyone, the player too, in the parked bike's. Without this the -4 would read as the ground 4 above.
+				if aiKind == 2 || aiKind == 3
+					Log(try + "none (someone in its place).")
+				else
+					Log(try + "none (an actor in its place).")
+				endif
 			elseif clear == -1.0
 				Log(try + "none (no ground within reach of the spot).")
 			elseif clear < 0.0
@@ -2709,10 +3210,18 @@ string Function SpotText(int aiSpot)
 	return text
 EndFunction
 
+; 2026-11-09a (the plugin's [Room] SnapOrder): the ground it wrote for any answer, with a tilt or without (0: none; PickBikeSpot's
+; bestGroundSeen, the most room's 3-D snap). RoomTiltRead's.
+float lastRoomGroundSeen = 0.0
+
 ; Test 46: the ground's tilt under the wheels at the spot just answered (the plugin's [Room]
 ; ParkTilt: CMB_RoomPitch over -1000) into lastRoomPitch/Roll/Ground and lastRoomTilted, and its
 ; words for the spot's line ("" without).
 string Function RoomTiltRead()
+	lastRoomGroundSeen = 0.0
+	if CMB_RoomGround
+		lastRoomGroundSeen = CMB_RoomGround.GetValue()
+	endif
 	lastRoomTilted = false
 	if !CMB_RoomPitch || !CMB_RoomRoll || !CMB_RoomGround || CMB_RoomPitch.GetValue() <= -999.0
 		return ""
@@ -2873,6 +3382,7 @@ Function EmergencyReset()
 		LeaveBikeOutside(true)
 	endif
 	FinishRide()
+	RemoveBikeArmor(true)   ; 2026-11-09a (test 51, FastMount): a clean slate: the kept worn bike dropped too
 	; 2026-11-01a: whatever the script lost track of, the player's own footstep sounds are back.
 	if AudioCategoryFSTplayer
 		AudioCategoryFSTplayer.UnMute()
@@ -2941,6 +3451,8 @@ Event OnTimer(int aiTimerID)
 		KitTick()   ; 2026-11-07a: the field kit's session, once a second
 	elseif aiTimerID == TimerLook
 		LookFollowUp()   ; 2026-11-07a: the look on the first-person and worn bikes, outside busy
+	elseif aiTimerID == TimerParkGuard
+		ParkGuardTick()   ; 2026-11-09a: the parked bike kept hidden (ParkGuard), outside busy
 	endif
 EndEvent
 
@@ -3273,10 +3785,14 @@ Function RideTick()
 	if !StillRiding()
 		return
 	endif
-	if LookRimsMoved()
+	if LookRimsMoved() || wornRefit
 		; 2026-11-08a: CMB_LookCode's rim style isn't the worn bike's mods' (ApplyLook moved it): put on
-		; again, so the mods follow the look (one place equips mid-ride: here).
-		Log("Look: the rims' style changed while riding (" + LookName(LookSlotRims, lookRimMods) + " worn, CMB_LookCode's style " + lookRimCode + "): the worn bike put on again with the look's mods")
+		; again, so the mods follow the look (one place equips mid-ride: here). 2026-11-09a (test 51, FastMount):
+		; or the kept worn bike was found with fewer mods after its equip (WornModsCheck, its line): put on afresh.
+		if LookRimsMoved()
+			Log("Look: the rims' style changed while riding (" + LookName(LookSlotRims, lookRimMods) + " worn, CMB_LookCode's style " + lookRimCode + "): the worn bike put on again with the look's mods")
+		endif
+		wornRefit = false
 		RemoveBikeArmor()
 	endif
 	EquipBike()
@@ -3438,7 +3954,7 @@ Function AutoDismount(string asMessage, bool abParkBesidePlayer)
 	if abParkBesidePlayer
 		ParkBesidePlayer()
 	else
-		BikeRef.Enable()
+		EnableParked(false, 0)
 	endif
 	FinishRide()
 	busy = false
@@ -3501,7 +4017,7 @@ bool Function LeaveBikeOutside(bool abAtDoor)
 		Log("The bike was put beside the player after they went in: left hidden, calling it outdoors brings it.")
 		return false
 	endif
-	BikeRef.Enable()
+	EnableParked(false, 0)
 	if abAtDoor && world
 		bikeAtDoor = true
 		doorWorld = world
@@ -3523,8 +4039,7 @@ Function ParkBesidePlayer()
 		return
 	endif
 	PlaceBike(0.0, ParkSideOffset)
-	BikeRef.Enable()
-	SettleBike(true)
+	EnableParked(false, 1, 0.0, true)   ; ParkSideOffset beside the player (the review of 2026-11-09a: the player not counted)
 EndFunction
 
 ; Test 47 (the plugin's [Room] ParkCheck): a ride that moved the player less than ParkBackWithin
@@ -3553,10 +4068,23 @@ bool Function ParkWhereItStood()
 		Log("Parked bike not put back where it stood: the ride moved the player " + Whole(moved) + ", under " + Whole(ParkBackWithin) + ", but they stand where it stood (" + Whole(along) + " along its heading, " + Whole(across) + " across it): its spot asked about instead (the plugin's [Room] ParkCheck).")
 		return false
 	endif
+	; 2026-11-09a (the plugin's [Room] ParkBack, CMB_RoomOptions bit 128; test 50's third knock-off, put back here with no
+	; look 0.5 s before the crash, three raiders about): the old spot asked about first, as a call's (actors no room with its
+	; ActorRoom). None: its spot asked about instead (ParkChecked). Not checked or no answer: put back as before.
+	if RoomOption(128)
+		float backHeading = heading
+		if backHeading < 0.0
+			backHeading += 360.0
+		endif
+		if RoomAt(mountBikeX, mountBikeY, mountBikeZ, -1, backHeading, ".", "The parked bike's old spot") == -1
+			Log("Parked bike not put back where it stood: its old spot asked about first (the plugin's [Room] ParkBack): no room there (the line above says why): its spot asked about instead.")
+			return false
+		endif
+	endif
 	; MoveTo first: the bike may be in another cell (it waits in the holding cell).
 	BikeRef.MoveTo(PlayerRef, mountBikeX - PlayerRef.GetPositionX(), mountBikeY - PlayerRef.GetPositionY(), mountBikeZ - PlayerRef.GetPositionZ(), false)
 	BikeRef.SetAngle(mountBikeAX, mountBikeAY, mountBikeAZ)
-	BikeRef.Enable()
+	EnableParked(false, 0, 0.0, true)   ; the player ParkBackFore or ParkBackSide off it (the review's A2: not counted)
 	Log("Parked bike put back where it stood before getting on: the ride moved the player " + Whole(moved) + " from where they got on, under " + Whole(ParkBackWithin) + " (the plugin's [Room] ParkCheck).")
 	return true
 EndFunction
@@ -3648,8 +4176,7 @@ bool Function ParkOnTrack()
 	float z = CMB_ParkZ.GetValue()
 	; MoveTo first: the bike may be in another cell (it waits in the holding cell).
 	BikeRef.MoveTo(PlayerRef, x - PlayerRef.GetPositionX(), y - PlayerRef.GetPositionY(), z - PlayerRef.GetPositionZ(), false)
-	BikeRef.Enable()
-	TiltParkedBike(CMB_ParkAngle.GetValue(), "the track just ridden")
+	EnableParked(false, 4, CMB_ParkAngle.GetValue(), true)   ; 145 from the player's feet (the review's B1: not counted)
 	return true
 EndFunction
 
@@ -3715,6 +4242,189 @@ Function SettleBike(bool abBesidePlayer = false, bool abChecked = false)
 		Log("Parked bike left level at the player's height.")
 	else
 		BikeRef.SetAngle(0.0, 0.0, angle)
+	endif
+EndFunction
+
+; 2026-11-09a (the plugin's [Room] ParkGuard, CMB_RoomOptions bit 256; test 50's crash 0.5 s after the third knock-off: a
+; stack overflow in Havok's all-hits collector, an NPC's skeleton on the stack, the bike just enabled where it stood with three
+; raiders about; KO1's and KO2's spots had "an actor there (skeleton.nif), passed"). Every enable of the parked bike: its
+; place asked about first (CMB_RoomAskKind 2: anyone in its box grown by the plugin's GuardMargin, the player too). No one,
+; not checked or no answer: enabled (abFade), then the settle that followed each enable before (aiSettle: 0 none, 1
+; SettleBike(true), 2 SettleBike(false, true), 3 SettleBike(), 4 TiltParkedBike(afAngle) on the track just ridden), and, as a
+; settle can move it up to MaxSettleDistance, asked again: someone in its place now, hidden again. Someone: kept hidden (no
+; collision) and looked at again every ParkGuardPoll (ParkGuardTick). Without bit 256: enabled at once (2026-11-08a). Busy is
+; the caller's. The bike in another worldspace than the player's (a door, a fast travel) isn't asked about: its place
+; isn't loaded around them. The review of 2026-11-09a (A1, A2, B1: the player held the bike at getting off's park on a bend,
+; a call's spot 6 100 ahead, ParkWhereItStood's 58-73 across, the field kit's stand): the player counts only within the bike's
+; own box (the plugin's Fore and Side and their capsule: ParkBackFore and ParkBackSide, as the placements keep it off them),
+; GuardMargin grows it for everyone else; abPlaced (a place the script chose clear of the player: getting off's park, a call's,
+; a bring's or the shore's spot, the guard's own move, the bike again where it stood: a refused call, a getting on undone):
+; the player not counted at all, at the ask and after the settle (CMB_RoomAskKind 3, the plugin's CMB_RoomOptions bit 512; an
+; older plugin: kind 2). The hold's polls count the player (they may have walked into the hidden bike's place since).
+bool parkHeld = false
+bool parkHeldFade = false
+int parkHeldSettle = 0
+float parkHeldAngle = 0.0
+float parkHeldGX = 0.0
+float parkHeldGY = 0.0
+float parkHeldGZ = 0.0
+float parkHeldSince = 0.0
+bool parkHeldMoved = false
+bool parkGuardMoving = false   ; ParkGuardTick's new spot being placed: a hold there keeps the first one's time and its "once"
+
+Function EnableParked(bool abFade, int aiSettle, float afAngle = 0.0, bool abPlaced = false)
+	ParkedLookDueNow("the bike's enable")   ; 2026-11-09a (test 51, FastMount): a look put on while riding, on it first
+	parkHeld = false
+	if !RoomOption(256) || BikeRef.GetWorldSpace() != PlayerRef.GetWorldSpace()
+		BikeRef.Enable(abFade)
+		ParkSettle(aiSettle, afAngle)
+		return
+	endif
+	int kind = 2
+	if abPlaced && RoomOption(512)
+		kind = 3
+	endif
+	if ParkGuardAsk(kind) == -1
+		ParkGuardHold(abFade, aiSettle, afAngle, "someone in its place")
+		return
+	endif
+	BikeRef.Enable(abFade)
+	ParkSettle(aiSettle, afAngle)
+	ParkGuardAfterSettle(aiSettle, kind)
+EndFunction
+
+; The settle that followed the enable (EnableParked's aiSettle).
+Function ParkSettle(int aiSettle, float afAngle)
+	if aiSettle == 1
+		SettleBike(true)
+	elseif aiSettle == 2
+		SettleBike(false, true)
+	elseif aiSettle == 3
+		SettleBike()
+	elseif aiSettle == 4
+		TiltParkedBike(afAngle, "the track just ridden")
+	endif
+EndFunction
+
+; The plugin's word on the parked bike's place where it stands now: 1 no one, -1 someone, -2 not checked, 0 no answer. aiKind:
+; 2 the player counted (in the bike's own box), 3 not (EnableParked's abPlaced).
+int Function ParkGuardAsk(int aiKind)
+	float heading = BikeRef.GetAngleZ() - ParkedModelYaw
+	if heading < 0.0
+		heading += 360.0
+	endif
+	return RoomAt(BikeRef.GetPositionX(), BikeRef.GetPositionY(), BikeRef.GetPositionZ(), -1, heading, ".", "The parked bike's place", aiKind)
+EndFunction
+
+; After a settle that may have moved it (any but 0): someone in its place now, hidden again and held (the settle done). aiKind:
+; the enable's own ask's (the settle is part of placing it).
+Function ParkGuardAfterSettle(int aiSettle, int aiKind)
+	if aiSettle == 0
+		return
+	endif
+	if ParkGuardAsk(aiKind) == -1
+		BikeRef.Disable()
+		Log("The parked bike settled into someone's place (the plugin's [Room] ParkGuard): hidden again.")
+		ParkGuardHold(false, 0, 0.0, "settled into someone's place")
+	endif
+EndFunction
+
+; Kept hidden: the enable and its settle wait (the track's tilt keeps its ground, TiltParkedBike's groundX/Y/Z).
+Function ParkGuardHold(bool abFade, int aiSettle, float afAngle, string asWhy)
+	BikeRef.Disable()
+	parkHeld = true
+	parkHeldFade = abFade
+	parkHeldSettle = aiSettle
+	parkHeldAngle = afAngle
+	parkHeldGX = groundX
+	parkHeldGY = groundY
+	parkHeldGZ = groundZ
+	if !parkGuardMoving
+		parkHeldSince = Utility.GetCurrentRealTime()
+	endif
+	parkHeldMoved = parkGuardMoving
+	; The literals, not the floats: Papyrus prints 0.500000 (ParkGuardPoll, ParkGuardWait). The review of 2026-11-09a (A6): a
+	; hold from ParkGuardTick's move polls every ParkGuardWait.
+	Log("The parked bike kept hidden: " + asWhy + " (the plugin's [Room] ParkGuard): looked at again every " + Ternary(parkHeldMoved, "2 s", "0.5 s") + ".")
+	if parkHeldMoved
+		StartTimer(ParkGuardWait, TimerParkGuard)
+	else
+		StartTimer(ParkGuardPoll, TimerParkGuard)
+	endif
+EndFunction
+
+; The hold ended by another way of bringing the bike (getting on, a call: the caller's busy).
+Function ParkGuardEnd(string asWhy)
+	if !parkHeld
+		return
+	endif
+	parkHeld = false
+	CancelTimer(TimerParkGuard)
+	Log("The parked bike's guard ended after " + Whole(Utility.GetCurrentRealTime() - parkHeldSince) + " s: " + asWhy + " (ParkGuard).")
+EndFunction
+
+; ParkGuardPoll: clear, shown with the kept settle (and asked again after it); still taken past ParkGuardMax, once a new spot
+; beside or behind the player (PickBikeSpot's park: AroundSpots, each asked about with the plugin's ActorRoom; found, placed
+; there, which guards again), else it waits, looked at every ParkGuardWait. Not checked (the plugin's rays, after a load):
+; held, till ParkGuardMax, then shown as before. The player gone elsewhere (a fast travel, a door): left there hidden, the
+; next call brings it.
+Function ParkGuardTick()
+	if !parkHeld
+		return
+	endif
+	if riding || busy
+		StartTimer(ParkGuardPoll, TimerParkGuard)   ; tried again at the next poll
+		return
+	endif
+	busy = true
+	NoteBusy("the parked bike's guard")
+	float held = Utility.GetCurrentRealTime() - parkHeldSince
+	if BikeRef.GetWorldSpace() != PlayerRef.GetWorldSpace() || PlayerRef.GetDistance(BikeRef) > 4096.0
+		parkHeld = false
+		busy = false
+		Log("The parked bike kept hidden after " + Whole(held) + " s: the player went elsewhere: it waits there hidden; calling it brings it (ParkGuard).")
+		return
+	endif
+	int answer = ParkGuardAsk(2)   ; the player counted (in its own box): they may have walked into its place since
+	if answer == 1 || answer == 0 || (answer == -2 && held >= ParkGuardMax)
+		parkHeld = false
+		BikeRef.Enable(parkHeldFade)
+		groundX = parkHeldGX
+		groundY = parkHeldGY
+		groundZ = parkHeldGZ
+		ParkSettle(parkHeldSettle, parkHeldAngle)
+		Log("The parked bike shown after " + Whole(held) + " s: " + Ternary(answer == 1, "its place clear", "its place not checked") + " (ParkGuard).")
+		ParkGuardAfterSettle(parkHeldSettle, 2)
+		busy = false
+		return
+	endif
+	if answer == -1 && held >= ParkGuardMax && !parkHeldMoved
+		parkHeldMoved = true
+		int spot = PickBikeSpot(false, true)
+		if spot >= 0
+			parkHeld = false
+			Log("The parked bike still kept hidden after " + Whole(held) + " s: a spot beside or behind the player with room (ParkGuard).")
+			parkGuardMoving = true
+			PlaceOnSpot(spot)
+			parkGuardMoving = false
+			busy = false
+			return
+		endif
+		Log("The parked bike still kept hidden after " + Whole(held) + " s: no spot beside or behind the player is free; it waits (calling it brings it).")
+	endif
+	busy = false
+	if parkHeldMoved
+		StartTimer(ParkGuardWait, TimerParkGuard)
+	else
+		StartTimer(ParkGuardPoll, TimerParkGuard)
+	endif
+EndFunction
+
+; A save made while the bike was kept hidden: the poll again (a load ends a save's timers' meaning).
+Function ParkGuardAfterLoad()
+	if parkHeld
+		Log("The parked bike was kept hidden when the game was saved (ParkGuard): looked at again.")
+		StartTimer(ParkGuardPoll, TimerParkGuard)
 	endif
 EndFunction
 
@@ -3996,6 +4706,16 @@ Function EquipBike()
 		other = CMB_BikeRiderArmorFrame
 	endif
 	if !PlayerRef.IsEquipped(wanted)
+		; 2026-11-09a (test 51, getting on 5-6 s; the plugin's [Look] FastMount, CMB_LookOptions bit 1): the kept armour
+		; (EquipKept). Without the bit: 2026-11-09a's as of t54-merge, below.
+		wornFast = LookOption(1)
+		if wornFast
+			EquipKept(wanted)
+			RemoveArmor(other)
+			return
+		elseif KeptLook(wanted) != ""
+			RemoveArmor(wanted, true)   ; one kept while the bit was on: dropped, so the look's mods go on a fresh one
+		endif
 		if PlayerRef.GetItemCount(wanted) == 0
 			PlayerRef.AddItem(wanted, 1, true)
 		endif
@@ -4020,17 +4740,174 @@ Function EquipBike()
 	RemoveArmor(other)
 EndFunction
 
-Function RemoveBikeArmor()
-	RemoveArmor(CMB_BikeRiderArmor)
-	RemoveArmor(CMB_BikeRiderArmorFrame)
+; abDrop (2026-11-09a, EmergencyReset): out of the inventory even with FastMount.
+Function RemoveBikeArmor(bool abDrop = false)
+	RemoveArmor(CMB_BikeRiderArmor, abDrop)
+	RemoveArmor(CMB_BikeRiderArmorFrame, abDrop)
 EndFunction
 
-Function RemoveArmor(Armor akArmor)
+; 2026-11-09a (test 51, [Look] FastMount, bit 1): unequipped and kept with its mods (EquipKept puts it on again with no
+; attach while the look is the one they carry), unless abDrop. Without the bit, and dropped: out of the inventory
+; (2026-11-09a as of t54-merge), what it carried forgotten.
+Function RemoveArmor(Armor akArmor, bool abDrop = false)
+	if !abDrop && LookOption(1)
+		if PlayerRef.IsEquipped(akArmor)
+			PlayerRef.UnequipItem(akArmor, false, true)
+		endif
+		return
+	endif
 	int count = PlayerRef.GetItemCount(akArmor)
 	if count > 0
 		PlayerRef.UnequipItem(akArmor, false, true)
 		PlayerRef.RemoveItem(akArmor, count, true)
 	endif
+	KeptForget(akArmor)
+EndFunction
+
+; ---------------------------------------------------------------------------
+; 2026-11-09a (test 51, getting on 5-6 s: AttachLook 2 s and the worn bike's F4SE colour swap 2 s behind the fade, the swap
+; again 3 s later): the worn bike's two armours kept between rides (the plugin's [Look] FastMount, CMB_LookOptions bit 1).
+; They are NonPlayable, weight 0 and value 0, so no menu lists them. Each remembers the look its mods were put on with
+; (lookApplied at its attach), its Rims option (lookRimMods, for LookRimsMoved), the mods the game refused (the F4SE swap
+; instead) and its mods as F4SE counts them after its attach (WornModsCheck). The worn colours: the values written at the
+; equip (CMB_LookF4SE's WriteWornColours); with the plugin's bit 64 it copies them into the worn bike, else the F4SE swap
+; once, after the fade (LookFollowUp). EmergencyReset drops them.
+; ---------------------------------------------------------------------------
+string wornLookRider = ""      ; CMB_BikeRiderArmor's mods: the look they carry ("" none known: put on afresh)
+string wornLookFrame = ""      ; CMB_BikeRiderArmorFrame's
+int wornRimsRider = 0          ; their Rims option
+int wornRimsFrame = 0
+int wornRefusedRider = 0       ; the mods the game refused at their attach
+int wornRefusedFrame = 0
+int wornTakenRider = -1        ; their mods as F4SE counted them after their attach (-1 not yet)
+int wornTakenFrame = -1
+bool wornFast = false          ; the worn bike was last put on with FastMount (EquipKept)
+bool wornCountDue = false      ; LookFollowUp: the worn bike's mods counted (WornModsCheck)
+Armor wornCountArmor           ; ...on this armour (the one that equip put on)
+bool wornRefit = false         ; fewer mods found: the ride tick puts the worn bike on afresh
+
+; EquipBike with FastMount: akArmor (not equipped) put on. Kept with the look as it stands now (after LookSync): equipped,
+; no attach. Else any stale one removed, a fresh one added, the look's mods attached (AttachLook, as before), and what it
+; carries remembered. Then the colour values written once, and after the fade (TimerLook, outside busy): the F4SE swap if
+; the mods were refused or (no bit 64) the look has colours, and the mods counted.
+Function EquipKept(Armor akArmor)
+	LookSync("the worn bike's equip")
+	int count = PlayerRef.GetItemCount(akArmor)
+	int refused = 0
+	bool active = LookActive()   ; a stock look: no mods on it, none to count
+	if count == 1 && KeptLook(akArmor) == lookApplied
+		lookWorn = lookApplied
+		lookRimMods = KeptRims(akArmor)
+		refused = KeptRefused(akArmor)
+		PlayerRef.EquipItem(akArmor, true, true)
+		if active
+			Log("Look: the worn bike's kept mods (the look unchanged): no attach")
+		endif
+	else
+		if count > 0
+			PlayerRef.RemoveItem(akArmor, count, true)   ; its mods are another look's (or found fewer)
+		endif
+		PlayerRef.AddItem(akArmor, 1, true)
+		lookWorn = lookApplied
+		refused = AttachLook(akArmor, true)
+		KeptRemember(akArmor, lookApplied, lookRimMods, refused)
+		PlayerRef.EquipItem(akArmor, true, true)
+	endif
+	; Test 41: the slot read a tick later (RideTick).
+	wornSlotToLog = true
+	wornRefused = refused > 0
+	if wornRefused
+		WornLookRefused(refused)   ; the composed swap, after the fade
+	endif
+	if LookColoursOn() || lookColoursWorn
+		int written = CallLookF4SE("WriteWornColours")
+		lookColoursWorn = written == 1
+		if written == 1 && !wornRefused && !LookOption(64)
+			wornSwapDue = true   ; ApplyWornColours, once
+		endif
+	endif
+	if active
+		wornCountDue = true
+		wornCountArmor = akArmor
+	endif
+	if wornCountDue || wornSwapDue
+		StartTimer(WornSwapAgain, TimerLook)
+	endif
+EndFunction
+
+; LookFollowUp (after the fade, outside busy): the worn bike's mods counted. The first count after an attach is what it
+; carries; a later equip of it found with fewer: its line, forgotten, and the ride tick puts it on afresh (wornRefit).
+Function WornModsCheck()
+	Armor worn = wornCountArmor
+	if !worn || !PlayerRef.IsEquipped(worn)
+		return   ; swapped since (a weapon drawn): that equip counts its own
+	endif
+	int n = CallLookF4SE("WornModCount")
+	if n < 0
+		return   ; no F4SE, or the slot empty yet
+	endif
+	int taken = KeptTaken(worn)
+	if taken < 0
+		KeptTakenSet(worn, n)
+	elseif n < taken
+		Log("Look: the worn bike's kept mods: " + n + " of " + taken + " after the equip: put on again with the look's mods")
+		KeptForget(worn)
+		wornRefit = true
+	endif
+EndFunction
+
+string Function KeptLook(Armor akArmor)
+	if akArmor == CMB_BikeRiderArmor
+		return wornLookRider
+	endif
+	return wornLookFrame
+EndFunction
+
+int Function KeptRims(Armor akArmor)
+	if akArmor == CMB_BikeRiderArmor
+		return wornRimsRider
+	endif
+	return wornRimsFrame
+EndFunction
+
+int Function KeptRefused(Armor akArmor)
+	if akArmor == CMB_BikeRiderArmor
+		return wornRefusedRider
+	endif
+	return wornRefusedFrame
+EndFunction
+
+int Function KeptTaken(Armor akArmor)
+	if akArmor == CMB_BikeRiderArmor
+		return wornTakenRider
+	endif
+	return wornTakenFrame
+EndFunction
+
+Function KeptTakenSet(Armor akArmor, int aiTaken)
+	if akArmor == CMB_BikeRiderArmor
+		wornTakenRider = aiTaken
+	else
+		wornTakenFrame = aiTaken
+	endif
+EndFunction
+
+Function KeptRemember(Armor akArmor, string asLook, int aiRims, int aiRefused)
+	if akArmor == CMB_BikeRiderArmor
+		wornLookRider = asLook
+		wornRimsRider = aiRims
+		wornRefusedRider = aiRefused
+		wornTakenRider = -1
+	else
+		wornLookFrame = asLook
+		wornRimsFrame = aiRims
+		wornRefusedFrame = aiRefused
+		wornTakenFrame = -1
+	endif
+EndFunction
+
+Function KeptForget(Armor akArmor)
+	KeptRemember(akArmor, "", 0, 0)
 EndFunction
 
 ; ---------------------------------------------------------------------------
@@ -4414,6 +5291,13 @@ EndFunction
 ; EquipBike: the game refused some of the worn bike's mods (it is NonPlayable): the composed F4SE swap
 ; on the player instead (its sources are the bike's own files only), now and once more a moment later.
 Function WornLookRefused(int aiRefused)
+	if wornFast
+		; 2026-11-09a (test 51, FastMount): once, from TimerLook after the fade (EquipKept starts it): right after the
+		; equip the armour's 3D isn't on the player yet, so the first of 2026-11-08a's two swaps fell on nothing.
+		Log("Look: " + aiRefused + " refused on the worn bike (AttachModToInventoryItem): the F4SE swap instead, after the fade")
+		wornSwapDue = true
+		return
+	endif
 	int applied = CallLookF4SE("ApplyWorn")
 	lookColoursWorn = applied >= 0   ; 2026-11-08a: ApplyWorn wrote the colour values
 	if applied < 0
@@ -4454,11 +5338,21 @@ Function LookFollowUp()
 	if !riding
 		lookViewDue = false
 		wornSwapDue = false
+		wornCountDue = false
 		return
 	endif
 	if busy
 		StartTimer(LookRetryDelay, TimerLook)
 		return
+	endif
+	if wornCountDue
+		; 2026-11-09a (test 51, FastMount): the kept worn bike's mods counted; found fewer, its swap waits for the
+		; fresh one the ride tick puts on
+		wornCountDue = false
+		WornModsCheck()
+		if wornRefit
+			wornSwapDue = false
+		endif
 	endif
 	if wornSwapDue
 		wornSwapDue = false
@@ -4470,7 +5364,15 @@ Function LookFollowUp()
 		; look's colour values don't fit its materials: they wait for its next equip)
 		if wornRefused || LookIsWorn()
 			int applied = CallLookF4SE(again)
-			if applied >= 0
+			if wornFast
+				; 2026-11-09a (test 51, FastMount): the only swap (ApplyWornColours logs its own line)
+				if wornRefused
+					lookColoursWorn = applied >= 0   ; ApplyWorn wrote the colour values
+					if applied >= 0
+						Log("Look: the worn bike's F4SE swap (its mods refused): " + applied + " entries applied")
+					endif
+				endif
+			elseif applied >= 0
 				Log("Look: the worn bike's F4SE swap again: " + applied + " entries applied")
 			endif
 		endif
@@ -4510,6 +5412,7 @@ EndFunction
 ; agree. Nothing when it matches (the globals read, no call on any bike), nor in a session (its end
 ; puts the look on).
 Function LookSync(string asFrom)
+	LookHueWanted(asFrom)   ; 2026-11-09a ([Look] HueFree): the MCM's hue or shade moved since chooses Free colour
 	if (!CMB_LookCode && !CMB_LookOn) || customising
 		return   ; an older ESP (no look), or a session
 	endif
@@ -4528,6 +5431,7 @@ Function ApplyLook(string asFrom)
 	if !CMB_LookCode && !CMB_LookOn
 		return   ; an older ESP: no look
 	endif
+	LookHueRecord()   ; the review of 2026-11-09a (A4, A5; [Look] HueFree): the look as put on, for LookHueWanted
 	lookApplied = LookState()
 	bool active = LookActive()
 	float code = 0.0
@@ -4544,7 +5448,22 @@ Function ApplyLook(string asFrom)
 	endif
 	lookWasActive = active
 	Log("Look: put on (" + asFrom + "): " + LookNow() + Ternary(LookIsOn(), "", " (Customise at the bike is off: the stock look)") + "; CMB_LookCode " + (code as int))
-	CallLookF4SE("ApplyParked", None, asFrom)
+	if LookOption(1) && (mounting || riding)
+		; 2026-11-09a (test 51, getting on 5-6 s; [Look] FastMount, bit 1): the parked bike is disabled (getting on,
+		; riding), so its compose (2 s at getting on in test 51, "0 applied now") waits for its enable: EnableParked's
+		; ParkedLookDueNow. Without the bit: composed now on the disabled bike, its swap kept.
+		parkedLookDue = true
+		Log("Look: the parked bike's swap at its enable (" + Ternary(riding, "riding", "getting on") + ")")
+	else
+		; 2026-11-09a (test 51): counted (Mount's ParkedLookWait), and then the kitpaint unit's ParkedLookAfter.
+		parkedLookDue = false
+		lookParkedWork += 1
+		int applied = CallLookF4SE("ApplyParked", None, asFrom)
+		ParkedLookAfter(asFrom, applied)
+		if lookParkedWork > 0
+			lookParkedWork -= 1
+		endif
+	endif
 	if riding && viewRef
 		lookViewDue = true
 		StartTimer(LookViewDelay, TimerLook)
@@ -4559,6 +5478,11 @@ Function LookAfterLoad()
 	lookCrudeSaid = -1   ; 2026-11-08a: said again in this session's log
 	lookViewDue = false
 	wornSwapDue = false
+	; 2026-11-09a (test 51): no count of parked look work, after-the-fade check or activation from before the load is true
+	; now (the load's own ApplyLook below counts afresh)
+	lookParkedWork = 0
+	wornCountDue = false
+	activationAt = -1.0
 	if customising || lookKit || lookBox
 		customising = true
 		lookEnding = false
@@ -4571,8 +5495,9 @@ Function LookAfterLoad()
 	ApplyLook("load")
 	; 2026-11-08a: or its colours, while the look is the one the worn bike was put on with (else its mods
 	; keep their look, the save's colour values theirs, till its next equip: a moved rim style at the next
-	; ride tick, LookRimsMoved)
-	if riding && (wornRefused || (LookColoursOn() && lookWorn == lookApplied))
+	; ride tick, LookRimsMoved). 2026-11-09a (test 51, FastMount): as at its equip, the colours not when the
+	; plugin writes them (bit 64: the save's colour values are the worn bike's); the swap, if any, once.
+	if riding && (wornRefused || (LookColoursOn() && lookWorn == lookApplied && !(wornFast && LookOption(64))))
 		wornSwapDue = true
 		StartTimer(ReloadPoseDelay, TimerLook)
 	endif
@@ -4663,13 +5588,26 @@ Function BeginCustomise()
 	if CMB_KitMode
 		m = CMB_KitMode.GetValue() as int
 	endif
-	kitAuto = m < 1 || m > 3
-	if kitAuto
-		m = 1
-		if CMB_KitWorked
-			int worked = CMB_KitWorked.GetValue() as int
-			if worked >= 1 && worked <= 3
-				m = worked
+	; 2026-11-09a (test 51): [Look] KitHeld (CMB_LookOptions bit 2), read once a session; off: 2026-11-08a's ladder below.
+	kitHeldOn = LookOption(2)
+	kitMenuAt = -1.0
+	kitInAtOpen = false
+	kitRemembered = false
+	kitClosing = false
+	if kitHeldOn
+		kitAuto = m < 1 || m > 4
+		if kitAuto
+			m = KitStartMode()
+		endif
+	else
+		kitAuto = m < 1 || m > 3
+		if kitAuto
+			m = 1
+			if CMB_KitWorked
+				int worked = CMB_KitWorked.GetValue() as int
+				if worked >= 1 && worked <= 3
+					m = worked
+				endif
 			endif
 		endif
 	endif
@@ -4677,7 +5615,15 @@ Function BeginCustomise()
 	customising = true
 	RegisterForMenuOpenCloseEvent(LookMenuName)
 	bool ready = PrepareKit()
-	if !ready && kitAuto && kitMode < 3
+	if !ready && kitAuto && kitHeldOn
+		int next = KitNextMode(kitMode)
+		if next > 0
+			KitForget("not placed")
+			Log("Field kit: mode " + kitMode + ": not placed: trying mode " + next)
+			kitMode = next
+			ready = PrepareKit()
+		endif
+	elseif !ready && kitAuto && kitMode < 3
 		Log("Field kit: mode " + kitMode + ": not placed: trying mode 3")
 		kitMode = 3
 		ready = PrepareKit()
@@ -4696,6 +5642,8 @@ Furniture Function KitForm(int aiMode)
 		return CMB_FieldKitArmorKw
 	elseif aiMode == 3
 		return CMB_FieldKitBench
+	elseif aiMode == 4
+		return WorkbenchArmorA   ; 2026-11-09a (test 51, [Look] KitHeld): the game's own armour bench
 	endif
 	return CMB_FieldKit
 EndFunction
@@ -4705,6 +5653,8 @@ string Function KitModeText(int aiMode)
 		return "the toolbox with the armour bench's keyword"
 	elseif aiMode == 3
 		return "the armour bench"
+	elseif aiMode == 4
+		return "the game's armour bench"
 	endif
 	return "the toolbox"
 EndFunction
@@ -4737,11 +5687,12 @@ EndFunction
 ; The field kit beside the bike, on the side the player stands on (they reached the bike from there).
 ; The player's spot is KitSpotSide out from the bike's middle, facing it; modes 1 and 2 put the toolbox
 ; so that its marker is that spot; mode 3 the armour bench KitBenchSide out, facing the bike, and the
-; toolbox at its foot. The toolbox opens there, with its sound: out of the side bag.
+; toolbox at its foot (2026-11-09a: mode 4, the game's armour bench, the same). The toolbox opens there, with its
+; sound: out of the side bag.
 bool Function PlaceKit(int aiMode)
 	Furniture form = KitForm(aiMode)
 	if !form
-		Log("Customise: no " + Ternary(aiMode == 2, "CMB_FieldKitArmorKw", Ternary(aiMode == 3, "CMB_FieldKitBench", "CMB_FieldKit")) + " in the plugin: field kit mode " + aiMode + " can't be placed.")
+		Log("Customise: no " + Ternary(aiMode == 2, "CMB_FieldKitArmorKw", Ternary(aiMode == 3, "CMB_FieldKitBench", Ternary(aiMode == 4, "WorkbenchArmorA", "CMB_FieldKit"))) + " in the plugin: field kit mode " + aiMode + " can't be placed.")
 		return false
 	endif
 	float heading = BikeRef.GetAngleZ() - ParkedModelYaw
@@ -4756,7 +5707,7 @@ bool Function PlaceKit(int aiMode)
 	float z = PlayerRef.GetPositionZ()
 	float x
 	float y
-	if aiMode == 3
+	if aiMode >= 3
 		x = bikeX + OffsetX(heading, 0.0, side * KitBenchSide)
 		y = bikeY + OffsetY(heading, 0.0, side * KitBenchSide)
 	else
@@ -4772,7 +5723,7 @@ bool Function PlaceKit(int aiMode)
 	endif
 	lookKit = kit
 	ObjectReference toolbox = kit
-	if aiMode == 3 && CMB_FieldKitBox
+	if aiMode >= 3 && CMB_FieldKitBox
 		lookBox = PlaceKitPart(CMB_FieldKitBox, x + OffsetX(facing, KitBoxForward, KitBoxRight), y + OffsetY(facing, KitBoxForward, KitBoxRight), z, facing)
 		toolbox = lookBox
 	endif
@@ -4931,20 +5882,25 @@ Function KitTick()
 	endif
 EndFunction
 
-; Automatic only: this attempt put away quietly and the next mode tried (1, then 3). False if there
-; is none, or it couldn't be placed. One thread only (the tick and the kit's exit can both come here,
-; and every call below lets the other run): the first one switches, with the old attempt's tick
-; cancelled; the other returns true (nothing for it to do).
+; Automatic only: this attempt put away quietly and the next mode tried (KitNextMode: 1, then 3; 2026-11-09a's [Look]
+; KitHeld: 3, then 4, and the mode forgotten if it was the remembered one). False if there is none, or it couldn't be
+; placed. One thread only (the tick, the kit's exit and, with KitHeld, the menu's fast close can come here, and every
+; call below lets the other run): the first one switches, with the old attempt's tick cancelled; the other returns true
+; (nothing for it to do).
 bool Function NextKitMode(string asWhy)
 	if kitSwitching
-		return true   ; the other thread is switching (it has set kitMode 3 or will)
+		return true   ; the other thread is switching (it has set the next kitMode or will)
 	endif
-	if !kitAuto || kitMode >= 3
+	if kitHeldOn
+		KitForget(asWhy)
+	endif
+	int next = KitNextMode(kitMode)
+	if next <= 0
 		return false
 	endif
 	kitSwitching = true
 	CancelTimer(TimerKit)
-	Log("Field kit: mode " + kitMode + ": " + asWhy + ": trying mode 3")
+	Log("Field kit: mode " + kitMode + ": " + asWhy + ": trying mode " + next)
 	bool wasIn = InKit()
 	KitTidy()
 	if wasIn
@@ -4954,7 +5910,15 @@ bool Function NextKitMode(string asWhy)
 		kitSwitching = false
 		return true   ; ended meanwhile (a load): nothing more to do here
 	endif
-	kitMode = 3
+	kitMode = next
+	if kitHeldOn
+		; The next attempt starts afresh (with KitHeld this can come after the old attempt's menu was seen).
+		lookMenuSeen = false
+		kitMenuGuess = false
+		kitMenuAt = -1.0
+		kitInAtOpen = false
+		kitRemembered = false
+	endif
 	bool ready = PrepareKit()
 	kitSwitching = false
 	if !ready
@@ -4964,9 +5928,29 @@ bool Function NextKitMode(string asWhy)
 	return true
 EndFunction
 
-; OnMenuOpenCloseEvent's ExamineMenu (registered only while customising).
+; OnMenuOpenCloseEvent's ExamineMenu (registered only while customising). 2026-11-09a's [Look] KitHeld: the open
+; remembers nothing (it says whether the player is in the kit); the close is KitMenuDone's.
 Function LookMenu(bool abOpening)
 	if !customising || lookEnding
+		return
+	endif
+	if kitHeldOn
+		if kitSwitching
+			return   ; the old attempt's menu: the next mode is being placed
+		endif
+		if abOpening
+			if !lookMenuSeen
+				float at = Utility.GetCurrentRealTime()
+				if !lookMenuSeen && customising && !lookEnding && !kitSwitching
+					lookMenuSeen = true
+					kitMenuAt = at
+					kitInAtOpen = InKit()
+					Log("Field kit: mode " + kitMode + ": the menu open after " + Tenths(at - kitSince) + " s" + Ternary(kitInAtOpen, ", the player in the kit", ", not in the kit"))
+				endif
+			endif
+		elseif lookMenuSeen && !kitClosing
+			KitMenuDone("the menu closed")
+		endif
 		return
 	endif
 	if abOpening
@@ -4984,10 +5968,14 @@ Function LookMenu(bool abOpening)
 EndFunction
 
 Event ObjectReference.OnExitFurniture(ObjectReference akSender, ObjectReference akActionRef)
-	if !customising || lookEnding || kitSwitching || akSender != lookKit || akActionRef != PlayerRef
-		return
+	if !customising || lookEnding || kitSwitching || kitClosing || akSender != lookKit || akActionRef != PlayerRef
+		return   ; kitClosing (KitHeld): the menu's close is deciding
 	endif
 	if !lookMenuSeen && lookEvents == 0 && NextKitMode("left it before the menu")
+		return
+	endif
+	if kitHeldOn && lookMenuSeen
+		KitMenuDone("left the field kit")   ; 2026-11-09a: left before the menu's close event: the same verdict
 		return
 	endif
 	EndCustomise("left the field kit")
@@ -5003,6 +5991,9 @@ Function LookModded(Form akBase, ObjectMod akMod)
 		return
 	endif
 	lookEvents += 1
+	if lookEvents == 1 && kitHeldOn
+		KitRemember("a change made")   ; 2026-11-09a ([Look] KitHeld): the first mod event proves the mode
+	endif
 	int s = 0
 	while s < LookSlots
 		FormList options = LookList(s)
@@ -5100,12 +6091,167 @@ Function KitTidy()
 	endif
 EndFunction
 
+; ---------------------------------------------------------------------------
+; 2026-11-09a (test 51): the field kit's [Look] KitHeld (CMB_LookOptions bit 2) and the parked bike's ParkedReload (bit 4)
+; ---------------------------------------------------------------------------
+; Test 51: the toolbox (mode 1) can't be sat in; its menu opened 0.1 s after the activation and closed with the failed
+; entry, and the open alone remembered it. With KitHeld a mode counts only after its menu stayed open KitMenuHeld, a mod
+; event came, or the player was in the kit (at the menu's open or its close); a fast close with none of those tries the
+; next mode. Automatic: the armour bench (3), then the game's own (4, WorkbenchArmorA); a remembered 1 or 2 is forgotten.
+; KitHeld 0: 2026-11-08a's (the toolbox, then the bench; remembered on the menu's open).
+
+float Property KitMenuHeld = 2.0 AutoReadOnly
+{KitHeld: a menu open this long (real time: timers don't run in it) counts as the mode working.}
+
+bool kitHeldOn = false         ; KitHeld for this session (BeginCustomise reads CMB_LookOptions once)
+float kitMenuAt = -1.0         ; KitHeld: real time of this attempt's menu open (-1: no open event, KitTick's guess)
+bool kitInAtOpen = false       ; KitHeld: the player in the kit when the menu opened
+bool kitRemembered = false     ; KitHeld: this attempt's "worked" said (KitRemember once an attempt)
+bool kitClosing = false        ; KitHeld: KitMenuDone deciding (the kit's exit leaves it be)
+
+; Automatic's first mode with KitHeld: the remembered 3 or 4 (4 only with WorkbenchArmorA filled), else the armour bench
+; (3). A remembered 1 or 2 (the toolbox, remembered on its menu's open alone) is forgotten: CMB_KitWorked -1, so once.
+int Function KitStartMode()
+	if !CMB_KitWorked
+		return 3
+	endif
+	int worked = CMB_KitWorked.GetValue() as int
+	if worked == 1 || worked == 2
+		CMB_KitWorked.SetValue(-1.0)
+		Log("Field kit: CMB_KitWorked " + worked + " (" + KitModeText(worked) + ", remembered on its menu's open alone) forgotten: automatic starts at the armour bench")
+	elseif worked == 4 && WorkbenchArmorA
+		return 4
+	endif
+	return 3
+EndFunction
+
+; The mode automatic tries after aiMode, 0 for none (and for a forced mode). KitHeld: the armour bench (3), then the
+; game's (4, if WorkbenchArmorA is filled), then none; off: 2026-11-08a's 1 (or 2), then 3, then none.
+int Function KitNextMode(int aiMode)
+	if !kitAuto
+		return 0
+	endif
+	if aiMode < 3
+		return 3
+	elseif kitHeldOn && aiMode == 3 && WorkbenchArmorA
+		return 4
+	endif
+	return 0
+EndFunction
+
+; KitHeld: this attempt's mode worked (asWhy: "a change made", "its menu open 4.2 s", "the player in it"); automatic
+; remembers it in CMB_KitWorked. Once an attempt.
+Function KitRemember(string asWhy)
+	if kitRemembered
+		return
+	endif
+	kitRemembered = true
+	if kitAuto && CMB_KitWorked
+		CMB_KitWorked.SetValue(kitMode as float)
+		Log("Field kit: mode " + kitMode + " worked (" + asWhy + "): remembered (CMB_KitWorked " + kitMode + ")")
+	else
+		Log("Field kit: mode " + kitMode + " worked (" + asWhy + ")")
+	endif
+EndFunction
+
+; KitHeld: this attempt's mode failed (asWhy); automatic forgets it if it was the remembered one (the next session
+; starts at the armour bench again).
+Function KitForget(string asWhy)
+	if !kitAuto || !CMB_KitWorked
+		return
+	endif
+	if (CMB_KitWorked.GetValue() as int) == kitMode
+		CMB_KitWorked.SetValue(-1.0)
+		Log("Field kit: CMB_KitWorked " + kitMode + " forgotten (" + asWhy + ")")
+	endif
+EndFunction
+
+; KitHeld, the menu's close (or the kit left, asEnd says which) after the menu was seen: worked (a mod event came, the
+; menu stayed open KitMenuHeld, or the player was in the kit at its open, in KitTick's menu without its event, or now):
+; KitRemember, and the session ends; else it closed at once: the line, the next mode (NextKitMode: the remembered mode
+; forgotten first), or with none the session ends. One thread: kitClosing (the caller checks it; set here before any
+; call that lets another thread run).
+Function KitMenuDone(string asEnd)
+	kitClosing = true
+	float held = -1.0
+	float now = Utility.GetCurrentRealTime()
+	if kitMenuAt >= 0.0
+		held = now - kitMenuAt
+	endif
+	bool inNow = InKit()
+	if !customising || lookEnding || kitSwitching
+		kitClosing = false
+		return
+	endif
+	if lookEvents > 0 || held >= KitMenuHeld || kitInAtOpen || kitMenuGuess || inNow
+		if lookEvents > 0
+			KitRemember("a change made")
+		elseif held >= KitMenuHeld
+			KitRemember("its menu open " + Tenths(held) + " s")
+		else
+			KitRemember("the player in it")
+		endif
+		kitClosing = false
+		EndCustomise(asEnd)
+		return
+	endif
+	Log("Field kit: mode " + kitMode + ": the menu closed " + Tenths(held) + " s after it opened, no change made, the player never in the kit: this mode doesn't work here")
+	bool switched = NextKitMode("its menu closed at once")
+	kitClosing = false
+	if !switched
+		EndCustomise("the menu closed at once")
+		Debug.Notification("The field kit couldn't be used here.")
+	endif
+EndFunction
+
+; ParkedReload (ParkedLookAfter: a look put on the parked bike outside a ride, entries applied): test 51's parked bike
+; stayed grey after an MCM apply (the runtime swap's palette entries), green once its 3D was loaded again after a ride.
+; So its 3D is loaded again the same way: hidden, then shown. Never while riding, getting on (mounting), busy or customising,
+; nor on a bike not shown. Behind the pause menu (the MCM) the wait between them lasts until the menu's close. The review of
+; 2026-11-09a (A1): shown again at once, not through EnableParked: its ParkGuard ask counted the player, who stands at the bike
+; at every reload (the field kit's stand 52 out, the activation, the MCM beside it), and hid it in front of them; it stood
+; there solid till this Disable, so no one is inside its place.
+Function ParkedReload(string asFrom)
+	string why = ""
+	if riding
+		why = "riding"
+	elseif mounting
+		why = "getting on"
+	elseif busy
+		why = "busy (" + BusyText() + ")"
+	elseif customising
+		why = "customising"
+	endif
+	if why == ""
+		; Claimed before calling anything: every call below lets another thread run.
+		busy = true
+		NoteBusy("the parked bike's look")
+		if !BikeRef || BikeRef.IsDisabled() || !BikeRef.Is3DLoaded()
+			busy = false
+			why = "the bike not shown"
+		endif
+	endif
+	if why != ""
+		Log("Look: the parked bike's 3D not loaded again (" + asFrom + ", ParkedReload): " + why)
+		return
+	endif
+	BikeRef.Disable()
+	; The wait EnableParked's room ask made (RoomPollInterval): behind the pause menu it returns at the menu's close, so the
+	; enable loads the 3D outside the menu as before.
+	Utility.Wait(RoomPollInterval)
+	ParkedLookDueNow("the bike's enable")
+	BikeRef.Enable(false)
+	busy = false
+	Log("Look: the parked bike's 3D loaded again for its colours (" + asFrom + ", ParkedReload)")
+EndFunction
+
 ; MCM "Apply the look" (CMB_MCMRelay.LookApply): a faction set (1-11) first (the paint and both tanks'
 ; and the fender's badge, the right following; since 2026-11-08a the set's plate, if it has one, with
 ; the plate's own text and colours), then every slot clamped to its list and the Free colour's hue
 ; (0-359, whole) and shade (0-3), then put on (the ridden bike's worn look at the next getting on).
 ; Also the way back to stock with free customising off.
 Function LookApplyFromMcm()
+	LookHueWanted("the MCM")   ; 2026-11-09a ([Look] HueFree): the hue or shade moved chooses Free colour (a set here wins)
 	if !CMB_LookCode || !CMB_LookCategories
 		Log("Look: from the MCM: no look records (an older ESP): nothing done.")
 		return
@@ -5302,8 +6448,7 @@ Function BringBikeAfterSwim()
 	else
 		PlaceBike(CallAheadDistance, 60.0)
 	endif
-	BikeRef.Enable(true)
-	SettleBike()
+	EnableParked(true, 3, 0.0, true)   ; ShoreBikeDistance or CallAheadDistance from the player (not counted)
 	ForgetDoor()
 	busy = false
 	Log("Bike brought back after a swim (" + away + " units from the deep water, in water: " + inWater + ").")
@@ -5663,6 +6808,9 @@ Function RideWatchesOn()
 	RegisterForRemoteEvent(PlayerRef, "OnItemEquipped")
 	RegisterForMenuOpenCloseEvent(PipboyMenuName)
 	RegisterForMenuOpenCloseEvent(FavoritesMenuName)
+	if CMB_ViewMenu   ; 2026-11-09a: no Pip-Boy open yet (getting on, a load into a ride); None = an older ESP
+		CMB_ViewMenu.SetValue(0.0)
+	endif
 	if CMB_StaggerWatchAbility
 		PlayerRef.AddSpell(CMB_StaggerWatchAbility, false)
 	endif
@@ -5672,6 +6820,9 @@ Function RideWatchesOff()
 	UnregisterForRemoteEvent(PlayerRef, "OnItemEquipped")
 	UnregisterForMenuOpenCloseEvent(PipboyMenuName)
 	UnregisterForMenuOpenCloseEvent(FavoritesMenuName)
+	if CMB_ViewMenu   ; 2026-11-09a: off the bike in the Pip-Boy (its close isn't seen now)
+		CMB_ViewMenu.SetValue(0.0)
+	endif
 	CancelTimer(TimerPipboyCheck)   ; a Pip-Boy check still to come is moot
 	if CMB_StaggerWatchAbility
 		PlayerRef.RemoveSpell(CMB_StaggerWatchAbility)
@@ -5776,6 +6927,15 @@ Function RiderMenu(string asMenuName, bool abOpening)
 	; 2026-11-02a: an item used in it is timed from this close (ItemSignal); with the use window on, no
 	; Pip-Boy check for this close: the clips off the seat after it are the item's use clip.
 	riderMenuOpen = abOpening
+	; 2026-11-09a (test 50: the first-person tip ran in the Pip-Boy, its camera a first person): CMB_ViewMenu 1 while
+	; the Pip-Boy is open on the bike, so the plugin's [View] TipMenu holds the tip off; set before the returns below.
+	if CMB_ViewMenu && asMenuName == PipboyMenuName
+		if abOpening
+			CMB_ViewMenu.SetValue(1.0)
+		else
+			CMB_ViewMenu.SetValue(0.0)
+		endif
+	endif
 	if !abOpening
 		CacheFavourites()   ; 2026-11-06a: favourites change only in menus (CMB_RiderUseOwn)
 	endif
@@ -5844,6 +7004,15 @@ int Property TimerKit = 52 AutoReadOnly
 int Property TimerLook = 53 AutoReadOnly
 {2026-11-07a: the look put on the first-person bike after its placing or hand-over, and the worn
 bike's F4SE swap after the equip or a load (LookFollowUp), each outside busy.}
+int Property TimerParkGuard = 54 AutoReadOnly
+{2026-11-09a (the plugin's [Room] ParkGuard): the parked bike kept hidden while someone is in its
+place, looked at again (ParkGuardTick), outside busy.}
+float Property ParkGuardPoll = 0.5 AutoReadOnly
+{... every this long while held.}
+float Property ParkGuardMax = 15.0 AutoReadOnly
+{... and still taken this long after it was hidden: once, a new spot beside or behind the player
+(PickBikeSpot's park); none free, it waits, looked at every ParkGuardWait.}
+float Property ParkGuardWait = 2.0 AutoReadOnly
 
 ; The console's CMB_PoseUseWindow (6; 0 or an older ESP: 0, as 2026-11-01a).
 float Function UseWindow()
@@ -7096,6 +8265,8 @@ EndFunction
 ; 2026-11-06a: MCM "Water sound loop" (CMB_FxWaterLoop, read on getting on) picks it: 1 the churn (our
 ; record, CMB_FxWaterLoopsOwn's slot 3), 2 the mod's own wet road (CMB_FxWaterRoad); 0, another value,
 ; a record the ESP hasn't or no global: as the 2026-11-02a build (CMB_FxWaterPick's from the set).
+; 2026-11-09a (test 50: the wet road heard as static): 3 the gentle wet road (CMB_FxWaterRoadSoft, the
+; MCM's "Wet road, gentle", the default); 3 without that record (None) plays 2's wet road.
 ; The water loop (CMB_FxWaterOn, CMB_FxWaterPick, read on getting on): played at no volume, its id
 ; to the plugin (CMB_FxWaterId), which brings it in by the water's depth over the feet and the speed
 ; (as the engine's loops) and answers in CMB_FxDriven: the id, or minus it when it declines. No
@@ -7132,6 +8303,12 @@ Function FxStartWaterLoop()
 	elseif kind == 2 && CMB_FxWaterRoad
 		loop = CMB_FxWaterRoad
 		what = ": the wet road (CMB_FxWaterLoop 2)"
+	elseif kind == 3 && CMB_FxWaterRoadSoft
+		loop = CMB_FxWaterRoadSoft
+		what = ": the gentle wet road (CMB_FxWaterLoop 3)"
+	elseif kind == 3 && CMB_FxWaterRoad
+		loop = CMB_FxWaterRoad
+		what = ": the wet road (CMB_FxWaterLoop 3, no gentle record: 2's)"
 	endif
 	if !loop
 		loop = loops.GetAt(pick) as Sound

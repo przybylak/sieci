@@ -36,8 +36,9 @@ hold. The texture stage (bike_textures.py) turns them into DDS and the materials
 
 --plates (since the 2026-11-08a build) writes only the licence plate's index maps (look_plates.py makes the DDS, the
 palettes and the materials): plates_d/_part/_h/_s.png (2048 x 1024: the 12 designs, our own art: backgrounds, beads,
-legends in our plate font and our script, emblems from the badge drawers scaled down, stickers), plate_text_d/_h/_s.png
-(2048: the 60 preset texts, stamped in our plate font) and plates.json; the other outputs are untouched by it.
+legends in our plate font and our script, emblems from the badge drawers scaled down (the Vault-Tec plate's cog, since
+the 2026-11-09a build, drawn at the plate's own scale), stickers), plate_text_d/_h/_s.png (2048: the 60 preset texts,
+stamped in our plate font) and plates.json; the other outputs are untouched by it.
 
 Normal maps are tangent space in Fallout 4's (Direct3D) convention: red along +u, green along +v
 (down the image), blue out of the surface; written as they are (no green flip). Colours are 8-bit
@@ -1879,15 +1880,36 @@ def plate_blank(P):
     P.bead()
 
 
+# The Vault-Tec plate's emblem (since the 2026-11-09a build): a cog drawn at the plate's own scale. The badge's drawer
+# scaled down to 34 px (2026-11-08a) put its ring of eight holes 2 px apart (a waffle at mip 1) over the stripe's
+# corner. The top band, measured in the stage art: the stripe's texels are rows and columns 25-26 (its inner edge
+# 27.3 px in), so 6 px clear starts at 33.3; at mip 3 the stripe is the texel row and column 24-31, so the cog's own
+# mip-3 texels start at 40 (no texel of it next to the stripe's) and its tips at 37; the plate texts' letters start at
+# 78.5 (76.6 at mips 2-3), the top legend at x 185. The cog: 8 teeth (a gap straight up and down), tips 20 px, roots
+# 14, one hub hole 14 px across, centred at (60, 56): 41-79 x 37-75 in the cell, 3.5 px above the letters.
+VT_GEAR = dict(centre=(60.0, 56.0), tip=20.0, root=14.0, teeth=8, hub=7.0, phase=22.5)
+
+
+def _plate_gear(P, centre, tip, root, teeth, hub, phase=0.0, part=LEGEND, duty=0.5, flank=0.12, relief=0.03):
+    """A cog drawn straight on a design cell in `part`: `teeth` teeth from `root` to `tip` px (gear_pts' outline, each
+    tooth `duty` of its pitch at the tip), the first centred `phase` degrees clockwise of straight up; a solid body, one
+    hub hole of radius `hub` px (left as it is: the base and the face's finish), the body printed and raised `relief`
+    units (the 2026-11-08a emblem's mean)."""
+    cx, cy = centre
+    span = (2 * flank + duty * (1 - 2 * flank)) * 360.0 / teeth
+    body = sd_poly(P.cv, gear_pts(cx, cy, root, tip, teeth, duty=duty, rot=-90.0 + phase - span / 2, flank=flank))
+    on = P.put(np.maximum(body, -sd_circle(P.cv, cx, cy, hub)), part, 1.0, "print")
+    P.raise_(relief * on)
+    return on
+
+
 def plate_vaulttec(P):
     cv = P.cv
     P.bead()
     stripe = np.abs(P.face + 18.0) - 1.3
     P.put(stripe, ACCENT, 1.0, "print")
     _std_legends(P, "VAULT-TEC", "PREPARING FOR THE FUTURE!", top_span=(FX(0.17), FX(0.83)), bot_span=(FX(0.08), FX(0.92)))
-    E = emblem_rec("vaulttec", BASE, LEGEND, None, LEGEND)
-    c = BADGE_C
-    P.emblem(E, (c[0] - 96, c[1] - 96, c[0] + 96, c[1] + 96), (FX(0.085), TOP_Y), 34.0, mask=sd_circle(E.cv, *c, 96))
+    _plate_gear(P, **VT_GEAR)
     _sticker(P, FX(0.905), TOP_Y, 44, 24, LEGEND, "V-T", BASE, cap=14.0, hole=True)
 
 

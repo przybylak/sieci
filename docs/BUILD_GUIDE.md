@@ -37,7 +37,8 @@ Data\Meshes\Actors\Character\Animations\MT\CMB_Rider\   (riding clips + CMB_Ride
 player for parking) is built from `tools/f4se-slope/CMB_Slope.c` with MinGW-w64
 (`tools/f4se-slope/build.sh`; on Debian/Ubuntu `apt-get install gcc-mingw-w64-x86-64`, on Windows MSYS2's
 `mingw-w64-x86_64-gcc`). `tools/f4se-slope/test/run.sh` runs it under Wine against a stand-in for the game, and
-`tools/f4se-slope/test/parked_tilt.py` checks the script's formula for tilting the parked bike. It's
+`tools/f4se-slope/test/parked_tilt.py` checks the script's formula for tilting the parked bike (since the 2026-11-09a
+build 26 modes, the new one 25 `caution`: `bash tools/f4se-slope/test/run.sh caution`). It's
 for Fallout 4 1.11.240 with F4SE 0.7.9 only; a new game version needs the addresses at the top of the source updated
 from F4SE's source for that version.
 
@@ -74,6 +75,15 @@ put `<out dir>\loops\*.wav` in the zip's (or the installed mod's) `Sound\FX\CMB`
 repository's. Without them the nine loops have no files, so with `CMB_Slope.dll` the plugin gets no full set
 ([DESIGN.md](DESIGN.md), *The engine sound*): set `[Sound] Drive=0` in `CMB_Slope.ini`, and the engine is the script's
 crossfade of the four, as without the plugin.
+
+**The water loops:** the two wet roads are built from the tester's example 1 ("Cars driving on a wet road 3", Pixabay
+101246, decoded to a WAV; neither it nor the loops are in the repository): `python3 -I -B
+tools/sound/make_water_loop.py --ex1 ex1.wav --out <dir>` writes `CMB_FxWaterRoadLP.wav` (the 2026-11-06a build's,
+byte for byte) and, since the 2026-11-09a build, `... --variant gentle ...` the gentle one, `CMB_FxWaterRoadSoftLP.wav`
+(`WATER=ex1.wav sh tools/sound/run_all.sh <WAV> <out dir>` builds both into `loops/`). Both go beside the engine's 13 in
+the package's `Data\Sound\FX\CMB\` (15 WAVs; its `water.json` and `water_gentle.json` aren't shipped). Since that build
+`python3 -I -B tools/sound/engine_model.py --check-off` checks four builds' off values (the 2026-11-06a build's model
+added).
 
 ## 4. Rider-pose plugin and animation data
 
@@ -146,6 +156,44 @@ count (562 + 477, no new group), its next ID 0xBF1. `dotnet tools/esp-generator/
 meshes, badges, paint, rims, tyres and plates are built by `tools/rider` ([ASSETS.md](ASSETS.md), *The
 customisation's files* and *The second customisation build's files*: `harley_meshes.py --look-rims 1 --look-plate 1`,
 the defaults, then `look_shapes.py`, `look_wheels.py`, `bike_art.py --plates` and `look_plates.py`).
+
+Since 2026-11-09a (test 50's fixes) the generator makes three records more, right after the second block and only
+with it: `CMB_Caution` 0xBF1 (60), `CMB_ViewMenu` 0xBF2 (0) and `CMB_FxWaterRoadSoftLPSD` 0xBF3 (the gentle wet road);
+it throws unless they land there, and `CMB_FxWaterLoop` (0x8B4) is 3 (2 under `--look-build 2026-11-07a`, which still
+makes that build's ESP and MCM files byte for byte). `tools/build.sh` prints `checked cmb_controllerscript: 189
+properties`, `checked 14 effect sounds: output model CMB_SOMMonoFx (00089D), static 0, 12 the game's files by path and
+2 the mod's own (CMB_FxWaterRoadLPSD, CMB_FxWaterRoadSoftLPSD)` and `... highest 000BF3; look_ids.txt 827 IDs; the
+MCM's Look section 20 controls`, and "plugin and scripts agree"; the ESP holds **1042** in its header's count, its next
+ID **0xBF4** (780 IDs left under the 0xF00 guard). The MCM's `config.json` gains Riding's "Caution (how early the bike
+eases off for obstacles, %)" and the "Water sound loop" stepper's fourth option, "Wet road, gentle". Test 50's fixes
+change no asset.
+
+Since test 51's fixes (the same build) the generator makes one record more, right after those three and only with them:
+`CMB_LookOptions` 0xBF4 (63; it throws unless it lands there), and the 263 look recipes carry no BNAM (as the game's
+armour mod recipes; `--look-build 2026-11-07a` keeps that build's, with it). `dotnet
+tools/esp-generator/bin/out/EspGenerator.dll --recipe-bench CMB_WorkbenchBike <output.esp>` makes an A/B plugin whose
+263 look recipes carry BNAM `CMB_WorkbenchBike` as 2026-11-08a's (never shipped). `tools/build.sh` prints `checked
+cmb_controllerscript: 191 properties`, `checked cmb_lookf4se: 33 properties` and `checked 263 look options in 11 slots:
+227 swaps, 263 look recipes, no BNAM (as the game's armour mod recipes), 3 loose mods, 14 crude behind
+CMB_LookPlateCrude, sources unique per slot, CMB_LookCode 0008AF, colours 000A14-000A17, highest 000BF4; look_ids.txt
+828 IDs; the MCM's Look section 20 controls`; the ESP holds **1043** in its header's count, its next ID **0xBF5** (779
+IDs left under the 0xF00 guard). The MCM's "Field kit" gains a fifth option, "The game's armour bench", and the "Paint
+hue" and "Paint shade" helps end `Moving it chooses Paint "Free colour" when you Apply (or at the next getting on).`
+`check.sh` prints no warning (12 .pex).
+
+Test 51's fixes change three textures, the Vault-Tec plate's (`plates_d.dds`, `plates_n.dds`, `plates_s.dds`; the
+meshes and materials are the 2026-11-08a build's). From the repository, with the DDS tools' Python
+([ASSETS.md](ASSETS.md)):
+```
+cp -a <2026-11-08a's asset tree> <tree>
+python3 -I tools/rider/bike_art.py --plates --out <art folder>             # the 12 designs, the Vault-Tec cog redrawn
+<DDS python> -I tools/rider/look_plates.py --art <art folder> --out <tree> \
+    --old-stage <2026-11-07a's stage> --stage <2026-11-08a's stage>
+<DDS python> -I tools/rider/look_plates.py --check ...  (same arguments)   # 23 checks, all passed
+<DDS python> -I tools/rider/look_plates.py --sheet <folder> ...            # the contact sheets
+```
+Only `plates_d.dds`, `plates_n.dds` and `plates_s.dds` differ from 2026-11-08a's tree (sha256 b5eacce3...,
+78b75210..., 8892936a...); the package's verifier checks those three and everything else as 2026-11-08a's.
 
 The vanilla form IDs the plugins use (PlayerRef, XMarker, HumanRace, HumanRaceSubGraphData, SpeedMult, CarryWeight, FallingDamageMod, Health, Pip-Boy, AnimArchetypePlayer) were checked against Mutagen's FormKey list generated from the real `Fallout4.esm`. The record layouts were also compared field by field with xEdit's Fallout 4 definitions.
 
@@ -235,6 +283,11 @@ You only need this if the generated plugin turns out to have a problem and you'd
      `PlateOwnText`, `PlateOwnInk`, `PlateOwnBack` and the string arrays `RimBodyTargets`, `RimBodyHueTargets`), none
      Mandatory; `LookKeys` now 263 ("Paint:free" after "Paint:test", so `LookSlotStart` is 0, 17, 35, 53, 99, 103, 151,
      154, 167, 229, 246). The 477 records are the generator's (`BuildC2`), `--dump` prints them (1009 records).
+   - Since 2026-11-09a the group `Fixes_54` (2 properties, 189 in all: `CMB_ViewMenu` and the sound
+     `CMB_FxWaterRoadSoft`, none Mandatory; `CMB_Caution` has no property: no script reads it).
+   - Since test 51's fixes (2026-11-09a) the group `Fixes_55` (2 properties, 191 in all: `CMB_LookOptions` and
+     `WorkbenchArmorA`, Fallout4.esm 0x12EA9B, the field kit's mode 4), and `CMB_LookF4SE`'s `Fixes_55` (33:
+     `CMB_LookOptions` and the float array `RimFinishV`, 48 values), none Mandatory.
    - The MCM's seven new controls (Riding: the four first-person sliders and "Power attacks throw you off"; Sound:
      "Landing sounds without metal" and the "Water sound loop" stepper) are in `config.json`, written by the generator.
 9. **Properties:** fill every *Mandatory* property ("Auto-Fill All" gets the vanilla ones). Script-typed properties called `Controller` point at `CMB_ControllerQuest`. `Pipboy` is the vanilla Pip-Boy armor (00021B3B), `FallingDamageMod` and `Health` the vanilla actor values (000BA43D, 000002D4).

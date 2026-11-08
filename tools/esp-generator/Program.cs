@@ -5,6 +5,7 @@
 //   dotnet run -c Release -- <output.esp>          write the plugin
 //   dotnet run -c Release -- --dump <plugin.esp>   print what a plugin contains
 //   dotnet run -c Release -- --look-ids look_ids.txt   write the save-stable ID list (appends only)
+//   dotnet run -c Release -- --recipe-bench CMB_WorkbenchBike <output.esp>   an A/B plugin: the look recipes on CMB_WorkbenchBike
 //
 // Vanilla form IDs below were checked against Mutagen.Bethesda.FormKeys.Fallout4
 // (generated from the real Fallout4.esm), except PlayerRef (00000014), which is
@@ -114,6 +115,9 @@ public static class Vanilla
     public static readonly FormKey DRScToolboxBOpen = Fo4(0x1B0652);
     public static readonly FormKey MiscMod01 = Fo4(0x248769);
     public static readonly FormKey Armorer01 = Fo4(0x04B254);
+    // 2026-11-09a (test 51: the field kit never worked): the game's armour bench itself, WorkbenchArmorA (FURN 12EA9B), the
+    // field kit's mode 4 (the controller's WorkbenchArmorA).
+    public static readonly FormKey WorkbenchArmorA = Fo4(0x12EA9B);
     public static readonly IReadOnlyDictionary<string, FormKey> Components = new Dictionary<string, FormKey>
     {
         ["c_Adhesive"] = Fo4(0x01FAA5), ["c_Cloth"] = Fo4(0x1223C7), ["c_Oil"] = Fo4(0x01FAB4),
@@ -134,6 +138,7 @@ public static class Vanilla
             || key == FurnitureScaleActorToOne || key == WorkbenchGeneral || key == WorkshopItemKeyword
             || key == LinkedWorkbenchContainerKeyword || key == LocTypeWorkshopSettlement || key == ObjectTypeLooseMod ? "Keyword"
         : key == WorkshopParent ? "Quest"
+        : key == WorkbenchArmorA ? "Furniture"
         : key == DRScToolboxBOpen ? "SoundDescriptor"
         : key == MiscMod01 ? "Transform"
         : Components.Values.Contains(key) ? "Component"
@@ -213,6 +218,13 @@ public static class FxOwn
     // 2026-11-06a (test 49: the landings' metal clunk): CMB_FxLandSoundsDull, the MCM's "Landing sounds without metal":
     // the light and heavy tyre, the PA dirt thud, the splash, the heavy splash and the PA water thud.
     public static readonly string[] LandDull = { "CMB_FxTyreLightSD", "CMB_FxTyreHeavySD", "CMB_FxThudHeavySD", "CMB_FxSplashSD", "CMB_FxSplashHeavySD", "CMB_FxThudWaterSD" };
+
+    // 2026-11-09a (test 50: the wet road heard as static): the gentle wet-road loop, the mod's own (the same recording as
+    // CMB_FxWaterRoadLPSD, less hiss and more body), shipped loose at Data\Sound\FX\CMB\CMB_FxWaterRoadSoftLP.wav and named
+    // relative to Data\Sound as that one. Not in Records (it would move every later ID) and in no list: made at 0xBF3,
+    // after C2's block, and played by CMB_FxWaterLoop 3 through the controller's CMB_FxWaterRoadSoft.
+    public static readonly Sound WaterRoadSoft = new("CMB_FxWaterRoadSoftLPSD", "the mod's own gentle wet-road loop (Pixabay 101246)",
+        new[] { @"FX\CMB\CMB_FxWaterRoadSoftLP.wav" }, true, 0, 0, 0);
 }
 
 public static class Program
@@ -252,6 +264,18 @@ public static class Program
                 return 1;
             }
             LookRecords.Through = args[1];
+            args = args[2..];
+        }
+        // 2026-11-09a (test 51, Q-K2): `--recipe-bench CMB_WorkbenchBike` first gives the 263 look recipes their BNAM back
+        // (CMB_WorkbenchBike, as 2026-11-08a's): an A/B ESP only, never shipped. The rest of the arguments as without it.
+        if (args.Length >= 2 && args[0] == "--recipe-bench")
+        {
+            if (args[1] != "CMB_WorkbenchBike")
+            {
+                Console.Error.WriteLine($"--recipe-bench {args[1]}: only CMB_WorkbenchBike (the look's own bench keyword).");
+                return 1;
+            }
+            LookRecords.RecipeBench = true;
             args = args[2..];
         }
         if (args.Length == 2 && args[0] == "--dump")
@@ -380,8 +404,12 @@ public static class Program
             Section("Look"),
             Look("switcher", "Customise at the bike", "A Customise button in the parked bike's menu: the field kit comes out of the side bag and you change the bike's badges, paint and mirrors at the armour menu. Off: no button, and the bike looks as it came.",
                 "CMB_LookOn"),
-            Look("stepper", "Field kit", "Automatic tries the toolbox, then an armour bench, and remembers the one that worked. The others force one (for a test).",
-                "CMB_KitMode", new[] { "Automatic", "Toolbox", "Toolbox (armour bench keyword)", "Armour bench" }),
+            // 2026-11-09a (test 51: the field kit never worked): with C2's block a 5th option, the game's armour bench (the
+            // controller's WorkbenchArmorA), and the toolbox ones named as tests.
+            c2 ? Look("stepper", "Field kit", "Automatic uses an armour bench beside the bike, then the game's own armour bench if the first one's menu closes at once, and remembers the one that worked (its menu stayed open, or you made a change). The others force one: the toolbox ones are tests only (the game's toolbox can't be sat in).",
+                     "CMB_KitMode", new[] { "Automatic", "Toolbox (a test: it can't be sat in)", "Toolbox, bench keyword (a test)", "Armour bench", "The game's armour bench" })
+               : Look("stepper", "Field kit", "Automatic tries the toolbox, then an armour bench, and remembers the one that worked. The others force one (for a test).",
+                     "CMB_KitMode", new[] { "Automatic", "Toolbox", "Toolbox (armour bench keyword)", "Armour bench" }),
             Look("switcher", "Parts from the side bag", "Outside your settlements the field kit uses the side bag's components as well as yours. Off: only yours (and a settlement's workshop).",
                 "CMB_KitBagLink"),
         };
@@ -400,9 +428,11 @@ public static class Program
         if (c2)
             lookSection.AddRange(new[]
             {
-                Look("slider", "Paint hue", "The colour of the Free colour paint, round the colour wheel (0 red, 120 green, 240 blue). Pick Paint \"Free colour\", then Apply.",
+                // 2026-11-09a (test 51: Free colour "didn't do anything"): moving either chooses Free colour (the controller's
+                // HueFree, CMB_LookOptions bit 32).
+                Look("slider", "Paint hue", "The colour of the Free colour paint, round the colour wheel (0 red, 120 green, 240 blue). Moving it chooses Paint \"Free colour\" when you Apply (or at the next getting on).",
                     "CMB_LookHue", groupCondition: 1, range: (0, 359, 1)),
-                Look("stepper", "Paint shade", "How deep or pale the Free colour paint is.", "CMB_LookShade",
+                Look("stepper", "Paint shade", "How deep or pale the Free colour paint is. Moving it chooses Paint \"Free colour\" when you Apply (or at the next getting on).", "CMB_LookShade",
                     lookTable.GetProperty("hue_palette").GetProperty("shades").EnumerateArray().Select(x => x[0].GetString()!).ToArray(), groupCondition: 1),
             });
         lookSection.Add(Look("stepper", "Mirrors", "The stock mirrors, mirrors under the bars (egg or D), or none.", "CMB_Look_Mirrors", Names("Mirrors"), groupCondition: 1));
@@ -453,6 +483,9 @@ public static class Program
                     "CMB_TurnRadiusSlow", 0, 300, 10),
                 Slider("Turning when stopped (deg/s)", "How fast the bike can be walked round when it isn't moving (and the least it turns at any speed). Needs F4SE and the CMB_Slope.dll plugin.",
                     "CMB_StandTurnRate", 0, 180, 10),
+                // 2026-11-09a (test 50: obstacle detection too early): Caution, only with C2's block (the ESP's 0xBF1).
+                c2 ? Slider("Caution (how early the bike eases off for obstacles, %)", "100: as the 2026-11-08a build (the throttle eases from about 11 m at full speed). Lower: closer to the obstacle before the bike eases off and stops. 60: from about 8 m, the throttle gone at 6 m. Needs F4SE and the CMB_Slope.dll plugin.",
+                    "CMB_Caution", 50, 100, 5) : null!,
                 Slider("Bike tilts with the ground (max degrees)", "While riding, the bike and the rider pitch with the ground by at most this much (needs F4SE and the CMB_Slope.dll plugin; 45 follows any slope you can climb). Takes effect the next time you get on.",
                     "CMB_MaxTilt", 0, 50, 1),
                 Switcher("Allow combat while riding", "Weapons and VATS stay usable while riding. Takes effect the next time you get on.", "CMB_AllowCombat"),
@@ -510,11 +543,15 @@ public static class Program
                 Switcher("Landing sounds without metal", "On: a tyre thump, and on big drops a heavy dull thud under it; into water a splash, and on big drops a heavier one with a thud. Off: as the 2026-11-02a build, a metal clunk on big drops.", "CMB_FxLandDull"),
                 Switcher("Landing sound", "A tyre thump when the bike lands, louder the higher the drop, a heavier thud on big ones, a splash into water. Without F4SE one level.", "CMB_FxLandOn"),
                 Switcher("Water sound", "Spray while riding through shallow water, by speed and depth (needs F4SE and the CMB_Slope.dll plugin). Takes effect the next time you get on.", "CMB_FxWaterOn"),
+                // 2026-11-09a (test 50: the wet road heard as static): a 4th option, the gentle wet road (0xBF3), only with
+                // C2's block.
                 new
                 {
                     type = "stepper", text = "Water sound loop",
-                    help = "Which water loop plays while riding through water. The first is the 2026-11-02a build's (the console's CMB_FxWaterPick). Takes effect the next time you get on.",
-                    valueOptions = new { options = new[] { "As the 2026-11-02a build (spray)", "Churning water", "Wet road (the mod's own)" }, sourceType = "GlobalValue", sourceForm = Form(Rec("CMB_FxWaterLoop")) },
+                    help = c2 ? "Which water loop plays while riding through water. The first is the 2026-11-02a build's (the console's CMB_FxWaterPick); \"Wet road, gentle\" (since 2026-11-09a) is the mod's wet road with less hiss and more body. Takes effect the next time you get on."
+                              : "Which water loop plays while riding through water. The first is the 2026-11-02a build's (the console's CMB_FxWaterPick). Takes effect the next time you get on.",
+                    valueOptions = new { options = c2 ? new[] { "As the 2026-11-02a build (spray)", "Churning water", "Wet road (the mod's own)", "Wet road, gentle" }
+                                                      : new[] { "As the 2026-11-02a build (spray)", "Churning water", "Wet road (the mod's own)" }, sourceType = "GlobalValue", sourceForm = Form(Rec("CMB_FxWaterLoop")) },
                 },
                 Switcher("Mute the rider's own jump and landing sounds", "While riding, your character's own footstep, jump and landing sounds are silent (the bike's take their place). Takes effect the next time you get on.", "CMB_FxMuteRider"),
                 Section("Headlamp"),
@@ -539,7 +576,7 @@ public static class Program
                 Section("Troubleshooting"),
                 Button("Give me the keys", "For alternative starts that skip the Pip-Boy: hands over the Motorbike Keys now.", "ForceGiveKeys"),
                 Button("Emergency reset", "Gets you off the bike and undoes everything riding changed: speed, controls, animations, hidden companions.", "EmergencyReset"),
-            }).ToArray(),
+            }).Where(c => c != null).ToArray(),
         };
         var keybinds = new
         {
@@ -1119,17 +1156,22 @@ public static class Program
         // borrowed lists above), as 2026-11-01a.
         var gFxOwnSounds = Global(mod, "CMB_FxOwnSounds", 1);
         // Every sound plays through its own model: the engine's 13 (CMB_Engine*) through CMB_SOMMonoEngine, the effects'
-        // (CMB_Fx*SD) through CMB_SOMMonoFx, and there is no other sound.
-        foreach (var s in mod.SoundDescriptors)
+        // (CMB_Fx*SD) through CMB_SOMMonoFx, and there is no other sound. Checked here and again after 2026-11-09a's block
+        // (its gentle wet-road loop is made after the look).
+        void CheckSoundModels()
         {
-            var want = s.EditorID!.StartsWith("CMB_Engine") ? engineModel
-                     : s.EditorID.StartsWith("CMB_Fx") && s.EditorID.EndsWith("SD") ? fxModel
-                     : null;
-            if (want == null)
-                throw new InvalidOperationException($"{s.EditorID}: a sound that is neither an engine sound (CMB_Engine*) nor a bike effect (CMB_Fx*SD)");
-            if (s.OutputModel.FormKey != want.FormKey)
-                throw new InvalidOperationException($"{s.EditorID} doesn't play through {want.EditorID}: give it that output model");
+            foreach (var s in mod.SoundDescriptors)
+            {
+                var want = s.EditorID!.StartsWith("CMB_Engine") ? engineModel
+                         : s.EditorID.StartsWith("CMB_Fx") && s.EditorID.EndsWith("SD") ? fxModel
+                         : null;
+                if (want == null)
+                    throw new InvalidOperationException($"{s.EditorID}: a sound that is neither an engine sound (CMB_Engine*) nor a bike effect (CMB_Fx*SD)");
+                if (s.OutputModel.FormKey != want.FormKey)
+                    throw new InvalidOperationException($"{s.EditorID} doesn't play through {want.EditorID}: give it that output model");
+            }
         }
+        CheckSoundModels();
 
         // --- 2026-11-06a (test 49's answer): the round's fixed IDs, 0x8B0-0x8B4. 0x8AF is left unmade here: it is
         // CMB_LookCode's (LookRecords makes it there by FormKey since 2026-11-07a), so this block starts at 0x8B0 and
@@ -1152,9 +1194,11 @@ public static class Program
         var gViewEyeForward = Global(mod, "CMB_ViewEyeForward", 0);
         var gViewEyeUp = Global(mod, "CMB_ViewEyeUp", 0);
         // FxWaterLoop (test 49: the water loop heard as a waterfall's frying): the MCM's "Water sound loop", 0 spray (the
-        // 2026-11-02a build's, CMB_FxWaterPick), 1 churn, 2 the mod's own wet road (the default); the controller's
-        // FxStartWaterLoop picks the loop, the plugin its trim and its line.
-        var gFxWaterLoop = Global(mod, "CMB_FxWaterLoop", 2);
+        // 2026-11-02a build's, CMB_FxWaterPick), 1 churn, 2 the mod's own wet road (the 2026-11-06a to 2026-11-08a builds'
+        // default), since 2026-11-09a 3 the gentle wet road (test 50: the wet road heard as static; CMB_FxWaterRoadSoftLPSD,
+        // 0xBF3), the default; the controller's FxStartWaterLoop picks the loop, the plugin its trim and its line.
+        // `--look-build 2026-11-07a` keeps 2 (that build's ESP byte for byte; it has no gentle loop).
+        var gFxWaterLoop = Global(mod, "CMB_FxWaterLoop", LookRecords.Through == LookRecords.C1Build ? 2 : 3);
         var fixed51 = new[] { gViewTip, gViewFov, gViewEyeForward, gViewEyeUp, gFxWaterLoop };
         for (int i = 0; i < fixed51.Length; i++)
             if (fixed51[i].FormKey.ID != 0x8B0 + i)
@@ -1189,6 +1233,53 @@ public static class Program
         // the riding armours' six more attach points, the template's six more option 0s, Paint's lists' 46th entries, the
         // lists of lists. `--look-build 2026-11-07a`: none of it (2026-11-07a's ESP byte for byte).
         var look = LookRecords.Build(mod, armor, armorFrame, msgParked);
+
+        // --- 2026-11-09a (test 50's answer): the round's three forms, 0xBF1-0xBF3, right after C2's block (only with it:
+        // `--look-build 2026-11-07a` makes none, so its ESP stays 2026-11-07a's byte for byte). CMB_Slope.dll finds the two
+        // globals by ID, both or none (its CAUTION_ID and VIEW_MENU_ID and the harness's CAUTION_FORMID and
+        // VIEW_MENU_FORMID use these numbers: renumber them together); the sound is save-stable through look_ids.txt. The
+        // controller's two properties aren't Mandatory: an older ESP leaves them None (2026-11-08a). Their readers: the
+        // plugin's obstacle easing (Caution, the MCM's slider) and the first-person tip's Pip-Boy rule (ViewMenu, which
+        // the controller writes); the controller's FxStartWaterLoop (CMB_FxWaterLoop 3, the gentle wet road).
+        SoundDescriptor? fxWaterRoadSoft = null;
+        GlobalFloat? gViewMenu = null;
+        if (look.HasC2)
+        {
+            if (mod.ModHeader.Stats.NextFormID != 0xBF1)
+                throw new InvalidOperationException($"2026-11-09a's forms start at 0xBF1, after C2's block; the next ID is 0x{mod.ModHeader.Stats.NextFormID:X}");
+            // Caution (test 50: obstacle detection too early): the MCM's "Caution (how early the bike eases off for
+            // obstacles, %)", 50-100 (60; 100 = 2026-11-08a): the plugin's FaceLook, WallStop and WallStopPersist at it.
+            var gCaution = Global(mod, "CMB_Caution", 60);
+            // ViewMenu (test 50: the first-person tip ran in the Pip-Boy): 1 while the Pip-Boy is open on the bike (the
+            // controller), else 0; the plugin's [View] TipMenu gives no tip then.
+            gViewMenu = Global(mod, "CMB_ViewMenu", 0);
+            // The gentle wet-road loop (test 50: the wet road heard as static): the mod's own, from the same recording as
+            // CMB_FxWaterRoadLPSD, shipped loose at Data\Sound\FX\CMB\ and named relative to Data\Sound as 0x8A9's.
+            // In no list: CMB_FxWaterLoop 3 plays it through the controller's own property, as 2 plays 0x8A9.
+            fxWaterRoadSoft = FxSound(mod, FxOwn.WaterRoadSoft);
+            fxWaterRoadSoft.OutputModel.SetTo(fxModel);
+            var fixed54 = new IMajorRecordGetter[] { gCaution, gViewMenu, fxWaterRoadSoft };
+            for (int i = 0; i < fixed54.Length; i++)
+                if (fixed54[i].FormKey.ID != 0xBF1 + i)
+                    throw new InvalidOperationException($"CMB_Caution and CMB_ViewMenu must be 0xBF1-0xBF2 (CMB_Slope.dll looks for them), CMB_FxWaterRoadSoftLPSD 0xBF3 (look_ids.txt), got {string.Join(", ", fixed54.Select(r => $"{r.EditorID} {r.FormKey.ID:X}"))}");
+            CheckSoundModels();
+        }
+
+        // --- 2026-11-09a, test 51's answer: the round's one form, 0xBF4, right after 2026-11-09a's block (only with C2's
+        // block: `--look-build 2026-11-07a` makes none). CMB_LookOptions: CMB_Slope.dll's [Look] switches for the scripts
+        // (bits 1 FastMount, 2 KitHeld, 4 ParkedReload, 8 PaletteIndex, 16 MountGuard, 32 HueFree; 64 the plugin writes the
+        // worn bike's colours), which the plugin writes at its start, with the settings and at getting on. The ESP's 63:
+        // without the plugin the six script behaviours are on and the scripts colour the worn bike themselves. The plugin
+        // finds it by ID (its LOOK_OPTIONS_ID and the harness's LOOK_OPTIONS_FORMID use this number: renumber them together).
+        GlobalFloat? gLookOptions = null;
+        if (look.HasC2)
+        {
+            if (mod.ModHeader.Stats.NextFormID != 0xBF4)
+                throw new InvalidOperationException($"2026-11-09a's test 51 form starts at 0xBF4, after test 50's block; the next ID is 0x{mod.ModHeader.Stats.NextFormID:X}");
+            gLookOptions = Global(mod, "CMB_LookOptions", 63);
+            if (gLookOptions.FormKey.ID != 0xBF4)
+                throw new InvalidOperationException($"CMB_LookOptions must be 0xBF4 (CMB_Slope.dll looks for it), got {gLookOptions.FormKey.ID:X}");
+        }
 
         // --- Controller quest ---
         quest.Name = "Commonwealth Motorbike";
@@ -1458,6 +1549,28 @@ public static class Program
                     StringList("RimBodyTargets", look.RimBodyTargets.Select(t => t.Body)),
                     StringList("RimBodyHueTargets", look.RimBodyTargets.Select(t => t.Hue)),
                 }));
+            // 2026-11-09a: the controller's Fixes_54 group, 2, after CMB_FxWaterRoad: the Pip-Boy's flag for the
+            // first-person tip (0xBF2) and the gentle wet-road loop (0xBF3). Not with `--look-build 2026-11-07a` (None:
+            // 2026-11-08a's).
+            controller.Properties.InsertRange(controller.Properties.FindIndex(p => p.Name == "CMB_FxWaterRoad") + 1, new ScriptProperty[]
+            {
+                Obj("CMB_ViewMenu", gViewMenu!),
+                Obj("CMB_FxWaterRoadSoft", fxWaterRoadSoft!),
+            });
+            // 2026-11-09a, test 51: the controller's Fixes_55 group, 2, after CMB_FxWaterRoadSoft: the plugin's [Look]
+            // switches (0xBF4) and the game's armour bench (Fallout4.esm 0x12EA9B, the field kit's mode 4); CMB_LookF4SE's
+            // 2 at its end: the switches and, per Rims option, its finish's own palette V (RimFinishV). Not with
+            // `--look-build 2026-11-07a` (None: 2026-11-09a as of t54-merge).
+            controller.Properties.InsertRange(controller.Properties.FindIndex(p => p.Name == "CMB_FxWaterRoadSoft") + 1, new ScriptProperty[]
+            {
+                Obj("CMB_LookOptions", gLookOptions!),
+                Obj("WorkbenchArmorA", Vanilla.WorkbenchArmorA),
+            });
+            lookF4se.Properties.AddRange(new ScriptProperty[]
+            {
+                Obj("CMB_LookOptions", gLookOptions!),
+                FloatList("RimFinishV", look.RimFinishV),
+            });
         }
 
         quest.VirtualMachineAdapter = new QuestAdapter
@@ -1726,6 +1839,8 @@ public static class Program
         public const string C1Build = "2026-11-07a", C2Build = "2026-11-08a";
         public static readonly string[] Builds = { C1Build, C2Build };
         public static string Through = C2Build;
+        // 2026-11-09a (test 51): `--recipe-bench CMB_WorkbenchBike` puts the recipes' BNAM back (MakeOption).
+        public static bool RecipeBench;
         public const string ToolboxModel = @"SetDressing\Toolbox\Toolbox_Large.nif";                       // the game's, by path
         public const string BenchModel = @"Furniture\Workstations\WorkbenchArmor\WorkstationArmorB01.nif"; // WorkbenchArmorA's, by path
         public const string LooseModModel = @"Props\ModsPartBox\ModCrate.nif";                              // the game's loose mods'
@@ -1770,6 +1885,11 @@ public static class Program
         public int[] SetPlate => Sets.Select(s => s.Plate ?? -1).ToArray();
         public int[] RimStyle => SlotOf("Rims").Options.Select(o => o.RimStyle ?? 0).ToArray();
         public int[] RimBody => SlotOf("Rims").Options.Select(o => o.Finish == "body" ? 1 : 0).ToArray();
+        // 2026-11-09a (test 51: the parked bike grey after an MCM apply): per Rims option, its finish's own palette V, (row +
+        // 0.5) / 8 of rim_p.dds for a finish whose rim_finishes palette is a row (satin 0.0625, gloss 0.1875, bronze 0.3125,
+        // gunmetal 0.4375); -1 for the stock cast rim (no finish), chrome (no palette) and body (Compose's rimV covers it).
+        // look_wheels.py's finish_v without its body and bodyhue cases.
+        public float[] RimFinishV { get; private set; } = Array.Empty<float>();
         public int[] TextCrude => SlotOf("PlateText").Options.Select(o => o.Crude ? 1 : 0).ToArray();
         // The controller's arrays: per faction set (index = CMB_LookFactionSet; 0 "(none)" -1) its Paint, left tank and fender
         // indices; "<slot>:<key>" for every option, slot-major; each slot's first index in Keys.
@@ -2177,7 +2297,11 @@ public static class Program
             mods[s.Key].Add(omod);
             var cobj = At(mod.ConstructibleObjects.AddNew($"CMB_co_{s.Key}_{o.Key}"), o.Ids[2]!);
             cobj.CreatedObject.SetTo(omod.FormKey);
-            cobj.WorkbenchKeyword.SetTo(look.WorkbenchBike);
+            // 2026-11-09a (test 51, Q-K2: the game's 722 armour mod recipes have no BNAM, ours had CMB_WorkbenchBike): no
+            // workbench keyword, as the game's; set only through 2026-11-07a (C1's ESP byte for byte) or with
+            // `--recipe-bench CMB_WorkbenchBike` (an A/B ESP, never shipped).
+            if (Through == C1Build || RecipeBench)
+                cobj.WorkbenchKeyword.SetTo(look.WorkbenchBike);
             if (o.Cost.Length > 0)
                 cobj.Components = new(o.Cost.Select(c => new ConstructibleObjectComponent
                 {
@@ -2234,6 +2358,13 @@ public static class Program
             look.PlateOwnInk = plates.Select(p => p.GetProperty("own_ink").GetInt32()).ToArray();
             look.PlateOwnBack = plates.Select(p => p.GetProperty("own_back").GetInt32()).ToArray();
             look.RimBodyTargets = root.GetProperty("rim_body_targets").EnumerateArray().Select(x => (x[0].GetString()!, x[1].GetString()!)).ToArray();
+            // 2026-11-09a (test 51): per Rims option its finish's palette V, rim_palette's rows ((row + 0.5) / its height, 8);
+            // -1 without a finish, for chrome (palette null) and body ("body").
+            int finishRows = root.GetProperty("rim_palette").GetProperty("size")[1].GetInt32();
+            var finishRow = root.GetProperty("rim_finishes").EnumerateArray().ToDictionary(f => S(f, "key")!,
+                f => f.GetProperty("palette").ValueKind == JsonValueKind.Number ? f.GetProperty("palette").GetInt32() : -1);
+            look.RimFinishV = look.SlotOf("Rims").Options.Select(o => o.Finish != null && finishRow[o.Finish] >= 0
+                ? (finishRow[o.Finish] + 0.5f) / finishRows : -1.0f).ToArray();
         }
 
         static Keyword Kw(Fallout4Mod mod, string editorId, Keyword.TypeEnum type, string? name)
@@ -2334,7 +2465,7 @@ public static class Program
                                       $"properties [{string.Join(",", props)}] name {m.Name?.String ?? "none"}");
                     break;
                 case IConstructibleObjectGetter c:
-                    Console.WriteLine($"      cobj creates {c.CreatedObject.FormKey} bench {c.WorkbenchKeyword.FormKey} " +
+                    Console.WriteLine($"      cobj creates {c.CreatedObject.FormKey} bench {(c.WorkbenchKeyword.IsNull ? "none" : c.WorkbenchKeyword.FormKey.ToString())} " +
                                       $"counts [{string.Join(",", (c.CreatedObjectCounts ?? Enumerable.Empty<IConstructibleCreatedObjectCountGetter>()).Select(x => $"{x.Count}/{x.Priority}"))}]");
                     foreach (var x in c.Components ?? Enumerable.Empty<IConstructibleObjectComponentGetter>())
                         Console.WriteLine($"      component {x.Component.FormKey} {x.Count}");
@@ -2448,6 +2579,14 @@ public static class Program
         Name = name,
         Flags = ScriptProperty.Flag.Edited,
         Data = new ExtendedList<string>(values),
+    };
+
+    // 2026-11-09a (test 51): CMB_LookF4SE's RimFinishV.
+    static ScriptFloatListProperty FloatList(string name, IEnumerable<float> values) => new()
+    {
+        Name = name,
+        Flags = ScriptProperty.Flag.Edited,
+        Data = new ExtendedList<float>(values),
     };
 
     // The output model is set once CMB_SOMMonoEngine exists (OutputModel: made after every other record).
@@ -2673,6 +2812,7 @@ public static class Program
                 // 2026-11-07a: the controller's look tables, the values without spaces.
                 IScriptIntListPropertyGetter il => $"[{string.Join(",", il.Data)}] IntList",
                 IScriptStringListPropertyGetter sl => $"[{string.Join(",", sl.Data)}] StringList",
+                IScriptFloatListPropertyGetter fl => $"[{string.Join(",", fl.Data.Select(x => x.ToString(System.Globalization.CultureInfo.InvariantCulture)))}] FloatList",
                 _ => p.GetType().Name,
             };
             Console.WriteLine($"{indent}  {p.Name} = {value}");

@@ -30,10 +30,24 @@
 # rim styles held and hidden as chosen at the bike ([Look] Rims, CMB_LookCode bits 3-6), the plate's two shapes, the
 # look colours written into the worn bike's materials ([Look] PaintWheel and PlateColours) and 64 skins (custom), and an
 # older ESP without the colour globals (roomold; the writer with three of the four on look's bike, and only into its
-# V's palette in custom: reviews B3, B2). 25 modes (0-24). Needs MinGW-w64 and wine64.
-# The 2026-11-08a build: 1611 checks ok (full 382, probe 10, guard 8, wrongversion 4, transposed 76, disagree 6,
-# backpush 6, riderinplace 18, riderheldonly 8, load 43, climb 125, wall 75, ram 110, hits 22, launch 13, backing 56,
-# arms 36, room 131, roomold 56, decals 77, sound 100, look 58, view 103, fx 42, custom 46); 1580 at 2026-11-07a.
+# V's palette in custom: reviews B3, B2); the 2026-11-09a build's knock-off guards (an actor in a spot's place is no room,
+# the parked bike's old spot asked first, the parked bike kept hidden while anyone is in its place: room), an item's use
+# clip stopped at speed and the graph's slot-1 events listed (arms), the Caution slider, the wheels by the frame's own
+# movement and held while braking, and the bridge's end post (in a mode of its own: caution), the truck's call in its
+# new order (room), the first-person tip held off in the Pip-Boy, composed with your own look and after a settle, the
+# view bike's ancestors' bounds, the draw diagnostic, the near plane and the FOV search (view), each gear's own rise and
+# least time (sound), the gentle wet road (fx), and an older ESP without the build's two globals (roomold); and with
+# test 51's fixes, the [Look] switches the scripts read (CMB_LookOptions, written again at a load: custom; an older ESP
+# without it: roomold), a worn shape the game rebuilt in place held afresh and the look colours written only through a
+# lighting shader (custom), a tip verdict within TipLoadGrace of a load holding for that entry only (custom), the draw
+# line's reference (view) and each gear longer than the last (sound); and with the review of those fixes, the parked
+# bike's guard counting the player only in its own box and not where the script placed it (a park after a bend, a call's
+# spot 7 100 ahead, the put-back's band: room), the FOV search within PlayerCamera's 0x1B0 bytes (view) and Caution 50
+# at test 45's rail (caution). 26 modes (0-25). Needs MinGW-w64 and wine64.
+# The 2026-11-09a build: 1688 checks ok (full 382, probe 10, guard 8, wrongversion 4, transposed 76, disagree 6,
+# backpush 6, riderinplace 18, riderheldonly 8, load 43, climb 125, wall 75, ram 110, hits 22, launch 13, caution 19,
+# backing 56, arms 39, room 145, roomold 58, decals 77, sound 105, look 58, view 124, fx 44, custom 57); 1682 before
+# the review's fixes, 1667 before test 51's fixes, 1611 in 25 modes at 2026-11-08a.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 WORK="$(mktemp -d)"
@@ -47,6 +61,14 @@ ONLY="${ONLY:-}"   # ONLY=full bash run.sh: just that run, for a quick turn
 # doesn't name them; a mode that names one (launch) keeps its own. Put into the INI's first [Steer] (or a [Steer] added
 # at the end): GetPrivateProfileString takes a section's and a key's first copy, so nothing may be written twice.
 DEF51='Sidestep=0 LaunchTau=0'
+# 2026-11-09a: every new key of the round at its off value (the 2026-11-08a build's), Section/Key=value, in every mode
+# whose INI doesn't name the key (whatever its section): put at the end of the mode's first [Section] (the rides rewrite
+# "[Section]\nKey=..." texts), or into a [Section] added at the end. An empty value is written as Key= (GetPrivateProfileString then gives ""). Near, GuardMargin and WheelStill have no
+# off value (their defaults change nothing with the rest off): not here.
+DEF54='Steer/Caution=100 Steer/UseListen=0 Steer/UseStop= Steer/ClimbStepSpan=0 Parts/WheelSpin=0 Parts/WheelLock=0 Room/ActorRoom=0 Room/ParkBack=0 Room/ParkGuard=0 Room/SnapOrder=0 View/TipMenu=0 View/TipYield=0 View/TipSettle=0 View/Bounds=0 View/FovSearch=0 Diag/ViewDraw=0 Sound/HeardRiseGears=1,1,1,1 Sound/ShiftGapGears='
+# 2026-11-09a, test 51's fixes: the round's new keys at their off values (2026-11-09a as of t54-merge), the same way (the
+# loop below takes DEF54's, then these). The gear keys need none: DEF54 already gives every older mode their 08a values.
+DEF55='Look/FastMount=0 Look/KitHeld=0 Look/ParkedReload=0 Look/PaletteIndex=0 Look/MountGuard=0 Look/HueFree=0 Look/Rehold=0 Look/LightingOnly=0 View/TipLoadGrace=0'
 run() { # <name> <mode> <ini body>
   if [ -n "$ONLY" ] && [ "$ONLY" != "$1" ]; then return; fi
   mkdir -p "$WORK/$1"
@@ -58,6 +80,22 @@ run() { # <name> <mode> <ini body>
     case "$ini" in
       *"$steer"*) ini="${ini/"$steer"/"$steer$kv\n"}";;
       *) ini="$ini$steer$kv\n";;
+    esac
+  done
+  local sec key pre rest
+  for kv in $DEF54 $DEF55; do
+    sec="[${kv%%/*}]\n" kv="${kv#*/}" key="${kv%%=*}"
+    case "$ini" in "$key="*|*"\n$key="*) continue;; esac
+    case "$ini" in *'\n') ;; *) ini="$ini\n";; esac
+    case "$ini" in
+      *"$sec"*)   # at the end of the first [Section], so the rides' rewrites of "[Section]\nKey=..." still find their text
+        pre="${ini%%"$sec"*}$sec" rest="${ini#*"$sec"}"
+        case "$rest" in
+          '['*) ini="$pre$kv\n$rest";;
+          *'\n['*) ini="$pre${rest%%'\n['*}\n$kv\n[${rest#*'\n['}";;
+          *) ini="$ini$kv\n";;
+        esac;;
+      *) ini="$ini$sec$kv\n";;
     esac
   done
   printf '%b' "$ini" > "$WORK/$1/CMB_Slope.ini"
@@ -87,6 +125,7 @@ run wall 19 "$KNOWN[Tilt]\nMaxRoll=10\nTrace=1\nPivotHeight=74\nPivotForward=0\n
 run ram 11 "$KNOWN[Tilt]\nMaxRoll=10\nTrace=1\nPivotHeight=74\nPivotForward=0\nTorsoLean=0\nTorsoSolveFrom=0.5\nBumpMax=0\nLiftRate=0\nSuspension=0\n[Ram]\nEnabled=1\nHitKeep=0.6\nHitHold=0.4\nAskGap=0.12\nAskAnswered=1\nAskFree=0.5\nYesKeep=10\nHitGrace=1\nHighRay=96\nSideRays=20\nRobots=1\nPendingPass=1\nFaceActors=1\nSeenGrace=1.5\nHitChain=0\nPendingFoe=0\n$PARTS"   # test 40's finding 7: the harness plays CMB_RamScript (mode 11 only); Enabled=1, HitHold=0.4 and AskGap=0.12 (test 41's packs) written so the run can rewrite them to 0 for a ride; test 42's knocking over: AskAnswered, AskFree, YesKeep, HitGrace, HighRay, SideRays and Robots at their defaults, so rides can rewrite each to 0; test 44's PendingPass, FaceActors and SeenGrace too; the 2026-11-02a build's HitKeep=0.6 (HitHold=0.4 above), HitChain=0 and PendingFoe=0 written: 2026-11-01a's knocking over, its checks the off values (mode 22 has the new ones)
 run hits 22 "$KNOWN[Tilt]\nMaxRoll=10\nTrace=1\nPivotHeight=74\nPivotForward=0\nTorsoLean=0\nTorsoSolveFrom=0.5\nBumpMax=0\nLiftRate=0\nSuspension=0\n[Ram]\nEnabled=1\nHitKeep=0.85\nHitHold=0.25\nAskGap=0.12\nAskAnswered=1\nAskFree=0.5\nYesKeep=10\nHitGrace=1\nHighRay=96\nSideRays=20\nRobots=1\nPendingPass=1\nFaceActors=1\nSeenGrace=1.5\nHitChain=1.0\nPendingFoe=2\n$PARTS"   # the 2026-11-02a build's knock-overs (test 48: the speed lost at hits, the brakes for pending asks); mode 11 stays at 2026-11-01a's values; HitKeep, HitHold, HitChain and PendingFoe written at their defaults, so rides can rewrite each to its off value (or take it out for the compiled default)
 run launch 23 "$KNOWN$TILT0[Steer]\nLaunchTau=1.5\nLaunchFrom=0.25\nLaunchLead=0.45\n"   # 2026-11-06a (test 49's slow take-off; mode 23 only): the launch from rest; the drive unit's from here
+run caution 25 "$KNOWN[Tilt]\nMaxRoll=10\nTrace=1\nPivotHeight=74\nPivotForward=0\nTorsoLean=0\nTorsoSolveFrom=0.5\nBumpMax=0\nLiftRate=0\nSuspension=0\n[Steer]\nClimb=1\nClimbMaxTop=0\nNarrowHeights=3\nClimbBeamLow=8\nWallStop=0.6\nWallStopReach=1\nWallStopPersist=0.15\nWallStopNear=0\nWallStopArc=90\nWallStopShort=10\nFaceArc=90\nWallStopClimb=1\nClimbLegs=145\nWallStopNarrow=40\nFaceAlong=30\nFaceAlongRays=1\nSlideHold=1.0\nSlideAngle=15\nSlideRestore=0.5\nFaceAlongKeep=1.0\nWallNarrowSame=1\nWallNarrowHigh=1\nSidestep=0\n$PARTS"   # 2026-11-09a (test 50's Caution, the wheels and the bridge's end post, rides that can't go into full or climb; mode 25 only): mode 19's world and INI; the drive unit's from here
 run backing 12 "$KNOWN[Tilt]\nTrace=1\nPivotHeight=74\nPivotForward=0\nBumpMax=0\nLiftRate=0\nSuspension=0\n[Steer]\nBackFollow=10\nBackClearance=0\nBackMargin=25\nBackLedge=1\nBackHungDrop=40\nBrakeKey=-1\n$PARTS0"   # test 40's finding 6: backing down follows the ground (a ground profile, a ripple and a physics-lite controller, mode 12 only); BackFollow=10 written so the run can rewrite it to 0 for test 40's rule; test 42's backing too early: the parts file (the rear tyre's back edge 66.6 behind the rider) with BackClearance, BackMargin and BackLedge at their defaults, so rides can rewrite BackClearance to 150 and BackLedge to 0; test 44's rails: BackHungDrop at its default, so a ride can rewrite it to 0; the 2026-11-01a build's brake key: BrakeKey at its default (-1, the ESP's CMB_BrakeKey 57), so rides can rewrite it to 0 and 31
 PARTS20="${PARTS/BarAngle=10/BarAngle=20}"   # the game's bar angle, so the bars reach 12 deg on the spot
 run arms 13 "$KNOWN[Tilt]\nMaxRoll=10\nPivotHeight=74\nPivotForward=0\nTorsoLean=8\nTorsoTwist=0.75\nTorsoSideLean=0.25\nBumpMax=0\nLiftRate=0\nSuspension=0\nArmPole=1.1,-0.3,-0.9\nArmPoleTurn=0.35,-0.3,-1.0\nArmPoleTurnBars=10\n$PARTS20"   # test 41's finding 5: the inside arm's fade at 5 and 12 deg of the bars, both arms, ArmPoleTurn=0,0,0 for a ride, the arm lines' figures against the bones; TorsoLean 8 so the arms are solved with the bars straight

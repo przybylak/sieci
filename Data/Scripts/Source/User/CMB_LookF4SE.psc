@@ -66,6 +66,16 @@ Group Look_C2
 	{Their Free colour twins, in the same order.}
 EndGroup
 
+; 2026-11-09a, test 51's fixes. None (an older ESP) = 2026-11-09a as of t54-merge.
+Group Fixes_55
+	GlobalVariable Property CMB_LookOptions Auto Const
+	{0xBF4: CMB_Slope.dll's [Look] switches for the scripts (8 PaletteIndex: PaletteIndexOn); 63 in the plugin.}
+	float[] Property RimFinishV Auto Const
+	{Per Rims option: its finish's own palette V of rim_p.dds ((row + 0.5) / 8: satin 0.0625, gloss 0.1875, bronze 0.3125,
+	gunmetal 0.4375), so Compose can give each palette entry its own V; -1 for the stock cast rim, chrome and body (the
+	body colour's V is rimV).}
+EndGroup
+
 ; The composed look: every slot's chosen swap's entries in slot order (the right tank's "Same as the
 ; left", 17, is the left's choice; with CMB_LookOn 0 every slot's option 0, the identities, which put
 ; a loaded bike back to stock), set into CMB_LookSwap. composedCount its entries, composedActive true
@@ -118,6 +128,16 @@ EndFunction
 
 bool Function LookOn()
 	return CMB_LookOn && CMB_LookOn.GetValue() > 0.0
+EndFunction
+
+; 2026-11-09a (test 51): CMB_LookOptions' bit 8, the plugin's [Look] PaletteIndex (the controller's LookOption, here
+; for this script); false without the global (an older ESP: 2026-11-09a as of t54-merge).
+bool Function PaletteIndexOn()
+	if !CMB_LookOptions
+		return false
+	endif
+	int options = CMB_LookOptions.GetValue() as int
+	return (options / 8) % 2 == 1
 EndFunction
 
 ; The slot's global as it stands (0 with CMB_LookOn 0 or no global).
@@ -364,6 +384,29 @@ Function QueueEcho(MatSwap:RemapData[] akEchoes, string asSource, string asTarge
 	akEchoes.Add(e)
 EndFunction
 
+; 2026-11-09a (test 51, [Look] PaletteIndex): the runtime swap (F4SE's ApplyMaterialSwap) writes each entry's colorIndex
+; into its material, and the paint's and rim finishes' entries carry none (no CNAM: 0, palette row 0, the grey parked bike
+; after an MCM apply). So a palette entry gets its target's own V: Paint (slot 3), an option past Factory with a paint_p.dds
+; row, (row + 0.5) / 64; Rims (slot 5) with a finish, RimFinishV ((row + 0.5) / 8 of rim_p.dds). -1: none (the entries
+; as the MSWP holds them; Free colour and a body-colour rim keep SlotV's).
+float Function OwnV(int aiSlot, int aiChoice)
+	if aiSlot == 3 && aiChoice > 0
+		int row = PaintRowOf(aiChoice)
+		if row >= 0
+			return (row + 0.5) / 64.0
+		endif
+	elseif aiSlot == 5 && RimFinishV && aiChoice >= 0 && aiChoice < RimFinishV.Length
+		return RimFinishV[aiChoice]
+	endif
+	return -1.0
+EndFunction
+
+; A palette entry: its target is another file than its source and not the hidden one (a rim option's other styles'
+; identities and its hidden cast rim keep no colour: 4 of a finish rim's 32 entries, all 4 of a paint's).
+bool Function OwnEntry(MatSwap:RemapData akEntry)
+	return akEntry.target != akEntry.source && akEntry.target != "CMB\\Bike\\off.bgsm"
+EndFunction
+
 MatSwap:RemapData[] Function Compose(bool abWorn = false)
 	composedCount = 0
 	composedActive = false
@@ -377,6 +420,7 @@ MatSwap:RemapData[] Function Compose(bool abWorn = false)
 	MatSwap:RemapData[] all = new MatSwap:RemapData[0]
 	string[] sources = new string[0]
 	MatSwap:RemapData[] echoes = new MatSwap:RemapData[0]
+	bool paletteIndex = PaletteIndexOn()   ; 2026-11-09a (test 51): [Look] PaletteIndex, CMB_LookOptions bit 8
 	int slots = CMB_LookSwapLists.GetSize()
 	int s = 0
 	while s < slots
@@ -393,6 +437,10 @@ MatSwap:RemapData[] Function Compose(bool abWorn = false)
 			endif
 			if sw
 				float v = SlotV(s)
+				float own = -1.0
+				if v < 0.0 && paletteIndex
+					own = OwnV(s, i)
+				endif
 				MatSwap:RemapData[] entries = sw.GetRemapData()
 				int j = 0
 				while entries && j < entries.Length
@@ -401,7 +449,9 @@ MatSwap:RemapData[] Function Compose(bool abWorn = false)
 					if v >= 0.0 && s == 5
 						body = RimBodyTargets.Find(e.target)
 					endif
-					if v < 0.0 || (s == 5 && body < 0)
+					if own >= 0.0 && OwnEntry(e)
+						AddColoured(all, sources, echoes, e.source, e.target, e.target, own)
+					elseif v < 0.0 || (s == 5 && body < 0)
 						all.Add(e)
 						sources.Add(e.source)
 					else
@@ -550,4 +600,64 @@ EndFunction
 
 Function LookApplyFromMcm()
 	Controller.LookApplyFromMcm()
+EndFunction
+
+; 2026-11-09a (test 51, getting on 5-6 s; the controller's FastMount, CMB_LookOptions bit 1), the worn bike's equip: the
+; look's colour values (Colours) into the fixed globals CMB_Slope.dll copies into the worn bike's materials (WriteColours):
+; about a dozen reads, no compose and no swap. 1 if the look has a colour, else 0 (the globals -1: the last ones cleared).
+; With the plugin's bit 64 that is all the worn bike needs; without it the controller's ApplyWornColours follows once,
+; after the fade.
+int Function WriteWornColours()
+	bool any = Colours()
+	WriteColours()
+	if any
+		return 1
+	endif
+	return 0
+EndFunction
+
+; 2026-11-09a (test 51's black screen; the controller's MountGuard watchdog, bit 16): the menus open now among those that
+; can hold getting on up, comma-separated ("" none of them).
+string Function MenusOpenText()
+	string[] names = new string[7]
+	names[0] = "MessageBoxMenu"
+	names[1] = "PauseMenu"
+	names[2] = "PipboyMenu"
+	names[3] = "LoadingMenu"
+	names[4] = "ExamineMenu"
+	names[5] = "Console"
+	names[6] = "FaderMenu"
+	string text = ""
+	int i = 0
+	while i < names.Length
+		if UI.IsMenuOpen(names[i])
+			if text != ""
+				text += ", "
+			endif
+			text += names[i]
+		endif
+		i += 1
+	endwhile
+	return text
+EndFunction
+
+; 2026-11-09a (test 51, FastMount), after the fade (the controller's LookFollowUp): how many mods the item in the worn
+; bike's slot carries (F4SE GetWornItemMods on the slot CMB_GearRestoreF4SE's BikeSlotIndex names, as its RememberSlot and
+; LogWornSlots read it). -1 without CMB_GearRestoreF4SE or the player, -2 nothing in the slot (not on yet).
+int Function WornModCount()
+	Actor player = Game.GetPlayer()
+	ScriptObject gear = CastAs("CMB_GearRestoreF4SE")
+	if !player || !gear
+		return -1
+	endif
+	int slot = gear.GetPropertyValue("BikeSlotIndex") as int
+	Actor:WornItem worn = player.GetWornItem(slot)
+	if !worn || !worn.item
+		return -2
+	endif
+	ObjectMod[] mods = player.GetWornItemMods(slot)
+	if !mods
+		return 0
+	endif
+	return mods.Length
 EndFunction

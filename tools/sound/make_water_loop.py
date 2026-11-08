@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """The mod's own wet-road loop (the 2026-11-06a build): the water sound the bike plays riding through water.
 
-  python3 -I -B make_water_loop.py --ex1 <example 1 as WAV> --out <dir>
+  python3 -I -B make_water_loop.py --ex1 <example 1 as WAV> --out <dir> [--variant gentle]
+  python3 -I -B make_water_loop.py --measure <a loop WAV> [--variant gentle]     (a loop's measures and that variant's checks)
 
 Test 49's tester heard the 2026-11-02a build's water loop (the game's small waterfall splatter, pitched up 15 %) as
 "frying or crumpling foil" and pointed to two recordings of cars on a wet road. Example 1, "Cars driving on a wet road 3"
@@ -35,7 +36,20 @@ channels, length), the constants, the measures and the output's sha256. The chec
 
 The recording is Pixabay content (the Pixabay Content License: usable in a project, not to be passed on as it is): the
 loop is cut, filtered, re-levelled, spliced and looped from three stretches of it, and ships in the mod's package with
-the credit line (README "Credits")."""
+the credit line (README "Credits").
+
+--variant gentle (the 2026-11-09a build; test 50's tester heard the wet road as "staticky": 41 % of it at 1-2 kHz, 27 %
+over 2 kHz, 2 % under 250 Hz): the same three stretches, splices, flattening and wrap, a gentler shape and a lower level:
+a second-order high-pass at 60 Hz (the traffic's body kept), a second-order roll-off from 2.5 kHz, a first-order low shelf
++5 dB under 300 Hz, a 3 dB dip at 1.5 kHz (a Gaussian on a log-frequency axis, 1.5 octaves wide at half its depth in dB),
+levelled to -26.5 dBFS A-weighted (3.5 dB quieter). It writes CMB_FxWaterRoadSoftLP.wav (CMB_FxWaterRoadSoftLPSD's file,
+0xBF3: the MCM's "Wet road, gentle", the default since 2026-11-09a) and water_gentle.json. Its spectrum checks replace
+the centroid's: the centroid 900-1150 Hz, at least 8 % under 250 Hz, under 35 % at 1-2 kHz, under 2 % over 4 kHz (and
+over 80 % at 250 Hz-4 kHz); the seam and level checks as above, A-weighted at its own -26.5. Without --variant the tool
+is the 2026-11-06a build's, byte for byte (the WAV and water.json).
+
+--measure <WAV> measures a loop already made (44.1 kHz mono 16-bit) and runs the variant's checks on it (the centroid's
+own check needs the example: with --ex1 too), writing nothing: the gentle checks on the 2026-11-06a build's loop fail."""
 import argparse
 import hashlib
 import json
@@ -59,6 +73,11 @@ ROLL_HZ = 6000.0   # the first-order roll-off
 FLAT, FLAT_DB = 0.4, 6.0   # the slow level flattened over these windows (s), within +-FLAT_DB
 TARGET_A = -23.0   # dBFS, A-weighted
 WIN = 0.1          # s, the seam check's windows
+# --variant gentle (the 2026-11-09a build): the shape and the level; everything else as above
+NAME_GENTLE, JSON_GENTLE = "CMB_FxWaterRoadSoftLP.wav", "water_gentle.json"
+GENTLE = {"highpass_Hz": 60.0, "highpass_order": 2, "rolloff_Hz": 2500.0, "rolloff_order": 2, "shelf_dB": 5.0, "shelf_Hz": 300.0,
+          "dip_dB": 3.0, "dip_Hz": 1500.0, "dip_octaves": 1.5, "target_a_dBFS": -26.5}
+BANDS = [0.0, 250.0, 1000.0, 2000.0, 4000.0, 8000.0]   # Hz: the bands' shares in water_gentle.json (the last one open-ended)
 
 
 def read_source(path):
@@ -83,13 +102,31 @@ def resample(sig, r0, r1):
     return np.fft.irfft(out, n1) * (n1 / len(sig))
 
 
-def shape(sig, r):
-    """the high-pass (second order, HP_HZ) and the roll-off (first order, ROLL_HZ), as magnitudes on the spectrum."""
+def shape(sig, r, gentle=False):
+    """the high-pass (second order, HP_HZ) and the roll-off (first order, ROLL_HZ), as magnitudes on the spectrum;
+    gentle: GENTLE's high-pass, roll-off, low shelf and dip instead."""
     spec = np.fft.rfft(sig)
     f = np.fft.rfftfreq(len(sig), 1 / r)
+    if gentle:
+        return np.fft.irfft(spec * gentle_gain(f), len(sig))
     hp = (f / HP_HZ) ** 2 / np.sqrt(1 + (f / HP_HZ) ** 4)
     roll = 1.0 / np.sqrt(1 + (f / ROLL_HZ) ** 2)
     return np.fft.irfft(spec * hp * roll, len(sig))
+
+
+def gentle_gain(f):
+    """--variant gentle's magnitude at f (Hz): the high-pass and the roll-off (Butterworth magnitudes of their orders), the
+    first-order low shelf (+shelf_dB well under shelf_Hz, 0 dB well over it) and the dip (a Gaussian in log2 f, dip_octaves
+    wide at half its depth in dB)."""
+    g = GENTLE
+    x = (f / g["highpass_Hz"]) ** g["highpass_order"]
+    hp = x / np.sqrt(1 + x ** 2)
+    roll = 1.0 / np.sqrt(1 + (f / g["rolloff_Hz"]) ** (2 * g["rolloff_order"]))
+    a, w = 10 ** (g["shelf_dB"] / 20), f / g["shelf_Hz"]
+    shelf = np.sqrt((a ** 2 + w ** 2) / (1 + w ** 2))
+    oc = np.log2(np.maximum(f, 1.0) / g["dip_Hz"]) / (g["dip_octaves"] / 2)
+    dip = 10 ** (-g["dip_dB"] * np.exp(-np.log(2) * oc ** 2) / 20)
+    return hp * roll * shelf * dip
 
 
 def flatten(sig, r):
@@ -127,9 +164,18 @@ def spectrum(sig, r):
             float(p[f >= 4000].sum() / tot))
 
 
-def build(x, sr):
+def bands(sig, r):
+    """the power's share in each of BANDS (the last one open-ended), as the design measured them."""
+    p = np.abs(np.fft.rfft(sig)) ** 2
+    f = np.fft.rfftfreq(len(sig), 1 / r)
+    tot = p.sum()
+    edges = BANDS + [np.inf]
+    return [float(p[(f >= lo) & (f < hi)].sum() / tot) for lo, hi in zip(edges, edges[1:])]
+
+
+def build(x, sr, gentle=False):
     mono = x.mean(axis=1)
-    pieces = [shape(resample(mono[int(a * sr):int(b * sr)], sr, SR), SR) for a, b in SEGS]
+    pieces = [shape(resample(mono[int(a * sr):int(b * sr)], sr, SR), SR, gentle) for a, b in SEGS]
     nx = int(XF * SR)
     y = pieces[0]
     for p in pieces[1:]:
@@ -139,7 +185,8 @@ def build(x, sr):
     nw = int(WRAP * SR)
     fo, fi = equal_power(nw)
     loop = np.concatenate([y[-nw:] * fo + y[:nw] * fi, y[nw:-nw]])
-    return loop * 10 ** ((TARGET_A - a_level(loop, SR)) / 20)
+    target = GENTLE["target_a_dBFS"] if gentle else TARGET_A
+    return loop * 10 ** ((target - a_level(loop, SR)) / 20)
 
 
 def measures(loop, ex_centroid):
@@ -166,7 +213,8 @@ def measures(loop, ex_centroid):
     return {
         "seconds": round(len(loop) / SR, 4), "samples": int(len(loop)),
         "rms_dBFS": round(db(rms(loop)), 2), "a_weighted_dBFS": round(a_level(loop, SR), 2), "peak_dBFS": round(db(float(np.abs(loop).max())), 2),
-        "centroid_Hz": round(cen, 1), "example_centroid_Hz": round(ex_centroid, 1), "centroid_re_example": round(cen / ex_centroid, 4),
+        "centroid_Hz": round(cen, 1), "example_centroid_Hz": round(ex_centroid, 1) if ex_centroid else None,
+        "centroid_re_example": round(cen / ex_centroid, 4) if ex_centroid else None,
         "share_under_250": round(lo, 4), "share_250_4k": round(mid, 4), "share_over_4k": round(hi, 4),
         "level_20ms_p10_p50_p90_dBFS": [round(float(np.percentile(e, q)), 2) for q in (10, 50, 90)],
         "level_20ms_p90_p10_dB": round(float(np.percentile(e, 90) - np.percentile(e, 10)), 2),
@@ -178,53 +226,53 @@ def measures(loop, ex_centroid):
     }
 
 
-def checks(m):
-    """[(what, ok)]: the listen-free checks of the module's docstring."""
-    return [
+def checks(m, gentle=False):
+    """[(what, ok)]: the listen-free checks of the module's docstring (gentle: its own spectrum checks and level)."""
+    seam = [
         ("the wrap's spectral step within the loop's own p90", m["wrap_spectral_step"] <= m["spectral_step_median_p90"][1]),
         ("the wrap's level step within the loop's own p90", abs(m["wrap_level_step_dB"]) <= m["level_step_median_p90_dB"][1]),
         ("the wrap's sample step within the 99th percentile", m["wrap_sample_step_percentile"] < 99.0 and m["seam_pct"] < 99.0),
-        ("the centroid within 15 % of example 1's", abs(m["centroid_re_example"] - 1.0) <= 0.15),
-        ("over 80 % at 250 Hz-4 kHz, under 15 % over 4 kHz", m["share_250_4k"] > 0.80 and m["share_over_4k"] < 0.15),
-        ("A-weighted at TARGET_A within 0.1 dB", abs(m["a_weighted_dBFS"] - TARGET_A) <= 0.1),
+    ]
+    level = [
         ("the peak under -3 dBFS", m["peak_dBFS"] < -3.0),
         ("the 20 ms level's p90 - p10 under 3 dB", m["level_20ms_p90_p10_dB"] < 3.0),
     ]
+    if gentle:
+        b = m["bands"]
+        return seam + [
+            ("the centroid 900-1150 Hz", 900.0 <= m["centroid_Hz"] <= 1150.0),
+            ("at least 8 % under 250 Hz", b[0] >= 0.08),
+            ("under 35 % at 1-2 kHz", b[2] < 0.35),
+            ("under 2 % over 4 kHz", m["share_over_4k"] < 0.02),
+            ("over 80 % at 250 Hz-4 kHz", m["share_250_4k"] > 0.80),
+            ("A-weighted at the gentle loop's -26.5 within 0.1 dB", abs(m["a_weighted_dBFS"] - GENTLE["target_a_dBFS"]) <= 0.1),
+        ] + level
+    return seam + [
+        ("the centroid within 15 % of example 1's", m["centroid_re_example"] is not None and abs(m["centroid_re_example"] - 1.0) <= 0.15),
+        ("over 80 % at 250 Hz-4 kHz, under 15 % over 4 kHz", m["share_250_4k"] > 0.80 and m["share_over_4k"] < 0.15),
+        ("A-weighted at TARGET_A within 0.1 dB", abs(m["a_weighted_dBFS"] - TARGET_A) <= 0.1),
+    ] + level
 
 
 def sha256(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def main():
-    ap = argparse.ArgumentParser(description="The mod's own wet-road water loop from example 1 (Pixabay 101246, decoded to WAV).")
-    ap.add_argument("--ex1", required=True, help="example 1 as a 16-bit PCM WAV (ffmpeg -i <mp3> -c:a pcm_s16le ex1.wav)")
-    ap.add_argument("--out", required=True, help="the folder for CMB_FxWaterRoadLP.wav and water.json")
-    a = ap.parse_args()
-    sr, ch, x = read_source(a.ex1)
-    ex_centroid = spectrum(x.mean(axis=1), sr)[0]
-    loop = build(x, sr)
-    out = Path(a.out)
-    out.mkdir(parents=True, exist_ok=True)
-    wav = out / NAME
-    write(wav, loop)
-    with wave.open(str(wav)) as w:   # the file as written (16-bit), measured as the game will play it
-        heard = np.frombuffer(w.readframes(w.getnframes()), "<i2").astype(np.float64) / 32768
-    m = measures(heard, ex_centroid)
-    res = checks(m)
-    info = {
-        "file": NAME, "sha256": sha256(wav), "format": "44.1 kHz mono 16-bit PCM",
-        "source": {"title": "Cars driving on a wet road 3", "site": "Pixabay", "id": 101246, "user": "freesound_community",
-                   "licence": "Pixabay Content License", "file": Path(a.ex1).name, "bytes": Path(a.ex1).stat().st_size,
-                   "sha256": sha256(a.ex1), "rate": sr, "channels": ch, "seconds": round(len(x) / sr, 3)},
-        "settings": {"segments_s": SEGS, "crossfade_s": XF, "wrap_s": WRAP, "highpass_Hz": HP_HZ, "rolloff_Hz": ROLL_HZ,
-                     "flatten_s": FLAT, "flatten_dB": FLAT_DB, "target_a_dBFS": TARGET_A},
-        "measures": m, "checks": {what: bool(ok) for what, ok in res},
-    }
-    (out / "water.json").write_text(json.dumps(info, indent=1) + "\n")
-    print("%s: %.2f s, RMS %.1f dBFS, A-weighted %.1f, peak %.1f; centroid %.0f Hz (example 1 %.0f), <250 %.2f, 250-4k %.2f, >4k %.2f" % (
-        NAME, m["seconds"], m["rms_dBFS"], m["a_weighted_dBFS"], m["peak_dBFS"], m["centroid_Hz"], m["example_centroid_Hz"], m["share_under_250"],
-        m["share_250_4k"], m["share_over_4k"]))
+def read_loop(path):
+    """a loop as the game plays it: 44.1 kHz mono 16-bit PCM -> floats."""
+    with wave.open(str(path)) as w:
+        if w.getframerate() != SR or w.getnchannels() != 1 or w.getsampwidth() != 2:
+            raise SystemExit(f"{path}: {w.getframerate()} Hz, {w.getnchannels()} channel(s), {8 * w.getsampwidth()}-bit; a loop is {SR} Hz mono 16-bit")
+        return np.frombuffer(w.readframes(w.getnframes()), "<i2").astype(np.float64) / 32768
+
+
+def report(name, m, res):
+    bands_text = (", bands <250 %.1f %%, 250-1k %.1f, 1-2k %.1f, 2-4k %.1f, 4-8k %.1f, >8k %.1f" % tuple(100 * b for b in m["bands"])
+                  if "bands" in m else "")
+    print("%s: %.2f s, RMS %.1f dBFS, A-weighted %.1f, peak %.1f; centroid %.0f Hz (example 1 %s), <250 %.2f, 250-4k %.2f, >4k %.2f%s" % (
+        name, m["seconds"], m["rms_dBFS"], m["a_weighted_dBFS"], m["peak_dBFS"], m["centroid_Hz"],
+        "%.0f" % m["example_centroid_Hz"] if m["example_centroid_Hz"] else "not given", m["share_under_250"], m["share_250_4k"],
+        m["share_over_4k"], bands_text))
     print("20 ms level: p10 %.1f p50 %.1f p90 %.1f (p90-p10 %.1f dB)" % (*m["level_20ms_p10_p50_p90_dBFS"], m["level_20ms_p90_p10_dB"]))
     print("the wrap: spectral step %.3f (elsewhere median %.3f, p90 %.3f), level step %+.2f dB (elsewhere median %.2f, p90 %.2f), sample step %.4f "
           "(percentile %.1f; median %.4f, p99 %.4f), seam_pct %.1f" % (
@@ -232,7 +280,63 @@ def main():
               m["wrap_sample_step_percentile"], *m["sample_step_median_p99"], m["seam_pct"]))
     for what, ok in res:
         print("%-4s %s" % ("ok" if ok else "FAIL", what))
-    print("wrote %s (sha256 %s) and water.json" % (wav, info["sha256"]))
+
+
+def main():
+    ap = argparse.ArgumentParser(description="The mod's own wet-road water loop from example 1 (Pixabay 101246, decoded to WAV).")
+    ap.add_argument("--ex1", help="example 1 as a 16-bit PCM WAV (ffmpeg -i <mp3> -c:a pcm_s16le ex1.wav)")
+    ap.add_argument("--out", help="the folder for CMB_FxWaterRoadLP.wav and water.json (--variant gentle: CMB_FxWaterRoadSoftLP.wav and "
+                    "water_gentle.json)")
+    ap.add_argument("--variant", choices=["gentle"], help="gentle: the 2026-11-09a build's gentler loop (see the docstring); none: the "
+                    "2026-11-06a build's wet road, byte for byte")
+    ap.add_argument("--measure", metavar="WAV", help="measure this loop and run the variant's checks on it (nothing written; --ex1 optional)")
+    a = ap.parse_args()
+    gentle = a.variant == "gentle"
+    if a.measure:
+        ex_centroid = None
+        if a.ex1:
+            sr, ch, x = read_source(a.ex1)
+            ex_centroid = spectrum(x.mean(axis=1), sr)[0]
+        heard = read_loop(a.measure)
+        m = measures(heard, ex_centroid)
+        m["bands"] = [round(b, 4) for b in bands(heard, SR)]
+        res = checks(m, gentle)
+        report(Path(a.measure).name + " (measured, the %s checks)" % ("gentle loop's" if gentle else "wet road's"), m, res)
+        return 0 if all(ok for _, ok in res) else 1
+    if not a.ex1 or not a.out:
+        ap.error("--ex1 and --out are needed (or --measure)")
+    sr, ch, x = read_source(a.ex1)
+    ex_centroid = spectrum(x.mean(axis=1), sr)[0]
+    loop = build(x, sr, gentle)
+    out = Path(a.out)
+    out.mkdir(parents=True, exist_ok=True)
+    name = NAME_GENTLE if gentle else NAME
+    wav = out / name
+    write(wav, loop)
+    with wave.open(str(wav)) as w:   # the file as written (16-bit), measured as the game will play it
+        heard = np.frombuffer(w.readframes(w.getnframes()), "<i2").astype(np.float64) / 32768
+    m = measures(heard, ex_centroid)
+    if gentle:
+        m["bands"] = [round(b, 4) for b in bands(heard, SR)]
+    res = checks(m, gentle)
+    if gentle:
+        settings = {"variant": "gentle", "segments_s": SEGS, "crossfade_s": XF, "wrap_s": WRAP, "flatten_s": FLAT, "flatten_dB": FLAT_DB, **GENTLE,
+                    "bands_Hz": BANDS}
+    else:
+        settings = {"segments_s": SEGS, "crossfade_s": XF, "wrap_s": WRAP, "highpass_Hz": HP_HZ, "rolloff_Hz": ROLL_HZ,
+                    "flatten_s": FLAT, "flatten_dB": FLAT_DB, "target_a_dBFS": TARGET_A}
+    info = {
+        "file": name, "sha256": sha256(wav), "format": "44.1 kHz mono 16-bit PCM",
+        "source": {"title": "Cars driving on a wet road 3", "site": "Pixabay", "id": 101246, "user": "freesound_community",
+                   "licence": "Pixabay Content License", "file": Path(a.ex1).name, "bytes": Path(a.ex1).stat().st_size,
+                   "sha256": sha256(a.ex1), "rate": sr, "channels": ch, "seconds": round(len(x) / sr, 3)},
+        "settings": settings,
+        "measures": m, "checks": {what: bool(ok) for what, ok in res},
+    }
+    js = JSON_GENTLE if gentle else "water.json"
+    (out / js).write_text(json.dumps(info, indent=1) + "\n")
+    report(name, m, res)
+    print("wrote %s (sha256 %s) and %s" % (wav, info["sha256"], js))
     return 0 if all(ok for _, ok in res) else 1
 
 

@@ -152,6 +152,7 @@
 #define RVA_INI_SETTINGS      0x0344B4B8u   /* GameSettings.cpp: g_iniSettings */
 #define RVA_INI_PREF_SETTINGS 0x0339FAE0u   /* GameSettings.cpp: g_iniPrefSettings */
 #define RVA_PLAYER_CAMERA     0x030E6E58u   /* GameCamera.cpp: g_playerCamera */
+#define PLAYER_CAMERA_SIZE    0x1B0          /* sizeof(PlayerCamera) on 1.11.240 (CommonLibF4 static_assert; F4SE 0.7.9 GameCamera.h: last field 0x1A9) */
 #define RVA_PLAYER_CONTROLS   0x031F0B80u   /* GameInput.cpp: g_playerControls */
 #define RVA_MOVE_HANDLER_VTBL 0x02571B38u   /* MovementHandler's vtable (read off Fallout4.exe 1.11.240, test 13) */
 #define RVA_CONTROLS_IMOVE_VTBL 0x02571AA0u /* PlayerControls' IMovementPlayerControls vtable (the same) */
@@ -300,6 +301,13 @@
 #define LOOK_RIM_V_ID         0xA15u        /* CMB_LookRimV: a body-colour rim's V, for the shown rim; -1 = don't write */
 #define LOOK_PLATE_V_ID       0xA16u        /* CMB_LookPlateV: the plate's V(design, background), for static_plate; -1 = don't write */
 #define LOOK_PLATETEXT_V_ID   0xA17u        /* CMB_LookPlateTextV: the plate text's V(ink), for static_plateText; -1 = don't write */
+/* The 2026-11-09a build's two (test 50's answer), 0xBF1-0xBF2 right after C2's block (Program.cs's fixed IDs; fake_game.c's
+ * CAUTION_FORMID and VIEW_MENU_FORMID): found by ID in FindGlobals, both or none, one line. */
+#define CAUTION_ID            0xBF1u        /* CMB_Caution, the MCM's "Caution" 50-100 %: 60; 100 = 2026-11-08a */
+#define VIEW_MENU_ID          0xBF2u        /* CMB_ViewMenu: 1 while the Pip-Boy is open on the bike */
+/* 2026-11-09a, test 51's answer: the one form, 0xBF4 after test 50's block (Program.cs's throw; fake_game.c's
+ * LOOK_OPTIONS_FORMID): [Look]'s switches for the scripts, written by LookWriteOptions. */
+#define LOOK_OPTIONS_ID       0xBF4u        /* CMB_LookOptions: bits 1 FastMount .. 32 HueFree, 64 the worn bike's colours written here; the ESP's 63 */
 #define OFF_AV_FLAGS          0x108         /* NiAVObject::flags (bit 0: hidden, app culled); +0x100 is the collision object (test 30); [Lamp] FlagsOffset= overrides */
 #define OFF_MOVE_INPUT        0x44          /* PlayerControls: moveInputVec x (strafe), y (forward +1, back -1) */
 #define OFF_PREV_MOVE         0x5C          /* PlayerControls: prevMoveVec (what the movement used last) */
@@ -352,6 +360,7 @@
 #define RTTI_SKIN       ".?AVInstance@BSSkin@@"
 #define RTTI_BONE_DATA  ".?AVBoneData@BSSkin@@"
 #define RTTI_AVOBJECT   ".?AVNiAVObject@@"
+#define RTTI_LIGHTING_PROP ".?AVBSLightingShaderProperty@@"   /* 2026-11-09a ([Look] LightingOnly): the look colours only through one */
 #define RTTI_ARMA       ".?AVTESObjectARMA@@"
 #define RTTI_CAMERA     ".?AVPlayerCamera@@"
 #define RTTI_THIRD      ".?AVThirdPersonState@@"
@@ -671,6 +680,13 @@ static float g_launchTau = 1.5f, g_launchFrom = 0.25f, g_launchLead = 0.45f;   /
  * asked as a navmesh point (the script's, CMB_RoomOptions bit 32), and a navmesh point's ground down to SnapDrop below theirs. */
 static int g_roomSnapBest = 1;              /* [Room] SnapBest: bit 32 with SnapSpot and CMB_RoomAskKind; 0 = the most room taken as before (2026-11-02a) */
 static float g_roomSnapDrop = 250.0f;       /* [Room] SnapDrop: the deepest a navmesh point's ground may lie under the player's; 100 = 2026-11-02a */
+/* 2026-11-09a (test 50's answer; read in ReadRoomSettings, nothing reads them yet): the rider unit's actor room and the parked
+ * bike's guard, the drive unit's order of a call's spots (the truck). */
+static int g_roomActorRoom = 1;             /* [Room] ActorRoom: an actor met by the spot's own rays (and the actor grid) is no room, CMB_RoomClear -4; 0 = the actor passed (2026-11-08a) */
+static int g_roomParkBack = 1;              /* [Room] ParkBack (CMB_RoomOptions bit 128): the parked bike's old spot asked about before it is put back there; 0 = put back unasked (2026-11-08a) */
+static int g_roomParkGuard = 1;             /* [Room] ParkGuard (bits 256 and 512, with CMB_RoomAskKind; its ask kinds 2 and 3): the parked bike kept hidden while anyone is in its box; 0 = enabled at once (2026-11-08a) */
+static float g_roomGuardMargin = 15.0f;     /* [Room] GuardMargin: ParkGuard's box grown by this much for anyone but the player (0-60) */
+static int g_roomSnapOrder = 1;             /* [Room] SnapOrder (bit 64): the room spot's navmesh point first, then the most room by a 3-D snap, then its navmesh point; 0 = 2026-11-08a's order */
 /* Test 47's WallStop cuts at full speed in Sanctuary (2026-11-01a): 10 by the longer rays forced straight and short while the
  * climb's boost was on, 28 by FaceLook's own straight rays meeting things beside the turn the bike was on. */
 static bool g_wallStopClimb = true;         /* [Steer] WallStopClimb: while the climb's boost is on the longer rays as without it (their reach, WallStopArc, the floor), a wall they see past FaceLook's reach neither refusing nor cutting the boost; 0 = straight, to the raw need, no floor while it is on (2026-10-31a) */
@@ -735,6 +751,8 @@ static float g_climbBeamLow = 8.0f;         /* ClimbBeamLow: a face this high or
 static float g_climbLegs = 145.0f;          /* ClimbLegs (deg; 2026-11-01a, test 47's wooden road barriers met at 10-30 deg): a face round at its foot (100 to this) with something at ClimbMaxTop is a log only if solid at 4 where the side rays across its face meet it higher (CLIMB_LEGS: a beam on legs); 0 = a face round at its foot is a log without asking (2026-10-31a) */
 static float g_climbLegsLoggedAt = -100.0f; /* ... its "on legs" line, once per object per 2 s */
 static char g_climbLegsLoggedWhat[64];
+static float g_climbPostLoggedAt = -100.0f; /* 2026-11-09a ClimbStepSpan: its "a post, not a step" line, once per object per 2 s */
+static char g_climbPostLoggedWhat[64];
 /* ... and the state: */
 static bool g_climbOn;                      /* on: the slot holds g_climbValue */
 static float g_climbValue;                  /* ClimbBoost in the slot's unit, never less steep than the riding value (ApplySlope) */
@@ -892,6 +910,17 @@ static uintptr_t g_itemUseGlobal, g_ramCombatGlobal, g_fxRangeGlobal;   /* CMB_R
 static uintptr_t g_viewTipGlobal, g_viewFovGlobal, g_viewEyeGlobals[2], g_fxWaterLoopGlobal;
 static uintptr_t g_lookCodeGlobal;            /* CMB_LookCode (2026-11-07a; 0: not found, an older ESP): the mirrors chosen at the bike (LookMirrorsNow) */
 static uintptr_t g_lookColourGlobal[4];       /* CMB_LookPaintV, CMB_LookRimV, CMB_LookPlateV, CMB_LookPlateTextV (2026-11-08a): all four or none (0, an older ESP) */
+static uintptr_t g_cautionGlobal, g_viewMenuGlobal;   /* CMB_Caution, CMB_ViewMenu (2026-11-09a): both or none (0, an older ESP) */
+static uintptr_t g_lookOptionsGlobal;         /* CMB_LookOptions (2026-11-09a, test 51; 0: not found, an older ESP) */
+/* 2026-11-09a, test 51's [Look] switches (ReadLookFixes55; each 0 = 2026-11-09a as of t54-merge): the six the scripts
+ * read through CMB_LookOptions, in bit order (1 FastMount, 2 KitHeld, 4 ParkedReload, 8 PaletteIndex, 16 MountGuard, 32
+ * HueFree), and the plugin's own two (the skins unit's: SyncSkins' re-hold of a rebuilt shape, the colours only through a
+ * BSLightingShaderProperty). [View] TipLoadGrace (ReadViewFixes55): a tip verdict within it of a load or getting on holds
+ * for that entry only (0: for the session, the 2026-11-09a build as of t54-merge). */
+#define LOOK55_SCRIPT_KEYS    6
+static int g_look55[LOOK55_SCRIPT_KEYS] = { 1, 1, 1, 1, 1, 1 };
+static int g_lookRehold = 1, g_lookLightingOnly = 1;
+static float g_tipLoadGrace = 2.0f;
 static void ReadSoundSettings(const char *ini, bool log);   /* the engine sound, with its driver below */
 static const char *SoundTraceWord(void);
 static void ReadBrakeKey(const char *ini, bool log);        /* the 2026-11-01a build: [Steer] BrakeKey, the key reader above AfterInput */
@@ -1132,6 +1161,8 @@ typedef struct {
 	int colourRow;                      /* the look colours writer's row (2026-11-08a), -1 = none */
 	uintptr_t colourMat;                /* the material the writer last wrote (2026-11-08a; 0 none yet): another one (a swap) is written again */
 	bool colourRefused;                 /* the writer refused this shape this ride (said once) */
+	uintptr_t colourProp;               /* 2026-11-09a ([Look] LightingOnly): the shader property last checked, its low bit set when it isn't a
+	                                     * BSLightingShaderProperty (0: none yet): IsA once a property, not each frame */
 } HeldSkin;
 static HeldSkin g_skins[MAX_SKINS];
 static int g_skinCount;
@@ -2000,6 +2031,43 @@ static void ReadRoomSettings(const char *ini, bool log)
 		                   : "the most room taken as before (SnapBest=0)",
 		    drop, log ? "" : " (read again on getting on)");
 	}
+	/* 2026-11-09a (test 50's crash after the 3rd knock-off): the rider unit's ActorRoom, ParkBack, ParkGuard and GuardMargin. */
+	g_roomActorRoom = (int)GetPrivateProfileIntA("Room", "ActorRoom", 1, ini) != 0;
+	g_roomParkBack = (int)GetPrivateProfileIntA("Room", "ParkBack", 1, ini) != 0;
+	g_roomParkGuard = (int)GetPrivateProfileIntA("Room", "ParkGuard", 1, ini) != 0;
+	g_roomGuardMargin = IniFloat(ini, "Room", "GuardMargin", 15.0f, 0.0f, 60.0f);
+	{
+		static int was[3] = { -1, -1, -1 };
+		static float wasMargin = -1.0f;
+		if (log || was[0] != g_roomActorRoom || was[1] != g_roomParkBack || was[2] != g_roomParkGuard || wasMargin != g_roomGuardMargin) {
+			char guard[300];
+			if (g_roomParkGuard && g_globalsMissingLogged && !g_roomKindGlobal)
+				snprintf(guard, sizeof(guard), "no CMB_RoomAskKind (an older ESP): the parked bike enabled at once, as before (ParkGuard)");
+			else if (g_roomParkGuard)
+				snprintf(guard, sizeof(guard), "the parked bike kept hidden while anyone else is within %g of its box, or the player in it (ParkGuard: the script's ask kind 2; "
+				         "kind 3, a place the script chose clear of the player: the player not counted)", g_roomGuardMargin);
+			else
+				snprintf(guard, sizeof(guard), "the parked bike enabled at once (ParkGuard=0, the 2026-11-08a build)");
+			Log("  room: ActorRoom=%d ParkBack=%d ParkGuard=%d GuardMargin=%g: %s; %s; %s%s", g_roomActorRoom, g_roomParkBack, g_roomParkGuard, g_roomGuardMargin,
+			    g_roomActorRoom ? "an actor met by a spot's own rays, or by 21 rays down over its box, is no room (ActorRoom, CMB_RoomClear -4)"
+			                    : "an actor in a spot passed, as the 2026-11-08a build (ActorRoom=0)",
+			    g_roomParkBack ? "the parked bike's old spot asked about before it is put back there (ParkBack)" : "put back where it stood unasked (ParkBack=0, the 2026-11-08a build)",
+			    guard, log ? "" : " (read again on getting on)");
+		}
+		was[0] = g_roomActorRoom;
+		was[1] = g_roomParkBack;
+		was[2] = g_roomParkGuard;
+		wasMargin = g_roomGuardMargin;
+	}
+	/* 2026-11-09a (test 50's truck): the drive unit's SnapOrder. */
+	int wasSnapOrder = g_roomSnapOrder;
+	g_roomSnapOrder = (int)GetPrivateProfileIntA("Room", "SnapOrder", 1, ini) != 0;
+	if (log || wasSnapOrder != g_roomSnapOrder)
+		Log("  room: SnapOrder=%d: %s%s", g_roomSnapOrder,
+		    g_roomSnapOrder ? "a call's first spot with room off the navmesh: its navmesh point first (SnapSpot), then the most room by a snap measured in 3-D on its ground "
+		                      "(the ground written without a tilt too), then the most room's navmesh point (SnapBest), then that first spot as before (SnapOrder)"
+		                    : "the most room's flat snap first, as before (SnapOrder=0)",
+		    log ? "" : " (read again on getting on)");
 	RoomWriteOptions();
 }
 
@@ -2235,6 +2303,183 @@ static void ReadRiderFixes51(const char *ini, bool log)
 		    log ? "" : " (read again on getting on)");
 }
 
+/* ---- 2026-11-09a (test 50, drive): Caution, the wheels, the bridge's end post ----------------------------------------
+ * [Steer] Caution: -1 the MCM's CMB_Caution (0xBF1; no global: 60), 50-100 overrides it; 100 = 2026-11-08a.
+ * [Steer] ClimbStepSpan: more rays down between the face and the step test's far ray (0-6); 0 = the one far ray (2026-11-08a).
+ * [Parts] WheelSpin: the wheels turn by the frame's own movement, none under WheelStill (u/s, 0-50); 0 = by the 0.2 s speed
+ *   (2026-11-08a). [Parts] WheelLock: held while braking; 0 = they turn while braking (2026-11-08a).
+ * Read on getting on with the [Steer] keys. Caution is applied as copies, so the INI keys keep their meaning "at 100 %":
+ * c = Caution / 100 (0.5-1), FaceLook x c, WallStopPersist x c, WallStop / (0.5 + 0.5c), and under 1 the need taken from the
+ * 0.05 s speed (g_speedAlongFast) instead of the 0.2 s one; read at getting on and once a second while riding (the MCM can
+ * change it mid-ride). */
+static float g_steerCaution = -1.0f;         /* [Steer] Caution (-1 the MCM's; 100 = 2026-11-08a) */
+static int g_climbStepSpan = 3;              /* [Steer] ClimbStepSpan (0 = 2026-11-08a) */
+static int g_wheelSpin = 1;                  /* [Parts] WheelSpin (0 = 2026-11-08a) */
+static int g_wheelLock = 1;                  /* [Parts] WheelLock (0 = 2026-11-08a) */
+static float g_wheelStill = 5.0f;            /* [Parts] WheelStill (u/s) */
+static float g_cautionC = 1.0f;              /* c in force: Caution / 100, 0.5-1 (1 = 2026-11-08a) */
+static float g_cautionPct = 100.0f, g_cautionSaid = -1.0f;   /* ... as a share (%), and the last its line gave (-1: none yet) */
+static char g_cautionSaidWords[320];         /* ... and that line's words (a new source is said too) */
+static float g_cautionReadAt = -100.0f;      /* the last read of CMB_Caution while riding (g_clock) */
+static float g_alongFrame;                   /* WheelSpin: the frame's own speed along the heading (FrameSteer's `along`), at ... */
+static float g_alongFrameAt = -100.0f;       /* ... this g_clock (another: no frame value this frame) */
+static float GlobalValue(uintptr_t global);
+
+/* Caution's share now (50-100): [Steer] Caution 0-100 (clamped), else the MCM's CMB_Caution, else 60; *from its source. */
+static float CautionNow(const char **from)
+{
+	float pct = 60.0f;
+	if (g_steerCaution >= 0.0f) {
+		pct = g_steerCaution;
+		*from = "[Steer] Caution";
+	} else if (g_cautionGlobal) {
+		pct = GlobalValue(g_cautionGlobal);
+		*from = "CMB_Caution";
+	} else
+		*from = g_globalsMissingLogged ? "no CMB_Caution, an older ESP: [Steer] Caution=-1's 60" : "[Steer] Caution=-1's 60, CMB_Caution not looked for yet";
+	if (!isfinite(pct))
+		pct = 60.0f;
+	return pct < 50.0f ? 50.0f : pct > 100.0f ? 100.0f : pct;
+}
+
+/* Caution's copies and their words: "60% (CMB_Caution): FaceLook 0.18, WallStop 0.75, WallStopPersist 0.09, the need from
+ * the 0.05 s speed". */
+static void CautionWords(char *out, size_t size, const char *from)
+{
+	float c = g_cautionC;
+	snprintf(out, size, "%g%% (%s): FaceLook %.3g, WallStop %.3g, WallStopPersist %.3g, the need from the %s speed%s", g_cautionPct, from, g_faceLook * c,
+	         g_wallStop / (0.5f + 0.5f * c), g_wallStopPersist * c, c < 1.0f ? "0.05 s" : "0.2 s", c < 1.0f ? "" : " (as the 2026-11-08a build)");
+}
+
+/* Caution read and applied: at getting on (why NULL: the settings line when it differs from the last said), and once a second
+ * while riding (why "the MCM": a line for a change). */
+static void CautionApply(const char *why)
+{
+	const char *from = "";
+	float pct = CautionNow(&from);
+	g_cautionPct = pct;
+	g_cautionC = pct / 100.0f;
+	char words[320];
+	CautionWords(words, sizeof(words), from);
+	if (strcmp(words, g_cautionSaidWords) == 0)
+		return;
+	if (why && g_cautionSaid >= 0.0f)
+		Log("steer: Caution %g%% -> %s (%s)", g_cautionSaid, words, why);
+	else
+		Log("  steer: Caution %s", words);
+	g_cautionSaid = pct;
+	snprintf(g_cautionSaidWords, sizeof(g_cautionSaidWords), "%s", words);
+}
+
+/* Once a second while riding (FaceRays): the MCM's CMB_Caution read again ([Steer] Caution=-1 only). */
+static void CautionTick(void)
+{
+	if (g_steerCaution >= 0.0f || !g_cautionGlobal || (float)g_clock - g_cautionReadAt < 1.0f)
+		return;
+	g_cautionReadAt = (float)g_clock;
+	CautionApply("the MCM");
+}
+
+static void ReadDriveFixes54(const char *ini, bool log)
+{
+	float was[6] = { g_steerCaution, (float)g_climbStepSpan, (float)g_wheelSpin, (float)g_wheelLock, g_wheelStill, 0.0f };
+	g_steerCaution = IniFloat(ini, "Steer", "Caution", -1.0f, -1.0f, 100.0f);
+	g_climbStepSpan = (int)GetPrivateProfileIntA("Steer", "ClimbStepSpan", 3, ini);
+	if (g_climbStepSpan < 0 || g_climbStepSpan > 6)
+		g_climbStepSpan = 3;
+	g_wheelSpin = (int)GetPrivateProfileIntA("Parts", "WheelSpin", 1, ini) != 0;
+	g_wheelLock = (int)GetPrivateProfileIntA("Parts", "WheelLock", 1, ini) != 0;
+	g_wheelStill = IniFloat(ini, "Parts", "WheelStill", 5.0f, 0.0f, 50.0f);
+	float now[6] = { g_steerCaution, (float)g_climbStepSpan, (float)g_wheelSpin, (float)g_wheelLock, g_wheelStill, 0.0f };
+	if (log || memcmp(was, now, sizeof(was)) != 0) {
+		char caution[160];
+		if (g_steerCaution >= 0.0f)
+			snprintf(caution, sizeof(caution), "Caution=%g: %g%%, the MCM's CMB_Caution not read", g_steerCaution, g_steerCaution < 50.0f ? 50.0f : g_steerCaution);
+		else
+			snprintf(caution, sizeof(caution), "Caution=-1: the MCM's CMB_Caution, read on getting on and once a second while riding");
+		Log("  steer: %s; ClimbStepSpan=%d: %s%s", caution, g_climbStepSpan,
+		    g_climbStepSpan ? "a step up's top looked for at that many more points between its face and the ray a wheelbase on, one that doesn't carry on a post: no boost"
+		                    : "a step up by the one ray a wheelbase on (the 2026-11-08a build)", log ? "" : " (read again on getting on)");
+		if (g_wheelSpin)
+			Log("  parts: the wheels turn by the frame's own movement, none under %g u/s (WheelSpin), %s%s", g_wheelStill,
+			    g_wheelLock ? "held while braking (WheelLock)" : "turning while braking (WheelLock=0)", log ? "" : " (read again on getting on)");
+		else
+			Log("  parts: the wheels turn by the 0.2 s speed (WheelSpin=0, the 2026-11-08a build), %s%s",
+			    g_wheelLock ? "held while braking (WheelLock)" : "turning while braking (WheelLock=0)", log ? "" : " (read again on getting on)");
+	}
+	if (!log) {   /* getting on: Caution's value now (at the start the globals aren't looked for yet) */
+		g_cautionReadAt = (float)g_clock;
+		CautionApply(NULL);
+	}
+}
+
+/* ---- 2026-11-09a (test 50, rider): the item-use block that never fired ------------------------------------------------
+ * [Steer] UseListen: every event name through slot 1 for this long after an item cue, one line (s, 0-10); 0 = no line
+ *   (2026-11-08a).
+ * [Steer] UseStop: up to 3 graph events sent through the original slot at an item's use clip's start at speed, in turn
+ *   till one is taken; empty = nothing sent (2026-11-08a).
+ * Read on getting on (the pool's entries for UseStop's names taken then: UseStopRideStart). Test 50: no "refused" and no
+ * "passed" line in either log while the wrapper saw three landings: the item animation mod's PlayIdle reaches the graph by
+ * another path than slot 1, and the script's CMB_RiderItemUse came 1.05 and 1.31 s after the hotkey uses' clips began. */
+#define USE_STOP_MAX 3
+static float g_useListen = 2.0f;             /* [Steer] UseListen (s; 0 = 2026-11-08a) */
+static char g_useStopNames[USE_STOP_MAX][48];   /* [Steer] UseStop, as read (each up to 47 characters) */
+static int g_useStopCount;                   /* how many (0: empty, 2026-11-08a) */
+static void UseStopRideStart(void);          /* getting on: the names' entries from the string pool, the ride's state afresh (with the wrapper) */
+static void UseStopTrigger(float now, bool knees);   /* a use clip's start as the plugin sees it (the seat watch's edge, UseFrame's start) */
+static void UseStopFrame(float now);         /* every frame of a ride the bike is held in (UseFrame's start) */
+static void UseListenCue(float now, const char *what);   /* a cue: UseListen's window opened (or kept open) */
+static void UseStopProps(float now, const char *name);   /* new plain shapes on the rider mid-ride (an item's props): a cue for both */
+
+static void ReadRiderFixes54(const char *ini, bool log)
+{
+	(void)log;
+	char names[256];
+	g_useListen = IniFloat(ini, "Steer", "UseListen", 2.0f, 0.0f, 10.0f);
+	GetPrivateProfileStringA("Steer", "UseStop", "IdleStop,IdleForceDefaultState", names, sizeof(names), ini);
+	int n = 0;
+	char *p = names;
+	while (*p && n < USE_STOP_MAX) {
+		while (*p == ' ' || *p == ',' || *p == '\t')
+			p++;
+		size_t len = strcspn(p, ",");
+		size_t end = len;
+		while (end && (p[end - 1] == ' ' || p[end - 1] == '\t'))
+			end--;
+		if (end && end < sizeof(g_useStopNames[0])) {
+			memcpy(g_useStopNames[n], p, end);
+			g_useStopNames[n][end] = 0;
+			n++;
+		}
+		p += len;
+	}
+	for (int k = n; k < USE_STOP_MAX; k++)
+		g_useStopNames[k][0] = 0;
+	g_useStopCount = n;
+	char list[160] = "";
+	for (int k = 0; k < n; k++)
+		snprintf(list + strlen(list), sizeof(list) - strlen(list), "%s%s", k ? ", then " : "", g_useStopNames[k]);
+	static float wasListen = -1.0f;
+	static char wasList[160];
+	if (log || wasListen != g_useListen || strcmp(wasList, list) != 0) {
+		char stop[260];
+		if (n)
+			snprintf(stop, sizeof(stop), "an item's use clip at speed sent %s through the graph's own slot (UseStop)", list);
+		else
+			snprintf(stop, sizeof(stop), "nothing sent at an item's use clip (UseStop empty, the 2026-11-08a build)");
+		char listen[160];
+		if (g_useListen > 0.0f)
+			snprintf(listen, sizeof(listen), "the graph's events through slot 1 listed for %g s after an item's cue (UseListen)", g_useListen);
+		else
+			snprintf(listen, sizeof(listen), "no list of the graph's events (UseListen=0, the 2026-11-08a build)");
+		Log("  rider: UseListen=%g UseStop=%s: %s; %s%s", g_useListen, n ? names : "", listen, stop, log ? "" : " (read again on getting on)");
+	}
+	wasListen = g_useListen;
+	snprintf(wasList, sizeof(wasList), "%s", list);
+	if (!log)
+		UseStopRideStart();   /* getting on (the frame's, on the main thread): never at the plugin's load, before the game's string pool is up */
+}
+
 /* The rider's switches, read again on every mount (an A/B needs no restart; test 25). */
 static void ReadRiderSwitches(bool log)
 {
@@ -2255,6 +2500,8 @@ static void ReadRiderSwitches(bool log)
 	ReadLeanSettings(ini, false);
 	ReadUseSettings(ini, log);   /* 2026-11-02a: before the pool's, whose getting on starts the ride's state afresh (RiderRideStart) */
 	ReadRiderFixes51(ini, log);  /* 2026-11-06a: the use block and hold, the view's settle, the rearm, the pose-off rewrite */
+	ReadDriveFixes54(ini, log);  /* 2026-11-09a: Caution, ClimbStepSpan, the wheels (the drive unit's) */
+	ReadRiderFixes54(ini, log);  /* 2026-11-09a: UseListen, UseStop (the rider unit's) */
 	ReadPoolSettings(ini, log);
 }
 
@@ -2582,6 +2829,8 @@ static struct {
 static bool g_tailMissingSaid, g_viewMissingSaid;   /* the older ESP's line said (once a session) */
 static void ReadTailLightSettings(const char *ini, bool log);
 static void ReadViewSettings(const char *ini, bool log);
+static void ReadLookFixes55(const char *ini, bool log);   /* 2026-11-09a, test 51: [Look]'s eight, after the look's own */
+static void LookWriteOptions(void);                        /* ... and CMB_LookOptions for the scripts */
 
 static const char *LookMirrorsName(void);   /* 2026-11-07a: [Look] Mirrors=-1's mirror as chosen at the bike */
 /* A [Look] switch of the 2026-11-08a build: 0 or 1, default 1, anything else 1. */
@@ -2631,6 +2880,50 @@ static void ReadLookSettings(const char *ini, bool log)
 		    log ? "" : " (read again on getting on)");
 	ReadTailLightSettings(ini, log);   /* 2026-11-01a: the tail lamp's light and the first-person bike, read with the look */
 	ReadViewSettings(ini, log);
+	ReadLookFixes55(ini, log);         /* 2026-11-09a, test 51: the eight switches and CMB_LookOptions */
+}
+
+/* CMB_LookOptions' value: the six script switches' bits, and 64 when the worn bike's colours are written here ([Look]
+ * PaintWheel and PlateColours both 1 and the four look colours found; coloursKnown false, before the globals are looked
+ * for: as if found). */
+static int LookOptionsValue(bool coloursKnown)
+{
+	int v = 0;
+	for (int i = 0; i < LOOK55_SCRIPT_KEYS; i++)
+		v += g_look55[i] ? 1 << i : 0;
+	if (g_lookPaintWheel && g_lookPlateColours && (g_lookColourGlobal[0] || !coloursKnown))
+		v += 64;
+	return v;
+}
+
+/* 2026-11-09a (test 51's answer): [Look] FastMount, KitHeld, ParkedReload, PaletteIndex, MountGuard and HueFree (the
+ * scripts', through CMB_LookOptions), Rehold and LightingOnly (the plugin's own): IniSwitch, default 1, each 0 =
+ * 2026-11-09a as of t54-merge. Read at the start and on getting on (with the look); its own line at the start and when
+ * a key or the value changes; then CMB_LookOptions written (LookWriteOptions). */
+static void ReadLookFixes55(const char *ini, bool log)
+{
+	static const char *const keys[LOOK55_SCRIPT_KEYS] = { "FastMount", "KitHeld", "ParkedReload", "PaletteIndex", "MountGuard", "HueFree" };
+	static int loggedValue = -1;
+	int was[LOOK55_SCRIPT_KEYS + 2];
+	bool changed = false;
+	for (int i = 0; i < LOOK55_SCRIPT_KEYS; i++) {
+		was[i] = g_look55[i];
+		g_look55[i] = IniSwitch(ini, keys[i]);
+		changed |= was[i] != g_look55[i];
+	}
+	was[LOOK55_SCRIPT_KEYS] = g_lookRehold;
+	was[LOOK55_SCRIPT_KEYS + 1] = g_lookLightingOnly;
+	g_lookRehold = IniSwitch(ini, "Rehold");
+	g_lookLightingOnly = IniSwitch(ini, "LightingOnly");
+	changed |= was[LOOK55_SCRIPT_KEYS] != g_lookRehold || was[LOOK55_SCRIPT_KEYS + 1] != g_lookLightingOnly;
+	int value = LookOptionsValue(g_globalsMissingLogged);
+	if (log || changed || value != loggedValue)
+		Log("  look (2026-11-09a fixes): FastMount=%d KitHeld=%d ParkedReload=%d PaletteIndex=%d MountGuard=%d HueFree=%d Rehold=%d LightingOnly=%d: "
+		    "CMB_LookOptions %d for the scripts (%s)%s", g_look55[0], g_look55[1], g_look55[2], g_look55[3], g_look55[4], g_look55[5], g_lookRehold,
+		    g_lookLightingOnly, value, value & 64 ? "64: the worn bike's colours written here" : "no 64: the scripts colour the worn bike",
+		    log ? "" : " (read again on getting on)");
+	loggedValue = value;
+	LookWriteOptions();
 }
 
 /* [TailLight] (2026-11-01a, test 47's item 11a: "you can tell it's on, but it's not producing light"): a second
@@ -2711,14 +3004,74 @@ static void ReadViewEyeSettings(const char *ini, bool log)
 	GetPrivateProfileStringA("View", "FovOffset", "auto", value, sizeof(value), ini);
 	unsigned off = 0;
 	char extra;
+	/* 2026-11-09a ([View] FovSearch=1, read here for the range): 0x40-0x1AC (the review of 2026-11-09a, N2: within PlayerCamera's
+	 * 0x1B0 bytes); FovSearch=0: the 2026-11-08a build's 0x100-0x1F0 */
+	bool wide = (int)GetPrivateProfileIntA("View", "FovSearch", 1, ini) != 0;
+	unsigned lo = wide ? 0x40u : 0x100u, hi = wide ? PLAYER_CAMERA_SIZE - 4u : 0x1F0u;
 	if (_stricmp(value, "auto") == 0)
 		g_viewFovOffset = -1;
-	else if (sscanf(value, "%x %c", &off, &extra) == 1 && off >= 0x100 && off <= 0x1F0 && !(off & 3))
+	else if (sscanf(value, "%x %c", &off, &extra) == 1 && off >= lo && off <= hi && !(off & 3))
 		g_viewFovOffset = (int)off;
 	else {
 		g_viewFovOffset = -1;
-		Log("view: [View] FovOffset=%s isn't auto or a hex offset 0x100-0x1F0 in steps of 4: auto", value);
+		Log("view: [View] FovOffset=%s isn't auto or a hex offset 0x%X-0x%X in steps of 4: auto", value, lo, hi);
 	}
+}
+
+/* ---- 2026-11-09a (test 50, view): the tip in the Pip-Boy, a real entry's tip stopped at once, the view bike unseen, the FOV
+ * search ----------------------------------------------------------------------------------------------------------------
+ * [View] TipMenu: no tip for a menu's first person (the entry's first shown frame with the eye past EyeMax; CMB_ViewMenu
+ *   0xBF2 while the Pip-Boy is open); 0 = tipped as any (2026-11-08a).
+ * [View] TipYield: the player's own look stops the tip only past this (deg, 0-45); 0 = a 0.1-deg move in a frame (2026-11-08a).
+ * [View] TipSettle: the tip starts this long into the entry (s, 0-2); 0 = the first frame on the bike (2026-11-08a).
+ * [View] Bounds: the view root's ancestors' world bounds grown to hold it; 0 = untouched (2026-11-08a).
+ * [View] Near: the camera's near plane while the view bike shows (an A/B, 0-50); 0 = never written.
+ * [View] FovSearch: the world FOV searched 0.5 s into first person, again at later entries; 0 = 2026-11-08a's one search.
+ * [Diag] ViewDraw: the `view: drawn?` lines; 0 = none (2026-11-08a).
+ * Read with the [View] keys (at the start and again on getting on); FovSearch also by ReadViewEyeSettings, for FovOffset's
+ * range. The code is beside ViewPut (Bounds, ViewDraw, Near), in TipFrame (TipMenu, TipYield, TipSettle) and FovField
+ * (FovSearch). */
+static int g_viewTipMenu = 1;                /* [View] TipMenu (0 = 2026-11-08a) */
+static float g_viewTipYield = 5.0f;          /* [View] TipYield (deg; 0 = 2026-11-08a) */
+static float g_viewTipSettle = 0.25f;        /* [View] TipSettle (s; 0 = 2026-11-08a) */
+static int g_viewBounds = 1;                 /* [View] Bounds (0 = 2026-11-08a) */
+static float g_viewNear;                     /* [View] Near (0 = never written) */
+static int g_viewFovSearch = 1;              /* [View] FovSearch (0 = 2026-11-08a) */
+static int g_viewDraw = 1;                   /* [Diag] ViewDraw (0 = 2026-11-08a) */
+
+static void ReadViewFixes54(const char *ini, bool log)
+{
+	int wasI[4] = { g_viewTipMenu, g_viewBounds, g_viewFovSearch, g_viewDraw };
+	float wasF[3] = { g_viewTipYield, g_viewTipSettle, g_viewNear };
+	g_viewTipMenu = (int)GetPrivateProfileIntA("View", "TipMenu", 1, ini) != 0;
+	g_viewTipYield = IniFloat(ini, "View", "TipYield", 5.0f, 0.0f, 45.0f);
+	g_viewTipSettle = IniFloat(ini, "View", "TipSettle", 0.25f, 0.0f, 2.0f);
+	g_viewBounds = (int)GetPrivateProfileIntA("View", "Bounds", 1, ini) != 0;
+	g_viewNear = IniFloat(ini, "View", "Near", 0.0f, 0.0f, 50.0f);
+	g_viewFovSearch = (int)GetPrivateProfileIntA("View", "FovSearch", 1, ini) != 0;
+	g_viewDraw = (int)GetPrivateProfileIntA("Diag", "ViewDraw", 1, ini) != 0;
+	bool changed = wasI[0] != g_viewTipMenu || wasI[1] != g_viewBounds || wasI[2] != g_viewFovSearch || wasI[3] != g_viewDraw || wasF[0] != g_viewTipYield ||
+	               wasF[1] != g_viewTipSettle || wasF[2] != g_viewNear;
+	if (log || changed)
+		Log("  view (2026-11-09a): TipMenu=%d TipYield=%g TipSettle=%g Bounds=%d Near=%g FovSearch=%d; [Diag] ViewDraw=%d%s", g_viewTipMenu, g_viewTipYield, g_viewTipSettle,
+		    g_viewBounds, g_viewNear, g_viewFovSearch, g_viewDraw, log ? "" : " (read again on getting on)");
+}
+
+/* 2026-11-09a, test 51's answer ([View], both copies): TipLoadGrace (s, 0-10, default 2): a first-person tip verdict
+ * within it of a load or getting on holds for that entry only; 0 = for the session (the 2026-11-09a build as of
+ * t54-merge). The skins unit's TipFrame reads it. Its own line, at the start and when it changes. */
+static void ReadViewFixes55(const char *ini, bool log)
+{
+	float was = g_tipLoadGrace;
+	g_tipLoadGrace = IniFloat(ini, "View", "TipLoadGrace", 2.0f, 0.0f, 10.0f);
+	if (!log && was == g_tipLoadGrace)
+		return;
+	if (g_tipLoadGrace > 0.0f)
+		Log("  view (2026-11-09a, test 51): TipLoadGrace=%g (a tip verdict within %g s of a load or getting on holds for that entry only; 0: for the session)%s",
+		    g_tipLoadGrace, g_tipLoadGrace, log ? "" : " (read again on getting on)");
+	else
+		Log("  view (2026-11-09a, test 51): TipLoadGrace=0 (a tip verdict holds for the session, the 2026-11-09a build as of t54-merge)%s",
+		    log ? "" : " (read again on getting on)");
 }
 
 /* [View] (2026-11-01a, test 47's item 12: "in 1st person the bike model isn't even visible"): a third carried
@@ -2761,6 +3114,8 @@ static void ReadViewSettings(const char *ini, bool log)
 		lookMissingSaid = true;
 		Log("view: no CMB_ViewTip to CMB_ViewEyeUp (an older ESP): no tip, the game's FOV, EyeAt as the INI's");
 	}
+	ReadViewFixes54(ini, log);   /* 2026-11-09a: TipMenu, TipYield, TipSettle, Bounds, Near, FovSearch, ViewDraw (the view unit's) */
+	ReadViewFixes55(ini, log);   /* 2026-11-09a, test 51: TipLoadGrace (the skins unit's) */
 }
 
 static void ReadLampSettings(const char *ini)
@@ -3231,6 +3586,29 @@ static void FindGlobals(void)
 				    "PlateColours write nothing", n, LOOK_PAINT_V_ID, LOOK_PLATETEXT_V_ID);
 		}
 	}
+	/* The 2026-11-09a build's two (test 50's answer), 0xBF1-0xBF2: CMB_Caution (the MCM's Caution, for [Steer] Caution=-1)
+	 * and CMB_ViewMenu (the Pip-Boy's flag, [View] TipMenu's rule 2). Both or none, one line; each reader logs its own
+	 * consequence when they are missing (an older ESP). */
+	{
+		g_cautionGlobal = FindGlobalQuiet(prefix, shift, CAUTION_ID, "CMB_Caution");
+		g_viewMenuGlobal = FindGlobalQuiet(prefix, shift, VIEW_MENU_ID, "CMB_ViewMenu");
+		int n = (g_cautionGlobal != 0) + (g_viewMenuGlobal != 0);
+		if (n == 2)
+			Log("globals: the 2026-11-09a build's 2 found, CMB_Caution and CMB_ViewMenu (%08X-%08X)",
+			    *(const uint32_t *)(g_cautionGlobal + OFF_FORM_ID), *(const uint32_t *)(g_viewMenuGlobal + OFF_FORM_ID));
+		else {
+			g_cautionGlobal = g_viewMenuGlobal = 0;
+			Log("globals: the 2026-11-09a build's %d of 2 found (0x%03X-0x%03X, an older ESP): none used", n, CAUTION_ID, VIEW_MENU_ID);
+		}
+	}
+	/* The 2026-11-09a fixes' one (test 51's answer), 0xBF4: CMB_LookOptions, [Look]'s switches for the scripts, written now
+	 * (the look colours above decide its 64), with the settings and on getting on. */
+	g_lookOptionsGlobal = FindGlobalQuiet(prefix, shift, LOOK_OPTIONS_ID, "CMB_LookOptions");
+	if (g_lookOptionsGlobal) {
+		Log("globals: the 2026-11-09a fixes' CMB_LookOptions found (%08X)", *(const uint32_t *)(g_lookOptionsGlobal + OFF_FORM_ID));
+		LookWriteOptions();
+	} else
+		Log("globals: no CMB_LookOptions (0x%03X, an older ESP): the scripts keep 2026-11-09a's look work as of t54-merge", LOOK_OPTIONS_ID);
 	g_globalsMissingLogged = true;   /* found or not, don't look again */
 }
 
@@ -3243,6 +3621,15 @@ static void SetGlobal(uintptr_t global, float value)
 {
 	if (global)
 		*(float *)(global + OFF_GLOBAL_VALUE) = value;
+}
+
+/* 2026-11-09a (test 51's answer): CMB_LookOptions for the scripts, [Look]'s six switches' bits and 64 (the worn bike's
+ * colours written here: PaintWheel, PlateColours and the four look colours found), written at the start (FindGlobals),
+ * with the settings, on getting on and at a load (PostLoadGame, NewGame: the save's value restored with it never reaches
+ * the scripts' Mount; a save's value never outlives a session). Nothing without the global. */
+static void LookWriteOptions(void)
+{
+	SetGlobal(g_lookOptionsGlobal, (float)LookOptionsValue(true));
 }
 
 /* ------------------------------------------------------------------------- */
@@ -4109,6 +4496,27 @@ static void CullLetGo(HeldSkin *h)
 	Release(h->shape);
 	h->shape = 0;
 	h->flagsWritten = h->culled = false;
+}
+
+/* 2026-11-09a, test 51 ([Look] Rehold, the checker's finding 1): a held skin whose bone data is still worn under another
+ * shape (the armour's 3D rebuilt in place: new shapes, properties and materials over the same bone data) is held
+ * afresh on the new shape: the old one's bit 0 put back and released (CullLetGo), the new one kept (CullHold, its flags
+ * as they are), its instance taken, its colour written again (LookColoursFrame: another material). One line a shape,
+ * at most SKIN_REBUILT_LINES a ride. The bones are the bone data's: unchanged. Rehold=0: the hold stays on the old shape. */
+#define SKIN_REBUILT_LINES 64
+static int g_skinRebuiltLines;            /* this ride's (from the first skin held) */
+static void SkinShapeRebuilt(HeldSkin *h, uintptr_t shape, uintptr_t skin)
+{
+	CullLetGo(h);
+	CullHold(h, shape);
+	if (skin)
+		h->skin = skin;   /* the rebuilt shape's own instance (BikeSkin's: the old one may be freed) */
+	h->colourMat = 0;
+	h->colourRefused = false;
+	h->colourProp = 0;
+	if (g_skinRebuiltLines < SKIN_REBUILT_LINES)
+		Log("tilt: %s's shape rebuilt with its bone data kept: held afresh%s%s", h->name, h->colourRow >= 0 ? ", its colour written again" : "",
+		    ++g_skinRebuiltLines == SKIN_REBUILT_LINES ? "; no more of these lines this ride" : "");
 }
 
 static void LetGo(int i, const char *why)
@@ -6780,6 +7188,12 @@ static void SyncRider(uintptr_t player, SkinList *list, bool wanted)
 	if (g_riderCount != before) {
 		Log("rider: holding %d more shape(s) of the rider to tilt with the bike (%d skinned, %d plain), %d in all", g_riderCount - before,
 		    skinned, g_riderCount - before - skinned, g_riderCount);
+		if (before && g_riderCount - before - skinned > 0)   /* 2026-11-09a: plain shapes mid-ride, an item's props (test 50: Stimpack:0-2 0.06 s before the knees left the seat) */
+			for (int j = 0; j < list->riderCount; j++)
+				if (pickPlain[j]) {
+					UseStopProps((float)g_clock, list->riderName[j] && list->riderName[j][0] ? list->riderName[j] : "(unnamed)");
+					break;
+				}
 		if (skinned)
 			LogNames("rider:   skinned: ", list, pickSkinned, true);
 		if (g_riderCount - before - skinned)
@@ -7293,6 +7707,8 @@ static void SeatFrame(void)
 		if (!g_seatOff && g_kneeBelow >= 2) {
 			g_seatOff = true;
 			UseHoldTrigger(now, knee);   /* 2026-11-06a: UseHold */
+			UseStopTrigger(now, true);   /* 2026-11-09a: UseStop (the clip's start: the knees) */
+			UseListenCue(now, "the knees off the seat");   /* 2026-11-09a: UseListen */
 			g_seatOffSince = g_seatFirstBelow;
 			GetLocalTime(&g_seatStartWall);
 			g_seatCom = SeatComBike();
@@ -7539,6 +7955,7 @@ static void UseHandWords(const float d[2], char *out, size_t size)   /* "13/47",
 static void UseFrame(void)
 {
 	UseBlockFlush(false);   /* 2026-11-06a: the use idle's refusals told once their retries are over (UseBlockAbove) */
+	UseStopFrame((float)g_clock);   /* 2026-11-09a: UseStop's watch, UseListen's window */
 	if (!(g_useLetGo > 0.0f) || !g_itemUseGlobal) {
 		g_useOn = false;
 		g_useW = 1.0f;
@@ -7565,6 +7982,7 @@ static void UseFrame(void)
 				UseHandWords(d, hands, sizeof(hands));
 				g_useOn = true;
 				UseHoldTrigger(now, 0.0f);   /* 2026-11-06a: UseHold */
+				UseStopTrigger(now, g_seatOff);   /* 2026-11-09a: UseStop (the clip's start: the hands, or the knees) */
 				if (g_useHadClip)   /* 2026-11-06a: UseRearm */
 					Log("rider: the use clip began again %.2f s after the last (the hands %s from the grips%s): the hands and upper body the clips' (UseRearm)", now - g_useClipEndAt,
 					    hands, g_seatOff ? ", the knees off the seat" : "");
@@ -9345,12 +9763,16 @@ static void ViewEyeProbeText(char *out, size_t size, const float *d, const float
 	}
 }
 
+static void ViewPutStart54(ViewRig *v, uintptr_t root);   /* 2026-11-09a: Bounds, ViewDraw, Near (after ViewPut) */
+static void ViewPutEnd54(ViewRig *v, uintptr_t root, const float rb[4]);
+
 /* The view bike at (W, w, s); d (2026-11-02a, [View] Eye; NULL = none, the 2026-11-01a build line for line) moves
  * its node, and so every shape, by d on the bike's own axes; the root (and so the reference's own place) stays. */
 static void ViewPut(ViewRig *v, uintptr_t root, const float W[9], const float w[3], float s, const float *d)
 {
 	static const float identity[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
 	static const float zero[3] = { 0, 0, 0 };
+	ViewPutStart54(v, root);   /* 2026-11-09a: last frame's writes read back (ViewDraw), Near's held */
 	v->hidden = false;
 	WriteTransform(root, OFF_LOCAL_ROT, W, w, s);   /* the cell's node is the identity: local = world */
 	ViewWrite(root, W, w, s);
@@ -9448,6 +9870,354 @@ static void ViewPut(ViewRig *v, uintptr_t root, const float W[9], const float w[
 		*nflags &= ~(uint64_t)1;   /* shown */
 	g_viewShownN = shown;
 	g_viewCulledN = culled;
+	ViewPutEnd54(v, root, rbound);   /* 2026-11-09a: the ancestors' bounds grown (Bounds), the drawn? lines (ViewDraw), Near */
+}
+
+/* ---- 2026-11-09a (test 50, the view bike logged shown and never seen): [View] Bounds, [Diag] ViewDraw, [View] Near ----
+ * Bounds: each frame ViewPut shows a rig (both rigs of a handover), the view root's ancestors (OFF_PARENT up, at most
+ * VIEW_UP_MAX levels or to a null parent) each get the smallest sphere holding their own world bound and the root's (only
+ * grown; an invalid bound, NaN or a radius <= 0 or over 1e7, set to the root's): the game re-unions a parent's bound when it
+ * moves a child itself, and ours are written directly, so the bounds the culler walks from the top stayed where the game
+ * last left them. Nothing while hidden (ViewHide). 0 = the ancestors untouched (2026-11-08a).
+ * ViewDraw: at the current rig's first shown frame of each showing and with each 2-s probe ([View] Trace), three lines: the
+ * chain of ancestors (before this frame's growth), the world camera (the NiCamera under the camera root, its frustum
+ * found once a session by its shape) and last frame's writes read back. 0 = none (2026-11-08a).
+ * Near (an A/B, off: 0): while the current rig shows, the frustum's near plane written to [View] Near each frame (last
+ * thing in ViewPut), put back once it isn't shown (FovFrame) and at getting off or a load (FovRestore). */
+#define VIEW_UP_MAX 10
+#define RTTI_NICAMERA ".?AVNiCamera@@"
+static struct {
+	uintptr_t up[VIEW_UP_MAX];            /* the current rig's ancestors grown last frame, and the bound we left each */
+	float left[VIEW_UP_MAX][4];
+	int n;
+	bool kept;                            /* the current rig's last ViewPut kept below (rootAt, shapeAt) */
+	uintptr_t keptRoot;
+	float rootAt[3], shapeAt[3];          /* the root's and the first shape's world place as we left them */
+	bool after, rootMoved, shapeMoved, nodeHidden;   /* read at this ViewPut's start (ViewPutStart54), for its line */
+	int shapesHidden;
+	float rootNow[3], shapeNow[3];
+} g_vd;
+static struct {
+	int off;                              /* the frustum's place in the NiCamera (found once a session; 0 not yet) */
+	bool written, heldKnown, held;        /* [View] Near written, its original kept; held: still Near at the next ViewPut's start */
+	float original;
+} g_vcam;
+
+static bool ViewDrawDue54(const ViewRig *v)   /* the current rig's first shown frame of this showing, or the probe's frame */
+{
+	return g_viewDraw && v == &g_viewRig[0] && (!g_viewShownSaid || (g_viewTrace && (float)g_clock - g_viewProbeAt >= 2.0f));
+}
+
+static const char *ViewTypeText54(uintptr_t obj, char *buf, size_t size)   /* ".?AVNiNode@@" -> "NiNode" */
+{
+	const char *t = ObjectTypeName(obj);
+	snprintf(buf, size, "%s", t ? (strncmp(t, ".?AV", 4) == 0 ? t + 4 : t) : "?");
+	char *at = strstr(buf, "@@");
+	if (at)
+		*at = 0;
+	return buf;
+}
+
+static bool ViewBoundValid54(const float b[4])
+{
+	return isfinite(b[0]) && isfinite(b[1]) && isfinite(b[2]) && isfinite(b[3]) && b[3] > 0.0f && b[3] <= 1e7f;
+}
+
+static float ViewBoundMiss54(const float b[4], const float s[4])   /* how far the sphere s sticks out of the bound b (<= 0: held) */
+{
+	float dx = s[0] - b[0], dy = s[1] - b[1], dz = s[2] - b[2];
+	return sqrtf(dx * dx + dy * dy + dz * dz) + s[3] - b[3];
+}
+
+static void ViewBoundGrow54(float b[4], const float s[4])   /* b the smallest sphere holding b and s (0.05 to spare for the floats) */
+{
+	if (!ViewBoundValid54(b)) {
+		memcpy(b, s, 16);
+		return;
+	}
+	float dx = s[0] - b[0], dy = s[1] - b[1], dz = s[2] - b[2], d = sqrtf(dx * dx + dy * dy + dz * dz);
+	if (d + s[3] <= b[3])
+		return;
+	if (d + b[3] <= s[3] || d < 1e-4f) {
+		float r = fmaxf(s[3], b[3] + d);
+		memcpy(b, s, 12);
+		b[3] = r + 0.05f;
+		return;
+	}
+	float r = 0.5f * (d + b[3] + s[3]), k = (r - b[3]) / d;
+	b[0] += dx * k;
+	b[1] += dy * k;
+	b[2] += dz * k;
+	b[3] = r + 0.05f;
+}
+
+static uintptr_t ViewChildOfType54(uintptr_t node, const char *type, int depth)   /* a child (or grandchild) of that class */
+{
+	if (depth > 1 || !IsA(node, RTTI_NODE) || !Accessible(node + OFF_CHILDREN, 0x10, false))
+		return 0;
+	unsigned used = *(const uint16_t *)(node + OFF_CHILDREN_USED), cap = *(const uint16_t *)(node + OFF_CHILDREN_CAP);
+	uintptr_t children = ReadPtr(node + OFF_CHILDREN);
+	if (!children || used > cap || used > 256 || !Accessible(children, used * 8u, false))
+		return 0;
+	for (unsigned i = 0; i < used; i++) {
+		uintptr_t c = ((const uintptr_t *)children)[i];
+		if (c && IsA(c, type))
+			return c;
+	}
+	for (unsigned i = 0; i < used; i++) {
+		uintptr_t c = ((const uintptr_t *)children)[i], found = c ? ViewChildOfType54(c, type, depth + 1) : 0;
+		if (found)
+			return found;
+	}
+	return 0;
+}
+
+static uintptr_t ViewNiCamera54(void)   /* the world camera: an NiCamera under the camera root (PlayerCamera+0x20) */
+{
+	uintptr_t camera = ReadPtr(g_base + RVA_PLAYER_CAMERA), root = camera && IsA(camera, RTTI_CAMERA) ? ReadPtr(camera + OFF_CAMERA_ROOT) : 0;
+	return root ? ViewChildOfType54(root, RTTI_NICAMERA, 0) : 0;
+}
+
+static bool ViewFrustumShape54(const float *f)   /* NiFrustum: left, right, top, bottom, near, far (a symmetric perspective one) */
+{
+	for (int i = 0; i < 6; i++)
+		if (!isfinite(f[i]))
+			return false;
+	return f[0] < 0.0f && f[1] > 0.0f && fabsf(f[0] + f[1]) < 1e-3f * f[1] && f[3] < 0.0f && f[2] > 0.0f && fabsf(f[2] + f[3]) < 1e-3f * f[2] && f[4] > 0.0f && f[5] > f[4];
+}
+
+/* The NiCamera's frustum (six floats), looked for by its shape in NiCamera+0x120..+0x1C0 until found, then kept at that
+ * place for the session; NULL when the camera or that shape isn't there now. */
+static float *ViewFrustum54(uintptr_t cam, bool write)
+{
+	if (!cam || !Accessible(cam + 0x120, 0xA0 + 24, write))
+		return NULL;
+	if (!g_vcam.off)
+		for (int o = 0x120; o <= 0x1C0; o += 4)
+			if (ViewFrustumShape54((const float *)(cam + o))) {
+				g_vcam.off = o;
+				break;
+			}
+	return g_vcam.off && ViewFrustumShape54((const float *)(cam + g_vcam.off)) ? (float *)(cam + g_vcam.off) : NULL;
+}
+
+static float ViewFrustumAcross54(const float *f) { return 2.0f * atanf(f[1]) * 57.29578f; }
+static float ViewFrustumUpDown54(const float *f) { return 2.0f * atanf(f[2]) * 57.29578f; }
+
+/* [View] Near put back (the view bike not shown this frame, getting off, a load). */
+static void ViewNearBack54(const char *why)
+{
+	if (!g_vcam.written)
+		return;
+	float *f = ViewFrustum54(ViewNiCamera54(), true);
+	if (f) {
+		f[4] = g_vcam.original;
+		Log("view: the camera's near plane back to %g (%s)", g_vcam.original, why ? why : "the view bike hidden");
+	} else {
+		Log("view: the camera's frustum not found now: its near plane left as it is (%s)", why ? why : "the view bike hidden");
+	}
+	g_vcam.written = g_vcam.heldKnown = false;
+}
+
+/* At ViewPut's start, before this frame's writes: what the current rig's last frame's writes are now (ViewDraw's
+ * read-back), and whether [View] Near's value held to this frame. */
+static void ViewPutStart54(ViewRig *v, uintptr_t root)
+{
+	if (v != &g_viewRig[0])
+		return;
+	g_vd.after = g_vd.kept && g_vd.keptRoot == root && !v->hidden;
+	if (g_vd.after && ViewDrawDue54(v)) {
+		memcpy(g_vd.rootNow, (const void *)(root + OFF_WORLD_POS), 12);
+		g_vd.rootMoved = memcmp(g_vd.rootNow, g_vd.rootAt, 12) != 0;
+		g_vd.shapeMoved = false;
+		if (v->count > 0) {
+			memcpy(g_vd.shapeNow, (const void *)(v->shapes[0].shape + OFF_WORLD_POS), 12);
+			g_vd.shapeMoved = memcmp(g_vd.shapeNow, g_vd.shapeAt, 12) != 0;
+		}
+		g_vd.nodeHidden = v->node && (*(const volatile uint64_t *)(v->node + OFF_AV_FLAGS) & 1);
+		g_vd.shapesHidden = 0;
+		for (int i = 0; i < v->count; i++) {
+			int k = ViewSkinOf(&v->shapes[i]);
+			bool ours = k >= 0 && g_skins[k].hide && g_lookCull;   /* a hidden part's bit is ours */
+			if (!ours && (*(const volatile uint64_t *)(v->shapes[i].shape + OFF_AV_FLAGS) & 1))
+				g_vd.shapesHidden++;
+		}
+	}
+	if (g_vcam.written) {
+		float *f = ViewFrustum54(ViewNiCamera54(), false);
+		g_vcam.heldKnown = f != NULL;
+		g_vcam.held = f && f[4] == g_viewNear;
+	}
+}
+
+static void ViewChainLine54(uintptr_t root, const float rb[4], const char *chain, int levels, const char *end, int grown, int was, int same)
+{
+	char type[48], tail[160];
+	const char *name = ObjectName(root);
+	if (!levels) {
+		Log("view: drawn? the chain: %s '%s' (%.0f, %.0f, %.0f) r %.0f has no parent: not in the scene, for the reference %08X", ViewTypeText54(root, type, sizeof(type)),
+		    OrNone(name), rb[0], rb[1], rb[2], rb[3], g_carryView.refId);
+		return;
+	}
+	if (was)
+		snprintf(tail, sizeof(tail), "as we left them: %d of the %d grown last frame%s", same, was, same < was ? " (the rest recomputed by the game)" : "");
+	else
+		snprintf(tail, sizeof(tail), "none grown last frame");
+	/* 2026-11-09a, test 51: the line names the rig's reference (the current one's, g_viewRig[0]'s), so it ties to the handovers' lines */
+	Log("view: drawn? the chain: %s '%s' (%.0f, %.0f, %.0f) r %.0f%s (%d level(s); %s); grown this frame: %d%s; %s, for the reference %08X", ViewTypeText54(root, type, sizeof(type)),
+	    OrNone(name), rb[0], rb[1], rb[2], rb[3], chain, levels, end, grown, g_viewBounds ? "" : " (Bounds=0)", tail, g_carryView.refId);
+}
+
+static void ViewCameraLine54(const ViewRig *v)
+{
+	uintptr_t cam = ViewNiCamera54();
+	char type[48], extra[200] = "";
+	if (!cam) {
+		Log("view: drawn? the camera: no NiCamera under the camera root (PlayerCamera+0x20)");
+		return;
+	}
+	const char *name = ObjectName(cam);
+	float *f = ViewFrustum54(cam, false);
+	if (!f) {
+		Log("view: drawn? the camera: %s '%s' under the camera root (PlayerCamera+0x20), its frustum not found at +0x120..+0x1C0", ViewTypeText54(cam, type, sizeof(type)), OrNone(name));
+		return;
+	}
+	uintptr_t camera = ReadPtr(g_base + RVA_PLAYER_CAMERA), croot = camera ? ReadPtr(camera + OFF_CAMERA_ROOT) : 0;
+	float En[9], en[3], es, Eni[9], dMin = 1e30f, dMax = -1.0f;
+	int iMin = -1, iMax = -1, nearer = 0;
+	bool eye = croot && NodeWorldChecked(croot, En, en, &es, Eni);
+	for (int i = 0; eye && i < v->count; i++) {
+		const float *b = (const float *)(v->shapes[i].shape + OFF_WORLD_BOUND);
+		if (*(const volatile uint64_t *)(v->shapes[i].shape + OFF_AV_FLAGS) & 1)
+			continue;   /* culled ([Look] Cull=1's hidden parts) */
+		float d = Dist3f(b, en);
+		if (d < dMin) {
+			dMin = d;
+			iMin = i;
+		}
+		if (d > dMax) {
+			dMax = d;
+			iMax = i;
+		}
+		if (d + b[3] < f[4])
+			nearer++;
+	}
+	int n = 0;
+	uintptr_t ns = FindSetting("fNearDistance:Display");
+	if (ns)
+		n += snprintf(extra + n, sizeof(extra) - n, "; fNearDistance:Display %g", *(const float *)(ns + OFF_SETTING_DATA));
+	if (g_vcam.written && n < (int)sizeof(extra))
+		snprintf(extra + n, sizeof(extra) - n, "; the near plane %g -> %g ([View] Near): held to the next frame %s (the game sets it each frame)", g_vcam.original, g_viewNear,
+		         !g_vcam.heldKnown ? "?" : g_vcam.held ? "yes" : "no");
+	if (iMin >= 0)
+		Log("view: drawn? the camera: %s '%s' under the camera root (PlayerCamera+0x20), its frustum at +0x%X: near %g far %g, 2 atan(r) = %.1f deg across, %.1f up and down; the "
+		    "nearest shape %.0f from the eye (%s), the farthest %.0f (%s); %d shape(s) wholly nearer than the near plane%s", ViewTypeText54(cam, type, sizeof(type)), OrNone(name),
+		    (unsigned)g_vcam.off, f[4], f[5], ViewFrustumAcross54(f), ViewFrustumUpDown54(f), dMin, v->shapes[iMin].label, dMax, v->shapes[iMax].label, nearer, extra);
+	else
+		Log("view: drawn? the camera: %s '%s' under the camera root (PlayerCamera+0x20), its frustum at +0x%X: near %g far %g, 2 atan(r) = %.1f deg across, %.1f up and down; %s%s",
+		    ViewTypeText54(cam, type, sizeof(type)), OrNone(name), (unsigned)g_vcam.off, f[4], f[5], ViewFrustumAcross54(f), ViewFrustumUpDown54(f),
+		    eye ? "no shape shown" : "the eye not read", extra);
+}
+
+static void ViewReadBackLine54(const ViewRig *v)
+{
+	if (!g_vd.after) {
+		Log("view: drawn? last frame's writes: none to read back (the view bike not shown the frame before)");
+		return;
+	}
+	char root[64] = "as we left it", shape[96] = "";
+	if (g_vd.rootMoved)
+		snprintf(root, sizeof(root), "moved to (%.1f, %.1f, %.1f)", g_vd.rootNow[0], g_vd.rootNow[1], g_vd.rootNow[2]);
+	if (v->count > 0)
+		snprintf(shape, sizeof(shape), "; the first shape's (%s) %s", v->shapes[0].label, g_vd.shapeMoved ? "moved" : "as we left it");
+	if (v->count > 0 && g_vd.shapeMoved)
+		snprintf(shape + strlen(shape), sizeof(shape) - strlen(shape), " to (%.1f, %.1f, %.1f)", g_vd.shapeNow[0], g_vd.shapeNow[1], g_vd.shapeNow[2]);
+	Log("view: drawn? last frame's writes: the root's world %s%s; hidden bits set since: the node %s, %d shape(s)", root, shape, g_vd.nodeHidden ? "yes" : "no", g_vd.shapesHidden);
+}
+
+/* At ViewPut's end, the rig's bounds written (rb the root's): the chain grown ([View] Bounds), ViewDraw's lines, the
+ * read-back kept, [View] Near written. */
+static void ViewPutEnd54(ViewRig *v, uintptr_t root, const float rb[4])
+{
+	bool cur = v == &g_viewRig[0], due = ViewDrawDue54(v);
+	if (g_viewBounds || due) {
+		char chain[3000];
+		int n = 0, levels = 0, grown = 0, was = 0, same = 0, keepN = 0;
+		uintptr_t keepUp[VIEW_UP_MAX];
+		float keepLeft[VIEW_UP_MAX][4];
+		const char *end = "the top's parent none";
+		chain[0] = 0;
+		uintptr_t up = ReadPtr(root + OFF_PARENT);
+		while (up) {
+			if (levels == VIEW_UP_MAX) {
+				end = "more above";
+				break;
+			}
+			if (!IsA(up, RTTI_AVOBJECT) || !Accessible(up + OFF_WORLD_BOUND, 16, g_viewBounds != 0)) {
+				end = "the next one up not a scene object";
+				break;
+			}
+			float *b = (float *)(up + OFF_WORLD_BOUND);
+			for (int j = 0; cur && j < g_vd.n; j++)
+				if (g_vd.up[j] == up) {
+					was++;
+					same += memcmp(b, g_vd.left[j], 16) == 0;
+				}
+			bool valid = ViewBoundValid54(b);
+			float miss = valid ? ViewBoundMiss54(b, rb) : 0.0f;
+			if (due && n < (int)sizeof(chain) - 200) {
+				char type[48], held[48];
+				if (!valid)
+					snprintf(held, sizeof(held), "an invalid bound");
+				else if (miss <= 0.0f)
+					snprintf(held, sizeof(held), "holds it");
+				else
+					snprintf(held, sizeof(held), "misses by %.0f", miss);
+				const char *name = ObjectName(up);
+				n += snprintf(chain + n, sizeof(chain) - n, " < %s '%s' (%.0f, %.0f, %.0f) r %.0f: %s%s", ViewTypeText54(up, type, sizeof(type)), OrNone(name), b[0], b[1], b[2], b[3], held,
+				              (*(const volatile uint64_t *)(up + OFF_AV_FLAGS) & 1) ? ", hidden" : "");
+			}
+			if (g_viewBounds && (!valid || miss > 0.0f)) {
+				ViewBoundGrow54(b, rb);
+				grown++;
+				if (keepN < VIEW_UP_MAX) {
+					keepUp[keepN] = up;
+					memcpy(keepLeft[keepN++], b, 16);
+				}
+			}
+			levels++;
+			up = ReadPtr(up + OFF_PARENT);
+		}
+		if (cur) {
+			g_vd.n = keepN;
+			memcpy(g_vd.up, keepUp, sizeof(uintptr_t) * (size_t)keepN);
+			memcpy(g_vd.left, keepLeft, sizeof(float) * 4 * (size_t)keepN);
+		}
+		if (due)
+			ViewChainLine54(root, rb, chain, levels, end, grown, was, same);
+	}
+	if (due) {
+		ViewCameraLine54(v);
+		ViewReadBackLine54(v);
+	}
+	if (cur && g_viewDraw) {
+		g_vd.kept = true;
+		g_vd.keptRoot = root;
+		memcpy(g_vd.rootAt, (const void *)(root + OFF_WORLD_POS), 12);
+		if (v->count > 0)
+			memcpy(g_vd.shapeAt, (const void *)(v->shapes[0].shape + OFF_WORLD_POS), 12);
+	}
+	if (cur && g_viewNear > 0.0f) {
+		float *f = ViewFrustum54(ViewNiCamera54(), true);
+		if (f) {
+			if (!g_vcam.written) {
+				g_vcam.original = f[4];
+				g_vcam.written = true;
+				Log("view: the camera's near plane %g -> %g while the view bike shows ([View] Near)", f[4], g_viewNear);
+			}
+			f[4] = g_viewNear;
+		}
+	}
 }
 
 /* ---- The tip and the riding FOV (2026-11-06a, test 49: the first-person bike under the bottom of the view looking
@@ -9469,10 +10239,94 @@ static const char *PitchText(float deg, char *buf, size_t size)   /* "level" (wi
 	return buf;
 }
 
+/* 2026-11-09a (test 50: the tip in the Pip-Boy; a real entry's tip stopped at once). TipSettle: this entry's time shown
+ * with the eye on the bike and angle.x's hold; TipYield: the player's own angle.x moves since the tip's start (radians,
+ * signed as angle.x) and the look input's largest (PlayerControls +0x4C/+0x50, for the line only). Zeroed at each entry's
+ * first shown frame (g_tip.shownFor still 0: armed afresh at every third-person frame, getting off and a load). */
+static struct {
+	float onFor, heldAx;
+	int held, ownFrames;
+	float own, look[2];
+} g_tip54;
+
+static float TipOwnPitch54(float dir)   /* the player's own part in degrees, + up (0 with TipYield=0) */
+{
+	return g_viewTipYield > 0.0f ? -dir * g_tip54.own * 57.29578f : 0.0f;
+}
+
+/* TipYield: the player's move since our last write added to their own part, the look input's largest kept. */
+static void TipOwnFrame54(const float *ax)
+{
+	float move = *ax - g_tip.angleLeft;
+	if (move != 0.0f) {
+		g_tip54.own += move;
+		g_tip54.ownFrames++;
+	}
+	uintptr_t controls = ReadPtr(g_base + RVA_PLAYER_CONTROLS);
+	if (controls && IsA(controls, RTTI_CONTROLS) && Accessible(controls + 0x4C, 8, false))
+		for (int k = 0; k < 2; k++) {
+			float v = fabsf(((const float *)(controls + 0x4C))[k]);
+			if (isfinite(v) && v > g_tip54.look[k])
+				g_tip54.look[k] = v;
+		}
+}
+
+/* TipSettle: true once the view bike has been shown with the eye on the bike TipSettle seconds this entry and angle.x has
+ * held within 0.1 deg for 3 frames, or 0.5 s past TipSettle whatever angle.x does (a frame on the bike, g_frameDt > 0). */
+static bool TipSettled54(const float *ax)
+{
+	if (g_tip54.onFor == 0.0f)
+		g_tip54.held = 0;
+	else if (fabsf(*ax - g_tip54.heldAx) <= 0.1f / 57.29578f)
+		g_tip54.held++;
+	else
+		g_tip54.held = 0;
+	g_tip54.heldAx = *ax;
+	g_tip54.onFor += g_frameDt;
+	return g_tip54.onFor >= g_viewTipSettle && (g_tip54.held >= 3 || g_tip54.onFor >= g_viewTipSettle + 0.5f);
+}
+
+/* 2026-11-09a, test 51 ([View] TipLoadGrace: a verdict 0.2 s after a load turned the tip off until the game was
+ * restarted): an entry whose first shown frame came within TipLoadGrace s of a load or of getting on holds its self-check
+ * verdicts (flipped, off) for itself only: both cleared at the next entry's first shown frame. 0: for the session. */
+static struct {
+	float since;                          /* this entry began this long after the load or getting on (-1: not within TipLoadGrace) */
+	bool load;                            /* after a load (else getting on) */
+	bool offEntry, flipEntry;             /* g_tip.off, g_tip.flipped this entry's only */
+} g_tip55 = { .since = -1.0f };
+
+static void TipEntry55(void)   /* an entry's first shown frame (armed): the entry-only verdicts cleared, its start placed */
+{
+	if (g_tip55.offEntry)
+		g_tip.off = false;
+	if (g_tip55.flipEntry)
+		g_tip.flipped = false;
+	g_tip55.offEntry = g_tip55.flipEntry = false;
+	float now = (float)g_clock, load = now - g_loadAt, ride = now - g_rideStartClock;
+	g_tip55.since = -1.0f;
+	if (g_tipLoadGrace > 0.0f && load >= 0.0f && load <= g_tipLoadGrace) {
+		g_tip55.since = load;
+		g_tip55.load = true;
+	} else if (g_tipLoadGrace > 0.0f && ride >= 0.0f && ride <= g_tipLoadGrace) {
+		g_tip55.since = ride;
+		g_tip55.load = false;
+	}
+}
+
+static const char *TipVerdict55(bool *entryOnly, char *buf, size_t size)   /* a verdict's line's end; *entryOnly set when it's this entry's */
+{
+	*entryOnly = g_tip55.since >= 0.0f;
+	if (*entryOnly)
+		snprintf(buf, size, "(this entry only: it began %.2f s after %s, TipLoadGrace %g)", g_tip55.since, g_tip55.load ? "a load" : "getting on", g_tipLoadGrace);
+	else
+		buf[0] = 0;
+	return buf;
+}
+
 /* The tip ended or stopped: nothing to put back (only ever the player's own pitch was moved, relative to their own look). */
 static void TipStop(const char *why)
 {
-	float at = g_tip.pitch0 + g_tip.written;
+	float at = g_tip.pitch0 + g_tip.written + TipOwnPitch54(g_tip.flipped ? -1.0f : 1.0f);   /* 2026-11-09a: the camera's, the player's own part in it (TipYield) */
 	Log("view: the tip stopped %.2f s in, at %.0f deg %s (%s)", g_tip.t, fabsf(at), UpDown(at), why);
 	g_tip.running = false;
 }
@@ -9487,13 +10341,16 @@ static void TipStop(const char *why)
  * player's own look composes. It stops for good this entry when the player moves the view (angle.x not as we left it),
  * and at the view hidden, leaving first person or the eye far. After 0.1 s and 1 deg it checks that the camera followed:
  * 3 frames in a row under 30% of what was written undo it and leave the tip off this session; the wrong way (more than
- * 30% up) undo it, flip the sign once a session and start again. CMB_ViewTip 0 or missing: never a write (2026-11-02a). */
+ * 30% up) undo it, flip the sign once a session and start again (2026-11-09a, test 51: both verdicts for that entry only
+ * when it began within [View] TipLoadGrace s of a load or getting on, TipEntry55). CMB_ViewTip 0 or missing: never a write
+ * (2026-11-02a). */
 static void TipFrame(bool shown, bool first, const char *why)
 {
 	const float DEG = 57.29578f;
 	float tip = ViewTipWanted(), dir = g_tip.flipped ? -1.0f : 1.0f;
 	uintptr_t player = Player();
 	float *ax = player && Accessible(player + OFF_REFR_ANGLE_X, 4, true) ? (float *)(player + OFF_REFR_ANGLE_X) : NULL;
+	bool menu = g_viewTipMenu && g_viewMenuGlobal && GlobalValue(g_viewMenuGlobal) >= 1.0f;   /* 2026-11-09a, TipMenu's rule 2: the script's Pip-Boy open */
 	if (!first) {
 		bool third = CameraIsThird();
 		if (g_tip.running)
@@ -9505,19 +10362,34 @@ static void TipFrame(bool shown, bool first, const char *why)
 		return;
 	}
 	if (!g_tip.running) {
+		if (g_tip.armed && shown && g_tip.shownFor == 0.0f)
+			TipEntry55();   /* 2026-11-09a, test 51: an entry-only verdict cleared, this entry's start against a load and getting on */
 		if (!g_tip.armed || g_tip.off)
 			return;
 		if (tip <= 0.0f || !ax) {
 			g_tip.armed = false;   /* CMB_ViewTip 0 (or missing) on getting into first person: not this entry */
 			return;
 		}
+		if (menu) {
+			g_tip.armed = false;
+			Log("view: no tip: the Pip-Boy open (CMB_ViewMenu)");
+			return;
+		}
 		if (!shown)
 			return;   /* waits, armed */
+		if (g_tip.shownFor == 0.0f) {   /* 2026-11-09a: this entry's first shown frame */
+			memset(&g_tip54, 0, sizeof(g_tip54));
+			if (g_viewTipMenu && g_viewEye && g_eye.away) {   /* TipMenu's rule 1: the camera still far, a menu's (the Pip-Boy from third person) */
+				g_tip.armed = false;
+				Log("view: no tip: this first person began with the eye %.0f from EyeAt (a menu's camera: the Pip-Boy from third person)", Dist3f(g_eye.x, ViewEyeAt()));
+				return;
+			}
+		}
 		g_tip.shownFor += g_frameDt;
 		bool onBike = g_viewEye ? g_eye.ok && !g_eye.away : g_tip.shownFor >= 0.3f;
 		float p0;
-		if (!onBike || g_frameDt <= 0.0f || !CameraPitch(&p0))
-			return;
+		if (!onBike || g_frameDt <= 0.0f || (g_viewTipSettle > 0.0f && !TipSettled54(ax)) || !CameraPitch(&p0))
+			return;   /* 2026-11-09a: TipSettle's wait too (pitch0 read once it's over) */
 		g_tip.armed = false;
 		if (p0 <= -tip + 1.0f) {
 			Log("view: looking %.0f deg down already on getting into first person: left as it is (CMB_ViewTip %g)", -p0, tip);
@@ -9533,15 +10405,25 @@ static void TipFrame(bool shown, bool first, const char *why)
 	}
 	if (g_tip.ending) {   /* the last step written a frame ago: the line, with what the camera says now */
 		float now = NAN;
-		char cam[48] = "the camera not read", from[24], at[24];
+		char cam[48] = "the camera not read", from[24], at[24], own[48] = "";
 		if (CameraPitch(&now))
 			snprintf(cam, sizeof(cam), "the camera now %s", PitchText(now, at, sizeof(at)));
-		Log("view: looked %.0f deg down on getting into first person (from %s; %s)", -(g_tip.pitch0 + g_tip.total), PitchText(g_tip.pitch0, from, sizeof(from)), cam);
+		if (g_viewTipYield > 0.0f && ax) {   /* 2026-11-09a: the player's own look on top (TipYield) */
+			TipOwnFrame54(ax);
+			float op = TipOwnPitch54(dir);
+			if (fabsf(op) >= 0.5f)
+				snprintf(own, sizeof(own), "your own look %.0f deg %s on top; ", fabsf(op), UpDown(op));
+		}
+		Log("view: looked %.0f deg down on getting into first person (from %s; %s%s)", -(g_tip.pitch0 + g_tip.total), PitchText(g_tip.pitch0, from, sizeof(from)), own, cam);
 		g_tip.running = false;
 		return;
 	}
 	if (!shown) {
 		TipStop(why ? why : "the view bike hidden");
+		return;
+	}
+	if (menu) {   /* 2026-11-09a, TipMenu's rule 2 */
+		TipStop("the Pip-Boy open");
 		return;
 	}
 	if (!ax) {
@@ -9556,7 +10438,17 @@ static void TipFrame(bool shown, bool first, const char *why)
 		TipStop("CMB_ViewTip 0");
 		return;
 	}
-	if (fabsf(*ax - g_tip.angleLeft) > 0.1f / DEG) {
+	if (g_viewTipYield > 0.0f) {   /* 2026-11-09a: the player's own look composes with the tip, stopping it only past TipYield */
+		TipOwnFrame54(ax);
+		float op = TipOwnPitch54(dir);
+		if (fabsf(op) > g_viewTipYield) {
+			float at = g_tip.pitch0 + g_tip.written + op;
+			Log("view: you looked yourself %.0f deg %s over %d frame(s), %.2f s into the tip (the look input +0x4C/+0x50 at most %.3f, %.3f): stopped at %.0f deg %s", fabsf(op), UpDown(op),
+			    g_tip54.ownFrames, g_tip.t, g_tip54.look[0], g_tip54.look[1], fabsf(at), UpDown(at));
+			g_tip.running = false;
+			return;
+		}
+	} else if (fabsf(*ax - g_tip.angleLeft) > 0.1f / DEG) {
 		float at = g_tip.pitch0 + g_tip.written;
 		Log("view: you looked yourself %.2f s into the tip: stopped at %.0f deg %s", g_tip.t, fabsf(at), UpDown(at));
 		g_tip.running = false;
@@ -9565,12 +10457,19 @@ static void TipFrame(bool shown, bool first, const char *why)
 	if (!g_tip.followed && g_tip.t >= 0.1f && fabsf(g_tip.written) >= 1.0f) {   /* the self-check: did the camera follow what was written? */
 		float now;
 		if (CameraPitch(&now)) {
-			float ratio = (now - g_tip.pitch0) / g_tip.written;   /* written is down (negative): 1 = all of it seen */
+			float seen = now - g_tip.pitch0;
+			if (g_viewTipYield > 0.0f)
+				seen -= TipOwnPitch54(dir);   /* 2026-11-09a: the player's own part taken out */
+			float ratio = seen / g_tip.written;   /* written is down (negative): 1 = all of it seen */
+			char grace[96];
+			bool entryOnly;
 			if (ratio < -0.3f && !g_tip.flipped) {
 				*ax += g_tip.written * dir / DEG;   /* undone */
 				g_tip.flipped = true;
 				dir = -dir;
-				Log("view: the player's pitch is the other way round: flipped (the tip goes on)");
+				TipVerdict55(&entryOnly, grace, sizeof(grace));
+				g_tip55.flipEntry = entryOnly;   /* 2026-11-09a: within TipLoadGrace, this entry's only */
+				Log("view: the player's pitch is the other way round: flipped (the tip goes on)%s%s", entryOnly ? " " : "", grace);
 				g_tip.t = g_tip.written = 0.0f;
 				g_tip.angleLeft = *ax;
 				g_tip.noFollow = 0;
@@ -9581,7 +10480,9 @@ static void TipFrame(bool shown, bool first, const char *why)
 					*ax += g_tip.written * dir / DEG;   /* undone */
 					g_tip.off = true;
 					g_tip.running = false;
-					Log("view: the camera didn't follow the player's pitch (+0xC0): the view left as it was (no tip this session)");
+					TipVerdict55(&entryOnly, grace, sizeof(grace));
+					g_tip55.offEntry = entryOnly;   /* 2026-11-09a: within TipLoadGrace, this entry's only */
+					Log("view: the camera didn't follow the player's pitch (+0xC0): the view left as it was %s", entryOnly ? grace : "(no tip this session)");
 					return;
 				}
 			} else {
@@ -9608,9 +10509,131 @@ static float ViewFovWanted(void)   /* CMB_ViewFov: 60-120, else 0 (the game's ow
 	return !isfinite(v) || v < 60.0f ? 0.0f : v > 120.0f ? 120.0f : v;
 }
 
+/* 2026-11-09a ([View] FovSearch=1; test 50: the one search ran on the entry's first frame, the camera mid-switch, and found
+ * nothing): auto's search waits until this entry's first person has lasted 0.5 s (the view bike shown, the eye on the
+ * bike), runs once an entry until found, at most 3 times until a load (the third not found: none again until then; after
+ * a load it looks afresh, found before or not), in PlayerCamera+0x40..+0x1AC, in order: the pair (fDefaultWorldFOV,
+ * fDefault1stPersonFOV) in degrees, the pair in radians, fDefaultWorldFOV alone at exactly one place, the world camera's
+ * frustum's FOV (2 atan(r) across, else up and down) at exactly one place. The unit found is kept, the writes converted
+ * (the FOV's numbers are degrees everywhere else); not found, the candidates (floats 30-150 or 0.5-2.7) are logged.
+ * FovOffset=0x...: its value 30-150 is degrees, 0.5-2.7 radians. 0 = 2026-11-08a's search (at the first want,
+ * +0x100..+0x1F0, the pair in degrees). The review of 2026-11-09a (N2): the window was +0x40..+0x3FC, past the object's end
+ * (PlayerCamera is 0x1B0 bytes on 1.11.240: CommonLibF4's static_assert, F4SE 0.7.9's last field at 0x1A9), where "alone" or
+ * the frustum's could have matched a float of the next heap object and the FOV been written into it: now within it. */
+static struct {
+	float onFor;                          /* this entry's first person so far (the view shown, the eye on the bike) */
+	bool searched, due;                   /* searched this entry; due: FovField may search this frame */
+	int searches;                         /* since the start or a load */
+	float unit;                           /* the field's units a degree: 1 (degrees) or 1/57.29578 (radians) */
+	bool watch, watched;                  /* the frustum's line 0.1 s after the first write (once a find) */
+	float watchAt, watchH0, watchF0;
+} g_fov54 = { .unit = 1.0f };
+
+static float FovDeg54(float v) { return g_fov54.unit == 1.0f ? v : v / g_fov54.unit; }   /* the field's value in degrees */
+
+static void FovEntry54(bool shown)   /* each riding frame (FovFrame): the time into this entry, and whether a search is due */
+{
+	if (!shown) {
+		g_fov54.onFor = 0.0f;
+		g_fov54.searched = false;
+	} else if (!g_viewEye || (g_eye.ok && !g_eye.away)) {
+		g_fov54.onFor += g_frameDt;
+	}
+	g_fov54.due = g_viewFovSearch && g_viewFovOffset < 0 && !g_fov.off && shown && !g_fov54.searched && g_fov54.searches < 3 && g_fov54.onFor >= 0.5f;
+}
+
+static void FovSearch54(uintptr_t camera, bool settings, float wv, float fv)
+{
+	const float DEG = 57.29578f;
+	g_fov54.due = false;
+	g_fov54.searched = true;
+	g_fov54.searches++;
+	const int last = PLAYER_CAMERA_SIZE - 4;   /* the last float within the object (N2) */
+	bool readable = Accessible(camera + 0x40, PLAYER_CAMERA_SIZE - 0x40, false);
+	const float *fr = ViewFrustum54(ViewNiCamera54(), false);
+	float H = fr ? ViewFrustumAcross54(fr) : NAN, V = fr ? ViewFrustumUpDown54(fr) : NAN;
+	int at = 0, found = 0;
+	const char *how = NULL;
+#define FOV54_AT(o) (*(const float *)(camera + (uintptr_t)(o)))
+	if (readable && settings) {
+		for (int o = 0x40; o <= last - 4; o += 4)
+			if (fabsf(FOV54_AT(o) - wv) < 0.01f && fabsf(FOV54_AT(o + 4) - fv) < 0.01f) {
+				found++;
+				at = o;
+			}
+		if (found == 1)
+			how = "pair";
+		for (int o = 0x40, n = found = 0; !how && o <= last - 4; o += 4)
+			if (fabsf(FOV54_AT(o) - wv / DEG) < 0.0005f && fabsf(FOV54_AT(o + 4) - fv / DEG) < 0.0005f) {
+				found = ++n;
+				at = o;
+			}
+		if (!how && found == 1)
+			how = "radians";
+		for (int o = 0x40, n = found = 0; !how && o <= last; o += 4)
+			if (fabsf(FOV54_AT(o) - wv) < 0.01f) {
+				found = ++n;
+				at = o;
+			}
+		if (!how && found == 1)
+			how = "alone";
+	}
+	for (int pass = 0; readable && fr && !how && pass < 2; pass++) {
+		float want = pass ? V : H;
+		found = 0;
+		for (int o = 0x40; o <= last; o += 4)
+			if (fabsf(FOV54_AT(o) - want) < 0.1f) {
+				found++;
+				at = o;
+			}
+		if (found == 1)
+			how = pass ? "up and down" : "across";
+	}
+	char when[48];
+	snprintf(when, sizeof(when), "%.2f s into first person (search %d of 3)", g_fov54.onFor, g_fov54.searches);
+	if (how) {
+		g_fov.off = at;
+		g_fov54.unit = strcmp(how, "radians") == 0 ? 1.0f / DEG : 1.0f;
+		g_fov54.watched = false;
+		float v = FOV54_AT(at);
+		if (strcmp(how, "pair") == 0)
+			Log("camera: the world FOV at PlayerCamera+0x%X (%g; the first person's %g at +0x%X), %s", (unsigned)at, wv, fv, (unsigned)at + 4, when);
+		else if (strcmp(how, "radians") == 0)
+			Log("camera: the world FOV at PlayerCamera+0x%X (%g: %g deg in radians; the first person's %g at +0x%X), %s", (unsigned)at, v, wv, FOV54_AT(at + 4), (unsigned)at + 4, when);
+		else if (strcmp(how, "alone") == 0)
+			Log("camera: the world FOV at PlayerCamera+0x%X (%g alone: fDefault1stPersonFOV %g not after it), %s", (unsigned)at, wv, fv, when);
+		else
+			Log("camera: the world FOV at PlayerCamera+0x%X (%g: the world camera's frustum's, %.1f deg %s), %s", (unsigned)at, v, how[0] == 'a' ? H : V, how, when);
+		return;
+	}
+	g_fov.off = g_fov54.searches >= 3 ? -1 : 0;
+	char cand[700], frText[96];
+	int n = 0, count = 0;
+	cand[0] = 0;
+	for (int o = 0x40; readable && o <= last && count < 24; o += 4) {
+		float v = FOV54_AT(o);
+		if (!(v >= 30.0f && v <= 150.0f) && !(v >= 0.5f && v <= 2.7f))
+			continue;
+		if (v <= 2.7f)
+			n += snprintf(cand + n, sizeof(cand) - n, "%s+%X=%.4f (%.0f deg as radians)", count ? ", " : "", (unsigned)o, v, v * DEG);
+		else
+			n += snprintf(cand + n, sizeof(cand) - n, "%s+%X=%g", count ? ", " : "", (unsigned)o, v);
+		count++;
+	}
+#undef FOV54_AT
+	if (fr)
+		snprintf(frText, sizeof(frText), "2 atan(r) = %.1f deg across, %.1f up and down", H, V);
+	else
+		snprintf(frText, sizeof(frText), "not found");
+	Log("camera: the world FOV not found in PlayerCamera+0x40..+0x1AC (fDefaultWorldFOV %g, fDefault1stPersonFOV %g%s: not the pair in degrees or radians, not alone, not the frustum's; %s): %s; "
+	    "candidates: %s (floats 30-150 or 0.5-2.7, %d); the world camera's frustum %s", wv, fv, settings ? "" : ", the settings not found", when,
+	    g_fov.off < 0 ? "the FOV left alone (not looked for again until a load)" : "looked for again at the next entry", count ? cand : "none", count, frText);
+}
+
 /* Where PlayerCamera keeps the world FOV (look.md (a) 6), looked for at the first want: [View] FovOffset as given (if
  * the float there is 30-150), or auto: the one place in PlayerCamera+0x100..+0x1F0 holding the game's fDefaultWorldFOV
- * with fDefault1stPersonFOV right after it. Not found: never written (tried again after a load). */
+ * with fDefault1stPersonFOV right after it. Not found: never written (tried again after a load). 2026-11-09a: FovSearch
+ * above. */
 static float *FovField(void)
 {
 	uintptr_t camera = ReadPtr(g_base + RVA_PLAYER_CAMERA);
@@ -9622,11 +10645,17 @@ static float *FovField(void)
 		g_fov.wv = wv;
 		if (g_viewFovOffset >= 0) {
 			float v = Accessible(camera + (uintptr_t)g_viewFovOffset, 4, true) ? *(const float *)(camera + (uintptr_t)g_viewFovOffset) : NAN;
-			g_fov.off = v >= 30.0f && v <= 150.0f ? g_viewFovOffset : -1;
+			bool rad = g_viewFovSearch && v >= 0.5f && v <= 2.7f;   /* 2026-11-09a: radians by its value (FovSearch=1) */
+			g_fov.off = (v >= 30.0f && v <= 150.0f) || rad ? g_viewFovOffset : -1;
+			g_fov54.unit = rad ? 1.0f / 57.29578f : 1.0f;
 			if (g_fov.off > 0)
-				Log("camera: the world FOV at PlayerCamera+0x%X ([View] FovOffset; %g there)", (unsigned)g_fov.off, v);
+				Log("camera: the world FOV at PlayerCamera+0x%X ([View] FovOffset; %g there%s)", (unsigned)g_fov.off, v, rad ? ", radians" : "");
 			else
-				Log("camera: [View] FovOffset=0x%X holds %g, not a field of view (30-150): the FOV left alone", (unsigned)g_viewFovOffset, v);
+				Log("camera: [View] FovOffset=0x%X holds %g, not a field of view (30-150%s): the FOV left alone", (unsigned)g_viewFovOffset, v, g_viewFovSearch ? ", or 0.5-2.7 radians" : "");
+		} else if (g_viewFovSearch) {   /* 2026-11-09a */
+			if (!g_fov54.due)
+				return NULL;
+			FovSearch54(camera, ws && fs, wv, fv);
 		} else {
 			int found = 0, at = 0;
 			if (ws && fs && Accessible(camera + 0x100, 0xF8, true))
@@ -9655,7 +10684,7 @@ static void FovStaleBack(const char *why)
 	if (field && *field == g_fov.written) {
 		*field = g_fov.original;
 		g_fov.stale = false;
-		Log("camera: the world FOV back to %g (%s: ours again after something else had changed it)", g_fov.original, why);
+		Log("camera: the world FOV back to %g (%s: ours again after something else had changed it)", FovDeg54(g_fov.original), why);
 	}
 }
 
@@ -9663,13 +10692,14 @@ static void FovStaleBack(const char *why)
  * still what we wrote; else left as the other writer has it. */
 static void FovRestore(const char *why)
 {
+	ViewNearBack54(why);   /* 2026-11-09a: [View] Near's near plane put back too (getting off, a load) */
 	if (g_fov.applied) {
 		float *field = FovField();
 		if (field && *field == g_fov.written) {
 			*field = g_fov.original;
-			Log("camera: the world FOV back to %g (%s)", g_fov.original, why);
+			Log("camera: the world FOV back to %g (%s)", FovDeg54(g_fov.original), why);
 		} else {
-			Log("camera: the world FOV changed to %g by something else: left as it is (%s)", field ? *field : NAN, why);
+			Log("camera: the world FOV changed to %g by something else: left as it is (%s)", field ? FovDeg54(*field) : NAN, why);
 		}
 	} else if (g_fov.stale) {
 		FovStaleBack(why);
@@ -9684,25 +10714,47 @@ static void FovRestore(const char *why)
 static void FovFrame(bool shown, const char *why)
 {
 	g_fov.framed = true;
+	FovEntry54(shown);   /* 2026-11-09a: FovSearch's time into first person */
+	if (!shown)
+		ViewNearBack54(why ? why : "the view bike hidden");   /* 2026-11-09a: [View] Near's near plane put back */
 	float target = ViewFovWanted(), *field;
 	if (!g_fov.applied) {
 		if (g_fov.stale && !shown) {
 			FovStaleBack(why ? why : "the view bike hidden");
 			return;
 		}
-		if (!shown || target <= 0.0f || g_fov.lostRide || !(field = FovField()) || *field == target)
+		if (!shown || target <= 0.0f || g_fov.lostRide || !(field = FovField()) || *field == target * g_fov54.unit)
 			return;   /* the field at CMB_ViewFov already (the player's own FOV): nothing to ease, nothing to put back */
+		target *= g_fov54.unit;   /* 2026-11-09a: in the field's own units (degrees: 1, the 2026-11-08a build's numbers) */
 		g_fov.original = g_fov.written = g_fov.from = *field;
 		g_fov.to = target;
 		g_fov.t = 0.0f;
 		g_fov.applied = true;
 		g_fov.backWhy = NULL;
-		Log("camera: the world FOV %g -> %g while riding in first person (CMB_ViewFov)", g_fov.original, target);
+		Log("camera: the world FOV %g -> %g while riding in first person (CMB_ViewFov)", FovDeg54(g_fov.original), FovDeg54(target));
+		const float *fr = g_viewFovSearch && !g_fov54.watched ? ViewFrustum54(ViewNiCamera54(), false) : NULL;
+		if (fr) {   /* 2026-11-09a: does the world camera's frustum follow? said 0.1 s after this first write */
+			g_fov54.watch = g_fov54.watched = true;
+			g_fov54.watchAt = (float)g_clock;
+			g_fov54.watchH0 = ViewFrustumAcross54(fr);
+			g_fov54.watchF0 = FovDeg54(g_fov.original);
+		}
 	} else if (!(field = FovField())) {
 		return;   /* the camera unreadable this frame: ours kept, put back once it's read again */
+	} else {
+		target *= g_fov54.unit;
+	}
+	if (g_fov54.watch && (float)g_clock - g_fov54.watchAt >= 0.1f) {
+		g_fov54.watch = false;
+		const float *fr = ViewFrustum54(ViewNiCamera54(), false);
+		float h = fr ? ViewFrustumAcross54(fr) : NAN, moved = FovDeg54(g_fov.written) - g_fov54.watchF0;
+		bool followed = fr && (h - g_fov54.watchH0) * moved > 0.0f && fabsf(h - g_fov54.watchH0) >= 0.25f * fabsf(moved);
+		if (fr)
+			Log("camera: the frustum now %.1f deg across (%s: %.1f at the first write, the FOV %g -> %g written)", h, followed ? "followed" : "not followed", g_fov54.watchH0, g_fov54.watchF0,
+			    FovDeg54(g_fov.written));
 	}
 	if (*field != g_fov.written) {
-		Log("camera: the world FOV changed to %g by something else: left alone this ride", *field);
+		Log("camera: the world FOV changed to %g by something else: left alone this ride", FovDeg54(*field));
 		g_fov.applied = false;
 		g_fov.lostRide = g_fov.stale = true;   /* original and written kept: our value back later is put back (FovStaleBack) */
 		return;
@@ -9723,7 +10775,7 @@ static void FovFrame(bool shown, const char *why)
 	g_fov.written = v;
 	if (u >= 1.0f && g_fov.to == g_fov.original) {
 		g_fov.applied = false;
-		Log("camera: the world FOV back to %g (%s)", g_fov.original, g_fov.backWhy ? g_fov.backWhy : "the view bike hidden");
+		Log("camera: the world FOV back to %g (%s)", FovDeg54(g_fov.original), g_fov.backWhy ? g_fov.backWhy : "the view bike hidden");
 	}
 }
 
@@ -9744,12 +10796,17 @@ static void FovAfterLoad(void)
 		float *field = FovField(), target = ViewFovWanted();
 		uintptr_t ws = FindSetting("fDefaultWorldFOV:Display");
 		float wv = ws ? *(const float *)(ws + OFF_SETTING_DATA) : g_fov.wv;
-		if (field && target > 0.0f && *field == target && isfinite(wv) && wv != target) {
+		if (field && target > 0.0f && *field == target * g_fov54.unit && isfinite(wv) && wv != target) {
 			Log("camera: the world FOV %g after a load, as CMB_ViewFov: put back to fDefaultWorldFOV %g", target, wv);
-			*field = wv;
+			*field = wv * g_fov54.unit;   /* 2026-11-09a: in the field's units (degrees: 1) */
 		}
 	} else {
 		g_fov.off = 0;
+	}
+	if (g_viewFovSearch && g_viewFovOffset < 0) {   /* 2026-11-09a (FovSearch=1): looked for afresh after a load, found or not, 3 searches again */
+		g_fov.off = 0;
+		g_fov54.searches = 0;
+		g_fov54.unit = 1.0f;
 	}
 }
 
@@ -9766,7 +10823,7 @@ static void ViewLookProbeText(char *out, size_t size)
 	if (CameraPitch(&p))
 		n = snprintf(out, size, "; looking %.0f deg %s (the camera)", fabsf(p), UpDown(p));
 	if (g_fov.applied && n >= 0 && (size_t)n < size)
-		snprintf(out + n, size - (size_t)n, "; the world FOV %.0f (CMB_ViewFov)", g_fov.written);
+		snprintf(out + n, size - (size_t)n, "; the world FOV %.0f (CMB_ViewFov)", FovDeg54(g_fov.written));
 }
 
 static bool FrameViewShow(bool *firstOut, const char **whyOut)   /* 2026-11-06a: FrameView's body, true when the view bike was put this frame */
@@ -10127,17 +11184,29 @@ static void SyncSkins(uintptr_t player, bool riderWanted)
 			ForgetRegions();   /* something of the 3D went */
 		}
 	}
+	if (!g_skinCount)
+		g_skinRebuiltLines = 0;   /* 2026-11-09a: a ride's rebuilt lines (SkinShapeRebuilt) */
 	for (int j = 0; j < list.count; j++) {
 		bool held = false;
 		for (int i = 0; i < g_skinCount; i++)
-			held |= g_skins[i].boneData == list.found[j];
+			if (g_skins[i].boneData == list.found[j]) {
+				held = true;
+				/* 2026-11-09a ([Look] Rehold): the same bone data under another shape of its name (the 3D rebuilt in place; a
+				 * decal sharing the data has a name of its own) is held afresh on it; Rehold=0 (2026-11-09a as of t54-merge):
+				 * the hold stays on the old shape. */
+				if (g_lookRehold && g_skins[i].shape && list.shapes[j] && g_skins[i].shape != list.shapes[j] &&
+				    strncmp(list.names[j], g_skins[i].name, sizeof(g_skins[i].name) - 1) == 0)
+					SkinShapeRebuilt(&g_skins[i], list.shapes[j], list.skins[j]);
+			}
 		if (held || Refused(list.found[j]))
 			continue;
 		if (g_skinCount < MAX_SKINS) {
 			int before = g_skinCount;
 			HoldSkin(list.found[j], list.skins[j], list.names[j]);
-			if (g_skinCount > before)
+			if (g_skinCount > before) {
 				CullHold(&g_skins[g_skinCount - 1], list.shapes[j]);   /* 2026-11-01a: its geometry, for [Look] Cull */
+				g_skins[g_skinCount - 1].colourProp = 0;               /* 2026-11-09a: its shader property not checked yet */
+			}
 		} else
 			SkinOver(&list, list.found[j], list.names[j]);
 	}
@@ -10319,10 +11388,24 @@ static bool TextureIs(const char *name, const char *file)
 	return true;
 }
 
+/* 2026-11-09a ([Look] LightingOnly): the held shape's shader property a BSLightingShaderProperty (the material's layout
+ * the writer knows: an effect shader's material is smaller, +0xB8 past it)? IsA once a property (HeldSkin.colourProp,
+ * its low bit the answer no); another property (a swap) is checked again. LightingOnly=0: never asked (2026-11-09a as of
+ * t54-merge). */
+static bool LookPropLit(HeldSkin *hs, uintptr_t prop)
+{
+	if (hs->colourProp && (hs->colourProp & ~(uintptr_t)1) == prop)
+		return !(hs->colourProp & 1);
+	bool lit = IsA(prop, RTTI_LIGHTING_PROP);
+	hs->colourProp = prop | (lit ? 0 : 1);
+	return lit;
+}
+
 /* The look colours (2026-11-08a): for each held worn shape with a colour row whose key is on ([Look] PaintWheel for the
  * paint and the rims, PlateColours for the plate and its text), its fixed global's V at 0 or more (CMB_LookPaintV ..
  * CMB_LookPlateTextV; -1 = don't write) and the shape not hidden this frame: BSGeometry +0x138 its BSLightingShaderProperty
- * (refused unless its flags +0x30 have kShaderFlags_GrayscaleToPalette, 0x80000000), +0x58 its material (refused unless
+ * (2026-11-09a, [Look] LightingOnly: refused unless it is one, LookPropLit; refused unless its flags +0x30 have
+ * kShaderFlags_GrayscaleToPalette, 0x80000000), +0x58 its material (refused unless
  * its lookup texture +0x68 is set), whose fLookupScale +0xB8 is written when it isn't the V or the material isn't the one
  * written last (a swap put another), and (review B2) the lookup texture is the V's palette (LookPaletteOf: its NiTexture
  * name +0x10, the file's path; refused when it names another, as the mods' castF_body_worn on paint_p.dds under Free
@@ -10345,10 +11428,15 @@ static void LookColoursFrame(void)
 		if (!(v >= 0.0f))
 			continue;
 		const char *why = NULL;
+		char typeWhy[160];
 		uintptr_t prop = ReadPtr(hs->shape + 0x138), mat = 0;
 		if (!prop)
 			why = "no shader property";
-		else if (!Accessible(prop + 0x30, 8, false) || !(*(const volatile uint64_t *)(prop + 0x30) & 0x80000000ull))
+		else if (g_lookLightingOnly && !LookPropLit(hs, prop)) {   /* 2026-11-09a ([Look] LightingOnly, the checker's finding 3) */
+			const char *type = ObjectTypeName(prop);
+			snprintf(typeWhy, sizeof(typeWhy), "its shader property is %s, not a lighting one", type ? type : "of no type the game names");
+			why = typeWhy;
+		} else if (!Accessible(prop + 0x30, 8, false) || !(*(const volatile uint64_t *)(prop + 0x30) & 0x80000000ull))
 			why = "its shader property has no palette flag (0x80000000)";
 		else if (!(mat = ReadPtr(prop + 0x58)))
 			why = "no material";
@@ -10448,7 +11536,20 @@ static void FrameTilt(void)
 		float barTarget = g_partsOk ? -g_barAngle * f * (1.0f - (1.0f - g_barAtSpeed) * atSpeed) : 0.0f;
 		g_barNow += (barTarget - g_barNow) * (1.0f - expf(-g_frameDt / 0.15f));
 		if (g_partsOk) {
-			g_wheelAngle -= g_speedAlong / g_wheelRadius * g_frameDt;   /* forward: the top of the wheel goes forward */
+			/* 2026-11-09a (test 50: the wheels went 2.23 rad, 67 units of rim, for the last 7 units of road, the 0.2 s speed running
+			 * down after the bike stood still): WheelSpin, by the frame's own movement along the heading (the distance the bike
+			 * really moved: they stop on the frame it stops), none under WheelStill (the capsule's settling), the 0.05 s speed with
+			 * no frame value (the steering off); WheelLock, none in a frame the brake rule holds (BrakeRule: back or the brake key
+			 * going forward faster than 10; reversing isn't braking). Both off: by the 0.2 s speed, as the 2026-11-08a build. */
+			float spin = g_speedAlong;
+			if (g_wheelSpin) {
+				spin = g_alongFrameAt == g_clock ? g_alongFrame : g_speedAlongFast;
+				if (fabsf(spin) < g_wheelStill)
+					spin = 0.0f;
+			}
+			if (g_wheelLock && g_brakeRawAt == g_clock)
+				spin = 0.0f;
+			g_wheelAngle -= spin / g_wheelRadius * g_frameDt;   /* forward: the top of the wheel goes forward */
 			if (g_wheelAngle > 3.14159265f)
 				g_wheelAngle -= 6.2831853f;
 			else if (g_wheelAngle < -3.14159265f)
@@ -12053,7 +13154,8 @@ static void RoomWriteOptions(void)
 		Log("room: no CMB_RoomAskKind (an older ESP): no navmesh point asked for (SnapSpot)");
 	}
 	SetGlobal(g_roomMoreGlobals[0], (float)((g_roomAround ? 1 : 0) + (g_roomLineFallback ? 0 : 2) + (g_roomParkCheck ? 4 : 0) + (g_roomSnapNext ? 8 : 0) +
-	                                        (g_roomSnapSpot && g_roomKindGlobal ? 16 : 0) + (g_roomSnapBest && g_roomSnapSpot && g_roomKindGlobal ? 32 : 0)));   /* 2026-11-06a: bit 32 SnapBest (it asks SnapSpot's navmesh point) */
+	                                        (g_roomSnapSpot && g_roomKindGlobal ? 16 : 0) + (g_roomSnapBest && g_roomSnapSpot && g_roomKindGlobal ? 32 : 0) +   /* 2026-11-06a: bit 32 SnapBest (it asks SnapSpot's navmesh point) */
+	                                        (g_roomSnapOrder ? 64 : 0) + (g_roomParkBack ? 128 : 0) + (g_roomParkGuard && g_roomKindGlobal ? 256 + 512 : 0)));   /* 2026-11-09a: bit 64 SnapOrder, 128 ParkBack, 256 ParkGuard (its ask kind 2), 512 its kind 3 (the review of 2026-11-09a) */
 }
 
 /* One spot's look (RoomFrame's; test 46: the asked spot, and with Slide the same moved or turned). */
@@ -12105,6 +13207,123 @@ static void RoomBoxTilt(uintptr_t cell, float x, float y, float groundZ, const f
 		snprintf(r->tiltNote, sizeof(r->tiltNote), "; the box tilted with the ground under its ends (%.0f deg along its heading, %.0f across)", along, across);
 }
 
+/* 2026-11-09a ([Room] ActorRoom and ParkGuard; test 50's crash 0.5 s after the 3rd knock-off, a stack overflow in Havok's
+ * all-hits collector with an NPC's skeleton on the stack: KO1's and KO2's spots read "an actor there (skeleton.nif), passed"
+ * and the bike was enabled there, KO3's put back where it stood unasked). CastRay keeps the first actor (a capsule or a body,
+ * layer 30 or 8) a ground ray passes since g_rayActorObj was cleared: its 3D, its share of the ray, its layer. */
+static uintptr_t g_rayActorObj;
+static float g_rayActorT;
+static uint32_t g_rayActorLayer;
+#define ROOM_ACTOR       -4.0f    /* CMB_RoomClear: an actor in the spot's place (ActorRoom), or someone in the parked bike's (ParkGuard): exact, as -3 */
+#define ROOM_GRID_ALONG  3        /* the actor grid's rays down: Fore/3 apart from -Fore to +Fore (7) */
+#define ROOM_GRID_TOP    250.0f   /* ... from this far over the spot's ground (over an NPC's capsule: a ray that starts inside one doesn't meet it) */
+#define ROOM_GRID_FOOT   10.0f    /* ... to this far under it */
+#define ROOM_GRID_GROUND 15.0f    /* what a ray down meets within this of the ground is the ground (or lies on it): the ray ends */
+
+/* The actor (not the player) whose 3D a ray met, by ActorFor3D; 0 none. */
+static uintptr_t RoomActorOf(uintptr_t obj)
+{
+	char why[200];
+	return obj ? ActorFor3D(obj, why, sizeof(why)) : 0;
+}
+
+/* What the spot's own rays met of an actor: the first, the ray (-1 the ground ray at the spot, 0-7 the level ones, 8 the ray up,
+ * 9 the grid's), its share of that ray, and where for the line. */
+typedef struct {
+	uintptr_t ref;
+	const char *what;
+	uint32_t layer;
+	int ray;
+	float t;
+	char where[96];
+} RoomActorMet;
+
+static void RoomActorTake(RoomActorMet *m, int ray, float reach, const char *rayName, bool box)
+{
+	if (m->ref || !g_rayActorObj)
+		return;
+	uintptr_t actor = RoomActorOf(g_rayActorObj);
+	if (!actor)
+		return;   /* the player, or a body that isn't an actor's: passed, as before */
+	m->ref = actor;
+	m->what = ObjectName(g_rayActorObj);
+	m->layer = g_rayActorLayer;
+	m->ray = ray;
+	m->t = g_rayActorT;
+	if (ray < 0)
+		snprintf(m->where, sizeof(m->where), "met by the ray down at the spot");
+	else if (ray == 8)
+		snprintf(m->where, sizeof(m->where), "met %.0f up", g_rayActorT * reach);
+	else if (box)
+		snprintf(m->where, sizeof(m->where), "met %.0f along %s (of %.0f)", g_rayActorT * reach, rayName, reach);
+	else
+		snprintf(m->where, sizeof(m->where), "met %.0f along %s", g_rayActorT * reach, rayName);
+}
+
+/* "37 ahead of its middle, 40 to its right" (a place in a box along its heading, for the lines). */
+static void RoomWhereWords(char *out, size_t size, float along, float across)
+{
+	char a[48], c[48];
+	if (fabsf(along) < 0.5f)
+		snprintf(a, sizeof(a), "at its middle");
+	else
+		snprintf(a, sizeof(a), "%.0f %s its middle", fabsf(along), along > 0.0f ? "ahead of" : "behind");
+	if (fabsf(across) < 0.5f)
+		snprintf(c, sizeof(c), "0 across");
+	else
+		snprintf(c, sizeof(c), "%.0f to its %s", fabsf(across), across > 0.0f ? "right" : "left");
+	snprintf(out, size, "%s, %s", a, c);
+}
+
+/* One of the actor grid's rays: straight down at (x, y) from ROOM_GRID_TOP over groundZ to ROOM_GRID_FOOT under it, actors solid
+ * (CastRay). What it meets over the ground that isn't an actor (a branch, a sign, the player's own capsule) is passed on from,
+ * so an NPC under a tree is still met; the ground ends it. The actor (0: none), its 3D's name and layer. */
+static uintptr_t RoomGridRay(uintptr_t cell, float x, float y, float groundZ, const char **what, uint32_t *layer)
+{
+	float a[3] = { x, y, groundZ + ROOM_GRID_TOP }, b[3] = { x, y, groundZ - ROOM_GRID_FOOT };
+	int letBy = g_rayLetByCount;
+	g_rayLetByCount = 0;   /* an actor the bike is to knock over is still someone here */
+	uintptr_t found = 0;
+	for (int tries = 0; tries < 6 && a[2] > b[2]; tries++) {
+		float f = CastRay(cell, a, b);
+		if (!(f > 0.0f && f < 1.0f))
+			break;
+		float z = a[2] + (b[2] - a[2]) * f;
+		uintptr_t actor = RoomActorOf(g_rayObj);
+		if (actor) {
+			found = actor;
+			*what = g_rayWhat && *g_rayWhat ? g_rayWhat : "unnamed";
+			*layer = g_rayLayer;
+			break;
+		}
+		if (z <= groundZ + ROOM_GRID_GROUND)
+			break;
+		a[2] = z - 2.0f;
+	}
+	g_rayLetByCount = letBy;
+	return found;
+}
+
+/* ActorRoom's grid over a box at (x, y) along heading h, Fore by Side grown by grow: 7 rays along (Fore/3 apart) by 3 across
+ * (-Side, 0, +Side). The first actor met (0 none), and where in the box; *cast the rays cast. */
+static uintptr_t RoomActorGrid(uintptr_t cell, float x, float y, float groundZ, float h, float grow, const char **what, uint32_t *layer, float *along, float *across, int *cast)
+{
+	float fw[2] = { sinf(h), cosf(h) }, rt[2] = { cosf(h), -sinf(h) }, fore = g_roomFore + grow, side = g_roomSide + grow;
+	*cast = 0;
+	for (int i = -ROOM_GRID_ALONG; i <= ROOM_GRID_ALONG; i++)
+		for (int j = -1; j <= 1; j++) {
+			float u = fore * (float)i / (float)ROOM_GRID_ALONG, v = side * (float)j;
+			(*cast)++;
+			uintptr_t actor = RoomGridRay(cell, x + u * fw[0] + v * rt[0], y + u * fw[1] + v * rt[1], groundZ, what, layer);
+			if (actor) {
+				*along = u;
+				*across = v;
+				return actor;
+			}
+		}
+	return 0;
+}
+
 /* The spot (x, y) asked at height z along deg (box: as a bike-shaped box along it; else the eight
  * rays): its ground, the line from the player, the slope, the box. The rays are ready. navPoint
  * (2026-11-01a, [Room] SnapSpot: the controller's CMB_RoomAskKind 1, with Line; test 47's call from
@@ -12119,6 +13338,9 @@ static void RoomLook(uintptr_t player, uintptr_t cell, float x, float y, float z
 	memset(r, 0, sizeof(*r));
 	r->nearI = -1;
 	g_rayActorPassed = NULL;
+	g_rayActorObj = 0;   /* 2026-11-09a: ActorRoom */
+	RoomActorMet met;
+	memset(&met, 0, sizeof(met));
 	const float *pos = (const float *)(player + OFF_REFR_POS);
 	bool sloped = g_roomLine > 0.0f && g_roomGroundSlope > 0.0f;
 	float slopeTan = sloped ? tanf(g_roomGroundSlope * (3.14159265f / 180.0f)) : 0.0f;
@@ -12136,6 +13358,8 @@ static void RoomLook(uintptr_t player, uintptr_t cell, float x, float y, float z
 	float pointReach = navPoint && g_roomLine > 0.0f && g_roomSnapDrop > ROOM_GROUND_REACH ? g_roomSnapDrop : ROOM_GROUND_REACH;   /* the deepest a navmesh point's ground may lie under the player's */
 	float a[3] = { x, y, z + ROOM_GROUND_REACH }, b[3] = { x, y, z - reachBelow };
 	float f = CastRayGround(cell, a, b);
+	if (g_roomActorRoom)
+		RoomActorTake(&met, -1, 0.0f, "", box);
 	if (!(f > 0.0f && f < 1.0f)) {
 		r->clear = -1.0f;
 		if (dropDeeper)
@@ -12301,7 +13525,7 @@ static void RoomLook(uintptr_t player, uintptr_t cell, float x, float y, float z
 	if (box) {
 		float h = deg * (3.14159265f / 180.0f), fw[2] = { sinf(h), cosf(h) }, rt[2] = { cosf(h), -sinf(h) };
 		if (g_roomTilted && sloped)   /* with Line and GroundSlope, as the slope's allowance */
-			RoomBoxTilt(cell, x, y, groundZ, fw, rt, slopeTan, r);
+			RoomBoxTilt(cell, x, y, groundZ, fw, rt, slopeTan, r);   /* an actor its rays pass isn't the box's (g_rayActorObj cleared before each own ray) */
 		for (int i = 0; i < 8; i++) {
 			float v[3] = { g_roomBoxSigns[i][0] * g_roomFore * fw[0] + g_roomBoxSigns[i][1] * g_roomSide * rt[0],
 			               g_roomBoxSigns[i][0] * g_roomFore * fw[1] + g_roomBoxSigns[i][1] * g_roomSide * rt[1],
@@ -12327,7 +13551,10 @@ static void RoomLook(uintptr_t player, uintptr_t cell, float x, float y, float z
 	for (int i = 0; i < 9; i++) {
 		float reach = i < 8 ? reaches[i] : ROOM_HEADROOM;
 		float c[3] = { eye[0] + (i < 8 ? dirs[i][0] * reach : 0.0f), eye[1] + (i < 8 ? dirs[i][1] * reach : 0.0f), eye[2] + (i < 8 ? dirs[i][2] * reach : reach) };
+		g_rayActorObj = 0;
 		float g = CastRayGround(cell, eye, c);
+		if (g_roomActorRoom)
+			RoomActorTake(&met, i, reach, names[i], box);
 		if (!(g > 0.0f && g < 1.0f))
 			continue;
 		/* Test 43's scaled Clear: a box ray's hit is judged by how far along the ray it
@@ -12349,6 +13576,24 @@ static void RoomLook(uintptr_t player, uintptr_t cell, float x, float y, float z
 	}
 	r->nearI = nearI;
 	r->nearG = nearG;
+	/* 2026-11-09a, ActorRoom: with a heading, 21 rays down over the box, actors solid (a capsule of 18 at 45 deg 35 out falls
+	 * between the box's corner and side rays). */
+	char gridWhere[96] = "";
+	if (g_roomActorRoom && box && !met.ref) {
+		float along = 0.0f, across = 0.0f;
+		int cast = 0;
+		const char *what = NULL;
+		uint32_t layer = 0;
+		uintptr_t actor = RoomActorGrid(cell, x, y, groundZ, deg * (3.14159265f / 180.0f), 0.0f, &what, &layer, &along, &across, &cast);
+		if (actor) {
+			met.ref = actor;
+			met.what = what;
+			met.layer = layer;
+			met.ray = 9;
+			RoomWhereWords(gridWhere, sizeof(gridWhere), along, across);
+			snprintf(met.where, sizeof(met.where), "met by the ray down %s", gridWhere);
+		}
+	}
 	char hit[240] = "";
 	if (nearest >= 0.0f) {
 		if (box && nearI < 8)
@@ -12370,6 +13615,22 @@ static void RoomLook(uintptr_t player, uintptr_t cell, float x, float y, float z
 		r->clear = nearest;
 		snprintf(r->why, sizeof(r->why), "%s", hit);
 		r->slideable = box && nearI < 8;
+	}
+	if (met.ref) {
+		/* 2026-11-09a, ActorRoom: an actor in its place is no room, and no spot a call takes for the most room (-4). Met by one of
+		 * the box's eight rays (the line and the ground passed), [Room] Slide may move it off the actor: each slide is looked at
+		 * in full again. */
+		r->room = false;
+		r->clear = ROOM_ACTOR;
+		snprintf(r->why, sizeof(r->why), "an actor in its place: %08X (%.60s, layer %u), %s (ActorRoom)", *(const uint32_t *)(met.ref + OFF_FORM_ID),
+		         met.what && *met.what ? met.what : "unnamed", met.layer, met.where);
+		r->slideable = box && groundOk && met.ray >= 0 && met.ray < 8;
+		if (r->slideable) {
+			r->nearI = met.ray;
+			r->nearG = met.t;
+		}
+		r->actor = NULL;   /* named in the answer, not "passed" */
+		return;
 	}
 	r->actor = g_rayActorPassed;
 }
@@ -12451,6 +13712,78 @@ static void RoomLogSpot(const char *prefix, const RoomSpot *r, const char *rays,
 		Log("%s: none, %s%s%s%s%s%s", prefix, r->why, actor, rays, r->lineNote, r->tiltNote, park);
 }
 
+/* [Room] ParkGuard (2026-11-09a; CMB_RoomAskKind 2, the controller's EnableParked before every enable of the parked bike, its
+ * hold's polls and the check after its settle): is anyone in the parked bike's place, the box along its heading grown by
+ * GuardMargin? The actor grid over it (21 rays down, actors solid), the box's eight level rays from its middle at ROOM_EYE and at
+ * 20 over its ground (a downed NPC), each ending at what it meets, and the player by where they stand. No one: +n, CMB_RoomClear
+ * the ground's offset as any room; someone: -n, -4; the rays not working: -2. No tilt (CMB_RoomPitch and Roll -1000). The asked
+ * spot is never slid or turned. The review of 2026-11-09a (A1, A2, B1: the player held the bike at the track's park 145 from
+ * their feet, at a call's spot 6 100 ahead, at ParkWhereItStood's 58-73 across, beside the field kit): the player counts only
+ * within the bike's own box (their capsule's radius within Fore and Side, RoomBoxOnPlayer's: ParkWhereItStood's 128 and 58, the
+ * rule the placements keep), GuardMargin grows it for the others; kind 3 (abPlayer false, CMB_RoomOptions bit 512): a place the
+ * script chose clear of the player (getting off's park, a call's or a bring's spot, the guard's own move, the bike again where it
+ * stood): the player not counted. */
+static void RoomGuardAnswer(uintptr_t player, uintptr_t cell, int n, float x, float y, float z, float deg, const char *head, bool abPlayer)
+{
+	char prefix[220];
+	snprintf(prefix, sizeof(prefix), "room: ask %d at (%.0f, %.0f, %.0f)%s (the parked bike's place: ParkGuard%s)", n, x, y, z, head, abPlayer ? "" : ", the player not counted");
+	float clear = -2.0f;
+	bool room = false;
+	if (!RaysReady(player)) {
+		Log("%s: the rays aren't working here (the test ray beside the player): not looked at", prefix);
+	} else {
+		float m = g_roomGuardMargin, h = (isfinite(deg) && deg > ROOM_NO_HEADING ? deg : 0.0f) * (3.14159265f / 180.0f);
+		float fw[2] = { sinf(h), cosf(h) }, rt[2] = { cosf(h), -sinf(h) }, fore = g_roomFore + m, side = g_roomSide + m;
+		float a[3] = { x, y, z + ROOM_GROUND_REACH }, b[3] = { x, y, z - ROOM_GROUND_REACH };
+		float f = CastRayGround(cell, a, b);
+		float groundZ = f > 0.0f && f < 1.0f ? a[2] + (b[2] - a[2]) * f : z;
+		const char *what = NULL;
+		uint32_t layer = 0;
+		float along = 0.0f, across = 0.0f;
+		int down = 0, level = 0;
+		uintptr_t actor = RoomActorGrid(cell, x, y, groundZ, h, m, &what, &layer, &along, &across, &down);
+		int letBy = g_rayLetByCount;
+		g_rayLetByCount = 0;
+		static const float heights[2] = { ROOM_EYE, 20.0f };
+		for (int k = 0; k < 2 && !actor; k++)
+			for (int i = 0; i < 8 && !actor; i++) {
+				float u = g_roomBoxSigns[i][0] * fore, v = g_roomBoxSigns[i][1] * side;
+				float e[3] = { x, y, groundZ + heights[k] }, c[3] = { x + u * fw[0] + v * rt[0], y + u * fw[1] + v * rt[1], groundZ + heights[k] };
+				level++;
+				float g = CastRay(cell, e, c);
+				if (g > 0.0f && g < 1.0f && (actor = RoomActorOf(g_rayObj)) != 0) {
+					what = g_rayWhat && *g_rayWhat ? g_rayWhat : "unnamed";
+					layer = g_rayLayer;
+					along = u * g;
+					across = v * g;
+				}
+			}
+		g_rayLetByCount = letBy;
+		char where[96];
+		const float *pos = (const float *)(player + OFF_REFR_POS);
+		float dx = pos[0] - x, dy = pos[1] - y, pAlong = dx * fw[0] + dy * fw[1], pAcross = dx * rt[0] + dy * rt[1];
+		if (actor) {
+			clear = ROOM_ACTOR;
+			RoomWhereWords(where, sizeof(where), along, across);
+			Log("%s: someone in it: %08X (%.60s, layer %u), %s", prefix, *(const uint32_t *)(actor + OFF_FORM_ID), what && *what ? what : "unnamed", layer, where);
+		} else if (abPlayer && fabsf(pAlong) < g_roomFore + g_capsuleRadius && fabsf(pAcross) < g_roomSide + g_capsuleRadius) {   /* the bike's own box (RoomBoxOnPlayer's) */
+			clear = ROOM_ACTOR;
+			RoomWhereWords(where, sizeof(where), pAlong, pAcross);
+			Log("%s: the player in it, %s", prefix, where);
+		} else {
+			room = true;
+			clear = z - groundZ;
+			Log("%s: no one in it (%d rays down, %d across)", prefix, down, level);
+		}
+	}
+	RoomWriteOptions();
+	SetGlobal(g_roomMoreGlobals[1], ROOM_NO_TILT);
+	SetGlobal(g_roomMoreGlobals[2], ROOM_NO_TILT);
+	SetGlobal(g_roomMoreGlobals[3], 0.0f);
+	SetGlobal(g_roomGlobals[5], clear);
+	SetGlobal(g_roomGlobals[4], room ? (float)n : -(float)n);   /* last: the script reads it first */
+}
+
 /* [Room] Slide (test 46): the box at (x, y) along deg would stand on the player (their capsule
  * within it): such a move or turn isn't tried. */
 static bool RoomBoxOnPlayer(uintptr_t player, float x, float y, float deg)
@@ -12492,6 +13825,11 @@ static void RoomFrame(void)
 	float ago;
 	if (g_roomRaysRetry && RaysUntrustedRetry(&ago))
 		Log("room: ask %d: the rays weren't trusted (the test ray %.1f s ago): tried again for it", n, ago);
+	if ((kind == 2 || kind == 3) && g_roomParkGuard) {   /* 2026-11-09a: the parked bike's guard (ParkGuard), its own answer; kind 3 without the player */
+		g_rayActorObj = 0;
+		RoomGuardAnswer(player, cell, n, x, y, z, deg, head, kind == 2);
+		return;
+	}
 	RoomSpot r, t;
 	memset(&r, 0, sizeof(r));
 	r.clear = -2.0f;
@@ -12508,6 +13846,8 @@ static void RoomFrame(void)
 	char park[160] = "", prefix[160];
 	if ((r.room || (r.cast && r.clear > 0.0f)) && heading && g_roomParkTilt && RoomParkTilt(cell, x, y, r.groundZ, deg, &pitch, &roll, park, sizeof(park)))
 		ground = r.groundZ;
+	else if (g_roomSnapOrder && (r.room || (r.cast && r.clear > 0.0f)))
+		ground = r.groundZ;   /* 2026-11-09a SnapOrder (test 50's truck): the ground without a tilt too, for the script's 3-D snap of the most room */
 	snprintf(prefix, sizeof(prefix), "room: ask %d at (%.0f, %.0f, %.0f)%s", n, x, y, z, head);
 	RoomLogSpot(prefix, &r, raysWord, park);
 	bool room = r.room;
@@ -12536,7 +13876,7 @@ static void RoomFrame(void)
 				fx = sx;
 				fy = sy;
 				pitch = roll = ROOM_NO_TILT;   /* the asked spot's are no longer the answer's */
-				ground = 0.0f;
+				ground = g_roomSnapOrder ? t.groundZ : 0.0f;   /* 2026-11-09a SnapOrder: the answer's own ground, tilted or not */
 				if (g_roomParkTilt && RoomParkTilt(cell, sx, sy, t.groundZ, deg, &pitch, &roll, park, sizeof(park)))
 					ground = t.groundZ;
 			}
@@ -12558,7 +13898,7 @@ static void RoomFrame(void)
 				clear = t.clear;
 				fdeg = td;
 				pitch = roll = ROOM_NO_TILT;
-				ground = 0.0f;
+				ground = g_roomSnapOrder ? t.groundZ : 0.0f;   /* 2026-11-09a SnapOrder */
 				if (g_roomParkTilt && RoomParkTilt(cell, x, y, t.groundZ, td, &pitch, &roll, park, sizeof(park)))
 					ground = t.groundZ;
 			}
@@ -12573,7 +13913,7 @@ static void RoomFrame(void)
 	RoomWriteOptions();
 	SetGlobal(g_roomMoreGlobals[1], pitch);
 	SetGlobal(g_roomMoreGlobals[2], roll);
-	SetGlobal(g_roomMoreGlobals[3], ground);   /* with a tilt (Pitch over -1000): the ground under the spot it's for */
+	SetGlobal(g_roomMoreGlobals[3], ground);   /* with a tilt (Pitch over -1000): the ground under the spot it's for; with SnapOrder also without one (0: none) */
 	SetGlobal(g_roomGlobals[5], clear);
 	SetGlobal(g_roomGlobals[4], room ? (float)n : -(float)n);   /* last: the script reads it first */
 }
@@ -13076,7 +14416,7 @@ static float WallStopNeed(float v)
 {
 	if (!(g_wallStop > 0.0f))
 		return 0.0f;
-	float a = g_wallStop * g_fullSpeed / (g_brake > 0.05f ? g_brake : 0.05f);
+	float a = g_wallStop / (0.5f + 0.5f * g_cautionC) * g_fullSpeed / (g_brake > 0.05f ? g_brake : 0.05f);   /* 2026-11-09a: Caution's copy (c 1: as before) */
 	v = v > 0.0f ? v : 0.0f;
 	return v * v / (2.0f * a) + 0.1f * v + 10.0f;
 }
@@ -13125,6 +14465,8 @@ static void SidestepOffer(uintptr_t cell, const float pos[3], const float fwd[3]
                           const char *what, uint32_t layer, float ahead, float v);   /* 2026-11-06a, defined with FrameSteer */
 static void FaceRays(uintptr_t player, bool onGround)
 {
+	if (g_riding)
+		CautionTick();   /* 2026-11-09a: the MCM's Caution read again once a second */
 	g_faceEase = 1.0f;
 	int seen = g_wallSeen;   /* counts on only through frames whose raw verdict is a wall ahead of the wheel */
 	g_wallSeen = 0;
@@ -13163,7 +14505,7 @@ static void FaceRays(uintptr_t player, bool onGround)
 		g_faceYawAt = now;
 	}
 	float R = g_wheelRadius > 1.0f ? g_wheelRadius : 30.0f, wheelFront = g_frontAxle[1] + R;
-	float v = g_speedAlong > 0.0f ? g_speedAlong : 0.0f, span = v * g_faceLook + 5.0f, L = wheelFront + span;
+	float v = g_speedAlong > 0.0f ? g_speedAlong : 0.0f, faceLook = g_faceLook * g_cautionC, span = v * faceLook + 5.0f, L = wheelFront + span;   /* Caution's copy */
 	/* Two rays: at axle height and at 1.5 radii (test 34's wish: ride over a fallen tree or a
 	 * knee-high stone while slowing). Nothing at axle height: nothing ahead. Something there
 	 * and nothing at 1.5 radii: an obstacle lower than that, ridden over at ObstacleThrottle
@@ -13197,7 +14539,7 @@ static void FaceRays(uintptr_t player, bool onGround)
 	 * be knocked over, to the next (two raiders one behind the other: test 41's check of the
 	 * hits' spacing). */
 	g_rayLetByCount = 0;
-	if (RamReady() && g_ramLook > g_faceLook && v >= 0.8f * RamMinSpeed()) {
+	if (RamReady() && g_ramLook > faceLook && v >= 0.8f * RamMinSpeed()) {
 		float La = wheelFront + v * g_ramLook + 5.0f, a[3], b[3];
 		for (int k = 0; k < 3; k++) {
 			a[k] = pos[k] + up[k] * R;
@@ -13412,10 +14754,14 @@ static void FaceRays(uintptr_t player, bool onGround)
 	 * 62 ahead still gave 26%, and the bike crept on as the need fell to its 10 at rest till the
 	 * front tyre was at the rail and up on it): the ease's need never under a wheel radius and
 	 * WallStopShort past the front wheel's edge, so the tyre stops short of a face. */
-	float needRaw = WallStopNeed(v), need = needRaw;
+	/* 2026-11-09a (Caution under 100 %): the need from the 0.05 s speed (braking, the 0.2 s one lags the true speed by 0.2 s of
+	 * the run-down, 200-300 u/s, and held the throttle at 0 longer than the physics needs); the spans keep the 0.2 s speed.
+	 * WallStopPersist's copy: x c. */
+	float vNeed = g_cautionC < 1.0f ? (g_speedAlongFast > 0.0f ? g_speedAlongFast : 0.0f) : v, persist = g_wallStopPersist * g_cautionC;
+	float needRaw = WallStopNeed(vNeed), need = needRaw;
 	if (need > 0.0f && g_wallStopShort > 0.0f && need < R + g_wallStopShort)
 		need = R + g_wallStopShort;
-	float needFar = need > 0.0f && g_wallStopPersist > 0.0f ? need + g_wallStopPersist * v : need;
+	float needFar = need > 0.0f && persist > 0.0f ? need + persist * v : need;
 	/* Not while the climb's boost is on: a wall verdict from further off would end it (CLIMB_WALL)
 	 * on the way over a trunk; the rays then as in test 46. WallStopClimb (2026-11-01a; test 47's 10 cuts by the longer rays
 	 * forced straight and short while the boost was on, 21% of riding at 700 or more): as without it, their reach, their arc and
@@ -13727,7 +15073,7 @@ static void FaceRays(uintptr_t player, bool onGround)
 		if (g_stopSince < 0.0f || now - g_stopLastAt > 0.1f) {
 			g_stopSince = now;
 			g_stopFarLong = beyond && ahead > span && longer;
-			g_stopFar = g_wallStopPersist > 0.0f && (g_stopFarLong || (g_wallStopNear && needRaw > span && ahead >= g_wallStopPersist * v + R));
+			g_stopFar = persist > 0.0f && (g_stopFarLong || (g_wallStopNear && needRaw > span && ahead >= persist * v + R));
 		}
 		g_stopLastAt = now;
 		g_stopObj = hitObj;
@@ -13745,8 +15091,8 @@ static void FaceRays(uintptr_t player, bool onGround)
 		 * cut at the need at the latest, as test 46's build did with its rays reaching the need.
 		 * One first seen past the extra keeps the whole floor. */
 		bool slack = !g_stopFarLong || ahead > need;
-		if (g_stopFar && stayed < g_wallStopPersist && slack) {
-			float least = 1.0f - 0.5f * stayed / g_wallStopPersist;
+		if (g_stopFar && stayed < persist && slack) {
+			float least = 1.0f - 0.5f * stayed / persist;
 			held = ease < least;
 			ease = held ? least : ease;
 		}
@@ -13754,7 +15100,7 @@ static void FaceRays(uintptr_t player, bool onGround)
 		char more[400] = "";
 		size_t n = 0;
 		if (needUse > need)
-			n += (size_t)snprintf(more + n, sizeof(more) - n, ": %.0f, and %g s of the speed for a wall first seen past FaceLook's reach (WallStopPersist)", need, g_wallStopPersist);
+			n += (size_t)snprintf(more + n, sizeof(more) - n, ": %.0f, and %g s of the speed for a wall first seen past FaceLook's reach (WallStopPersist)", need, persist);
 		if (beyond && g_wallStopReach && longer && n < sizeof(more))
 			n += (size_t)snprintf(more + n, sizeof(more) - n, ", seen by the longer rays, %.0f past it (WallStopReach)", reachX);
 		else if (beyond && n < sizeof(more))
@@ -13762,9 +15108,12 @@ static void FaceRays(uintptr_t player, bool onGround)
 		if (beyond && arcK != 0.0f && n < sizeof(more))
 			n += (size_t)snprintf(more + n, sizeof(more) - n, ", along the turn's arc, %+.0f deg/s (WallStopArc)", g_faceYawRate * 57.29578f);
 		if (held && n < sizeof(more))
-			snprintf(more + n, sizeof(more) - n, "; held to %.0f%% till it has stayed %g s, seen %.2f s (%s)%s", ease * 100.0f, g_wallStopPersist, stayed, g_stopFarLong ? "WallStopPersist" : "WallStopNear",
+			snprintf(more + n, sizeof(more) - n, "; held to %.0f%% till it has stayed %g s, seen %.2f s (%s)%s", ease * 100.0f, persist, stayed, g_stopFarLong ? "WallStopPersist" : "WallStopNear",
 			         g_stopFarLong ? ", or till it is at the need" : "");
-		snprintf(stopNote, sizeof(stopNote), " (a stop from %.0f needs %.0f past the front wheel%s: WallStop)", v, needUse, more);
+		char cautionNote[48] = "";   /* 2026-11-09a */
+		if (g_cautionC < 1.0f)
+			snprintf(cautionNote, sizeof(cautionNote), ", Caution %g%%", g_cautionPct);
+		snprintf(stopNote, sizeof(stopNote), " (a stop from %.0f needs %.0f past the front wheel%s: WallStop%s)", vNeed, needUse, more, cautionNote);
 		if (g_wallStopNarrow > 0.0f && ahead > 0.0f) {   /* WallStopNarrow's word for it */
 			size_t used = strlen(stopNote);
 			if (narrow51)
@@ -13914,6 +15263,8 @@ typedef struct ClimbLineS {
 	bool grazed;                /* nothing at 10, and ground just under the hit at 4: a slope grazed, its angle at most this */
 	float legsSide, legsMetH;   /* ClimbLegs (2026-11-01a): the side (-1 left, +1 right) whose ray across the face passed under it at 4, and the height it met it at (10 or ClimbMaxTop) */
 	bool legsJudged;            /* ... the legs test was made (round at its foot, up to ClimbLegs deg) */
+	float postAt, postZ, postOn;   /* 2026-11-09a ClimbStepSpan: the first ray down between the face and farAt whose ground was under ClimbMaxTop over the foot, past the face (0: none, a step or not judged), that ground (NAN: none), and the last ray still on its top (0: none) */
+	int postRays;               /* ... how many it cast (ClimbStepSpan) */
 	int why;                    /* CLIMB_*: what this line says */
 } ClimbLine;
 
@@ -14280,6 +15631,26 @@ static bool ClimbBeam(uintptr_t cell, const float o[3], const float up[3], const
 		L->layerFar = g_rayLayer;
 	}
 	L->maxWord = L->farZ >= g_climbMaxTop ? MAXTOP_STEP : MAXTOP_BEAM;   /* NAN (no ground) is a beam too */
+	/* 2026-11-09a, ClimbStepSpan (test 50's bridge: an end post 50.3 short of a rail, its own top under 31.9, read a step up by the
+	 * one ray a wheelbase on, which found the rail beyond it; the boost took the bike up the post into the rail): that many rays
+	 * more down between the face and that ray, at equal steps, as it is cast (from its height to ClimbTop + 8 under the foot); each
+	 * must find the ground ClimbMaxTop or more over the foot (the step's top carries on). One that finds less, or none (a drop),
+	 * makes it a beam: a post with a drop behind it, no boost. 0: the one ray (2026-11-08a). */
+	if (L->maxWord == MAXTOP_STEP && g_climbStepSpan > 0) {
+		L->postRays = g_climbStepSpan;
+		for (int k = 1; k <= g_climbStepSpan; k++) {
+			float at = hx + (float)k * (L->farAt - hx) / (float)(g_climbStepSpan + 1);
+			float a2[3] = { o[0] + sh * at, o[1] + ch * at, foot + L->farFrom }, b2[3] = { a2[0], a2[1], foot - h0 };
+			float f2 = CastRayGround(cell, a2, b2), z = f2 > 0.0f && f2 < 1.0f ? a2[2] + (b2[2] - a2[2]) * f2 - foot : NAN;
+			if (!(z >= g_climbMaxTop)) {
+				L->postAt = at - L->d4 * cp;   /* past the face, along the ground */
+				L->postZ = z;
+				L->maxWord = MAXTOP_BEAM;
+				break;
+			}
+			L->postOn = at - L->d4 * cp;
+		}
+	}
 	return L->maxWord == MAXTOP_BEAM;
 }
 
@@ -14407,6 +15778,17 @@ static void ClimbWhy(int why, const ClimbLine *L, float top, char *out, size_t s
 		}
 		char sides[120], tail[120];   /* test 46's rails (NarrowBoth) */
 		NarrowLongWords(L, sides, sizeof(sides), tail, sizeof(tail));
+		if (L && L->postAt > 0.0f) {   /* 2026-11-09a ClimbStepSpan: a step up by the ray a wheelbase on, its own top ending short of it */
+			char postText[120];
+			if (isfinite(L->postZ))
+				snprintf(postText, sizeof(postText), "the ground %.1f over its foot %.0f past it", L->postZ, L->postAt);
+			else
+				snprintf(postText, sizeof(postText), "no ground %.0f past it", L->postAt);
+			snprintf(out, size, "a post with a drop behind it, not a step up: something at %g above the feet %.0f ahead (%s, layer %u; ClimbMaxTop), not round (%.0f deg at its foot) and long "
+			         "(%s%s), its top ending within %.0f past its face (%s; ClimbStepSpan), though a wheelbase on, %.0f ahead, %s%s",
+			         g_climbMaxTop, L->dMax, L->whatMax, L->layerMax, L->angle, sides, heights, L->postAt, postText, L->farAt, farText, tail);
+			break;
+		}
 		snprintf(out, size, "a beam with a drop behind it, not a step up: something at %g above the feet %.0f ahead (%s, layer %u; ClimbMaxTop), not round (%.0f deg at its foot) and long "
 		         "(%s%s), and a wheelbase on, %.0f ahead, %s%s",
 		         g_climbMaxTop, L ? L->dMax : 0.0f, L ? L->whatMax : "unnamed", L ? L->layerMax : 0, L ? L->angle : 0.0f, sides, heights, L ? L->farAt : 0.0f, farText, tail);
@@ -14497,6 +15879,9 @@ static void ClimbOn(const ClimbLine *L, const float pos[3], float nz, float top)
 	else if (L->maxWord == MAXTOP_NARROW)
 		snprintf(maxWord, sizeof(maxWord), "; at %g %.0f ahead: narrow, the ray %.0f to the %s passes it%s (ClimbMaxTop%s)", g_climbMaxTop, L->dMax, fabsf(L->narrowAt - L->side),
 		         L->narrowAt > L->side ? "right" : "left", hwText, L->narrowN > 1 ? ", NarrowHeights" : "");
+	else if (L->maxWord == MAXTOP_STEP && L->postRays > 0)   /* 2026-11-09a ClimbStepSpan */
+		snprintf(maxWord, sizeof(maxWord), "; at %g %.0f ahead: a step up, the ground %.1f over the ground at its foot %.0f ahead (ClimbMaxTop), its top carrying on at %d points between (ClimbStepSpan)",
+		         g_climbMaxTop, L->dMax, L->farZ, L->farAt, L->postRays);
 	else if (L->maxWord == MAXTOP_STEP)
 		snprintf(maxWord, sizeof(maxWord), "; at %g %.0f ahead: a step up, the ground %.1f over the ground at its foot %.0f ahead (ClimbMaxTop)", g_climbMaxTop, L->dMax, L->farZ, L->farAt);
 	Log("climb: a low face at the capsule (%s, layer %u)%s: %.0f ahead at 4, %s at 10 (%.0f deg), nothing at %.1f within %.0f%s; the wheels' pitch %.1f, the ground normal %.1f, speed %.0f: the climb limit %.0f -> %.0f",
@@ -14555,6 +15940,31 @@ static void ClimbRefused(int why, const ClimbLine *line, int lines, int best, fl
 	}
 	Log("climb: stopped with forward held (speed %.0f, along %+.0f, the throttle held to %.2f), the ground normal %.1f, the wheels' pitch %.1f: not climbed: %s; the rays: %s",
 	    g_speed, g_speedAlong, g_throttle, NormalDegrees(nz), g_wheelPitch, reason, rays);
+}
+
+/* 2026-11-09a ClimbStepSpan's line: "climb: a low face at the capsule (...): ...; at 18 110 ahead: its top ends within 67 past its
+ * face (the ground 0.0 over its foot 67 past it, 33 past it still on its top), though a wheelbase on, 246 ahead, the ground 50.0
+ * over its foot: a post, not a step (ClimbStepSpan): not climbed with the boost". */
+static void ClimbPostLine(const ClimbLine *L, float top)
+{
+	g_climbPostLoggedAt = (float)g_clock;
+	snprintf(g_climbPostLoggedWhat, sizeof(g_climbPostLoggedWhat), "%s", L->whatMax);
+	char sideText[40] = "", at10[24], postText[120], onText[48] = "";
+	if (L->side != 0.0f)
+		snprintf(sideText, sizeof(sideText), " (the line %.0f to the %s)", fabsf(L->side), L->side > 0.0f ? "right" : "left");
+	if (L->d10 >= 0.0f)
+		snprintf(at10, sizeof(at10), "%.0f", L->d10);
+	else
+		snprintf(at10, sizeof(at10), "nothing");
+	if (isfinite(L->postZ))
+		snprintf(postText, sizeof(postText), "the ground %.1f over its foot %.0f past it", L->postZ, L->postAt);
+	else
+		snprintf(postText, sizeof(postText), "no ground %.0f past it", L->postAt);
+	if (L->postOn > 0.0f)
+		snprintf(onText, sizeof(onText), ", %.0f past it still on its top", L->postOn);
+	Log("climb: a low face at the capsule (%s, layer %u)%s: %.0f ahead at 4, %s at 10 (%.0f deg), nothing at %.1f within %.0f; at %g %.0f ahead: its top ends within %.0f past its face (%s%s), "
+	    "though a wheelbase on, %.0f ahead, the ground %.1f over its foot: a post, not a step (ClimbStepSpan): not climbed with the boost",
+	    L->what4, L->layer4, sideText, L->d4, at10, L->angle, top, L->d4 + 45.0f, g_climbMaxTop, L->dMax, L->postAt, postText, onText, L->farAt, L->farZ);
 }
 
 static void ClimbRays(uintptr_t player, uintptr_t ctrl, bool onGround, float nz)
@@ -14695,6 +16105,11 @@ static void ClimbRays(uintptr_t player, uintptr_t ctrl, bool onGround, float nz)
 			    "(the ray %.0f to the %s across its face passes under it at 4, meets it at %.0f; ClimbLegs): not climbed",
 			    L->what4, L->layer4, sideText, L->d4, L->d10, L->angle, top, L->d4 + 45.0f, g_climbMaxTop, L->dMax, 2.0f * g_capsuleRadius, L->legsSide > 0.0f ? "right" : "left", L->legsMetH);
 		}
+		/* 2026-11-09a ClimbStepSpan (test 50's end post, met at 928 and never stalled): a line of its own while not stalled, as
+		 * ClimbLegs' (stalled, ClimbRefused says why), once per object per 2 s. */
+		if (L->why == CLIMB_BEAM && L->postAt > 0.0f && !stalled && (clock - g_climbPostLoggedAt >= 2.0f || strcmp(g_climbPostLoggedWhat, L->whatMax) != 0) &&
+		    LogHandTake(&g_climbHand))
+			ClimbPostLine(L, top);
 		/* Test 45's guard rail lying on the ground (ClimbBeamLow): a face under ClimbMaxTop that
 		 * everything else would climb, judged last (its rays only then). */
 		if (L->why == CLIMB_OK && maxCast && L->dMax < 0.0f && g_climbBeamLow > 0.0f && g_climbBeamLow < g_climbMaxTop &&
@@ -14854,12 +16269,13 @@ static float g_fxWaterGain = 0.0f, g_fxWaterGainF = 1.0f;
  * (speed / WaterSpeedFull)^WaterCurve (the pitch stays linear in the speed); with WaterSpeedFull 900 and WaterCurve 2, -2.6 dB
  * at 750, -8.8 at 450, -12.3 at 300. WaterSpeedFull=600 with WaterCurve=1: the 2026-11-02a build's law exactly. WaterChurnDb
  * and WaterRoadDb (dB, -40 to 12): the trim of the loop the MCM's "Water sound loop" (CMB_FxWaterLoop, FX_WATER_LOOP_ID) picked,
- * 1 the game's churn, 2 the mod's own wet road, taken from the global at each take-over (g_fxwTrimF); 0, any other value or no
- * global (an older ESP): untrimmed, the 2026-11-02a build's. */
+ * 1 the game's churn, 2 the mod's own wet road, 3 its gentle loop (the 2026-11-09a build: by WaterRoadDb as 2), taken from the
+ * global at each take-over (g_fxwTrimF); 0, any other value or no global (an older ESP): untrimmed, the 2026-11-02a build's. */
 static float g_fxWaterCurve = 2.0f, g_fxWaterChurnDb = -8.0f, g_fxWaterRoadDb = 0.0f;
 static float g_fxwTrimF = 1.0f;
 
-/* The 2026-11-06a build's second [Fx] line (the first keeps its words): the water law's curve and the loops' trims. */
+/* The 2026-11-06a build's second [Fx] line (the first keeps its words): the water law's curve and the loops' trims. The
+ * 2026-11-09a build names the gentle wet road (3) beside the wet road (2): WaterRoadDb trims both (FxWaterTrim). */
 static void FxWaterLawLine(const char *again)
 {
 	char law[96];
@@ -14867,7 +16283,7 @@ static void FxWaterLawLine(const char *again)
 		snprintf(law, sizeof(law), "the water's level by (speed / WaterSpeedFull)^%g", g_fxWaterCurve);
 	else
 		snprintf(law, sizeof(law), "the speed's share linear, as the 2026-11-02a build");
-	Log("  fx: WaterCurve=%g WaterChurnDb=%g WaterRoadDb=%g: %s; the churn (CMB_FxWaterLoop 1) %+g dB, the wet road (2) %+g dB, the spray (0) untrimmed%s",
+	Log("  fx: WaterCurve=%g WaterChurnDb=%g WaterRoadDb=%g: %s; the churn (CMB_FxWaterLoop 1) %+g dB, the wet road (2) and the gentle wet road (3) %+g dB, the spray (0) untrimmed%s",
 	    g_fxWaterCurve, g_fxWaterChurnDb, g_fxWaterRoadDb, law, g_fxWaterChurnDb, g_fxWaterRoadDb, again);
 }
 
@@ -17111,6 +18527,11 @@ static float CastRay(uintptr_t cell, const float a[3], const float b[3])
 		lastActor = body;
 		if (body)
 			g_rayActorPassed = g_rayWhat && *g_rayWhat ? g_rayWhat : "unnamed";
+		if (body && !g_rayActorObj && g_rayObj) {   /* 2026-11-09a (ActorRoom): the first actor since the room's look cleared it, and where */
+			g_rayActorObj = g_rayObj;
+			g_rayActorT = t;
+			g_rayActorLayer = g_rayLayer;
+		}
 		if (actor) {
 			if (g_trace && g_clock - g_actorPassedLogged >= 1.0f) {   /* a clock of its own: an actor by the wheels every frame mustn't hide the other passes */
 				g_actorPassedLogged = g_clock;
@@ -18244,6 +19665,8 @@ static void FrameSteer(void)
 			float along = (dx * sinf(g_steerHeading) + dy * cosf(g_steerHeading)) / g_frameDt;
 			g_speedAlong += (along - g_speedAlong) * k;
 			g_speedAlongFast += (along - g_speedAlongFast) * (1.0f - expf(-g_frameDt / 0.05f));
+			g_alongFrame = along;   /* 2026-11-09a ([Parts] WheelSpin): the wheels turn by the frame's own movement */
+			g_alongFrameAt = g_clock;
 		}
 	}
 	memcpy(g_steerPos, pos, sizeof(g_steerPos));
@@ -18608,6 +20031,11 @@ typedef struct {
 	int stopShift;                              /* the 2026-11-01a build: a stop's down-shifts each blipped (0: the 2026-10-31a build's) */
 	float heardStop, heardBrake;                /* u/s^2: the heard speed's fall toward a slower bike, the throttle shut (coasting, braking) */
 	float stopGap, stopHold, stopAfter;         /* s between a stop's down-shifts; the clutch's wait for the last blip; a coast's start */
+	/* the 2026-11-09a build (test 50: 3rd gear pinned at 1.26 s, shorter than 2nd): per gear, the heard speed's rise x heardRise (the
+	 * rise only: the slip's and heardLead's and the up-shift's "faster than heardRise" keep the plain one; 1 = the 2026-11-08a build's)
+	 * and the least time in the gear before its up-shift (0: minShiftGap, the 2026-11-08a build's); the counts as given (the line's) */
+	float heardRiseGears[ENGINE_MAX_GEARS], shiftGapGears[ENGINE_MAX_GEARS];
+	int heardRiseGearsN, shiftGapGearsN;
 } EngineCfg;
 
 typedef struct {
@@ -18670,6 +20098,16 @@ static void EngineDefaults(EngineCfg *c)
 	c->launchFlare = 0.5f; c->launchFlareTime = 1.2f;   /* the 2026-11-06a build; launchFlare 0: the 2026-11-02a build's */
 	c->downHold = 1.0f; c->downHeld = 1;
 	c->stopShift = 1; c->heardStop = 300.0f; c->heardBrake = 600.0f; c->stopGap = 0.4f; c->stopHold = 0.4f; c->stopAfter = 0.3f;   /* the 2026-11-01a build; stopShift 0: the 2026-10-31a build's */
+	{   /* the 2026-11-09a build (test 51: 1st < 2nd < 3rd): HeardRiseGears 2.5,0.95,0.5,1 and ShiftGapGears 0,2.0,2.5 (the harness's pull 1.54,
+		 * 2.00, 2.50 s); 1,0.95,0.5,1 and 0,1.5,1.75: as t54-merge (3.83, 1.54, 1.75); 1,1,1,1 and none: the 2026-11-08a build's */
+		static const float rise[] = { 2.5f, 0.95f, 0.5f, 1.0f }, gap[] = { 0.0f, 2.0f, 2.5f };
+		for (i = 0; i < ENGINE_MAX_GEARS; i++) {
+			c->heardRiseGears[i] = i < 4 ? rise[i] : 1.0f;
+			c->shiftGapGears[i] = i < 3 ? gap[i] : 0.0f;
+		}
+		c->heardRiseGearsN = 4;
+		c->shiftGapGearsN = 3;
+	}
 }
 
 static void EngineReset(const EngineCfg *c, EngineState *s)
@@ -18834,7 +20272,10 @@ static void EngineStep(const EngineCfg *c, EngineState *s, const EngineLoop *loo
 	lead = on && s->gear == 0 && (s->launch || s->accS > c->heardRise) ? c->heardLead : 0.0f;
 	if (c->heardSpeed) {
 		if (v + lead > s->vh) {
-			float up = s->vh + c->heardRise * dt;
+			float rise = c->heardRise;
+			if (s->gear >= 0 && s->gear < ENGINE_MAX_GEARS)
+				rise *= c->heardRiseGears[s->gear];   /* the 2026-11-09a build: this gear's share (x 1: the 2026-11-08a build's, bit for bit) */
+			float up = s->vh + rise * dt;
 			s->vh = v + lead < up ? v + lead : up;
 		} else if (on)
 			s->vh = EngineSmooth(s->vh, v + lead, dt, c->heardTau);
@@ -18919,8 +20360,10 @@ static void EngineStep(const EngineCfg *c, EngineState *s, const EngineLoop *loo
 			vg = slip / k;    /* 1st's rpm is the slip's */
 		if (throttle) {
 			float upAt = c->shiftLo + (s->shiftAt - c->shiftLo) * pull;
+			float gap = s->gear >= 0 && s->gear < ENGINE_MAX_GEARS && c->shiftGapGears[s->gear] > 0.0f ? c->shiftGapGears[s->gear]
+			                                                                                             : c->minShiftGap;   /* the 2026-11-09a build: this gear's least time */
 			if (s->gear < top && vg * k > upAt && s->rpm > c->shiftCatch * upAt &&    /* the engine caught up with its gear */
-			    vg * EngineGearK(c, s->gear + 1) > c->downRpm && s->sinceUp >= c->minShiftGap - ENGINE_EPS &&
+			    vg * EngineGearK(c, s->gear + 1) > c->downRpm && s->sinceUp >= gap - ENGINE_EPS &&
 			    s->sinceShift >= c->downGap - ENGINE_EPS &&
 			    (!c->heardSpeed || s->accS > c->heardRise ||    /* the bike's own speed too, but in a real pull */
 			     v * EngineGearK(c, s->gear + 1) > c->downRpm * ENGINE_LAND)) {
@@ -19238,6 +20681,69 @@ static void SoundLoopsText(const SoundSettings *s, char *out, size_t size)
 	}
 }
 
+/* The 2026-11-09a build (test 50: 3rd gear pinned at 1.26 s, shorter than 2nd): [Sound] HeardRiseGears (each gear's heard rise x
+ * HeardRise, 0.05-10, a missing one 1) and ShiftGapGears (each gear's least time before its up-shift, 0-30 s, 0 or missing
+ * MinShiftGap), 8 at most. A missing key keeps the code's default; an empty one is the 2026-11-08a build's (1,1,... and none). */
+static void ReadGearSettings54(const char *ini, EngineCfg *c, char *bad, size_t badSize)
+{
+	static const char *const keys[2] = { "HeardRiseGears", "ShiftGapGears" };
+	static const float lo[2] = { 0.05f, 0.0f }, hi[2] = { 10.0f, 30.0f }, fill[2] = { 1.0f, 0.0f };
+	float *out[2] = { c->heardRiseGears, c->shiftGapGears };
+	int *count[2] = { &c->heardRiseGearsN, &c->shiftGapGearsN };
+	char value[256];
+	for (int k = 0; k < 2; k++) {
+		GetPrivateProfileStringA("Sound", keys[k], "\x01", value, sizeof(value), ini);
+		if (value[0] == '\x01' && !value[1])
+			continue;   /* no key: the code's default */
+		float g[ENGINE_MAX_GEARS];
+		int n = ParseNumbers(value, g, ENGINE_MAX_GEARS, lo[k], hi[k]);
+		bool blank = true;
+		for (const char *p = value; *p; p++)
+			if (*p != ' ' && *p != '\t')
+				blank = false;
+		if (n == 0 && !blank) {
+			snprintf(bad + strlen(bad), badSize - strlen(bad), " %s (numbers %g-%g, 8 at most)", keys[k], (double)lo[k], (double)hi[k]);
+			continue;
+		}
+		for (int i = 0; i < ENGINE_MAX_GEARS; i++)
+			out[k][i] = i < n ? g[i] : fill[k];
+		*count[k] = n;
+	}
+}
+
+static void LogGearSettings54(const EngineCfg *c, bool log)
+{
+	char rise[120] = "", gap[120] = "", riseWords[200], gapWords[200];
+	size_t len = 0;
+	for (int i = 0; i < c->heardRiseGearsN && len + 16 < sizeof(rise); i++)
+		len += (size_t)snprintf(rise + len, sizeof(rise) - len, "%s%g", i ? "," : "", (double)c->heardRiseGears[i]);
+	len = 0;
+	for (int i = 0; i < c->shiftGapGearsN && len + 16 < sizeof(gap); i++)
+		len += (size_t)snprintf(gap + len, sizeof(gap) - len, "%s%g", i ? "," : "", (double)c->shiftGapGears[i]);
+	bool riseOn = false, gapOn = false;
+	for (int i = 0; i < c->gearCount && i < ENGINE_MAX_GEARS; i++)
+		riseOn |= c->heardRiseGears[i] != 1.0f;
+	for (int i = 0; i + 1 < c->gearCount && i < ENGINE_MAX_GEARS; i++)
+		gapOn |= c->shiftGapGears[i] > 0.0f;
+	if (riseOn) {
+		len = (size_t)snprintf(riseWords, sizeof(riseWords), "the heard speed's rise by gear");
+		for (int i = 0; i < c->gearCount && i < ENGINE_MAX_GEARS && len + 16 < sizeof(riseWords); i++)
+			len += (size_t)snprintf(riseWords + len, sizeof(riseWords) - len, "%s %g", i ? "," : "", (double)(c->heardRise * c->heardRiseGears[i]));
+		snprintf(riseWords + len, sizeof(riseWords) - len, " u/s^2 (HeardRise x each)");
+	} else
+		snprintf(riseWords, sizeof(riseWords), "the heard speed's rise HeardRise (%g u/s^2) in every gear", (double)c->heardRise);
+	if (gapOn) {
+		len = (size_t)snprintf(gapWords, sizeof(gapWords), "at least");
+		for (int i = 0; i + 1 < c->gearCount && i < ENGINE_MAX_GEARS && len + 16 < sizeof(gapWords); i++)
+			len += (size_t)snprintf(gapWords + len, sizeof(gapWords) - len, "%s %g", i ? "," : "",
+			                        (double)(c->shiftGapGears[i] > 0.0f ? c->shiftGapGears[i] : c->minShiftGap));
+		snprintf(gapWords + len, sizeof(gapWords) - len, " s in gears 1-%d before an up-shift (0 or missing: MinShiftGap)", c->gearCount - 1);
+	} else
+		snprintf(gapWords, sizeof(gapWords), "MinShiftGap (%g s) before every up-shift", (double)c->minShiftGap);
+	Log("  sound: HeardRiseGears=%s ShiftGapGears=%s: %s; %s%s%s", rise, gap, riseWords, gapWords, riseOn || gapOn ? "" : " (as the 2026-11-08a build)",
+	    log ? "" : " (read again on getting on)");
+}
+
 static void ReadSoundSettings(const char *ini, bool log)
 {
 	SoundSettings s;
@@ -19374,6 +20880,7 @@ static void ReadSoundSettings(const char *ini, bool log)
 				snprintf(bad + strlen(bad), sizeof(bad) - strlen(bad), " %s (two rising numbers)", keys[i]);
 		}
 	}
+	ReadGearSettings54(ini, c, bad, sizeof(bad));
 	GetPrivateProfileStringA("Sound", "Loops", kSndLoopsDefault, value, sizeof(value), ini);
 	s.loopCount = ParseSoundLoops(value, s.loops);
 	if (!s.loopCount) {
@@ -19449,6 +20956,7 @@ static void ReadSoundSettings(const char *ini, bool log)
 	    c->launchFlare > 0.0f ? "a launch press revs the slip LaunchFlare over itself, fading out over LaunchFlareTime s (the gears as before)"
 	                          : "no launch rev (LaunchFlare=0, as the 2026-11-02a build)",
 	    log ? "" : " (read again on getting on)");
+	LogGearSettings54(c, log);   /* the 2026-11-09a build: a seventh line, so no earlier line's words change */
 }
 
 /* --- The Address Library for the sound: read the first time a set of loops is offered (not at
@@ -20275,10 +21783,44 @@ static void GraphRecord(int ev, int sent, int why)
 	InterlockedExchange(&r->seq, s);
 }
 
+/* 2026-11-09a, [Steer] UseListen (test 50: no use idle's event ever came through slot 1): in the window an item's cue opens,
+ * every name through the slot, its time and the original's answer, into a ring of 32 the main thread reads (UseStopFrame).
+ * Any thread; no logging, no allocation. */
+#define USE_LISTEN_RING 32
+typedef struct {
+	LONG volatile seq;
+	double at;
+	bool answer;
+	char name[48];
+} UseListenEv;
+static UseListenEv g_useListenRing[USE_LISTEN_RING];
+static LONG volatile g_useListenNext;
+static LONG g_useListenRead;
+static double volatile g_useListenUntil = -1.0;   /* the window's end (SecondsNow; -1 none): written by the main thread, an aligned double */
+
+static void UseListenRecord(uintptr_t entry, bool answer)
+{
+	const char *text = GraphEntryText(entry);
+	LONG k = InterlockedIncrement(&g_useListenNext);
+	UseListenEv *e = &g_useListenRing[k % USE_LISTEN_RING];
+	InterlockedExchange(&e->seq, 0);
+	MemoryBarrier();
+	e->at = SecondsNow();
+	e->answer = answer;
+	size_t lim = text ? (ReadableNow((uintptr_t)text, 48) ? 47 : 23) : 0, i = 0;
+	for (; i < lim && text[i]; i++)
+		e->name[i] = text[i];
+	e->name[i] = 0;
+	if (!text)
+		snprintf(e->name, sizeof(e->name), "(no text)");
+	MemoryBarrier();
+	InterlockedExchange(&e->seq, k);
+}
+
 /* The wrapper. Off the bike, or another holder than the player's: one test and the game's own. Riding, a landing or fall
  * event is recorded, a soft landing's entry kept if none is yet, and with LandSoft=1 a hard one passed on as the soft
  * one's entry (the caller's string is never written). No logging, no allocation: it may run off the main thread. */
-static bool HookGraphNotify(uintptr_t self, const void *name)
+static bool HookGraphNotifyRiding(uintptr_t self, const void *name)
 {
 	if (!g_riding || self != g_graphHolder || !name || ((uintptr_t)name & 7) || !ReadableNow((uintptr_t)name, 8))
 		return g_origGraphNotify(self, name);
@@ -20322,6 +21864,15 @@ static bool HookGraphNotify(uintptr_t self, const void *name)
 	}
 	GraphRecord(ev, sent, why);
 	return g_origGraphNotify(self, pass);
+}
+
+/* The slot's wrapper: the riding one's answer, and in UseListen's window the name and that answer listed (2026-11-09a). */
+static bool HookGraphNotify(uintptr_t self, const void *name)
+{
+	bool answer = HookGraphNotifyRiding(self, name);
+	if (g_useListenUntil > 0.0 && g_riding && self == g_graphHolder && name && !((uintptr_t)name & 7) && ReadableNow((uintptr_t)name, 8) && SecondsNow() < g_useListenUntil)
+		UseListenRecord(*(const uintptr_t *)name, answer);
+	return answer;
 }
 
 /* The Address Library's BSStringPool::GetEntry, only when the library matches this game (the first five of the sound's
@@ -20399,6 +21950,263 @@ static void GraphNamePool(void)
 		Log("graph: the soft landings named from the string pool (jumpLandToRun +0x%llX, jumpLand +0x%llX)", (unsigned long long)g_landSoftEntry[0], (unsigned long long)g_landSoftEntry[1]);
 	else
 		Log("graph: the soft landings not named by the pool (GetEntry gave no entry with their text): from the game's own first ones");
+}
+
+/* ---- 2026-11-09a (test 50, b): UseListen's window and UseStop -----------------------------------------------------------
+ * UseStop: at an item's use clip's start at speed (the knees off the seat, or the hands off the grips in UseFrame's watch, at
+ * UseBlockAbove or more, with an item's cue: new plain shapes on the rider, the props, within 0.5 s, or CMB_RiderItemUse
+ * within UseLetGo s), the names sent to the graph in turn through the original slot 1 (as Debug.SendAnimationEvent, without
+ * Papyrus's latency), the first the graph takes ending it: the checker's IdleStop is the graph's own way out of an idle. Then
+ * 0.25 s watched for the clip's end. This works whatever path the idle came by (test 50's never passed slot 1). The names'
+ * entries are the string pool's, as LandSoftNames=pool takes them, a reference of ours kept on each. */
+static uintptr_t g_useStopEntry[USE_STOP_MAX];   /* the pool's entries (ours: a reference held for the session) */
+static char g_useStopTaken[USE_STOP_MAX][48];    /* the names they were taken for */
+static int g_useStopReady;                       /* entries ready (0: UseStop empty, or no pool) */
+static bool g_useStopPoolTried, g_useStopPoolOk; /* the Address Library looked at, once a session */
+static uint64_t g_useStopPoolRva;
+static float g_usItemSeen = NAN, g_usItemAt = -100.0f, g_usPropsAt = -100.0f;   /* CMB_RiderItemUse as last read (NAN: the ride's start), its last change, the props' */
+static char g_usItemWord[48], g_usProps[64];
+static bool g_usFired, g_usWatch, g_usHands, g_usHolderSaid;   /* sent this clip; watching for its end; started by the hands (no knees); "not wrapped" said */
+static float g_usFiredAt, g_usSpeed;
+static int g_usTaken;                            /* the name the graph took (-1 none) */
+static char g_usLine[400];                       /* the line's start, ended when the watch ends */
+/* UseListen's window (the main thread's side). */
+static bool g_ulOn;
+static double g_ulFrom;
+static float g_ulSpeed;
+static char g_ulWhat[96];
+#define UL_NAMES 12
+static char g_ulName[UL_NAMES][48];
+static int g_ulCount[UL_NAMES], g_ulNames, g_ulAll, g_ulLost, g_ulRefused;
+
+static void UseListenEnd(void);
+
+static void UseStopProps(float now, const char *name)
+{
+	g_usPropsAt = now;
+	snprintf(g_usProps, sizeof(g_usProps), "%.60s", name);
+	char what[96];
+	snprintf(what, sizeof(what), "the props (%.60s)", name);
+	UseListenCue(now, what);
+}
+
+static void UseStopRideStart(void)
+{
+	if (g_ulOn)
+		UseListenEnd();   /* a window the last ride's end cut short */
+	g_usItemSeen = NAN;
+	g_usItemAt = g_usPropsAt = -100.0f;
+	g_usFired = g_usWatch = false;
+	g_useListenUntil = -1.0;
+	g_ulOn = false;
+	g_useListenRead = g_useListenNext;
+	int n = g_useStopCount, same = n == g_useStopReady;
+	for (int k = 0; k < n && same; k++)
+		same = strcmp(g_useStopTaken[k], g_useStopNames[k]) == 0;
+	if (same && (n == 0 || g_useStopReady))
+		return;
+	g_useStopReady = 0;
+	if (!n)
+		return;
+	char why[MAX_PATH + 160] = "";
+	if (!g_useStopPoolTried) {
+		g_useStopPoolTried = true;
+		g_useStopPoolOk = GraphPoolRva(&g_useStopPoolRva, why, sizeof(why));
+		if (!g_useStopPoolOk) {
+			Log("rider: UseStop off: no string pool for its events (%s)", why);
+			return;
+		}
+	}
+	if (!g_useStopPoolOk)
+		return;
+	PoolGetEntryFn get = (PoolGetEntryFn)(g_base + (uintptr_t)g_useStopPoolRva);
+	char list[200] = "";
+	for (int k = 0; k < n; k++) {
+		uintptr_t e = 0;
+		get(&e, g_useStopNames[k], false);
+		const char *text = e ? GraphEntryText(e) : NULL;
+		if (!text || _strnicmp(text, g_useStopNames[k], strlen(g_useStopNames[k]) + 1) != 0) {
+			Log("rider: UseStop off: the string pool gave no entry with the text %s", g_useStopNames[k]);
+			g_useStopReady = 0;
+			return;
+		}
+		g_useStopEntry[k] = e;   /* GetEntry's reference is ours: never let go */
+		snprintf(g_useStopTaken[k], sizeof(g_useStopTaken[k]), "%s", g_useStopNames[k]);
+		snprintf(list + strlen(list), sizeof(list) - strlen(list), "%s%s +0x%llX", k ? ", " : "", g_useStopNames[k], (unsigned long long)e);
+	}
+	g_useStopReady = n;
+	Log("rider: UseStop's events from the string pool (BSStringPool::GetEntry +0x%llX): %s", (unsigned long long)g_useStopPoolRva, list);
+}
+
+/* CMB_RiderItemUse's change (a cue for both). */
+static void UseStopItemRead(float now)
+{
+	if (!g_itemUseGlobal)
+		return;
+	float v = GlobalValue(g_itemUseGlobal);
+	if (isnan(g_usItemSeen)) {
+		g_usItemSeen = v;   /* the ride's start: the count as it stands is no item of this ride */
+		return;
+	}
+	if (v == g_usItemSeen)
+		return;
+	g_usItemSeen = v;
+	g_usItemAt = now;
+	snprintf(g_usItemWord, sizeof(g_usItemWord), "CMB_RiderItemUse %g", v);
+	UseListenCue(now, g_usItemWord);
+}
+
+static void UseListenCue(float now, const char *what)
+{
+	(void)now;
+	if (!(g_useListen > 0.0f) || !g_graphHolder)
+		return;
+	double t = SecondsNow();
+	if (!g_ulOn) {
+		g_ulOn = true;
+		g_ulFrom = t;
+		g_ulSpeed = g_speedAlong;
+		snprintf(g_ulWhat, sizeof(g_ulWhat), "%s", what);
+		g_ulNames = g_ulAll = g_ulLost = g_ulRefused = 0;
+		g_useListenRead = g_useListenNext;   /* what came before the cue isn't the window's */
+	}
+	g_useListenUntil = t + g_useListen;   /* a later cue keeps it open */
+}
+
+static void UseListenEnd(void)
+{
+	char list[400] = "";
+	for (int k = 0; k < g_ulNames; k++)
+		snprintf(list + strlen(list), sizeof(list) - strlen(list), "%s%s %d", k ? ", " : "", g_ulName[k], g_ulCount[k]);
+	char lost[64] = "", of[120];
+	if (g_ulLost)
+		snprintf(lost, sizeof(lost), ", %d more past the ring", g_ulLost);
+	if (g_ulRefused)
+		snprintf(of, sizeof(of), "%d of UseBlockEvents", g_ulRefused);
+	else
+		snprintf(of, sizeof(of), "none of UseBlockEvents");
+	double secs = g_useListenUntil - g_ulFrom;
+	if (g_ulAll)
+		Log("rider: the graph's events through PlayerCharacter's slot 1 in the %.1f s from %s at %.0f u/s (UseListen): %s (%d in all%s; %s)", secs, g_ulWhat, g_ulSpeed, list, g_ulAll, lost, of);
+	else
+		Log("rider: the graph's events through PlayerCharacter's slot 1 in the %.1f s from %s at %.0f u/s (UseListen): none", secs, g_ulWhat, g_ulSpeed);
+	g_ulOn = false;
+	g_useListenUntil = -1.0;
+}
+
+/* The use clip's start (the seat watch's edge: knees; UseFrame's start: the hands or the knees). */
+static void UseStopTrigger(float now, bool knees)
+{
+	UseStopItemRead(now);
+	float above = g_useBlockAbove > 0.0f ? g_useBlockAbove : 150.0f;
+	if (!g_useStopReady || g_usFired || g_speedAlong < above)
+		return;
+	float window = g_useLetGo > 0.0f ? g_useLetGo : 4.0f;
+	bool props = now - g_usPropsAt <= 0.5f, item = now - g_usItemAt <= window;
+	if (!props && !item)
+		return;   /* a hit's stagger: no item's cue */
+	if (!g_origGraphNotify || !g_graphHolder) {
+		if (!g_usHolderSaid) {
+			g_usHolderSaid = true;
+			Log("rider: an item's use clip at %.0f u/s: nothing sent (UseStop): the graph's slot isn't wrapped this session", g_speedAlong);
+		}
+		return;
+	}
+	g_usFired = true;
+	g_usHands = !knees;
+	g_usFiredAt = now;
+	g_usSpeed = g_speedAlong;
+	char cue[160], hands[48] = "the hands off the grips";
+	if (!knees) {
+		float d[2] = { NAN, NAN };
+		if (ClipHandsFromGrips(d, NULL)) {
+			char w[40];
+			UseHandWords(d, w, sizeof(w));
+			snprintf(hands, sizeof(hands), "the hands %s from the grips", w);
+		}
+	}
+	if (props)
+		snprintf(cue, sizeof(cue), "%s %.2f s after its props, %s", knees ? "the knees off the seat" : hands, now - g_usPropsAt, g_usProps);
+	else
+		snprintf(cue, sizeof(cue), "%s %.2f s after %s", knees ? "the knees off the seat" : hands, now - g_usItemAt, g_usItemWord);
+	char sent[160] = "";
+	g_usTaken = -1;
+	for (int k = 0; k < g_useStopReady && g_usTaken < 0; k++) {
+		if (g_origGraphNotify(g_graphHolder, (const void *)&g_useStopEntry[k]))
+			g_usTaken = k;
+		snprintf(sent + strlen(sent), sizeof(sent) - strlen(sent), "%s%s", k ? ", " : "", g_useStopTaken[k]);
+	}
+	if (g_usTaken < 0) {
+		Log("rider: an item's use clip at %.0f u/s (%s): %s sent to the graph (UseStop): none taken: the clip plays (UseHold holds the throttle)", g_usSpeed, cue, sent);
+		return;
+	}
+	if (g_usTaken == 0)
+		snprintf(g_usLine, sizeof(g_usLine), "rider: an item's use clip at %.0f u/s (%s): %s sent to the graph (UseStop): taken", g_usSpeed, cue, g_useStopTaken[0]);
+	else {
+		snprintf(g_usLine, sizeof(g_usLine), "rider: an item's use clip at %.0f u/s (%s): %s sent to the graph (UseStop): not taken", g_usSpeed, cue, g_useStopTaken[0]);
+		for (int k = 1; k < g_usTaken; k++)
+			snprintf(g_usLine + strlen(g_usLine), sizeof(g_usLine) - strlen(g_usLine), ", %s not taken", g_useStopTaken[k]);
+		snprintf(g_usLine + strlen(g_usLine), sizeof(g_usLine) - strlen(g_usLine), ", %s taken", g_useStopTaken[g_usTaken]);
+	}
+	g_usWatch = true;
+}
+
+/* Every frame of a ride the bike is held in (UseFrame's start): the item's cue, the watch after a send, the clip's end, and
+ * UseListen's ring read and its window's line. */
+static void UseStopFrame(float now)
+{
+	UseStopItemRead(now);
+	if (g_usWatch) {
+		bool on = g_seatOff;
+		if (!on && g_usHands) {
+			float d[2] = { NAN, NAN };
+			on = ClipHandsFromGrips(d, NULL) && (d[0] > g_useHandOff || d[1] > g_useHandOff);
+		}
+		if (!on) {
+			Log("%s; the clip over after %.2f s, the speed %.0f", g_usLine, now - g_usFiredAt, g_speedAlong);
+			g_usWatch = false;
+		} else if (now - g_usFiredAt >= 0.25f) {
+			Log("%s; the clip still on 0.25 s later (UseHold holds the throttle)", g_usLine);
+			g_usWatch = false;
+		}
+	}
+	if (g_usFired && !g_usWatch && !g_seatOff && !g_useOn && now - g_usFiredAt >= 0.25f)
+		g_usFired = false;   /* the clip over: the next one may be sent to */
+	LONG last = g_useListenNext;
+	if (last - g_useListenRead > USE_LISTEN_RING) {
+		if (g_ulOn)
+			g_ulLost += (int)(last - g_useListenRead - USE_LISTEN_RING);
+		g_useListenRead = last - USE_LISTEN_RING;
+	}
+	while (g_useListenRead < last) {
+		LONG s = ++g_useListenRead;
+		UseListenEv *e = &g_useListenRing[s % USE_LISTEN_RING];
+		if (e->seq != s)
+			continue;
+		MemoryBarrier();
+		char name[48];
+		memcpy(name, e->name, sizeof(name));
+		name[47] = 0;
+		double at = e->at;
+		MemoryBarrier();
+		if (e->seq != s || !g_ulOn || at < g_ulFrom)
+			continue;
+		g_ulAll++;
+		if (UseBlockEventOf(name) >= 0)
+			g_ulRefused++;
+		int k = 0;
+		while (k < g_ulNames && _stricmp(g_ulName[k], name) != 0)
+			k++;
+		if (k == g_ulNames && g_ulNames < UL_NAMES) {
+			snprintf(g_ulName[k], sizeof(g_ulName[k]), "%s", name);
+			g_ulCount[k] = 0;
+			g_ulNames++;
+		}
+		if (k < g_ulNames)
+			g_ulCount[k]++;
+	}
+	if (g_ulOn && SecondsNow() >= g_useListenUntil)
+		UseListenEnd();
 }
 
 /* Once a session, on the first ride with the steering on (FrameSteer, beside the input hook): PlayerCharacter's
@@ -20590,17 +22398,20 @@ static bool FxWaterSet(int which, float value)
 
 /* The 2026-11-06a build: the trim of the loop taken over, from CMB_FxWaterLoop's value now (the controller picked the loop by
  * it on getting on): 1 the churn (WaterChurnDb), 2 the wet road (WaterRoadDb), with the driven line's words; 0, any other
- * value or no global (an older ESP): untrimmed and no words, the 2026-11-02a build's. */
+ * value or no global (an older ESP): untrimmed and no words, the 2026-11-02a build's. The 2026-11-09a build: 3 the gentle
+ * wet road (test 50: the wet road heard as static; the MCM's "Wet road, gentle", the default), trimmed by WaterRoadDb as 2
+ * (the 2026-11-08a build: 3 untrimmed, no words; the MCM's 2 is that build's wet road). */
 static void FxWaterTrim(char *words, size_t size)
 {
 	int kind = g_fxWaterLoopGlobal ? (int)GlobalValue(g_fxWaterLoopGlobal) : 0;
 	g_fxwTrimF = 1.0f;
 	words[0] = 0;
-	if (kind != 1 && kind != 2)
+	if (kind != 1 && kind != 2 && kind != 3)
 		return;
 	float db = kind == 1 ? g_fxWaterChurnDb : g_fxWaterRoadDb;
 	g_fxwTrimF = db == 0.0f ? 1.0f : powf(10.0f, db / 20.0f);
-	snprintf(words, size, "; %s (CMB_FxWaterLoop %d), %s %+g dB", kind == 1 ? "the churn" : "the wet road", kind, kind == 1 ? "WaterChurnDb" : "WaterRoadDb", db);
+	snprintf(words, size, "; %s (CMB_FxWaterLoop %d), %s %+g dB", kind == 1 ? "the churn" : kind == 2 ? "the wet road" : "the gentle wet road", kind,
+	         kind == 1 ? "WaterChurnDb" : "WaterRoadDb", db);
 }
 
 /* An id offered (again: the same one not playing yet at its first look, asked again each frame as the engine's set is in
@@ -21393,6 +23204,7 @@ static void OnF4SEMessage(F4SEMessage *msg)
 		SoundLoadReset();                       /* the engine's loops don't survive a load: let go, the generation forgotten */
 		g_lookOwnHave = false;                  /* the look's own speed measured afresh in the loaded world, as the sound's (SoundLoadReset) */
 		g_lookV = g_lookPrev = g_lookAccel = 0.0f;
+		LookWriteOptions();   /* 2026-11-09a: CMB_LookOptions the INI's again (the save's value restored with the load would last until getting on, read at Mount first) */
 		g_pushProven = false;
 		g_pushRetryAt = 0.0f;
 		memset(g_refused, 0, sizeof(g_refused));

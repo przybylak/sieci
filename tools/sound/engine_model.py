@@ -23,7 +23,13 @@ before), the idle at -6.0 dB where the start and stop sounds meet it; IdleDb=-17
 exactly. The 2026-11-06a build (test 49: "idle could be a slightly louder", "gear sound should be longer on each shift", "I just
 want take off to be faster"): IdleDb -9 (the idle at -4.0 dB, level with the cruise), ShiftTime 0.55 and ShiftDipTime 0.4
 (0.35, 0.24), and a launch rev (LaunchFlare 0.5 over LaunchFlareTime 1.2 s; 0: none); IdleDb=-11 with ShiftTime 0.35,
-ShiftDipTime 0.24 and LaunchFlare 0 is the 2026-11-02a build's model exactly (--check-off checks all three builds).
+ShiftDipTime 0.24 and LaunchFlare 0 is the 2026-11-02a build's model exactly. The 2026-11-09a build (test 50: 3rd gear
+pinned at 1.26 s, shorter than 2nd: the heard speed rose HeardRise all pull and caught the bike early in 3rd, the load fell,
+the up-shift point fell to ShiftLo and 3rd waited only for MinShiftGap): the heard speed's rise per gear (HeardRiseGears,
+x HeardRise in the rise only) and a least time per gear before its up-shift (ShiftGapGears; 0 or missing: MinShiftGap);
+test 51's "1st < 2nd < 3rd" set them to 2.5,0.95,0.5,1 and 0,2.0,2.5 (1st 1.54 s, 2nd 2.00, 3rd 2.50 from rest in the
+harness's game; 1,0.95,0.5,1 and 0,1.5,1.75 before, 3.83 / 1.54 / 1.75); HeardRiseGears 1,1,1,1 with ShiftGapGears empty
+is the 2026-11-06a build's model exactly (--check-off checks all four builds).
 
 Gearbox. Four gears with the measured steps 1.35 / 1.28 / 1.21; each gear's entry is its speed at ShiftRpm (2500).
 2nd reaches ShiftRpm at 750 u/s (3000 rpm at the top speed), 4th cruises at the top speed at 1937 rpm.
@@ -172,6 +178,28 @@ DEFAULTS = dict(
     DownGap=0.5,          # s after any shift before a down-shift (and an up-shift): without it braking made three
                           # down-shifts in 0.58 s
     ShiftCatch=0.9,       # the engine within 10 % of the up-shift point (it lags its gear by ~0.1 s pulling: 4.5 %)
+    HeardRiseGears=(2.5, 0.95, 0.5, 1.0),
+                          # the 2026-11-09a build (test 50: "3rd gear pinned", 1.26 s against 2nd's 1.42): the heard
+                          # speed's rise in each gear x HeardRise (the rise only; the slip's LaunchRise x vs / HeardRise
+                          # and HeardLead's and the up-shift's "faster than HeardRise" keep the plain one; a missing value
+                          # is 1). In 3rd at half the rise the heard speed reaches the bike later, so the load and the
+                          # up-shift point stay up and the rpm keeps climbing; real bikes pull slower in the taller gears.
+                          # Test 51 (1st < 2nd < 3rd): 1st's 2.5. 1st was all clutch slip, the heard speed rising at
+                          # HeardRise from the launch's lead to the 1->2 point (586 u/s) while the bike passed 900 at
+                          # 3.25 s: the logs' 1st 2.85-3.98 s (median 3.47, 11 pulls from rest), the twin 3.83. At x 2.5
+                          # the slip's rpm climbs with it (1900 -> 2566 rpm in 1.5 s) and 1st lasts 1.54 s. The
+                          # harness's game: 1st 1.54, 2nd 2.00, 3rd 2.50 s, 4th at 6.04 s from the press (with
+                          # ShiftGapGears below); a 4 s throttle ramp (a slow, uphill pull) 1.37 / 2.86 / 2.50, the one
+                          # case where 2nd outlasts 3rd (2nd waits for the bike). 1,0.95,0.5,1: the 2026-11-09a build as
+                          # of t54-merge (3.83, 1.54, 1.75; 4th at 7.13 s); 1,1,1,1: the 2026-11-06a build's (3.83,
+                          # 1.46, 1.25; 6.55 s)
+    ShiftGapGears=(0.0, 2.0, 2.5),
+                          # s, the least time in gear N (1st, 2nd, ...) before its up-shift, since the last up-shift as
+                          # MinShiftGap (0 or missing: MinShiftGap). Test 50's tester asked for 2nd about 1.5-1.6 s and
+                          # 3rd 1.7-1.9, the longer (0,1.5,1.75: the 2026-11-09a build as of t54-merge); test 51's for
+                          # each gear longer than the last, with 1st now 1.54: 2nd at least 2.0, 3rd 2.5 (rejected:
+                          # 2.6 with 1.75,2.4, 1.48 / 1.99 / 2.40, thinner margins; 2.2 with 1.9,2.4, 1st 1.75 against
+                          # 2nd's 1.90); empty: the 2026-11-06a build's
     # --- the up-shift's clutch gap (measured on the model as on the ride)
     ShiftTime=0.55,       # s: paris gap 0.30 (IQR 0.30-0.40), daily fall 0.39 (0.19-0.73). The 2026-11-06a build (test 49:
                           # "gear sound should be longer on each shift"): 0.55 (0.35 before, the 2026-11-02a build's): the
@@ -477,7 +505,9 @@ class Engine:
         lead = c["HeardLead"] if (on and self.gear == 0 and (self.launch or self.acc_s > c["HeardRise"])) else 0.0
         if heard:
             if v + lead > self.vh:
-                self.vh = min(v + lead, self.vh + c["HeardRise"] * dt)
+                rg = c["HeardRiseGears"]   # the 2026-11-09a build: this gear's share of HeardRise (x 1 when missing)
+                rise = c["HeardRise"] * (rg[self.gear] if self.gear < len(rg) else 1.0)
+                self.vh = min(v + lead, self.vh + rise * dt)
             elif on:
                 self.vh += (v + lead - self.vh) * (1.0 - math.exp(-dt / c["HeardTau"]))
             else:
@@ -547,8 +577,10 @@ class Engine:
                 vg = slip / k                  # 1st's rpm is the slip's
             if throttle:
                 up_at = c["ShiftLo"] + (self.shift_at - c["ShiftLo"]) * pull
+                sg = c["ShiftGapGears"]    # the 2026-11-09a build: this gear's least time (0 or missing: MinShiftGap)
+                gap = sg[self.gear] if self.gear < len(sg) and sg[self.gear] > 0.0 else c["MinShiftGap"]
                 if (self.gear < top and vg * k > up_at and self.rpm > c["ShiftCatch"] * up_at
-                        and vg * self.gear_k(self.gear + 1) > c["DownRpm"] and self.since_up >= c["MinShiftGap"] - EPS
+                        and vg * self.gear_k(self.gear + 1) > c["DownRpm"] and self.since_up >= gap - EPS
                         and self.since_shift >= c["DownGap"] - EPS
                         and (not heard or self.acc_s > c["HeardRise"]       # the bike's own speed too, but in a real pull
                              or v * self.gear_k(self.gear + 1) > c["DownRpm"] * LAND)):
@@ -745,17 +777,22 @@ class Engine:
 #     own -17.2; only its header's JSON is newer);
 #   - 2026-11-01a (the 2026-11-02a build's IdleDb off): IdleDb -17.2, 993f582's model, check_off_2026-11-01a.txt;
 #   - 2026-11-02a (the 2026-11-06a build's four off): IdleDb -11, ShiftTime 0.35, ShiftDipTime 0.24, LaunchFlare 0,
-#     f0253e8's model, check_off_2026-11-02a.txt.
+#     f0253e8's model, check_off_2026-11-02a.txt;
+#   - 2026-11-06a (the 2026-11-09a build's two off): HeardRiseGears 1,1,1,1, ShiftGapGears empty, 6bc75e4's model (the
+#     2026-11-08a build's too: unchanged), check_off_2026-11-06a.txt.
 # Each build's set carries the later builds' off values too (0c3df02's and 993f582's ShiftTime and ShiftDipTime were 0.35 and
-# 0.24 and they had no LaunchFlare; their models take unknown keys), so the older files' hashes stand; only their headers'
-# JSON is newer.
-OFF_31A = {"StopShift": 0, "ShiftDraw": [2000.0, 2900.0], "IdleDb": -17.2, "ShiftTime": 0.35, "ShiftDipTime": 0.24, "LaunchFlare": 0.0}
-OFF_01A = {"IdleDb": -17.2, "ShiftTime": 0.35, "ShiftDipTime": 0.24, "LaunchFlare": 0.0}
-OFF_02A = {"IdleDb": -11.0, "ShiftTime": 0.35, "ShiftDipTime": 0.24, "LaunchFlare": 0.0}
+# 0.24 and they had no LaunchFlare; none of the older models had HeardRiseGears or ShiftGapGears; their models take unknown
+# keys), so the older files' hashes stand; only their headers' JSON is newer.
+OFF_09A = {"HeardRiseGears": [1.0, 1.0, 1.0, 1.0], "ShiftGapGears": []}
+OFF_31A = {"StopShift": 0, "ShiftDraw": [2000.0, 2900.0], "IdleDb": -17.2, "ShiftTime": 0.35, "ShiftDipTime": 0.24, "LaunchFlare": 0.0, **OFF_09A}
+OFF_01A = {"IdleDb": -17.2, "ShiftTime": 0.35, "ShiftDipTime": 0.24, "LaunchFlare": 0.0, **OFF_09A}
+OFF_02A = {"IdleDb": -11.0, "ShiftTime": 0.35, "ShiftDipTime": 0.24, "LaunchFlare": 0.0, **OFF_09A}
+OFF_06A = dict(OFF_09A)
 OFF_BUILDS = {   # --off NAME: (the off values, the expected file here, the build, the commit its model is from)
     "31a": (OFF_31A, "check_off_2026-10-31a.txt", "2026-10-31a", "0c3df02"),
     "01a": (OFF_01A, "check_off_2026-11-01a.txt", "2026-11-01a", "993f582"),
     "02a": (OFF_02A, "check_off_2026-11-02a.txt", "2026-11-02a", "f0253e8"),
+    "06a": (OFF_06A, "check_off_2026-11-06a.txt", "2026-11-06a", "6bc75e4"),
 }
 CHECK_ON = [("On1400", 1400.0), ("On1700", 1700.0), ("On2000", 2000.0), ("On2400", 2400.0), ("On2800", 2800.0), ("On3300", 3300.0)]
 CHECK_OFF = [("Off1400", 1400.0), ("Off1800", 1800.0), ("Off2300", 2300.0), ("Off2800", 2800.0)]
@@ -851,13 +888,13 @@ def _load_model(path):
 
 
 def _off_words(off):
-    """The off values as the check's line says them: "StopShift=0, ShiftDraw=2000,2900, IdleDb=-17.2"."""
+    """The off values as the check's line says them: "StopShift=0, ShiftDraw=2000,2900, IdleDb=-17.2" (an empty list: "ShiftGapGears=")."""
     return ", ".join("%s=%s" % (k, ",".join("%g" % x for x in v) if isinstance(v, (list, tuple)) else "%g" % v) for k, v in off.items())
 
 
 def write_expected(model_path, out_path, build="31a"):
-    """The expected file from another model (that build's own engine_model.py: 0c3df02's for 31a, 993f582's for 01a, f0253e8's for 02a), run with
-    that build's off values."""
+    """The expected file from another model (that build's own engine_model.py: 0c3df02's for 31a, 993f582's for 01a, f0253e8's for 02a,
+    6bc75e4's for 06a), run with that build's off values."""
     off, _, name, commit = OFF_BUILDS[build]
     engine_cls = _load_model(model_path)
     lines = ["# engine_model.py --check-off: the %s build's model (%s's tools/sound/engine_model.py) over these rides," % (name, commit),
@@ -928,16 +965,17 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="The engine model (the plugin's C twin follows it). --check-off: each build's off values "
                                  "against that build's frames (2026-10-31a: StopShift=0, ShiftDraw 2000,2900, IdleDb -17.2; "
                                  "2026-11-01a: IdleDb -17.2; 2026-11-02a: IdleDb -11, ShiftTime 0.35, ShiftDipTime 0.24, "
-                                 "LaunchFlare 0; the older two with the later builds' off values too).")
-    ap.add_argument("--check-off", action="store_true", help="the off values against check_off_2026-10-31a.txt, check_off_2026-11-01a.txt and check_off_2026-11-02a.txt "
-                    "(exit 1 if any frame differs); --off NAME: only that build's")
-    ap.add_argument("--off", choices=sorted(OFF_BUILDS), help="the build: 31a (0c3df02's model), 01a (993f582's) or 02a (f0253e8's); with --write-expected "
-                    "31a by default")
+                                 "LaunchFlare 0; 2026-11-06a: HeardRiseGears 1,1,1,1, ShiftGapGears empty; each with the later "
+                                 "builds' off values too).")
+    ap.add_argument("--check-off", action="store_true", help="the off values against check_off_2026-10-31a.txt, check_off_2026-11-01a.txt, check_off_2026-11-02a.txt "
+                    "and check_off_2026-11-06a.txt (exit 1 if any frame differs); --off NAME: only that build's")
+    ap.add_argument("--off", choices=sorted(OFF_BUILDS), help="the build: 31a (0c3df02's model), 01a (993f582's), 02a (f0253e8's) or 06a (6bc75e4's); with "
+                    "--write-expected 31a by default")
     ap.add_argument("--against", metavar="MODEL", help="with --check-off: compare frame by frame with another engine_model.py instead "
                     "(the --off build's values, 31a by default)")
     ap.add_argument("--expected", metavar="FILE", help="with --check-off: the expected file (default: the --off build's file here)")
     ap.add_argument("--write-expected", metavar="MODEL", help="write the --off build's expected file from that build's engine_model.py "
-                    "(0c3df02's for 31a, 993f582's for 01a, f0253e8's for 02a)")
+                    "(0c3df02's for 31a, 993f582's for 01a, f0253e8's for 02a, 6bc75e4's for 06a)")
     ap.add_argument("--out", metavar="FILE", help="with --write-expected: where (default: the --off build's file here)")
     a = ap.parse_args()
     if a.write_expected:

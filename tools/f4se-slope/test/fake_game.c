@@ -75,6 +75,14 @@
 #define LOOK_RIM_V_FORMID     (0xFE000000u | (LIGHT_INDEX << 12) | 0xA15u)   /* CMB_LookRimV (-1) */
 #define LOOK_PLATE_V_FORMID   (0xFE000000u | (LIGHT_INDEX << 12) | 0xA16u)   /* CMB_LookPlateV (-1) */
 #define LOOK_PLATETEXT_V_FORMID (0xFE000000u | (LIGHT_INDEX << 12) | 0xA17u) /* CMB_LookPlateTextV (-1) */
+/* The 2026-11-09a build's two (test 50's answer, the fixed 0xBF1-0xBF2): CMB_Caution made at 100 (not the ESP's 60: the
+ * 2026-11-08a build's, so a mode that names [Steer] Caution=-1 still rides 2026-11-08a; the new rides set it), CMB_ViewMenu
+ * at 0 (the ESP's); hidden in mode 15. */
+#define CAUTION_FORMID        (0xFE000000u | (LIGHT_INDEX << 12) | 0xBF1u)   /* CMB_Caution (the ESP's 60; 100 here) */
+#define VIEW_MENU_FORMID      (0xFE000000u | (LIGHT_INDEX << 12) | 0xBF2u)   /* CMB_ViewMenu (0) */
+/* The 2026-11-09a fixes' one (test 51's answer, the fixed 0xBF4): CMB_LookOptions, made at 0 (the plugin writes it);
+ * hidden in mode 15. */
+#define LOOK_OPTIONS_FORMID   (0xFE000000u | (LIGHT_INDEX << 12) | 0xBF4u)   /* CMB_LookOptions (the ESP's 63; 0 here) */
 #define TAIL_REF_FORMID_A     0xFF001236u   /* the tail light reference "the script placed", and the fresh one of a handover */
 #define TAIL_REF_FORMID_B     0xFF001237u
 #define VIEW_REF_FORMID_A     0xFF001240u   /* the first-person bike's reference, and the fresh one of a handover */
@@ -308,6 +316,9 @@ static uint8_t *g_lookShape[LOOK_ALL], *g_lookData[LOOK_ALL], *g_lookBones[LOOK_
  * +0x68, one shared fake texture; fLookupScale +0xB8, 0.5), F4SE 0.7.9's offsets: the look colours' writer reads and writes
  * these (step 0 builds them; nothing reads them yet). */
 static uint8_t *g_lookProp[LOOK_ALL], *g_lookMat[LOOK_ALL], *g_lookLut;
+/* 2026-11-09a (test 51, [Look] LightingOnly): the look properties' class, BSLightingShaderProperty (a vtable and RTTI as the
+ * nodes' builder makes them), and an effect shader's for CustomTests55's swap. */
+static void **g_vtLitProp55, **g_vtEffectProp55;
 #define FAKE_PROP_FLAGS 0x30
 #define FAKE_PROP_MATERIAL 0x58
 #define FAKE_MAT_LOOKUP 0x68
@@ -451,6 +462,11 @@ static void FakeGetVelocity(uint8_t *self, float *out) { (void)self; memcpy(out,
  * is a circle `top` across resting on the ground, its front on the line, so the face recedes
  * toward its foot and its top is round; a ray starting inside it meets nothing (as Havok's). */
 typedef struct { bool on; float point[2], normal[2]; uint32_t layer; float top, bottom, follow, slant; uint8_t *what; float halfWidth; bool round; } FakePlane;
+/* 2026-11-09a (mode 14, the rider unit's ActorRoom and ParkGuard): an actor's capsule standing on the ground at g_capAt, a
+ * cylinder g_capR across and g_capH high with a flat top (for the rays down), layer 30, its 3D the ram actor's (SkeletonExport);
+ * a ray that starts inside it meets nothing (as Havok's). */
+static bool g_capOn;
+static float g_capAt[2], g_capR = 18.0f, g_capH = 120.0f;
 static bool g_shelfOn;
 static float g_shelfHeight, g_shelfAhead, g_shelfRadius = 60.0f;   /* a disc this high over the ground (a hole this deep in it when negative: test 38), this far ahead of the player along their heading, of this radius */
 static uint32_t g_shelfLayer = 1;  /* the disc's layer, and its 3D (NULL: FakeShelf): test 39's radstag is layer 30, "SkeletonExport" */
@@ -587,6 +603,10 @@ static bool g_new52Hidden;              /* mode 15: test 42's ESP, without the 2
 static uint8_t *g_lookColourFake[4];    /* CMB_LookPaintV, CMB_LookRimV, CMB_LookPlateV, CMB_LookPlateTextV (2026-11-08a, C2) */
 static bool g_new53Hidden;              /* mode 15: test 42's ESP, without the 2026-11-08a build's four look colours (0xA14-0xA17) */
 static bool g_new53Partial;             /* mode 17 (review B3): three of the four look colours (0xA17 not found, the others set): none used */
+static uint8_t *g_cautionFake, *g_viewMenuFake;   /* CMB_Caution, CMB_ViewMenu (2026-11-09a, test 50's answer) */
+static bool g_new54Hidden;              /* mode 15: test 42's ESP, without the 2026-11-09a build's two (0xBF1-0xBF2) */
+static uint8_t *g_lookOptionsFake;      /* CMB_LookOptions (2026-11-09a, test 51's answer) */
+static bool g_new55Hidden;              /* mode 15: test 42's ESP, without the 2026-11-09a fixes' CMB_LookOptions (0xBF4) */
 static int g_picks;
 static void *FakePickCtor(uint8_t *pick)
 {
@@ -784,6 +804,36 @@ static uint8_t *FakeCellPick(uint8_t *cell, uint8_t *pick)
 			nrm[2] = 1.0f;
 		}
 	}
+	if (g_capOn) {   /* 2026-11-09a: the actor's capsule (mode 14) */
+		float r = g_capR, zb = g_groundZ, zt = g_groundZ + g_capH, ox = a[0] - g_capAt[0], oy = a[1] - g_capAt[1];
+		float dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2], best = 2.0f, bn[3] = { 0.0f, 0.0f, 0.0f };
+		bool inside = ox * ox + oy * oy < r * r && a[2] >= zb && a[2] <= zt;
+		if (!inside) {
+			float qa = dx * dx + dy * dy, qb = 2.0f * (ox * dx + oy * dy), qc = ox * ox + oy * oy - r * r, disc = qb * qb - 4.0f * qa * qc;
+			if (qa > 0.0f && qc > 0.0f && disc >= 0.0f) {   /* its side */
+				float tp = (-qb - sqrtf(disc)) / (2.0f * qa), z = a[2] + dz * tp;
+				if (tp >= 0.0f && tp <= 1.0f && z >= zb && z <= zt) {
+					best = tp;
+					bn[0] = (ox + dx * tp) / r;
+					bn[1] = (oy + dy * tp) / r;
+				}
+			}
+			if (dz < 0.0f && a[2] > zt) {   /* its top */
+				float tp = (zt - a[2]) / dz, x = ox + dx * tp, y = oy + dy * tp;
+				if (tp >= 0.0f && tp <= 1.0f && x * x + y * y <= r * r && tp < best) {
+					best = tp;
+					bn[0] = bn[1] = 0.0f;
+					bn[2] = 1.0f;
+				}
+			}
+		}
+		if (best <= 1.0f && best < t) {
+			t = best;
+			what = g_actorObj;
+			layer = 30;
+			memcpy(nrm, bn, sizeof(nrm));
+		}
+	}
 	*(int *)(pick + 0x60) = t <= 1.0f;
 	*(float *)(pick + 0x64) = t <= 1.0f ? t : 1.0f;
 	*(uint32_t *)(pick + 0xAC) = 0x12345600u | layer;   /* the layer in the low 7 bits */
@@ -811,6 +861,10 @@ static uint8_t *g_poolEntry[4];             /* what FakeGetEntry made, in order 
 static int g_poolCalls;
 static uint32_t *g_holderMdisp;             /* the holder's mdisp in the player's class hierarchy (mode 4 moves it) */
 static int g_graphUseGot;                   /* 2026-11-06a: dyn_ActivationAllowMovement, the item animation mod's use idle's event, as the graph got it */
+/* 2026-11-09a (mode 13, UseStop): IdleStop and IdleForceDefaultState as the graph got them, and whether it takes each (true:
+ * the fake's use clip ends, g_usClipStopped). */
+static int g_graphIdleStopGot, g_graphIdleForceGot;
+static bool g_graphIdleStopTakes = true, g_graphIdleForceTakes = true, g_usClipStopped;
 static bool FakeGraphNotify(uint8_t *self, uint8_t *const *name)
 {
 	(void)self;
@@ -828,6 +882,17 @@ static bool FakeGraphNotify(uint8_t *self, uint8_t *const *name)
 	if (_stricmp(text, "dyn_ActivationAllowMovement") == 0) {
 		g_graphUseGot++;
 		return true;
+	}
+	bool idleStop = _stricmp(text, "IdleStop") == 0, idleForce = _stricmp(text, "IdleForceDefaultState") == 0;
+	if (idleStop || idleForce) {   /* 2026-11-09a */
+		if (idleStop)
+			g_graphIdleStopGot++;
+		else
+			g_graphIdleForceGot++;
+		bool take = idleStop ? g_graphIdleStopTakes : g_graphIdleForceTakes;
+		if (take)
+			g_usClipStopped = true;
+		return take;
 	}
 	g_graphOther++;
 	return true;
@@ -1333,6 +1398,10 @@ static uintptr_t FakeLookupFormByID(uint32_t id)
 		return g_new52Hidden ? 0 : (uintptr_t)g_lookCodeFake;
 	if (id >= LOOK_PAINT_V_FORMID && id <= LOOK_PLATETEXT_V_FORMID)
 		return g_new53Hidden || (g_new53Partial && id == LOOK_PLATETEXT_V_FORMID) ? 0 : (uintptr_t)g_lookColourFake[id - LOOK_PAINT_V_FORMID];
+	if (id == CAUTION_FORMID || id == VIEW_MENU_FORMID)
+		return g_new54Hidden ? 0 : (uintptr_t)(id == CAUTION_FORMID ? g_cautionFake : g_viewMenuFake);
+	if (id == LOOK_OPTIONS_FORMID)
+		return g_new55Hidden ? 0 : (uintptr_t)g_lookOptionsFake;
 	return id == SLOPE_GLOBAL_FORMID ? (uintptr_t)g_global : id == CAMERA_GLOBAL_FORMID ? (uintptr_t)g_cameraGlobal
 	     : id == TILT_GLOBAL_FORMID ? (uintptr_t)g_tiltGlobal : 0;
 }
@@ -1523,6 +1592,10 @@ static void BuildGame(void)
 		g_lookColourFake[i] = NewGlobal(LOOK_PAINT_V_FORMID + (uint32_t)i, lookColours[i]);
 		*(float *)(g_lookColourFake[i] + 0x30) = -1.0f;
 	}
+	g_cautionFake = NewGlobal(CAUTION_FORMID, "CMB_Caution");   /* the 2026-11-09a build's two: CMB_Caution 100 (the 2026-11-08a build's), CMB_ViewMenu 0 */
+	*(float *)(g_cautionFake + 0x30) = 100.0f;
+	g_viewMenuFake = NewGlobal(VIEW_MENU_FORMID, "CMB_ViewMenu");
+	g_lookOptionsFake = NewGlobal(LOOK_OPTIONS_FORMID, "CMB_LookOptions");   /* the 2026-11-09a fixes' one: 0 until the plugin writes it */
 	static const char *ram[8] = { "CMB_RamSeenHi", "CMB_RamSeenLo", "CMB_RamSeen", "CMB_RamOk", "CMB_RamHitSpeed", "CMB_RamHit", "CMB_RamEnemies", "CMB_RamMinSpeed" };
 	for (int i = 0; i < 8; i++)
 		g_ramGlobalsFake[i] = NewGlobal(RAM_FORMID + (uint32_t)i, ram[i]);
@@ -1944,6 +2017,12 @@ static void BuildGame(void)
 	/* Mode 17's bike (the 2026-10-31a build's look): the shapes of g_lookParts and the extras, made the parts' way;
 	 * which hang under the bike's node, LookAttach says (set 0's LOOK_NEW at the start: the 2026-10-31a build's 28 and the
 	 * 2026-11-01a build's two brake discs). */
+	if (g_lookMode) {
+		static const char *litProp[] = { ".?AVBSLightingShaderProperty@@", ".?AVBSShaderProperty@@", ".?AVNiShadeProperty@@", ".?AVNiProperty@@", ".?AVNiObjectNET@@", ".?AVNiObject@@" };
+		static const char *effectProp[] = { ".?AVBSEffectShaderProperty@@", ".?AVBSShaderProperty@@", ".?AVNiShadeProperty@@", ".?AVNiProperty@@", ".?AVNiObjectNET@@", ".?AVNiObject@@" };
+		g_vtLitProp55 = MakeClass(litProp, 6);
+		g_vtEffectProp55 = MakeClass(effectProp, 6);
+	}
 	for (int i = 0; g_lookMode && i < LOOK_ALL; i++) {
 		if (i < LOOK_NEW + LOOK_OLD)
 			snprintf(g_lookName[i], sizeof(g_lookName[i]), "CMB_BikeWornRider_%s", g_lookParts[i].label);
@@ -1956,6 +2035,7 @@ static void BuildGame(void)
 			g_lookLut = (uint8_t *)VirtualAlloc(NULL, 0x100, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 		g_lookProp[i] = (uint8_t *)VirtualAlloc(NULL, 0x200, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 		g_lookMat[i] = (uint8_t *)VirtualAlloc(NULL, 0x200, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+		*(void ***)g_lookProp[i] = g_vtLitProp55;   /* 2026-11-09a: a BSLightingShaderProperty ([Look] LightingOnly's check) */
 		*(int32_t *)(g_lookProp[i] + 0x08) = 1;
 		*(int32_t *)(g_lookMat[i] + 0x08) = 1;
 		*(uint64_t *)(g_lookProp[i] + FAKE_PROP_FLAGS) = FAKE_FLAG_PALETTE;
@@ -5099,7 +5179,7 @@ static void OldEsp50Sound(void)
 static void OldEsp51Sound(void)
 {
 	printf("fx (2026-11-06a) with an ESP without CMB_FxWaterLoop: the second [Fx] line at the code's defaults, nothing else about the water loop's choice:\n");
-	CHECK(LogLines("  fx: WaterCurve=2 WaterChurnDb=-8 WaterRoadDb=0: the water's level by (speed / WaterSpeedFull)^2; the churn (CMB_FxWaterLoop 1) -8 dB, the wet road (2) "
+	CHECK(LogLines("  fx: WaterCurve=2 WaterChurnDb=-8 WaterRoadDb=0: the water's level by (speed / WaterSpeedFull)^2; the churn (CMB_FxWaterLoop 1) -8 dB, the wet road (2) and the gentle wet road (3) "
 	               "+0 dB, the spray (0) untrimmed") == 1 && LogLines("WaterSpeedFull=900 ") == 1 && LogLines("; the churn (CMB_FxWaterLoop 1), ") == 0 &&
 	          LogLines("; the wet road (CMB_FxWaterLoop 2), ") == 0 && LogLines("CMB_FxWaterLoop") == 1,
 	      "the second [Fx] line once (WaterCurve 2 and the trims, the code's own: no [Fx] section), WaterSpeedFull=900 in the first; no trim words (an older ESP: the "
@@ -5368,9 +5448,9 @@ static float FxWaterAt(float speed, int ms)
 static void FxWaterTests51(void)
 {
 	static const char lawOff[] = "  fx: WaterCurve=1 WaterChurnDb=-8 WaterRoadDb=0: the speed's share linear, as the 2026-11-02a build; the churn (CMB_FxWaterLoop 1) -8 dB, "
-	                             "the wet road (2) +0 dB, the spray (0) untrimmed";
+	                             "the wet road (2) and the gentle wet road (3) +0 dB, the spray (0) untrimmed";
 	static const char lawOn[] = "  fx: WaterCurve=2 WaterChurnDb=-8 WaterRoadDb=0: the water's level by (speed / WaterSpeedFull)^2; the churn (CMB_FxWaterLoop 1) -8 dB, "
-	                            "the wet road (2) +0 dB, the spray (0) untrimmed";
+	                            "the wet road (2) and the gentle wet road (3) +0 dB, the spray (0) untrimmed";
 	char line[200];
 	printf("fx (2026-11-06a): the second [Fx] line at the start, run.sh's WaterCurve=1 (the 2026-11-02a build's law):\n");
 	CHECK(LogLines(lawOff) - LogLines("the spray (0) untrimmed (read again on getting on)") >= 1 && LogLines(lawOff) >= 1,
@@ -5484,6 +5564,43 @@ static void RiderGraphTests51(void)
 	      "a1: at %.0f the graph got the use idle's event 0 times of 5 (%d; the wrapper answered no), one \"refused, the speed kept (UseBlockAbove 150); 4 more refused in the next 0.4 s "
 	      "(the animation mod's retries)\" line (%d, at %.0f u/s); stopped (%.0f) it got it (%d), one \"at N u/s: passed (under UseBlockAbove 150)\" line (%d); UseBlockAbove=0: got at %.0f (%d), "
 	      "no line (%d), as the 2026-11-02a build", at, gotFast, refusedN, said, stopAt, gotStop, passedN, at, gotOff, refusedOff);
+}
+
+/* 2026-11-09a (test 50: the wet road heard as static; mode 21): the gentle wet-road loop (CMB_FxWaterLoop 3, the MCM's "Wet
+ * road, gentle", the default). The sound unit's. The controller plays CMB_FxWaterRoadSoftLPSD for 3 (the fake script's loop
+ * stands in for it); the plugin trims it by [Fx] WaterRoadDb as the wet road (2) and names it in the driven line. With
+ * WaterRoadDb=-4 (read on getting on): 3, then 2 (the 2026-11-08a build's wet road, the MCM's off value: as before), 20 deep
+ * at the top speed, each 0.636 x 10^(-4/20) = 0.401. The 2026-11-08a build: 3 untrimmed (0.636), no words. */
+static void FxWaterTests54(void)
+{
+	static const char *const words[4] = { NULL, NULL, "; the wet road (CMB_FxWaterLoop 2), WaterRoadDb -4 dB", "; the gentle wet road (CMB_FxWaterLoop 3), WaterRoadDb -4 dB" };
+	const float want = 0.636f * powf(10.0f, -4.0f / 20.0f);
+	char line[200];
+	RewriteIni("WaterGain=0\n", "WaterGain=0\nWaterRoadDb=-4\n");
+	for (int k = 3; k >= 2; k--) {
+		printf("fx (2026-11-09a): CMB_FxWaterLoop %d (%s), [Fx] WaterRoadDb=-4, a new loop: \"%s\", 20 deep at the top speed %.3f%s:\n", k,
+		       k == 3 ? "the gentle wet road, the MCM's default" : "the wet road, the 2026-11-08a build's default", words[k] + 2, want,
+		       k == 3 ? " (the 2026-11-08a build: 0.636, untrimmed, no words)" : " (as before)");
+		*(float *)(g_fxWaterLoopFake + 0x30) = (float)k;
+		int n0 = LogLines(words[k]), other0 = LogLines(words[5 - k]);
+		FxGetOn();
+		uint32_t id = g_fxwFakeId;
+		snprintf(line, sizeof(line), "fx: the water loop (id %u) driven (CMB_FxDriven %u): ", id, id);
+		Keys(0.0f, 1.0f);
+		FxWaterAt(0.0f, 4000);
+		FxMark();
+		FxSetWater(true, 20.0f, -60.0f);
+		float v = FxWaterAt(0.0f, 2500);
+		CHECK(id && FxGlobal(2) == (float)id && LogLines(line) == 1 && LogLines(words[k]) == n0 + 1 && LogLines(words[5 - k]) == other0 && fabsf(v - want) <= 0.02f,
+		      "driven (%u), the driven line with \"%s\" once (%d), not the %s's (%d), the level %.3f (%.3f: 0.636 x 10^(-4/20)%s)", id, words[k] + 2, LogLines(words[k]) - n0,
+		      k == 3 ? "wet road" : "gentle wet road", LogLines(words[5 - k]) - other0, v, want, k == 3 ? "; the 2026-11-08a build's 0.636" : "");
+		FxDry();
+		FxGetOff();
+	}
+	*(float *)(g_fxWaterLoopFake + 0x30) = 0.0f;
+	RewriteIni("WaterGain=0\nWaterRoadDb=-4\n", "WaterGain=0\n");
+	Keys(0.0f, 0.0f);
+	g_topCap = 0.0f;
 }
 
 static void FxTests(void)
@@ -5748,6 +5865,7 @@ static void FxTests(void)
 	FxTests50();
 	FxWaterTests51();      /* 2026-11-06a: the water loop (the sound unit's) */
 	RiderGraphTests51();   /* 2026-11-06a: the rider unit's */
+	FxWaterTests54();      /* 2026-11-09a: the sound unit's */
 	g_afterTask = NULL;
 	g_onFrame = NULL;
 }
@@ -9424,6 +9542,169 @@ static void UseHoldTests51(void)
 	g_onFrame = NULL;
 }
 
+/* 2026-11-09a (test 50, mode 13): the item-use block that never fired (UseListen, UseStop). The rider unit's.
+ * Test 50: the item animation mod's PlayIdle never came through slot 1 (no "refused" or "passed" line, three landings seen
+ * there). U1: riding at the top (about 800) with W held, CMB_RiderItemUse bumped, 0.4 s later the knees off the seat for 0.6 s
+ * with no dyn_ActivationAllowMovement through slot 1: IdleStop sent once, straight to the graph (not through the wrapper: not in
+ * UseListen's list), taken, the fake's clip over. The variants: IdleStop refused, IdleForceDefaultState taken; at 100 u/s
+ * nothing; the knees off with no item (a hit) nothing; UseStop empty nothing. U2: standing, an item, then jumpLandToRun once and
+ * FakeEventA twice through slot 1: UseListen's line lists both with their counts. */
+static double g_usKneesAt = -1.0, g_usKneesUntil = -1.0;   /* the fake's use clip: the knees off the seat (g_ulClock) */
+static void UsFrame(float dt)
+{
+	g_ulClock += dt;
+	bool clip = g_usKneesAt >= 0.0 && g_ulClock >= g_usKneesAt && g_ulClock < g_usKneesUntil && !g_usClipStopped;
+	if (clip) {
+		g_dcKneeZ[0] = 40.0f;
+		g_dcKneeZ[1] = 39.0f;
+	} else {
+		DcKneesSeated();
+	}
+	DcFrame(dt);
+	FakeGameFrame(dt);
+}
+static uint8_t *UsEvent(const char *text)
+{
+	static uint8_t *a;
+	if (!a)
+		a = NewString("FakeEventA");
+	(void)text;
+	return a;
+}
+static bool UsSend(uint8_t *entry)
+{
+	uint8_t *holder = g_player + 0x48;
+	bool (*notify)(uint8_t *, uint8_t *const *) = (bool (*)(uint8_t *, uint8_t *const *))(*(void ***)holder)[1];
+	return notify(holder, &entry);
+}
+/* One ride: up to `top` with W held, the item bumped (item), 0.4 s later the knees off the seat for 0.6 s; the IdleStop and
+ * IdleForceDefaultState the graph got. */
+static void UsRide(float top, bool item, int got[2])
+{
+	ArmsGetOn(1500);
+	Keys(0.0f, 1.0f);
+	g_topCap = top;
+	RunFrames(3500);
+	int stop0 = g_graphIdleStopGot, force0 = g_graphIdleForceGot;
+	g_usClipStopped = false;
+	if (item)
+		*(float *)(g_itemUseFake + 0x30) = ItemUseFake() + 1.0f;
+	RunFrames(400);
+	g_usKneesAt = g_ulClock;
+	g_usKneesUntil = g_ulClock + 0.6;
+	RunFrames(1200);
+	got[0] = g_graphIdleStopGot - stop0;
+	got[1] = g_graphIdleForceGot - force0;
+	g_usKneesAt = g_usKneesUntil = -1.0;
+	Keys(0.0f, 0.0f);
+	g_topCap = 0.0f;
+	RunFrames(2500);
+	ArmsGetOff(400);
+}
+static void UseStopTests54(void)
+{
+	DcHolder();
+	DcKneesSeated();
+	SetNormal(0.0f, 0.0f, 1.0f);
+	FlatGround();
+	SetState(0);
+	g_ulClock = 0.0;
+	g_onFrame = UsFrame;
+	float radius0 = *(float *)(g_turnRadius + 0x30), slow0 = *(float *)(g_turnSlow + 0x30), stand0 = *(float *)(g_turnStand + 0x30);
+	int style0 = g_handlerStyle, honour0 = g_honour;
+	bool curve0 = g_gameCurve;
+	*(float *)(g_turnRadius + 0x30) = 180.0f;   /* steering on: the input hook, the throttle and the measured speed with it (as a2's) */
+	*(float *)(g_turnSlow + 0x30) = 50.0f;
+	*(float *)(g_turnStand + 0x30) = 60.0f;
+	g_camYaw = PlayerHeading();
+	g_handlerStyle = 2;
+	g_honour = 4;
+	g_gameCurve = true;
+	const char *clipAt = "rider: an item's use clip at ", *sentTaken = "IdleStop sent to the graph (UseStop): taken; the clip over after ";
+	const char *forceTaken = "IdleStop sent to the graph (UseStop): not taken, IdleForceDefaultState taken; the clip over after ";
+	const char *listen = "rider: the graph's events through PlayerCharacter's slot 1 in the ";
+	const char *settings = "  rider: UseListen=2 UseStop=IdleStop,IdleForceDefaultState: the graph's events through slot 1 listed for 2 s after an item's cue (UseListen); "
+	                       "an item's use clip at speed sent IdleStop, then IdleForceDefaultState through the graph's own slot (UseStop) (read again on getting on)";
+	RewriteIni("UseListen=0\n", "UseListen=2.0\n");
+	RewriteIni("UseStop=\n", "UseStop=IdleStop,IdleForceDefaultState\n");
+
+	printf("arms (2026-11-09a): U1, riding at about 800 with W held, an item, 0.4 s later the knees off the seat (no use idle's event through slot 1): IdleStop sent, taken:\n");
+	int clip0 = LogLines(clipAt), taken0 = LogLines(sentTaken), listen0 = LogLines(listen), got[2];
+	UsRide(800.0f, true, got);
+	char u1[1024] = "", l1[1024] = "";   /* LastLogLine's buffer is one: copied */
+	if (LastLogLine(clipAt))
+		snprintf(u1, sizeof(u1), "%s", LastLogLine(clipAt));
+	if (LastLogLine(listen))
+		snprintf(l1, sizeof(l1), "%s", LastLogLine(listen));
+	float u1Speed = LastLogNumber(clipAt), u1Over = LastLogNumber(sentTaken);
+	CHECK(LogLines(settings) == 1 && LogLines("rider: UseStop's events from the string pool (BSStringPool::GetEntry +0x") == 1 && got[0] == 1 && got[1] == 0 &&
+	          LogLines(clipAt) - clip0 == 1 && LogLines(sentTaken) - taken0 == 1 && strstr(u1, "(the knees off the seat 0.") && strstr(u1, " s after CMB_RiderItemUse ") &&
+	          u1Speed > 700.0f && u1Over < 0.2f && LogLines(listen) - listen0 == 1 && l1[0] && !strstr(l1, "IdleStop") && strstr(l1, "(UseListen): none"),
+	      "UseStop U1: the settings line and the pool's line once; the graph got IdleStop %d time(s) (1), IdleForceDefaultState %d (0); one \"%s%.0f u/s (the knees off the seat 0.N s after "
+	      "CMB_RiderItemUse N): %s%.2f s ...\" (over within 0.2 s); the window's UseListen line without IdleStop (sent straight, not through the wrapper): \"%s\" (2026-11-08a: nothing sent)",
+	      got[0], got[1], clipAt, u1Speed, sentTaken, u1Over, l1[0] ? l1 + 13 : "(none)");
+
+	printf("arms (2026-11-09a): U1's variants: IdleStop refused (IdleForceDefaultState taken); at 100 u/s; the knees off with no item (a hit); UseStop empty:\n");
+	g_graphIdleStopTakes = false;
+	int force0 = LogLines(forceTaken), gotForce[2];
+	UsRide(800.0f, true, gotForce);
+	g_graphIdleStopTakes = true;
+	int forceN = LogLines(forceTaken) - force0;
+	clip0 = LogLines(clipAt);
+	int gotSlow[2], gotHit[2], gotOff[2];
+	UsRide(100.0f, true, gotSlow);
+	int slowN = LogLines(clipAt) - clip0;
+	clip0 = LogLines(clipAt);
+	UsRide(800.0f, false, gotHit);
+	int hitN = LogLines(clipAt) - clip0;
+	RewriteIni("UseStop=IdleStop,IdleForceDefaultState\n", "UseStop=\n");
+	clip0 = LogLines(clipAt);
+	UsRide(800.0f, true, gotOff);
+	int offN = LogLines(clipAt) - clip0;
+	RewriteIni("UseStop=\n", "UseStop=IdleStop,IdleForceDefaultState\n");
+	CHECK(gotForce[0] == 1 && gotForce[1] == 1 && forceN == 1 && gotSlow[0] + gotSlow[1] == 0 && slowN == 0 && gotHit[0] + gotHit[1] == 0 && hitN == 0 && gotOff[0] + gotOff[1] == 0 && offN == 0,
+	      "UseStop U1's variants: IdleStop refused: IdleStop %d and IdleForceDefaultState %d (1 each), one \"%s...\" (%d); at 100 u/s nothing sent (%d, %d) and no line (%d); the knees off with no item "
+	      "nothing (%d, %d; %d); UseStop empty (its off value, the 2026-11-08a build) nothing (%d, %d; %d)",
+	      gotForce[0], gotForce[1], forceTaken, forceN, gotSlow[0], gotSlow[1], slowN, gotHit[0], gotHit[1], hitN, gotOff[0], gotOff[1], offN);
+
+	printf("arms (2026-11-09a): U2, standing, an item, then jumpLandToRun once and FakeEventA twice through slot 1: UseListen's line:\n");
+	ArmsGetOn(1500);
+	listen0 = LogLines(listen);
+	*(float *)(g_itemUseFake + 0x30) = ItemUseFake() + 1.0f;
+	RunFrames(200);
+	GraphSend(GN_LAND_RUN);
+	RunFrames(100);
+	UsSend(UsEvent("FakeEventA"));
+	RunFrames(100);
+	UsSend(UsEvent("FakeEventA"));
+	RunFrames(2500);
+	const char *l2 = LastLogLine(listen);
+	ArmsGetOff(400);
+	RewriteIni("UseListen=2.0\n", "UseListen=0\n");
+	ArmsGetOn(1500);
+	int listenOff0 = LogLines(listen);
+	*(float *)(g_itemUseFake + 0x30) = ItemUseFake() + 1.0f;
+	RunFrames(200);
+	UsSend(UsEvent("FakeEventA"));
+	RunFrames(2500);
+	int listenOff = LogLines(listen) - listenOff0;
+	ArmsGetOff(400);
+	RewriteIni("UseStop=IdleStop,IdleForceDefaultState\n", "UseStop=\n");
+	CHECK(LogLines(listen) - listen0 == 1 && l2 && strstr(l2, " s from CMB_RiderItemUse ") && strstr(l2, "(UseListen): jumpLandToRun 1, FakeEventA 2 (3 in all; none of UseBlockEvents)") && listenOff == 0,
+	      "UseListen U2: one \"%s2.0 s from CMB_RiderItemUse N at N u/s (UseListen): jumpLandToRun 1, FakeEventA 2 (3 in all; none of UseBlockEvents)\": \"%s\"; UseListen=0 (its off value): no line (%d) "
+	      "(2026-11-08a: no line)", listen, l2 ? l2 + 13 : "(none)", listenOff);
+	*(float *)(g_turnRadius + 0x30) = radius0;
+	*(float *)(g_turnSlow + 0x30) = slow0;
+	*(float *)(g_turnStand + 0x30) = stand0;
+	g_handlerStyle = style0;
+	g_honour = honour0;
+	g_gameCurve = curve0;
+	g_topCap = 0.0f;
+	SetNormal(0.0f, 0.0f, 1.0f);
+	FlatGround();
+	g_onFrame = NULL;
+}
+
 /* --- Climbing low things (test 40's finding 8; mode 10) ------------------------------------
  * The player's capsule (radius 18) stopped by what it meets, as f8's capsule model has it: a
  * contact steeper than the limit the controller holds now (acos of *Slope()) is a wall, so the
@@ -12263,6 +12544,423 @@ static void LaunchTests51(void)
 	SetTilt(0.0f);
 	RunFrames(400);
 	g_onFrame = NULL;
+}
+
+/* 2026-11-09a (test 50, mode 25 caution, mode 19's world): Caution, the wheels, the bridge's end post. The drive unit's. */
+/* Mode 25 (2026-11-09a, test 50's answer; the drive unit's): Caution, the wheels and the bridge's end post, in mode 19's world.
+ * Each ride names its own keys, put first in their section (GetPrivateProfileString takes a key's first copy) and taken out
+ * after, so they hold whatever the run's INI has (run.sh's DEF54 off values, or the defaults run's none). */
+static void Keys54(const char *steer, const char *parts, bool on)
+{
+	char with[400];
+	if (steer && *steer) {
+		snprintf(with, sizeof(with), "[Steer]\n%s", steer);
+		RewriteIni(on ? "[Steer]\n" : with, on ? with : "[Steer]\n");
+	}
+	if (parts && *parts) {
+		snprintf(with, sizeof(with), "[Parts]\n%s", parts);
+		RewriteIni(on ? "[Parts]\n" : with, on ? with : "[Parts]\n");
+	}
+}
+
+/* The caution rides' frame (StopFrame's, the front wheel's edge to g_stopW): from the plane's placing, the gap (the front wheel's
+ * edge to it) where the input first fell under 0.99 and first to 0 (-1: not yet), the least input, the time it first came back
+ * over 0 after that; with g_c54Keep each frame's time, gap and the fake's true speed, for C3's analytic. */
+#define C54_FRAMES 1200
+static bool g_c54On, g_c54Keep;
+static float g_c54T, g_c54EaseGap, g_c54ZeroGap, g_c54ZeroT, g_c54BackT, g_c54Least, g_c54BackGap;
+static int g_c54N;
+static float g_c54Tk[C54_FRAMES], g_c54Gap[C54_FRAMES], g_c54V[C54_FRAMES];
+static void Caution54Frame(float dt)
+{
+	StopFrame(dt);
+	if (!g_c54On || !g_stopW || !g_stopW->on)
+		return;
+	g_c54T += dt;
+	float gap = FaceGap(g_stopW) - (99.6f + 29.9f), in = hypotf(MoveInput()[0], MoveInput()[1]);
+	if (g_c54EaseGap < -0.5f && in < 0.99f)
+		g_c54EaseGap = gap;
+	if (g_c54ZeroGap < -0.5f && in < 0.001f) {
+		g_c54ZeroGap = gap;
+		g_c54ZeroT = g_c54T;
+	}
+	if (g_c54ZeroGap > -0.5f && g_c54BackT < 0.0f && in >= 0.001f) {
+		g_c54BackT = g_c54T;
+		g_c54BackGap = gap;
+	}
+	if (in < g_c54Least)
+		g_c54Least = in;
+	if (g_c54Keep && g_c54N < C54_FRAMES) {
+		g_c54Tk[g_c54N] = g_c54T;
+		g_c54Gap[g_c54N] = gap;
+		g_c54V[g_c54N] = g_fakeSpeedNow;
+		g_c54N++;
+	}
+}
+static void Caution54Watch(void)
+{
+	g_c54On = true;
+	g_c54T = 0.0f;
+	g_c54EaseGap = g_c54ZeroGap = -1.0f;
+	g_c54ZeroT = g_c54BackT = g_c54BackGap = -1.0f;
+	g_c54Least = 9.0f;
+	g_c54N = 0;
+}
+/* On again with these keys, W held 3.5 s up to 900 (or the cap), the fake's run-down `decel` from then. */
+static void Caution54Up(const char *steer, float decel)
+{
+	Keys54(steer, NULL, true);
+	g_onFrame = Caution54Frame;
+	g_c54On = g_c54Keep = false;
+	GetOffAndOn(45.0f);
+	g_camYaw = PlayerHeading();
+	Keys(0.0f, 1.0f);
+	RunFrames(3500);
+	g_fakeDecel = decel;
+	g_fakeAccel = 400.0f;
+}
+static void Caution54Done(const char *steer)
+{
+	Keys(0.0f, 0.0f);
+	g_c54On = false;
+	g_stopW = NULL;
+	g_fakeDecel = g_fakeAccel = 0.0f;
+	g_topCap = 0.0f;
+	ClearObstacles();
+	RunFrames(1000);
+	Keys54(steer, NULL, false);
+}
+/* C3's analytic: the first kept frame whose gap is over the need at c = 0.6 (WallStop 0.75 of 900 / 0.4, a tenth of a second
+ * of the speed and 10, never under a wheel radius and 10) of the fake's true speed `lag` seconds before (-1: none). */
+static float Caution54Analytic(float lag)
+{
+	for (int i = 0; i < g_c54N; i++) {
+		if (g_c54Tk[i] < g_c54ZeroT)
+			continue;
+		float v = g_c54V[0];
+		for (int j = i; j >= 0; j--)
+			if (g_c54Tk[j] <= g_c54Tk[i] - lag) {
+				v = g_c54V[j];
+				break;
+			}
+		float need = v * v / (2.0f * 0.75f * 2250.0f) + 0.1f * v + 10.0f;
+		if (need < 39.9f)
+			need = 39.9f;
+		if (g_c54Gap[i] > need)
+			return g_c54Tk[i];
+	}
+	return -1.0f;
+}
+
+/* The number after `after` in the line holding `text` the (skip + 1)-th time (NAN: none). */
+static float NthLogNumberAfter(const char *text, int skip, const char *after)
+{
+	static char line[4096];
+	FILE *f = OpenLog();
+	if (!f)
+		return NAN;
+	float value = NAN;
+	while (fgets(line, sizeof(line), f)) {
+		if (!strstr(line, text) || skip-- > 0)
+			continue;
+		const char *at = strstr(line, after);
+		char *end;
+		float v = at ? strtof(at + strlen(after), &end) : NAN;
+		if (at && end != at + strlen(after))
+			value = v;
+		break;
+	}
+	fclose(f);
+	return value;
+}
+
+/* (c) Caution (test 50's "obstacle detection could be closer"): test 45's rail met square at 900, first seen by the longer rays
+ * (WallStopReach) at the need, its WallStopPersist extra and FaceLook's span past the front wheel, each at Caution's copies;
+ * the fake's run-down 1350 (test 45's own). */
+static void CautionTests54(void)
+{
+	static const char wallAt[] = "rays: a wall ahead (90 deg): ";
+	float edge = 99.6f + 29.9f;
+	for (int k = 0; k < 2; k++) {
+		bool off = k == 1;
+		const char *keys = off ? "Caution=100\n" : "Caution=60\n";
+		printf("caution (test 50): %s, a raised rail dead ahead placed 1100 ahead at 900, the game's run-down 1350, W held: %s:\n", off ? "Caution=100 written (the off value)" : "Caution=60 written",
+		       off ? "first seen about 805 past the front wheel, as the 2026-11-08a build (the need 400, 0.15 s of the speed, FaceLook's 275)"
+		           : "first seen about 588 past the front wheel (the need 343 at WallStop 0.75, 0.09 s of the speed, FaceLook 0.18's 168), the input none by about 425 (the need and its extra), stopped short of the rail");
+		Caution54Up(keys, 1350.0f);
+		int wall0 = LogLines(wallAt), caution0 = LogLines(": WallStop, Caution 60%)");
+		RaisedRail(1100.0f, 0.0f);
+		Caution54Watch();
+		RunFrames(3500);
+		float moved = AlongStill(), first = NthLogNumber(wallAt, wall0), need = NthLogNumberAfter(wallAt, wall0, " needs ");
+		int cautionWords = LogLines(": WallStop, Caution 60%)") - caution0;
+		printf("  (first seen %.0f, its need %.0f; the input under 0.99 at %.0f, none at %.0f, its least %.2f; the front wheel's edge %.0f from it at the closest; %.1f in 0.25 s)\n", first, need, g_c54EaseGap,
+		       g_c54ZeroGap, g_c54Least, g_stopLeast, moved);
+		if (off)
+			CHECK(first >= 770.0f && first <= 815.0f && fabsf(need - 535.0f) <= 15.0f && cautionWords == 0 && g_stopLeast >= 0.0f && moved < 5.0f,
+			      "first seen %.0f past the front wheel (805, the 2026-11-08a build's; a frame or more late under load), its line's need %.0f (535: 400 and 0.15 s of the speed), no \"Caution\" word (%d), "
+			      "the front wheel's edge %.0f from it at the closest, stopped (%.1f in 0.25 s)", first, need, cautionWords, g_stopLeast, moved);
+		else
+			CHECK(first >= 565.0f && first <= 603.0f && fabsf(need - 425.0f) <= 15.0f && g_c54EaseGap >= 540.0f && cautionWords >= 1 && g_stopLeast >= 0.0f && moved < 5.0f,
+			      "first seen %.0f past the front wheel (588, +15/-23: a frame or more late under load), the throttle none within its line's need %.0f (425 +- 15: 343 and 0.09 s of the speed; \"...: WallStop, Caution 60%%)\", %d), "
+			      "the input eased from %.0f, the front wheel's edge %.0f from it at the closest, stopped (%.1f in 0.25 s)", first, need, cautionWords, g_c54EaseGap, g_stopLeast, moved);
+		Caution54Done(keys);
+	}
+
+	/* C2: [Steer] Caution=-1, the MCM's: CMB_Caution read on getting on, and again once a second while riding. */
+	printf("caution: Caution=-1 written (the MCM's), CMB_Caution 80: \"Caution 80%% (CMB_Caution): FaceLook 0.24, ...\" on getting on; CMB_Caution set to 60 while riding: "
+	       "\"steer: Caution 80%% -> 60%% (CMB_Caution): ... (the MCM)\" within a second:\n");
+	{
+		static const char on80[] = "  steer: Caution 80% (CMB_Caution): FaceLook 0.24, WallStop 0.667, WallStopPersist 0.12, the need from the 0.05 s speed";
+		static const char to60[] = "steer: Caution 80% -> 60% (CMB_Caution): FaceLook 0.18, WallStop 0.75, WallStopPersist 0.09, the need from the 0.05 s speed (the MCM)";
+		int on0 = LogLines(on80), mid0 = LogLines(to60);
+		*(float *)(g_cautionFake + 0x30) = 80.0f;
+		Caution54Up("Caution=-1\n", 0.0f);
+		int on = LogLines(on80) - on0;
+		*(float *)(g_cautionFake + 0x30) = 60.0f;
+		RunFrames(1200);
+		int mid = LogLines(to60) - mid0;
+		CHECK(on == 1 && mid == 1, "\"%s\" on getting on (%d), \"%s\" (%d)", on80, on, to60, mid);
+		*(float *)(g_cautionFake + 0x30) = 100.0f;   /* the fake's own (as the 2026-11-08a build: the older modes' 100) */
+		Caution54Done("Caution=-1\n");
+	}
+
+	/* C3: braking at none from 900, the need from the 0.05 s speed (Caution under 100): the throttle comes back once that need is
+	 * under the distance; the 0.2 s speed lags the true one by 0.2 s of the run-down (300 u/s at 1500) and held it at none longer.
+	 * WallStopPersist=0 for it (the need alone, no glimpse's extra). */
+	printf("caution: Caution=60 and WallStopPersist=0 written, a raised rail placed 330 past the front wheel at 900 (inside the need, 343: none at once), the game's run-down 1500, W held: "
+	       "the throttle back within 0.1 s of when the need of the true speed 0.05 s before is under the distance, 0.15 s or more before the 0.2 s speed's:\n");
+	{
+		Caution54Up("Caution=60\nWallStopPersist=0\n", 1500.0f);
+		RaisedRail(edge + 330.0f, 0.0f);
+		Caution54Watch();
+		g_c54Keep = true;
+		RunFrames(1500);
+		float a05 = Caution54Analytic(0.05f), a02 = Caution54Analytic(0.2f);
+		CHECK(g_c54ZeroT >= 0.0f && g_c54ZeroT <= 0.05f && g_c54BackT > 0.0f && a05 > 0.0f && fabsf(g_c54BackT - a05) <= 0.1f && (a02 < 0.0f || g_c54BackT <= a02 - 0.15f),
+		      "none %.3f s after it was placed, back over 0 %.2f s after (%.0f from the rail): within 0.1 s of the 0.05 s speed's need's %.2f, before the 0.2 s speed's %.2f", g_c54ZeroT, g_c54BackT, g_c54BackGap,
+		      a05, a02);
+		Caution54Done("Caution=60\nWallStopPersist=0\n");
+	}
+
+	/* C4 (the review of 2026-11-09a, N1): Caution=50, the MCM's least, against test 45's rail met square at 900 (C1's ride): the
+	 * need at c = 0.5 (WallStop 0.8 of 2250, 328 at 905) is the thinnest over the fake's run-down (1350: 303 from 905). */
+	printf("caution (the review's N1): Caution=50 written (the MCM's least), a raised rail dead ahead placed 1100 ahead at 900, the game's run-down 1350, W held: stopped short of the rail, "
+	       "the front wheel's edge 10 or more from it:\n");
+	{
+		Caution54Up("Caution=50\n", 1350.0f);
+		int wall0 = LogLines("rays: a wall ahead (90 deg): ");
+		RaisedRail(1100.0f, 0.0f);
+		Caution54Watch();
+		RunFrames(3500);
+		float moved = AlongStill(), first = NthLogNumber("rays: a wall ahead (90 deg): ", wall0), need = NthLogNumberAfter("rays: a wall ahead (90 deg): ", wall0, " needs ");
+		printf("  (first seen %.0f, its need %.0f; the input under 0.99 at %.0f, none at %.0f, its least %.2f; the front wheel's edge %.0f from it at the closest; %.1f in 0.25 s)\n", first, need, g_c54EaseGap,
+		       g_c54ZeroGap, g_c54Least, g_stopLeast, moved);
+		CHECK(g_stopLeast >= 10.0f && moved < 5.0f, "the front wheel's edge %.0f from the rail at the closest (10 or more), stopped (%.1f in 0.25 s); first seen %.0f past it, its need %.0f, the input none at %.0f",
+		      g_stopLeast, moved, first, need, g_c54ZeroGap);
+		Caution54Done("Caution=50\n");
+	}
+}
+
+/* (d) The wheels (test 50: they ran on 2.23 rad after the bike stood still; the user's pick: they lock when braking and stop with
+ * the bike): the front wheel's angle (its bone's spin) followed frame by frame, unwrapped, from Wheel54Watch. */
+static bool g_w54On;
+static float g_w54Total, g_w54Last, g_w54Most, g_w54T, g_w54From;
+static void Wheel54Frame(float dt)
+{
+	ClimbFrame(dt);
+	if (!g_w54On)
+		return;
+	g_w54T += dt;
+	float a = WheelAngle(0);
+	g_w54Total += remainderf(a - g_w54Last, 6.2831853f);
+	g_w54Last = a;
+	if (g_w54T >= g_w54From && g_fakeSpeedNow > 10.0f && fabsf(g_w54Total) > g_w54Most)
+		g_w54Most = fabsf(g_w54Total);
+}
+static void Wheel54Watch(float from)
+{
+	g_w54T = 0.0f;
+	g_w54From = from;
+	g_w54Last = WheelAngle(0);
+	g_w54Total = g_w54Most = 0.0f;
+	g_w54On = true;
+}
+static void Wheel54Up(const char *parts, float cap)
+{
+	Keys54(NULL, parts, true);
+	g_onFrame = Wheel54Frame;
+	g_w54On = false;
+	GetOffAndOn(45.0f);
+	g_camYaw = PlayerHeading();
+	g_topCap = cap;
+	Keys(0.0f, 1.0f);
+	RunFrames(3000);
+}
+static void Wheel54Done(const char *parts)
+{
+	Keys(0.0f, 0.0f);
+	g_w54On = g_frozen = g_testKeyHeld = false;
+	g_fakeDecel = g_fakeAccel = 0.0f;
+	g_topCap = 0.0f;
+	RunFrames(1000);
+	Keys54(NULL, parts, false);
+}
+static void WheelTests54(void)
+{
+	const float R = 29.9f;
+	/* W1, and WheelSpin=0 (the off value): a stop in one frame */
+	for (int k = 0; k < 2; k++) {
+		bool off = k == 1;
+		const char *parts = off ? "WheelSpin=0\nWheelLock=1\n" : "WheelSpin=1\nWheelLock=1\n";
+		printf("wheels (test 50): %s, at 300 the fake's speed 0 in one frame (stopped against something), W held: %s:\n", off ? "WheelSpin=0 written (the off value)" : "WheelSpin=1 written",
+		       off ? "the wheels run on about 1.8 rad in 1 s, the 0.2 s speed's run-down over the radius, as the 2026-11-08a build" : "from the next frame the wheels' angle within 0.01 rad over 1 s");
+		Wheel54Up(parts, 300.0f);
+		g_frozen = true;
+		RunFrames(20);
+		Wheel54Watch(0.0f);
+		RunFrames(1000);
+		float turned = fabsf(g_w54Total);
+		if (off)
+			CHECK(turned > 1.4f && turned < 2.3f, "the wheels turned %.2f rad after the stop (about 300 x 0.2 / 29.9 = 2.0, less the first 20 ms)", turned);
+		else
+			CHECK(turned <= 0.01f, "the wheels turned %.4f rad in the 1 s after the stop (0.01 at most)", turned);
+		Wheel54Done(parts);
+	}
+	/* W2, and WheelLock=0 (the off value): braking with the brake key */
+	for (int k = 0; k < 2; k++) {
+		bool off = k == 1;
+		const char *parts = off ? "WheelSpin=1\nWheelLock=0\n" : "WheelSpin=1\nWheelLock=1\n";
+		printf("wheels (test 50): %s, at 600 the brake key (Space) held, the game's run-down 1500: %s:\n", off ? "WheelLock=0 written (the off value)" : "WheelLock=1 written",
+		       off ? "the wheels turning while braking, by the distance over the radius (within 5%), as the 2026-11-08a build lets them" : "the wheels' angle constant (0.01 rad at most) while the bike is faster than 10");
+		Wheel54Up(parts, 600.0f);
+		g_fakeDecel = 1500.0f;
+		g_fakeAccel = 400.0f;
+		g_testVk = 0x20;
+		float p0[2];
+		Mark(p0);
+		Wheel54Watch(0.015f);
+		g_testKeyHeld = true;
+		RunFrames(1200);
+		float d = Moved(p0), most = g_w54Most, total = g_w54Total;
+		if (off)
+			CHECK(d > 60.0f && fabsf(total + d / R) <= 0.05f * d / R, "%.0f moved while braking, the wheels turned %.2f rad (%.2f: the distance over the radius)", d, total, -d / R);
+		else
+			CHECK(d > 60.0f && most <= 0.01f, "%.0f moved while braking, the wheels' angle %.4f rad off at the most while faster than 10 (0.01 at most)", d, most);
+		Wheel54Done(parts);
+	}
+	/* W3: a coast to a stop */
+	printf("wheels (test 50): WheelSpin=1, at 600 W let go, the game's run-down 450 (a coast to a stop): the wheels turned by the distance over the radius, within 2%% "
+	       "(the 2026-11-08a build: 0.2 s of the speed more):\n");
+	{
+		const char *parts = "WheelSpin=1\nWheelLock=1\n";
+		Wheel54Up(parts, 600.0f);
+		g_fakeDecel = 450.0f;
+		g_fakeAccel = 400.0f;
+		float p0[2];
+		Mark(p0);
+		Wheel54Watch(0.0f);
+		Keys(0.0f, 0.0f);
+		RunFrames(2800);
+		float d = Moved(p0), total = g_w54Total, speed = g_fakeSpeedNow;
+		CHECK(d > 300.0f && speed < 1.0f && fabsf(total + d / R) <= 0.02f * d / R, "%.0f coasted to a stop (%.1f now), the wheels turned %.2f rad (%.2f: the distance over the radius)", d, speed, total, -d / R);
+		Wheel54Done(parts);
+	}
+}
+
+/* (e) The bridge's end post (test 50, 14:37:48.899 at 928: "a step up, the ground 50.3 over the ground at its foot 246 ahead
+ * (ClimbMaxTop) ... the climb limit 47 -> 85", the post's own top under 31.9; the boost took the bike up it and into the rail):
+ * a post 25 high, 40 deep and 100 wide (the climb's side rays meet it), a rail's top 50 high from 131 past its face (its face
+ * above the face rays: bottom 46), at 900; ClimbMaxTop=18 for these. */
+static void StepSpanTests54(void)
+{
+	float cos85 = cosf(85.0f / DEG);
+	static const char postWords[] = ": a post, not a step (ClimbStepSpan): not climbed with the boost", boostWords[] = "the climb limit 47 -> 85";
+	static const char carryWords[] = "its top carrying on at 3 points between (ClimbStepSpan)", farWords[] = "ahead: a step up, the ground 50.0 over the ground at its foot ";
+	for (int k = 0; k < 3; k++) {
+		bool pavement = k == 1, off = k == 2;
+		const char *steer = off ? "ClimbMaxTop=18\nClimbStepSpan=0\n" : "ClimbMaxTop=18\nClimbStepSpan=3\n";
+		printf("end post (test 50): %s, at 900 %s, W held: %s:\n", off ? "ClimbStepSpan=0 written (the off value)" : "ClimbStepSpan=3 written",
+		       pavement ? "a step 25 high onto a pavement 400 deep 400 ahead" : "a post 25 high and 40 deep 400 ahead, a rail's top 50 high from 131 past its face",
+		       pavement ? "still a step up (\"...its top carrying on at 3 points between (ClimbStepSpan)\"), the boost on, 47 -> 85"
+		       : off ? "a step up by the one ray a wheelbase on (\"a step up, the ground 50.0 over the ground at its foot ...\"), the boost on, as the 2026-11-08a build"
+		             : "\"...: its top ends within 67 past its face ...: a post, not a step (ClimbStepSpan): not climbed with the boost\", the limit 47 throughout");
+		Keys54(steer, NULL, true);
+		g_onFrame = ClimbFrame;
+		GetOffAndOn(45.0f);
+		g_camYaw = PlayerHeading();
+		Keys(0.0f, 1.0f);
+		RunFrames(3500);
+		int post0 = LogLines(postWords), boost0 = LogLines(boostWords), carry0 = LogLines(carryWords), far0 = LogLines(farWords);
+		g_slopeMin = 1.0f;
+		FakePlane *w = Obstacle(0, 400.0f, 25.0f, CAP_STEP, pavement ? 400.0f : 40.0f, 1, NULL);
+		g_planeTopDepth[0] = pavement ? 400.0f : 40.0f;
+		if (!pavement) {
+			w->halfWidth = 50.0f;
+			FakePlane *rail = Obstacle(1, 400.0f + 131.0f, 50.0f, CAP_NONE, 400.0f, 1, NULL);
+			rail->bottom = 46.0f;
+			g_planeTopDepth[1] = 400.0f;
+		}
+		RunFrames(1500);
+		int posts = LogLines(postWords) - post0, boosts = LogLines(boostWords) - boost0, carries = LogLines(carryWords) - carry0, fars = LogLines(farWords) - far0;
+		float steepest = acosf(g_slopeMin) * DEG;
+		if (pavement)
+			CHECK(carries == 1 && boosts >= 1 && posts == 0 && Near(g_slopeMin, cos85), "\"%s\" (%d) in the boost's line (%d), no post line (%d), the limit up to %.1f deg", carryWords, carries, boosts, posts, steepest);
+		else if (off)
+			CHECK(fars == 1 && boosts >= 1 && posts == 0 && Near(g_slopeMin, cos85), "\"%s...\" (%d), the boost on (%d), no post line (%d), the limit up to %.1f deg", farWords, fars, boosts, posts, steepest);
+		else
+			CHECK(posts == 1 && NthLogLineHas(postWords, post0, "its top ends within 67 past its face (the ground 0.0 over its foot 67 past it, 33 past it still on its top), though a wheelbase on, ") &&
+			          NthLogLineHas(postWords, post0, " ahead, the ground 50.0 over its foot") && boosts == 0 && fars == 0 && Near(g_slopeMin, COS47),
+			      "one \"...: its top ends within 67 past its face (the ground 0.0 over its foot 67 past it, 33 past it still on its top), though a wheelbase on, ... the ground 50.0 over its foot%s\" line (%d), "
+			      "no boost (%d), the limit 47 throughout (the steepest %.1f deg)", postWords, posts, boosts, steepest);
+		RollOff();
+		Keys54(steer, NULL, false);
+	}
+}
+
+static void DriveTests54(void)
+{
+	float *head = (float *)(g_player + 0xC8);
+	*(float *)(g_turnRadius + 0x30) = 180.0f;   /* steering on: the input hook (and the throttle) with it, as mode 19 */
+	*(float *)(g_turnSlow + 0x30) = 50.0f;
+	*(float *)(g_turnStand + 0x30) = 60.0f;
+	SetNormal(0.0f, 0.0f, 1.0f);
+	SetState(0);
+	FlatGround();
+	g_camYaw = *head;
+	g_handlerStyle = 2;
+	g_honour = 4;
+	g_capsuleOn = true;
+	Keys(0.0f, 0.0f);
+	g_onFrame = ClimbFrame;
+	printf("caution (2026-11-09a): getting on with the MCM's 45, on flat ground:\n");
+	SetLive(45.0f);
+	SetCamera(300.0f);
+	SetTilt(30.0f);
+	RunFrames(1500);
+	/* the settings lines: each key at its default, read again on getting on */
+	{
+		static const char steerLine[] = "  steer: Caution=-1: the MCM's CMB_Caution, read on getting on and once a second while riding; ClimbStepSpan=3: a step up's top looked for at that many more points "
+		                                "between its face and the ray a wheelbase on, one that doesn't carry on a post: no boost (read again on getting on)";
+		static const char partsLine[] = "  parts: the wheels turn by the frame's own movement, none under 5 u/s (WheelSpin), held while braking (WheelLock) (read again on getting on)";
+		static const char cautionLine[] = "  steer: Caution 100% (CMB_Caution): FaceLook 0.3, WallStop 0.6, WallStopPersist 0.15, the need from the 0.2 s speed (as the 2026-11-08a build)";
+		printf("caution: Caution=-1, ClimbStepSpan=3, WheelSpin=1, WheelStill=5 and WheelLock=1 written (the defaults), off and on again: their lines, and Caution's value (the fake's CMB_Caution 100):\n");
+		int s0 = LogLines(steerLine), p0 = LogLines(partsLine), c0 = LogLines(cautionLine);
+		Keys54("Caution=-1\nClimbStepSpan=3\n", "WheelSpin=1\nWheelStill=5\nWheelLock=1\n", true);
+		GetOffAndOn(45.0f);
+		int sl = LogLines(steerLine) - s0, pl = LogLines(partsLine) - p0, cl = LogLines(cautionLine) - c0;
+		CHECK(sl == 1 && pl == 1 && cl == 1, "\"%s\" (%d), \"%s\" (%d), \"%s\" (%d)", steerLine, sl, partsLine, pl, cautionLine, cl);
+		Keys54("Caution=-1\nClimbStepSpan=3\n", "WheelSpin=1\nWheelStill=5\nWheelLock=1\n", false);
+	}
+	CautionTests54();
+	WheelTests54();
+	StepSpanTests54();
+	SetLive(0.0f);
+	SetCamera(0.0f);
+	SetTilt(0.0f);
+	RunFrames(400);
+	g_onFrame = NULL;
+	g_capsuleOn = false;
 }
 
 /* Test 45's rails (the note's 3): 2:56.4 a raised guard rail met at an angle and 9:48.9 a picket
@@ -15409,6 +16107,15 @@ static float SnapPlayed(float x, float y)
 	float d = hypotf(x - g_hole[0], y - g_hole[1]);
 	return g_holeOn && d < g_holeR ? g_holeR - d : 0.0f;
 }
+/* 2026-11-09a ([Room] SnapOrder's 3-D snap): the navmesh's height where SnapPlayed finds it (NAN: at the spot's own ground, as
+ * the older rides have it); the snap measured on a ground (0: none, flat) as SnapOff measures it. */
+static float g_navZ = NAN;
+static float g_pickBestGround;   /* the last pick's most room's CMB_RoomGround (SnapOrderTests54's check) */
+static float SnapPlayed3(float x, float y, float ground)
+{
+	float flat = SnapPlayed(x, y);
+	return ground == 0.0f || !isfinite(g_navZ) ? flat : hypotf(flat, g_navZ - ground);
+}
 #define SPOT_SETTLE_MAX 30.0f   /* the controller's SpotSettleMax */
 #define SPOT_SNAP_REACH 300.0f  /* ... and its SpotSnapReach (2026-11-01a) */
 /* Test 47: with SnapNext (CMB_RoomOptions bit 8) a spot with room whose snap (SnapPlayed, at the
@@ -15419,6 +16126,8 @@ static int RoomPickPlayedEx(int *n, float out[3], int *asked, bool park)
 {
 	float p[3] = { PlayerPos()[0], PlayerPos()[1], PlayerPos()[2] }, h = PlayerHeading(), deg = h * DEG;
 	float fw[2] = { sinf(h), cosf(h) }, rt[2] = { cosf(h), -sinf(h) }, bestClear = 0.0f, best[3] = { 0.0f, 0.0f, 0.0f }, farAt[3] = { 0.0f, 0.0f, 0.0f };
+	float bestGround = 0.0f;   /* 2026-11-09a (SnapOrder): CMB_RoomGround as the plugin wrote it for the most room (0: none) */
+	g_pickBestGround = 0.0f;
 	bool snapNext = ((int)RoomMore(0) / 8) % 2 == 1;
 	int total = park ? 11 : 7, bestSpot = -1, farSpot = -1;
 	*asked = 0;
@@ -15446,10 +16155,58 @@ static int RoomPickPlayedEx(int *n, float out[3], int *asked, bool park)
 				best[0] = x;
 				best[1] = y;
 				best[2] = d;
+				bestGround = g_pickBestGround = RoomMore(3);
 			}
 		}
 		if (s == 6 && !park && (int)RoomMore(0) % 2 == 1)
 			total = 11;
+	}
+	/* 2026-11-09a ([Room] SnapOrder, CMB_RoomOptions bit 64; test 50's call from the truck bed): 1, that first spot's navmesh point
+	 * (SnapSpot); 2, the most room by its snap in 3-D on the ground the plugin wrote for it (none: flat); 3, the most room's navmesh
+	 * point (SnapBest); 4, that first spot as before. */
+	if (farSpot >= 0 && !park && ((int)RoomMore(0) / 64) % 2 == 1) {
+		float snap = SnapPlayed(farAt[0], farAt[1]);
+		if (((int)RoomMore(0) / 16) % 2 == 1 && snap > SPOT_SETTLE_MAX && snap <= SPOT_SNAP_REACH) {
+			float dx = farAt[0] - g_hole[0], dy = farAt[1] - g_hole[1], dl = hypotf(dx, dy);
+			float nx = g_hole[0] + dx / dl * (g_holeR + 0.5f), ny = g_hole[1] + dy / dl * (g_holeR + 0.5f);
+			*(float *)(g_roomKindFake + 0x30) = 1.0f;
+			RoomAskHeading(*n, nx, ny, p[2], farAt[2]);
+			RunFrames(5);
+			*(float *)(g_roomKindFake + 0x30) = 0.0f;
+			(*n)++;
+			(*asked)++;
+			if (RoomGlobal(4) > 0.0f && SnapPlayed(RoomGlobal(0), RoomGlobal(1)) <= SPOT_SETTLE_MAX) {
+				out[0] = RoomGlobal(0);
+				out[1] = RoomGlobal(1);
+				out[2] = RoomGlobal(6);
+				return farSpot;
+			}
+		}
+		if (bestSpot >= 0) {
+			float most = SnapPlayed3(best[0], best[1], bestGround);
+			if (most <= SPOT_SETTLE_MAX) {
+				memcpy(out, best, sizeof(best));
+				return bestSpot;
+			}
+			if (((int)RoomMore(0) / 32) % 2 == 1 && most <= SPOT_SNAP_REACH) {
+				float dx = best[0] - g_hole[0], dy = best[1] - g_hole[1], dl = hypotf(dx, dy);
+				float nx = g_hole[0] + dx / dl * (g_holeR + 0.5f), ny = g_hole[1] + dy / dl * (g_holeR + 0.5f);
+				*(float *)(g_roomKindFake + 0x30) = 1.0f;
+				RoomAskHeading(*n, nx, ny, p[2], best[2]);
+				RunFrames(5);
+				*(float *)(g_roomKindFake + 0x30) = 0.0f;
+				(*n)++;
+				(*asked)++;
+				if (RoomGlobal(4) > 0.0f && SnapPlayed(RoomGlobal(0), RoomGlobal(1)) <= SPOT_SETTLE_MAX) {
+					out[0] = RoomGlobal(0);
+					out[1] = RoomGlobal(1);
+					out[2] = RoomGlobal(6);
+					return bestSpot;
+				}
+			}
+		}
+		memcpy(out, farAt, sizeof(farAt));
+		return farSpot;
 	}
 	if (farSpot >= 0) {
 		if (bestSpot >= 0 && SnapPlayed(best[0], best[1]) <= SPOT_SETTLE_MAX) {
@@ -15484,8 +16241,8 @@ static int RoomPickPlayedEx(int *n, float out[3], int *asked, bool park)
 	if (bestSpot >= 0) {
 		/* 2026-11-06a ([Room] SnapBest, CMB_RoomOptions bit 32): the most room's own snap past SpotSettleMax (SpotSnapReach at most):
 		 * the place it found (the hole's edge along it) asked about as a navmesh point, taken with room there and its own snap within
-		 * SpotSettleMax; else the most room as before. */
-		float snap = SnapPlayed(best[0], best[1]);
+		 * SpotSettleMax; else the most room as before. 2026-11-09a: with SnapOrder (bit 64) its snap in 3-D on its ground. */
+		float snap = ((int)RoomMore(0) / 64) % 2 == 1 ? SnapPlayed3(best[0], best[1], bestGround) : SnapPlayed(best[0], best[1]);
 		if (((int)RoomMore(0) / 32) % 2 == 1 && snap > SPOT_SETTLE_MAX && snap <= SPOT_SNAP_REACH) {
 			float dx = best[0] - g_hole[0], dy = best[1] - g_hole[1], dl = hypotf(dx, dy);
 			float nx = g_hole[0] + dx / dl * (g_holeR + 0.5f), ny = g_hole[1] + dy / dl * (g_holeR + 0.5f);
@@ -16227,6 +16984,24 @@ static void OldEsp53Ids(void)
 	      "one \"no look colours (0xA14-0xA17, an older ESP)\" line (%d), no \"look colours found\" line", LogLines(none));
 }
 
+/* Mode 15 (test 42's ESP: neither of the 2026-11-09a build's two, 0xBF1-0xBF2): one line says so, and none is used. */
+static void OldEsp54Ids(void)
+{
+	printf("the 2026-11-09a build's globals with an ESP without them:\n");
+	const char *none = "globals: the 2026-11-09a build's 0 of 2 found (0xBF1-0xBF2, an older ESP): none used";
+	CHECK(LogLines(none) == 1 && LogLines("globals: the 2026-11-09a build's 2 found") == 0,
+	      "one \"the 2026-11-09a build's 0 of 2 found (0xBF1-0xBF2, an older ESP)\" line (%d), no \"2 found\" line", LogLines(none));
+}
+
+/* Mode 15 (test 42's ESP: no CMB_LookOptions, the 2026-11-09a fixes' 0xBF4): one line says so. */
+static void OldEsp55Ids(void)
+{
+	printf("the 2026-11-09a fixes' CMB_LookOptions with an ESP without it:\n");
+	const char *none = "globals: no CMB_LookOptions (0xBF4, an older ESP): the scripts keep 2026-11-09a's look work as of t54-merge";
+	CHECK(LogLines(none) == 1 && LogLines("globals: the 2026-11-09a fixes' CMB_LookOptions found") == 0,
+	      "one \"no CMB_LookOptions (0xBF4, an older ESP)\" line (%d), no \"CMB_LookOptions found\" line", LogLines(none));
+}
+
 /* 2026-11-08a (C2; review B3 moved it from mode 15, whose bike has no shape with a colour row), mode 17: its look bike's
  * colour rows (the paint, the rims, the plate and its text) with an ESP that has three of the four look colours (0xA17 not
  * found, the other three at 0.25 to 0.35): none is used, so over the mode's rides the writer neither writes nor refuses. A
@@ -16529,6 +17304,355 @@ static void RoomTests(bool old)
 	RoomRide();
 	RoomSnapBestTests51(900);   /* 2026-11-06a: test 49's calls from on top of a truck */
 	*(float *)(g_roomGlobalsFake[6] + 0x30) = -1000.0f;
+}
+
+/* 2026-11-09a (test 50, mode 14): the crash after the 3rd knock-off (ActorRoom, ParkBack, ParkGuard). The rider unit's.
+ * H1: test 41's actor (a layer-30 face, SkeletonExport, the ram actor's 3D) 30 along +x of a spot asked with no heading: no
+ * room, -4, the actor's ref ID named; ActorRoom=0: 2026-11-08a's "passed" line. H2: a capsule of 18 at 35 along and 35 across
+ * a heading-0 box, between the box's corner and side rays: found by the actor grid. H3: the parked bike's guard (CMB_RoomAskKind
+ * 2): an actor in its box, gone, the player in it; ParkGuard=0: a plain ask. H4: CMB_RoomOptions' bits 128 (ParkBack) and 256
+ * (ParkGuard) with the keys on, 2026-11-08a's 63 with them off (bit 64 is the drive unit's SnapOrder, left out). */
+static int RoomOptionsNoSnapOrder(void) { return (int)RoomMore(0) & ~64; }
+static void RoomActorTests54(void)
+{
+	SetNormal(0.0f, 0.0f, 1.0f);
+	SetState(0);
+	FlatGround();
+	RoomWallsOff();
+	*(float *)(g_roomGlobalsFake[6] + 0x30) = -1000.0f;
+	*(float *)(g_roomKindFake + 0x30) = 0.0f;
+	float gz = g_groundZ, sx = PlayerPos()[0] + 200.0f, sy = PlayerPos()[1] + 100.0f;
+	char line[400], spot[120];
+	const char *settings = "  room: ActorRoom=1 ParkBack=1 ParkGuard=1 GuardMargin=15: an actor met by a spot's own rays, or by 21 rays down over its box, is no room (ActorRoom, CMB_RoomClear -4); "
+	                       "the parked bike's old spot asked about before it is put back there (ParkBack); the parked bike kept hidden while anyone else is within 15 of its box, or the player in it "
+	                       "(ParkGuard: the script's ask kind 2; kind 3, a place the script chose clear of the player: the player not counted) (read again on getting on)";
+	printf("room (2026-11-09a): ActorRoom, ParkBack and ParkGuard off (2026-11-08a's), then on and a ride (read again on getting on):\n");
+	int optsOff = RoomOptionsNoSnapOrder();
+	RewriteIni("ActorRoom=0", "ActorRoom=1");
+	RewriteIni("ParkBack=0", "ParkBack=1");
+	RewriteIni("ParkGuard=0", "ParkGuard=1");
+	RoomRide();
+	int optsOn = RoomOptionsNoSnapOrder();
+	CHECK(optsOff == 63 && optsOn == 63 + 128 + 256 + 512 && LogLines(settings) == 1,
+	      "H4: CMB_RoomOptions %d with the three off (63: the 2026-11-08a build's, bit 64 aside), %d with them on (63 + 128 ParkBack + 256 ParkGuard + 512 its kind 3, the review of 2026-11-09a); "
+	      "the settings line once: \"%s\"", optsOff, optsOn, settings);
+
+	printf("room (2026-11-09a): H1, test 41's actor (layer 30, SkeletonExport) 30 along +x of a spot with no heading, ActorRoom=1: none, -4, its ref ID:\n");
+	FakePlane *wall = &g_planes[0];
+	memset(wall, 0, sizeof(*wall));
+	wall->point[0] = sx + 30.0f;
+	wall->point[1] = sy;
+	wall->normal[0] = -1.0f;
+	wall->layer = 30;
+	wall->top = 120.0f;
+	wall->what = g_actorObj;
+	wall->on = true;
+	RoomAsk(2001, sx, sy, gz + 30.0f);
+	RunFrames(100);
+	snprintf(line, sizeof(line), "room: ask 2001 at (%.0f, %.0f, %.0f): none, an actor in its place: %08X (SkeletonExport, layer 30), met 30 along +x (ActorRoom)", sx, sy, gz + 30.0f, RAM_ACTOR_FORMID);
+	CHECK(RoomGlobal(4) == -2001.0f && RoomGlobal(5) == -4.0f && LogLines(line) == 1 && LogLines("room: ask 2001 at (") == 1,
+	      "H1: CMB_RoomAnswer %g (-2001: none), CMB_RoomClear %g (-4: an actor in its place), the line: \"%s\" (2026-11-08a: room, \"an actor there (SkeletonExport), passed\")", RoomGlobal(4), RoomGlobal(5), line);
+	RewriteIni("ActorRoom=1", "ActorRoom=0");
+	RoomRide();
+	RoomAsk(2002, sx, sy, gz + 30.0f);
+	RunFrames(100);
+	snprintf(line, sizeof(line), "room: ask 2002 at (%.0f, %.0f, %.0f): room (the ground 30 below the spot); an actor there (SkeletonExport), passed", sx, sy, gz + 30.0f);
+	const char *last = LastLogLine("room: ask 2002 at (");
+	CHECK(RoomGlobal(4) == 2002.0f && fabsf(RoomGlobal(5) - 30.0f) < 0.5f && LogLines(line) == 1 && last && !strstr(last, "ActorRoom") && !strstr(last, "in its place"),
+	      "H1 off: ActorRoom=0: CMB_RoomAnswer %g (2002: room), CMB_RoomClear %g, the 2026-11-08a build's line (ask 3's in RoomTests): \"%s\"", RoomGlobal(4), RoomGlobal(5), line);
+	wall->on = false;
+	RewriteIni("ActorRoom=0", "ActorRoom=1");
+	RoomRide();
+
+	printf("room (2026-11-09a): H2, a capsule of 18 at 35 along and 35 across a heading-0 box (between its corner and side rays): the actor grid finds it, none:\n");
+	g_capAt[0] = sx + 35.0f;   /* heading 0: forward +y, right +x */
+	g_capAt[1] = sy + 35.0f;
+	g_capR = 18.0f;
+	g_capH = 120.0f;
+	g_capOn = true;
+	RoomAskHeading(2003, sx, sy, gz + 30.0f, 0.0f);
+	RunFrames(100);
+	snprintf(line, sizeof(line), "room: ask 2003 at (%.0f, %.0f, %.0f), heading 0: none, an actor in its place: %08X (SkeletonExport, layer 30), met by the ray down 37 ahead of its middle, 40 to its right (ActorRoom)",
+	         sx, sy, gz + 30.0f, RAM_ACTOR_FORMID);
+	CHECK(RoomGlobal(4) == -2003.0f && RoomGlobal(5) == -4.0f && LogLines(line) == 1, "H2: CMB_RoomAnswer %g (-2003), CMB_RoomClear %g (-4), the line: \"%s\" (2026-11-08a: room, no actor named)",
+	      RoomGlobal(4), RoomGlobal(5), line);
+	RewriteIni("ActorRoom=1", "ActorRoom=0");
+	RoomRide();
+	RoomAskHeading(2004, sx, sy, gz + 30.0f, 0.0f);
+	RunFrames(100);
+	snprintf(line, sizeof(line), "room: ask 2004 at (%.0f, %.0f, %.0f), heading 0: room (the ground 30 below the spot)", sx, sy, gz + 30.0f);
+	last = LastLogLine("room: ask 2004 at (");
+	CHECK(RoomGlobal(4) == 2004.0f && LogLines(line) == 1 && last && !strstr(last, "actor"), "H2 off: ActorRoom=0: room (%g), no actor named (no grid): \"%s\"", RoomGlobal(4), line);
+	RewriteIni("ActorRoom=0", "ActorRoom=1");
+	RoomRide();
+
+	printf("room (2026-11-09a): H3, the parked bike's guard (CMB_RoomAskKind 2, heading 0): an actor 40 ahead of its middle and 12 to its right, then 200 away, then the player 30 behind its middle:\n");
+	g_capAt[0] = sx + 12.0f;
+	g_capAt[1] = sy + 40.0f;
+	*(float *)(g_roomKindFake + 0x30) = 2.0f;
+	RoomAskHeading(2005, sx, sy, gz + 30.0f, 0.0f);
+	RunFrames(100);
+	snprintf(spot, sizeof(spot), "room: ask 2005 at (%.0f, %.0f, %.0f), heading 0 (the parked bike's place: ParkGuard): ", sx, sy, gz + 30.0f);
+	snprintf(line, sizeof(line), "%ssomeone in it: %08X (SkeletonExport, layer 30), 42 ahead of its middle, 0 across", spot, RAM_ACTOR_FORMID);
+	bool in = RoomGlobal(4) == -2005.0f && RoomGlobal(5) == -4.0f && LogLines(line) == 1 && RoomMore(1) == -1000.0f && RoomMore(2) == -1000.0f;
+	g_capAt[0] = sx + 200.0f;
+	RoomAskHeading(2006, sx, sy, gz + 30.0f, 0.0f);
+	RunFrames(100);
+	char clearLine[300];
+	snprintf(clearLine, sizeof(clearLine), "room: ask 2006 at (%.0f, %.0f, %.0f), heading 0 (the parked bike's place: ParkGuard): no one in it (21 rays down, 16 across)", sx, sy, gz + 30.0f);
+	bool gone = RoomGlobal(4) == 2006.0f && fabsf(RoomGlobal(5) - 30.0f) < 0.5f && LogLines(clearLine) == 1;
+	g_capOn = false;
+	float px = PlayerPos()[0], py = PlayerPos()[1];
+	RoomAskHeading(2007, px, py + 30.0f, gz + 30.0f, 0.0f);
+	RunFrames(100);
+	char playerLine[300];
+	snprintf(playerLine, sizeof(playerLine), "room: ask 2007 at (%.0f, %.0f, %.0f), heading 0 (the parked bike's place: ParkGuard): the player in it, 30 behind its middle, 0 across", px, py + 30.0f, gz + 30.0f);
+	bool player = RoomGlobal(4) == -2007.0f && RoomGlobal(5) == -4.0f && LogLines(playerLine) == 1;
+	CHECK(in && gone && player, "H3: an actor in the box: -2005, -4, no tilt, \"%s\"; 200 away: 2006 (%g), \"%s\"; the player in it: %g, \"%s\" (2026-11-08a: kind 2 a plain ask)",
+	      line, RoomGlobal(4), clearLine, RoomGlobal(4), playerLine);
+	RewriteIni("ParkGuard=1", "ParkGuard=0");
+	RoomRide();
+	g_capAt[0] = sx + 12.0f;
+	g_capOn = true;
+	RoomAskHeading(2008, sx, sy, gz + 30.0f, 0.0f);
+	RunFrames(100);
+	snprintf(line, sizeof(line), "room: ask 2008 at (%.0f, %.0f, %.0f), heading 0: none, an actor in its place: %08X (SkeletonExport, layer 30), met 27 along fore (of 110) (ActorRoom)", sx, sy, gz + 30.0f,
+	         RAM_ACTOR_FORMID);
+	char slid[200];
+	snprintf(slid, sizeof(slid), "room: ask 2008: slid 93 back along its heading to (%.0f, %.0f): room (the ground 30 below the spot)", sx, sy - 93.4f);
+	int optsGuardOff = RoomOptionsNoSnapOrder();
+	CHECK(RoomGlobal(4) == 2008.0f && LogLines(line) == 1 && LogLines(slid) == 1 && LogLines("(the parked bike's place: ParkGuard)") == 3 && optsGuardOff == 63 + 128,
+	      "H3 off: ParkGuard=0: kind 2 asked as any spot, no guard line: \"%s\", and (ActorRoom: an actor a box ray met leaves it slideable) \"%s\", CMB_RoomAnswer %g; CMB_RoomOptions %d (63 + 128: bit 256 off)",
+	      line, slid, RoomGlobal(4), optsGuardOff);
+	*(float *)(g_roomKindFake + 0x30) = 0.0f;
+	g_capOn = false;
+	RewriteIni("ParkBack=1", "ParkBack=0");
+	RoomRide();
+	int optsBackOff = RoomOptionsNoSnapOrder();
+	RewriteIni("ActorRoom=1", "ActorRoom=0");
+	RoomRide();
+	CHECK(optsBackOff == 63 && RoomOptionsNoSnapOrder() == 63, "H4 off: ParkBack=0 too: CMB_RoomOptions %d (63, the 2026-11-08a build's); the three off again: %d", optsBackOff, RoomOptionsNoSnapOrder());
+	*(float *)(g_roomGlobalsFake[6] + 0x30) = -1000.0f;
+}
+
+/* The review of 2026-11-09a (A1, A2, B1; mode 14): ParkGuard counted the player within the parked bike's box grown by GuardMargin
+ * (143 along, 73 across), wider than where the script itself puts the bike: the track's park 145 from the player's feet (a bend in
+ * the last 1.5 bike lengths put them inside), a call's spot 6 (100 ahead), ParkWhereItStood's 58-73 across. Now the player counts
+ * only within the bike's own box (Fore and Side and their capsule: 128 and 58, RoomBoxOnPlayer's), and not at all in kind 3
+ * (CMB_RoomOptions bit 512: a place the script chose clear of them); anyone else within the grown box in both. The rides play the
+ * script: kind 3 with bit 512, else kind 2 (2026-11-09a's script, which an older plugin answers by the grown box). */
+static float g_curveLeft, g_curveRate;   /* RideCurveFor: the turn over the ride's last g_curveLeft, g_curveRate rad a unit */
+static void RideCurveFor(float dt)
+{
+	float h = PlayerHeading(), step = fminf(300.0f * dt, g_rideLeft);
+	if (g_rideLeft - 0.5f * step < g_curveLeft) {
+		h += g_curveRate * step;
+		*(float *)(g_player + 0xC8) = h;
+	}
+	g_rideLeft -= step;
+	PlayerPos()[0] += sinf(h) * step;
+	PlayerPos()[1] += cosf(h) * step;
+}
+static int GuardKindPlayed(void) { return ((int)RoomMore(0) & 512) ? 3 : 2; }   /* the script's EnableParked for a place it chose */
+static void GuardAskPlayed(int kind, int n, float x, float y, float z, float deg)
+{
+	*(float *)(g_roomKindFake + 0x30) = (float)kind;
+	RoomAskHeading(n, x, y, z, deg);
+	RunFrames(100);
+	*(float *)(g_roomKindFake + 0x30) = 0.0f;
+}
+static void RoomGuardTests55(void)
+{
+	SetNormal(0.0f, 0.0f, 1.0f);
+	SetState(0);
+	FlatGround();
+	RoomWallsOff();
+	g_holeOn = false;
+	g_capOn = false;
+	*(float *)(g_roomGlobalsFake[6] + 0x30) = -1000.0f;
+	*(float *)(g_roomKindFake + 0x30) = 0.0f;
+	RewriteIni("ActorRoom=0", "ActorRoom=1");
+	RewriteIni("ParkGuard=0", "ParkGuard=1");
+	RoomRide();
+	float h0 = PlayerHeading();
+	char line[400], line2[400];
+	int n = 2100;
+	printf("room (the review of 2026-11-09a): ParkGuard and ActorRoom on: CMB_RoomOptions has 512 (ParkGuard's kind 3, the player not counted):\n");
+	CHECK(((int)RoomMore(0) & (256 + 512)) == 256 + 512, "CMB_RoomOptions %g: 256 and 512 (2026-11-09a before the review: 256 only, so the script asks kind 2)", RoomMore(0));
+
+	/* B1: getting off after a 30 deg bend over the last 145 (the track's park: its middle 145 from the player's feet, along the
+	 * straight before the bend; the player 15 deg off its heading, about 140 along and 38 across). */
+	printf("room (the review's B1): a ride of 450, then a 30 deg bend over the last 145, getting off: the track's park spot, the player in the box grown by GuardMargin (143, 73) but not in the bike's own "
+	       "(128, 58); the guard as the script asks it (kind 3 with 512): no one in it; kind 2 too: no one:\n");
+	{
+		float mount[3];
+		ParkRide(0.0f, mount);
+		g_rideLeft = 450.0f + 145.0f;
+		g_curveLeft = 145.0f;
+		g_curveRate = (30.0f / DEG) / 145.0f;
+		g_onFrame = RideCurveFor;
+		while (g_rideLeft > 0.0f)
+			RunFrames(100);
+		g_onFrame = NULL;
+		RunFrames(300);
+		float d = Park(3) - 180.0f;
+		if (d < 0.0f)
+			d += 360.0f;
+		float hd = d / DEG, dx = PlayerPos()[0] - Park(0), dy = PlayerPos()[1] - Park(1);
+		float along = dx * sinf(hd) + dy * cosf(hd), across = dx * cosf(hd) - dy * sinf(hd), chord = hypotf(dx, dy);
+		bool grown = fabsf(along) < 110.0f + 15.0f + 18.0f && fabsf(across) < 40.0f + 15.0f + 18.0f, own = fabsf(along) < 128.0f && fabsf(across) < 58.0f;
+		int kind = GuardKindPlayed(), a = n;
+		GuardAskPlayed(kind, n++, Park(0), Park(1), Park(2), d);
+		float answer = RoomGlobal(4);
+		snprintf(line, sizeof(line), "room: ask %d at (%.0f, %.0f, %.0f), heading %.0f (the parked bike's place: ParkGuard, the player not counted): no one in it (21 rays down, 16 across)", a, Park(0), Park(1), Park(2), d);
+		bool asScript = kind == 3 && answer == (float)a && LogLines(line) == 1;
+		GuardAskPlayed(2, n++, Park(0), Park(1), Park(2), d);
+		snprintf(line2, sizeof(line2), "room: ask %d at (%.0f, %.0f, %.0f), heading %.0f (the parked bike's place: ParkGuard): no one in it (21 rays down, 16 across)", a + 1, Park(0), Park(1), Park(2), d);
+		bool two = RoomGlobal(4) == (float)(a + 1) && LogLines(line2) == 1;
+		CHECK(Park(6) >= 0.5f && fabsf(chord - 145.0f) < 2.5f && grown && !own && asScript && two,
+		      "the track's spot %.1f from the player (145), the player %.0f along its heading and %.0f across (in the grown box: %s; in its own: %s); as the script asks it, kind %d: %g (\"%s\"); kind 2: %g "
+		      "(\"%s\") (2026-11-09a before the review: kind 2, \"the player in it\", held)",
+		      chord, along, across, grown ? "yes" : "no", own ? "yes" : "no", kind, answer, line, RoomGlobal(4), line2);
+		*(float *)(g_player + 0xC8) = h0;
+		SetLive(0.0f);   /* off, so the ride below gets on (and reads the [Room] keys) again */
+		RunFrames(300);
+	}
+
+	/* A2: a call that takes spot 6 (100 ahead): a wall across the front 215 ahead, Slide=0 (no slid or turned spot): spots 0-5
+	 * none, spot 6 room (its box reaches 210). The enable's guard as the script asks it: no one in it; an NPC 40 ahead of its
+	 * middle: someone in it (test 50's crash, still guarded). */
+	printf("room (the review's A2): a call with a wall across the front 215 ahead, Slide=0: spot 7 (100 ahead) taken; its enable's guard as the script asks it: no one in it; an NPC 40 ahead of its "
+	       "middle: someone in it:\n");
+	{
+		RewriteIni("Slide=1", "Slide=0");
+		RoomRide();
+		RoomFenceAhead(215.0f, 0.0f);
+		float out[3];
+		int asked = 0, spot = RoomPickPlayed(&n, out, &asked);
+		float h = PlayerHeading(), fw[2] = { sinf(h), cosf(h) }, z = PlayerPos()[2];
+		bool six = spot == 6 && fabsf(out[0] - (PlayerPos()[0] + 100.0f * fw[0])) < 0.05f && fabsf(out[1] - (PlayerPos()[1] + 100.0f * fw[1])) < 0.05f;
+		int kind = GuardKindPlayed(), a = n;
+		GuardAskPlayed(kind, n++, out[0], out[1], z, out[2]);
+		float answer = RoomGlobal(4);
+		snprintf(line, sizeof(line), "room: ask %d at (%.0f, %.0f, %.0f), heading %.0f (the parked bike's place: ParkGuard, the player not counted): no one in it (21 rays down, 16 across)", a, out[0], out[1], z, out[2]);
+		bool clear = kind == 3 && answer == (float)a && LogLines(line) == 1;
+		g_capAt[0] = out[0] + 40.0f * fw[0];
+		g_capAt[1] = out[1] + 40.0f * fw[1];
+		g_capR = 18.0f;
+		g_capH = 120.0f;
+		g_capOn = true;
+		GuardAskPlayed(kind, n++, out[0], out[1], z, out[2]);
+		g_capOn = false;
+		snprintf(line2, sizeof(line2), "room: ask %d at (%.0f, %.0f, %.0f), heading %.0f (the parked bike's place: ParkGuard, the player not counted): someone in it: %08X (SkeletonExport, layer 30), ", a + 1, out[0], out[1], z,
+		         out[2], RAM_ACTOR_FORMID);
+		bool npc = RoomGlobal(4) == -(float)(a + 1) && RoomGlobal(5) == -4.0f && LogLines(line2) == 1;
+		CHECK(six && asked == 7 && clear && npc,
+		      "spot %d (7: 100 ahead) after %d asks (7); its guard, kind %d: %g (\"%s\"); the NPC: %g, %g (\"%s...\") (2026-11-09a before the review: kind 2, \"the player in it\", held)", spot + 1, asked, kind,
+		      answer, line, RoomGlobal(4), RoomGlobal(5), line2);
+		RoomWallsOff();
+		RewriteIni("Slide=0", "Slide=1");
+		RoomRide();
+	}
+
+	/* A2: ParkWhereItStood's band (it puts back with the player 58 or more across): kind 2 with the player 65 across the box's
+	 * middle: no one (outside its own 58); 50 across: the player in it. */
+	printf("room (the review's A2): kind 2, the player 65 across a box's middle (ParkWhereItStood's band, 58-73): no one in it; 50 across: the player in it:\n");
+	{
+		float h = PlayerHeading(), rt[2] = { cosf(h), -sinf(h) }, p[3] = { PlayerPos()[0], PlayerPos()[1], PlayerPos()[2] }, deg = h * DEG;
+		int a = n;
+		GuardAskPlayed(2, n++, p[0] + 65.0f * rt[0], p[1] + 65.0f * rt[1], p[2], deg);
+		float band = RoomGlobal(4);
+		snprintf(line, sizeof(line), "room: ask %d at (%.0f, %.0f, %.0f), heading %.0f (the parked bike's place: ParkGuard): no one in it (21 rays down, 16 across)", a, p[0] + 65.0f * rt[0], p[1] + 65.0f * rt[1], p[2], deg);
+		bool bandOk = band == (float)a && LogLines(line) == 1;
+		GuardAskPlayed(2, n++, p[0] + 50.0f * rt[0], p[1] + 50.0f * rt[1], p[2], deg);
+		snprintf(line2, sizeof(line2), "room: ask %d at (%.0f, %.0f, %.0f), heading %.0f (the parked bike's place: ParkGuard): the player in it, 0 ahead of its middle, 50 to its left", a + 1, p[0] + 50.0f * rt[0],
+		         p[1] + 50.0f * rt[1], p[2], deg);
+		bool in = RoomGlobal(4) == -(float)(a + 1) && RoomGlobal(5) == -4.0f;
+		CHECK(bandOk && in, "65 across: %g (\"%s\"; 2026-11-09a before the review: the player in it); 50 across: %g, %g (the player in it: %s)", band, line, RoomGlobal(4), RoomGlobal(5),
+		      LastLogLine("room: ask ") ? LastLogLine("room: ask ") : "(none)");
+	}
+	RewriteIni("ParkGuard=1", "ParkGuard=0");
+	RewriteIni("ActorRoom=1", "ActorRoom=0");
+	RoomRide();
+	*(float *)(g_roomGlobalsFake[6] + 0x30) = -1000.0f;
+}
+
+/* 2026-11-09a (test 50, mode 14): the truck's call (SnapOrder). The drive unit's. */
+/* Test 50's truck call, 14:50:03 (P2: the player on the truck bed; spots 1-8 and 11
+ * refused, spot 9 refused for the ground 47 below the player's but the most room, untilted, spot 10 room, its navmesh snap 126 from
+ * it; the most room's snap measured flat for want of a tilt passed, and the bike was put on the truck). The player on a disc 207
+ * over the street (the bed, 100 round, its centre 60 behind them), spot 9 (100 behind, 110 left) on a disc 160 over it (40 round:
+ * no ground under its rear wheel, no tilt), the rest off them (no ground within 100 below); no navmesh within 426 of a point 300
+ * from spot 10 (its snap 126, spot 9's 25 flat, 162 in 3-D: the navmesh on the street, g_navZ). The script's call played
+ * (RoomPickPlayed). With SnapOrder (CMB_RoomOptions bit 64): the plugin writes spot 9's ground without a tilt, spot 10's navmesh
+ * point (on the street, 207 below the player's: SnapDrop's 250) asked first and taken. SnapOrder=0: the most room (spot 9) as the
+ * 2026-11-08a build, its ground not written. The key put first in [Room] for each ride, taken out after. */
+static void SnapOrderTests54(void)
+{
+	float gz = g_groundZ, p[3] = { PlayerPos()[0], PlayerPos()[1], PlayerPos()[2] }, h = PlayerHeading(), fw[2] = { sinf(h), cosf(h) }, rt[2] = { cosf(h), -sinf(h) };
+	float s9[2] = { p[0] - 100.0f * fw[0] - 110.0f * rt[0], p[1] - 100.0f * fw[1] - 110.0f * rt[1] }, s10[2] = { p[0] - 120.0f * fw[0], p[1] - 120.0f * fw[1] };
+	float u[2] = { -0.3366f * fw[0] - 0.9416f * rt[0], -0.3366f * fw[1] - 0.9416f * rt[1] };   /* spot 9 from spot 10, turned 30 deg away from the bed */
+	float e[2] = { s10[0] + 126.5f * u[0], s10[1] + 126.5f * u[1] };   /* spot 10's navmesh point, where the hole's edge is along it */
+	static const char onLine[] = "  room: SnapOrder=1: a call's first spot with room off the navmesh: its navmesh point first (SnapSpot), then the most room by a snap measured in 3-D on its ground "
+	                             "(the ground written without a tilt too), then the most room's navmesh point (SnapBest), then that first spot as before (SnapOrder) (read again on getting on)";
+	static const char offLine[] = "  room: SnapOrder=0: the most room's flat snap first, as before (SnapOrder=0) (read again on getting on)";
+	int n = 1300;
+	for (int k = 0; k < 2; k++) {
+		bool off = k == 1;
+		const char *with = off ? "[Room]\nSnapOrder=0\n" : "[Room]\nSnapOrder=1\n";
+		printf("room (2026-11-09a, test 50's truck): %s, a call from the truck bed 207 over the street: %s:\n", off ? "SnapOrder=0 written (the off value)" : "SnapOrder=1 written",
+		       off ? "CMB_RoomOptions without bit 64, spot 9's ground not written, the most room (spot 9) taken as the 2026-11-08a build (11 asks)"
+		           : "CMB_RoomOptions with bit 64, spot 9 refused (the ground 47 below) with its ground written untilted, spot 10 room, its navmesh point (on the street) asked and taken before the most room (12 asks)");
+		int line0 = LogLines(off ? offLine : onLine);
+		RewriteIni("[Room]\n", with);
+		RoomRide();
+		int line = LogLines(off ? offLine : onLine) - line0, options = (int)RoomMore(0);
+		FlatGround();
+		RoomWallsOff();
+		g_shelfOn = true;
+		g_shelfHeight = 207.0f;
+		g_shelfAhead = -60.0f;
+		g_shelfRadius = 100.0f;
+		g_stepOn = true;
+		g_stepAt[0] = s9[0];
+		g_stepAt[1] = s9[1];
+		g_stepR = 40.0f;
+		g_stepHeight = 160.0f;
+		PlayerPos()[2] = gz + 207.0f;
+		g_hole[0] = s10[0] - 300.0f * u[0];
+		g_hole[1] = s10[1] - 300.0f * u[1];
+		g_holeR = 426.0f;
+		g_holeOn = true;
+		g_navZ = gz;
+		float out[3];
+		int asked = 0, first = n;
+		int spot = RoomPickPlayed(&n, out, &asked);
+		float ground9 = g_pickBestGround, snap10 = SnapPlayed(s10[0], s10[1]), snap9 = SnapPlayed(s9[0], s9[1]);
+		g_holeOn = false;
+		g_navZ = NAN;
+		g_shelfOn = false;
+		g_stepOn = false;
+		g_shelfRadius = 60.0f;
+		g_shelfHeight = g_shelfAhead = 0.0f;
+		PlayerPos()[2] = gz;
+		char ask9[80];
+		snprintf(ask9, sizeof(ask9), "room: ask %d at (", first + 8);
+		bool refused9 = NthLogLineHas(ask9, 0, ": none, the ground 47 below the player's");
+		printf("  (spot %d at (%.0f, %.0f), %d asks; spot 9's ground written %.0f (the street %.0f), its snap %.0f flat; spot 10's snap %.0f; CMB_RoomOptions %d)\n", spot + 1, out[0], out[1], asked, ground9, gz, snap9,
+		       snap10, options);
+		if (off)
+			CHECK(line == 1 && !(options & 64) && (options & 63) == 63 && spot == 8 && asked == 11 && fabsf(out[0] - s9[0]) < 0.05f && fabsf(out[1] - s9[1]) < 0.05f && ground9 == 0.0f && refused9,
+			      "the settings line \"%s\" (%d), CMB_RoomOptions %d (bit 64 off, 63 below it), spot 9's ask \"none, the ground 47 below the player's\" (%d) with no ground written (%.0f), "
+			      "spot %d (9, the most room) at the asked spot, %d asks (11)", offLine, line, options, refused9, ground9, spot + 1, asked);
+		else
+			CHECK(line == 1 && (options & 64) && (options & 63) == 63 && spot == 9 && asked == 12 && hypotf(out[0] - e[0], out[1] - e[1]) < 1.0f && fabsf(ground9 - (gz + 160.0f)) < 0.5f && refused9 &&
+			          fabsf(snap10 - 126.0f) < 1.0f,
+			      "the settings line \"%s\" (%d), CMB_RoomOptions %d (bit 64, 63 below it), spot 9's ask \"none, the ground 47 below the player's\" (%d) with its ground written untilted (%.0f: the street's %.0f + 160), "
+			      "spot %d (10) at its navmesh point %.0f from it, %d asks (12)", onLine, line, options, refused9, ground9, gz, spot + 1, hypotf(out[0] - s10[0], out[1] - s10[1]), asked);
+		RewriteIni(with, "[Room]\n");
+		n++;
+	}
+	RoomRide();
 }
 
 /* --- The engine sound (mode 16, test 44's build): the harness plays the controller script's side of
@@ -17851,6 +18975,139 @@ static void SoundTests(void)
 
 	printf("sound: over the run, every set taken given its first frame's calls before CMB_SndDriven = gen:\n");
 	CHECK(g_sndFirstCalls >= 11 * 8 && g_sndFirstLate == 0, "%d of the loops' %d first calls of a set made with CMB_SndDriven already the generation (0)", g_sndFirstLate, g_sndFirstCalls);
+}
+
+/* 2026-11-09a (test 50, mode 16): 3rd gear pinned at 1.26 s, shorter than 2nd (HeardRiseGears, ShiftGapGears). The sound
+ * unit's. run.sh's DEF54 holds both at their off values (HeardRiseGears=1,1,1,1, ShiftGapGears= empty: the 2026-11-08a
+ * build's model), so every ride above is that build's. Here: the seventh settings line at the start; then the shipped
+ * defaults (1,0.95,0.5,1 and 0,1.5,1.75, read on getting on, a new set: its first pull's points drawn as SoundTests' first)
+ * through SoundTests' first pull, W from rest for 9 s with the game's curve: the up-shifts' times by the loudest loop's
+ * on -> off family switch at each clutch-in (ShiftFamily=1), 2nd 1.45-1.70 s, 3rd 1.70-2.0 and longer than 2nd (the twin,
+ * engine_model.py's _game_ride: 1.54 and 1.75, 4th at 7.13 s; the 2026-11-08a build's 1.46 and 1.25, 4th at 6.55); then the
+ * off values again: that build's pull (2nd 1.35-1.60, 3rd 1.15-1.40: MinShiftGap's 1.25 and the frames). */
+static int GearPull54(const char *marker, float *second, float *third, int *gears, float *grpm)
+{
+	float gv[8];
+	SndClearCounts();
+	SndHoleReset(true);
+	SndFullThrottle(9000);
+	SndHoleReset(false);
+	int ng = SndGearLines(marker, gears, gv, grpm, 8);
+	*second = g_sndUpN >= 2 ? g_sndUpAt[1] - g_sndUpAt[0] : 0.0f;
+	*third = g_sndUpN >= 3 ? g_sndUpAt[2] - g_sndUpAt[1] : 0.0f;
+	return ng;
+}
+static void GearTests54(void)
+{
+	static const char offLine[] = "  sound: HeardRiseGears=1,1,1,1 ShiftGapGears=: the heard speed's rise HeardRise (140 u/s^2) in every gear; MinShiftGap (1.25 s) "
+	                              "before every up-shift (as the 2026-11-08a build)";
+	static const char onLine[] = "  sound: HeardRiseGears=1,0.95,0.5,1 ShiftGapGears=0,1.5,1.75: the heard speed's rise by gear 140, 133, 70, 140 u/s^2 (HeardRise x each); "
+	                             "at least 1.25, 1.5, 1.75 s in gears 1-3 before an up-shift (0 or missing: MinShiftGap) (read again on getting on)";
+	char again[sizeof(offLine) + 40], marker[64];
+	snprintf(again, sizeof(again), "%s (read again on getting on)", offLine);
+	g_gameCurve = true;
+	g_onFrame = FakeGameFrame;
+	g_afterTask = SndAudioTick;
+	printf("sound (2026-11-09a): the seventh settings line at the start, run.sh's DEF54 off values (the 2026-11-08a build's gears):\n");
+	CHECK(LogLines(offLine) - LogLines(again) == 1 && LogLines("  sound: HeardRiseGears=") == 1 + LogLines(again),
+	      "one \"%s\" line at the start (%d; the 2026-11-08a build has no such line)", offLine, LogLines(offLine) - LogLines(again));
+
+	printf("sound (2026-11-09a): the shipped HeardRiseGears=1,0.95,0.5,1 and ShiftGapGears=0,1.5,1.75 (read on getting on, a new set), W from rest for 9 s: 2nd "
+	       "1.45-1.70 s, 3rd 1.70-2.0 and the longer (the twin 1.54, 1.75; the 2026-11-08a build 1.46, 1.25):\n");
+	SndGetOff();
+	RewriteIni("HeardRiseGears=1,1,1,1\n", "HeardRiseGears=1,0.95,0.5,1\n");
+	RewriteIni("ShiftGapGears=\n", "ShiftGapGears=0,1.5,1.75\n");
+	int on0 = LogLines(onLine);
+	SndGetOn();
+	SndOffer();
+	float gen = SndGen();
+	snprintf(marker, sizeof(marker), "sound: generation %g driven", gen);
+	int gears[8];
+	float grpm[8], second, third;
+	int ng = GearPull54(marker, &second, &third, gears, grpm);
+	int ups = g_sndUpN;
+	CHECK(SndDriven() == gen && LogLines(onLine) == on0 + 1 && ng == 3 && gears[0] == 2 && gears[1] == 3 && gears[2] == 4 && ups == 3 && second >= 1.45f && second <= 1.70f &&
+	          third >= 1.70f && third <= 2.0f && third > second,
+	      "driven (%g), the line \"%s\" once (%d); %d gear lines %d %d %d (2 3 4) at %.0f, %.0f, %.0f rpm; %d up-shifts, 2nd %.3f s (1.45-1.70), 3rd %.3f (1.70-2.0, "
+	      "over 2nd; the 2026-11-08a build's 1.25)", SndDriven(), onLine, LogLines(onLine) - on0, ng, ng > 0 ? gears[0] : 0, ng > 1 ? gears[1] : 0, ng > 2 ? gears[2] : 0,
+	      ng > 0 ? grpm[0] : 0.0f, ng > 1 ? grpm[1] : 0.0f, ng > 2 ? grpm[2] : 0.0f, ups, second, third);
+
+	printf("sound (2026-11-09a): back to the off values (read on getting on, a new set): the 2026-11-08a build's pull (2nd 1.35-1.60 s, 3rd 1.15-1.40, the "
+	       "shorter):\n");
+	SndGetOff();
+	RewriteIni("HeardRiseGears=1,0.95,0.5,1\n", "HeardRiseGears=1,1,1,1\n");
+	RewriteIni("ShiftGapGears=0,1.5,1.75\n", "ShiftGapGears=\n");
+	int again0 = LogLines(again);
+	SndGetOn();
+	SndOffer();
+	gen = SndGen();
+	snprintf(marker, sizeof(marker), "sound: generation %g driven", gen);
+	ng = GearPull54(marker, &second, &third, gears, grpm);
+	ups = g_sndUpN;
+	CHECK(SndDriven() == gen && LogLines(again) == again0 + 1 && ng == 3 && gears[0] == 2 && gears[1] == 3 && gears[2] == 4 && ups == 3 && second >= 1.35f &&
+	          second <= 1.60f && third >= 1.15f && third <= 1.40f && third < second,
+	      "driven (%g), the line \"%s\" once (%d); %d gear lines %d %d %d at %.0f, %.0f, %.0f rpm; %d up-shifts, 2nd %.3f s (1.35-1.60), 3rd %.3f (1.15-1.40: the "
+	      "2026-11-08a build's)", SndDriven(), again, LogLines(again) - again0, ng, ng > 0 ? gears[0] : 0, ng > 1 ? gears[1] : 0, ng > 2 ? gears[2] : 0,
+	      ng > 0 ? grpm[0] : 0.0f, ng > 1 ? grpm[1] : 0.0f, ng > 2 ? grpm[2] : 0.0f, ups, second, third);
+	SndGetOff();
+}
+
+/* 2026-11-09a, test 51 (mode 16, after GearTests54): the skins unit's gears, 1st < 2nd < 3rd. G1: the two keys taken out
+ * (the code's defaults HeardRiseGears 2.5,0.95,0.5,1, ShiftGapGears 0,2.0,2.5), W from rest 9 s with the game's curve: 1st
+ * (the press to the 1->2 up-shift's family switch) 1.35-1.75 s, 2nd 1.85-2.20, 3rd 2.35-2.70, each longer than the last
+ * (the twin, engine_model.py's _game_ride: 1.54, 2.00, 2.50, 4th at 6.04 s; t54-merge 3.83, 1.54, 1.75). G2: the round's
+ * off values written in (1,0.95,0.5,1 and 0,1.5,1.75, read on getting on): t54-merge's pull (its twin frame for frame:
+ * 5f40010's engine_model.py; 3.83, 1.54, 1.75). Then run.sh's DEF54 values back. */
+static void Ini54Set(const char *section, const char *key, const char *value);   /* the view unit's, below */
+static void GearTests55(void)
+{
+	static const char defLine[] = "  sound: HeardRiseGears=2.5,0.95,0.5,1 ShiftGapGears=0,2,2.5: the heard speed's rise by gear 350, 133, 70, 140 u/s^2 (HeardRise x each); "
+	                              "at least 1.25, 2, 2.5 s in gears 1-3 before an up-shift (0 or missing: MinShiftGap) (read again on getting on)";
+	static const char offLine[] = "  sound: HeardRiseGears=1,0.95,0.5,1 ShiftGapGears=0,1.5,1.75: the heard speed's rise by gear 140, 133, 70, 140 u/s^2 (HeardRise x each); "
+	                              "at least 1.25, 1.5, 1.75 s in gears 1-3 before an up-shift (0 or missing: MinShiftGap) (read again on getting on)";
+	char marker[64];
+	int gears[8];
+	float grpm[8], second, third;
+	g_gameCurve = true;
+	g_onFrame = FakeGameFrame;
+	g_afterTask = SndAudioTick;
+	printf("sound (2026-11-09a, test 51): HeardRiseGears and ShiftGapGears taken out (the code's defaults, read on getting on), W from rest for 9 s: 1st 1.35-1.75 s, "
+	       "2nd 1.85-2.20, 3rd 2.35-2.70, each the longer (the twin 1.54, 2.00, 2.50; t54-merge 3.83, 1.54, 1.75):\n");
+	SndGetOff();
+	RewriteIni("HeardRiseGears=1,1,1,1\n", "");
+	RewriteIni("ShiftGapGears=\n", "");
+	int def0 = LogLines(defLine);
+	SndGetOn();
+	SndOffer();
+	float gen = SndGen();
+	snprintf(marker, sizeof(marker), "sound: generation %g driven", gen);
+	int ng = GearPull54(marker, &second, &third, gears, grpm), ups = g_sndUpN;
+	float first = ups >= 1 ? g_sndUpAt[0] : 0.0f;
+	CHECK(SndDriven() == gen && LogLines(defLine) == def0 + 1 && ng == 3 && gears[0] == 2 && gears[1] == 3 && gears[2] == 4 && ups == 3 && first >= 1.35f && first <= 1.75f &&
+	          second >= 1.85f && second <= 2.20f && third >= 2.35f && third <= 2.70f && first < second && second < third,
+	      "G1: driven (%g), the line \"%s\" once (%d); %d gear lines %d %d %d (2 3 4) at %.0f, %.0f, %.0f rpm; %d up-shifts: 1st %.3f s (1.35-1.75), 2nd %.3f (1.85-2.20), "
+	      "3rd %.3f (2.35-2.70)", SndDriven(), defLine, LogLines(defLine) - def0, ng, ng > 0 ? gears[0] : 0, ng > 1 ? gears[1] : 0, ng > 2 ? gears[2] : 0,
+	      ng > 0 ? grpm[0] : 0.0f, ng > 1 ? grpm[1] : 0.0f, ng > 2 ? grpm[2] : 0.0f, ups, first, second, third);
+
+	printf("sound: the round's off values written in (HeardRiseGears=1,0.95,0.5,1, ShiftGapGears=0,1.5,1.75: 2026-11-09a as of t54-merge), the same pull:\n");
+	SndGetOff();
+	Ini54Set("Sound", "HeardRiseGears", "1,0.95,0.5,1");
+	Ini54Set("Sound", "ShiftGapGears", "0,1.5,1.75");
+	int off0 = LogLines(offLine);
+	SndGetOn();
+	SndOffer();
+	gen = SndGen();
+	snprintf(marker, sizeof(marker), "sound: generation %g driven", gen);
+	ng = GearPull54(marker, &second, &third, gears, grpm);
+	ups = g_sndUpN;
+	first = ups >= 1 ? g_sndUpAt[0] : 0.0f;
+	CHECK(SndDriven() == gen && LogLines(offLine) == off0 + 1 && ng == 3 && gears[0] == 2 && gears[1] == 3 && gears[2] == 4 && ups == 3 && first >= 3.60f && first <= 4.10f &&
+	          second >= 1.45f && second <= 1.70f && third >= 1.70f && third <= 2.0f && third > second,
+	      "G2: the line \"%s\" once (%d); %d gear lines %d %d %d; %d up-shifts: 1st %.3f s (3.60-4.10), 2nd %.3f (1.45-1.70), 3rd %.3f (1.70-2.0): t54-merge's pull "
+	      "(the off value's own check)", offLine, LogLines(offLine) - off0, ng, ng > 0 ? gears[0] : 0, ng > 1 ? gears[1] : 0, ng > 2 ? gears[2] : 0, ups, first, second, third);
+	SndGetOff();
+	Ini54Set("Sound", "HeardRiseGears", "1,1,1,1");
+	Ini54Set("Sound", "ShiftGapGears", "");
 }
 
 /* ---- Mode 17: the 2026-10-31a build's look ----------------------------------------------------------------------
@@ -19244,6 +20501,69 @@ static float LineSeconds(const char *line)   /* the plugin's "HH:MM:SS.mmm " tim
 	return line && sscanf(line, "%u:%u:%u.%u", &h, &m, &sec, &ms) == 4 ? (float)(h * 3600u + m * 60u + sec) + (float)ms * 0.001f : NAN;
 }
 
+/* 2026-11-09a (the view unit's): this run's CMB_Slope.ini read as the plugin reads it (a section's and a key's first
+ * copy), saved and put back whole, and a key set in the first section of its name (its line's value replaced, or the key
+ * added at the section's end, or the section added at the file's end), so a ride names its keys whatever DEF54 wrote. */
+static int IniInt54(const char *section, const char *key, int fallback)
+{
+	char path[MAX_PATH];
+	if (!GetFullPathNameA("CMB_Slope.ini", sizeof(path), path, NULL))
+		return fallback;
+	return (int)GetPrivateProfileIntA(section, key, fallback, path);
+}
+static char g_ini54Saved[16384];
+static void Ini54Save(void)
+{
+	FILE *f = fopen("CMB_Slope.ini", "rb");
+	size_t n = f ? fread(g_ini54Saved, 1, sizeof(g_ini54Saved) - 1, f) : 0;
+	g_ini54Saved[n] = 0;
+	if (f)
+		fclose(f);
+}
+static void Ini54Restore(void)
+{
+	FILE *f = fopen("CMB_Slope.ini", "wb");
+	if (f) {
+		fwrite(g_ini54Saved, 1, strlen(g_ini54Saved), f);
+		fclose(f);
+	}
+}
+static void Ini54Set(const char *section, const char *key, const char *value)
+{
+	static char buf[16384], out[16400];
+	char head[64], line[96];
+	FILE *f = fopen("CMB_Slope.ini", "rb");
+	size_t n = f ? fread(buf, 1, sizeof(buf) - 1, f) : 0;
+	buf[n] = 0;
+	if (f)
+		fclose(f);
+	snprintf(head, sizeof(head), "\n[%s]\n", section);
+	snprintf(line, sizeof(line), "%s=%s\n", key, value);
+	char *sec = strncmp(buf, head + 1, strlen(head + 1)) == 0 ? buf : strstr(buf, head), *from, *to;   /* the first header at a line's start */
+	if (sec && sec != buf)
+		sec++;
+	memmove(head, head + 1, strlen(head));
+	if (!sec) {
+		snprintf(out, sizeof(out), "%s%s%s%s", buf, n && buf[n - 1] != '\n' ? "\n" : "", head, line);
+	} else {
+		char *body = sec + strlen(head), *end = strstr(body, "\n[");
+		end = end ? end + 1 : buf + n;   /* the next section's '[' (or the file's end) */
+		from = to = end;                  /* no line of the key: added at the section's end */
+		for (char *at = body; at < end; at = strchr(at, '\n') ? strchr(at, '\n') + 1 : end)
+			if (strncmp(at, key, strlen(key)) == 0 && at[strlen(key)] == '=') {
+				from = at;
+				to = strchr(at, '\n') ? strchr(at, '\n') + 1 : end;
+				break;
+			}
+		snprintf(out, sizeof(out), "%.*s%s%s%s", (int)(from - buf), buf, from == end && end > buf && end[-1] != '\n' ? "\n" : "", line, to);
+	}
+	f = fopen("CMB_Slope.ini", "wb");
+	if (f) {
+		fwrite(out, 1, strlen(out), f);
+		fclose(f);
+	}
+}
+
 static void ViewEyeTests50(void)
 {
 	const int iDial = LookAt("front_dial", false), iRimR = LookAt("wheelR_rim", false);
@@ -19522,7 +20842,11 @@ static void ViewEyeTests50(void)
 
 	printf("view: [View] StaleLines=0 and [Diag] FpsLine=0 (the 2026-11-01a build's log), the same ride for 11 s:\n");
 	RewriteIni("\nStaleLines=3\n", "\nStaleLines=0\n");
-	RewriteIni("[Sound]\nDrive=0\n", "[Diag]\nFpsLine=0\n[Sound]\nDrive=0\n");
+	/* 2026-11-09a: this [Diag] comes ahead of the one DEF54 appends at the end, which would be shadowed: the mode's own
+	 * [Diag] ViewDraw (DEF54's 0, or the default 1 without it) is carried into it */
+	char fpsDiag[96];
+	snprintf(fpsDiag, sizeof(fpsDiag), "[Diag]\nFpsLine=0\nViewDraw=%d\n[Sound]\nDrive=0\n", IniInt54("Diag", "ViewDraw", 1));
+	RewriteIni("[Sound]\nDrive=0\n", fpsDiag);
 	stops0 = LogLines("view: the third-person skeleton stopped");
 	moves0 = LogLines("view: the third-person skeleton moves again");
 	more0 = LogLines("view: the third-person skeleton: ");
@@ -19545,7 +20869,7 @@ static void ViewEyeTests50(void)
 	fpsNew = LogLines("time: the last 10 s: ") - fps0;
 	CHECK(stops == 10 && moves == 10 && more == 0 && fpsNew == 0, "every stopped and moves-again line (%d, %d), no count and no ride's total (%d); no frame-rate line in 12 s of riding (%d)", stops, moves, more, fpsNew);
 	RewriteIni("\nStaleLines=0\n", "\nStaleLines=3\n");
-	RewriteIni("[Diag]\nFpsLine=0\n[Sound]\nDrive=0\n", "[Sound]\nDrive=0\n");
+	RewriteIni(fpsDiag, "[Sound]\nDrive=0\n");
 
 	SetCameraFirst(false);
 	g_eyeLive = false;
@@ -20086,6 +21410,560 @@ static void ViewRiderTests51(void)
 	g_afterTask = ViewAfter;
 }
 
+/* 2026-11-09a (test 50, mode 20): TipMenu, TipYield and TipSettle (ViewTipRides54, before ViewLookTests51: its "didn't
+ * follow" ride leaves the tip off for the session), Bounds, ViewDraw and Near, FovSearch (ViewTests54, last). The view
+ * unit's. The view root gets a parent and a grandparent (NiNodes whose bounds sit at a hand-over spot 3000 away), the
+ * camera root a world NiCamera (its frustum at +0x160: 70 deg across, near 15), for ViewTests54's rides only. Each ride
+ * names its keys (Ini54Set; the INI put back whole at the end), so DEF54's off values don't reach them. A tip here never
+ * logs ViewLookTests51's "(from level; the camera now 20 deg down)" text, which it counts from the mode's start. */
+static uint8_t *g_v54Parent, *g_v54Grand, *g_v54Cam;
+static int g_v54Add;                       /* the fake player's small look: frames left of 0.3 deg each, from the tip's start */
+static bool g_v54Watch, g_v54Started, g_v54Move;
+static float g_v54Ax0;
+static void V54Ride(float dt)
+{
+	if (g_v54Add > 0 && g_v54Started) {
+		*(float *)(g_player + 0xC0) += 0.3f / DEG;
+		g_v54Add--;
+	}
+	EyeRide(dt);
+}
+static void V54After(float dt)
+{
+	TipAfter51(dt);
+	if (g_v54Watch && !g_v54Started && *(const float *)(g_player + 0xC0) != g_v54Ax0)
+		g_v54Started = true;   /* the plugin's first write: the tip has started */
+	if (g_v54Move)
+		((float *)(g_viewRoot[0] + 0xA0))[2] += 5.0f;   /* something else moves the root between the plugin's frames */
+}
+static void V54Frustum(float across, float nearPlane)
+{
+	float *f = (float *)(g_v54Cam + 0x160), r = tanf(across * 0.5f / DEG), t = r * 9.0f / 16.0f;
+	f[0] = -r;
+	f[1] = r;
+	f[2] = t;
+	f[3] = -t;
+	f[4] = nearPlane;
+	f[5] = 100000.0f;
+}
+static void V54Far(void)   /* the parent's and the grandparent's bounds at the hand-over spot, 3000 along x from the player */
+{
+	const float *p = PlayerPos();
+	float *b = (float *)(g_v54Parent + 0xB0), *g = (float *)(g_v54Grand + 0xB0);
+	b[0] = g[0] = p[0] + 3000.0f;
+	b[1] = g[1] = p[1];
+	b[2] = g[2] = p[2];
+	b[3] = 150.0f;
+	g[3] = 300.0f;
+}
+static bool V54Holds(const uint8_t *up)   /* the ancestor's bound holds the view root's (+0xB0) */
+{
+	const float *b = (const float *)(up + 0xB0), *r = (const float *)(g_viewRoot[0] + 0xB0);
+	return r[3] > 1.0f && Dist3(b, r) + r[3] <= b[3] + 0.01f;
+}
+static int V54Count(const char *line, const char *text)
+{
+	int n = 0;
+	for (const char *at = line ? strstr(line, text) : NULL; at; at = strstr(at + 1, text))
+		n++;
+	return n;
+}
+static void V54Keys(const char *tipMenu, const char *tipYield, const char *tipSettle, const char *bounds, const char *nearPlane, const char *fovSearch, const char *draw)
+{
+	Ini54Set("View", "TipMenu", tipMenu);
+	Ini54Set("View", "TipYield", tipYield);
+	Ini54Set("View", "TipSettle", tipSettle);
+	Ini54Set("View", "Bounds", bounds);
+	Ini54Set("View", "Near", nearPlane);
+	Ini54Set("View", "FovSearch", fovSearch);
+	Ini54Set("Diag", "ViewDraw", draw);
+}
+static void V54Entry(void)   /* third person 3 frames, then into first person until the view bike shows (at most 6 frames) */
+{
+	SetCameraFirst(false);
+	ViewSteps(3);
+	SetCameraFirst(true);
+	for (int i = 0; i < 6 && !ViewShows(0); i++)
+		ViewStep();
+}
+
+static void ViewTipTests54(void)
+{
+	static const float fakeEye[3] = { 0.0f, 3.0f, 121.0f }, farEye[3] = { 28.0f, -452.0f, 217.0f };
+	float *ax = (float *)(g_player + 0xC0), *tipG = (float *)(g_viewTipFake + 0x30), *menuG = (float *)(g_viewMenuFake + 0x30);
+	static char line[1024];
+	const char *looked = "view: looked 20 deg down on getting into first person", *rule1 = "view: no tip: this first person began with the eye ";
+	const char *rule2 = "view: no tip: the Pip-Boy open (CMB_ViewMenu)", *notFollow = "view: the camera didn't follow", *flip = "view: the player's pitch is the other way round";
+
+	printf("view (2026-11-09a): the settings line, TipMenu=1 TipYield=5 TipSettle=0.25 (the defaults), CMB_ViewTip 20, getting on in third person:\n");
+	V54Keys("1", "5", "0.25", "1", "0", "1", "0");
+	*tipG = 20.0f;
+	*ax = 2.0f / DEG;   /* every ride here from 2 deg down: never ViewLookTests51's "(from level; ...)" text, even where a tip runs */
+	FakeCameraTurn();
+	const char *setText = "  view (2026-11-09a): TipMenu=1 TipYield=5 TipSettle=0.25 Bounds=1 Near=0 FovSearch=1; [Diag] ViewDraw=0 (read again on getting on)";
+	int set0 = LogLines(setText);
+	LookGetOn(1000);
+	CHECK(LogLines(setText) == set0 + 1, "one \"%s\" line", setText);
+
+	printf("view: the Pip-Boy from third person: first person with the eye at (28, -452, 217) for one frame, then on EyeAt:\n");
+	int looked0 = LogLines(looked), rule10 = LogLines(rule1);
+	TipRec51(true);
+	memcpy(g_eyeBike, farEye, 12);
+	SetCameraFirst(true);
+	ViewStep();
+	memcpy(g_eyeBike, fakeEye, 12);
+	RunFrames(1000);
+	const char *r1 = LastLogLine(rule1);
+	float apart = r1 ? strtof(strstr(r1, rule1) + strlen(rule1), NULL) : 0.0f;
+	CHECK(g_tip51Frames > 50 && g_tip51AngleBad == 0 && LogLines(looked) == looked0 && LogLines(rule1) == rule10 + 1 && r1 &&
+	      strstr(r1, "from EyeAt (a menu's camera: the Pip-Boy from third person)") && apart > 468.0f && apart < 478.0f,
+	      "no tip: angle.x bitwise unchanged over %d frames (%d changed), no looked line, one line (the eye %.0f from EyeAt, 473 +- 5): %s", g_tip51Frames, g_tip51AngleBad, apart, r1 ? r1 : "(none)\n");
+	TipRec51(false);
+
+	printf("view: CMB_ViewMenu 1 (the script's Pip-Boy open) with the eye on EyeAt from the first frame; then set mid-tip:\n");
+	int rule20 = LogLines(rule2), stop0 = LogLines("(the Pip-Boy open)");
+	SetCameraFirst(false);
+	ViewSteps(3);
+	*menuG = 1.0f;
+	TipRec51(true);
+	SetCameraFirst(true);
+	RunFrames(1000);
+	bool held = g_tip51Frames > 50 && g_tip51AngleBad == 0 && LogLines(looked) == looked0 && LogLines(rule2) == rule20 + 1;
+	TipRec51(false);
+	*menuG = 0.0f;
+	*ax = 2.0f / DEG;
+	FakeCameraTurn();
+	V54Entry();
+	int f = 0;
+	while (f < 400 && *ax == 2.0f / DEG) {
+		ViewStep();
+		f++;
+	}
+	*menuG = 1.0f;
+	ViewSteps(2);
+	const char *stopLine = LastLogLine("view: the tip stopped ");
+	TipRec51(true);
+	RunFrames(300);
+	bool stopped = f < 400 && LogLines("(the Pip-Boy open)") == stop0 + 1 && stopLine && strstr(stopLine, "(the Pip-Boy open)") && g_tip51AngleBad == 0 && LogLines(looked) == looked0;
+	TipRec51(false);
+	*menuG = 0.0f;
+	CHECK(held && stopped, "at the entry: no tip, angle.x unchanged, one \"%s\" line (%s); mid-tip (%d frames in): stopped, no write after (%s): %s", rule2, held ? "yes" : "no", f, stopped ? "yes" : "no",
+	      stopLine ? stopLine : "(none)\n");
+
+	printf("view: TipMenu=0 (TipYield=0, TipSettle=0: the 2026-11-08a build's tip), both again, from 2 deg down:\n");
+	SetCameraFirst(false);   /* getting on again in third person (in first person a tip would run there) */
+	ViewSteps(3);
+	*ax = 2.0f / DEG;
+	FakeCameraTurn();
+	LookGetOff();
+	V54Keys("0", "0", "0", "1", "0", "1", "0");
+	LookGetOn(1000);
+	looked0 = LogLines(looked);
+	int rule1Off = LogLines(rule1), rule2Off = LogLines(rule2);
+	memcpy(g_eyeBike, farEye, 12);
+	SetCameraFirst(true);
+	ViewStep();
+	memcpy(g_eyeBike, fakeEye, 12);
+	RunFrames(800);
+	int both1 = LogLines(looked) - looked0;
+	*ax = 2.0f / DEG;
+	FakeCameraTurn();
+	SetCameraFirst(false);
+	ViewSteps(3);
+	*menuG = 1.0f;
+	SetCameraFirst(true);
+	RunFrames(800);
+	*menuG = 0.0f;
+	int both2 = LogLines(looked) - looked0 - both1;
+	CHECK(both1 == 1 && both2 == 1 && LogLines(rule1) == rule1Off && LogLines(rule2) == rule2Off,
+	      "the Pip-Boy's far first frame: a tip (%d); CMB_ViewMenu 1: a tip (%d); no new \"no tip\" line (an off value's check: the 2026-11-08a build passes it too)", both1, both2);
+
+	printf("view: TipYield=5: the player adds 0.3 deg down a frame for 10 frames from the tip's start (TipSettle 0.25):\n");
+	SetCameraFirst(false);
+	ViewSteps(3);
+	LookGetOff();
+	V54Keys("1", "5", "0.25", "1", "0", "1", "0");
+	*ax = 2.0f / DEG;
+	FakeCameraTurn();
+	LookGetOn(1000);
+	int yourself0 = LogLines("view: you looked yourself "), nf0 = LogLines(notFollow), fl0 = LogLines(flip);
+	looked0 = LogLines(looked);
+	g_v54Ax0 = *ax;
+	g_v54Started = false;
+	g_v54Watch = true;
+	g_v54Add = 10;
+	SetCameraFirst(true);
+	RunFrames(1300);
+	g_v54Watch = false;
+	const char *ownLine = LastLogLine(looked);
+	snprintf(line, sizeof(line), "%s", ownLine ? ownLine : "(none)\n");
+	float pitch = FakePitch();
+	CHECK(g_v54Started && g_v54Add == 0 && LogLines(looked) == looked0 + 1 && strstr(line, "(from 2 deg down; your own look 3 deg down on top; the camera now 23 deg down)") && fabsf(pitch + 23.0f) < 0.5f &&
+	      LogLines("view: you looked yourself ") == yourself0 && LogLines(notFollow) == nf0 && LogLines(flip) == fl0,
+	      "the camera %.2f deg (-23 +- 0.5: the tip's 20 and the player's 3), no \"you looked yourself\", \"didn't follow\" or \"flipped\" line: %s", pitch, line);
+
+	printf("view: TipYield=5: the player looks 8 deg up mid-tip:\n");
+	*ax = 2.0f / DEG;
+	FakeCameraTurn();
+	V54Entry();
+	f = 0;
+	while (f < 600 && *ax < 8.0f / DEG) {
+		ViewStep();
+		f++;
+	}
+	*ax -= 8.0f / DEG;
+	FakeCameraTurn();
+	ViewStep();
+	TipRec51(true);
+	RunFrames(400);
+	const char *pastLine = LastLogLine("view: you looked yourself ");
+	snprintf(line, sizeof(line), "%s", pastLine ? pastLine : "(none)\n");
+	CHECK(f < 600 && LogLines("view: you looked yourself ") == yourself0 + 1 && strstr(line, "view: you looked yourself 8 deg up over 1 frame(s), ") &&
+	      strstr(line, " s into the tip (the look input +0x4C/+0x50 at most ") && g_tip51AngleBad == 0,
+	      "%d frames into the tip, 8 deg up: stopped (no write after: %d of %d frames changed): %s", f, g_tip51AngleBad, g_tip51Frames, line);
+	TipRec51(false);
+
+	printf("view: TipSettle=0.25: the game writes angle.x 3 deg down once on the entry's second frame (from 2 deg down):\n");
+	*ax = 2.0f / DEG;
+	FakeCameraTurn();
+	looked0 = LogLines(looked);
+	int settleYou0 = LogLines("view: you looked yourself ");
+	V54Entry();
+	ViewStep();
+	*ax += 3.0f / DEG;
+	FakeCameraTurn();
+	RunFrames(1300);
+	const char *setLine = LastLogLine(looked);
+	snprintf(line, sizeof(line), "%s", setLine ? setLine : "(none)\n");
+	pitch = FakePitch();
+	CHECK(LogLines(looked) == looked0 + 1 && strstr(line, "view: looked 20 deg down on getting into first person (from 5 deg down; the camera now 20 deg down)") && fabsf(pitch + 20.0f) < 0.5f &&
+	      LogLines("view: you looked yourself ") == settleYou0,
+	      "the tip from the new pitch (pitch0 5 down), the camera %.2f deg (-20 +- 0.5), no \"you looked yourself\" line: %s", pitch, line);
+	SetCameraFirst(false);
+	ViewSteps(3);
+	*tipG = 0.0f;
+	*ax = 0.0f;
+	FakeCameraTurn();
+	LookGetOff();
+}
+
+static void ViewTipRides54(void)   /* ViewTipTests54 with the eye on the bike, its keys, the INI put back after */
+{
+	static const float fakeEye[3] = { 0.0f, 3.0f, 121.0f };
+	g_onFrame = V54Ride;
+	g_afterTask = V54After;
+	g_lookSpeed = g_lookTurn = g_lookDecel = 0.0f;
+	g_lookKeys = false;
+	Keys(0.0f, 0.0f);
+	SetCameraFirst(false);
+	LookGetOff();
+	SetViewRef(VIEW_REF_FORMID_A);
+	memcpy(g_eyeBike, fakeEye, 12);
+	g_eyeLive = true;
+	Ini54Save();
+	Ini54Set("View", "Eye", "1");
+	ViewTipTests54();
+	Ini54Restore();
+	*(float *)(g_player + 0xC0) = 0.0f;
+	FakeCameraTurn();
+	g_eyeLive = false;
+	memcpy(g_eyeBike, fakeEye, 12);
+	g_onFrame = ViewRide;
+	g_afterTask = ViewAfter;
+}
+
+static void ViewDrawTests54(void)
+{
+	const char *chainT = "view: drawn? the chain: ", *camT = "view: drawn? the camera: ", *backT = "view: drawn? last frame's writes: ";
+	static char chain[4096], cam[4096], back[1024];
+	float *nearPlane = (float *)(g_v54Cam + 0x160 + 16);
+
+	printf("view (2026-11-09a): Bounds=1, [Diag] ViewDraw=1 and Near=5, into first person at a stop (the root's parents' bounds 3000 off):\n");
+	V54Keys("1", "5", "0.25", "1", "5", "1", "1");
+	LookGetOn(1000);
+	V54Far();
+	V54Frustum(70.0f, 15.0f);
+	int chain0 = LogLines(chainT), cam0 = LogLines(camT), back0 = LogLines(backT), near0 = LogLines("view: the camera's near plane 15 -> 5 while the view bike shows ([View] Near)");
+	bool missed = !V54Holds(g_v54Parent) && !V54Holds(g_v54Grand);
+	SetCameraFirst(true);
+	for (int i = 0; i < 6 && !ViewShows(0); i++)
+		ViewStep();
+	bool holds = ViewShows(0) && V54Holds(g_v54Parent) && V54Holds(g_v54Grand);
+	const float *pb = (const float *)(g_v54Parent + 0xB0);
+	CHECK(missed && holds, "after the first frame shown both ancestors hold the view root's sphere (the parent now (%.0f, %.0f, %.0f) r %.0f; before: both missed it, %s)", pb[0], pb[1], pb[2], pb[3],
+	      missed ? "yes" : "no");
+	snprintf(chain, sizeof(chain), "%s", LastLogLine(chainT) ? LastLogLine(chainT) : "(none)\n");
+	snprintf(cam, sizeof(cam), "%s", LastLogLine(camT) ? LastLogLine(camT) : "(none)\n");
+	snprintf(back, sizeof(back), "%s", LastLogLine(backT) ? LastLogLine(backT) : "(none)\n");
+	CHECK(LogLines(chainT) == chain0 + 1 && V54Count(chain, " < NiNode '") == 2 && V54Count(chain, ": misses by ") == 2 && strstr(chain, "< NiNode 'CellRefs54' (") &&
+	      strstr(chain, "< NiNode 'WorldCell54' (") && strstr(chain, "(2 level(s); the top's parent none); grown this frame: 2; none grown last frame") &&
+	      LogLines(camT) == cam0 + 1 && strstr(cam, "view: drawn? the camera: NiCamera 'WorldRoot Camera' under the camera root (PlayerCamera+0x20), its frustum at +0x160: near 15 far 100000, 2 atan(r) = 70.0 deg across, 43.0 up and down; the nearest shape ") &&
+	      LogLines(backT) == back0 + 1 && strstr(back, "none to read back"),
+	      "the first frame's three lines: the chain names the 2 ancestors, both \"misses by\", 2 grown: %s  the camera: %s  the read-back: %s", chain, cam, back);
+	RunFrames(2600);
+	snprintf(chain, sizeof(chain), "%s", LastLogLine(chainT) ? LastLogLine(chainT) : "(none)\n");
+	snprintf(cam, sizeof(cam), "%s", LastLogLine(camT) ? LastLogLine(camT) : "(none)\n");
+	snprintf(back, sizeof(back), "%s", LastLogLine(backT) ? LastLogLine(backT) : "(none)\n");
+	int probes = LogLines(chainT) - chain0;
+	CHECK(probes == 2 && V54Count(chain, ": holds it") == 2 && strstr(chain, "grown this frame: 0") && strstr(back, "view: drawn? last frame's writes: the root's world as we left it; the first shape's (") &&
+	      strstr(back, ") as we left it; hidden bits set since: the node no, 0 shape(s)"),
+	      "the 2-s probe's lines (%d chain lines): both ancestors \"holds it\", none grown: %s  the read-back: %s", probes, chain, back);
+	CHECK(*nearPlane == 5.0f && LogLines("view: the camera's near plane 15 -> 5 while the view bike shows ([View] Near)") == near0 + 1 &&
+	      strstr(cam, "near 5 far 100000") && strstr(cam, "; the near plane 15 -> 5 ([View] Near): held to the next frame yes (the game sets it each frame)"),
+	      "Near=5: the frustum's near %g while shown, one \"15 -> 5\" line, the probe's camera line says it held: %s", *nearPlane, cam);
+	g_v54Move = true;
+	RunFrames(2600);
+	g_v54Move = false;
+	snprintf(back, sizeof(back), "%s", LastLogLine(backT) ? LastLogLine(backT) : "(none)\n");
+	CHECK(LogLines(backT) == back0 + 3 && strstr(back, "view: drawn? last frame's writes: the root's world moved to ("),
+	      "the root's world moved by something else between frames: the next probe's read-back says so: %s", back);
+	int nb0 = LogLines("view: the camera's near plane back to 15 (third person)");
+	SetCameraFirst(false);
+	ViewSteps(3);
+	V54Far();
+	uint8_t pBits[16], gBits[16];
+	memcpy(pBits, g_v54Parent + 0xB0, 16);
+	memcpy(gBits, g_v54Grand + 0xB0, 16);
+	int chainH = LogLines(chainT);
+	RunFrames(400);
+	bool hiddenSame = memcmp(pBits, g_v54Parent + 0xB0, 16) == 0 && memcmp(gBits, g_v54Grand + 0xB0, 16) == 0 && LogLines(chainT) == chainH;
+	CHECK(*nearPlane == 15.0f && LogLines("view: the camera's near plane back to 15 (third person)") == nb0 + 1 && hiddenSame,
+	      "third person: the near plane 15 again, one \"back to 15 (third person)\" line; the ancestors' bounds bitwise as set while hidden, no chain line (%s)", hiddenSame ? "yes" : "no");
+
+	printf("view: Bounds=0, [Diag] ViewDraw=0 (the 2026-11-08a build), Near=0, into first person for 2.5 s:\n");
+	LookGetOff();
+	V54Keys("1", "5", "0.25", "0", "0", "1", "0");
+	LookGetOn(1000);
+	V54Far();
+	memcpy(pBits, g_v54Parent + 0xB0, 16);
+	memcpy(gBits, g_v54Grand + 0xB0, 16);
+	int drawn0 = LogLines("view: drawn? ");
+	SetCameraFirst(true);
+	RunFrames(2500);
+	bool offSame = ViewShows(0) && memcmp(pBits, g_v54Parent + 0xB0, 16) == 0 && memcmp(gBits, g_v54Grand + 0xB0, 16) == 0;
+	CHECK(offSame && LogLines("view: drawn? ") == drawn0 && *nearPlane == 15.0f,
+	      "both ancestors' bounds bitwise untouched while shown (%s), no \"view: drawn?\" line, the near plane 15 (an off value's check: the 2026-11-08a build passes it too)", offSame ? "yes" : "no");
+	SetCameraFirst(false);
+	ViewSteps(3);
+	LookGetOff();
+}
+
+static void ViewFovTests54(void)
+{
+	float *fovG = (float *)(g_viewFovFake + 0x30);
+	uint8_t *cam = g_playerCam;
+	float *f160 = (float *)(cam + 0x160), *f168 = (float *)(cam + 0x168), *f1A4 = (float *)(cam + 0x1A4), *f80 = (float *)(cam + 0x80), *f1C0 = (float *)(cam + 0x1C0);
+	const char *atT = "camera: the world FOV at PlayerCamera+0x", *nfT = "camera: the world FOV not found in PlayerCamera+0x40..+0x1AC (";
+	static char line[4096];
+
+	printf("view (2026-11-09a): FovSearch=1, CMB_ViewFov 90: (75, 80) at +0x168 on the entry's first 3 frames, (70, 80) after:\n");
+	V54Keys("1", "5", "0.25", "1", "0", "1", "0");
+	LookGetOn(1000);
+	*fovG = 90.0f;
+	f160[0] = f160[1] = 0.0f;
+	f168[0] = 75.0f;
+	f168[1] = 80.0f;
+	Send(3, 1);   /* a load: looked for afresh */
+	RunFrames(300);
+	int at0 = LogLines(atT);
+	SetCameraFirst(true);
+	ViewSteps(3);
+	f168[0] = 70.0f;
+	float T = 0.0f;
+	int frames = 0;
+	while (frames < 600 && f168[0] == 70.0f) {
+		ViewStep();
+		T += g_viewDt;
+		frames++;
+	}
+	RunFrames(600);
+	const char *found = LastLogLine("camera: the world FOV at PlayerCamera+0x168 (70; the first person's 80 at +0x16C), ");
+	float into = found ? strtof(strstr(found, "+0x16C), ") + 9, NULL) : 0.0f;
+	snprintf(line, sizeof(line), "%s", found ? found : "(none)\n");
+	CHECK(LogLines(atT) == at0 + 1 && found && strstr(line, " s into first person (search 1 of 3)") && into >= 0.5f && into < 0.8f && f168[0] == 90.0f,
+	      "found at +0x168 %.2f s into first person (0.5 to 0.8: the first frame from 0.5 s), the field 90 (%g) by %.2f s: %s", into, f168[0], T, line);
+
+	printf("view: 70 alone at +0x1A4 (nothing at the pair), after a load:\n");
+	SetCameraFirst(false);
+	RunFrames(300);
+	f168[0] = f168[1] = 0.0f;
+	*f1A4 = 70.0f;
+	Send(3, 1);
+	RunFrames(300);
+	SetCameraFirst(true);
+	RunFrames(1300);
+	const char *alone = LastLogLine("camera: the world FOV at PlayerCamera+0x1A4 (70 alone: fDefault1stPersonFOV 80 not after it), ");
+	snprintf(line, sizeof(line), "%s", alone ? alone : "(none)\n");
+	CHECK(alone && *f1A4 == 90.0f, "found \"alone\", the field 90 (%g): %s", *f1A4, line);
+
+	/* The review of 2026-11-09a (N2): the search's window was +0x40..+0x3FC, past PlayerCamera's 0x1B0 bytes (the next heap
+	 * object's floats then taken for the FOV and written to); now +0x40..+0x1AC. The fake's camera is 0x200 bytes. */
+	printf("view (the review's N2): 70 alone at +0x1C0 only, past PlayerCamera's 0x1B0 bytes (the fake's object is 0x200), after a load: not found, nothing written there:\n");
+	SetCameraFirst(false);
+	RunFrames(300);
+	*f1A4 = 0.0f;
+	*f1C0 = 70.0f;
+	Send(3, 1);
+	RunFrames(300);
+	int nfPast = LogLines(nfT), atPast = LogLines("camera: the world FOV at PlayerCamera+0x1C0");
+	SetCameraFirst(true);
+	RunFrames(1300);
+	const char *past = LastLogLine(nfT);
+	snprintf(line, sizeof(line), "%s", past ? past : "(none)\n");
+	CHECK(LogLines(nfT) == nfPast + 1 && LogLines("camera: the world FOV at PlayerCamera+0x1C0") == atPast && *f1C0 == 70.0f && !strstr(line, "+1C0="),
+	      "a not-found line (%d), none \"at PlayerCamera+0x1C0\" (%d), +0x1C0 untouched (%g), not among the candidates (2026-11-09a before the review: found \"alone\" there, 90 written): %s",
+	      LogLines(nfT) - nfPast, LogLines("camera: the world FOV at PlayerCamera+0x1C0") - atPast, *f1C0, line);
+	*f1C0 = 0.0f;
+
+	printf("view: radians at +0x168 (1.2217, 1.3963), after a load:\n");
+	SetCameraFirst(false);
+	RunFrames(300);
+	*f1A4 = 0.0f;
+	f168[0] = 1.2217f;
+	f168[1] = 1.3963f;
+	Send(3, 1);
+	RunFrames(300);
+	SetCameraFirst(true);
+	RunFrames(1300);
+	const char *rad = LastLogLine("camera: the world FOV at PlayerCamera+0x168 (1.2217: 70 deg in radians; the first person's 1.3963 at +0x16C), ");
+	snprintf(line, sizeof(line), "%s", rad ? rad : "(none)\n");
+	float wrote = f168[0];
+	SetCameraFirst(false);
+	RunFrames(500);
+	CHECK(rad && fabsf(wrote - 1.5708f) < 1e-4f && f168[0] == 1.2217f, "found in radians, 90 written as %.5f (1.5708), back to 1.2217 bitwise in third person (%s): %s", wrote,
+	      f168[0] == 1.2217f ? "yes" : "no", line);
+
+	printf("view: nothing anywhere, after a load: four entries of 1 s:\n");
+	f168[0] = f168[1] = 0.0f;
+	Send(3, 1);
+	RunFrames(300);
+	int nf0 = LogLines(nfT), again0 = LogLines("): looked for again at the next entry; candidates: "), left0 = LogLines("): the FOV left alone (not looked for again until a load); candidates: ");
+	int searches[4];
+	for (int k = 0; k < 4; k++) {
+		SetCameraFirst(true);
+		RunFrames(1000);
+		SetCameraFirst(false);
+		RunFrames(200);
+		searches[k] = LogLines(nfT) - nf0;
+	}
+	const char *nf = LastLogLine(nfT);
+	snprintf(line, sizeof(line), "%s", nf ? nf : "(none)\n");
+	CHECK(searches[0] == 1 && searches[1] == 2 && searches[2] == 3 && searches[3] == 3 && LogLines("): looked for again at the next entry; candidates: ") == again0 + 2 &&
+	      LogLines("): the FOV left alone (not looked for again until a load); candidates: ") == left0 + 1 && strstr(line, "search 3 of 3") &&
+	      strstr(line, "; the world camera's frustum 2 atan(r) = 70.0 deg across, 43.0 up and down"),
+	      "a not-found line at each of the first three entries (%d, %d, %d), none at the fourth (%d), the candidates in each: %s", searches[0], searches[1], searches[2], searches[3], line);
+
+	printf("view: [View] FovOffset=0x80 (FovSearch=1: 0x40-0x1AC), 70 there:\n");
+	LookGetOff();
+	Ini54Set("View", "FovOffset", "0x80");
+	*f80 = 70.0f;
+	LookGetOn(1000);
+	Send(3, 1);
+	RunFrames(300);
+	SetCameraFirst(true);
+	RunFrames(800);
+	CHECK(LogLines("camera: the world FOV at PlayerCamera+0x80 ([View] FovOffset; 70 there)") == 1 && *f80 == 90.0f, "one \"camera: the world FOV at PlayerCamera+0x80 ([View] FovOffset; 70 there)\" line, the field 90 (%g)",
+	      *f80);
+	SetCameraFirst(false);
+	RunFrames(300);
+	*fovG = 0.0f;
+	*f80 = 0.0f;
+	f160[0] = 70.0f;
+	f160[1] = 80.0f;
+	LookGetOff();
+}
+
+static void ViewTests54(void)
+{
+	static const char *node[] = { ".?AVNiNode@@", ".?AVNiAVObject@@", ".?AVNiObject@@" }, *camera[] = { ".?AVNiCamera@@", ".?AVNiAVObject@@", ".?AVNiObject@@" };
+	static const float fakeEye[3] = { 0.0f, 3.0f, 121.0f };
+	void **vtNode = MakeClass(node, 3);
+	g_v54Grand = NewNode(vtNode, "WorldCell54", 2);
+	g_v54Parent = NewNode(vtNode, "CellRefs54", 2);
+	AddChild(g_v54Grand, g_v54Parent);
+	*(uint8_t **)(g_v54Parent + 0x28) = g_v54Grand;
+	AddChild(g_v54Parent, g_viewRoot[0]);
+	*(uint8_t **)(g_viewRoot[0] + 0x28) = g_v54Parent;
+	g_v54Cam = NewNode(MakeClass(camera, 3), "WorldRoot Camera", 0);
+	AddChild(g_eyeNode, g_v54Cam);
+	*(uint8_t **)(g_v54Cam + 0x28) = g_eyeNode;
+	V54Frustum(70.0f, 15.0f);
+	g_onFrame = V54Ride;
+	g_afterTask = V54After;
+	g_lookSpeed = g_lookTurn = g_lookDecel = 0.0f;
+	g_lookKeys = false;
+	Keys(0.0f, 0.0f);
+	SetCameraFirst(false);
+	LookGetOff();
+	SetViewRef(VIEW_REF_FORMID_A);
+	memcpy(g_eyeBike, fakeEye, 12);
+	g_eyeLive = true;
+	Ini54Save();
+	Ini54Set("View", "Eye", "1");
+
+	ViewDrawTests54();
+	ViewFovTests54();
+
+	Ini54Restore();
+	SetCameraFirst(false);
+	RemoveChild(g_v54Parent, g_viewRoot[0]);
+	*(uint8_t **)(g_viewRoot[0] + 0x28) = NULL;
+	RemoveChild(g_eyeNode, g_v54Cam);
+	g_eyeLive = false;
+	memcpy(g_eyeBike, fakeEye, 12);
+	g_onFrame = ViewRide;
+	g_afterTask = ViewAfter;
+}
+
+/* 2026-11-09a, test 51 (mode 20, after ViewTests54): the skins unit's ViewDraw chain line, which names the reference
+ * (T3). [Diag] ViewDraw=1 set and the INI put back after (run.sh's DEF54 gives 0). TipLoadGrace's T1 and T2 ride in
+ * custom (CustomTests55): this mode's tip is off for the session from ViewLookTests51's "didn't follow" ride. */
+static bool V54End55(const char *line, const char *end)   /* the log line ends with this (before its line end) */
+{
+	size_t n = strlen(line), e = strlen(end);
+	while (n && (line[n - 1] == '\n' || line[n - 1] == '\r'))
+		n--;
+	return n >= e && strncmp(line + n - e, end, e) == 0;
+}
+static void ViewTests55(void)
+{
+	const char *chainT = "view: drawn? the chain: ";
+	static char a[4096], b[4096];
+	printf("view (2026-11-09a, test 51): [Diag] ViewDraw=1, the chain line in first person, then handed over to %08X (its 3D in):\n", VIEW_REF_FORMID_B);
+	g_onFrame = ViewRide;
+	g_afterTask = ViewAfter;
+	g_lookSpeed = g_lookTurn = g_lookDecel = 0.0f;
+	g_lookKeys = false;
+	Keys(0.0f, 0.0f);
+	SetCameraFirst(false);
+	LookGetOff();
+	Ini54Save();
+	Ini54Set("Diag", "ViewDraw", "1");
+	SetViewRef(VIEW_REF_FORMID_A);
+	*(uint8_t **)(g_viewLoaded[1] + 0x08) = g_viewRoot[1];
+	LookGetOn(1000);
+	int chain0 = LogLines(chainT), handed0 = LogLines("view: handed over from FF001240 to FF001241: the old one hidden and parked");
+	SetCameraFirst(true);
+	RunFrames(600);
+	snprintf(a, sizeof(a), "%s", LastLogLine(chainT) ? LastLogLine(chainT) : "(none)\n");
+	int chainA = LogLines(chainT) - chain0;
+	SetViewRef(VIEW_REF_FORMID_B);
+	RunFrames(1500);
+	int handed = LogLines("view: handed over from FF001240 to FF001241: the old one hidden and parked") - handed0;
+	RunFrames(2300);
+	snprintf(b, sizeof(b), "%s", LastLogLine(chainT) ? LastLogLine(chainT) : "(none)\n");
+	CHECK(chainA >= 1 && V54End55(a, ", for the reference FF001240") && handed == 1 && V54End55(b, ", for the reference FF001241"),
+	      "T3: the first shown frame's chain line ends \", for the reference FF001240\" (%d line(s)): %s  handed over (%d), the next probe's \", for the reference FF001241\": %s",
+	      chainA, a, handed, b);
+	SetCameraFirst(false);
+	LookGetOff();
+	SetViewRef(VIEW_REF_FORMID_A);
+	RunFrames(300);
+	Ini54Restore();
+	g_onFrame = ViewRide;
+	g_afterTask = ViewAfter;
+}
+
 static void ViewTests(void)
 {
 	float *head = (float *)(g_player + 0xC8);
@@ -20604,8 +22482,11 @@ static void ViewTests(void)
 	}
 	ViewSeatTests50();   /* 2026-11-02a: the seat watch in first person (the pose unit's) */
 	ViewEyeTests50();    /* 2026-11-02a: the eye in first person (the view unit's) */
+	ViewTipRides54();    /* 2026-11-09a: TipMenu, TipYield, TipSettle (the view unit's; before the 2026-11-06a "didn't follow" ride, which leaves the tip off) */
 	ViewLookTests51();   /* 2026-11-06a: the tip, the FOV, the eye's globals (the look unit's) */
 	ViewRiderTests51();  /* 2026-11-06a: the rider unit's */
+	ViewTests54();       /* 2026-11-09a: the view unit's */
+	ViewTests55();       /* 2026-11-09a, test 51: the skins unit's */
 	(void)bad;
 	g_onFrame = NULL;
 	g_afterTask = NULL;
@@ -21138,6 +23019,317 @@ static void CustomTests53(void)
 	g_afterTask = NULL;
 }
 
+/* 2026-11-09a, test 51's answer (step 0, mode 24): CMB_LookOptions (0xBF4), [Look]'s six script switches' bits and 64 (the
+ * worn bike's colours written by the plugin: PaintWheel, PlateColours and the four look colours found), written at the start
+ * and on getting on, with its own settings line. The mode's INI holds run.sh's DEF55 (the eight at 0): the keys rewritten
+ * here and put back at the end. On t54-merge's DLL: no line, the global left at the fake's 0. */
+static const char *const g_look55Keys[8] = { "FastMount", "KitHeld", "ParkedReload", "PaletteIndex", "MountGuard", "HueFree", "Rehold", "LightingOnly" };
+static void LookKeys55(int from, int to, int first, int count)   /* keys first..first+count-1 rewritten from "Key=<from>" to "Key=<to>" */
+{
+	char a[48], b[48];
+	for (int k = first; k < first + count; k++) {
+		snprintf(a, sizeof(a), "\n%s=%d\n", g_look55Keys[k], from);
+		snprintf(b, sizeof(b), "\n%s=%d\n", g_look55Keys[k], to);
+		RewriteIni(a, b);
+	}
+}
+static float LookOptions55(void) { return *(float *)(g_lookOptionsFake + 0x30); }
+static void LookOptionsTests55(void)
+{
+	printf("custom (2026-11-09a, test 51): CMB_LookOptions, [Look]'s switches for the scripts:\n");
+	const char *found = "globals: the 2026-11-09a fixes' CMB_LookOptions found (FE005BF4)";
+	const char *allOn = "  look (2026-11-09a fixes): FastMount=1 KitHeld=1 ParkedReload=1 PaletteIndex=1 MountGuard=1 HueFree=1 Rehold=1 LightingOnly=1: "
+	                    "CMB_LookOptions 127 for the scripts (64: the worn bike's colours written here) (read again on getting on)";
+	float atStart = LookOptions55();
+	LookGetOff();
+	LookKeys55(0, 1, 0, 8);
+	LookGetOn(1000);
+	float on = LookOptions55();
+	CHECK(LogLines(found) == 1 && LogLines(allOn) == 1 && on == 127.0f,
+	      "the found line (%d); the eight at 1: the line once (%d), CMB_LookOptions %g (127: the six bits and 64); at the start with the mode's eight at 0, %g",
+	      LogLines(found), LogLines(allOn), on, atStart);
+	LookAgain("\nMirrors=-1\n", "\nMirrors=-1\nPlateColours=0\n");
+	float plateOff = LookOptions55();
+	const char *line63 = "  look (2026-11-09a fixes): FastMount=1 KitHeld=1 ParkedReload=1 PaletteIndex=1 MountGuard=1 HueFree=1 Rehold=1 LightingOnly=1: "
+	                     "CMB_LookOptions 63 for the scripts (no 64: the scripts colour the worn bike) (read again on getting on)";
+	CHECK(plateOff == 63.0f && LogLines(line63) == 1, "[Look] PlateColours=0: CMB_LookOptions %g (63: the scripts colour the worn bike), its line (%d)",
+	      plateOff, LogLines(line63));
+	LookGetOff();
+	RewriteIni("\nMirrors=-1\nPlateColours=0\n", "\nMirrors=-1\n");
+	LookKeys55(1, 0, 0, 6);
+	LookGetOn(1000);
+	float scriptsOff = LookOptions55();
+	const char *line64 = "  look (2026-11-09a fixes): FastMount=0 KitHeld=0 ParkedReload=0 PaletteIndex=0 MountGuard=0 HueFree=0 Rehold=1 LightingOnly=1: "
+	                     "CMB_LookOptions 64 for the scripts (64: the worn bike's colours written here) (read again on getting on)";
+	CHECK(scriptsOff == 64.0f && LogLines(line64) == 1, "the six script switches 0 (Rehold and LightingOnly 1): CMB_LookOptions %g (64), its line (%d)",
+	      scriptsOff, LogLines(line64));
+	LookGetOff();
+	LookKeys55(1, 0, 6, 2);   /* the mode's INI as given (DEF55's eight at 0) */
+}
+
+/* 2026-11-09a, test 51 (mode 24, after LookOptionsTests55): the skins unit's rides. run.sh's DEF55 gives Rehold,
+ * LightingOnly and TipLoadGrace 0 here: each ride sets its keys (Ini54Set) and the mode's INI is put back at the end
+ * (Ini54Restore). L1, L2: SyncSkins' re-hold of a rebuilt shape ([Look] Rehold); L3, L4: the look colours only through a
+ * BSLightingShaderProperty ([Look] LightingOnly); P1: CMB_LookOptions written at a load; T1, T2: [View] TipLoadGrace. The
+ * tip's two are here, not in mode 20: there the tip is off for the session from ViewLookTests51's "didn't follow" ride (a
+ * session verdict as before) before ViewTests55 runs, and T2's own session verdict ends every later tip of its mode;
+ * custom's tip is untouched until T1 (CMB_ViewTip 0), and these are the mode's last rides. */
+
+/* The worn bike's 49 look shapes rebuilt in place, as the game re-attaches an armour's 3D (the checker's finding 1): new
+ * shapes (the old ones' transforms, bound and flags with bit 0 clear), each with a new skin instance over the same bone
+ * data and a new BSLightingShaderProperty and material (fLookupScale 0.5), under a new node (the bike node's copy) in
+ * their place under the bike's node. Rebuild55(false), off the bike: the old ones back, as they were. */
+static uint8_t *g_rb55Node, *g_rb55Shape[LOOK_NEW], *g_rb55Mat[LOOK_NEW], *g_rb55Kids[128];
+static uint16_t g_rb55Used;
+static void Rebuild55(bool on)
+{
+	uint8_t **kids = *(uint8_t ***)(g_bikeNode + 0x128);
+	uint16_t *used = (uint16_t *)(g_bikeNode + 0x132);
+	if (!on) {
+		memcpy(kids, g_rb55Kids, sizeof(uint8_t *) * g_rb55Used);
+		*used = g_rb55Used;
+		return;
+	}
+	g_rb55Used = *used;
+	memcpy(g_rb55Kids, kids, sizeof(uint8_t *) * g_rb55Used);
+	g_rb55Node = (uint8_t *)VirtualAlloc(NULL, 0x200, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+	memcpy(g_rb55Node, g_bikeNode, 0x200);
+	*(int32_t *)(g_rb55Node + 0x08) = 1;
+	*(uint8_t **)(g_rb55Node + 0x28) = g_bikeNode;
+	*(void **)(g_rb55Node + 0x128) = VirtualAlloc(NULL, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+	*(uint16_t *)(g_rb55Node + 0x130) = 64;
+	*(uint16_t *)(g_rb55Node + 0x132) = 0;
+	for (int i = 0; i < LOOK_NEW; i++) {
+		uint8_t *old = g_lookShape[i];
+		uint8_t *sh = (uint8_t *)VirtualAlloc(NULL, 0x200, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+		uint8_t *inst = (uint8_t *)VirtualAlloc(NULL, 0x100, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+		uint8_t *prop = (uint8_t *)VirtualAlloc(NULL, 0x200, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+		memcpy(sh, old, 0x200);
+		*(int32_t *)(sh + 0x08) = 1;
+		*(uint8_t **)(sh + 0x10) = NewString(g_lookName[i]);
+		*(uint8_t **)(sh + 0x28) = g_rb55Node;
+		*(uint64_t *)(sh + 0x108) &= ~1ull;
+		memcpy(inst, *(uint8_t **)(old + 0x140), 0x100);   /* the same bone data (+0x40) and bone list */
+		*(int32_t *)(inst + 0x08) = 1;
+		*(uint8_t **)(sh + 0x140) = inst;
+		*(void ***)prop = g_vtLitProp55;
+		*(int32_t *)(prop + 0x08) = 1;
+		*(uint64_t *)(prop + FAKE_PROP_FLAGS) = FAKE_FLAG_PALETTE;
+		g_rb55Mat[i] = NewFakeMaterial53(0.5f);
+		*(uint8_t **)(prop + FAKE_PROP_MATERIAL) = g_rb55Mat[i];
+		*(uint8_t **)(sh + FAKE_GEOM_PROPERTY) = prop;
+		g_rb55Shape[i] = sh;
+		AddChild(g_rb55Node, sh);
+		RemoveChild(g_bikeNode, old);
+	}
+	AddChild(g_bikeNode, g_rb55Node);
+}
+static int Refs55(const uint8_t *obj) { return *(const int32_t *)(obj + 0x08); }
+static int RebuiltLines55(void) { return CustomLines("tilt: CMB_BikeWornRider_", "'s shape rebuilt with its bone data kept: held afresh"); }
+
+/* T1, T2: the camera that ignores pitch writes for g_tl55Lock s after the load (its pitch level, as the load left it). */
+static LARGE_INTEGER g_tl55At;
+static float g_tl55Lock;
+static void TipLoadRide55(float dt)
+{
+	if (g_tl55Lock > 0.0f) {
+		LARGE_INTEGER now, frequency;
+		QueryPerformanceCounter(&now);
+		QueryPerformanceFrequency(&frequency);
+		g_fakePitchLocked = (float)(now.QuadPart - g_tl55At.QuadPart) / (float)frequency.QuadPart < g_tl55Lock;
+		g_fakePitchOwn = 0.0f;
+		if (!g_fakePitchLocked)
+			g_tl55Lock = 0.0f;
+	}
+	EyeRide(dt);
+}
+static void TipLoad55(void)   /* a save loaded riding in first person, the player looking level, the camera locked 0.4 s */
+{
+	*(float *)(g_player + 0xC0) = 0.0f;
+	FakeCameraTurn();
+	QueryPerformanceCounter(&g_tl55At);
+	g_tl55Lock = 0.4f;
+	Send(3, 1);   /* PostLoadGame */
+}
+
+static void CustomTests55(void)
+{
+	const int iPlate = LookAt("static_plate", false), iText = LookAt("static_plateText", false);
+	static const float fakeEye[3] = { 0.0f, 3.0f, 121.0f };
+	float *ax = (float *)(g_player + 0xC0), *tipG = (float *)(g_viewTipFake + 0x30);
+	static char line[1024];
+	int heldRefs[LOOK_NEW];
+	g_lookSpeed = g_lookTurn = g_lookDecel = 0.0f;
+	g_lookKeys = false;
+	Keys(0.0f, 0.0f);
+	g_onFrame = ViewRide;
+	g_afterTask = ViewAfter;
+	SetCameraFirst(false);
+	SetLookCode(0);
+	for (int k = 0; k < 4; k++)
+		SetLookColour53(k, -1.0f);
+	LookGetOff();
+	Ini54Save();
+
+	printf("custom (2026-11-09a, test 51): [Look] Rehold=1 and Cull=1, the worn bike's 3D rebuilt in place (new shapes, properties and materials over the same bone data):\n");
+	Ini54Set("Look", "Rehold", "1");
+	Ini54Set("Look", "LightingOnly", "1");
+	Ini54Set("Look", "Cull", "1");
+	SetLookColour53(2, 0.5645f);   /* PlateV */
+	LookGetOn(1500);
+	const char *plateLine = "tilt: CMB_BikeWornRider_static_plate's shape rebuilt with its bone data kept: held afresh, its colour written again";
+	int plateWrites0 = ColourLines53(iPlate, "written (read back 0.5645; the plate)"), rebuilt0 = RebuiltLines55(), holding0 = LogLines("tilt: holding the skin of ");
+	int culledOld = 0;
+	for (int i = 0; i < LOOK_NEW; i++) {
+		heldRefs[i] = Refs55(g_lookShape[i]);
+		culledOld += ShapeCulled(g_lookShape[i]);
+	}
+	bool before = fabsf(MatScale53(iPlate) - 0.5645f) < 1e-6f && plateWrites0 == 1 && LookHeld(0, LOOK_NEW) == LOOK_NEW && culledOld >= 14;
+	Rebuild55(true);
+	RunFrames(300);
+	int rebuilt = RebuiltLines55() - rebuilt0;
+	float newPlate = *(const float *)(g_rb55Mat[iPlate] + FAKE_MAT_LOOKUP_SCALE);
+	CHECK(before && rebuilt == LOOK_NEW && LogLines(plateLine) == 1 && fabsf(newPlate - 0.5645f) < 1e-6f &&
+	      ColourLines53(iPlate, "written (read back 0.5645; the plate)") == plateWrites0 + 1,
+	      "L1: held, PlateV 0.5645 written (%s); rebuilt: one \"shape rebuilt with its bone data kept: held afresh\" line a shape (%d of %d), the plate's \"%s\"; "
+	      "the new plate material at %.4f, read back in a second write line", before ? "yes" : "no", rebuilt, LOOK_NEW, plateLine, newPlate);
+	int oldBack = 0, oldClear = 0, newHeld = 0, culledNew = 0;
+	for (int i = 0; i < LOOK_NEW; i++) {
+		oldBack += Refs55(g_lookShape[i]) == heldRefs[i] - 1;
+		oldClear += !ShapeCulled(g_lookShape[i]);
+		newHeld += Refs55(g_rb55Shape[i]) == 2;
+		culledNew += ShapeCulled(g_rb55Shape[i]);
+	}
+	CHECK(oldBack == LOOK_NEW && oldClear == LOOK_NEW && newHeld == LOOK_NEW && culledNew == culledOld && LookHeld(0, LOOK_NEW) == LOOK_NEW &&
+	      LogLines("tilt: holding the skin of ") == holding0,
+	      "L1: the old shapes let go, their refcounts back (%d of %d) and bit 0 as held (%d clear; Cull had set it on %d); the new ones held (%d) and culled as the "
+	      "old were (%d); the bone data held all along (%d of %d), no skin held anew", oldBack, LOOK_NEW, oldClear, culledOld, newHeld, culledNew, LookHeld(0, LOOK_NEW), LOOK_NEW);
+	LookGetOff();
+	Rebuild55(false);
+
+	printf("custom: [Look] Rehold=0 (2026-11-09a as of t54-merge), the same rebuild:\n");
+	Ini54Set("Look", "Rehold", "0");
+	LookGetOn(1500);
+	rebuilt0 = RebuiltLines55();
+	for (int i = 0; i < LOOK_NEW; i++)
+		heldRefs[i] = Refs55(g_lookShape[i]);
+	Rebuild55(true);
+	RunFrames(300);
+	int stillHeld = 0;
+	for (int i = 0; i < LOOK_NEW; i++)
+		stillHeld += Refs55(g_lookShape[i]) == heldRefs[i] && Refs55(g_rb55Shape[i]) == 1;
+	newPlate = *(const float *)(g_rb55Mat[iPlate] + FAKE_MAT_LOOKUP_SCALE);
+	CHECK(RebuiltLines55() == rebuilt0 && newPlate == 0.5f && stillHeld == LOOK_NEW,
+	      "L2: no rebuilt line, the new plate material left at %.4f (the off value's own check: the hold stays on the old shapes, %d of %d)", newPlate, stillHeld, LOOK_NEW);
+	LookGetOff();
+	Rebuild55(false);
+
+	printf("custom: [Look] LightingOnly=1, the plate's shader property an effect shader's (the palette flag set, a 0xB8-byte material, a guard 1.0 past it):\n");
+	Ini54Set("Look", "Rehold", "1");
+	Ini54Set("Look", "Cull", "0");
+	uint8_t *effect = (uint8_t *)VirtualAlloc(NULL, 0x200, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+	uint8_t *effectMat = (uint8_t *)VirtualAlloc(NULL, 0x200, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+	*(void ***)effect = g_vtEffectProp55;
+	*(int32_t *)(effect + 0x08) = 1;
+	*(uint64_t *)(effect + FAKE_PROP_FLAGS) = FAKE_FLAG_PALETTE;
+	*(uint8_t **)(effect + FAKE_PROP_MATERIAL) = effectMat;
+	*(int32_t *)(effectMat + 0x08) = 1;
+	*(uint8_t **)(effectMat + FAKE_MAT_LOOKUP) = g_lookLut;
+	float *guard = (float *)(effectMat + 0xB8);
+	*guard = 1.0f;
+	*(uint8_t **)(g_lookShape[iPlate] + FAKE_GEOM_PROPERTY) = effect;
+	SetLookColour53(3, 0.3437f);   /* PlateTextV */
+	const char *notLit = "look: CMB_BikeWornRider_static_plate colour 0.5645 not written: its shader property is .?AVBSEffectShaderProperty@@, not a lighting one (the plate)";
+	int notLit0 = LogLines(notLit);
+	LookGetOn(1500);
+	RunFrames(500);
+	CHECK(LogLines(notLit) == notLit0 + 1 && *guard == 1.0f && fabsf(MatScale53(iText) - 0.3437f) < 1e-6f,
+	      "L3: one \"%s\" line in 2 s (%d); the guard still %.4f; the text (a lighting property) written %.4f", notLit, LogLines(notLit) - notLit0, *guard, MatScale53(iText));
+	LookGetOff();
+
+	printf("custom: [Look] LightingOnly=0 (2026-11-09a as of t54-merge), the same effect shader:\n");
+	Ini54Set("Look", "LightingOnly", "0");
+	notLit0 = LogLines(notLit);
+	LookGetOn(1500);
+	CHECK(fabsf(*guard - 0.5645f) < 1e-6f && LogLines(notLit) == notLit0, "L4: no type check: +0xB8 past the effect shader's material written %.4f (the off value's own check)", *guard);
+	LookGetOff();
+	*(uint8_t **)(g_lookShape[iPlate] + FAKE_GEOM_PROPERTY) = g_lookProp[iPlate];
+	for (int k = 0; k < 4; k++)
+		SetLookColour53(k, -1.0f);
+
+	printf("custom (2026-11-09a): CMB_LookOptions after a load, off the bike (the save's value restored with it):\n");
+	float want = LookOptions55();
+	*(float *)(g_lookOptionsFake + 0x30) = 63.0f;   /* the save's: the ESP's 63 */
+	Send(3, 1);   /* PostLoadGame */
+	RunFrames(300);
+	float loaded = LookOptions55();
+	CHECK(want != 63.0f && loaded == want, "P1: a save loaded with CMB_LookOptions at 63: the INI's %g again before getting on (%g; t54-merge's DLL leaves the save's until then, "
+	      "and the scripts read it at Mount first)", want, loaded);
+
+	printf("custom (2026-11-09a, test 51): [View] TipLoadGrace=2, CMB_ViewTip 15: a load riding in first person, the camera not following the pitch for 0.4 s after it:\n");
+	const char *lookedText = "view: looked 15 deg down on getting into first person (from level; the camera now 15 deg down)", *notFollow = "view: the camera didn't follow";
+	Ini54Set("View", "TipLoadGrace", "2");
+	Ini54Set("View", "Eye", "1");
+	*tipG = 15.0f;
+	g_onFrame = TipLoadRide55;
+	g_afterTask = TipAfter51;
+	memcpy(g_eyeBike, fakeEye, 12);
+	g_eyeLive = true;
+	*ax = 0.0f;
+	FakeCameraTurn();
+	LookGetOn(1000);
+	SetCameraFirst(true);
+	RunFrames(1200);
+	int looked0 = LogLines(lookedText), follow0 = LogLines(notFollow);
+	bool firstTip = looked0 == 1;
+	TipLoad55();
+	RunFrames(3000);
+	snprintf(line, sizeof(line), "%s", LastLogLine(notFollow) ? LastLogLine(notFollow) : "(none)\n");
+	bool entryOnly = LogLines(notFollow) == follow0 + 1 && strstr(line, "the view left as it was (this entry only: it began ") && strstr(line, " s after a load, TipLoadGrace 2)");
+	float undone = *ax;
+	int lookedLoad = LogLines(lookedText) - looked0;
+	FirstAgain51();
+	RunFrames(800);
+	float pitchAgain = FakePitch();
+	CHECK(firstTip && entryOnly && fabsf(undone) < 1e-6f && lookedLoad == 0 && LogLines(lookedText) == looked0 + 1 && fabsf(pitchAgain + 15.0f) < 0.5f,
+	      "T1: the tip at getting on (%s); after the load the tip undone (angle.x %.7f) with the line %s3 s later out and in again: the tip (%d looked line, the camera %.2f deg)",
+	      firstTip ? "yes" : "no", undone, line, LogLines(lookedText) - looked0, pitchAgain);
+
+	printf("custom: [View] TipLoadGrace=0 (2026-11-09a as of t54-merge), the same load:\n");
+	SetCameraFirst(false);
+	LookGetOff();
+	Ini54Set("View", "TipLoadGrace", "0");
+	*ax = 0.0f;
+	FakeCameraTurn();
+	LookGetOn(1000);
+	SetCameraFirst(true);
+	RunFrames(1200);
+	const char *session = "view: the camera didn't follow the player's pitch (+0xC0): the view left as it was (no tip this session)";
+	int session0 = LogLines(session), looked1 = LogLines(lookedText);
+	TipLoad55();
+	RunFrames(3000);
+	int sessionN = LogLines(session) - session0;
+	FirstAgain51();
+	TipRec51(true);
+	RunFrames(800);
+	CHECK(looked1 == looked0 + 2 && sessionN == 1 && g_tip51Frames > 20 && g_tip51AngleBad == 0 && LogLines(lookedText) == looked1,
+	      "T2: one \"%s\" line (%d); the next entry no tip (angle.x unchanged over %d frames, %d changed; the off value's own check)", session, sessionN, g_tip51Frames,
+	      g_tip51AngleBad);
+	TipRec51(false);
+
+	SetCameraFirst(false);
+	LookGetOff();
+	*tipG = 0.0f;
+	*ax = 0.0f;
+	FakeCameraTurn();
+	g_fakePitchLocked = false;
+	g_tl55Lock = 0.0f;
+	g_eyeLive = false;
+	Ini54Restore();
+	g_onFrame = NULL;
+	g_afterTask = NULL;
+}
+
 int main(int argc, char **argv)
 {
 	const char *dllPath = argc > 1 ? argv[1] : "CMB_Slope.dll";
@@ -21164,6 +23356,8 @@ int main(int argc, char **argv)
 	g_new52Hidden = mode == 15;        /* ... and without the 2026-11-07a build's CMB_LookCode (0x8AF) */
 	g_new53Hidden = mode == 15;        /* ... and without the 2026-11-08a build's four look colours (0xA14-0xA17) */
 	g_new53Partial = mode == 17;       /* review B3: mode 17's look bike (its colour rows) with three of the four (0xA17 missing) */
+	g_new54Hidden = mode == 15;        /* ... and without the 2026-11-09a build's two (0xBF1-0xBF2) */
+	g_new55Hidden = mode == 15;        /* ... and without the 2026-11-09a fixes' CMB_LookOptions (0xBF4) */
 	g_robotsHidden = mode != 11 && mode != 22;   /* CMB_RamRobots (test 42) in modes 11 and 22 only: mode 14 checks the one "isn't there" line */
 	HMODULE dll = LoadLibraryA(dllPath);
 	if (!dll) { printf("can't load %s\n", dllPath); return 2; }
@@ -21176,7 +23370,7 @@ int main(int argc, char **argv)
 	const uint32_t *compatible = version + 2 + 128 + 2;
 	CHECK(compatible[0] == 0x010B0F00u && compatible[1] == 0, "compatible with 1.11.240 only");
 
-	if (mode == 0 || mode == 9 || mode == 10 || mode == 11 || mode == 12 || mode == 13 || mode == 14 || mode == 15 || mode == 18 || mode == 19 || mode == 22 || mode == 23)
+	if (mode == 0 || mode == 9 || mode == 10 || mode == 11 || mode == 12 || mode == 13 || mode == 14 || mode == 15 || mode == 18 || mode == 19 || mode == 22 || mode == 23 || mode == 25)
 		WriteAddressLibrary();
 	F4SEInterface f4se = { 0x00070090u, mode == 2 ? 0x010B0DD0u : 0x010B0F00u, 0, 0, QueryInterface, GetPluginHandle, 0, 0, 0 };
 	bool loaded = load(&f4se);
@@ -21235,6 +23429,17 @@ int main(int argc, char **argv)
 		printf("%s\n", g_failures ? "FAILED" : "all ok");
 		return g_failures ? 1 : 0;
 	}
+	if (mode == 25) {   /* 2026-11-09a: test 50's Caution, the wheels and the bridge's end post (the drive unit's; mode 19's world) */
+		Send(10, 1);   /* GameDataReady */
+		RunFrames(300);
+		printf("the 2026-11-09a build's globals:\n");
+		CHECK(LogLines("globals: the 2026-11-09a build's 2 found, CMB_Caution and CMB_ViewMenu (FE005BF1-FE005BF2)") == 1,
+		      "one \"the 2026-11-09a build's 2 found, CMB_Caution and CMB_ViewMenu (FE005BF1-FE005BF2)\" line (%d)",
+		      LogLines("globals: the 2026-11-09a build's 2 found"));
+		DriveTests54();
+		printf("%s\n", g_failures ? "FAILED" : "all ok");
+		return g_failures ? 1 : 0;
+	}
 	if (mode == 18) {   /* 2026-11-01a: decals, the copy pool, the re-points' lines and the clips' knees (test 47's floating rider) */
 		Send(10, 1);   /* GameDataReady */
 		RunFrames(300);
@@ -21256,6 +23461,7 @@ int main(int argc, char **argv)
 		SeatWatchTests();   /* 2026-11-01a: the seat watch (hitanim 5.1) */
 		UseLetGoTests();    /* 2026-11-02a: the use let-go (test 48's stretched arm) */
 		UseHoldTests51();   /* 2026-11-06a: the use hold at speed, the view's settle, the rearm (the rider unit's) */
+		UseStopTests54();   /* 2026-11-09a: the item-use block (the rider unit's) */
 		printf("%s\n", g_failures ? "FAILED" : "all ok");
 		return g_failures ? 1 : 0;
 	}
@@ -21263,6 +23469,7 @@ int main(int argc, char **argv)
 		Send(10, 1);   /* GameDataReady */
 		RunFrames(300);
 		RoomTests(mode == 15);
+		if (mode == 14) { RoomActorTests54(); SnapOrderTests54(); RoomGuardTests55(); }   /* 2026-11-09a: the rider unit's, the drive unit's; the review of 2026-11-09a's */
 		if (mode == 15) { OldEsp49Rider(); OldEsp49Drive(); OldEsp49Sound(); OldEsp49Lights(); }
 		if (mode == 15)
 			OldEsp49Fx();   /* the 2026-11-01a build's bike sounds: none with that ESP */
@@ -21272,6 +23479,10 @@ int main(int argc, char **argv)
 			OldEsp52Ids();   /* the 2026-11-07a build's: none with that ESP */
 		if (mode == 15)
 			OldEsp53Ids();   /* the 2026-11-08a build's: none with that ESP (its writer's check is mode 17's, LookColoursPartial53) */
+		if (mode == 15)
+			OldEsp54Ids();   /* the 2026-11-09a build's: none with that ESP */
+		if (mode == 15)
+			OldEsp55Ids();   /* the 2026-11-09a fixes' CMB_LookOptions: none with that ESP */
 		printf("%s\n", g_failures ? "FAILED" : "all ok");
 		return g_failures ? 1 : 0;
 	}
@@ -21293,6 +23504,8 @@ int main(int argc, char **argv)
 		      "one \"the 2026-11-07a build's CMB_LookCode found (FE0058AF)\" line (%d)", LogLines("globals: the 2026-11-07a build's CMB_LookCode found"));
 		CustomTests52();
 		CustomTests53();
+		LookOptionsTests55();   /* 2026-11-09a, test 51: CMB_LookOptions (step 0's) */
+		CustomTests55();        /* 2026-11-09a, test 51: the skins unit's */
 		printf("%s\n", g_failures ? "FAILED" : "all ok");
 		return g_failures ? 1 : 0;
 	}
@@ -21307,6 +23520,8 @@ int main(int argc, char **argv)
 		Send(10, 1);   /* GameDataReady */
 		RunFrames(300);
 		SoundTests();
+		GearTests54();   /* 2026-11-09a: the sound unit's */
+		GearTests55();   /* 2026-11-09a, test 51: the skins unit's */
 		printf("%s\n", g_failures ? "FAILED" : "all ok");
 		return g_failures ? 1 : 0;
 	}

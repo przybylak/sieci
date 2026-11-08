@@ -17,6 +17,190 @@ The log goes to `Documents\My Games\Fallout4\Logs\Script\Papyrus.0.log`. Every m
 
 Without F4SE you'll see one or two harmless errors about the `F4SE` / `CMB_HotkeyF4SE` scripts not being found. That's the mod checking whether they're there. When something breaks, send the log, plus a screenshot or a short clip if it's visual.
 
+## The 2026-11-09a build: test 50's and test 51's fixes
+
+This is the fixes build for test 50 (run on 2026-11-06a; the 2026-11-08a build changed only the look, so everything
+test 50 found still held) and for test 51 (run on 2026-11-08a: the field kit, getting on, the parked bike's colours,
+the black screen after Ride, Free colour, the gears, the Vault-Tec plate and first person after a load). What tests 50
+and 51 liked is as it was: the sidestep, the take-off, the power-attack switch, the chrome and the whole C2 look. Steps
+1-12 answer test 50, steps 13-21 test 51, in this order. Each step names the log line that answers it, and every new
+behaviour has an off value that gives the 2026-11-08a build back (README's first key table; for the gears, step 18),
+so each A/B is one key or one MCM setting away.
+
+Before you start:
+- install as a Replace (2026-11-09a over 2026-11-08a); F4SE and `CMB_Slope.dll` as before. Reset nothing: in a new save
+  the MCM shows Riding "Caution (how early the bike eases off for obstacles, %)" at 60 and Sound "Water sound loop" on
+  "Wet road, gentle"; a save from an earlier build keeps its own "Water sound loop" (2026-11-08a's default was "Wet road
+  (the mod's own)"), so check both and set them by hand;
+- MCM Riding "Power attacks throw you off" on for step 1 (its default is still off);
+- copy both logs aside before every quit (`CMB_Slope_stepN.log`, `Papyrus_stepN.log`): the plugin keeps only one
+  earlier session;
+- the 2026-11-08a build's steps (the next section) were test 51's: no need to run them again, steps 13-21 answer what
+  it found; in a save from an earlier build the field kit forgets a remembered toolbox once (step 15), and the first
+  ride after installing attaches the look's mods once (step 13).
+
+The log's first lines: `CMB_Slope.log` has `globals: the 2026-11-09a build's 2 found, CMB_Caution and CMB_ViewMenu
+(FE055BF1-FE055BF2)` (FE055 in test 50's load order; yours may differ), `globals: the 2026-11-09a fixes' CMB_LookOptions
+found (FE055BF4)` and one settings line a part: `  steer: Caution=-1: the MCM's CMB_Caution, read on getting on and once
+a second while riding; ClimbStepSpan=3: ...`, `  parts: the wheels turn by the frame's own movement, none under 5 u/s
+(WheelSpin), held while braking (WheelLock)`, `  rider: UseListen=2 UseStop=IdleStop,IdleForceDefaultState: ...`,
+`  view (2026-11-09a): TipMenu=1 TipYield=5 TipSettle=0.25 Bounds=1 Near=0 FovSearch=1; [Diag] ViewDraw=1`, `  room:
+SnapOrder=1: ...`, `  room: ActorRoom=1 ParkBack=1 ParkGuard=1 GuardMargin=15: ...`, `  sound:
+HeardRiseGears=2.5,0.95,0.5,1 ShiftGapGears=0,2,2.5: ...`, `  look (2026-11-09a fixes): FastMount=1 KitHeld=1
+ParkedReload=1 PaletteIndex=1 MountGuard=1 HueFree=1 Rehold=1 LightingOnly=1: CMB_LookOptions 127 for the scripts (64:
+the worn bike's colours written here)` and `  view (2026-11-09a, test 51): TipLoadGrace=2 (a tip verdict within 2 s of a
+load or getting on holds for that entry only; 0: for the session)`; at the first getting on `  steer: Caution 60%
+(CMB_Caution): FaceLook 0.18, WallStop 0.75, WallStopPersist 0.09, the need from the 0.05 s speed`. A line `globals: the
+2026-11-09a build's 0 of 2 found (0xBF1-0xBF2, an older ESP): none used` means an older ESP is loaded, and so does
+`globals: no CMB_LookOptions (0xBF4, an older ESP): ...`: stop and say so.
+
+1. **Fights and knock-offs** (test 50's crash came half a second after the third knock-off in 21 s, with raiders round
+   the bike). With "Power attacks throw you off" on, get knocked off with raiders close, three times or more, and get
+   back on quickly each time.
+   - Expected: no crash, and the bike never appears inside anyone. `CMB_Slope.log`: `room: ask N at (...), heading N:
+     none, an actor in its place: ... (ActorRoom)`, with the actor's reference ID, its model and which ray met it (`met
+     by the ray down 37 ahead of its middle, 40 to its right`).
+   - `Papyrus.0.log`: `The parked bike kept hidden: someone in its place (the plugin's [Room] ParkGuard): looked at
+     again every 0.5 s.`, then `The parked bike shown after N s: its place clear (ParkGuard).` (after 15 s it tries a
+     spot beside or behind you instead); `CMB_Slope.log` meanwhile `room: ask N at (...) (the parked bike's place:
+     ParkGuard): someone in it: ...`, and at the end `...: no one in it (21 rays down, 16 across)`.
+   - After a short ride, get off right where the bike stood with an NPC beside it: `The parked bike's old spot: none
+     (an actor in its place).` and `Parked bike not put back where it stood: its old spot asked about first (the
+     plugin's [Room] ParkBack): no room there (the line above says why): its spot asked about instead.`
+   - Ride a bend and get off: the bike shows at once (`room: ask N at (...), heading N (the parked bike's place:
+     ParkGuard, the player not counted): no one in it (21 rays down, 16 across)`). You no longer keep it hidden where
+     the mod has just put it clear of you (getting off, calling it, bringing it, putting it back where it stood); while
+     it is held for someone else you count only standing in its very place.
+   - Known: if you go through a door or fast travel while the bike is kept hidden, it stays hidden where it waits until
+     you call it (`The parked bike kept hidden after N s: the player went elsewhere: it waits there hidden; calling it
+     brings it (ParkGuard).`). Getting on or calling it always ends the wait.
+   - If the game crashes, send the crash log: the actor in it is compared with the last `room:` lines.
+2. **Items at speed**: a stimpak by its hotkey at full speed, then one from the Pip-Boy (closed while still riding).
+   - Does the bike keep its speed? Is the item used (health up)? Does the pose, the camera or a weapon do anything odd?
+   - Log: `rider: an item's use clip at N u/s (...): IdleStop sent to the graph (UseStop): taken; the clip over after N
+     s, the speed N` (or `...: not taken, IdleForceDefaultState taken; ...`, or `...: none taken: the clip plays
+     (UseHold holds the throttle)`: then say what the clip did), and either way `rider: the graph's events through
+     PlayerCharacter's slot 1 in the 2.0 s from ... (UseListen): ...`.
+   - A/B: `[Steer] UseStop=` (empty: nothing sent, 2026-11-08a), get off and on.
+3. **Caution**: the usual streets at 60 (the default), then 100 and 50 from the MCM while riding.
+   - Each change is logged within a second: `steer: Caution 60% -> 100% (CMB_Caution): ... (the MCM)`. WallStop's lines
+     end `..., Caution 60%)`.
+   - Still over-cautious at 60? Does the front wheel ever touch a wall or a car (where, and at which Caution)?
+   - At 60 the sidestep round a post or a mailbox starts later: the post is first read about 575 units past the front
+     wheel instead of about 725 at 100 (70 to 100 gives that room back). Does it still step round in time (T52-1)?
+4. **Wheels**: brake hard from full speed (back or the brake key): the wheels hold still till the bike stops. Roll to a
+   stop off the throttle: they stop with the bike, no run-on. Reverse: they turn backward. Log: the `parts:` line above.
+   A/B: `[Parts] WheelSpin=0` and `WheelLock=0` (2026-11-08a's wheels).
+5. **The bridge's end post** (test 50's, 14:37:48) at full speed: no climb up the post into the rail; `climb: a low face
+   at the capsule (...): ...: its top ends within N past its face (...), though a wheelbase on, N ahead, the ground N
+   over its foot: a post, not a step (ClimbStepSpan): not climbed with the boost`. Kerbs and steps are still climbed
+   with the boost (`... its top carrying on at 3 points between (ClimbStepSpan)`).
+6. **The truck**: call the bike from the truck bed (test 50's). It should come beside the truck, on the ground: `The
+   bike's spot: Bike's spot N's navmesh point (N from it), heading N: room, walkable (its own snap N): taken before the
+   most room (spot N, none there) (the plugin's [Room] SnapOrder).` If it goes onto the truck again, send the call's
+   `Papyrus.0.log` lines and the plugin's `room: ask` lines.
+7. **The Pip-Boy from third person**, riding: open it and close it, three times. The view isn't pitched: `view: no tip:
+   this first person began with the eye N from EyeAt (a menu's camera: the Pip-Boy from third person)` or `view: no tip:
+   the Pip-Boy open (CMB_ViewMenu)`.
+8. **Into first person moving the mouse a little**: the view eases 20 deg down with your own look on top (`view: looked
+   20 deg down on getting into first person (from N deg down; your own look N deg down on top; the camera now N deg
+   down)`); a bigger look, past 5 deg, takes over (`view: you looked yourself N deg up over N frame(s), ...`). Can you
+   look as you like after?
+9. **The view bike**, stopped and then at speed: look straight down, then 25-30 deg down. Is any of the bike visible
+   (the dial, the bars, the tank, the mirrors)? Send screenshots; the `view: drawn? the chain: ...`, `view: drawn? the
+   camera: ...` and `view: drawn? last frame's writes: ...` lines go with them. Only if nothing shows: `[Look] Cull=1`,
+   get off and on, look again; if still nothing, `[View] Near=5`, off and on, again (`view: the camera's near plane 15
+   -> 5 while the view bike shows ([View] Near)`). Put both back after. Each chain line now ends `, for the reference
+   FFxxxxxx` (step 19).
+10. **FOV**: MCM "Field of view riding in first person" 90; into first person for 2 s. Wider or not? Log: `camera: the
+    world FOV at PlayerCamera+0x... (...), 0.50 s into first person (search 1 of 3)`, or at three entries `camera: the
+    world FOV not found in PlayerCamera+0x40..+0x1AC (...): ...; candidates: ...`: send those lines.
+11. **Gears**: replaced by step 18 (test 51 found 1st longer than both 2nd and 3rd; the lengths changed again).
+12. **Water**: ride through shallow water at speed on "Wet road, gentle" (`Papyrus.0.log`: `Bike sounds: the plugin
+    drives the water loop: the gentle wet road (CMB_FxWaterLoop 3) (instance N, poll N).`; `CMB_Slope.log`: `fx: the
+    water loop (id N) driven (CMB_FxDriven N): ...; the gentle wet road (CMB_FxWaterLoop 3), WaterRoadDb +0 dB`). Then
+    "Wet road (the mod's own)", get off and on, ride the same water and compare (T52-4).
+13. **Getting on** (test 51: 5-6 s), five rides with a look on:
+    - `Parked bike activated: choice 0.` to `Mounted.` within 2 s (the same second or the next);
+    - no `a second into the ride and no bike shape found`;
+    - one `Look: the worn bike's kept mods (the look unchanged): no attach` a getting on (the first ride after
+      installing, and the first after a look change, show `Look: 7 of 7 mods on the worn bike` instead), and no `Look:
+      the worn bike's F4SE swap again`;
+    - draw a weapon mid-ride twice: the kept line again (the very first draw attaches once), no gap;
+    - send any `Look: the worn bike's kept mods: N of M after the equip` line. A/B: `[Look] FastMount=0`.
+14. **Double press** (test 51's black screen after Ride): activate the bike twice quickly, then Ride: `Parked bike
+    activated again 0.0x s into the last activation (its menu or choice under way): ignored` (or no line, if your second
+    press answered the menu), and no black screen. If you ever see `Getting on: not mounted ... (the watchdog)`,
+    `Getting on given up ...` or `Getting on: undone ...`, send them with the minute: their stage and menus name the
+    cause (the screen fades back in after 8 s; after 25 s out of every menu the ride is given up: "The motorbike
+    couldn't be got on. Try again."). A/B: `[Look] MountGuard=0`.
+15. **Field kit** (automatic, your save): once, `Field kit: CMB_KitWorked 1 (the toolbox, remembered on its menu's open
+    alone) forgotten: automatic starts at the armour bench`; then `Customise: field kit mode 3 (the armour bench) at
+    ...` and `Field kit: mode 3: the menu open after N s, the player in the kit`.
+    - Does the armour bench take you in? Do Rims and Plate list mods (`Customise: Rims = ...`)? Make one change:
+      `Field kit: mode 3 worked (a change made): remembered (CMB_KitWorked 3)`.
+    - If its menu closes at once: `Field kit: mode 3: the menu closed 0.5 s after it opened, no change made, the player
+      never in the kit: this mode doesn't work here`, `Field kit: mode 3: its menu closed at once: trying mode 4` and
+      `Customise: field kit mode 4 (the game's armour bench) at ...`. Does the game's bench work?
+    - With a paint change made, the parked bike reloads in front of you at the kit's end: `Look: the parked bike's 3D
+      loaded again for its colours (the field kit, ParkedReload)`, and it shows at once (no `kept hidden`).
+    - A/B: `[Look] KitHeld=0` (the toolbox first, as 2026-11-08a); MCM "Field kit" forces either bench.
+16. **Parked paint** (test 51: grey after an MCM apply): MCM faction set Army, Apply, close the menu and look at once:
+    green? Lines: `Look: the parked bike's swap holds 63 entries, N applied now (the MCM)` and `Look: the parked bike's
+    3D loaded again for its colours (the MCM, ParkedReload)` (it vanishes for a moment, behind the pause menu until you
+    close it). Then `[Look] ParkedReload=0` (restart, or ride once, so that the plugin's `look (2026-11-09a fixes)` line
+    says ParkedReload=0), BoS then Army again: still green? (no reload line now).
+17. **Free colour** (test 51: "it didn't do anything"): load, move only the hue, Apply: `Look: the MCM's paint hue moved
+    (210 -> 280, shade Normal) (the MCM): Paint is now "Free colour"`; the paint takes the hue, and the MCM's Paint
+    reads Free colour when reopened. Then move the hue and choose a factory Paint in one visit, Apply: `... chosen with
+    it wins: Paint left`. A/B: `[Look] HueFree=0`.
+18. **Gears** (test 51: 1st outlasted 2nd and 3rd): full throttle from a stop. Does each gear last longer than the last
+    (about 1.6, 2.0 and 2.5 s)? The start's line: `  sound: HeardRiseGears=2.5,0.95,0.5,1 ShiftGapGears=0,2,2.5: the
+    heard speed's rise by gear 350, 133, 70, 140 u/s^2 (HeardRise x each); at least 1.25, 2, 2.5 s in gears 1-3 before
+    an up-shift (0 or missing: MinShiftGap)`; then `sound: gear 2`, `gear 3` and `gear 4` about 1.6, 3.6 and 6 s after
+    the press. At the cruise a quick tap of the brake and full throttle again: 3rd's rise is as before, so the climb
+    back in 3rd still takes about 5 s. Too long? `[Sound] HeardRiseGears=2.5,0.95,0.7,1`, get off and on, try again.
+    A/B: `HeardRiseGears=1,0.95,0.5,1` with `ShiftGapGears=0,1.5,1.75` (this build's first set).
+19. **After a load on the bike**, into first person twice (test 51: the tip was off for the session after a load): the
+    tip comes at the second entry. At the first: `view: the camera didn't follow the player's pitch (+0xC0): the view
+    left as it was (this entry only: it began N s after a load, TipLoadGrace 2)` (or `flipped (the tip goes on) (this
+    entry only: ...)`); at the second `view: looked N deg down on getting into first person`. With `[Diag] ViewDraw=1`
+    (the default) every `view: drawn? the chain: ...` line ends `, for the reference FFxxxxxx`: the same ID as `view:
+    first person: the view bike shown (the reference ...)` and the `handed over from ... to ...` lines. A/B: `[View]
+    TipLoadGrace=0`.
+20. **Engine sound**: still "pitched down" now that getting on is quick? The engine hand-over (`Engine sound: the plugin
+    drives the 11 loops (..., 3.x s after getting on)`) should now come about 1.5 s after you choose Ride, not 5-6 s.
+21. **The Vault-Tec plate**: Customise, Plate "Vault-Tec" (its own text, e.g. VLT 111). Look up close with the bike
+    parked (a couple of steps behind it), then from the saddle in third person while riding. Does the top-left emblem
+    read as a cog (eight teeth, a hole in the middle), apart from the yellow pinstripe? A screenshot of each, please:
+    there is no log line, the picture is the answer.
+
+The off values, each giving 2026-11-08a: MCM "Caution" 100; `[Room] ActorRoom=0`, `ParkBack=0`, `ParkGuard=0`;
+`[Steer] UseStop=` (empty), `UseListen=0`, `ClimbStepSpan=0`; `[Parts] WheelSpin=0`, `WheelLock=0`; `[Room]
+SnapOrder=0`; `[View] TipMenu=0`, `TipYield=0`, `TipSettle=0`, `Bounds=0`, `FovSearch=0`, `TipLoadGrace=0`; `[Diag]
+ViewDraw=0`; `[Look] FastMount=0`, `KitHeld=0`, `ParkedReload=0`, `PaletteIndex=0`, `MountGuard=0`, `HueFree=0`,
+`Rehold=0`, `LightingOnly=0`; `[Sound] HeardRiseGears=1,1,1,1`, `ShiftGapGears=` (empty: `1,0.95,0.5,1` with
+`0,1.5,1.75` is this build's first set); MCM "Water sound loop" "Wet road (the mod's own)". The 2026-11-08a build's
+own switches back to 2026-11-07a's are all still there.
+
+Send both logs a session, any crash log, the screenshots of steps 9 and 21, and the video if you have one.
+
+### Questions for you (test 52)
+
+- **T52-1 (step 3).** Caution 60: right, or 70, or 50? 70 is safer for a wall that comes into view late, and gives the
+  sidestep back the room it had (at 60 it starts about 575 units past the front wheel, at 70 to 100 about 725).
+- **T52-2 (step 2).** Did the bike keep its speed through items, by hotkey and from the Pip-Boy?
+- **T52-3 (step 9).** Was the first-person bike seen at any point of step 9 (and with `Cull=1` or `Near=5`)?
+- **T52-4 (step 12).** The gentle water loop or the old one?
+- **T52-5 (step 1).** Was the parked bike ever hidden when you didn't expect it (after a door or a fast travel it waits
+  hidden till you call it)?
+- **T52-6 (steps 13 and 14).** Was getting on quick enough? Any black screen, or a watchdog line?
+- **T52-7 (step 15).** Which bench worked, and did Rims and Plate list the mods?
+- **T52-8 (step 16).** Was the parked bike green at once, and with `ParkedReload=0` too?
+- **T52-9 (step 18).** The gears' lengths: each longer than the last? The climb back in 3rd after a brake tap (about 5
+  s): keep it, or `HeardRiseGears=2.5,0.95,0.7,1`?
+- **T52-10 (step 21).** The Vault-Tec cog: does it read, up close and from the saddle?
+
 ## The 2026-11-08a build: rims, tyres, the hue, the plates, in this order
 
 This is the second customisation build: rims and tyres, a free paint colour from the MCM, and the licence plate, all
@@ -264,6 +448,7 @@ and, if you have one, a bag or other gear that sits in an unusual slot.
 | `set CMB_PoseUseWindow to 0` | an item stamps only the hit window and the Pip-Boy check ignores it, as in 2026-11-01a (since 2026-11-02a; default 6 s after an item's use, or after the menu's close when it was used in one) |
 | `set CMB_UseCameraFix to 0` | no camera recovery after an item, only the log line (since 2026-11-02a; default 1: a camera left without its switch has its view entered again, then a message) |
 | `set CMB_RiderUseOwn to 0` | every potion equipped while riding starts the item watch, another mod's dummy too, as in 2026-11-02a (since 2026-11-06a; default 1: only the Pip-Boy, the favourites and hotkeys count; needs F4SE) |
+| `set CMB_Caution to 70` | the bike eases off for a wall or a car ahead a little earlier (MCM Riding "Caution (how early the bike eases off for obstacles, %)", since 2026-11-09a; 50-100, default 60; 100 = as 2026-11-08a; read again once a second while riding; needs F4SE and CMB_Slope.dll) |
 | `set CMB_ViewTip to 15` | the view eases 15 degrees down on getting into first person on the bike (MCM "Look down on getting into first person (deg)", since 2026-11-06a; 0-45, default 20; 0 = left as it is, as 2026-11-02a) |
 | `set CMB_ViewFov to 90` | the world field of view while riding in first person (MCM "Field of view riding in first person", since 2026-11-06a; 60-120, default 0: your own) |
 | `set CMB_ViewEyeUp to -8`, `set CMB_ViewEyeForward to -6` | your eye on the bike lower (the bike higher into view) and back (MCM "Eye height on the bike", -30..20, and "Eye forward on the bike", -30..30, since 2026-11-06a; default 0: `[View] EyeAt` as it is; at once) |
@@ -275,10 +460,11 @@ and, if you have one, a bag or other gear that sits in an unusual slot.
 | `set CMB_FxLandRange to 18` | the softest landing 18 dB under the hardest, as in 2026-11-01a (since 2026-11-02a; 0–30, default 10; smaller makes small drops louder) |
 | `set CMB_FxLandDull to 0` | the landing sets with the metal clunk, as in 2026-11-02a (MCM "Landing sounds without metal", since 2026-11-06a; default 1) |
 | `set CMB_FxThudDb to -14` | a softer thud under big landings (since 2026-11-06a; -40..0 dB, default -11; with `CMB_FxLandDull` 1) |
-| `set CMB_FxWaterLoop to 0` | the water loop picked by `CMB_FxWaterPick`, as in 2026-11-02a (MCM "Water sound loop", since 2026-11-06a; 1 the churn, default 2 the wet road; next time you get on) |
+| `set CMB_FxWaterLoop to 0` | the water loop picked by `CMB_FxWaterPick`, as in 2026-11-02a (MCM "Water sound loop", since 2026-11-06a; 1 the churn, 2 the wet road, the default up to 2026-11-08a; since 2026-11-09a 3, the default, the gentle wet road; next time you get on) |
 | `set CMB_LookOn to 0` | no Customise in the parked bike's menu and the stock look on every bike, as 2026-11-06a (MCM Look "Customise at the bike", since 2026-11-07a; default 1; the bikes at the next getting on, activation of the parked bike, "Apply the look" or load) |
-| `set CMB_KitMode to 1` / `2` / `3` | the field kit forced: the toolbox / the toolbox with the armour bench's keyword / the armour bench (MCM "Field kit", since 2026-11-07a; default 0, automatic: the toolbox, then the armour bench, the one that worked remembered) |
-| `set CMB_KitWorked to -1` | automatic starts again from the toolbox (since 2026-11-07a, console only; automatic writes 1 or 3 here when a mode worked) |
+| `set CMB_KitMode to 1` / `2` / `3` / `4` | the field kit forced: the toolbox / the toolbox with the armour bench's keyword (both tests: the toolbox can't be sat in) / the armour bench / since 2026-11-09a the game's armour bench, `WorkbenchArmorA` (MCM "Field kit", since 2026-11-07a; default 0, automatic: since 2026-11-09a the armour bench, then the game's, the one that worked remembered; up to 2026-11-08a the toolbox, then the armour bench) |
+| `set CMB_KitWorked to -1` | automatic starts again from the armour bench (since 2026-11-07a, console only; automatic writes 3 or 4 here when a mode worked, and forgets a 1 or 2 an older build wrote) |
+| `set CMB_LookOptions to 0` | without F4SE only: test 51's six script switches all off, as 2026-11-08a (since 2026-11-09a; the ESP's 63 = all on: 1 FastMount, 2 KitHeld, 4 ParkedReload, 8 PaletteIndex, 16 MountGuard, 32 HueFree; with F4SE `CMB_Slope.dll` writes it from `[Look]` at its start, at a load and on getting on, so set those keys instead) |
 | `set CMB_KitBagLink to 0` | the field kit uses your own components (and a settlement's workshop) only (MCM "Parts from the side bag", since 2026-11-07a; default 1: outside your settlements the side bag's too) |
 | `set CMB_LookHue to 120` | the Free colour paint's hue, 0-359 round the colour wheel (MCM Look "Paint hue", since 2026-11-08a; default 210; used only with Paint "Free colour", from "Apply the look" or the next getting on or activation of the parked bike) |
 | `set CMB_LookShade to 2` | the Free colour paint's shade: 0 Deep, 1 Normal (the default), 2 Light, 3 Pastel (MCM Look "Paint shade", since 2026-11-08a) |
@@ -312,10 +498,10 @@ cqf CMB_ControllerQuest EmergencyReset
 ```
 
 If the console rejects that, try `cqf CMB_ControllerQuest "CMB_ControllerScript.EmergencyReset"`.
-It removes the worn bike, restores speed and controls, clears the riding animations, brings hidden companions back and parks the bike next to you (indoors or in a walled town in the middle of a ride, it's left outside the door you took and comes to you when you come out near it, as in row 9).
+It removes the worn bike (since 2026-11-09a also the two riding armours kept in your inventory between rides, `[Look] FastMount`), restores speed and controls, clears the riding animations, brings hidden companions back and parks the bike next to you (indoors or in a walled town in the middle of a ride, it's left outside the door you took and comes to you when you come out near it, as in row 9).
 Still seated after getting off? `player.caf` (ChangeAnimFlavor with no keyword) clears the riding animation flavour by hand.
 
-**Before uninstalling:** get off the bike (or run the reset), then save. Uninstalling mid-ride would leave the speed bonus on you and companions hidden in the holding cell.
+**Before uninstalling:** get off the bike and run the reset (since 2026-11-09a it also takes the kept riding armours out of your inventory), then save. Uninstalling mid-ride would leave the speed bonus on you and companions hidden in the holding cell.
 
 ## What to send back if something fails
 

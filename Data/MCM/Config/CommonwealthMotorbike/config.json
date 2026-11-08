@@ -102,6 +102,18 @@
     },
     {
       "type": "slider",
+      "text": "Caution (how early the bike eases off for obstacles, %)",
+      "help": "100: as the 2026-11-08a build (the throttle eases from about 11 m at full speed). Lower: closer to the obstacle before the bike eases off and stops. 60: from about 8 m, the throttle gone at 6 m. Needs F4SE and the CMB_Slope.dll plugin.",
+      "valueOptions": {
+        "min": 50,
+        "max": 100,
+        "step": 5,
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|BF1"
+      }
+    },
+    {
+      "type": "slider",
       "text": "Bike tilts with the ground (max degrees)",
       "help": "While riding, the bike and the rider pitch with the ground by at most this much (needs F4SE and the CMB_Slope.dll plugin; 45 follows any slope you can climb). Takes effect the next time you get on.",
       "valueOptions": {
@@ -465,12 +477,13 @@
     {
       "type": "stepper",
       "text": "Water sound loop",
-      "help": "Which water loop plays while riding through water. The first is the 2026-11-02a build\u0027s (the console\u0027s CMB_FxWaterPick). Takes effect the next time you get on.",
+      "help": "Which water loop plays while riding through water. The first is the 2026-11-02a build\u0027s (the console\u0027s CMB_FxWaterPick); \u0022Wet road, gentle\u0022 (since 2026-11-09a) is the mod\u0027s wet road with less hiss and more body. Takes effect the next time you get on.",
       "valueOptions": {
         "options": [
           "As the 2026-11-02a build (spray)",
           "Churning water",
-          "Wet road (the mod\u0027s own)"
+          "Wet road (the mod\u0027s own)",
+          "Wet road, gentle"
         ],
         "sourceType": "GlobalValue",
         "sourceForm": "CommonwealthMotorbike.esp|8B4"
@@ -543,13 +556,14 @@
     {
       "type": "stepper",
       "text": "Field kit",
-      "help": "Automatic tries the toolbox, then an armour bench, and remembers the one that worked. The others force one (for a test).",
+      "help": "Automatic uses an armour bench beside the bike, then the game\u0027s own armour bench if the first one\u0027s menu closes at once, and remembers the one that worked (its menu stayed open, or you made a change). The others force one: the toolbox ones are tests only (the game\u0027s toolbox can\u0027t be sat in).",
       "valueOptions": {
         "options": [
           "Automatic",
-          "Toolbox",
-          "Toolbox (armour bench keyword)",
-          "Armour bench"
+          "Toolbox (a test: it can\u0027t be sat in)",
+          "Toolbox, bench keyword (a test)",
+          "Armour bench",
+          "The game\u0027s armour bench"
         ],
         "sourceType": "GlobalValue",
         "sourceForm": "CommonwealthMotorbike.esp|8C2"
@@ -733,7 +747,7 @@
     {
       "type": "slider",
       "text": "Paint hue",
-      "help": "The colour of the Free colour paint, round the colour wheel (0 red, 120 green, 240 blue). Pick Paint \u0022Free colour\u0022, then Apply.",
+      "help": "The colour of the Free colour paint, round the colour wheel (0 red, 120 green, 240 blue). Moving it chooses Paint \u0022Free colour\u0022 when you Apply (or at the next getting on).",
       "groupCondition": 1,
       "valueOptions": {
         "min": 0,
@@ -746,7 +760,7 @@
     {
       "type": "stepper",
       "text": "Paint shade",
-      "help": "How deep or pale the Free colour paint is.",
+      "help": "How deep or pale the Free colour paint is. Moving it chooses Paint \u0022Free colour\u0022 when you Apply (or at the next getting on).",
       "groupCondition": 1,
       "valueOptions": {
         "options": [

@@ -26,7 +26,16 @@ Reads the generator's --dump output on stdin and the .psc files, and fails if:
     than TankR's 17 and PlateText's 0; a crude text's recipe without GetGlobalValue CMB_LookPlateCrude == 1 or another
     recipe with it; Paint's option 45 not appended to its lists; CMB_LookCategories not 11 lists or CMB_LookSwapLists not
     9; the Look_C2 and CMB_LookF4SE arrays not the table's, or a property not filled or not on its record; look_ids.txt
-    not in ID order; or the MCM's Look section not its 20 controls (the hue a 0-359 slider, the shade a stepper).
+    not in ID order; or the MCM's Look section not its 20 controls (the hue a 0-359 slider, the shade a stepper),
+  - (2026-11-09a, test 50's answer) CMB_Caution and CMB_ViewMenu (found by CMB_Slope.dll by ID) aren't at 0xBF1-0xBF2 with
+    their defaults (60, 0), the gentle wet-road loop CMB_FxWaterRoadSoftLPSD isn't at 0xBF3 (the mod's own file, on
+    CMB_SOMMonoFx), the MCM's Riding page hasn't the Caution slider (50-100, step 5) right after "Turning when stopped",
+    or its "Water sound loop" hasn't its 4 options (the 4th "Wet road, gentle"),
+  - (2026-11-09a, test 51's answer) CMB_LookOptions (found by CMB_Slope.dll by ID) isn't at 0xBF4 with its 63, the
+    controller's CMB_LookOptions and WorkbenchArmorA (Fallout4.esm 12EA9B) or CMB_LookF4SE's CMB_LookOptions aren't filled
+    with them, CMB_LookF4SE's RimFinishV isn't each Rims option's finish V ((row + 0.5) / 8, -1 without a palette row), a
+    look recipe has a BNAM (the game's armour mod recipes have none), or the MCM's "Field kit" hasn't its 5 options (the
+    5th the game's armour bench) or the "Paint hue" and "Paint shade" helps don't end with the Free colour sentence.
 
   dotnet run -c Release -- --dump CommonwealthMotorbike.esp | python3 check_plugin.py <Scripts/Source/User>
 """
@@ -62,6 +71,7 @@ COMPATIBLE = {
     "int": {"Int"},
     "bool": {"Bool"},
     "float": {"Float"},
+    "float[]": {"FloatList"},   # 2026-11-09a: CMB_LookF4SE's RimFinishV
 }
 
 # The engine's output model (Program.cs, EngineOutputModel): SOMMono02000 exactly (since test 47: the reverb send 5, the
@@ -95,6 +105,8 @@ FX_SOUNDS = {
     "CMB_FxWaterSprayLargeLPSD": (2, r"data\Sound\FX\AMB\Waterfall\AMB_WaterfallSplatter_Large_01_LP.wav", "Loop"),
     "CMB_FxWaterRoadLPSD": (1, r"FX\CMB\CMB_FxWaterRoadLP.wav", "Loop"),
     "CMB_FxWaterChurnLPSD": (2, r"data\Sound\FX\AMB\Waterfall\AMB_Waterfall_Churn_02_LP.wav", "Loop"),
+    # 2026-11-09a (test 50: the wet road heard as static): the gentle wet-road loop, the mod's own, at 0xBF3 (in no list).
+    "CMB_FxWaterRoadSoftLPSD": (1, r"FX\CMB\CMB_FxWaterRoadSoftLP.wav", "Loop"),
 }
 # The lists, slot by slot: ours by EditorID, the borrowed ones (2026-11-01a, kept for the A/B) by the game's FormIDs.
 FX_OWN_LISTS = {
@@ -106,12 +118,24 @@ FX_OWN_LISTS = {
                              "CMB_FxThudWaterSD"],
 }
 # The effect sounds that play the mod's own files (shipped loose under Data\Sound\FX\CMB), not the game's.
-FX_OWN_FILES = {"CMB_FxWaterRoadLPSD"}
+FX_OWN_FILES = {"CMB_FxWaterRoadLPSD", "CMB_FxWaterRoadSoftLPSD"}
 # 2026-11-06a: the five globals CMB_Slope.dll finds by ID (all five or none), and the round's nine globals' values.
 FIXED_51 = {"CMB_ViewTip": "0008B0", "CMB_ViewFov": "0008B1", "CMB_ViewEyeForward": "0008B2", "CMB_ViewEyeUp": "0008B3",
             "CMB_FxWaterLoop": "0008B4"}
-GLOBALS_51 = {"CMB_ViewTip": "20", "CMB_ViewFov": "0", "CMB_ViewEyeForward": "0", "CMB_ViewEyeUp": "0", "CMB_FxWaterLoop": "2",
+GLOBALS_51 = {"CMB_ViewTip": "20", "CMB_ViewFov": "0", "CMB_ViewEyeForward": "0", "CMB_ViewEyeUp": "0", "CMB_FxWaterLoop": "3",
               "CMB_KnockOffPower": "0", "CMB_RiderUseOwn": "1", "CMB_FxLandDull": "1", "CMB_FxThudDb": "-11"}
+# 2026-11-09a: the two globals CMB_Slope.dll finds by ID (both or none), their values, and the gentle wet-road loop's
+# save-stable ID (look_ids.txt).
+FIXED_54 = {"CMB_Caution": "000BF1", "CMB_ViewMenu": "000BF2"}
+GLOBALS_54 = {"CMB_Caution": "60", "CMB_ViewMenu": "0"}
+SOUND_54 = ("CMB_FxWaterRoadSoftLPSD", "000BF3")
+# 2026-11-09a, test 51's answer: the global CMB_Slope.dll finds by ID and writes ([Look]'s switches for the scripts), its
+# ESP value (the six script bits on, 64 off), and the game's armour bench the field kit's mode 4 sits at.
+FIXED_55 = {"CMB_LookOptions": "000BF4"}
+GLOBALS_55 = {"CMB_LookOptions": "63"}
+WORKBENCH_ARMOR_A = "12EA9B:Fallout4.esm"
+# ... and the look recipes' workbench keyword: none (the dump's "bench none"; `--recipe-bench CMB_WorkbenchBike` is an A/B).
+RECIPE_BENCH = "none"
 # CMB_LookCode's fixed ID (kept free in 2026-11-06a, made there since 2026-11-07a).
 LOOK_CODE_ID = "0008AF"
 FX_BORROWED_LISTS = {
@@ -244,6 +268,25 @@ def check_fx(recs, engine_model):
         r = by_edid.get(name)
         if r is None or r["type"] != "GlobalFloat" or r.get("value") != want_value:
             problems.append(f"{name}: {None if r is None else (r['type'], r.get('value'))}, expected a GlobalFloat of {want_value}")
+    for name, want_id in FIXED_54.items():
+        got = (by_edid.get(name) or {}).get("id")
+        if got != want_id:
+            problems.append(f"{name}: at {got}, expected {want_id} (CMB_Slope.dll finds it by ID)")
+    for name, want_value in GLOBALS_54.items():
+        r = by_edid.get(name)
+        if r is None or r["type"] != "GlobalFloat" or r.get("value") != want_value:
+            problems.append(f"{name}: {None if r is None else (r['type'], r.get('value'))}, expected a GlobalFloat of {want_value}")
+    for name, want_id in FIXED_55.items():
+        got = (by_edid.get(name) or {}).get("id")
+        if got != want_id:
+            problems.append(f"{name}: at {got}, expected {want_id} (CMB_Slope.dll finds it by ID)")
+    for name, want_value in GLOBALS_55.items():
+        r = by_edid.get(name)
+        if r is None or r["type"] != "GlobalFloat" or r.get("value") != want_value:
+            problems.append(f"{name}: {None if r is None else (r['type'], r.get('value'))}, expected a GlobalFloat of {want_value}")
+    r = by_edid.get(SOUND_54[0])
+    if r is None or r["type"] != "SoundDescriptor" or r["id"] != SOUND_54[1]:
+        problems.append(f"{SOUND_54[0]}: {None if r is None else (r['type'], r['id'])}, expected a SoundDescriptor at {SOUND_54[1]} (look_ids.txt)")
     own = sorted(e for e in sounds if e in FX_OWN_FILES)
     return problems, (f"checked {len(sounds)} effect sounds: output model {FX_MODEL} ({fm['id']}), static 0, "
                       f"{len(sounds) - len(own)} the game's files by path and {len(own)} the mod's own ({', '.join(own)})")
@@ -278,12 +321,31 @@ def check_mcm(scripts_folder: Path):
             for v in o:
                 walk(v)
 
-    walk(json.loads(config.read_text(encoding="utf-8")))
+    data = json.loads(config.read_text(encoding="utf-8"))
+    walk(data)
     own, past = "Bike sounds through the mod's own records", ("Landing sounds without metal", "Water sound loop")
     if own not in controls:
         return [f"MCM: no \"{own}\" control in {config.name}"]
-    return [f"MCM: \"{own}\"'s help doesn't name \"{name}\" (its own records play whatever the switch says)"
-            for name in past if name not in controls or f'"{name}"' not in controls[own]]
+    problems = [f"MCM: \"{own}\"'s help doesn't name \"{name}\" (its own records play whatever the switch says)"
+                for name in past if name not in controls or f'"{name}"' not in controls[own]]
+    # 2026-11-09a: the Caution slider (50-100, step 5, on CMB_Caution) right after "Turning when stopped (deg/s)", and the
+    # water stepper's 4 options, the 4th the gentle wet road (its help names it).
+    content = data.get("content", [])
+    texts = [c.get("text") for c in content]
+    caution, after = "Caution (how early the bike eases off for obstacles, %)", "Turning when stopped (deg/s)"
+    i = texts.index(after) if after in texts else -1
+    c = content[i + 1] if 0 <= i < len(content) - 1 else {}
+    vo = c.get("valueOptions", {})
+    if (c.get("type"), c.get("text"), vo.get("min"), vo.get("max"), vo.get("step")) != ("slider", caution, 50, 100, 5) \
+            or not c.get("help") or not str(vo.get("sourceForm", "")).endswith(f"|{int(FIXED_54['CMB_Caution'], 16):X}"):
+        problems.append(f"MCM: after \"{after}\" {c.get('type')} {c.get('text')!r} {vo.get('min')}-{vo.get('max')} step {vo.get('step')} "
+                        f"on {vo.get('sourceForm')}; expected the slider \"{caution}\" 50-100 step 5 on CMB_Caution ({FIXED_54['CMB_Caution']})")
+    water = next((c for c in content if c.get("text") == "Water sound loop"), {})
+    options = (water.get("valueOptions") or {}).get("options")
+    want = ["As the 2026-11-02a build (spray)", "Churning water", "Wet road (the mod's own)", "Wet road, gentle"]
+    if options != want or '"Wet road, gentle"' not in water.get("help", ""):
+        problems.append(f"MCM: \"Water sound loop\" options {options}, expected {want} (its help naming the 4th)")
+    return problems
 
 
 # 2026-11-07a (the customisation build, C1): the look's records against tools/esp-generator/look_options.json (the one
@@ -530,10 +592,10 @@ def check_look(lines, scripts_folder: Path):
             want_conditions = [("HasPerk", f"{table['perks'][o['perk']]}{GAME}", "EqualTo", "1", "Subject")] if o["perk"] else []
             if o.get("crude"):
                 want_conditions.append(want_crude)
-            if not cobj or cobj["edid"] != f"CMB_co_{name}" or cobj.get("cobj") != [(f"{mod_id}{OURS}", fk("CMB_WorkbenchBike"), "1/0")] \
+            if not cobj or cobj["edid"] != f"CMB_co_{name}" or cobj.get("cobj") != [(f"{mod_id}{OURS}", RECIPE_BENCH, "1/0")] \
                     or cobj.get("component", []) != want_components or cobj.get("condition", []) != want_conditions:
                 problems.append(f"CMB_co_{name} at {co_id}: {None if not cobj else (cobj['edid'], cobj.get('cobj'), cobj.get('component'), cobj.get('condition'))}, "
-                                f"expected CMB_mod_{name} on CMB_WorkbenchBike, {want_components}, {want_conditions}")
+                                f"expected CMB_mod_{name}, no BNAM, {want_components}, {want_conditions}")
             else:
                 recipes += 1
                 crude += want_crude in want_conditions
@@ -542,13 +604,14 @@ def check_look(lines, scripts_folder: Path):
     shared = {src: sorted(keys) for src, keys in slot_sources.items() if len(keys) > 1}
     if shared:
         problems.append(f"sources in more than one slot (a swap on one would reach the other): {shared}")
-    # Every recipe in the plugin: an object mod in a list, on CMB_WorkbenchBike; the crude switch only on crude texts' (checked
-    # per option above: a recipe's conditions are exactly the table's).
+    # Every recipe in the plugin: an object mod in a list, with no BNAM (since 2026-11-09a, test 51's Q-K2: as the game's 722
+    # armour mod recipes; 2026-11-08a's were on CMB_WorkbenchBike); the crude switch only on crude texts' (checked per option
+    # above: a recipe's conditions are exactly the table's).
     for r in recs:
         if r["type"] == "ConstructibleObject":
             c = (r.get("cobj") or [(None, None, None)])[0]
-            if c[0] not in omod_ids or c[1] != fk("CMB_WorkbenchBike"):
-                problems.append(f"{r['edid']}: creates {c[0]} on {c[1]}: not a look option's object mod on CMB_WorkbenchBike")
+            if c[0] not in omod_ids or c[1] != RECIPE_BENCH:
+                problems.append(f"{r['edid']}: creates {c[0]} on {c[1]}: not a look option's object mod without a BNAM")
     for name, lists in (("CMB_LookCategories", [s["list_id"] for s in table["slots"]]),
                         ("CMB_LookSwapLists", [s["swaps_id"] for s in table["slots"] if s["swaps_id"]])):
         r = rec(name, "FormList")
@@ -619,6 +682,9 @@ def check_look(lines, scripts_folder: Path):
     slot = {s["key"]: s for s in table["slots"]}
     ints = lambda xs: f"[{','.join(str(x) for x in xs)}] IntList"
     strs = lambda xs: f"[{','.join(xs)}] StringList"
+    floats = lambda xs: f"[{','.join(f'{x:g}' for x in xs)}] FloatList"
+    finish_row = {f["key"]: f["palette"] for f in table["rim_finishes"]}
+    rim_rows = table["rim_palette"]["size"][1]
     plates = table["plates"]
     want_arrays = {
         "LookKeys": strs(keys),
@@ -640,6 +706,10 @@ def check_look(lines, scripts_folder: Path):
         "PlateOwnBack": ints(p["own_back"] for p in plates),
         "RimBodyTargets": strs(t[0] for t in table["rim_body_targets"]),
         "RimBodyHueTargets": strs(t[1] for t in table["rim_body_targets"]),
+        # 2026-11-09a (test 51): per Rims option its finish's palette V, (row + 0.5) / rim_p's 8 rows; -1 for the stock cast
+        # rim (no finish), chrome (palette null) and body ("body": Compose's rimV covers it).
+        "RimFinishV": floats(-1 if not isinstance(finish_row.get(o["finish"]), int) else (finish_row[o["finish"]] + 0.5) / rim_rows
+                             for o in slot["Rims"]["options"]),
     }
     if len(table["paint_row_of_option"]) != len(slot["Paint"]["options"]):
         problems.append(f"paint_row_of_option: {len(table['paint_row_of_option'])} rows, {len(slot['Paint']['options'])} Paint options")
@@ -649,8 +719,14 @@ def check_look(lines, scripts_folder: Path):
                 problems.append(f"{script}.{name}: {(have.get(name) or 'none')[:120]}, expected {want[:120]}")
     if sum(len((by_id.get(s["list_id"]) or {}).get("item", [])) for s in table["slots"]) != len(keys):
         problems.append("LookKeys doesn't count the option lists' entries")
+    # 2026-11-09a (test 51): the controller's Fixes_55 (the switches, the game's armour bench) and CMB_LookF4SE's switches.
+    for script, have, name, want in (("CMB_ControllerScript", ctl, "CMB_LookOptions", f"{fk('CMB_LookOptions')} "),
+                                     ("CMB_ControllerScript", ctl, "WorkbenchArmorA", f"{WORKBENCH_ARMOR_A} "),
+                                     ("CMB_LookF4SE", f4se, "CMB_LookOptions", f"{fk('CMB_LookOptions')} ")):
+        if not (have.get(name) or "").startswith(want):
+            problems.append(f"{script}.{name}: {have.get(name) or 'none'}, expected {want.strip()}")
     for script, group, have in (("CMB_ControllerScript", "Look_C1", ctl), ("CMB_ControllerScript", "Look_C2", ctl),
-                                ("CMB_LookF4SE", None, f4se)):
+                                ("CMB_ControllerScript", "Fixes_55", ctl), ("CMB_LookF4SE", None, f4se)):
         declared = look_group(scripts_folder, script, group)
         missing = [p for p in declared if p not in have]
         if missing:
@@ -686,7 +762,7 @@ def check_look(lines, scripts_folder: Path):
                         f"(c2_ids {c2['count']}); not in the plugin {sorted(c2_table - c2_plugin)[:3]}, not in the table {sorted(c2_plugin - c2_table)[:3]}")
 
     n_options = sum(len(s["options"]) for s in table["slots"])
-    line = (f"checked {n_options} look options in {len(table['slots'])} slots: {swaps_total} swaps, {recipes} recipes on CMB_WorkbenchBike, "
+    line = (f"checked {n_options} look options in {len(table['slots'])} slots: {swaps_total} swaps, {recipes} look recipes, no BNAM (as the game's armour mod recipes), "
             f"{loose} loose mods, {crude} crude behind {CRUDE_SWITCH}, sources {'unique' if not shared else 'SHARED'} per slot, "
             f"CMB_LookCode {code['id'] if code else 'none'}, colours {colours[0]}-{colours[-1]}, "
             f"highest {highest}; look_ids.txt {len(committed)} IDs")
@@ -713,7 +789,8 @@ def check_mcm_look(scripts_folder: Path, lines):
     shades = [x[0] for x in table["hue_palette"]["shades"]]
     in_group = lambda ctype, text, glob: (ctype, text, glob, names[glob], "condition")
     want = [("switcher", "Customise at the bike", "CMB_LookOn", None, None),
-            ("stepper", "Field kit", "CMB_KitMode", ["Automatic", "Toolbox", "Toolbox (armour bench keyword)", "Armour bench"], None),
+            ("stepper", "Field kit", "CMB_KitMode", ["Automatic", "Toolbox (a test: it can't be sat in)", "Toolbox, bench keyword (a test)", "Armour bench",
+                                                     "The game's armour bench"], None),
             ("switcher", "Parts from the side bag", "CMB_KitBagLink", None, None),
             ("switcher", "Crude plate texts", "CMB_LookPlateCrude", None, None),
             ("switcher", "Free customising (no field kit, no cost)", "CMB_LookFree", None, "control"),
@@ -745,6 +822,11 @@ def check_mcm_look(scripts_folder: Path, lines):
                 or not c.get("help"):
             problems.append(f"MCM Look: {c.get('type')} {c.get('text')!r} on {got_target} options {got_options} group {got_group}; "
                             f"expected {ctype} {text!r} on {want_target} options {options} group {group}, with a help text")
+    # 2026-11-09a (test 51): the Free colour sentence ends the hue's and the shade's helps (moving either chooses Free colour).
+    free = 'Moving it chooses Paint "Free colour" when you Apply (or at the next getting on).'
+    for c in section:
+        if c.get("text") in ("Paint hue", "Paint shade") and not str(c.get("help", "")).endswith(free):
+            problems.append(f"MCM Look: \"{c.get('text')}\"'s help doesn't end with '{free}'")
     return problems, len(section)
 
 

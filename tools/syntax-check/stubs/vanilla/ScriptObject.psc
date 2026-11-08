@@ -4,6 +4,7 @@ Scriptname ScriptObject Native Hidden
 Function GotoState(string asNewState) native
 string Function GetState() native
 Var Function CallFunction(string asFuncName, Var[] aParams) native
+Function CallFunctionNoWait(string asFuncName, Var[] aParams) native
 ScriptObject Function CastAs(string asScriptName) native
 Var Function GetPropertyValue(string asPropertyName) native
 Function StartTimer(float afInterval, int aiTimerID = 0) native
