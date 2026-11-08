@@ -43,11 +43,19 @@
 # line's reference (view) and each gear longer than the last (sound); and with the review of those fixes, the parked
 # bike's guard counting the player only in its own box and not where the script placed it (a park after a bend, a call's
 # spot 7 100 ahead, the put-back's band: room), the FOV search within PlayerCamera's 0x1B0 bytes (view) and Caution 50
-# at test 45's rail (caution). 26 modes (0-25). Needs MinGW-w64 and wine64.
-# The 2026-11-09a build: 1688 checks ok (full 382, probe 10, guard 8, wrongversion 4, transposed 76, disagree 6,
-# backpush 6, riderinplace 18, riderheldonly 8, load 43, climb 125, wall 75, ram 110, hits 22, launch 13, caution 19,
-# backing 56, arms 39, room 145, roomold 58, decals 77, sound 105, look 58, view 124, fx 44, custom 57); 1682 before
-# the review's fixes, 1667 before test 51's fixes, 1611 in 25 modes at 2026-11-08a.
+# at test 45's rail (caution); and the 2026-11-10a build's (test 52's fixes): a potion's quickkey at speed used by the
+# script with no clip and UseStop only on an item's props (arms), CMB_LookOptions' five new bits, CMB_RideReady and the
+# worn paint's diagnostic (custom, look), the first-person draw diagnostic, the view bike under the player's cell and
+# the game's own update, the FOV found by the camera's layout and the tip's yield (view), the engine held through a
+# menu, 3rd gear's 3 s and the paused-game lines (sound), the gentle loop's own trim (fx), Caution 50's sidestep found
+# at 60's reach (caution), the guard's bodies, floor and the player's height (room), and an older ESP without the
+# build's two globals (roomold); and with the review of those fixes, a quickkey taken only while the hotkey script's
+# watch is on (arms) and the bike ready at the MCM's tilt 0 (look). 26 modes (0-25). Needs MinGW-w64 and wine64.
+# The 2026-11-10a build: 1762 checks ok (full 382, probe 10, guard 8, wrongversion 4, transposed 76, disagree 6,
+# backpush 6, riderinplace 18, riderheldonly 8, load 43, climb 125, wall 75, ram 110, hits 22, launch 13, caution 24,
+# backing 56, arms 47, room 149, roomold 59, decals 77, sound 110, look 67, view 157, fx 46, custom 64); 1757 before its
+# review's fixes; 1688 at 2026-11-09a (1682 before its review's fixes, 1667 before test 51's fixes), 1611 in 25 modes
+# at 2026-11-08a.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 WORK="$(mktemp -d)"
@@ -69,6 +77,12 @@ DEF54='Steer/Caution=100 Steer/UseListen=0 Steer/UseStop= Steer/ClimbStepSpan=0 
 # 2026-11-09a, test 51's fixes: the round's new keys at their off values (2026-11-09a as of t54-merge), the same way (the
 # loop below takes DEF54's, then these). The gear keys need none: DEF54 already gives every older mode their 08a values.
 DEF55='Look/FastMount=0 Look/KitHeld=0 Look/ParkedReload=0 Look/PaletteIndex=0 Look/MountGuard=0 Look/HueFree=0 Look/Rehold=0 Look/LightingOnly=0 View/TipLoadGrace=0'
+# 2026-11-10a, test 52's fixes: the round's new keys at their off values (2026-11-09a, 1712b81), the same way (after DEF54's
+# and DEF55's). Not in it: ViewThird (its default 0 is off), QuickUseAbove, QuickKeys, MenuRejoin and ViewThirdOffset (no off
+# value of their own: they act only with QuickUse, MenuHold or ViewThird on), WaterGentleDb (its default 0 is 2026-11-09a's
+# plugin; -3 is 09a's level with the rebuilt loop, an A/B), and the changed defaults of ViewDraw, FovSearch, TipYield and
+# ShiftGapGears (DEF54 already pins them for every older mode).
+DEF56='Look/KitStash=0 Look/KitRetry=0 Look/MountEarly=0 Look/RideReady=0 Look/WornColoursFirst=0 Look/HueSwap=0 Diag/WornColour=0 Steer/QuickUse=0 Steer/UseStopCue=any Steer/UseStopNotUnder= Steer/UseStopAt=knees Steer/SidestepCaution=0 Steer/SidestepMouse=3 Room/GuardBodies=0 Room/GuardFloor=0 Room/GuardPlayerZ=0 Diag/Paused=0 View/Parent=0 View/Update=0 Diag/ViewDrawEvery=0 Sound/MenuHold=0'
 run() { # <name> <mode> <ini body>
   if [ -n "$ONLY" ] && [ "$ONLY" != "$1" ]; then return; fi
   mkdir -p "$WORK/$1"
@@ -83,7 +97,7 @@ run() { # <name> <mode> <ini body>
     esac
   done
   local sec key pre rest
-  for kv in $DEF54 $DEF55; do
+  for kv in $DEF54 $DEF55 $DEF56; do
     sec="[${kv%%/*}]\n" kv="${kv#*/}" key="${kv%%=*}"
     case "$ini" in "$key="*|*"\n$key="*) continue;; esac
     case "$ini" in *'\n') ;; *) ini="$ini\n";; esac

@@ -28,14 +28,18 @@ Reads the generator's --dump output on stdin and the .psc files, and fails if:
     9; the Look_C2 and CMB_LookF4SE arrays not the table's, or a property not filled or not on its record; look_ids.txt
     not in ID order; or the MCM's Look section not its 20 controls (the hue a 0-359 slider, the shade a stepper),
   - (2026-11-09a, test 50's answer) CMB_Caution and CMB_ViewMenu (found by CMB_Slope.dll by ID) aren't at 0xBF1-0xBF2 with
-    their defaults (60, 0), the gentle wet-road loop CMB_FxWaterRoadSoftLPSD isn't at 0xBF3 (the mod's own file, on
+    their values (50 since 2026-11-10a, 0), the gentle wet-road loop CMB_FxWaterRoadSoftLPSD isn't at 0xBF3 (the mod's own file, on
     CMB_SOMMonoFx), the MCM's Riding page hasn't the Caution slider (50-100, step 5) right after "Turning when stopped",
     or its "Water sound loop" hasn't its 4 options (the 4th "Wet road, gentle"),
   - (2026-11-09a, test 51's answer) CMB_LookOptions (found by CMB_Slope.dll by ID) isn't at 0xBF4 with its 63, the
     controller's CMB_LookOptions and WorkbenchArmorA (Fallout4.esm 12EA9B) or CMB_LookF4SE's CMB_LookOptions aren't filled
     with them, CMB_LookF4SE's RimFinishV isn't each Rims option's finish V ((row + 0.5) / 8, -1 without a palette row), a
     look recipe has a BNAM (the game's armour mod recipes have none), or the MCM's "Field kit" hasn't its 5 options (the
-    5th the game's armour bench) or the "Paint hue" and "Paint shade" helps don't end with the Free colour sentence.
+    5th the game's armour bench) or the "Paint hue" and "Paint shade" helps don't end with the Free colour sentence,
+  - (2026-11-10a, test 52's answer) CMB_RiderQuickUse and CMB_RideReady (found by CMB_Slope.dll by ID) aren't at
+    0xBF5-0xBF6 with their 0, CMB_LookOptions isn't 4031 (the eleven script bits on, 64 off) or CMB_Caution 50, the
+    controller's Fixes_56 (CMB_RiderQuickUse, CMB_RideReady) isn't filled with them, or the MCM's Caution help doesn't
+    begin with "50, the default:".
 
   dotnet run -c Release -- --dump CommonwealthMotorbike.esp | python3 check_plugin.py <Scripts/Source/User>
 """
@@ -127,13 +131,18 @@ GLOBALS_51 = {"CMB_ViewTip": "20", "CMB_ViewFov": "0", "CMB_ViewEyeForward": "0"
 # 2026-11-09a: the two globals CMB_Slope.dll finds by ID (both or none), their values, and the gentle wet-road loop's
 # save-stable ID (look_ids.txt).
 FIXED_54 = {"CMB_Caution": "000BF1", "CMB_ViewMenu": "000BF2"}
-GLOBALS_54 = {"CMB_Caution": "60", "CMB_ViewMenu": "0"}
+GLOBALS_54 = {"CMB_Caution": "50", "CMB_ViewMenu": "0"}   # 2026-11-10a: Caution 50 (60 = 2026-11-09a's)
 SOUND_54 = ("CMB_FxWaterRoadSoftLPSD", "000BF3")
 # 2026-11-09a, test 51's answer: the global CMB_Slope.dll finds by ID and writes ([Look]'s switches for the scripts), its
 # ESP value (the six script bits on, 64 off), and the game's armour bench the field kit's mode 4 sits at.
 FIXED_55 = {"CMB_LookOptions": "000BF4"}
-GLOBALS_55 = {"CMB_LookOptions": "63"}
+GLOBALS_55 = {"CMB_LookOptions": "4031"}   # 2026-11-10a: + 128 KitStash .. 2048 HueSwap (63 = 2026-11-09a's)
 WORKBENCH_ARMOR_A = "12EA9B:Fallout4.esm"
+# 2026-11-10a, test 52's answer: the two globals CMB_Slope.dll finds by ID and writes (the scripts read them), both 0.
+FIXED_56 = {"CMB_RiderQuickUse": "000BF5", "CMB_RideReady": "000BF6"}
+GLOBALS_56 = {"CMB_RiderQuickUse": "0", "CMB_RideReady": "0"}
+# ... and the MCM's Caution help's start (the ESP's 50).
+CAUTION_HELP_56 = "50, the default:"
 # ... and the look recipes' workbench keyword: none (the dump's "bench none"; `--recipe-bench CMB_WorkbenchBike` is an A/B).
 RECIPE_BENCH = "none"
 # CMB_LookCode's fixed ID (kept free in 2026-11-06a, made there since 2026-11-07a).
@@ -284,6 +293,14 @@ def check_fx(recs, engine_model):
         r = by_edid.get(name)
         if r is None or r["type"] != "GlobalFloat" or r.get("value") != want_value:
             problems.append(f"{name}: {None if r is None else (r['type'], r.get('value'))}, expected a GlobalFloat of {want_value}")
+    for name, want_id in FIXED_56.items():
+        got = (by_edid.get(name) or {}).get("id")
+        if got != want_id:
+            problems.append(f"{name}: at {got}, expected {want_id} (CMB_Slope.dll finds it by ID)")
+    for name, want_value in GLOBALS_56.items():
+        r = by_edid.get(name)
+        if r is None or r["type"] != "GlobalFloat" or r.get("value") != want_value:
+            problems.append(f"{name}: {None if r is None else (r['type'], r.get('value'))}, expected a GlobalFloat of {want_value}")
     r = by_edid.get(SOUND_54[0])
     if r is None or r["type"] != "SoundDescriptor" or r["id"] != SOUND_54[1]:
         problems.append(f"{SOUND_54[0]}: {None if r is None else (r['type'], r['id'])}, expected a SoundDescriptor at {SOUND_54[1]} (look_ids.txt)")
@@ -340,6 +357,8 @@ def check_mcm(scripts_folder: Path):
             or not c.get("help") or not str(vo.get("sourceForm", "")).endswith(f"|{int(FIXED_54['CMB_Caution'], 16):X}"):
         problems.append(f"MCM: after \"{after}\" {c.get('type')} {c.get('text')!r} {vo.get('min')}-{vo.get('max')} step {vo.get('step')} "
                         f"on {vo.get('sourceForm')}; expected the slider \"{caution}\" 50-100 step 5 on CMB_Caution ({FIXED_54['CMB_Caution']})")
+    elif not str(c.get("help")).startswith(CAUTION_HELP_56):   # 2026-11-10a: the ESP's 50 is the default
+        problems.append(f"MCM: \"{caution}\"'s help {str(c.get('help'))[:40]!r}..., expected it to begin {CAUTION_HELP_56!r} (CMB_Caution's 50)")
     water = next((c for c in content if c.get("text") == "Water sound loop"), {})
     options = (water.get("valueOptions") or {}).get("options")
     want = ["As the 2026-11-02a build (spray)", "Churning water", "Wet road (the mod's own)", "Wet road, gentle"]
@@ -722,11 +741,15 @@ def check_look(lines, scripts_folder: Path):
     # 2026-11-09a (test 51): the controller's Fixes_55 (the switches, the game's armour bench) and CMB_LookF4SE's switches.
     for script, have, name, want in (("CMB_ControllerScript", ctl, "CMB_LookOptions", f"{fk('CMB_LookOptions')} "),
                                      ("CMB_ControllerScript", ctl, "WorkbenchArmorA", f"{WORKBENCH_ARMOR_A} "),
-                                     ("CMB_LookF4SE", f4se, "CMB_LookOptions", f"{fk('CMB_LookOptions')} ")):
+                                     ("CMB_LookF4SE", f4se, "CMB_LookOptions", f"{fk('CMB_LookOptions')} "),
+                                     # 2026-11-10a (test 52): the controller's Fixes_56
+                                     ("CMB_ControllerScript", ctl, "CMB_RiderQuickUse", f"{fk('CMB_RiderQuickUse')} "),
+                                     ("CMB_ControllerScript", ctl, "CMB_RideReady", f"{fk('CMB_RideReady')} ")):
         if not (have.get(name) or "").startswith(want):
             problems.append(f"{script}.{name}: {have.get(name) or 'none'}, expected {want.strip()}")
     for script, group, have in (("CMB_ControllerScript", "Look_C1", ctl), ("CMB_ControllerScript", "Look_C2", ctl),
-                                ("CMB_ControllerScript", "Fixes_55", ctl), ("CMB_LookF4SE", None, f4se)):
+                                ("CMB_ControllerScript", "Fixes_55", ctl), ("CMB_ControllerScript", "Fixes_56", ctl),
+                                ("CMB_LookF4SE", None, f4se)):
         declared = look_group(scripts_folder, script, group)
         missing = [p for p in declared if p not in have]
         if missing:

@@ -29,6 +29,9 @@ Event OnActivate(ObjectReference akActionRef)
 		Controller.LookSync("the bike's activation")
 	endif
 	int choice = CMB_ParkedMenu.Show()
+	if choice == 0
+		Controller.MountPressNow()   ; 2026-11-10a (test 52): Ride's time, for getting on's times line (MountEarly)
+	endif
 	; Test 40: every use of the bike is logged, with what it did (0 ride, 1 side bag, 2 customise, 3 cancel).
 	Controller.Log("Parked bike activated: choice " + choice + ".")
 	if guarded && choice != 0

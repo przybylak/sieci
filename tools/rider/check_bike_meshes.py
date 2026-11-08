@@ -15,7 +15,7 @@ What it checks (FAIL lines make the exit status 1; INFO lines are numbers for th
              block, every vertex the worn nif's (the parked nif's turned round, to 1e-4; the worn nif's half floats to
              their rounding), the worn nif's materials files
   shaders    Fallout 4's flag bits only (no 0x100 in the first word, no 0x8000 in the second), smoothness 0..1, no
-             root material, Skinned on the worn shapes only, no shadow from the riding bike's front end
+             root material, Skinned on the worn shapes only
   materials  the shader names all empty (--bgsm 0) or all Materials\\CMB\\Bike\\<mat>[_worn].bgsm, each file there
              and read back by PyNifly's reader, its textures, environment map, glow map, emissive, two-sidedness and
              shadow the same as the nif's own block; no file there that no nif names
@@ -58,6 +58,12 @@ What it checks (FAIL lines make the exit status 1; INFO lines are numbers for th
              art-plates' listed until the merge, --look-targets all to demand them); the texture budget TEX_BUDGET_C2.
              static_plate's edges and front face lie on the design cell's strip (v 1.04-1.06: bike_pieces.PLATE_STRIP_V),
              the one UV allowed past 1
+  shadows    (2026-11-10a, test 52's wish: the front wheel's shadow; test 34's "no shadow from the front end" dropped)
+             in the worn and view nifs each shape casts as the parked nif's same label (an under-bar mirror the parked
+             nif draws with its _off file: as its own parked materials file, the one a swap shows), the lit overlays
+             (WORN_ONLY) and the decals (the plate's text, the fender patch) none; every _worn materials file in
+             Materials\\CMB\\Bike casts as its parked twin (a lit overlay's, with none: no shadow), and the front rims'
+             finishes (rimF_*_worn, castF_*_worn) cast
   overlays   the dial's backlight, the needle and the light shells clear of what they cover in the worn nif's half
              floats; the needle's culling sphere on NeedlePoint and long enough; where the needle points at rest
   mirrors    every mirror variant clear of the tank with the bars anywhere within BarAngle
@@ -525,6 +531,73 @@ def c2_checks(rep, args, labels, materials, worn_geo, worn_names, parked_geo, pa
               f"the disc {worst_disc:.2f}" + (f", the pulley {worst_pulley:.2f}" if pulley is not None else " (no --stage-dir: the pulley not checked)"))
 
 
+SHADOW_OFF56 = H.WORN_ONLY + (H.PLATE_TEXT, H.FENDER_BADGE)   # the lit overlays and the decals: no shadow when ridden
+
+
+def shadow_checks56(rep, shadow_of, roles, parked_names, materials, bgsmaterial):
+    """The shadows' rule since the 2026-11-10a build (test 52's wish, the front wheel's shadow; test 34's "no shadow
+    from the front end" dropped: harley_meshes.load_shaders): in the worn and view nifs each shape's cast-shadow bit
+    is the parked nif's same label's (a label the parked nif draws with its _off file, an under-bar mirror: its own
+    parked materials file's, the one a swap shows there), the lit overlays (WORN_ONLY) and the decals
+    (static_plateText, static_badgeFender) none; every _worn materials file casts as its parked twin (one with no
+    twin, a lit overlay's: none); the front rims' finishes (rimF_*_worn, castF_*_worn: the Rims options' files) cast."""
+    parked = shadow_of.get("CMB_BikeParked", {})
+    opened = {}
+
+    def file_casts(leaf):   # cmb\bike\<name>.bgsm (lower case): its cast_shadows, None when the file isn't there
+        if leaf not in opened:
+            path = materials.get(leaf)
+            opened[leaf] = None if path is None else bool(bgsmaterial.MaterialFile.Open(str(path)).castShadows)
+        return opened[leaf]
+
+    for stem in WORN + (VIEW,):
+        got = shadow_of.get(stem)
+        if got is None:
+            continue
+        bad, front = [], 0
+        for label, cast in got.items():
+            if label in SHADOW_OFF56:
+                want, why = False, "a lit overlay or decal"
+            elif parked_names.get(label, "").lower().endswith("_off.bgsm"):
+                want, why = file_casts(f"cmb\\bike\\{label.lower()}.bgsm"), f"its parked file {label}.bgsm"
+            elif label in parked:
+                want, why = parked[label], "the parked nif's"
+            else:
+                bad.append(f"{label}: not in the parked nif")
+                continue
+            if want is None:
+                bad.append(f"{label}: {why} missing")
+                continue
+            if cast != want:
+                bad.append(f"{label} {'casts' if cast else 'no shadow'} ({why}: {'casts' if want else 'none'})")
+            front += cast and roles.get(label) in H.FRONT_ROLES
+        rep.check(not bad, f"{stem}: each shape casts a shadow as the parked bike's same label, the front end too "
+                           f"({front} of its shapes cast), the lit overlays and decals none", "; ".join(bad[:12]))
+    worn_files = sorted(k for k in materials if k.startswith("cmb\\bike\\") and k.endswith("_worn.bgsm"))
+    if not worn_files:
+        return
+    bad, alone = [], []
+    for leaf in worn_files:
+        twin = leaf[:-len("_worn.bgsm")] + ".bgsm"
+        cast, want = file_casts(leaf), file_casts(twin)
+        name = materials[leaf].name
+        if want is None:
+            alone.append(name)
+            if cast:
+                bad.append(f"{name} casts (no parked twin: a lit overlay's)")
+        elif cast != want:
+            bad.append(f"{name} {'casts' if cast else 'no shadow'}, "
+                       f"{materials[twin].name} {'casts' if want else 'none'}")
+    rep.check(not bad, f"materials files: each of the {len(worn_files)} _worn files casts as its parked twin "
+                       f"({len(alone)} without one, none of them casting: {', '.join(alone)})",
+              f"{len(bad)} differ: " + "; ".join(bad[:12]) if bad else "")
+    finishes = [k for k in worn_files if materials[k].name.lower().startswith(("rimf_", "castf_"))]
+    off = [materials[k].name for k in finishes if not file_casts(k)]
+    if finishes:
+        rep.check(not off, f"materials files: the front rims' {len(finishes)} finishes (rimF_*_worn, castF_*_worn) "
+                           "cast", ", ".join(off))
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--pynifly", type=Path, required=True)
@@ -607,6 +680,7 @@ def main() -> int:
     parked_geo = {}       # label -> verts from CMB_BikeParked.nif (full precision)
     parked_names = {}     # label -> CMB_BikeParked.nif's materials file name
     parked_flags = {}     # label -> its node flags
+    shadow_of = {}        # nif stem -> {label: its shader block's cast-shadow bit} (shadow_checks56)
     for stem in WORN + ("CMB_BikeParked",):
         path = meshes / f"{stem}.nif"
         if not path.exists():
@@ -654,8 +728,7 @@ def main() -> int:
             root = f.get_string(p.rootMaterialNameID) if p.rootMaterialNameID != P.NODEID_NONE else ""
             if sf1 & 0x100 or sf2 & 0x8000 or not 0.0 <= p.Glossiness <= 1.0 or root or bool(sf1 & H.SF1_SKINNED) != worn:
                 bad_flags.append(f"{label} SF1 {sf1:#x} SF2 {sf2:#x} smooth {p.Glossiness:g} root {root!r}")
-            if worn and roles.get(label) in ("front", "fork", "wheelF") and sf1 & H.SF1_CAST_SHADOWS:
-                bad_shadow.append(label)
+            shadow_of.setdefault(stem, {})[label] = bool(sf1 & H.SF1_CAST_SHADOWS)
             if not worn and label == "front_glow" and max(p.Emissive_Color[0], p.Emissive_Color[1], p.Emissive_Color[2]) > 0:
                 bad_shadow.append("front_glow lit on the parked bike")
             sl = slots(f, s)
@@ -677,7 +750,8 @@ def main() -> int:
         rep.check(not bad_uv, f"{stem}: UVs in 0..1", ", ".join(bad_uv))
         rep.check(not bad_skin, f"{stem}: {'skinned' if worn else 'not skinned'}", ", ".join(bad_skin))
         rep.check(not bad_flags, f"{stem}: Fallout 4 flags, smoothness 0..1, no root material, material names", "; ".join(bad_flags))
-        rep.check(not bad_shadow, f"{stem}: {'no shadow from the front end' if worn else 'the lamp unlit'}", ", ".join(bad_shadow))
+        if not worn:
+            rep.check(not bad_shadow, f"{stem}: the lamp unlit", ", ".join(bad_shadow))
         rep.check(len(names) <= 1, f"{stem}: material names all set or all empty")
 
     # --- the view nif (the bike in first person, since the 2026-11-01a build) ------------------------------------
@@ -714,8 +788,9 @@ def main() -> int:
             p = sh.properties
             if (sh.name or "") != worn_names.get(label, ""):
                 bad_m.append(f"{label} {sh.name!r} (worn {worn_names.get(label)!r})")
-            if p.Shader_Flags_1 & H.SF1_SKINNED or (roles.get(label) in ("front", "fork", "wheelF") and p.Shader_Flags_1 & H.SF1_CAST_SHADOWS):
+            if p.Shader_Flags_1 & H.SF1_SKINNED:
                 bad_sh.append(f"{label} SF1 {p.Shader_Flags_1:#x}")
+            shadow_of.setdefault(VIEW, {})[label] = bool(p.Shader_Flags_1 & H.SF1_CAST_SHADOWS)
             if label in parked_geo and len(parked_geo[label]) == len(v):
                 pk = parked_geo[label]
                 if seat_at is None:
@@ -741,7 +816,7 @@ def main() -> int:
         rep.info(f"{VIEW} vertices", f"at most {worst_parked:.6f} off the parked nif's turned round (seat_at {seat_at}), "
                                      f"{worst_worn:.4f} off the worn nif's half floats")
         rep.check(not bad_m, f"{VIEW}: the worn nif's materials files", "; ".join(bad_m[:8]))
-        rep.check(not bad_sh, f"{VIEW}: not skinned in the shader flags, no shadow from the front end", "; ".join(bad_sh))
+        rep.check(not bad_sh, f"{VIEW}: not skinned in the shader flags", "; ".join(bad_sh))
         rep.info(f"{VIEW}.nif", f"{len(shapes)} shapes, {sum(len(s.verts) for s in shapes)} vertices, "
                                 f"{view_path.stat().st_size / 1048576:.1f} MB")
 
@@ -790,6 +865,9 @@ def main() -> int:
             if path is not None and "materials\\" + k not in named:
                 used_textures.update("textures\\" + v for v in bgsmaterial.MaterialFile.Open(str(path)).textures.values() if v)
         rep.check(not mismatch, "materials files read back (PyNifly) agree with the nifs' blocks", "; ".join(mismatch[:12]))
+
+    # --- shadows (2026-11-10a: the front end casts as the parked bike's) ------------------------------------------
+    shadow_checks56(rep, shadow_of, roles, parked_names, materials, bgsmaterial)
 
     # --- textures -----------------------------------------------------------------------------------------------
     vanilla_cubes = {("textures\\" + c).lower() for k, c in H.CUBES.items() if k != "MR"}

@@ -484,7 +484,7 @@ public static class Program
                 Slider("Turning when stopped (deg/s)", "How fast the bike can be walked round when it isn't moving (and the least it turns at any speed). Needs F4SE and the CMB_Slope.dll plugin.",
                     "CMB_StandTurnRate", 0, 180, 10),
                 // 2026-11-09a (test 50: obstacle detection too early): Caution, only with C2's block (the ESP's 0xBF1).
-                c2 ? Slider("Caution (how early the bike eases off for obstacles, %)", "100: as the 2026-11-08a build (the throttle eases from about 11 m at full speed). Lower: closer to the obstacle before the bike eases off and stops. 60: from about 8 m, the throttle gone at 6 m. Needs F4SE and the CMB_Slope.dll plugin.",
+                c2 ? Slider("Caution (how early the bike eases off for obstacles, %)", "50, the default: the bike eases off from about 7 m at full speed and the throttle is gone at about 5 m; a post ahead is still found in time to steer round it. Higher: further from the obstacle (60: as the 2026-11-09a build, from about 8 m, the throttle gone at 6 m; 100: as the 2026-11-08a build, from about 11 m). A save keeps the value it has. Needs F4SE and the CMB_Slope.dll plugin.",
                     "CMB_Caution", 50, 100, 5) : null!,
                 Slider("Bike tilts with the ground (max degrees)", "While riding, the bike and the rider pitch with the ground by at most this much (needs F4SE and the CMB_Slope.dll plugin; 45 follows any slope you can climb). Takes effect the next time you get on.",
                     "CMB_MaxTilt", 0, 50, 1),
@@ -1248,8 +1248,10 @@ public static class Program
             if (mod.ModHeader.Stats.NextFormID != 0xBF1)
                 throw new InvalidOperationException($"2026-11-09a's forms start at 0xBF1, after C2's block; the next ID is 0x{mod.ModHeader.Stats.NextFormID:X}");
             // Caution (test 50: obstacle detection too early): the MCM's "Caution (how early the bike eases off for
-            // obstacles, %)", 50-100 (60; 100 = 2026-11-08a): the plugin's FaceLook, WallStop and WallStopPersist at it.
-            var gCaution = Global(mod, "CMB_Caution", 60);
+            // obstacles, %)", 50-100 (50; 60 = 2026-11-09a, 100 = 2026-11-08a): the plugin's FaceLook, WallStop and
+            // WallStopPersist at it.
+            // 2026-11-10a (test 52): 50 for a new save (60 = 2026-11-09a's; a save keeps its own value).
+            var gCaution = Global(mod, "CMB_Caution", 50);
             // ViewMenu (test 50: the first-person tip ran in the Pip-Boy): 1 while the Pip-Boy is open on the bike (the
             // controller), else 0; the plugin's [View] TipMenu gives no tip then.
             gViewMenu = Global(mod, "CMB_ViewMenu", 0);
@@ -1276,9 +1278,29 @@ public static class Program
         {
             if (mod.ModHeader.Stats.NextFormID != 0xBF4)
                 throw new InvalidOperationException($"2026-11-09a's test 51 form starts at 0xBF4, after test 50's block; the next ID is 0x{mod.ModHeader.Stats.NextFormID:X}");
-            gLookOptions = Global(mod, "CMB_LookOptions", 63);
+            // 2026-11-10a (test 52): 4031 = the six bits above + 128 KitStash, 256 KitRetry, 512 MountEarly, 1024
+            // WornColoursFirst, 2048 HueSwap (63 + 3968: without the plugin the eleven script behaviours on, the scripts
+            // colour the worn bike); the plugin at its defaults writes 4095. 63 = 2026-11-09a.
+            gLookOptions = Global(mod, "CMB_LookOptions", 4031);
             if (gLookOptions.FormKey.ID != 0xBF4)
                 throw new InvalidOperationException($"CMB_LookOptions must be 0xBF4 (CMB_Slope.dll looks for it), got {gLookOptions.FormKey.ID:X}");
+        }
+
+        // --- 2026-11-10a, test 52's answer: the round's two forms, 0xBF5-0xBF6, right after test 51's 0xBF4 (only with C2's
+        // block: `--look-build 2026-11-07a` makes none). CMB_Slope.dll's word to the scripts: CMB_RiderQuickUse (count * 16
+        // + slot of a potion's quickkey the plugin took at speed, [Steer] QuickUse; CMB_HotkeyF4SE uses the item) and
+        // CMB_RideReady (1 when the ride's worn bike is held and coloured and the rider seated, [Look] RideReady; Mount fades
+        // in on it). Both 0. The plugin finds them by ID (its QUICK_USE_ID and RIDE_READY_ID and the harness's
+        // QUICK_USE_FORMID and RIDE_READY_FORMID use these numbers: renumber them together).
+        GlobalFloat? gRiderQuickUse = null, gRideReady = null;
+        if (look.HasC2)
+        {
+            if (mod.ModHeader.Stats.NextFormID != 0xBF5)
+                throw new InvalidOperationException($"2026-11-10a's test 52 forms start at 0xBF5, after test 51's 0xBF4; the next ID is 0x{mod.ModHeader.Stats.NextFormID:X}");
+            gRiderQuickUse = Global(mod, "CMB_RiderQuickUse", 0);
+            gRideReady = Global(mod, "CMB_RideReady", 0);
+            if (gRiderQuickUse.FormKey.ID != 0xBF5 || gRideReady.FormKey.ID != 0xBF6)
+                throw new InvalidOperationException($"CMB_RiderQuickUse and CMB_RideReady must be 0xBF5-0xBF6 (CMB_Slope.dll looks for them), got {gRiderQuickUse.FormKey.ID:X}, {gRideReady.FormKey.ID:X}");
         }
 
         // --- Controller quest ---
@@ -1570,6 +1592,13 @@ public static class Program
             {
                 Obj("CMB_LookOptions", gLookOptions!),
                 FloatList("RimFinishV", look.RimFinishV),
+            });
+            // 2026-11-10a, test 52: the controller's Fixes_56 group, 2, after WorkbenchArmorA: the plugin's word to the
+            // scripts (0xBF5-0xBF6). Not with `--look-build 2026-11-07a` (None: 2026-11-09a's).
+            controller.Properties.InsertRange(controller.Properties.FindIndex(p => p.Name == "WorkbenchArmorA") + 1, new ScriptProperty[]
+            {
+                Obj("CMB_RiderQuickUse", gRiderQuickUse!),
+                Obj("CMB_RideReady", gRideReady!),
             });
         }
 

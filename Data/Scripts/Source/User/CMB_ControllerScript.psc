@@ -601,9 +601,18 @@ EndGroup
 Group Fixes_55
 	GlobalVariable Property CMB_LookOptions Auto Const
 	{CMB_Slope.dll's [Look] switches (bits 1 FastMount, 2 KitHeld, 4 ParkedReload, 8 PaletteIndex, 16 MountGuard, 32 HueFree;
-	64 the plugin writes the worn bike's colours). At a fixed ID, 0xBF4; 63 in the plugin.}
+	64 the plugin writes the worn bike's colours; since 2026-11-10a 128 KitStash, 256 KitRetry, 512 MountEarly, 1024
+	WornColoursFirst, 2048 HueSwap). At a fixed ID, 0xBF4; 4031 in the plugin (63 in 2026-11-09a's).}
 	Furniture Property WorkbenchArmorA Auto Const
 	{Fallout4.esm 0x12EA9B, the game's armour bench: field kit mode 4. None: no mode 4.}
+EndGroup
+
+; 2026-11-10a, test 52's fixes: CMB_Slope.dll's word to the scripts. None = 2026-11-09a.
+Group Fixes_56
+	GlobalVariable Property CMB_RiderQuickUse Auto Const
+	{0xBF5: count * 16 + slot of a potion's quickkey the plugin took at speed (QuickUse); CMB_HotkeyF4SE uses the item.}
+	GlobalVariable Property CMB_RideReady Auto Const
+	{0xBF6: 1 when the ride's worn bike is held and coloured and the rider seated (RideReady); Mount fades in on it.}
 EndGroup
 
 ; ---------------------------------------------------------------------------
@@ -1833,6 +1842,7 @@ EndFunction
 ; doesn't, so check scenes too. asFrom says which (test 40: every press is logged, an ignored one
 ; too).
 Function HotkeyPressed(string asFrom = "the hotkey")
+	MountPressNow()   ; 2026-11-10a (test 52): the press's time, for getting on's times line (MountEarly)
 	if Utility.IsInMenuMode()
 		Log("Hotkey (" + asFrom + ") ignored: in a menu.")
 	elseif PlayerRef.IsInScene()
@@ -1997,6 +2007,13 @@ Function Mount()
 		ticket = MountWatchStart()
 	endif
 	mountStage = "the wait"
+	; 2026-11-10a (test 52: getting on 3-5 s; the plugin's [Look] MountEarly, CMB_LookOptions bit 512): the worn bike equipped
+	; right after the fade, the screen back when the plugin says the bike is ready, the non-visual rest after it (MountEarly).
+	; Without the bit: 2026-11-09a's order, below.
+	if LookOption(512)
+		MountEarly(guarded, ticket)
+		return
+	endif
 
 	Game.FadeOutGame(true, true, 0.0, 0.25, true)
 	; The plugin moves the camera within a tenth of a second: the wait covers it.
@@ -2315,6 +2332,227 @@ Function MountUndo(int aiTicket)
 	if claimed
 		busy = false
 	endif
+EndFunction
+
+; ---------------------------------------------------------------------------
+; 2026-11-10a (test 52: getting on 3-5 s, 3.4 s of black; the plugin's [Look] MountEarly, CMB_LookOptions bit 512): Mount's
+; order changed. Test 52 (13:42:05): the worn bike was equipped 1.3-1.8 s into Mount (after the camera's 0.3 s, the camera,
+; 11 position reads, the disable, the gear's slot and the pose) and its 3D held about 0.5 s after that; then about 60 more
+; calls (followers, Steady, the teleport, the watches, the ram, the headlamp) took 1.3 s behind the black till "Mounted.".
+; Now: (1) the fade and the camera as before; (2) the gear's slot remembered and the worn bike equipped at once, its look
+; synced first (EquipBike's own LookSync), its 3D loading while the rest goes on (the armour the pose will want: EquipBike's
+; abPoseAhead); (3) what is left of the
+; camera's 0.3 s; (4) the camera forces, the spot read, the parked bike's disable, the pose; (5) the controls, the speed,
+; the rider's footsteps muted, riding, the slope and the tilt live, the ride tick and the engine's start; (6) the screen
+; back when the plugin writes CMB_RideReady 1 (the worn bike held and coloured, the rider seated: its [Look] RideReady),
+; polled every MountReadyStep, or after MountReadyWait real seconds all the same (no plugin, RideReady=0, a bike that
+; never comes); (7) the rest in 2026-11-09a's order, "Mounted.", busy freed, and the stage times in one line
+; (MountStageLine). MountGuard's checks (MountStopped, MountUndo) after the equip, the wait, the disable and the pose
+; (2026-11-09a's after its wait, disable and equip: each stage MountWatch can give up at has one after it); past them the
+; ride goes on ("the rest"). A hotkey or an activation meanwhile is refused as busy, as before. What comes later than
+; before: a follower stowed, the headlamp placed, hits, item uses, the landing cues and the door watched, all within about a
+; second of the screen.
+; ---------------------------------------------------------------------------
+float Property MountReadyWait = 1.0 AutoReadOnly
+{MountEarly: the screen back at most this long (real seconds) after the controls, CMB_RideReady 1 or not.}
+float Property MountReadyStep = 0.05 AutoReadOnly
+float Property MountPressFresh = 5.0 AutoReadOnly
+{A press's time older than this at getting on's fade isn't that getting on's (the times line then starts at the fade).}
+
+float mountPressAt = -1.0      ; the real time of the latest press that can get on (HotkeyPressed, the activator's Ride)
+
+; HotkeyPressed and CMB_BikeActivatorScript's Ride: the press's time, for MountEarly's times line only.
+Function MountPressNow()
+	mountPressAt = Utility.GetCurrentRealTime()
+EndFunction
+
+; Mount with MountEarly (bit 512), from its fade on (its guards, ParkGuardEnd, ParkedLookWait and MountWatchStart done).
+Function MountEarly(bool abGuarded, int aiTicket)
+	Game.FadeOutGame(true, true, 0.0, 0.25, true)
+	; The plugin moves the camera within a tenth of a second: the 0.3 s below cover it.
+	SetCameraLive(true)
+	float tFade = Utility.GetCurrentRealTime()
+	float tPress = -1.0
+	if mountPressAt >= 0.0 && tFade - mountPressAt >= 0.0 && tFade - mountPressAt < MountPressFresh
+		tPress = mountPressAt
+	endif
+	mountPressAt = -1.0
+	if CMB_RideReady
+		CMB_RideReady.SetValue(0.0)   ; this ride's word only (the plugin writes 0 at a ride's start too)
+	endif
+	mountStage = "the gear"
+	CallGearRestore("RememberSlot")
+	; The look (an MCM change since it was last put on): EquipBike's own LookSync, first thing at the equip (Mount's own, right
+	; before it in 2026-11-09a, read the same 15-50 globals once more with nothing between).
+	mountStage = "the worn bike"
+	EquipBike(true)
+	float tEquip = Utility.GetCurrentRealTime()
+	if abGuarded && MountStopped(aiTicket)
+		MountUndo(aiTicket)
+		return
+	endif
+	mountStage = "the wait"
+	float left = 0.3 - (tEquip - tFade)
+	if left > 0.0
+		Utility.Wait(left)
+	endif
+	if abGuarded && MountStopped(aiTicket)
+		MountUndo(aiTicket)
+		return
+	endif
+	mountStage = "the camera"
+	if CMB_ForceThirdPerson.GetValue() > 0.0
+		if CMB_CameraLive && CMB_CameraLive.GetValue() > 0.0
+			Game.ForceFirstPerson()   ; third person again picks up the new camera distance (hidden by the fade)
+		endif
+		Game.ForceThirdPerson()
+	endif
+	; Test 47 (the plugin's [Room] ParkCheck): where the bike stands and the player is now (ParkWhereItStood).
+	mountSpotKnown = !BikeRef.IsDisabled() && BikeRef.Is3DLoaded()
+	if mountSpotKnown
+		mountBikeX = BikeRef.GetPositionX()
+		mountBikeY = BikeRef.GetPositionY()
+		mountBikeZ = BikeRef.GetPositionZ()
+		mountBikeAX = BikeRef.GetAngleX()
+		mountBikeAY = BikeRef.GetAngleY()
+		mountBikeAZ = BikeRef.GetAngleZ()
+		mountPlayerX = PlayerRef.GetPositionX()
+		mountPlayerY = PlayerRef.GetPositionY()
+		mountPlayerZ = PlayerRef.GetPositionZ()
+	endif
+	mountStage = "the parked bike's disable"
+	BikeRef.Disable()
+	if abGuarded && MountStopped(aiTicket)
+		MountUndo(aiTicket)
+		return
+	endif
+	mountStage = "the pose"
+	ApplyRiderPose()
+	float tPose = Utility.GetCurrentRealTime()
+	if abGuarded && MountStopped(aiTicket)
+		MountUndo(aiTicket)   ; the stage before "the rest" checked too (MountWatch gives up at any other)
+		return
+	endif
+	mountStage = "the rest"
+	ApplyControls()
+	playerSpeedDelta = ApplySpeed(PlayerRef)
+	fxCueBusy = false   ; FxStartRide's first half (the rider's footsteps muted); its landing cues after the screen
+	FxMuteRider()
+	riding = true
+	SetSlopeLive(true)
+	SetTiltLive(true)
+	StartTimer(TickInterval, TimerTick)   ; the ride tick waits out busy (RideTick)
+	PlaySound(CMB_EngineStartSound)
+	StartTimer(EngineStartLength, TimerEngine)
+	int readyHow = RideReadyWait()
+	float tReady = Utility.GetCurrentRealTime()
+	mountStage = ""   ; MountWatch ends: the screen is back
+	Game.FadeOutGame(false, true, 0.0, 0.35)
+	float tScreen = Utility.GetCurrentRealTime()
+
+	ApplyFallDamageCut()
+	HandleFollowersOnMount()
+	UpdateSteady("getting on")
+	hasLastPos = false
+	lastOutdoorTime = Utility.GetCurrentGameTime()
+	combatHinted = false
+	ForgetDoor()
+	RegisterForPlayerTeleport()
+	healthMark = PlayerRef.GetValuePercentage(Health)
+	hitGrace = true
+	StartTimer(HitGraceTime, TimerHitGrace)
+	reactionAt = -100.0
+	reactionLeft = -200.0
+	staggered = false
+	itemAt = -100.0
+	itemLeft = -200.0
+	itemInMenu = false
+	riderMenuOpen = false
+	CacheFavourites()   ; 2026-11-06a: the favourites at getting on (CMB_RiderUseOwn)
+	useCameraTries = 0
+	useCameraFixed = false
+	useCameraNoted = false
+	staggerOverPending = false
+	firstFootSaid = false
+	rideHits = 0
+	ridePowerHits = 0
+	rideStaggers = 0
+	RideWatchesOn()
+	WatchForHits()
+	poseRetries = 0
+	poseRetryWaiting = false
+	mountedAt = Utility.GetCurrentRealTime()
+	mountedHow = "getting on"
+	WatchFootsteps()
+	FxWatchCues()   ; FxStartRide's second half: the landing cues watched
+	CallRam("StartRide")
+	SetRamCombat(PlayerRef.IsInCombat())   ; 2026-11-02a: the plugin's PendingFoe=2 from the start, not a tick later
+	PlaceHeadlamp()
+	SetHeadlampLive(true)
+	; Whatever is there is old (or from a game with the plugin): it writes them again at once.
+	if CMB_GroundNormalZ
+		CMB_GroundNormalZ.SetValue(0.0)
+	endif
+	if CMB_ParkUpZ
+		CMB_ParkUpZ.SetValue(0.0)
+	endif
+	if CMB_RiderPoseOff
+		CMB_RiderPoseOff.SetValue(0.0)   ; 2026-11-01a: an earlier ride's reading isn't this one's
+	endif
+	Log("Mounted. SpeedMult +" + playerSpeedDelta + ", stowed " + stowedFollowers.Length + ", running " + boostedFollowers.Length)
+	float tMounted = Utility.GetCurrentRealTime()
+	mounting = false
+	busy = false
+	if FuelEnabled()
+		Debug.Notification("Fuel: " + CountFuel())
+	endif
+	APWatchRideStart()   ; test 46: AP once at getting on (after the fade: its reads take a few frames)
+	MountStageLine(tPress, tFade, tEquip, tPose, tReady, readyHow, tScreen, tMounted)
+EndFunction
+
+; MountEarly's step 6: CMB_RideReady polled every MountReadyStep for MountReadyWait real seconds at most. 1 it came, 0 it
+; didn't (waited out), -1 no CMB_RideReady (an older ESP: waited out), -2 real time went back (a load from another
+; session: no more waiting).
+int Function RideReadyWait()
+	float from = Utility.GetCurrentRealTime()
+	float waited = 0.0
+	while waited < MountReadyWait
+		if CMB_RideReady && CMB_RideReady.GetValue() >= 1.0
+			return 1
+		endif
+		Utility.Wait(MountReadyStep)
+		waited = Utility.GetCurrentRealTime() - from
+		if waited < 0.0
+			return -2
+		endif
+	endwhile
+	if !CMB_RideReady
+		return -1
+	elseif CMB_RideReady.GetValue() >= 1.0
+		return 1
+	endif
+	return 0
+EndFunction
+
+; MountEarly's stage times, real seconds from the press (or from the fade without a press's time): "Getting on: the press
+; 0.00, the fade 0.31, the equip 0.52, the pose 0.95, ready 1.18 (CMB_RideReady after 0.66 s), the screen back 1.53,
+; Mounted 2.41 (real seconds)". CMB_RideReady's time counts from the equip.
+Function MountStageLine(float afPress, float afFade, float afEquip, float afPose, float afReady, int aiReadyHow, float afScreen, float afMounted)
+	float t0 = afPress
+	string text = "Getting on: the press 0.00, the fade " + Hundredths(afFade - t0)
+	if afPress < 0.0
+		t0 = afFade
+		text = "Getting on: the fade 0.00 (no press's time)"
+	endif
+	string how = "CMB_RideReady after " + Hundredths(afReady - afEquip) + " s"
+	if aiReadyHow == 0
+		how = "no CMB_RideReady within MountReadyWait, " + Tenths(MountReadyWait) + " s"
+	elseif aiReadyHow == -1
+		how = "no CMB_RideReady global (an older ESP): MountReadyWait"
+	elseif aiReadyHow == -2
+		how = "the wait cut short: real time went back"
+	endif
+	Log(text + ", the equip " + Hundredths(afEquip - t0) + ", the pose " + Hundredths(afPose - t0) + ", ready " + Hundredths(afReady - t0) + " (" + how + "), the screen back " + Hundredths(afScreen - t0) + ", Mounted " + Hundredths(afMounted - t0) + " (real seconds)")
 EndFunction
 
 ; A CMB_LookF4SE function's text answer ("" without it: no F4SE).
@@ -2891,8 +3129,9 @@ bool Function RoomOption(int aiBit)
 EndFunction
 
 ; 2026-11-09a (test 51): a bit of CMB_LookOptions (0xBF4), the plugin's [Look] switches for this script (1 FastMount, 2
-; KitHeld, 4 ParkedReload, 8 PaletteIndex, 16 MountGuard, 32 HueFree; 64 the plugin writes the worn bike's colours); the
-; ESP's 63 without the plugin. false without the global (an older ESP: 2026-11-09a as of t54-merge).
+; KitHeld, 4 ParkedReload, 8 PaletteIndex, 16 MountGuard, 32 HueFree; 64 the plugin writes the worn bike's colours; since
+; 2026-11-10a 128 KitStash, 256 KitRetry, 512 MountEarly, 1024 WornColoursFirst, 2048 HueSwap); the ESP's 4031 without the
+; plugin. false without the global (an older ESP: 2026-11-09a as of t54-merge).
 bool Function LookOption(int aiBit)
 	if !CMB_LookOptions
 		return false
@@ -4699,8 +4938,13 @@ Armor Function WantedBikeArmor()
 	return CMB_BikeRiderArmorFrame
 EndFunction
 
-Function EquipBike()
+Function EquipBike(bool abPoseAhead = false)
 	Armor wanted = WantedBikeArmor()
+	; 2026-11-10a ([Look] MountEarly): Mount equips before its pose: the armour the pose will want (RiderPoseAhead). A
+	; mismatch is the ride tick's to put right, as any (its EquipBike).
+	if abPoseAhead && wanted != CMB_BikeRiderArmor && RiderPoseAhead()
+		wanted = CMB_BikeRiderArmor
+	endif
 	Armor other = CMB_BikeRiderArmor
 	if wanted == CMB_BikeRiderArmor
 		other = CMB_BikeRiderArmorFrame
@@ -4726,6 +4970,13 @@ Function EquipBike()
 		lookWorn = lookApplied
 		; 2026-11-07a: the chosen look's mods on it before it goes on (no call with a stock look).
 		int refused = AttachLook(wanted, true)
+		; 2026-11-10a (test 52, Free colour blue on the first ride; the plugin's [Look] WornColoursFirst, bit 1024): the colour
+		; values written before the equip, so the plugin's first write into the new shapes is this look's (WornColoursWrite).
+		bool first = LookOption(1024)
+		int written = -2
+		if first
+			written = WornColoursWrite()
+		endif
 		PlayerRef.EquipItem(wanted, true, true)
 		; Test 41: read right after the equip, the slot said nothing twice (16:00:13, 16:01:37) while
 		; the bike showed: the biped hadn't taken the armor yet. Read a tick later (RideTick).
@@ -4733,6 +4984,8 @@ Function EquipBike()
 		wornRefused = refused > 0
 		if wornRefused
 			WornLookRefused(refused)   ; the composed swap, its colours included
+		elseif first && written != -2 && written <= 0
+			lookColoursWorn = false   ; 2026-11-10a: no colour (the values cleared above) or no F4SE: WornLookColours' own outcome, no call
 		elseif LookColoursOn() || lookColoursWorn
 			WornLookColours()   ; 2026-11-08a: the look's colours, or the last ones taken off (neither with a stock look: no call)
 		endif
@@ -4795,10 +5048,18 @@ Function EquipKept(Armor akArmor)
 	int count = PlayerRef.GetItemCount(akArmor)
 	int refused = 0
 	bool active = LookActive()   ; a stock look: no mods on it, none to count
+	; 2026-11-10a (test 52, Free colour blue on the first ride: the paint's V came 0.33 s after the shapes were held; the
+	; plugin's [Look] WornColoursFirst, bit 1024): the colour values written before the equip (WornColoursWrite), its answer
+	; kept for the swap below. Without the bit: after it (2026-11-09a).
+	bool first = LookOption(1024)
+	int written = -2
 	if count == 1 && KeptLook(akArmor) == lookApplied
 		lookWorn = lookApplied
 		lookRimMods = KeptRims(akArmor)
 		refused = KeptRefused(akArmor)
+		if first
+			written = WornColoursWrite()
+		endif
 		PlayerRef.EquipItem(akArmor, true, true)
 		if active
 			Log("Look: the worn bike's kept mods (the look unchanged): no attach")
@@ -4811,6 +5072,9 @@ Function EquipKept(Armor akArmor)
 		lookWorn = lookApplied
 		refused = AttachLook(akArmor, true)
 		KeptRemember(akArmor, lookApplied, lookRimMods, refused)
+		if first
+			written = WornColoursWrite()
+		endif
 		PlayerRef.EquipItem(akArmor, true, true)
 	endif
 	; Test 41: the slot read a tick later (RideTick).
@@ -4819,11 +5083,18 @@ Function EquipKept(Armor akArmor)
 	if wornRefused
 		WornLookRefused(refused)   ; the composed swap, after the fade
 	endif
-	if LookColoursOn() || lookColoursWorn
-		int written = CallLookF4SE("WriteWornColours")
+	if !first
+		written = WornColoursWrite()
+	endif
+	if written != -2
 		lookColoursWorn = written == 1
-		if written == 1 && !wornRefused && !LookOption(64)
+		; 2026-11-10a (the plugin's [Look] HueSwap, bit 2048): with the plugin writing the colours (bit 64), Free colour's
+		; F4SE swap once after the fade too (WornHueSwap).
+		if written == 1 && !wornRefused && (!LookOption(64) || WornHueSwap())
 			wornSwapDue = true   ; ApplyWornColours, once
+			if LookOption(64)
+				Log("Look: Free colour on the worn bike: the plugin writes it, and the F4SE swap once after the fade too (HueSwap)")
+			endif
 		endif
 	endif
 	if active
@@ -4833,6 +5104,42 @@ Function EquipKept(Armor akArmor)
 	if wornCountDue || wornSwapDue
 		StartTimer(WornSwapAgain, TimerLook)
 	endif
+EndFunction
+
+; 2026-11-10a (test 52), EquipBike and EquipKept: the look's colour values into the plugin's fixed globals (CMB_LookF4SE's
+; WriteWornColours: 1 a colour, 0 none, the globals -1; -1 no F4SE) when the look has colours or the last ones are to be
+; cleared; -2 neither (no call). With [Look] WornColoursFirst (bit 1024) before the equip, else after it (2026-11-09a).
+int Function WornColoursWrite()
+	if LookColoursOn() || lookColoursWorn
+		return CallLookF4SE("WriteWornColours")
+	endif
+	return -2
+EndFunction
+
+; 2026-11-10a (test 52, Free colour rode blue: the plugin's raw write of the paint's V may come after the game set the
+; material up for drawing; test 51 showed an F4SE swap does change a live 3D), EquipKept with the plugin's bit 64: with
+; [Look] HueSwap (bit 2048) and Free colour's paint (CMB_LookF4SE's CMB_LookPaintV at 0 or more, as just written), the F4SE
+; swap once after the fade too (LookFollowUp's ApplyWornColours). Off, or another paint: the plugin's write alone (2026-11-09a).
+bool Function WornHueSwap()
+	if !LookOption(2048)
+		return false
+	endif
+	ScriptObject look = CastAs("CMB_LookF4SE")
+	GlobalVariable paintV = None
+	if look
+		paintV = look.GetPropertyValue("CMB_LookPaintV") as GlobalVariable
+	endif
+	return paintV && paintV.GetValue() >= 0.0
+EndFunction
+
+; 2026-11-10a ([Look] MountEarly), EquipBike(abPoseAhead): Mount equips before its pose. True when ApplyRiderPose will put
+; the riding pose on (the MCM's pose on, CMB_RiderPose.esp and its flavour keyword there) and the bike would then follow the
+; rider (WantedBikeArmor's CMB_BikeRiderArmor: CMB_BikeFollowsRider on, no weapon drawn).
+bool Function RiderPoseAhead()
+	if riderPoseApplied || CMB_UseRiderPose.GetValue() < 1.0 || CMB_BikeFollowsRider.GetValue() <= 0.0 || PlayerRef.IsWeaponDrawn() || !Game.IsPluginInstalled(RiderPosePlugin)
+		return false
+	endif
+	return (Game.GetFormFromFile(RiderFlavorID, RiderPosePlugin) as Keyword) != None
 EndFunction
 
 ; LookFollowUp (after the fade, outside busy): the worn bike's mods counted. The first count after an attach is what it
@@ -5679,6 +5986,9 @@ Function GoToKit()
 	kitSince = Utility.GetCurrentRealTime()
 	ObjectReference kit = lookKit
 	if kit
+		if kitStashRef
+			KitStashBack(kit)   ; 2026-11-10a ([Look] KitStash): the pre-link read back (mode 4 too)
+		endif
 		kit.Activate(PlayerRef)
 	endif
 	StartTimer(KitTickInterval, TimerKit)
@@ -5750,8 +6060,13 @@ EndFunction
 
 ; The kit's components: in one of the player's settlements its workshop (both keywords, so either
 ; reading of the engine finds it); elsewhere, with CMB_KitBagLink 1, the side bag as its container.
+; 2026-11-10a (test 52): then, with [Look] KitStash and Global Stash by SKK, KitStash (SKK's stash instead, when SKK would
+; link the kit). Every placed kit comes here once: this attempt's pre-link and KitRetry start afresh.
 Function LinkKit()
 	kitBagLinked = false
+	kitStashRef = None
+	kitLinkWs = None
+	kitRetried = false
 	ObjectReference kit = lookKit
 	if !kit
 		return
@@ -5761,6 +6076,8 @@ Function LinkKit()
 		kit.SetLinkedRef(ws, WorkshopItemKeyword)
 		kit.SetLinkedRef(ws, LinkedWorkbenchContainerKeyword)
 		Log("Customise: the settlement's workshop " + ws.GetFormID() + " linked (both keywords)")
+		kitLinkWs = ws
+		KitStash(kit, true)
 		return
 	endif
 	Log("Customise: not in one of your settlements (" + lookWsWhy + ").")
@@ -5772,6 +6089,7 @@ Function LinkKit()
 	else
 		Log("Customise: no workshop here and the bag not linked: your own components only")
 	endif
+	KitStash(kit, false)
 EndFunction
 
 ; t49's: the workshop of the player's settlement the kit stands in, or None (lookWsWhy says why).
@@ -6092,6 +6410,223 @@ Function KitTidy()
 EndFunction
 
 ; ---------------------------------------------------------------------------
+; 2026-11-10a (test 52): the field kit and Global Stash by SKK: [Look] KitStash (CMB_LookOptions bit 128), KitRetry (256)
+; ---------------------------------------------------------------------------
+; Test 52: 12 of 12 automatic tries closed at once, each with SKK_GSSMainScript.TransferFrom on the kit. Global Stash by
+; SKK's OnPlayerUseWorkBench leaves a bench alone only when it has SKK_GSSKeyword and its WorkshopItemKeyword link is SKK's
+; stash; any other bench (every placed kit is a new one) it disables (the menu closes), links to the stash and enables
+; again, when its options say so (WorkshopAutoTransfer in a settlement, LinkStandaloneWorkbench elsewhere). And KitHeld
+; counted the player in the kit at that 0.17-s menu's open as the mode working. KitStash: the kit linked as SKK would link
+; it, before the activation. KitRetry (with KitHeld): a menu closed under KitFastClose with no change made never counts;
+; the same kit is used once more, and a second such close goes to the next mode. Both off: 2026-11-09a's.
+
+float Property KitFastClose = 0.5 AutoReadOnly
+{KitRetry: a menu closed sooner than this after its open (real time), with no change made, never counts as the mode
+working, wherever the player was: the same kit is used once more (KitRetryNow, once an attempt), then the next mode.}
+float Property KitRetryWait = 2.0 AutoReadOnly
+{KitRetry: how long KitRetryNow waits (real time, menus included) for the kit enabled again, its 3D loaded and the player
+out of it (SKK's handler enables it again once it has linked it).}
+float Property KitRetryPoll = 0.1 AutoReadOnly
+float Property KitRetrySettle = 0.3 AutoReadOnly
+{KitRetry: then this long more before the kit is used again.}
+string Property SkkPlugin = "SKKGlobalStashScrapping.esp" AutoReadOnly
+int Property SkkKeywordID = 0x001763 AutoReadOnly       ; KYWD SKK_GSSKeyword
+int Property SkkStashID = 0x000FAE AutoReadOnly         ; the stash (a container reference)
+int Property SkkAutoTransferID = 0x00175A AutoReadOnly  ; GLOB WorkshopAutoTransfer (a bench in a settlement)
+int Property SkkStandaloneID = 0x00175E AutoReadOnly    ; GLOB LinkStandaloneWorkbench (a bench elsewhere)
+
+ObjectReference kitStashRef    ; KitStash: SKK's stash this attempt's kit is linked to (None: not linked); GoToKit reads it back
+ObjectReference kitLinkWs      ; the settlement's workshop LinkKit linked this attempt's kit to (the read-back's line names it)
+bool kitRetried = false        ; KitRetry: this attempt's kit used again already (once an attempt; LinkKit clears it)
+
+; KitStash (LinkKit, after its own links; abInSettlement: the kit got the settlement's workshop). Only with Global Stash by
+; SKK installed: Game.IsPluginInstalled first, and without it nothing else is called (no GetFormFromFile error lines). With
+; SKK's option for this kind of bench on (a global that isn't found counts as on: SKK would link it), the kit linked to
+; SKK's stash by both keywords and given SKK_GSSKeyword, as SKK's own LinkWorkbench leaves every bench it has linked: its
+; handler then returns at its first check and the menu stays. The bag's count is moot then (the components are the
+; stash's, where SKK keeps them). KitTidy clears both links before the delete.
+Function KitStash(ObjectReference akKit, bool abInSettlement)
+	if !akKit || !LookOption(128) || !Game.IsPluginInstalled(SkkPlugin)
+		return
+	endif
+	if !WorkshopItemKeyword || !LinkedWorkbenchContainerKeyword
+		Log("Field kit: Global Stash by SKK: no workbench keywords in the plugin: not linked")
+		return
+	endif
+	Keyword skk = Game.GetFormFromFile(SkkKeywordID, SkkPlugin) as Keyword
+	ObjectReference stash = Game.GetFormFromFile(SkkStashID, SkkPlugin) as ObjectReference
+	if !skk || !stash
+		Log("Field kit: Global Stash by SKK: installed, but its keyword or stash isn't there (another version?): not linked")
+		return
+	endif
+	if !(stash.GetBaseObject() as Container)   ; review A1: 0xFAE a reference, but not a container's (another version's numbering)
+		Log("Field kit: Global Stash by SKK: installed, but its stash " + KitHex56(stash.GetFormID()) + " isn't a container (another version?): not linked")
+		return
+	endif
+	GlobalVariable option
+	string optionText = "its auto transfer"
+	if abInSettlement
+		option = Game.GetFormFromFile(SkkAutoTransferID, SkkPlugin) as GlobalVariable
+	else
+		option = Game.GetFormFromFile(SkkStandaloneID, SkkPlugin) as GlobalVariable
+		optionText = "its standalone workbench link"
+	endif
+	if option && option.GetValue() <= 0.0
+		Log("Field kit: Global Stash by SKK: " + optionText + " off: not linked (it won't touch the kit)")
+		return
+	endif
+	akKit.SetLinkedRef(stash, WorkshopItemKeyword)
+	akKit.SetLinkedRef(stash, LinkedWorkbenchContainerKeyword)
+	akKit.AddKeyword(skk)
+	kitStashRef = stash
+	kitBagLinked = false
+	string onText = optionText + " on"
+	if !option
+		onText = optionText + "'s global not found: counted as on"
+	endif
+	Log("Field kit: Global Stash by SKK: the kit linked to its stash first (SKK_GSSKeyword " + KitHex56(skk.GetFormID()) + ", the stash " + KitHex56(stash.GetFormID()) + "; " + onText + "): its workbench handler leaves the kit alone")
+EndFunction
+
+; KitStash, right before GoToKit's activation (every mode, the game's armour bench too, and KitRetry's): the pre-link read
+; back, since the game's WorkbenchScript could link the kit again after its load; not the stash: both links made again.
+Function KitStashBack(ObjectReference akKit)
+	ObjectReference stash = kitStashRef
+	if !akKit || !stash || !WorkshopItemKeyword || !LinkedWorkbenchContainerKeyword
+		return
+	endif
+	ObjectReference linked = akKit.GetLinkedRef(WorkshopItemKeyword)
+	if linked == stash
+		Log("Field kit: mode " + kitMode + ": the kit's link at the activation: the stash")
+		return
+	endif
+	string was = "none"
+	if linked && linked == kitLinkWs
+		was = "the settlement's workshop " + linked.GetFormID()
+	elseif linked
+		was = "" + linked.GetFormID()
+	endif
+	akKit.SetLinkedRef(stash, WorkshopItemKeyword)
+	akKit.SetLinkedRef(stash, LinkedWorkbenchContainerKeyword)
+	Log("Field kit: mode " + kitMode + ": the kit's link at the activation: " + was + ": relinked after its load")
+EndFunction
+
+; KitRetry (KitMenuDone: a fast close, afHeld s after the open, with no change made, at afClosedAt; asIn: where the player
+; was), once an attempt: the same kit used again. SKK's handler disables a bench it hasn't linked (that closed the menu),
+; links it and enables it again; a bench it has linked stays open on its next use (test 52, 13:50:51). So: up to
+; KitRetryWait, in KitRetryPoll steps (WaitMenuMode: real time, menus included), for the kit enabled again, its 3D loaded
+; and the player out of it (an activation while still in it can be lost, as NextKitMode's KitLeaveWait says), then
+; KitRetrySettle, and GoToKit again (the read-back, the activation, the attempt's ticks afresh) with the menu's open
+; forgotten (lookMenuSeen, kitMenuAt, kitInAtOpen, kitMenuGuess). The caller holds kitClosing: the kick's exit and a late
+; close are ignored meanwhile. KitTick's timer stops till that GoToKit (its watchdog, out of the kit and every menu for
+; KitWatchdog, would end the session meanwhile). True: nothing more for KitMenuDone (used again, or the session ended or
+; moved on meanwhile); false: the kit not back in time, KitMenuDone goes on to the next mode (2026-11-09a's path). The
+; retry's own fast close goes to the next mode too (KitMenuDone).
+bool Function KitRetryNow(float afClosedAt, float afHeld, string asIn)
+	kitRetried = true
+	CancelTimer(TimerKit)
+	ObjectReference kit = lookKit
+	string head = "Field kit: mode " + kitMode + ": the menu closed " + Hundredths(afHeld) + " s after it opened, no change: under KitFastClose " + Tenths(KitFastClose) + " s, " + asIn
+	bool wasOff = false
+	bool back = false
+	float waited = Utility.GetCurrentRealTime() - afClosedAt
+	while !back
+		if !kit || !customising || lookEnding || kitSwitching || lookKit != kit
+			return true
+		endif
+		if kit.IsDisabled()
+			wasOff = true
+		elseif kit.Is3DLoaded() && !InKit()
+			back = true
+		endif
+		if !back
+			if waited >= KitRetryWait
+				string why = "the kit still disabled"
+				if !kit.IsDisabled()
+					why = Ternary(kit.Is3DLoaded(), "the player still in it", "its 3D not loaded")
+				endif
+				Log(head + ": not used again (KitRetry): " + why + " after " + Tenths(waited) + " s")
+				return false
+			endif
+			kitOutSince = -1.0
+			Utility.WaitMenuMode(KitRetryPoll)
+			waited = Utility.GetCurrentRealTime() - afClosedAt
+		endif
+	endwhile
+	kitOutSince = -1.0
+	Utility.WaitMenuMode(KitRetrySettle)
+	if !customising || lookEnding || kitSwitching || lookKit != kit
+		return true
+	endif
+	lookMenuSeen = false
+	kitMenuGuess = false
+	kitMenuAt = -1.0
+	kitInAtOpen = false
+	string ready = "not disabled, the player out of it after "
+	if wasOff
+		ready = "enabled again after "
+	endif
+	Log(head + ": the kit used again (KitRetry), " + ready + Tenths(waited) + " s")
+	if kitStashRef
+		; Review A1: KitStash's pre-link closed fast all the same (SKK took it for no link of its own and linked the kit
+		; itself, or a Tab-out): the retry keeps the kit's link as it is now, so GoToKit's read-back never puts the pre-link
+		; back over SKK's own.
+		ObjectReference linked = None
+		if WorkshopItemKeyword
+			linked = kit.GetLinkedRef(WorkshopItemKeyword)
+		endif
+		string now = "none"
+		if linked && linked == kitStashRef
+			now = "the stash"
+		elseif linked
+			now = "" + linked.GetFormID() + ", not the pre-link's stash"
+		endif
+		Log("Field kit: mode " + kitMode + ": the pre-linked kit closed fast all the same: the retry keeps its link as it is (" + now + "), no read-back")
+		kitStashRef = None
+	endif
+	GoToKit()
+	return true
+EndFunction
+
+; Eight hex digits of a FormID (FE... and FF... ones are negative in Papyrus), as the plugin's log and F4SE's name forms.
+string Function KitHex56(int aiValue)
+	int v = aiValue
+	int top = 0
+	if v < 0
+		v = v + 2147483647 + 1
+		top = 8
+	endif
+	string out = ""
+	int k = 0
+	while k < 8
+		int d = v % 16
+		if k == 7
+			d += top
+		endif
+		out = KitHexDigit56(d) + out
+		v = v / 16
+		k += 1
+	endwhile
+	return out
+EndFunction
+
+string Function KitHexDigit56(int aiDigit)
+	if aiDigit < 10
+		return "" + aiDigit
+	elseif aiDigit == 10
+		return "A"
+	elseif aiDigit == 11
+		return "B"
+	elseif aiDigit == 12
+		return "C"
+	elseif aiDigit == 13
+		return "D"
+	elseif aiDigit == 14
+		return "E"
+	endif
+	return "F"
+EndFunction
+
+; ---------------------------------------------------------------------------
 ; 2026-11-09a (test 51): the field kit's [Look] KitHeld (CMB_LookOptions bit 2) and the parked bike's ParkedReload (bit 4)
 ; ---------------------------------------------------------------------------
 ; Test 51: the toolbox (mode 1) can't be sat in; its menu opened 0.1 s after the activation and closed with the failed
@@ -6170,7 +6705,8 @@ EndFunction
 ; menu stayed open KitMenuHeld, or the player was in the kit at its open, in KitTick's menu without its event, or now):
 ; KitRemember, and the session ends; else it closed at once: the line, the next mode (NextKitMode: the remembered mode
 ; forgotten first), or with none the session ends. One thread: kitClosing (the caller checks it; set here before any
-; call that lets another thread run).
+; call that lets another thread run). 2026-11-10a's [Look] KitRetry: a close under KitFastClose with no change made never
+; counts as worked: the first one the same kit used again (KitRetryNow, once an attempt), the second the next mode.
 Function KitMenuDone(string asEnd)
 	kitClosing = true
 	float held = -1.0
@@ -6183,7 +6719,15 @@ Function KitMenuDone(string asEnd)
 		kitClosing = false
 		return
 	endif
-	if lookEvents > 0 || held >= KitMenuHeld || kitInAtOpen || kitMenuGuess || inNow
+	; 2026-11-10a (test 52, [Look] KitRetry, CMB_LookOptions bit 256): a menu closed under KitFastClose with no change made
+	; (Global Stash by SKK's handler shut a bench it hadn't linked in 0.17 s) never counts as "worked" by the player being in
+	; the kit, the retry's own close included (test 52 remembered a kicked mode): the first one uses the same kit again
+	; (KitRetryNow below), the second goes to the next mode with the remembered mode forgotten (NextKitMode's KitForget).
+	bool fast = false
+	if lookEvents == 0 && held >= 0.0 && held < KitFastClose
+		fast = LookOption(256)
+	endif
+	if lookEvents > 0 || held >= KitMenuHeld || ((kitInAtOpen || kitMenuGuess || inNow) && !fast)
 		if lookEvents > 0
 			KitRemember("a change made")
 		elseif held >= KitMenuHeld
@@ -6195,7 +6739,24 @@ Function KitMenuDone(string asEnd)
 		EndCustomise(asEnd)
 		return
 	endif
-	Log("Field kit: mode " + kitMode + ": the menu closed " + Tenths(held) + " s after it opened, no change made, the player never in the kit: this mode doesn't work here")
+	if fast
+		string inText = "the player never in the kit"
+		if kitInAtOpen
+			inText = "the player in the kit at its open doesn't count"
+		elseif kitMenuGuess || inNow
+			inText = "the player in the kit doesn't count"
+		endif
+		if !kitRetried
+			if KitRetryNow(now, held, inText)
+				kitClosing = false
+				return   ; used again (its menu's open and close decide), or the session ended meanwhile
+			endif
+		else
+			Log("Field kit: mode " + kitMode + ": the menu closed again " + Hundredths(held) + " s after it opened, no change: under KitFastClose " + Tenths(KitFastClose) + " s, " + inText + ": used again once already (KitRetry): this mode doesn't work here")
+		endif
+	else
+		Log("Field kit: mode " + kitMode + ": the menu closed " + Tenths(held) + " s after it opened, no change made, the player never in the kit: this mode doesn't work here")
+	endif
 	bool switched = NextKitMode("its menu closed at once")
 	kitClosing = false
 	if !switched
@@ -6814,6 +7375,21 @@ Function RideWatchesOn()
 	if CMB_StaggerWatchAbility
 		PlayerRef.AddSpell(CMB_StaggerWatchAbility, false)
 	endif
+	QuickWatchTell(true)   ; 2026-11-10a, test 52: QuickUse's watch while riding
+EndFunction
+
+; 2026-11-10a (test 52, QuickUse): CMB_HotkeyF4SE's watch of CMB_RiderQuickUse on or off (through CastAs: this script
+; runs without F4SE; without the helper or the global, an older ESP's, there is none), not waited for.
+Function QuickWatchTell(bool abOn)
+	if !CMB_RiderQuickUse
+		return
+	endif
+	ScriptObject hotkey = CastAs("CMB_HotkeyF4SE")
+	if hotkey
+		Var[] args = new Var[1]
+		args[0] = abOn
+		hotkey.CallFunctionNoWait("QuickWatch", args)
+	endif
 EndFunction
 
 Function RideWatchesOff()
@@ -6845,6 +7421,8 @@ Function RideWatchesOff()
 	itemInMenu = false
 	riderMenuOpen = false
 	steadyKeptSaid = false
+	QuickWatchTell(false)   ; 2026-11-10a, test 52: QuickUse's watch off
+	quickItem = None
 EndFunction
 
 ; Test 47 ("using stim on bike ... like a skirt"): an item used while riding. Potions only (the
@@ -6854,13 +7432,21 @@ Event Actor.OnItemEquipped(Actor akSender, Form akBaseObject, ObjectReference ak
 	if !riding || !(akBaseObject as Potion)
 		return
 	endif
+	; 2026-11-10a (test 52, QuickUse): CMB_HotkeyF4SE's own equip of a potion whose hotkey the plugin took at speed (its
+	; QuickUsed came just before, within 2 s): the player's own use whatever CMB_RiderUseOwn finds, and its line below never
+	; held back by the one-a-second limit. Then the use window and CMB_RiderItemUse as for any use (an animation mod's
+	; decoration clip may follow, as after the Pip-Boy).
+	bool quick = quickItem && akBaseObject == quickItem && Utility.GetCurrentRealTime() - quickAt <= 2.0
+	if quick
+		quickItem = None
+	endif
 	; 2026-11-06a (test 49: another mod's dummy potion right after a load went into the use watch, and the camera's
 	; check after it forced the view for nothing): with CMB_RiderUseOwn 1 only the player's own uses count. The player
 	; uses a potion in the Pip-Boy or the favourites (a menu open) or by a favourites hotkey (the item in a favourite
 	; slot, or in the cache of them: a stack's last one leaves its slot as it is used); an item equipped outside both, or
 	; a nameless one, is another mod's: logged, then no reaction window, no use window, no CMB_RiderItemUse, no camera
 	; check. CMB_RiderUseOwn 0, an older ESP without it, or no F4SE: every potion, as the 2026-11-02a build.
-	if !riderMenuOpen && CMB_RiderUseOwn && CMB_RiderUseOwn.GetValue() > 0.0 && ItemOwnUse(akBaseObject) == 0
+	if !quick && !riderMenuOpen && CMB_RiderUseOwn && CMB_RiderUseOwn.GetValue() > 0.0 && ItemOwnUse(akBaseObject) == 0
 		float at = Utility.GetCurrentRealTime()
 		if at - itemOwnLoggedAt >= 1.0 || at < itemOwnLoggedAt
 			itemOwnLoggedAt = at
@@ -6871,7 +7457,7 @@ Event Actor.OnItemEquipped(Actor akSender, Form akBaseObject, ObjectReference ak
 	float now = Utility.GetCurrentRealTime()
 	reactionAt = now
 	reactionWhat = "an item used"
-	if now - itemLoggedAt >= 1.0 || now < itemLoggedAt
+	if quick || now - itemLoggedAt >= 1.0 || now < itemLoggedAt
 		itemLoggedAt = now
 		Log("Used " + akBaseObject + " while riding.")
 	endif
@@ -6886,6 +7472,27 @@ Event Actor.OnItemEquipped(Actor akSender, Form akBaseObject, ObjectReference ak
 		ItemSignal("")
 	endif
 EndEvent
+
+; 2026-11-10a (test 52, QuickUse): CMB_HotkeyF4SE's word on a potion's quickkey the plugin took from the game at speed
+; (aiValue: CMB_RiderQuickUse = count * 16 + aiSlot, aiSlot 1-12 as F4SE's GetFavorites lists them), told before it equips
+; the item. aiCount: the stack as it stood; over 0: the script equips it now (the Pip-Boy's path: applied at once, no engine
+; clip), marked for OnItemEquipped; else nothing used, said why. Only CMB_HotkeyF4SE calls it.
+Form quickItem = None
+float quickAt = -100.0
+
+Function QuickUsed(Form akItem, int aiSlot, int aiValue, int aiCount)
+	if akItem as Potion && aiCount > 0
+		quickItem = akItem
+		quickAt = Utility.GetCurrentRealTime()
+		Log("Used " + akItem + " by its hotkey at speed: equipped by the script (QuickUse, slot " + aiSlot + ").")
+	elseif akItem as Potion
+		Log("Not used: " + akItem + " by its hotkey at speed: none left, the stack's last one gone (QuickUse, slot " + aiSlot + ", CMB_RiderQuickUse " + aiValue + ").")
+	elseif akItem
+		Log("Not used by its hotkey at speed: slot " + aiSlot + " holds " + akItem + " now, not a potion (QuickUse, CMB_RiderQuickUse " + aiValue + ").")
+	else
+		Log("Not used by its hotkey at speed: slot " + aiSlot + " is empty now (QuickUse, CMB_RiderQuickUse " + aiValue + ").")
+	endif
+EndFunction
 
 ; 2026-11-06a: CMB_RiderUseOwn's helpers, through CMB_HotkeyF4SE (F4SE's FavoritesManager; this script runs without
 ; F4SE). ItemOwnUse: 1 the player's own (a favourite, or in the cache of them), 0 another mod's (nameless, or in no

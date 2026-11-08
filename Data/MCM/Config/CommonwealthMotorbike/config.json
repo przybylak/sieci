@@ -103,7 +103,7 @@
     {
       "type": "slider",
       "text": "Caution (how early the bike eases off for obstacles, %)",
-      "help": "100: as the 2026-11-08a build (the throttle eases from about 11 m at full speed). Lower: closer to the obstacle before the bike eases off and stops. 60: from about 8 m, the throttle gone at 6 m. Needs F4SE and the CMB_Slope.dll plugin.",
+      "help": "50, the default: the bike eases off from about 7 m at full speed and the throttle is gone at about 5 m; a post ahead is still found in time to steer round it. Higher: further from the obstacle (60: as the 2026-11-09a build, from about 8 m, the throttle gone at 6 m; 100: as the 2026-11-08a build, from about 11 m). A save keeps the value it has. Needs F4SE and the CMB_Slope.dll plugin.",
       "valueOptions": {
         "min": 50,
         "max": 100,

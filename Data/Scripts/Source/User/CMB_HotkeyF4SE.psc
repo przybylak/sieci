@@ -101,3 +101,75 @@ EndFunction
 Function WatchBusy(int aiOn)
 	Controller.WatchBusy(aiOn)
 EndFunction
+
+; 2026-11-10a (test 52: a potion's hotkey at speed was never applied: the engine's animated use applies the item at its
+; clip's event, about a second in, and UseStop cut the clip before it). QuickUse: CMB_Slope.dll ([Steer] QuickUse) takes a
+; potion's quickkey from the game while riding at speed and writes CMB_RiderQuickUse = count * 16 + slot (count 1-999, slot
+; 1-12). While riding (the controller's RideWatchesOn and RideWatchesOff) this script looks at it every 0.1 s; on a change
+; it equips that slot's potion itself with Actor.EquipItem, the Pip-Boy's own path: applied at once, no engine clip. F4SE's
+; GetFavorites lists the 12 slots in order, None for an empty one (F4SE's PapyrusFavoritesManager.cpp pushes favorites[0]
+; to [11], the array the plugin reads), so slot N is index N - 1. The controller is told first, without waiting (QuickUsed:
+; its line and the mark its OnItemEquipped reads), then the potion is equipped; a slot emptied since, another kind of item
+; in it, or a stack's last one gone: told, nothing used. Without the global (an older ESP) no watch runs.
+; The watch's word to the plugin (review A2/B2: a press at speed before the watch was on was taken from the game and
+; never used): CMB_RiderQuickUse 0 = no watch (the ESP's value; the plugin gives every quickkey to the game), -1 = the
+; watch on, no press yet. The plugin takes a press only while the global isn't 0, and writes count * 16 + slot over it.
+int Property TimerQuickUse = 56 AutoReadOnly
+float Property QuickUsePoll = 0.1 AutoReadOnly
+bool quickWatching = false
+int quickSeen = 0
+
+Function QuickWatch(bool abOn)
+	CancelTimer(TimerQuickUse)
+	GlobalVariable quick = Controller.CMB_RiderQuickUse
+	bool was = quickWatching
+	quickWatching = abOn && quick != None
+	if quickWatching
+		if !was || quick.GetValue() == 0.0
+			quick.SetValue(-1.0)   ; on: the plugin takes presses from now; none was taken before (it was 0)
+			quickSeen = -1
+		endif   ; on already (a load into a ride: the save's watch): its last value kept, so a press since is still seen
+		StartTimer(QuickUsePoll, TimerQuickUse)
+	elseif quick
+		quick.SetValue(0.0)   ; off: every quickkey the game's own again
+	endif
+EndFunction
+
+Event OnTimer(int aiTimerID)
+	if aiTimerID != TimerQuickUse || !quickWatching
+		return
+	endif
+	int value = Controller.CMB_RiderQuickUse.GetValue() as int
+	if value != quickSeen
+		quickSeen = value
+		if value > 0   ; -1 and 0 are the watch's own words, no press
+			QuickUse(value)
+		endif
+	endif
+	if quickWatching
+		StartTimer(QuickUsePoll, TimerQuickUse)
+	endif
+EndEvent
+
+Function QuickUse(int aiValue)
+	int slot = aiValue % 16
+	Form item = None
+	Form[] slots = FavoritesManager.GetFavorites()
+	if slots && slot >= 1 && slot <= slots.Length
+		item = slots[slot - 1]
+	endif
+	Potion potion = item as Potion
+	int count = 0
+	if potion
+		count = Controller.PlayerRef.GetItemCount(potion)
+	endif
+	Var[] args = new Var[4]
+	args[0] = item
+	args[1] = slot
+	args[2] = aiValue
+	args[3] = count
+	Controller.CallFunctionNoWait("QuickUsed", args)
+	if potion && count > 0
+		Controller.PlayerRef.EquipItem(potion, false, true)
+	endif
+EndFunction

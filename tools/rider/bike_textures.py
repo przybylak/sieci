@@ -26,7 +26,7 @@ Inputs: S/manifest.json + S/shapes/<label>.npz (the stage's shapes, harley_meshe
                      our cube (MR; since 2026-11-02a the mirrors name the game's, MB, and the main build ships neither)
   <Data>/Materials/CMB/Bike/<mat>.bgsm (the parked bike: shadows on, nothing lit; none for a material the parked nif
                      leaves out, the lit overlays) and <mat>_worn.bgsm (the riding bike: its shadows as
-                     bike_materials.json says, emissive on)
+                     bike_materials.json says, the front end's as its parked file's since 2026-11-10a, emissive on)
   S/tex_cache/<label>/  per-label cache (uv, bakes, authored maps), keyed on hashes of everything that goes in: a rerun
                      redoes only what changed; --only does part of a run (each call well under 10 minutes)
   S/tex_report.json  per label: vertices after the seams, UV coverage, the bake's misses, timings, brand-relief check
@@ -1660,8 +1660,8 @@ def write_bgsm(cfg, mat, cube_path=None, out=None):
         glow = bool(worn and emit and m["shader"] == "glow" and emit.get("glow_map"))
         roles = [cfg.man["labels"][lb].get("role", "") for lb in m["labels"]]
         shadows = bool(m["cast_shadows_worn"] if worn else m["cast_shadows_parked"])
-        if worn and any(r in ("front", "fork", "wheelF") for r in roles):
-            shadows = False   # as harley_meshes.load_shaders: the riding bike's front end never shadows the lamp
+        if worn and parked and any(r in ("front", "fork", "wheelF") for r in roles):
+            shadows = bool(m["cast_shadows_parked"])   # 2026-11-10a, as harley_meshes.load_shaders: as parked
         tex = {"diffuse": base + "_d.dds", "normal": base + "_n.dds", "smoothspec": base + "_s.dds",
                "envmap": cube or "", "glow": base + "_g.dds" if glow else ""}
         kw = dict(textures=tex, environment_mapping=env, env_map_mask_scale=float(m["env_scale"]) if env else 1.0,

@@ -43,6 +43,8 @@ Function PushActorAway(Actor akActorToPush, float aiKnockbackForce) native
 Function DamageValue(ActorValue akAV, float afDamage) native
 bool Function AttachModToInventoryItem(Form akItem, ObjectMod akMod) native
 Function SetLinkedRef(ObjectReference akLinkedRef, Keyword apKeyword = NONE) native
+Function AddKeyword(Keyword apKeyword) native
+ObjectReference Function GetLinkedRef(Keyword apKeyword = NONE) native
 bool Function IsWithinBuildableArea(ObjectReference akRef) native
 bool Function PlayGamebryoAnimation(string asAnimation, bool abStartOver = false, float afEaseInTime = 0.0) native
 bool Function WaitFor3DLoad() native

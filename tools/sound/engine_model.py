@@ -29,7 +29,12 @@ the up-shift point fell to ShiftLo and 3rd waited only for MinShiftGap): the hea
 x HeardRise in the rise only) and a least time per gear before its up-shift (ShiftGapGears; 0 or missing: MinShiftGap);
 test 51's "1st < 2nd < 3rd" set them to 2.5,0.95,0.5,1 and 0,2.0,2.5 (1st 1.54 s, 2nd 2.00, 3rd 2.50 from rest in the
 harness's game; 1,0.95,0.5,1 and 0,1.5,1.75 before, 3.83 / 1.54 / 1.75); HeardRiseGears 1,1,1,1 with ShiftGapGears empty
-is the 2026-11-06a build's model exactly (--check-off checks all four builds).
+is the 2026-11-06a build's model exactly. The 2026-11-10a build (test 52: in the Pip-Boy at speed the engine fell to 1st and
+climbed again after it: the game pauses, the reading decays to 0, the model coasted to the clutch; and the wish "3rd gear
+3 s"): MenuHold, a frame the caller says paused (a menu pausing the game) steps nothing, the held state's mix heard, and
+after it the speed held is fed until the reading is back to 0.9 of it, the brake, or MenuRejoin s; ShiftGapGears 0,2,3
+(3rd 3.00 s from rest, 2.50 before). MenuHold=0 with ShiftGapGears 0,2,2.5 is the 2026-11-09a build's model exactly
+(--check-off checks all five builds; --check-menu the hold).
 
 Gearbox. Four gears with the measured steps 1.35 / 1.28 / 1.21; each gear's entry is its speed at ShiftRpm (2500).
 2nd reaches ShiftRpm at 750 u/s (3000 rpm at the top speed), 4th cruises at the top speed at 1937 rpm.
@@ -193,13 +198,17 @@ DEFAULTS = dict(
                           # case where 2nd outlasts 3rd (2nd waits for the bike). 1,0.95,0.5,1: the 2026-11-09a build as
                           # of t54-merge (3.83, 1.54, 1.75; 4th at 7.13 s); 1,1,1,1: the 2026-11-06a build's (3.83,
                           # 1.46, 1.25; 6.55 s)
-    ShiftGapGears=(0.0, 2.0, 2.5),
+    ShiftGapGears=(0.0, 2.0, 3.0),
                           # s, the least time in gear N (1st, 2nd, ...) before its up-shift, since the last up-shift as
                           # MinShiftGap (0 or missing: MinShiftGap). Test 50's tester asked for 2nd about 1.5-1.6 s and
                           # 3rd 1.7-1.9, the longer (0,1.5,1.75: the 2026-11-09a build as of t54-merge); test 51's for
                           # each gear longer than the last, with 1st now 1.54: 2nd at least 2.0, 3rd 2.5 (rejected:
                           # 2.6 with 1.75,2.4, 1.48 / 1.99 / 2.40, thinner margins; 2.2 with 1.9,2.4, 1st 1.75 against
-                          # 2nd's 1.90); empty: the 2026-11-06a build's
+                          # 2nd's 1.90); test 52's wish "3rd gear 3 s" (its 38 pulls: 3rd's median 2.51, the 2.5 floor):
+                          # 3rd at least 3.0, the harness's game pull 1.54 / 2.00 / 3.00 s, 4th at 6.54 (6.04); the same
+                          # 3.00 with a 2 s or 4 s throttle ramp; 3rd's steady drone 1.66 s (1.16); after a 0.3 s brake in
+                          # 3rd the climb back 3->4 at 6.59 s (6.10); 0,2,2.5: the 2026-11-09a build's; empty: the
+                          # 2026-11-06a build's
     # --- the up-shift's clutch gap (measured on the model as on the ride)
     ShiftTime=0.55,       # s: paris gap 0.30 (IQR 0.30-0.40), daily fall 0.39 (0.19-0.73). The 2026-11-06a build (test 49:
                           # "gear sound should be longer on each shift"): 0.55 (0.35 before, the 2026-11-02a build's): the
@@ -366,6 +375,13 @@ DEFAULTS = dict(
                           # running blip; a blip that would end later isn't started (0: the clutch at the bike's 150)
     StopAfter=0.3,        # s: a coast's faster fall begins only once the throttle has been shut this long, so a quick
                           # roll-off sounds as before (session 1: 12 let-offs of about 0.25 s); braking begins at once
+    # --- the 2026-11-10a build: a menu pausing the game (test 52, the Pip-Boy at speed: 13:30:54.175 "speed 895 engine g3
+    # 2315 rpm heard 891", the reading 334, 93, 27 over 0.75 s, "gear 1 at 20 u/s, 1978 rpm, heard 20 u/s (clutch in)", then
+    # after the close 2nd at +2.2 s, 3rd at +4.2: the game paused, the frame's time real, the model coasting on)
+    MenuHold=1,           # 1: step(paused=True) steps nothing (no state written, no draw: the held state's mix), its first
+                          # frame keeping the last input speed; 0: paused ignored (the 2026-11-09a build's)
+    MenuRejoin=1.0,       # s, at most: after a hold the speed held is fed (and the last speed with it: no acceleration
+                          # from the decayed reading) until the reading is back to 0.9 of it or the brake goes on
 )
 EPS = 1e-4      # timer comparisons: float and double agree when a time is a whole number of frames
 LAND = 1.03     # the heard speed: an up-shift lands the next gear this much over DownRpm at the bike's own speed
@@ -454,6 +470,11 @@ class Engine:
         self.shut_t = 0.0                      # StopShift: the throttle shut this long (coasting)
         self.stop_t = 0.0                      # StopShift: the bike under ClutchSpeed with the throttle shut this long
         self.flare_t = -1.0                    # the 2026-11-06a build: since the launch press (-1: none)
+        self.menu_held = False                 # the 2026-11-10a build (MenuHold): held this frame
+        self.rejoin = False                    # ... the speed held fed now
+        self.rejoin_why = 0                    # why the last feed ended: 1 the reading back, 2 the brake, 3 MenuRejoin
+        self.hold_v = 0.0                      # the input speed the hold kept
+        self.rejoin_t = 0.0                    # the feed's time so far
 
     def noise(self):
         """uniform in [-1, 1) from a 32-bit LCG (Numerical Recipes' constants): the C twin draws the same numbers."""
@@ -470,10 +491,29 @@ class Engine:
         self.dlcg = (self.dlcg * 1664525 + 1013904223) & 0xFFFFFFFF
         return lo + (hi - lo) * ((self.dlcg >> 8) / 16777216.0)
 
-    def step(self, dt, speed, forward, braking=False, held=False):
+    def step(self, dt, speed, forward, braking=False, held=False, paused=False):
         """speed: measured (u/s); forward: the forward key held (0/1) or the throttle fraction; held: the plugin holds
-        or eases its throttle for something ahead (the face rays, a wall, a ram's hit, the climb's boost)."""
+        or eases its throttle for something ahead (the face rays, a wall, a ram's hit, the climb's boost); paused (the
+        2026-11-10a build): a menu pauses the game this frame (MenuHold)."""
         c = self.c
+        # the 2026-11-10a build (MenuHold): a paused frame steps nothing, the held state heard; its first keeps the last
+        # input speed. After it the speed held is fed (the last speed with it) until the reading is back to 0.9 of it, the
+        # brake, or MenuRejoin s. The C twin's EngineStep, the same order.
+        if c["MenuHold"] and paused:
+            if not self.menu_held:
+                self.menu_held = True
+                self.hold_v = self.speed_prev
+            return self.mix()
+        if self.menu_held:
+            self.menu_held, self.rejoin, self.rejoin_t, self.rejoin_why = False, True, 0.0, 0
+        if self.rejoin:
+            why = 2 if braking else 1 if abs(speed) >= 0.9 * self.hold_v else 3 if self.rejoin_t >= c["MenuRejoin"] - EPS else 0
+            if why:
+                self.rejoin, self.rejoin_why = False, why
+            else:
+                speed = self.hold_v
+                self.speed_prev = self.hold_v
+                self.rejoin_t += max(dt, 1e-4)
         heard = bool(c["HeardSpeed"])
         v = abs(speed)
         accel = (speed - self.speed_prev) / max(dt, 1e-4)
@@ -779,20 +819,27 @@ class Engine:
 #   - 2026-11-02a (the 2026-11-06a build's four off): IdleDb -11, ShiftTime 0.35, ShiftDipTime 0.24, LaunchFlare 0,
 #     f0253e8's model, check_off_2026-11-02a.txt;
 #   - 2026-11-06a (the 2026-11-09a build's two off): HeardRiseGears 1,1,1,1, ShiftGapGears empty, 6bc75e4's model (the
-#     2026-11-08a build's too: unchanged), check_off_2026-11-06a.txt.
+#     2026-11-08a build's too: unchanged), check_off_2026-11-06a.txt;
+#   - 2026-11-09a (the 2026-11-10a build's two off): ShiftGapGears 0,2,2.5, MenuHold 0, 1712b81's model,
+#     check_off_2026-11-09a.txt.
 # Each build's set carries the later builds' off values too (0c3df02's and 993f582's ShiftTime and ShiftDipTime were 0.35 and
 # 0.24 and they had no LaunchFlare; none of the older models had HeardRiseGears or ShiftGapGears; their models take unknown
-# keys), so the older files' hashes stand; only their headers' JSON is newer.
-OFF_09A = {"HeardRiseGears": [1.0, 1.0, 1.0, 1.0], "ShiftGapGears": []}
+# keys), so the older files' hashes stand; only their headers' JSON is newer. MenuHold (the 2026-11-10a build) acts only on a
+# paused frame and none of these rides pauses (its own rides are MENU_RIDES, below), so the four older files are as they were,
+# their line 2 without it.
+OFF_KEYS_10A = {"MenuHold": 0}   # the 2026-11-10a build's new key off (its ShiftGapGears 0,2,3: each set below names its own)
+OFF_09A = {"HeardRiseGears": [1.0, 1.0, 1.0, 1.0], "ShiftGapGears": [], **OFF_KEYS_10A}   # the 2026-11-09a build's two off (and the 10a's)
 OFF_31A = {"StopShift": 0, "ShiftDraw": [2000.0, 2900.0], "IdleDb": -17.2, "ShiftTime": 0.35, "ShiftDipTime": 0.24, "LaunchFlare": 0.0, **OFF_09A}
 OFF_01A = {"IdleDb": -17.2, "ShiftTime": 0.35, "ShiftDipTime": 0.24, "LaunchFlare": 0.0, **OFF_09A}
 OFF_02A = {"IdleDb": -11.0, "ShiftTime": 0.35, "ShiftDipTime": 0.24, "LaunchFlare": 0.0, **OFF_09A}
 OFF_06A = dict(OFF_09A)
+OFF_09A_MODEL = {"ShiftGapGears": [0.0, 2.0, 2.5], **OFF_KEYS_10A}   # the 2026-11-09a build's model: the 2026-11-10a build's two off
 OFF_BUILDS = {   # --off NAME: (the off values, the expected file here, the build, the commit its model is from)
     "31a": (OFF_31A, "check_off_2026-10-31a.txt", "2026-10-31a", "0c3df02"),
     "01a": (OFF_01A, "check_off_2026-11-01a.txt", "2026-11-01a", "993f582"),
     "02a": (OFF_02A, "check_off_2026-11-02a.txt", "2026-11-02a", "f0253e8"),
     "06a": (OFF_06A, "check_off_2026-11-06a.txt", "2026-11-06a", "6bc75e4"),
+    "09a": (OFF_09A_MODEL, "check_off_2026-11-09a.txt", "2026-11-09a", "1712b81"),
 }
 CHECK_ON = [("On1400", 1400.0), ("On1700", 1700.0), ("On2000", 2000.0), ("On2400", 2400.0), ("On2800", 2800.0), ("On3300", 3300.0)]
 CHECK_OFF = [("Off1400", 1400.0), ("Off1800", 1800.0), ("Off2300", 2300.0), ("Off2800", 2800.0)]
@@ -858,6 +905,97 @@ def check_rides():
     return rides
 
 
+# --- The 2026-11-10a build's hold (--check-menu; MenuHold): a menu pausing the game, in the harness's game. Not in check_rides()
+# (the older builds' expected files stand). Each ride: W, then P (paused: the world still, the bike's speed and the plugin's
+# throttle kept, the reading decaying to 0 over MENU_DECAY s, no key: test 52's Pip-Boy 895 -> 27 u/s in 0.75 s), then W again
+# (the world on, the reading back to the bike's over MENU_BACK s).
+MENU_DECAY, MENU_BACK = 0.2, 0.25
+MENU_RIDES = {
+    "cruise": [(12, "W"), (1.2, "P"), (6, "W")],   # 4th at the top speed
+    "third": [(5.0, "W"), (1.2, "P"), (6, "W")],   # 3rd at the top speed (3rd from 3.54 s, its drone from 4.88; 4th at 6.54 without the menu)
+}
+MENU_AFTER = 1.0   # s after the feed's end: no down-shift, no clutch
+
+
+def _menu_ride(script, dt=0.006):
+    """[(dt, speed, forward, braking, paused)]: _game_ride's game, with P a menu pausing it."""
+    out, T, vp, back = [], 0.0, 0.0, None
+    for dur, key in script:
+        for i in range(int(round(dur / dt))):
+            if key == "P":
+                out.append((dt, vp * max(0.0, 1.0 - (i + 1) * dt / MENU_DECAY), 0.0, False, True))
+                back = 0.0
+                continue
+            fwd, brk = key == "W", key == "S"
+            if fwd:
+                T = min(max(T, 0.1) + dt / 3.0, vp / 900.0 + 0.2, 1.0)
+            elif brk:
+                T = max(0.0, T - dt / 0.4)
+            else:
+                T = max(0.0, T - dt / 2.0)
+            vp += (900.0 * T - vp) * (1.0 - math.exp(-dt / 0.2))
+            reading = vp
+            if back is not None:
+                back += dt
+                reading = vp * min(1.0, back / MENU_BACK)
+                if back >= MENU_BACK:
+                    back = None
+            out.append((dt, reading, 1.0 if fwd else 0.0, brk and vp > 10.0, False))
+    return out
+
+
+def _menu_run(ride, hold):
+    """Each frame's (gear, rpm, clutch, rejoin, mix) with MenuHold=hold, and the hold's figures."""
+    e = Engine(CHECK_ON, CHECK_OFF, CHECK_IDLE, {"MenuHold": hold})
+    rows, fed = [], None
+    for dt, v, fwd, brk, pz in ride:
+        mix = e.step(dt, v, fwd, brk, False, pz)
+        rows.append((e.gear, e.rpm, bool(e.clutch), e.rejoin or e.menu_held, sorted(mix.items())))
+        if fed is None and not e.menu_held and e.rejoin_why:
+            fed = (e.hold_v, e.rejoin_t, e.rejoin_why)
+    return rows, fed
+
+
+def check_menu():
+    """0 if on every MENU_RIDES ride MenuHold=1 holds the engine across the menu and its feed (the gear and the clutch as at the
+    menu's start, the rpm within 2 %, the held frames' mix unchanged) and no down-shift or clutch follows in MENU_AFTER s,
+    and MenuHold=0 (the 2026-11-09a build's model) does not."""
+    bad = 0
+    for name, script in MENU_RIDES.items():
+        ride = _menu_ride(script)
+        p0 = next(i for i, f in enumerate(ride) if f[4])
+        p1 = next(i for i in range(p0, len(ride)) if not ride[i][4])
+        rows, fed = _menu_run(ride, 1)
+        r1 = next((i for i in range(p1, len(ride)) if not rows[i][3]), len(ride) - 1)
+        after = r1 + int(round(MENU_AFTER / ride[0][0]))
+        g0, rpm0 = rows[p0 - 1][0], rows[p0 - 1][1]
+        for hold in (1, 0):
+            if hold == 0:
+                rows, _ = _menu_run(ride, 0)
+            span = rows[p0:r1 + 1]
+            gears = sorted({r[0] + 1 for r in span})
+            lo, hi = min(r[1] for r in span), max(r[1] for r in span)
+            clutch = next((i for i in range(p0, after + 1) if rows[i][2]), None)
+            down = next((i for i in range(p0, after + 1) if rows[i][0] < g0), None)
+            mixes = hold == 0 or all(rows[i][4] == rows[p0 - 1][4] for i in range(p0, p1))
+            ok = gears == [g0 + 1] and hi <= rpm0 * 1.02 and lo >= rpm0 * 0.98 and clutch is None and down is None and mixes
+            dt = ride[0][0]
+            words = "across the menu (%.2f s) and its feed: gear %s, rpm %.0f-%.0f (%.0f at its start)%s%s%s" % (
+                (p1 - p0) * dt, ",".join("%d" % g for g in gears), lo, hi, rpm0,
+                "" if down is None else ", gear %d at +%.2f s" % (rows[down][0] + 1, (down - p0) * dt),
+                "" if clutch is None else ", the clutch in at +%.2f s" % ((clutch - p0) * dt), "" if mixes else ", the held mix moved")
+            if hold:
+                why = {1: "the reading back", 2: "the brake", 3: "MenuRejoin"}.get(fed[2], "?") if fed else "none"
+                print("menu %s MenuHold=1: held at gear %d, %.0f rpm; the held %.0f u/s fed %.2f s (%s); %s; %s" % (
+                    name, g0 + 1, rpm0, fed[0] if fed else 0.0, fed[1] if fed else 0.0, why, words, "ok" if ok else "NOT held"))
+                bad += not ok
+            else:
+                print("menu %s MenuHold=0 (the 2026-11-09a build's model): %s; %s" % (name, words, "the hold's check fails, as it should" if not ok else "PASSES (it should not)"))
+                bad += ok
+    print("check-menu: %s" % ("the engine held through each menu (MenuHold=1), not with MenuHold=0" if not bad else "FAILED (%d)" % bad))
+    return 1 if bad else 0
+
+
 def check_frames(engine_cls, cfg, ride):
     """Each frame of the ride as text (the gear, rpm, clutch, heard level, every loop's gain and pitch, exactly), and the
     gear changes [(frame, from, to, rpm, blip, clutch)]."""
@@ -894,7 +1032,7 @@ def _off_words(off):
 
 def write_expected(model_path, out_path, build="31a"):
     """The expected file from another model (that build's own engine_model.py: 0c3df02's for 31a, 993f582's for 01a, f0253e8's for 02a,
-    6bc75e4's for 06a), run with that build's off values."""
+    6bc75e4's for 06a, 1712b81's for 09a), run with that build's off values."""
     off, _, name, commit = OFF_BUILDS[build]
     engine_cls = _load_model(model_path)
     lines = ["# engine_model.py --check-off: the %s build's model (%s's tools/sound/engine_model.py) over these rides," % (name, commit),
@@ -965,23 +1103,25 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="The engine model (the plugin's C twin follows it). --check-off: each build's off values "
                                  "against that build's frames (2026-10-31a: StopShift=0, ShiftDraw 2000,2900, IdleDb -17.2; "
                                  "2026-11-01a: IdleDb -17.2; 2026-11-02a: IdleDb -11, ShiftTime 0.35, ShiftDipTime 0.24, "
-                                 "LaunchFlare 0; 2026-11-06a: HeardRiseGears 1,1,1,1, ShiftGapGears empty; each with the later "
-                                 "builds' off values too).")
-    ap.add_argument("--check-off", action="store_true", help="the off values against check_off_2026-10-31a.txt, check_off_2026-11-01a.txt, check_off_2026-11-02a.txt "
-                    "and check_off_2026-11-06a.txt (exit 1 if any frame differs); --off NAME: only that build's")
-    ap.add_argument("--off", choices=sorted(OFF_BUILDS), help="the build: 31a (0c3df02's model), 01a (993f582's), 02a (f0253e8's) or 06a (6bc75e4's); with "
-                    "--write-expected 31a by default")
+                                 "LaunchFlare 0; 2026-11-06a: HeardRiseGears 1,1,1,1, ShiftGapGears empty; 2026-11-09a: ShiftGapGears "
+                                 "0,2,2.5, MenuHold 0; each with the later builds' off values too).")
+    ap.add_argument("--check-off", action="store_true", help="the off values against check_off_2026-10-31a.txt, check_off_2026-11-01a.txt, check_off_2026-11-02a.txt, "
+                    "check_off_2026-11-06a.txt and check_off_2026-11-09a.txt (exit 1 if any frame differs); --off NAME: only that build's")
+    ap.add_argument("--off", choices=sorted(OFF_BUILDS), help="the build: 31a (0c3df02's model), 01a (993f582's), 02a (f0253e8's), 06a (6bc75e4's) or 09a "
+                    "(1712b81's); with --write-expected 31a by default")
+    ap.add_argument("--check-menu", action="store_true", help="the 2026-11-10a build's MenuHold over MENU_RIDES: the engine held through a menu pausing the "
+                    "game and its feed, and not with MenuHold=0 (exit 1 otherwise)")
     ap.add_argument("--against", metavar="MODEL", help="with --check-off: compare frame by frame with another engine_model.py instead "
                     "(the --off build's values, 31a by default)")
     ap.add_argument("--expected", metavar="FILE", help="with --check-off: the expected file (default: the --off build's file here)")
     ap.add_argument("--write-expected", metavar="MODEL", help="write the --off build's expected file from that build's engine_model.py "
-                    "(0c3df02's for 31a, 993f582's for 01a, f0253e8's for 02a, 6bc75e4's for 06a)")
+                    "(0c3df02's for 31a, 993f582's for 01a, f0253e8's for 02a, 6bc75e4's for 06a, 1712b81's for 09a)")
     ap.add_argument("--out", metavar="FILE", help="with --write-expected: where (default: the --off build's file here)")
     a = ap.parse_args()
     if a.write_expected:
         b = a.off or "31a"
         here = os.path.join(os.path.dirname(os.path.abspath(__file__)), OFF_BUILDS[b][1])
         sys.exit(write_expected(a.write_expected, a.out or here, b))
-    if a.check_off:
-        sys.exit(check_off(a.expected, a.against, a.off))
+    if a.check_off or a.check_menu:
+        sys.exit(max(check_off(a.expected, a.against, a.off) if a.check_off else 0, check_menu() if a.check_menu else 0))
     ap.print_help()

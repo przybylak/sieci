@@ -829,3 +829,5 @@ CMB_Caution 000BF1
 CMB_ViewMenu 000BF2
 CMB_FxWaterRoadSoftLPSD 000BF3
 CMB_LookOptions 000BF4
+CMB_RiderQuickUse 000BF5
+CMB_RideReady 000BF6

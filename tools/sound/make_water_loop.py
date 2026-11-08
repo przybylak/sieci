@@ -42,10 +42,13 @@ the credit line (README "Credits").
 over 2 kHz, 2 % under 250 Hz): the same three stretches, splices, flattening and wrap, a gentler shape and a lower level:
 a second-order high-pass at 60 Hz (the traffic's body kept), a second-order roll-off from 2.5 kHz, a first-order low shelf
 +5 dB under 300 Hz, a 3 dB dip at 1.5 kHz (a Gaussian on a log-frequency axis, 1.5 octaves wide at half its depth in dB),
-levelled to -26.5 dBFS A-weighted (3.5 dB quieter). It writes CMB_FxWaterRoadSoftLP.wav (CMB_FxWaterRoadSoftLPSD's file,
+levelled to -23.5 dBFS A-weighted (0.5 dB quieter than the wet road; -26.5, 3.5 dB quieter, in the 2026-11-09a build:
+test 52's tester wished it louder, so the 2026-11-10a build lifts it 3 dB, its peak about -8.7 dBFS; [Fx] WaterGentleDb=-3
+plays it at the 2026-11-09a build's level). It writes CMB_FxWaterRoadSoftLP.wav (CMB_FxWaterRoadSoftLPSD's file,
 0xBF3: the MCM's "Wet road, gentle", the default since 2026-11-09a) and water_gentle.json. Its spectrum checks replace
 the centroid's: the centroid 900-1150 Hz, at least 8 % under 250 Hz, under 35 % at 1-2 kHz, under 2 % over 4 kHz (and
-over 80 % at 250 Hz-4 kHz); the seam and level checks as above, A-weighted at its own -26.5. Without --variant the tool
+over 80 % at 250 Hz-4 kHz); the seam and level checks as above, A-weighted at its own -23.5 (the 2026-11-09a build's
+loop, at -26.5, fails it). Without --variant the tool
 is the 2026-11-06a build's, byte for byte (the WAV and water.json).
 
 --measure <WAV> measures a loop already made (44.1 kHz mono 16-bit) and runs the variant's checks on it (the centroid's
@@ -76,7 +79,7 @@ WIN = 0.1          # s, the seam check's windows
 # --variant gentle (the 2026-11-09a build): the shape and the level; everything else as above
 NAME_GENTLE, JSON_GENTLE = "CMB_FxWaterRoadSoftLP.wav", "water_gentle.json"
 GENTLE = {"highpass_Hz": 60.0, "highpass_order": 2, "rolloff_Hz": 2500.0, "rolloff_order": 2, "shelf_dB": 5.0, "shelf_Hz": 300.0,
-          "dip_dB": 3.0, "dip_Hz": 1500.0, "dip_octaves": 1.5, "target_a_dBFS": -26.5}
+          "dip_dB": 3.0, "dip_Hz": 1500.0, "dip_octaves": 1.5, "target_a_dBFS": -23.5}   # -26.5 in the 2026-11-09a build (test 52: louder)
 BANDS = [0.0, 250.0, 1000.0, 2000.0, 4000.0, 8000.0]   # Hz: the bands' shares in water_gentle.json (the last one open-ended)
 
 
@@ -245,7 +248,7 @@ def checks(m, gentle=False):
             ("under 35 % at 1-2 kHz", b[2] < 0.35),
             ("under 2 % over 4 kHz", m["share_over_4k"] < 0.02),
             ("over 80 % at 250 Hz-4 kHz", m["share_250_4k"] > 0.80),
-            ("A-weighted at the gentle loop's -26.5 within 0.1 dB", abs(m["a_weighted_dBFS"] - GENTLE["target_a_dBFS"]) <= 0.1),
+            ("A-weighted at the gentle loop's %g within 0.1 dB" % GENTLE["target_a_dBFS"], abs(m["a_weighted_dBFS"] - GENTLE["target_a_dBFS"]) <= 0.1),
         ] + level
     return seam + [
         ("the centroid within 15 % of example 1's", m["centroid_re_example"] is not None and abs(m["centroid_re_example"] - 1.0) <= 0.15),

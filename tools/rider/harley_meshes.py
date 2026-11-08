@@ -212,6 +212,9 @@ DISC_MESHES = (78, 100)             # the model's brake discs (front, rear): the
 FIXED_UV = ("static_badge", "rear_tail", "rear_brake", "front_dial", "front_dialglow", "front_needle",
             "wheelF_disc", "wheelR_disc")   # our art's layout
 WORN_ONLY = ("rear_tail", "rear_brake", "front_dialglow")   # lit overlays: the parked bike shows the plain lens and dial
+# The front end's roles (the bar assembly, the lower fork, the front wheel): since the 2026-11-10a build their worn
+# shapes cast as their parked ones (load_shaders; test 34 to 2026-11-09a: none, for the headlamp at the lens)
+FRONT_ROLES = ("front", "fork", "wheelF")
 PARKED_HIDDEN = ("front_mirrorUnderEgg", "front_mirrorUnderD")   # variants: in the parked nif, hidden by the node flag
 MIRROR_VARIANTS = ("front_mirrorStock", "front_mirrorUnderEgg", "front_mirrorUnderD")
 # The customisation build (2026-11-07a, --look-slots 1, the default; 0 = LABELS, 2026-11-06a's nifs byte for byte): its
@@ -1205,16 +1208,18 @@ def cube_path(cube):
 def load_shaders(path):
     """Each shape's shader settings and material stem: SHADER_BASE, DEFAULT_SHADERS over it, and
     the shape's material in bike_materials.json over those ({"materials": {<mat>:
-    {"labels": [...], and any of SHADER_KEYS}}}). The riding bike's front end never casts a
-    shadow (test 34: the bars, fork and front wheel shadowed the headlamp's beam). Every shape of either label set
-    (LABELS, LOOK_LABELS: a materials file may name either's); spec[OFF_MAT] is the invisible material's (2026-11-07a:
-    OFF_SHADER, bike_materials.json's "off" over it), which no shape has as its own."""
+    {"labels": [...], and any of SHADER_KEYS}}}). Since the 2026-11-10a build the riding bike's front end (FRONT_ROLES)
+    casts as the parked one does: its cast_shadows_worn is its cast_shadows_parked, whatever the table says (test 52's
+    wish, the front wheel's shadow; test 34's rule, no shadow from the front end, was for a headlamp at the lens, and
+    the shadow lamp sits 28 past it since test 35); the lit overlays (WORN_ONLY) keep their own. Every shape of either
+    label set (LABELS, LOOK_LABELS: a materials file may name either's); spec[OFF_MAT] is the invisible material's
+    (2026-11-07a: OFF_SHADER, bike_materials.json's "off" over it), which no shape has as its own."""
     known = dict(LABELS + LOOK_LABELS + C2_LABELS)
     mats = {label: SHAPE_MAT.get(label, label) for label in known}
     spec = {}
     for label, role in known.items():
-        spec[label] = {**SHADER_BASE, "cast_shadows_worn": role in ("", "wheelR") and label not in ("rear_tail", "rear_brake"),
-                       "cast_shadows_parked": True, **DEFAULT_SHADERS[label]}
+        spec[label] = {**SHADER_BASE, "cast_shadows_worn": label not in WORN_ONLY, "cast_shadows_parked": True,
+                       **DEFAULT_SHADERS[label]}
     off = {**SHADER_BASE, **OFF_SHADER}
     if path:
         data = json.loads(Path(path).read_text())
@@ -1232,9 +1237,8 @@ def load_shaders(path):
             raise ValueError(f"{label}: shader {s['shader']!r} isn't one of {list(SHADER_TYPES)}")
         if s["shader"] == "env" and not s.get("cube"):
             raise ValueError(f"{label}: an environment-mapped shader needs a cube map")
-        if role in ("front", "fork", "wheelF") and s["cast_shadows_worn"]:
-            print(f"{label}: cast_shadows_worn ignored (the riding bike's front end must not shadow the headlamp)", file=sys.stderr)
-            s["cast_shadows_worn"] = False
+        if role in FRONT_ROLES and label not in WORN_ONLY:   # 2026-11-10a: the front end casts as the parked bike's
+            s["cast_shadows_worn"] = bool(s["cast_shadows_parked"])
     spec[OFF_MAT] = off
     return spec, mats
 

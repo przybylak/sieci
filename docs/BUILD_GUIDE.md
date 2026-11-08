@@ -195,6 +195,60 @@ python3 -I tools/rider/bike_art.py --plates --out <art folder>             # the
 Only `plates_d.dds`, `plates_n.dds` and `plates_s.dds` differ from 2026-11-08a's tree (sha256 b5eacce3...,
 78b75210..., 8892936a...); the package's verifier checks those three and everything else as 2026-11-08a's.
 
+Since 2026-11-10a (test 52's fixes) the generator makes two records more, right after `CMB_LookOptions` and only with
+the look: `CMB_RiderQuickUse` 0xBF5 and `CMB_RideReady` 0xBF6, float globals at 0 (it throws unless they land there:
+`CMB_Slope.dll` looks for them by ID), filled into the controller's group `Fixes_56`; `CMB_LookOptions` is 4031 (the five
+new bits on) and `CMB_Caution` 50. `--look-ids` appends `CMB_RiderQuickUse 000BF5` and `CMB_RideReady 000BF6`.
+`tools/build.sh` prints `checked cmb_controllerscript: 193 properties`, `checked cmb_lookf4se: 33 properties` and
+`checked 263 look options in 11 slots: ... highest 000BF6; look_ids.txt 830 IDs; the MCM's Look section 20 controls`,
+and "plugin and scripts agree"; the ESP holds **1045** in its header's count (no new group), its next ID **0xBF7** (777
+IDs left under the 0xF00 guard). The MCM's Riding "Caution" help begins "50, the default:"; nothing else in
+`config.json` or `keybinds.json` changes. `--look-build 2026-11-07a` still writes the 2026-11-07a build's ESP,
+`config.json` and `keybinds.json` byte for byte. `check.sh` prints no warning (12 .pex); `CMB_HotkeyF4SE`'s two new
+constants are AutoReadOnly (no fill), as are the field kit's.
+
+Test 52's fixes change the four worn and view nifs and 76 materials files: the front end's shadow
+([ASSETS.md](ASSETS.md), *The front end's shadow*). From the repository, `<tree>` a copy of 2026-11-09a's, with the DDS
+tools' Python and Blender's:
+```
+cp -a <2026-11-09a's asset tree> <tree>
+python3 -I tools/rider/harley_meshes.py --pynifly <PyNifly> --gltf <scene.gltf> --vanilla <motorcycle_clean.nif> \
+    --out <tree>/Meshes/CMB --textures <tree>/Textures/CMB --seat <CMB_Rider clips> --disc-bore shared \
+    --stage build --stage-dir <2026-11-08a's stage> --materials tools/rider/bike_materials.json   # the five nifs (four change)
+<Blender python> -I tools/rider/bike_textures.py --stage-dir <2026-11-06a's 30-shape stage with the tex cache> \
+    --gltf <scene.gltf> --materials tools/rider/bike_materials.json --art <its art> --out <tree> \
+    --dds-python <DDS python> --only front_chrome,front_black,front_glass,front_glow,front_dial,front_dialglow,\
+front_needle,front_mirrorStock,front_mirrorUnderEgg,front_mirrorUnderD,fork_chrome,fork_paint,fork_black,fork_glass,\
+wheelF_tyre,wheelF_rim,wheelF_disc                       # the 33 front materials files; textures up to date, no bake
+<base06n> = 2026-11-06a's Data with its front_*, fork_*, wheelF_* _worn.bgsm taken from <tree> (17 files)
+<DDS python> -I tools/rider/look_paint.py --data <tree> --base <base06n> --stage <2026-11-07a's stage>   # then --check
+<base07n> = 2026-11-07a's Data with its front_*, fork_*, wheelF_* _worn.bgsm taken from <tree> (61 files)
+<DDS python> -I tools/rider/look_wheels.py --data <tree> --base <base07n> --stage <2026-11-07a's stage> \
+    --rim-stage <2026-11-08a's stage>                                                              # then --check
+python3 -I tools/rider/check_bike_meshes.py --pynifly <PyNifly> --data <tree> --reference <an earlier build's Meshes/CMB> \
+    --stage-dir <2026-11-08a's stage> --look-reference <2026-11-06a's Data> --c2-reference <2026-11-07a's Data> \
+    --look-c2 --look-targets all                                                                  # 83 checks, all passed
+```
+The texture stage is 2026-11-06a's 30-shape stage (its manifest, shapes and UVs) with the texture cache: on a later stage
+the bake keys, which hold every shape's hash, would miss and re-bake. `look_paint.py --check` gives 11 PASS and
+`look_wheels.py --check` 21 over those bases. Only the four nifs and the 76 materials files differ from 2026-11-09a's
+tree (557 files), each in its cast-shadow bit or byte alone; a second build is byte for byte the first. The package's
+verifier checks those 80 by sha256 and everything else as 2026-11-09a's.
+
+The gentle wet-road loop is rebuilt 3 dB louder (never in git; the package takes it from the build's output folder),
+and the engine model's checks gain a fifth build and a menu ride:
+```
+python3 -I -B tools/sound/make_water_loop.py --variant gentle --ex1 <ex1.wav> --out <out>/Sound/FX/CMB
+        # CMB_FxWaterRoadSoftLP.wav (A -23.5 dBFS; sha256 edfb5ad6...0eb5) and water_gentle.json
+python3 -I -B tools/sound/make_water_loop.py --variant gentle --measure <out>/Sound/FX/CMB/CMB_FxWaterRoadSoftLP.wav
+        # exit 0 (2026-11-09a's loop: exit 1, its level)
+python3 -I tools/sound/engine_model.py --check-off      # five builds (31a, 01a, 02a, 06a, 09a), 44136 frames each
+python3 -I tools/sound/engine_model.py --check-menu     # MenuHold through a menu, and not with MenuHold=0
+```
+The loop is repeatable byte for byte, and 1712b81's tool still makes 2026-11-09a's loop byte for byte (the wet road's,
+`CMB_FxWaterRoadLP.wav`, is unchanged). `check_off_2026-11-09a.txt` is written from 1712b81's model (`git show
+1712b81:tools/sound/engine_model.py > old.py`, then `--write-expected old.py --off 09a`).
+
 The vanilla form IDs the plugins use (PlayerRef, XMarker, HumanRace, HumanRaceSubGraphData, SpeedMult, CarryWeight, FallingDamageMod, Health, Pip-Boy, AnimArchetypePlayer) were checked against Mutagen's FormKey list generated from the real `Fallout4.esm`. The record layouts were also compared field by field with xEdit's Fallout 4 definitions.
 
 ## Appendix: building the plugin by hand in the Creation Kit
