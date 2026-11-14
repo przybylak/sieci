@@ -1,0 +1,70 @@
+# Files the mod names by path and does not ship: the game's own (in its archives), read by the guard in pkglib.py.
+# One path per line, relative to Data, lower case; "#" starts a comment. A path a nif, a material, the plugin or
+# look_options.json names must be shipped or listed here, so a misspelt folder cannot pass as "the game's".
+# When a build starts naming another of the game's files, add it under its heading (and check the spelling
+# against the game's archive: nothing here can).
+
+# --- models the plugin names (MODL)
+meshes\furniture\workstations\workbencharmor\workstationarmorb01.nif
+meshes\props\modspartbox\modcrate.nif
+meshes\setdressing\toolbox\toolbox_large.nif
+
+# --- the mod's own, optional and never shipped: the keys' 3D preview, a copy of any vanilla key mesh the user
+#     makes (docs/ASSETS.md); the plugin's potion names it
+meshes\cmb\cmb_keys.nif
+
+# --- materials and textures the nifs and the material files name
+materials\template\defaulttemplate_wet.bgsm
+materials\vehicles\motorcycle\motorcycle_clean.bgsm
+textures\shared\cubemaps\metalbrushed02cube_e.dds
+textures\shared\cubemaps\metalchrome01cube_e.dds
+textures\shared\cubemaps\mipblur_defaultoutside1.dds
+textures\shared\cubemaps\mipblur_defaultoutside1_dielectric.dds
+textures\shared\cubemaps\shinyglass_e.dds
+textures\vehicles\motorcycle\motorcycle_clean_d.dds
+textures\vehicles\motorcycle\motorcycle_clean_n.dds
+textures\vehicles\motorcycle\motorcycle_clean_s.dds
+
+# --- the game's badge art (look_options.json's badges with art "game", and their material files)
+textures\armor\combatarmor\chestdecal_n.dds
+textures\armor\combatarmor\chestdecalgunner_d.dds
+textures\armor\combatarmor\chestdecalstar_d.dds
+textures\setdressing\bosflag01_d.dds
+textures\setdressing\bosflag01_n.dds
+textures\setdressing\bosflag01_s.dds
+textures\setdressing\minutemen\flagminutemen01_d.dds
+textures\setdressing\minutemen\flagminutemen01_n.dds
+textures\setdressing\minutemen\flagminutemen01_s.dds
+
+# --- sounds the plugin's sound descriptors name (SNDR ANAM)
+sound\fx\amb\waterfall\amb_waterfall_churn_01_lp.wav
+sound\fx\amb\waterfall\amb_waterfall_churn_02_lp.wav
+sound\fx\amb\waterfall\amb_waterfallsplatter_large_01_lp.wav
+sound\fx\amb\waterfall\amb_waterfallsplatter_large_02_lp.wav
+sound\fx\amb\waterfall\amb_waterfallsplatter_small_01_lp.wav
+sound\fx\amb\waterfall\amb_waterfallsplatter_small_02_lp.wav
+sound\fx\fst\armorpower\fst_armorpower_land_3d_dirt_01.wav
+sound\fx\fst\armorpower\fst_armorpower_land_3d_dirt_02.wav
+sound\fx\fst\armorpower\fst_armorpower_land_3d_dirt_03.wav
+sound\fx\fst\armorpower\fst_armorpower_land_3d_water_01.wav
+sound\fx\fst\armorpower\fst_armorpower_land_3d_water_02.wav
+sound\fx\fst\armorpower\fst_armorpower_land_3d_water_03.wav
+sound\fx\fst\player\water\fst_water_jump_down_01.wav
+sound\fx\fst\player\water\fst_water_jump_down_02.wav
+sound\fx\phy\generic\phy_generic_water_medium_01.wav
+sound\fx\phy\generic\phy_generic_water_medium_02.wav
+sound\fx\phy\generic\phy_generic_water_medium_03.wav
+sound\fx\phy\metalauto\phy_metal_auto_medium_h_01.wav
+sound\fx\phy\metalauto\phy_metal_auto_medium_h_02.wav
+sound\fx\phy\metalauto\phy_metal_auto_medium_h_03.wav
+sound\fx\phy\metalauto\phy_metal_auto_medium_h_04.wav
+sound\fx\phy\metalbarrel\phy_metal_barrel_h_01.wav
+sound\fx\phy\metalbarrel\phy_metal_barrel_h_02.wav
+sound\fx\phy\metalbarrel\phy_metal_barrel_h_03.wav
+sound\fx\phy\metalbarrel\phy_metal_barrel_h_04.wav
+sound\fx\phy\rubbertire\phy_rubber_tire_h_01.wav
+sound\fx\phy\rubbertire\phy_rubber_tire_h_02.wav
+sound\fx\phy\rubbertire\phy_rubber_tire_h_03.wav
+sound\fx\phy\rubbertire\phy_rubber_tire_l_01.wav
+sound\fx\phy\rubbertire\phy_rubber_tire_l_02.wav
+sound\fx\phy\rubbertire\phy_rubber_tire_l_03.wav

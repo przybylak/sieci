@@ -580,6 +580,15 @@ of its forms by ID at run time (`SKK_GSSKeyword` 0x001763, the stash 0x000FAE, t
 wrapped through its virtual table, the UI's menu mode read, the first-person bike's nodes moved and updated through
 the game's own node functions) ship nothing of it either.
 
+**The fixes build for test 53 (2026-11-14a) borrows no new file and changes no asset**: the meshes, textures,
+materials, sounds and clips are 2026-11-10a's. Its eight new records are globals (`CMB_KitWhere` and the field kit
+preview's seven, 0xBF7-0xBFE) that name nothing of the game's; the look item's and the look mods' new names are our own
+words. The plugin reads four of the game's own preview transforms by FormID for its log only, never writing them
+(`MiscMod01` 248769, `xTranMiniGun` 0390B1, `ArmorTorsoPowerT60` 2490B6, `ArmorHatExtraLarge` 249528), and its new
+calls into the game (FirstPersonState's `GetTranslation` wrapped through its virtual table,
+`BSShaderUtil::ClearRenderPasses` by its Address Library ID for the opt-in `[Look] Repass`, the favourites' handler
+read for the self-test, the UI's menu stack and the ExamineMenu's 3D read in memory) ship nothing of it.
+
 ## Background: why custom clips
 
 The game has no motorcycle riding animations to borrow. `Fallout4.esm` does contain a keyword called

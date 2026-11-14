@@ -15,7 +15,7 @@ sh tools/sound/run_all.sh <demodave's idle.wav> [out dir]          # everything,
 | `make_piece_loops.py` | The files cut from the recording itself. These are the idle loop (92.0 to 98.3 s), the start (0.25 to 2.6 s) and the stop (158.6 to 160.6 s), plus the 2300 rpm closed-throttle loop made from 18 flattened pieces of its falls. Before that it finds every engine cycle in the recording with a dechirped comb map and a cycle walker. |
 | `build_loops.py` | The shipped set. Each riding loop's tone is matched to the reference ride: a third-octave EQ, the brightness law, the attacks, the half-order line pattern on 1400, 1700 and 2000, and the pulse-to-pulse brightness. Each loop is then levelled to -13.5 dBFS RMS through a look-ahead limiter. The idle, start and stop are copied as they are. The 2000 rpm loop on load is written as `CMB_EngineCruiseLP.wav`, the file the cruise sound record plays. |
 | `hot_loops.py` | The last stage, since test 45's answer: every one of the 13 files 2.5 dB hotter, its peaks rounded off by a memoryless soft limiter (knee -6 dBFS, ceiling -1). See *Hotter loops* below. |
-| `engine_model.py` | The engine model: rpm, gear, load, and each loop's pitch and level, frame by frame. The plugin's C port follows it, and every constant's measured basis is in its `DEFAULTS`. Since test 45's build the gears follow a "heard speed" with a real ride's limits rather than the game's bike (`HeardSpeed` and the keys after it); since the 2026-11-01a build a stop shifts down with blips (`StopShift`); since the 2026-11-02a build the idle is louder (`IdleDb` -11, -17.2 before: test 48's "make it louder when idle"); since the 2026-11-09a build each gear has its own heard rise and least time (`HeardRiseGears`, `ShiftGapGears`: test 50's "3rd gear pinned", and test 51's "1st < 2nd < 3rd"); since the 2026-11-10a build 3rd lasts 3 s (`ShiftGapGears` 0,2,3) and a menu pausing the game holds the engine (`MenuHold`). `--check-off` checks its off values against five earlier builds' frames (`check_off_2026-10-31a.txt` to `check_off_2026-11-09a.txt`), `--check-menu` the hold. |
+| `engine_model.py` | The engine model: rpm, gear, load, and each loop's pitch and level, frame by frame. The plugin's C port follows it, and every constant's measured basis is in its `DEFAULTS`. Since test 45's build the gears follow a "heard speed" with a real ride's limits rather than the game's bike (`HeardSpeed` and the keys after it); since the 2026-11-01a build a stop shifts down with blips (`StopShift`); since the 2026-11-02a build the idle is louder (`IdleDb` -11, -17.2 before: test 48's "make it louder when idle"); since the 2026-11-09a build each gear has its own heard rise and least time (`HeardRiseGears`, `ShiftGapGears`: test 50's "3rd gear pinned", and test 51's "1st < 2nd < 3rd"); since the 2026-11-10a build 3rd lasts 3 s (`ShiftGapGears` 0,2,3) and a menu pausing the game holds the engine (`MenuHold`); since the 2026-11-14a build the note never falls while the bike gains (`HeardKeep`), a lift's down-shift waits for the heard speed (`LiftDown`) and five gears shift at 3200-3700 rpm at full throttle (`ShiftRpm`, `Gears`, `ShiftDraw`, `HeardRiseGears`, `ShiftGapGears`, `LaunchRise`, `LaunchFlare`). `--check-off` checks its off values against six earlier builds' frames (`check_off_2026-10-31a.txt` to `check_off_2026-11-10a.txt`), `--check-menu` the hold, `--check-climb` the gears. |
 | `render.py` | Renders the demo ride, or a recorded one (`--ride`), through the model and a loop set, the way the game plays it. Writes a WAV and CSVs of the model's state. |
 | `make_water_loop.py` | Since the 2026-11-06a build: the mod's own wet-road water loop, `CMB_FxWaterRoadLP.wav`, from the tester's example 1 (see *The wet road* below), with `water.json` and its listen-free checks. Since the 2026-11-09a build `--variant gentle` makes the gentler one, `CMB_FxWaterRoadSoftLP.wav`, with `water_gentle.json` (see *The gentle wet road*); `--measure` checks a loop already made. |
 | `run_all.sh` | Runs all of the above, end to end (both wet roads with `WATER=`). |
@@ -197,6 +197,25 @@ python3 -I tools/sound/render.py --loops <loops> --out ride.wav --ride ride.csv
   random draw) and the held state's mix is heard; the first keeps the last input speed. After it that speed is fed (and the
   last speed with it, so no acceleration from the decayed reading) until the reading is back to 0.9 of it, the brake goes on,
   or `MenuRejoin` (1.0) s pass. `MenuHold=0`: the 2026-11-09a build's model.
+- Test 53 ("a bit flat - didn't raise RPM as much as I was expecting", "the climb in the sound wasn't smooth, it was
+  dropping when it shouldn't"; up-shifts at a median 2430/2590/2363 rpm, 3rd flat at 2344 its last 1.5 s, 2nd falling
+  300-900 rpm while the bike gained, a 2nd -> 1st blip on lifts): the 2026-11-14a build. `HeardKeep` 1: with the
+  throttle on and the bike gaining over `HeardRise` / 4 (35 u/s^2) the heard speed isn't pulled down to a slower bike
+  (it creeps on at `HeardCreep` 0.3 of its gear's rise, at most 2 `HeardLead` ahead), the demand is at least the
+  cruise's plus the gain's and the rpm's target never goes under the rpm; a steady or slowing bike pulls it down as
+  before (test 53 replayed: the note falling while the bike gains 37.5 s of 706 s, none now). `LiftDown` 0.08: a
+  coast's down-shift only once the heard speed is 8 % under its value at the lift (or its highest since), never for a
+  gear already under `DownRpm` (without that rule, after a hit with the key held, taps of the key kept 4th at idle at
+  300 u/s for 2 s); a lift at a steady speed no longer blips down and up. Five gears: `ShiftRpm` 3500, `Gears`
+  410.6,636.4,954.5,1272.7,1626.4 (steps 1.55 / 1.5 / 1.33 / 1.28, 5th the old 4th: the cruise at 900 u/s stays 1937
+  rpm), `ShiftDraw` 3200,3700, `HeardRiseGears` 2,0.79,0.65,1,1, `ShiftGapGears` 0,2,3,1.5, `LaunchRise` 650,
+  `LaunchFlare` 0.35. On the harness's game pull the up-shifts come at 1.45 s 3217 rpm, 3.45 s 3383, 6.45 s 3264, 7.95 s
+  2475, 2nd and 3rd climbing all through (2454 -> 3383, 2445 -> 3264). The off family now reaches 3500 (Off2800 x
+  1.25), and on test 53's replay sits over 1.17 of its pitch 9.4 s of the session (0.9 s before): a timbre question for
+  test 54. The 2026-11-10a build's model, frame for frame: `--cfg '{"HeardKeep": 0, "LiftDown": 0, "ShiftRpm": 2500,
+  "Gears": [555.556, 750, 960, 1161.6], "ShiftDraw": [2300, 3000], "HeardRiseGears": [2.5, 0.95, 0.5, 1],
+  "ShiftGapGears": [0, 2, 3], "LaunchRise": 350, "LaunchFlare": 0.5}'`. (The plugin's `MenuQuiet`, the engine and
+  the water quiet in a menu, is in the volumes it sends, not in the model.)
 - The CSV (`ride.csv`, 10 rows a second) gives the gear, rpm, load, on-family weight, clutch, shift and coast state,
   and the level. `ride_frames.csv` gives every frame's gain and pitch per loop.
 
@@ -207,19 +226,22 @@ python3 -I tools/sound/engine_model.py --check-off                       # 0 if 
 python3 -I tools/sound/engine_model.py --check-off --off 02a             # only the 2026-11-02a build's
 python3 -I tools/sound/engine_model.py --check-off --against <old model> --off 01a   # frame by frame against another file
 python3 -I tools/sound/engine_model.py --check-menu                      # 0 if MenuHold holds the engine through a menu
+python3 -I tools/sound/engine_model.py --check-climb                     # 0 if the gears climb, nothing falls while the
+                                                                         # bike gains, no lift blips
 ```
 
 `--check-off` runs the model over the demo ride, a random ride of 60 segments in the harness's game and five stops (44,136
-frames) five times, once with each earlier build's off values, and compares each frame (the gear, the rpm, the clutch, the heard
+frames) six times, once with each earlier build's off values, and compares each frame (the gear, the rpm, the clutch, the heard
 level and every loop's gain and pitch, exactly) with that build's file, 500 frames a hash, and its gear changes:
 
 | `--off` | the off values | the file | written from |
 |---|---|---|---|
-| `31a` | `StopShift=0`, `ShiftDraw` 2000,2900, `IdleDb` -17.2 (and the later builds' `ShiftTime` 0.35, `ShiftDipTime` 0.24, `LaunchFlare` 0, `HeardRiseGears` 1,1,1,1, `ShiftGapGears` empty, `MenuHold` 0) | `check_off_2026-10-31a.txt` | 0c3df02's `engine_model.py` |
-| `01a` | `IdleDb` -17.2 (and the same six) | `check_off_2026-11-01a.txt` | 993f582's `engine_model.py` |
-| `02a` | `IdleDb` -11, `ShiftTime` 0.35, `ShiftDipTime` 0.24, `LaunchFlare` 0 (and the later three) | `check_off_2026-11-02a.txt` | f0253e8's `engine_model.py` |
-| `06a` | `HeardRiseGears` 1,1,1,1, `ShiftGapGears` empty (and `MenuHold` 0) | `check_off_2026-11-06a.txt` | 6bc75e4's `engine_model.py` (the 2026-11-08a build's: unchanged) |
-| `09a` | `ShiftGapGears` 0,2,2.5, `MenuHold` 0 | `check_off_2026-11-09a.txt` | 1712b81's `engine_model.py` (the 2026-11-09a build's) |
+| `31a` | `StopShift=0`, `ShiftDraw` 2000,2900, `IdleDb` -17.2 (and the later builds' `ShiftTime` 0.35, `ShiftDipTime` 0.24, `LaunchFlare` 0, `HeardRiseGears` 1,1,1,1, `ShiftGapGears` empty, `MenuHold` 0, and the 2026-11-14a build's nine off) | `check_off_2026-10-31a.txt` | 0c3df02's `engine_model.py` |
+| `01a` | `IdleDb` -17.2 (and the same six, and the 2026-11-14a build's nine off) | `check_off_2026-11-01a.txt` | 993f582's `engine_model.py` |
+| `02a` | `IdleDb` -11, `ShiftTime` 0.35, `ShiftDipTime` 0.24, `LaunchFlare` 0 (and the later three, and the 2026-11-14a build's nine off) | `check_off_2026-11-02a.txt` | f0253e8's `engine_model.py` |
+| `06a` | `HeardRiseGears` 1,1,1,1, `ShiftGapGears` empty (and `MenuHold` 0, and the 2026-11-14a build's nine off) | `check_off_2026-11-06a.txt` | 6bc75e4's `engine_model.py` (the 2026-11-08a build's: unchanged) |
+| `09a` | `ShiftGapGears` 0,2,2.5, `MenuHold` 0 (and the 2026-11-14a build's nine off) | `check_off_2026-11-09a.txt` | 1712b81's `engine_model.py` (the 2026-11-09a build's) |
+| `10a` | `HeardKeep=0`, `LiftDown=0` and the 2026-11-10a table (`ShiftRpm` 2500, `Gears` 555.556,750,960,1161.6, `ShiftDraw` 2300,3000, `HeardRiseGears` 2.5,0.95,0.5,1, `ShiftGapGears` 0,2,3, `LaunchRise` 350, `LaunchFlare` 0.5) | `check_off_2026-11-10a.txt` | c716330's `engine_model.py` (the 2026-11-10a build's) |
 
 It prints each ride's count and one line a build, `check-off: the same, frame for frame over 44136 frames (HeardRiseGears=1,1,1,1,
 ShiftGapGears= against the 2026-11-06a build's model)`, and exits 1 if any frame differs. Each file is written from that build's own model
@@ -232,7 +254,12 @@ the three. The 2026-11-02a file is f0253e8's (`--write-expected old.py --off 02a
 were written again from their own models with them: the hashes the same, only line 2's off values longer. The 2026-11-09a
 file is 1712b81's (`--write-expected old.py --off 09a`; `--check-off --against old.py --off 09a` the same, frame for frame).
 `MenuHold` acts only on a paused frame and none of these rides pauses, so the four older files were not written again: their
-line 2 is without it.
+line 2 is without it. The 2026-11-10a file is c716330's (`git show c716330:tools/sound/engine_model.py > old.py`, then
+`--write-expected old.py --off 10a`); the 2026-11-14a build's `HeardKeep` and `LiftDown` change nothing at 0 and its
+table's seven keys were the same in every older model where a build's set doesn't name its own, so every older set
+carries the nine off values and the five older files stand as they were (their line 2 without the new keys). The
+2026-11-10a file's line 2 names `HeardKeep` by the design's name, `Climb` (the key was renamed after the file was
+written; c716330's model takes neither, so its hashes are the same).
 
 `--check-menu` runs its own rides (`MENU_RIDES`, not part of `--check-off`'s, so the older files stand), in the harness's
 game: `cruise`, 12 s of W (4th at the top speed), and `third`, 5.0 s of W (3rd at the top speed), each then a menu for 1.2 s
@@ -242,6 +269,18 @@ it, the held frames' mix unchanged, and no down-shift or clutch for 1 s after th
 build's model) does not: there the clutch goes in 0.56 s into the menu, gear 1. It prints, for example, `menu third
 MenuHold=1: held at gear 3, 2335 rpm; the held 900 u/s fed 0.22 s (the reading back); across the menu (1.20 s) and its feed:
 gear 3, rpm 2335-2343 (2335 at its start); ok` and exits 1 if a ride fails.
+Since the 2026-11-14a build its rides run with the 2026-11-10a table they were made for (`MENU_SETS`: with the new table
+3rd still climbs at 5.0 s, so the `third` ride's rpm would leave the 2 % band for the climb, not the menu), and the
+`cruise` also with the defaults (held in 5th at 1937 rpm).
+
+`--check-climb` (since the 2026-11-14a build) runs the gears' rides in the harness's game, with the defaults and with the
+2026-11-10a build's model, which must fail each: a full pull from rest (up-shifts into 2, 3, 4, 5, the first three over
+3000 rpm, the gears 1.45, 2.0, 3.0 and 1.5 s long, +-0.1), two lifts in a launch (the note falling while the bike gains:
+under 0.02 s; 0.68 s with the 2026-11-10a model), a slow bike gaining 190 u/s^2 with the key let go 0.25 s (no blip;
+the 2026-11-10a model blips 2nd to 1st at 1373 rpm), and a steady bike at 470 u/s (the 2026-11-10a table with
+`HeardKeep=0`) and at 300 u/s (the defaults) with the key let go 0.5 s (no blip with `LiftDown`; `LiftDown=0` blips 2nd
+to 1st and up again). It prints a line a ride, ends `check-climb: the gears climb, nothing falls while the bike gains, no
+lift blips (the 2026-11-10a model fails as it should)` and exits 1 if a ride is not as it should be.
 
 ### The wet road (the 2026-11-06a build)
 

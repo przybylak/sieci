@@ -831,3 +831,11 @@ CMB_FxWaterRoadSoftLPSD 000BF3
 CMB_LookOptions 000BF4
 CMB_RiderQuickUse 000BF5
 CMB_RideReady 000BF6
+CMB_KitWhere 000BF7
+CMB_KitPreview 000BF8
+CMB_KitPrevSize 000BF9
+CMB_KitPrevTurn 000BFA
+CMB_KitPrevTilt 000BFB
+CMB_KitPrevUp 000BFC
+CMB_KitPrevZoomOut 000BFD
+CMB_KitPrevZoomIn 000BFE

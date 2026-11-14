@@ -7,18 +7,18 @@ A rideable motorbike for Fallout 4:
 - **runs on Flamer Fuel**: one unit per 300 m ridden, taken from the side bag first, so it isn't a free speed boost in Survival
 - **side bag**: small storage, size adjustable from the console
 - **park it, call it, ride it**: activate the bike or use its keys (favorite them to a hotkey); optional F4SE hotkey; since the 2026-11-09a build getting on takes about 1.5 s with the look unchanged (test 51: 5-6 s), and a second press while the bike's menu is coming is ignored (test 51's black screen after Ride); since the 2026-11-10a build (test 52: 3-5 s, the screen black for 3.0-3.6 s of it) the worn bike goes on right after the screen fades and the screen comes back as soon as the bike is held and coloured and you are seated, the rest of getting on after it: about 1.1-1.3 s of black with the stock look and 1.6-2.1 s with a full look, by the estimate (the log's stage-times line shows the real split)
-- **seated riding animations** with lean in turns and ridden U-turns; the bike turns with you on the spot and in conversations; since the 2026-11-01a build hits don't stagger you while riding (MCM "Steady in the saddle", so the bike no longer hangs round your hips through a stagger), and with F4SE the plugin checks that the seated clips are playing and the script puts them back if they aren't (test 47's rider "floating" after a fight was the plugin running out of copies of her bone data, held by the blood decals: fixed); since the 2026-11-02a build "Steady in the saddle" is a perk of its own with the two condition tabs the game's own stagger lining has (test 48: eight staggers got through the first one; the console's `CMB_RiderSteadyWay` tries the game's own perk too), the pose is left alone for 6 s after an item's use so an animation mod's use clip plays whole, the camera's with it (test 48's camera stuck after a stimpak), and with F4SE the hands let go of the grips while that clip plays (test 48's arm stretched while eating) and the pose isn't measured in first person, where the game's third-person skeleton stands; since the 2026-11-06a build using an item while riding fast (a stimpak by its hotkey, food from the Pip-Boy) no longer slows the bike: above 150 units a second the item animation mod's clip isn't played (the item is used as always), stopped or slow it plays, and the arm no longer stretches when eating right after the Pip-Boy (test 49); items another mod equips on you (a reload fixer's dummy potion) no longer start the item watch; since the 2026-11-09a build an item's use clip that still starts at speed (test 50: the item animation mod's own idle never passes that refusal) is stopped as it starts, the plugin telling the animation graph `IdleStop`, then `IdleForceDefaultState` (`[Steer] UseStop`), so the bike should keep its speed; since the 2026-11-10a build (test 52: by the hotkey the clip was cut before the item was used) a potion on a favourites hotkey used at 150 units a second or faster is used at once, without the game's use animation, the way the Pip-Boy uses it (`[Steer] QuickUse`), and the use-clip stop acts only on an item's props, never on a drawn weapon
-- **an engine sound from a real V-twin** (demodave's recording, CC0): with F4SE (since test 44's build) the plugin runs a model of a four-speed gearbox and pitches and fades eleven loops every frame with your speed and throttle, shifting up as you pull away and falling off as you let go; since test 45's build the engine keeps a real ride's pace rather than the game's quick bike, so a pull-away climbs from the moment you press forward, each one shifting a little differently, the cruise holds steady and a roll-off falls slowly in gear; since test 46's build each loop's level is set at once rather than faded, so a gear change no longer cuts out, and the engine is louder and punchier, with hotter recordings, more between the cruise and a full-throttle pull and its full volume out past the riding camera (test 45's build needed the MCM's engine volume at 100); since test 47's a steady cruise wanders in pitch and level like a hand on a real throttle (since the 2026-10-31a build more, in slow swings of a second or two that peak 3 to 5% off the cruise's rpm, never past about 6%, and about 1 to 1.5 dB in level), each up-shift dips briefly as the throttle closes, the engine reverberates as the game's other sounds do, and the MCM's engine volume starts at 90 in a new save; since the 2026-11-01a build 1st and 2nd change up later, at about 2,600 rpm, and a stop changes down so you hear it (three blipped down-shifts rolling to a stop, two braking, then the clutch); since the 2026-11-02a build the idle is louder, 2.5 dB under the cruise where it was 8.7 under (test 48: "it feels like there is no sound"), so a stop no longer goes quiet and the start and stop sounds run into and out of it without a step; since the 2026-11-06a build the idle is a little louder (level with the cruise), each take-off starts with a short rev, and each gear change is longer (about half a second of the darker sound and the dip; `IdleDb`, `LaunchFlare`, `ShiftTime` and `ShiftDipTime` in `CMB_Slope.ini`); since the 2026-11-09a build each gear lasts longer than the last at full throttle from a stop, 1st about 1.6 s, 2nd 2.0 and 3rd 2.5 (test 50: 3rd was pinned at 1.25 s, shorter than 2nd; test 51: 1st lasted about 3.5 s: `[Sound] HeardRiseGears`, `ShiftGapGears`); since the 2026-11-10a build 3rd lasts about 3 s (test 52's wish) and the Pip-Boy (or any menu that pauses the game) at speed holds the engine's note instead of dropping it to 1st and climbing back after the close (`[Sound] MenuHold`); without F4SE, an idle and a cruise loop crossfaded by speed
+- **seated riding animations** with lean in turns and ridden U-turns; the bike turns with you on the spot and in conversations; since the 2026-11-01a build hits don't stagger you while riding (MCM "Steady in the saddle", so the bike no longer hangs round your hips through a stagger), and with F4SE the plugin checks that the seated clips are playing and the script puts them back if they aren't (test 47's rider "floating" after a fight was the plugin running out of copies of her bone data, held by the blood decals: fixed); since the 2026-11-02a build "Steady in the saddle" is a perk of its own with the two condition tabs the game's own stagger lining has (test 48: eight staggers got through the first one; the console's `CMB_RiderSteadyWay` tries the game's own perk too), the pose is left alone for 6 s after an item's use so an animation mod's use clip plays whole, the camera's with it (test 48's camera stuck after a stimpak), and with F4SE the hands let go of the grips while that clip plays (test 48's arm stretched while eating) and the pose isn't measured in first person, where the game's third-person skeleton stands; since the 2026-11-06a build using an item while riding fast (a stimpak by its hotkey, food from the Pip-Boy) no longer slows the bike: above 150 units a second the item animation mod's clip isn't played (the item is used as always), stopped or slow it plays, and the arm no longer stretches when eating right after the Pip-Boy (test 49); items another mod equips on you (a reload fixer's dummy potion) no longer start the item watch; since the 2026-11-09a build an item's use clip that still starts at speed (test 50: the item animation mod's own idle never passes that refusal) is stopped as it starts, the plugin telling the animation graph `IdleStop`, then `IdleForceDefaultState` (`[Steer] UseStop`), so the bike should keep its speed; since the 2026-11-10a build (test 52: by the hotkey the clip was cut before the item was used) a potion on a favourites hotkey used at 150 units a second or faster is used at once, without the game's use animation, the way the Pip-Boy uses it (`[Steer] QuickUse`), and the use-clip stop acts only on an item's props, never on a drawn weapon; since the 2026-11-14a build (test 53: by its number key the plugin never saw the key, the game giving its own key codes) a number key is found by the game's own name and code, and when the plugin can't take one the item's clip is cut and the script uses the item, or the clip plays until the item is used, so a stimpak by its number key always heals at speed (`[Steer] QuickKeyCodes`, `QuickCut`, `UseStopUnapplied`)
+- **an engine sound from a real V-twin** (demodave's recording, CC0): with F4SE (since test 44's build) the plugin runs a model of a four-speed gearbox and pitches and fades eleven loops every frame with your speed and throttle, shifting up as you pull away and falling off as you let go; since test 45's build the engine keeps a real ride's pace rather than the game's quick bike, so a pull-away climbs from the moment you press forward, each one shifting a little differently, the cruise holds steady and a roll-off falls slowly in gear; since test 46's build each loop's level is set at once rather than faded, so a gear change no longer cuts out, and the engine is louder and punchier, with hotter recordings, more between the cruise and a full-throttle pull and its full volume out past the riding camera (test 45's build needed the MCM's engine volume at 100); since test 47's a steady cruise wanders in pitch and level like a hand on a real throttle (since the 2026-10-31a build more, in slow swings of a second or two that peak 3 to 5% off the cruise's rpm, never past about 6%, and about 1 to 1.5 dB in level), each up-shift dips briefly as the throttle closes, the engine reverberates as the game's other sounds do, and the MCM's engine volume starts at 90 in a new save; since the 2026-11-01a build 1st and 2nd change up later, at about 2,600 rpm, and a stop changes down so you hear it (three blipped down-shifts rolling to a stop, two braking, then the clutch); since the 2026-11-02a build the idle is louder, 2.5 dB under the cruise where it was 8.7 under (test 48: "it feels like there is no sound"), so a stop no longer goes quiet and the start and stop sounds run into and out of it without a step; since the 2026-11-06a build the idle is a little louder (level with the cruise), each take-off starts with a short rev, and each gear change is longer (about half a second of the darker sound and the dip; `IdleDb`, `LaunchFlare`, `ShiftTime` and `ShiftDipTime` in `CMB_Slope.ini`); since the 2026-11-09a build each gear lasts longer than the last at full throttle from a stop, 1st about 1.6 s, 2nd 2.0 and 3rd 2.5 (test 50: 3rd was pinned at 1.25 s, shorter than 2nd; test 51: 1st lasted about 3.5 s: `[Sound] HeardRiseGears`, `ShiftGapGears`); since the 2026-11-10a build 3rd lasts about 3 s (test 52's wish) and the Pip-Boy (or any menu that pauses the game) at speed holds the engine's note instead of dropping it to 1st and climbing back after the close (`[Sound] MenuHold`); since the 2026-11-14a build (test 53: "a bit flat") five gears shift higher, at about 3200-3400 rpm at full throttle, the cruise as before, the note never falls while the bike gains nor drops to 1st on a throttle lift (`HeardKeep`, `LiftDown`), and the engine and the water go quiet while a menu pauses the game (`MenuQuiet`); without F4SE, an idle and a cruise loop crossfaded by speed
 - **a V-twin cruiser** as the bike (Nieve5677's Sketchfab model, CC-BY: see the credits), on the vanilla motorcycle's collision; with F4SE its wheels spin with the distance ridden (since the 2026-11-09a build by each frame's own movement, so they stop with the bike, and they hold still while you brake: test 50's wish) and the bars turn with you (the hands go with them, and since the 2026-10-31a build the lower triple clamp too); the vanilla bike can be built instead
-- **its look** (since the 2026-10-31a build): textured all over, with procedural textures baked from the 1.3-million-triangle model onto the game's mesh (the download has no textures): an oxblood tank and fenders with a clear coat and a cream double coachline, our own winged-wheel badge, dark mirror-like chrome, a black wrinkle-finish engine with bright fin edges, a leather-grained seat, tyres with their tread; a material file for every surface (the hook for paint and parts at a workbench later); with F4SE **a working speedometer** (its needle follows your speed, about 50 on the dial at full speed by default, and its numerals light up with the headlamp), **a tail light** lit while you ride that brightens with both rear signals when you brake, and **mirrors** that show a sky (Fallout 4 can't show real reflections), in the stock style or either of two styles hung under the bar ends (`[Look] Mirrors` in `CMB_Slope.ini`; since the 2026-11-07a build the ones you fit at the bike, which the parked bike shows too). Every new behaviour of the plugin has a key in `CMB_Slope.ini` whose off value gives the previous build's back; the textures and the lower triple clamp turning with the bars come with the meshes (the previous build's meshes copied back give its look). Since the 2026-11-01a build the tank's cream line is one smooth curve with round corners, the seat's piping is re-cut, the brake discs are our own drilled ones and the mirror glass is brighter; with F4SE the tail lamp lights the road behind a soft red, three times brighter while you brake (MCM "Tail lamp lights the road"), and **the bike is under you in first person** (MCM "Bike in first person"; no hands on the grips: the game shows no arms with the weapon away). Since the 2026-11-02a build the chrome is polished (its material files reflect six times as much, with sharper glints and screen-space reflections: test 48's "too dull"), the mirrors show the game's own mirror cube (test 48's pick of the two), the front brake disc has no light ring round its bore, and with F4SE the bike in first person stays under your eye at every speed (test 48: it slid back by 58 ms of the speed, so at full speed you sat over its rear wheel; `[View] Eye`). Since the 2026-11-06a build the chrome is toned down, still bright but not pearly or smeared (its material files reflect 2.5 times the cube where the 2026-11-02a build's did 6, with less specular and no screen-space reflections: test 49), the rims and discs are a little greyer, and with F4SE going into first person eases the view about 20 degrees down so the dial and the bars are in sight (MCM "Look down on getting into first person (deg)"; test 49's bike out of view looking level), with a riding field of view (off by default) and your eye's place on the bike in the MCM too; the optional MO2 folder "2026-11-02a look (A-B)" gives the 2026-11-02a build's look back. Since the 2026-11-09a build (test 50) opening the Pip-Boy from third person no longer tips the view, a little look of your own while the view eases down adds to it (past 5 degrees you take over), the ease starts a quarter of a second into first person, the view bike's place in the game's scene is made to hold it (test 50 never saw it; the plugin now logs how it is drawn) and the riding field of view looks for the game's own field more widely, from half a second into first person; and (test 51) a tip its own check turns off within 2 s of a load or of getting on is off for that entry only, not for the session; since the 2026-11-10a build the front wheel, the fork and the bars cast their shadow in the sun while you ride, as the parked bike's always did (test 52's wish), and in first person (test 52: the bike still never seen) the plugin moves the first-person bike under your own cell's node while it shows and runs the game's own update on it (`[View] Parent`, `Update`), logs four more `view: drawn?` lines to settle why it isn't seen, tries the camera's own two fields for the riding field of view (`FovSearch=2`), and lets a mouse move of up to 15 degrees add to the tip (`TipYield=15`)
-- **customising at the bike** (since the 2026-11-07a build): the parked bike's menu has a Customise button; a field kit comes out of the side bag beside the bike and you change the badges on both sides of the tank and on the rear fender (13 emblems of our own, from the Brotherhood of Steel to a pre-war army star, and four of the game's own by path), the paint (13 faction schemes, 24 colours, 6 neutrals, each with its coachline) and the mirrors (stock, under the bars egg or D, none) at the armour menu, paying in components; since the 2026-11-08a build also the rims (seven styles of our own, from laced spokes to a scrap plate, in chrome, satin black, gloss black, bronze, gunmetal or the body colour, and the cast rim in five finishes: 48 choices), the tyres (black, whitewall, red line), any paint colour from the MCM (a hue slider and four shades) and the licence plate (12 designs of our own, from the Commonwealth standard to Vault-Tec's and the factions', 60 stamped preset texts, crude ones among them behind a switch, and 16 colours for its letters and its background); the bike shows the new look parked, ridden and in first person. **Nothing changes until you choose**: every slot starts on the bike as it came. The MCM's Look section turns it off, picks the kit, and has a free mode with a choice per slot and faction sets (see *Customising the bike* below); since the 2026-11-09a build (test 51) the field kit's automatic mode puts an armour bench out first and then the game's own armour bench (the toolbox, which the game can't seat you at, only as a test), the parked bike shows a new paint or rim finish at once after an MCM apply, moving the MCM's paint hue or shade chooses Free colour, and the Vault-Tec plate's cog is redrawn at the plate's own size; since the 2026-11-10a build (test 52) the field kit's menu no longer shuts at once with Global Stash by SKK installed (the kit is linked to SKK's stash before it opens), a kit menu that closes within half a second with nothing changed never counts as working (the same kit once more, then the next kind), and a Free colour applied in the MCM shows from the first ride
+- **its look** (since the 2026-10-31a build): textured all over, with procedural textures baked from the 1.3-million-triangle model onto the game's mesh (the download has no textures): an oxblood tank and fenders with a clear coat and a cream double coachline, our own winged-wheel badge, dark mirror-like chrome, a black wrinkle-finish engine with bright fin edges, a leather-grained seat, tyres with their tread; a material file for every surface (the hook for paint and parts at a workbench later); with F4SE **a working speedometer** (its needle follows your speed, about 50 on the dial at full speed by default, and its numerals light up with the headlamp), **a tail light** lit while you ride that brightens with both rear signals when you brake, and **mirrors** that show a sky (Fallout 4 can't show real reflections), in the stock style or either of two styles hung under the bar ends (`[Look] Mirrors` in `CMB_Slope.ini`; since the 2026-11-07a build the ones you fit at the bike, which the parked bike shows too). Every new behaviour of the plugin has a key in `CMB_Slope.ini` whose off value gives the previous build's back; the textures and the lower triple clamp turning with the bars come with the meshes (the previous build's meshes copied back give its look). Since the 2026-11-01a build the tank's cream line is one smooth curve with round corners, the seat's piping is re-cut, the brake discs are our own drilled ones and the mirror glass is brighter; with F4SE the tail lamp lights the road behind a soft red, three times brighter while you brake (MCM "Tail lamp lights the road"), and **the bike is under you in first person** (MCM "Bike in first person"; no hands on the grips: the game shows no arms with the weapon away). Since the 2026-11-02a build the chrome is polished (its material files reflect six times as much, with sharper glints and screen-space reflections: test 48's "too dull"), the mirrors show the game's own mirror cube (test 48's pick of the two), the front brake disc has no light ring round its bore, and with F4SE the bike in first person stays under your eye at every speed (test 48: it slid back by 58 ms of the speed, so at full speed you sat over its rear wheel; `[View] Eye`). Since the 2026-11-06a build the chrome is toned down, still bright but not pearly or smeared (its material files reflect 2.5 times the cube where the 2026-11-02a build's did 6, with less specular and no screen-space reflections: test 49), the rims and discs are a little greyer, and with F4SE going into first person eases the view about 20 degrees down so the dial and the bars are in sight (MCM "Look down on getting into first person (deg)"; test 49's bike out of view looking level), with a riding field of view (off by default) and your eye's place on the bike in the MCM too; the optional MO2 folder "2026-11-02a look (A-B)" gives the 2026-11-02a build's look back. Since the 2026-11-09a build (test 50) opening the Pip-Boy from third person no longer tips the view, a little look of your own while the view eases down adds to it (past 5 degrees you take over), the ease starts a quarter of a second into first person, the view bike's place in the game's scene is made to hold it (test 50 never saw it; the plugin now logs how it is drawn) and the riding field of view looks for the game's own field more widely, from half a second into first person; and (test 51) a tip its own check turns off within 2 s of a load or of getting on is off for that entry only, not for the session; since the 2026-11-10a build the front wheel, the fork and the bars cast their shadow in the sun while you ride, as the parked bike's always did (test 52's wish), and in first person (test 52: the bike still never seen) the plugin moves the first-person bike under your own cell's node while it shows and runs the game's own update on it (`[View] Parent`, `Update`), logs four more `view: drawn?` lines to settle why it isn't seen, tries the camera's own two fields for the riding field of view (`FovSearch=2`), and lets a mouse move of up to 15 degrees add to the tip (`TipYield=15`); since the 2026-11-14a build (test 53: the bike seen at last, but shaking, and you sat over the tank) the first-person bike is held so your eye stays put on it as it tilts, following the game's own camera each frame (`[View] EyeLock`, `Camera`), your eye 11 units further back, over the seat, and the riding field of view is gone (the game wrote its own back)
+- **customising at the bike** (since the 2026-11-07a build): the parked bike's menu has a Customise button; a field kit comes out of the side bag beside the bike and you change the badges on both sides of the tank and on the rear fender (13 emblems of our own, from the Brotherhood of Steel to a pre-war army star, and four of the game's own by path), the paint (13 faction schemes, 24 colours, 6 neutrals, each with its coachline) and the mirrors (stock, under the bars egg or D, none) at the armour menu, paying in components; since the 2026-11-08a build also the rims (seven styles of our own, from laced spokes to a scrap plate, in chrome, satin black, gloss black, bronze, gunmetal or the body colour, and the cast rim in five finishes: 48 choices), the tyres (black, whitewall, red line), any paint colour from the MCM (a hue slider and four shades) and the licence plate (12 designs of our own, from the Commonwealth standard to Vault-Tec's and the factions', 60 stamped preset texts, crude ones among them behind a switch, and 16 colours for its letters and its background); the bike shows the new look parked, ridden and in first person. **Nothing changes until you choose**: every slot starts on the bike as it came. The MCM's Look section turns it off, picks the kit, and has a free mode with a choice per slot and faction sets (see *Customising the bike* below); since the 2026-11-09a build (test 51) the field kit's automatic mode puts an armour bench out first and then the game's own armour bench (the toolbox, which the game can't seat you at, only as a test), the parked bike shows a new paint or rim finish at once after an MCM apply, moving the MCM's paint hue or shade chooses Free colour, and the Vault-Tec plate's cog is redrawn at the plate's own size; since the 2026-11-10a build (test 52) the field kit's menu no longer shuts at once with Global Stash by SKK installed (the kit is linked to SKK's stash before it opens), a kit menu that closes within half a second with nothing changed never counts as working (the same kit once more, then the next kind), and a Free colour applied in the MCM shows from the first ride; since the 2026-11-14a build (test 53) Free colour shows in third person on every ride (the colours go into the chosen options' own swaps before the bike goes on: `[Look] WornIndex`), the armour menu names the item "Motorbike" and each slot's choice with its slot ("Paint: Factory"), its preview shows the whole bike, and the field kit comes out only in your own settlements (MCM "Field kit only in your settlements")
 - **a headlamp** (the Sketchfab build, F4SE): a round LED lamp on the fork bracket with its running light lit, and a real spot beam (like the power armor's, a light the mod places at the lamp) that turns with the bars and tilts with the bike; MCM: off, on, or on at night, and a hotkey
 - **rides like a vehicle, not a person**: 75% less fall damage while riding (adjustable), deep water ends the ride and leaves the bike on the bank, and an enemy's hit knocks you off (optional; since the 2026-11-06a build a power attack only when it takes the "Big hit" share of your health, as any other hit, explosions always: MCM "Power attacks throw you off", off by default; since the 2026-11-09a build the bike parked after a knock-off never appears inside someone: a spot with an actor in it has no room, the bike is put back where it stood only if that place is still free, and while anyone else stands where it would appear it stays hidden and shows once the place is clear (you count only in the bike's very place, and not where the mod has just put it clear of you: getting off, calling it, bringing it; since the 2026-11-10a build someone knocked down there counts too, as does a dog or a crouching NPC right beside the settled bike, and you only within 150 units of its ground): test 50's crash came half a second after a knock-off with raiders round the bike); with F4SE, hostile people, creatures and smaller robots (since test 43 by a list of their own, `CMB_RamRobots`) the bike hits at speed are knocked over and take a little damage, the bike losing some speed at each (since test 45's build a dog the mod's script hasn't answered for by the time you reach it is ridden through rather than braked for, and knocked over when the answer comes, and a robot ridden at again after a hit is knocked over again; since test 46's an old save's knock-overs no longer make it brake for those same animals; MCM "Knock enemies over"; never companions, essential characters, anyone in power armor or the big ones: super mutants, behemoths, deathclaws, sentry bots and the like; since the 2026-11-01a build the knock-over that takes an enemy's last health kills it, and the kill is yours, experience and quests as for a shot: MCM "Knock-overs can kill"; since the 2026-11-02a build a knock-over holds the throttle to 85% of the speed for a quarter of a second, not 60% for 0.4 s, and a pack's hits share one dip, so the bike no longer nearly stops at a pack; an enemy of a medium race the script hasn't answered for by the time you reach it is ridden through, not braked for, when it was said yes to earlier in the ride or you are in a fight; and a kill by the bike gives the game's own experience, the killing hit being your own damage: MCM "Kill experience")
 - **follows the ground**: the parked bike stands on the ground, tilted to match the slope (with F4SE, on the ground you just rode over, and since test 46's build a called bike on the ground under its wheels, leaning up to 20° across a slope; since test 47's getting off where you got on puts the bike back where it stood, the parked spot is checked for room as a call's is, and a bike called while you stand on a car comes to the ground beside it); with F4SE, the bike also pitches with the ground while you ride, leans into turns at speed (the rider with it, head level), stops short of boulder faces but slides along a railing beside it, climbs over low fallen trunks and stumps and up a step, but since test 45's build not onto a rail, a barrier or a log with a drop behind it (since test 46's not onto a rail lying on the ground or met at an angle nor along a fence either, and at full speed it stops short of a rail rather than with its front wheel in it; since test 47's it eases off only for what stays in its way, not for things you steer past, looks along its turn, stops about a wheel's radius short of a rail, isn't climbed onto a rail met at a shallow angle and doesn't ride on along one its front wheel is in), keeps its tyres on top of small bumps, takes a landing on its suspension and keeps going, backs up to a rail or a ledge's lip with its rear tyre just short of it and down off something it hangs on, turns in a circle rather than on the spot, climbs slopes too steep to walk up, and the camera sits farther back (since the 2026-11-01a build it also looks along the arc of the turn you're in, so a thing beside the curve eases the throttle by its distance instead of stopping the bike, a barrier on legs isn't climbed, a call from on top of a car or a truck puts the bike on the ground beside it rather than on its edge, and a high drop no longer halves the speed for most of a second; since the 2026-11-02a build a narrow thing ahead, a mailbox, a lamp post or a sign, is eased past by its distance and never stops the bike, while walls, cars and rails met square still do, a kerb or a log at speed holds the throttle to 85% rather than 55%, and a touch along a rail or a car's flank picks up again at once rather than from a crawl; since the 2026-11-06a build it steps round a post or a mailbox on its path to the open side (`Sidestep`) when you ride straight at it, a rail over posts is a wall, a pull-away from rest is punchier in its first second, and a call from on top of a truck tries the most room's own navmesh point first, so the bike comes down to the street; since the 2026-11-09a build how early it eases off for a wall or a car ahead is the MCM's "Caution", closer by default (60%: the throttle eases from about 8 m at full speed, where it was 11 m; 100% is the 2026-11-08a build), a bridge's end post with a drop behind it is no longer climbed as a step, and a call from a truck's bed tries the navmesh beside the truck first; since the 2026-11-10a build a new save starts at Caution 50, the sidestep still finding a post at Caution 60's reach, and a mouse move under 5 degrees no longer cancels a sidestep)
 - **its own sounds** (since the 2026-11-01a build; the game's own sound files, since the 2026-11-02a build under sound records of the mod's own, heard at the riding camera's distance: test 48 heard none of them): your character's own jump and landing sounds are muted while you ride; a tyre thump on every landing with a real fall, louder the higher the drop, a metal clunk on big ones and a splash into water; with F4SE a spray riding through shallow water, by speed and depth (the MCM's Sound section: "Bike sounds through the mod's own records", "Landing loudness range (dB)"); since the 2026-11-06a build landings sound like tyres and a dull thud, no metal, riding into water splashes, and riding through water is the mod's own wet-road swish, quieter when slow, louder at speed (MCM "Landing sounds without metal", "Water sound loop"); since the 2026-11-09a build a second, gentler wet-road loop from the same recording, with less hiss and more body, is the default ("Wet road, gentle"; "Wet road (the mod's own)" is the earlier one), since the 2026-11-10a build 3 dB louder (test 52's wish; `[Fx] WaterGentleDb=-3` is 2026-11-09a's level)
 - **MCM menu** for every setting (with MCM installed); with F4SE, gear in the bike's slot goes back on after a ride
 
-> **Status: in testing.** It has been tested in game round by round since the first build (test 52 the
+> **Status: in testing.** It has been tested in game round by round since the first build (test 53 the
 > latest), each round answered from the logs and videos sent back. Every round's changes are checked offline
 > before they ship: the plugin's structure, every script property and the vanilla form IDs, the scripts compiled
 > against stand-in versions of the Fallout 4 scripting API, and `CMB_Slope.dll` run against a fake game
@@ -104,7 +104,8 @@ Don't favorite the keys to the F4SE hotkey's own key: one press then fires both,
 Since the 2026-11-07a build (the first customisation build; the second, 2026-11-08a, adds the rims, the tyres, a free
 paint colour and the licence plate). Activate the parked bike and choose **Customise**: a field kit (a toolbox) comes
 out of the side bag beside the bike, on your side, you stand at it and the armour menu opens with the bike listed as
-"Motorbike". Its eleven slots:
+"Motorbike" (up to 2026-11-10a the menu called it "Default", its object template's name: test 53). Since the 2026-11-14a
+build the kit comes out only in a settlement of yours (below). Its eleven slots:
 
 | Slot | Choices (the first is the bike as it came) | Cost |
 |---|---|---|
@@ -155,18 +156,31 @@ toolbox from an older build is forgotten once). The toolbox modes are tests: the
 2026-11-08a automatic tried it first and remembered a mode as soon as its menu opened: `[Look] KitHeld=0`). Emergency
 reset also puts a field kit away.
 
-**MCM, Look** (before Hotkeys; 20 controls since 2026-11-08a): "Customise at the bike" (on: the Customise button; off:
-no button and the bike as it came), "Field kit" (Automatic, two toolbox tests, Armour bench and, since 2026-11-09a, "The
-game's armour bench"), "Parts from the side bag", "Crude plate texts" (since 2026-11-08a, on by default; off: the 14
-crude plate texts aren't offered at the kit, and a plate wearing one shows its design's own text at the next getting on,
-activation or Apply), and "Free customising (no field kit, no cost)", which shows a choice per slot (the eleven above,
-with "Paint hue" and "Paint shade" under the paint), "Faction set" (the paint and all three badges of one of eleven
-sets, and for six of them the plate) and "Apply the look": it puts the choices on the parked and first-person bikes at
-once and on the ridden bike at the next getting on, except a new rim style: then the ridden bike is put on again within
-about a second (you stay seated; the bike is gone for a moment). Turning "Customise at the bike" off (or changing a
-choice without "Apply the look") takes effect at the next getting on or activation of the parked bike (or Apply, or a
-load), and on the ridden bike also when it swaps mid-ride (a weapon drawn or put away, a hit); a load mid-ride with
-"Customise at the bike" off puts the ridden bike on again too if its rims weren't the cast ones.
+**The 2026-11-14a build's field kit** (test 53's wishes). Each slot's choice is named with its slot in the armour
+menu ("Tank L: Stock (winged wheel)", "Paint: Factory", "Rims: ..."; the slot rows show the fitted mod's name), and the
+menu's preview shows the whole bike, smaller and turned three-quarters, with room to zoom (test 53: a tyre filled it):
+with F4SE `CMB_Slope.dll` writes the preview at run time, as the MCM's "Field kit preview" says (New; As before, the
+2026-11-10a build's view; Tune, with six sliders for its size, turn, tilt, height and zoom limits). With MCM Look
+"Field kit only in your settlements" on (the default) Customise opens the kit only in a settlement whose workshop is
+yours; anywhere else "The field kit works only in your settlements." and nothing comes out of the side bag (off:
+anywhere, as before). "Free customising" in the MCM works anywhere either way. The names have no switch: an ESP built
+with the generator's `--kit-names 0` has 2026-11-10a's (not in the package). Free colour now shows on the ridden bike in
+third person too (test 53: blue there on every ride but the one the game loaded into): before the bike goes on, its
+colours are written into the chosen options' own swaps, which the game builds the bike from (`[Look] WornIndex`).
+
+**MCM, Look** (before Hotkeys; 20 controls since 2026-11-08a, 21 since 2026-11-14a): "Customise at the bike" (on: the
+Customise button; off: no button and the bike as it came), "Field kit" (Automatic, two toolbox tests, Armour bench and,
+since 2026-11-09a, "The game's armour bench"), since 2026-11-14a "Field kit only in your settlements" (on; and the
+section "Field kit preview" after Look), "Parts from the side bag", "Crude plate texts" (since 2026-11-08a, on by
+default; off: the 14 crude plate texts aren't offered at the kit, and a plate wearing one shows its design's own text at
+the next getting on, activation or Apply), and "Free customising (no field kit, no cost)", which shows a choice per slot
+(the eleven above, with "Paint hue" and "Paint shade" under the paint), "Faction set" (the paint and all three badges of
+one of eleven sets, and for six of them the plate) and "Apply the look": it puts the choices on the parked and
+first-person bikes at once and on the ridden bike at the next getting on, except a new rim style: then the ridden bike
+is put on again within about a second (you stay seated; the bike is gone for a moment). Turning "Customise at the bike"
+off (or changing a choice without "Apply the look") takes effect at the next getting on or activation of the parked bike
+(or Apply, or a load), and on the ridden bike also when it swaps mid-ride (a weapon drawn or put away, a hit); a load
+mid-ride with "Customise at the bike" off puts the ridden bike on again too if its rims weren't the cast ones.
 
 Known, left for now: in the menu, while the right badge follows the left, the preview shows the right as the left was
 when the menu opened (the bike follows the new left once you close it); after a load the parked bike's look comes back
@@ -178,7 +192,9 @@ after a new design is taken the preview shows the old design's own text until th
 didn't fit are still drawn, invisible, on the parked bike (TESTING's step 12 asks about the frame rate); a rim style
 changed in the MCM while riding puts the ridden bike on again within about a second (it blinks out for a moment). Since
 2026-11-09a the parked bike blinks once when its look is put on outside a ride (an apply, the kit's end, a load beside
-it: ParkedReload). Weathered paint, more badges, the front fender, the headlamp's colour and the seat come later.
+it: ParkedReload). Since 2026-11-14a: the preview's values are a first guess (the bike may be small: zoom in, or Tune),
+and an option you didn't choose keeps the last colour written into it until you choose it again (only the preview
+shows that). Weathered paint, more badges, the front fender, the headlamp's colour and the seat come later.
 
 ## Console settings
 
@@ -217,7 +233,9 @@ it: ParkedReload). Weathered paint, more badges, the front fender, the headlamp'
 | `set CMB_LookOn to <0/1>` (MCM Look "Customise at the bike", since 2026-11-07a: 0 = no Customise and the stock look, as 2026-11-06a, the bikes at the next getting on, activation of the parked bike, "Apply the look" or load) | 1 |
 | `set CMB_KitMode to <0–4>` (MCM Look "Field kit", since 2026-11-07a: 0 automatic, since 2026-11-09a the armour bench then the game's own, `WorkbenchArmorA` (up to 2026-11-08a the toolbox then the armour bench); 1 the toolbox, 2 the toolbox with the armour bench's keyword (both tests: the toolbox can't be sat in), 3 the armour bench, 4 the game's armour bench (since 2026-11-09a)) | 0 |
 | `set CMB_KitWorked to -1` (console only, since 2026-11-07a: the mode automatic found working, since 2026-11-09a 3 or 4 (a 1 or 2 an older build wrote is forgotten); -1 = start at the armour bench again) | -1 |
-| `set CMB_LookOptions to <0–4095>` (console only, since 2026-11-09a, without F4SE: test 51's six script switches, 1 FastMount, 2 KitHeld, 4 ParkedReload, 8 PaletteIndex, 16 MountGuard, 32 HueFree, and since 2026-11-10a test 52's five, 128 KitStash, 256 KitRetry, 512 MountEarly, 1024 WornColoursFirst, 2048 HueSwap (64 is the plugin's own); 0 = all off, as 2026-11-08a; 63 = 2026-11-09a's; with F4SE `CMB_Slope.dll` writes it from `[Look]` at its start, at a load and on getting on, so set those keys instead) | 4031 (63 in 2026-11-09a) |
+| `set CMB_KitWhere to <0/1>` (MCM Look "Field kit only in your settlements", since 2026-11-14a: 1 = Customise at the parked bike opens the field kit only in a settlement whose workshop is yours, elsewhere a message and no kit; 0 = anywhere, as 2026-11-10a; MCM "Free customising" works anywhere either way) | 1 |
+| `set CMB_KitPreview to <0–2>` (MCM "Field kit preview", since 2026-11-14a, F4SE plugin: how the field kit's armour menu shows the bike, 1 New, 0 As before (2026-11-10a's view, a tyre filling the menu), 2 Tune: `CMB_KitPrevSize` (%), `CMB_KitPrevTurn` and `CMB_KitPrevTilt` (steps of 6.4 degrees), `CMB_KitPrevUp`, `CMB_KitPrevZoomOut`, `CMB_KitPrevZoomIn`, the MCM's six "Preview ..." sliders; at the next Customise) | 1 (the sliders 30, 7, 0, 0, -1, 1) |
+| `set CMB_LookOptions to <0–32767>` (console only, since 2026-11-09a, without F4SE: test 51's six script switches, 1 FastMount, 2 KitHeld, 4 ParkedReload, 8 PaletteIndex, 16 MountGuard, 32 HueFree, since 2026-11-10a test 52's five, 128 KitStash, 256 KitRetry, 512 MountEarly, 1024 WornColoursFirst, 2048 HueSwap, and since 2026-11-14a test 53's two, 4096 WornIndex, 8192 KeptMods (64 and 16384 are the plugin's own; it writes 32767 at its defaults); 0 = all off, as 2026-11-08a; 63 = 2026-11-09a's; with F4SE `CMB_Slope.dll` writes it from `[Look]` at its start, at a load and on getting on, so set those keys instead) | 4031 (63 in 2026-11-09a) |
 | `set CMB_LookHue to <0–359>` (MCM Look "Paint hue", since 2026-11-08a: the Free colour paint's hue round the colour wheel, 0 red, 120 green, 240 blue; used only with Paint "Free colour", from "Apply the look" or the next getting on or activation of the parked bike) | 210 |
 | `set CMB_LookShade to <0–3>` (MCM Look "Paint shade", since 2026-11-08a: the Free colour paint's shade, 0 Deep, 1 Normal, 2 Light, 3 Pastel) | 1 |
 | `set CMB_LookPlateCrude to <0/1>` (MCM Look "Crude plate texts", since 2026-11-08a: 0 = the 14 crude plate texts not offered at the field kit, and a plate wearing one shows its design's own text from the next getting on, activation of the parked bike or "Apply the look") | 1 |
@@ -235,7 +253,7 @@ it: ParkedReload). Weathered paint, more badges, the front fender, the headlamp'
 | `cqf CMB_ControllerQuest DecideTeleportsAtOnce 1` (a door or a fast travel decided the moment the game sends it, as up to test 40; 0 = once it's over; kept in the save) | 0 |
 | `cqf CMB_ControllerQuest WatchBusy 0` (no busy watch: a keys, hotkey or bike action that hangs isn't let go after 10 s; 1 = on again; kept in the save) | 1 |
 
-With MCM installed, all of these but the two sound picks, `CMB_RiderSteadyWay`, `CMB_PoseUseWindow`, `CMB_UseCameraFix`, `CMB_RiderUseOwn`, `CMB_FxThudDb`, `CMB_KitWorked`, `CMB_LookOptions` and the commands are in *Mod Config → Commonwealth Motorbike* instead. The 2026-11-06a build adds seven controls there: in Riding "Look down on getting into first person (deg)" (`CMB_ViewTip`, 20; 0 = the view left as it is, as 2026-11-02a), "Field of view riding in first person" (`CMB_ViewFov`, 0 = your own; 60-120), "Eye forward on the bike" and "Eye height on the bike" (the two above), and "Power attacks throw you off" (`CMB_KnockOffPower`, off; on = every power attack does, as 2026-11-02a); in Sound "Landing sounds without metal" (`CMB_FxLandDull`, on; off = 2026-11-02a's sets) and "Water sound loop" (`CMB_FxWaterLoop`: "Wet road (the mod's own)", the default, "Churning water", or "As the 2026-11-02a build (spray)", next time you get on). The console's `set CMB_ViewTip to 15` and `set CMB_ViewFov to 90` set the first two. The 2026-11-07a build adds the Look section (11 controls, *Customising the bike* above), the 2026-11-08a build nine
+With MCM installed, all of these but the two sound picks, `CMB_RiderSteadyWay`, `CMB_PoseUseWindow`, `CMB_UseCameraFix`, `CMB_RiderUseOwn`, `CMB_FxThudDb`, `CMB_KitWorked`, `CMB_LookOptions` and the commands are in *Mod Config → Commonwealth Motorbike* instead. The 2026-11-06a build adds these controls there: in Riding "Look down on getting into first person (deg)" (`CMB_ViewTip`, 20; 0 = the view left as it is, as 2026-11-02a), "Eye forward on the bike" and "Eye height on the bike" (the two above), and "Power attacks throw you off" (`CMB_KnockOffPower`, off; on = every power attack does, as 2026-11-02a); in Sound "Landing sounds without metal" (`CMB_FxLandDull`, on; off = 2026-11-02a's sets) and "Water sound loop" (`CMB_FxWaterLoop`: "Wet road (the mod's own)", the default, "Churning water", or "As the 2026-11-02a build (spray)", next time you get on). The console's `set CMB_ViewTip to 15` sets the first. The 2026-11-07a build adds the Look section (11 controls, *Customising the bike* above), the 2026-11-08a build nine
 more in it (20): "Crude plate texts", "Paint hue", "Paint shade" and a choice for each of the six new slots.
 The 2026-11-09a build adds "Caution (how early the bike eases off for obstacles, %)" in Riding, after "Turning
 when stopped (deg/s)" (`CMB_Caution`, 50-100 in steps of 5, 60 by default; 100 = 2026-11-08a; it needs the
@@ -244,13 +262,161 @@ mod's own)" is 2026-11-08a's). A save from an earlier build keeps its own "Water
 gentle" there by hand. Test 51's fixes add a fifth choice to Look's "Field kit", "The game's armour bench", and the
 "Paint hue" and "Paint shade" helps say that moving them chooses Paint "Free colour" at Apply. The 2026-11-10a build
 makes Riding's "Caution" 50 by default for a new save (its help says so; a save keeps its own value: set 50 by hand
-to try it, 60 was 2026-11-09a's default); nothing else in the MCM changes.
+to try it, 60 was 2026-11-09a's default). The 2026-11-14a build adds "Field kit only in your settlements" to Look,
+after "Field kit" (21 controls), and a section of its own after Look, "Field kit preview" (New, As before or Tune, and
+six "Preview ..." sliders for Tune), and Riding no longer has a field of view setting (test 53: the game wrote its own
+back; `[View] Fov` below).
 
 ## CMB_Slope.ini (F4SE plugin): this build's new keys
 
 `Data\F4SE\Plugins\CMB_Slope.ini` holds the plugin's settings, read again each time you get on; each section's comments
-say what every key does. The 2026-11-10a build answers test 52, and every new behaviour has a key, an MCM value or a
-`CMB_LookOptions` bit whose off value gives the 2026-11-09a build back:
+say what every key does. The 2026-11-14a build answers test 53, and every new behaviour has a key, an MCM value or a
+`CMB_LookOptions` bit whose off value gives the 2026-11-10a build back (for the gears, all their rows together); the one
+exception is the field kit's names (below):
+
+| Key or control | Default | Off (2026-11-10a) |
+|---|---|---|
+| `[Steer] QuickKeyCodes` | auto | scan: QuickKeys compared raw (never the game's codes) |
+| `[Steer] QuickKeyState` | 1 | 0: the number keys not read from the keyboard's own state |
+| `[Steer] QuickCut` | 1 | 0: an unapplied clip after a number key not handed to the script |
+| `[Steer] UseStopUnapplied` | wait | cut: an item's clip at speed cut at its props whatever |
+| `[Steer] UseStopWaitMax` | 3 (seconds) | (a parameter: how long a clip with no item yet is left to play) |
+| `[Steer] UseStopLead` | 1.5 (seconds) | (a parameter: how long before its props an item's use is that clip's) |
+| `[Diag] QuickProbe` | 1 | 0: no self-test lines, no hotkey-key lines |
+| `[Look] WornIndex` (`CMB_LookOptions` 4096) | 1 | 0: the worn bike's colours by the plugin's write and HueSwap's swap only (once it was 1 in a session, the options' swaps are put back before each getting on) |
+| `[Look] KeptMods` (8192) | 1 | 0: any change of the look re-attaches the kept worn bike's mods |
+| `[Look] Repass` | 0 | (0 is off; 1 = an A/B: the game's own render-pass clear after a colour write) |
+| `[Diag] WornPasses` | 1 | 0: no "was" words, no `look: the worn paint's passes` or `the worn paint not written` lines |
+| MCM Look "Field kit only in your settlements" (`CMB_KitWhere`, new) | on | off: the field kit anywhere |
+| MCM "Field kit preview" (`CMB_KitPreview`, new) | New | As before (the ESP's view: a tyre fills the menu) |
+| MCM "Preview size (%)", "Preview turn", "Preview tilt", "Preview up / down", "Preview zoom out", "Preview zoom in" (`CMB_KitPrevSize` ... `CMB_KitPrevZoomIn`, new) | 30, 7, 0, 0, -1, 1 | (used only with "Field kit preview" Tune) |
+| `[Look] KitPreview` | 1 | 0: the plugin never writes the preview |
+| `[Look] KitPreviewPos`, `KitPreviewTurn`, `KitPreviewScale`, `KitPreviewZoom` (commented out: the defaults) | 0,0,0; 0,0.02,44.764; 0.3; -1,1 | (parameters: the preview "New") |
+| `[Look] KitPreviewLog` | 1 | 0: no `kit:` lines |
+| the field kit's item and slot names (the ESP) | "Motorbike"; "Paint: Factory" and so on | (no switch: an ESP from the generator's `--kit-names 0` has 2026-11-10a's names; not in the package) |
+| `[View] EyeAt` (changed) | 0,1,128 | 0,12,128 (over the tank's rear) |
+| `[View] EyeLock` | 1 | 0: your eye followed on the untilted bike with EyeSmooth (the bike swung under you with the tilt) |
+| `[View] EyeAxes` | 1 | 0: the first-person bike turned as the third-person skeleton is, not along your heading |
+| `[View] Camera`, `EyeAtCamera` | 1, 1 | 0, 0: no camera call wrapped; the bike placed by the plugin's frame and `Lead` alone |
+| `[View] Fov` | 0 | 1: `CMB_ViewFov` used again (console only: the MCM slider is gone) |
+| `[Diag] ViewLock` | 1 | 0: no `view: lock:` line |
+| MCM Riding "Field of view riding in first person" | removed | (`[View] Fov=1` and `set CMB_ViewFov to <60-120>`) |
+| `[Sound] MenuQuiet`, `MenuQuietOut`, `MenuQuietIn` | 1, 0.15, 0.3 (seconds) | `MenuQuiet=0`: heard through a menu |
+| `[Sound] HeardKeep`, `HeardCreep` | 1, 0.3 | `HeardKeep=0` |
+| `[Sound] LiftDown` | 0.08 | 0 |
+| `[Sound] ShiftRpm` (changed) | 3500 | 2500 |
+| `[Sound] Gears` (changed) | 410.6,636.4,954.5,1272.7,1626.4 | 555.556,750,960,1161.6 |
+| `[Sound] ShiftDraw` (changed) | 3200,3700 | 2300,3000 |
+| `[Sound] HeardRiseGears` (changed) | 2,0.79,0.65,1,1 | 2.5,0.95,0.5,1 |
+| `[Sound] ShiftGapGears` (changed) | 0,2,3,1.5 | 0,2,3 |
+| `[Sound] LaunchRise` (changed) | 650 | 350 |
+| `[Sound] LaunchFlare` (changed) | 0.35 | 0.5 |
+| `[Diag] HandoverFromReady` | 1 | 0: the late hand-over line from the ride's start, past 6.0 s |
+
+What they do:
+- **QuickKeyCodes, QuickKeyState, QuickCut, UseStopUnapplied, UseStopWaitMax, UseStopLead, QuickProbe** (test 53: a
+  stimpak by its number key at speed was never used and no `quick:` line came: the game gives a key's virtual-key code,
+  0x31 for number key 1, and QuickKeys' scan codes never matched; the clip was then cut before the game applied the
+  item): the plugin now finds a number key by the game's own name for it (`Quickkey1` to `Quickkey12`, whatever key you
+  bound) or by its virtual key, and the log shows the key in hex: `quick: key 0x31 (the slot 1, the game's 'Quickkey1')
+  at 812 u/s: Stimpak (00023736, a potion) handed to the script's watch, not the game's animated use (allowStimpakUse
+  1): CMB_RiderQuickUse 17` (number key 1 is 0x31, 2 is 0x32 and so on, 0 is 0x30, - is 0xBD, = is 0xBB). `QuickKeys` is
+  still written as scan codes: the plugin turns them into the game's keys. If the plugin still can't take a key
+  (QuickUse off, a gamepad), a potion's clip at speed is cut at its props and the item handed to the hotkey script,
+  which uses it unless the game did (QuickCut: `quick: number key (0x31, the slot 1) at N u/s: Stimpak (...) not taken
+  from the game, its use clip cut at the props before the item came: handed to the script's watch to use it (QuickCut):
+  CMB_RiderQuickUse -N`), or the clip plays until the item is used and is cut then (UseStopUnapplied: `... left to play
+  until it is, 3 s at most (UseStopUnapplied)`), so the stimpak always heals. Each item use now counts for one clip
+  only: a double-tap, or a stimpak right after a chem, is no longer cut unused. QuickProbe's lines (`quick: self-test:
+  ...`, `quick: this ride: ...`, `input: the first movement key from the game: ...`, `quick: the ride began 1.92 s after
+  the 0 key (0x30) went down ...`) show where a key gets lost and which key the bike's own hotkey is pressed as: 0 or B.
+- **WornIndex, KeptMods, Repass, WornPasses** (`CMB_LookOptions` 4096 and 8192; test 53: Free colour blue in third
+  person on every ride but the one the game loaded into, though the plugin's write read back): before the worn bike goes
+  on, the look's colours are written as the colour indexes of the chosen options' own material swaps, so the game builds
+  the worn bike with them, as it does the parked bike (`Look: the worn bike's colour indexes before its equip
+  (WornIndex): Paint 4 of 4 set ...`); no F4SE swap after the fade. A colour-only change (hue, shade, plate colours,
+  mirrors) no longer re-attaches the kept worn bike's mods (KeptMods; about 1.2 s quicker). `[Diag] WornPasses` says
+  what the worn paint's material held before the write (`...; was 0.3374 already, 2 passes built before it`) and what
+  its render passes hold 0.5 s and 2 s after, and with Paint "Palette test: colour index" what the game put in it
+  (`look: the worn paint not written (...): ...'s material holds 0.4609`); `[Look] Repass=1` is an A/B: the game's own
+  render-pass clear after a colour write. The plugin writes `CMB_LookOptions` 32767 at its defaults (16384 is its own:
+  WornIndex was on this session); without F4SE the ESP's 4031 holds none of the new bits.
+- **The field kit** (test 53's wishes): the armour menu names the item "Motorbike" (it read "Default", its object
+  template's name) and every slot's choice with its slot, "Paint: Factory", "Rims: ...", "Tank L: ..." (only the
+  plugin's names: the same records, nothing in a save; the way back is an ESP built with `--kit-names 0`, not shipped);
+  the preview shows the whole bike, smaller and turned three-quarters with room to zoom out ("Field kit preview" New;
+  Tune and its six sliders move it, As before is 2026-11-10a's tyre), written by the plugin while the game runs (`kit:
+  the preview's transform written (the new one): ...`), and `[Look] KitPreviewLog` logs the preview's numbers and the
+  menu's zoom so the next build can fix the best values in the ESP; and with "Field kit only in your settlements" on,
+  Customise at the parked bike opens the kit only in a settlement whose workshop is yours: anywhere else "The field kit
+  works only in your settlements." and nothing comes out of the side bag (`Customise refused: not in one of your
+  settlements (...)`). "Free customising" in the MCM works anywhere either way.
+- **EyeLock, EyeAxes, Camera, EyeAtCamera, ViewLock** (first person; test 53: "bike was shaking violently ... felt like
+  character was sitting on fuel tank"): the first-person bike is held so your eye sits at `EyeAt` on it as it is tilted
+  (the pitch on a slope, the lean, the lift), at once every frame, so the bike turns about your head and never moves
+  against it; it points along your heading; and the game's own first-person camera call is wrapped so the bike follows
+  the camera's place of each frame (`camera: FirstPersonState (...): GetTranslation (slot 0xD, ...) wrapped ...`).
+  `EyeAt` is 11 units further back, over the seat, where the game's own camera sits at a stop; the MCM's "Eye forward on
+  the bike" still adds to it. `[Diag] ViewLock`'s `view: lock:` line every 2 s says what moves what.
+- **Fov** (test 53: the game wrote its own 80 back; "fov slider ... can be dropped"): the riding FOV is gone, with the
+  MCM's slider; an older save's slider value is ignored (`view: CMB_ViewFov 90 (an older save's riding FOV) left alone:
+  ...` once). `FovSearch`, `FovTime` and `FovOffset` act only with `Fov=1`.
+- **MenuQuiet, MenuQuietOut, MenuQuietIn** (test 53: the bike heard in the Pip-Boy and the pause menu): while a menu
+  pauses the game the engine and the water loop fade out over `MenuQuietOut` (0.15 s) and back over `MenuQuietIn` (0.3
+  s) after it (`sound: held at gear 3, ...; the loops out over 0.15 s (MenuQuiet)`, `sound: resumed after ...; the loops
+  back over 0.30 s from the close (MenuQuiet)`); 0 = heard through it.
+- **HeardKeep, HeardCreep** (test 53: "the climb in the sound wasn't smooth, it was dropping when it shouldn't"): with
+  the throttle on and the bike gaining the engine's note never falls (the heard speed kept up, creeping on at
+  `HeardCreep` 0.3 of its gear's rise; the trace's ` keep`); 0 = 2026-11-10a.
+- **LiftDown** (test 53: 2nd to 1st on a throttle lift): a lift's down-shift only once the heard speed is 8 % under the
+  lift's (never for a gear already under `DownRpm`), so a lift with the speed holding never blips down; a stop's
+  down-shifts are as before; 0 = 2026-11-10a.
+- **The gears** (test 53: "a bit flat - didn't raise RPM as much as I was expecting"): five gears up-shifting at about
+  3200-3400 rpm at full throttle (into 5th about 2500), 2nd and 3rd climbing all through, a short 4th, the cruise as
+  before (5th is the old 4th: 1937 rpm at 900 u/s): `ShiftRpm` 3500, `Gears` 410.6,636.4,954.5,1272.7,1626.4,
+  `ShiftDraw` 3200,3700, `HeardRiseGears` 2,0.79,0.65,1,1, `ShiftGapGears` 0,2,3,1.5, `LaunchRise` 650, `LaunchFlare`
+  0.35; all seven at their 2026-11-10a values are that build's gears (`ShiftDraw=2900,3400` is a milder set with the new
+  gears). After each getting off `sound: generation N's ride: the note held N times for N s while the bike gained
+  (HeardKeep), N lift down-shift(s) held back (LiftDown); ...`.
+- **HandoverFromReady**: the engine's late hand-over line counts from the moment the bike was ready (`sound: generation
+  N handed over 5.2 s after the bike was ready (usually 3; 8.1 s after the ride's start)`), not from the press, which a
+  look change's attach could stretch (test 53's false 6.1 s).
+- **CMB_KitWhere to CMB_KitPrevZoomIn**: eight new globals (0xBF7-0xBFE) for the MCM's new controls; `CMB_ViewFov`
+  (0x8B1) stays in the ESP, unused.
+
+Each part's settings line is in `CMB_Slope.log` at the start: `  quick (2026-11-14a, test 53): QuickKeyCodes=auto (the
+game's Quickkey names, else QuickKeys' virtual keys 0x31,0x32,...,0xBD,0xBB) QuickKeyState=1 QuickCut=1
+UseStopUnapplied=wait UseStopWaitMax=3 UseStopLead=1.5 QuickProbe=1`, `  look (2026-11-14a, test 53): WornIndex=1
+KeptMods=1 Repass=0; [Diag] WornPasses=1 HandoverFromReady=1: CMB_LookOptions 32767 for the scripts`, `  kit
+(2026-11-14a): [Look] KitPreview=1 (New: pos 0,0,0, turn 0,0.02,44.764, scale 0.3, zoom -1..1) KitPreviewLog=1`, `  view
+(2026-11-14a, test 53): EyeLock=1 (...) EyeAxes=1 Camera=1 EyeAtCamera=1 (...) Fov=0 (...); [Diag] ViewLock=1`, `  sound
+(2026-11-14a, test 53): HeardKeep=1 HeardCreep=0.3 LiftDown=0.08: ...` and `  sound (2026-11-14a, test 53): MenuQuiet=1
+MenuQuietOut=0.15 MenuQuietIn=0.3: ...`; the 2026-11-10a and 2026-11-09a look lines now say `CMB_LookOptions 32767 for
+the scripts`.
+
+Known, left for now:
+- Whether the number keys reach the favourites' handler at all is the self-test's to say (`quick: self-test: in N s:
+  ...`); if they don't, QuickCut or UseStopUnapplied still heal at speed, after the clip's props.
+- The MCM's help for the built-in hotkey says "48 = B"; F4SE takes the game's own key code, where 48 is the 0 key: the
+  hotkey lines say which, and the help is fixed once test 54 has said.
+- Free colour in third person rests on the game applying a colour swap's index while it builds the ridden bike: the
+  Palette test says whether it does. An option you didn't choose keeps the last colour written into it until you choose
+  it again (only the armour menu's preview can see that). The first getting on after a real change of mods (not just a
+  colour) is still about 1.2 s slower.
+- The field kit's preview values are a first guess (the bike may be small: zoom in, or Tune); the names have no switch
+  in the game.
+- Whether the game lowers the sound while paused (MenuQuiet's premise) is test 54's question; after a menu that ends
+  with the bike much slower than when it opened the note can still fall, as in 2026-11-10a; the throttle-off loop is
+  pitched further up at the top of a pull.
+- Looking back when reversing, the A/D lean, handguns on the bike, sidesteps round bigger things and the right-hand
+  cables in first person come in 2026-11-14b.
+
+### The 2026-11-10a build's keys (still there; off = 2026-11-09a)
+
+Every new behaviour of the 2026-11-10a build (test 52) has a key, an MCM value or a `CMB_LookOptions` bit whose off
+value gives the 2026-11-09a build back. Since 2026-11-14a `QuickKeys` is turned into the game's own key codes
+(`[Steer] QuickKeyCodes`) and the log names a key in hex (`quick: key 0x31 ...`) where the text below says scan codes,
+and the FOV rows act only with `[View] Fov=1`:
 
 | Key or control | Default | Off (2026-11-09a) |
 |---|---|---|
@@ -388,12 +554,12 @@ What they do:
   bike 150 to your right (`view: third person: the view bike shown 150 to your right ([Diag] ViewThird): is a second
   bike there?`). Test 53 says whether the bike shows now.
 - **FovSearch=2** (test 52: the riding field of view never found; the camera's live pair read 80 and 80 at +0x168 and
-  +0x16C): "Field of view riding in first person" now tries the camera's own two fields, the world FOV at
-  PlayerCamera+0x168 first, checked against the camera's frustum, and keeps it only if the view widens with it 0.1 s on
-  (`camera: the world FOV at PlayerCamera+0x168 (...), 0.51 s into first person (FovSearch=2)`, then `camera: the world
-  FOV at PlayerCamera+0x168 (...): followed, kept (...)`); otherwise it is put back and the first-person field is tried at
-  the next entry (`camera: PlayerCamera+0x168 not followed (...): put back; +0x16C at the next entry`). Neither field a
-  field of view: 2026-11-09a's search.
+  +0x16C): the riding field of view (the MCM's slider till 2026-11-10a) now tries the camera's own two fields, the world
+  FOV at PlayerCamera+0x168 first, checked against the camera's frustum, and keeps it only if the view widens with it
+  0.1 s on (`camera: the world FOV at PlayerCamera+0x168 (...), 0.51 s into first person (FovSearch=2)`, then `camera:
+  the world FOV at PlayerCamera+0x168 (...): followed, kept (...)`); otherwise it is put back and the first-person field
+  is tried at the next entry (`camera: PlayerCamera+0x168 not followed (...): put back; +0x16C at the next entry`).
+  Neither field a field of view: 2026-11-09a's search.
 - **TipYield 15** (test 52: right after a load the tip was taken over by a 5-8 degree mouse move): your own look adds to
   the 20-degree look down and stops it only past 15 degrees.
 - **MenuHold, MenuRejoin** (test 52: the Pip-Boy at speed dropped the engine to 1st with the clutch in, then it climbed
@@ -455,7 +621,7 @@ Known, left for now:
 
 Every new behaviour of the 2026-11-09a build (tests 50 and 51) has a key or an MCM control whose off value gives the
 2026-11-08a build back (for the gears, their rows give the build's first set too); five of its defaults changed in the
-2026-11-10a build (in brackets in the table):
+2026-11-10a build and two in the 2026-11-14a build (in brackets in the table):
 
 | Key or control | Default | Off (2026-11-08a) |
 |---|---|---|
@@ -477,10 +643,10 @@ Every new behaviour of the 2026-11-09a build (tests 50 and 51) has a key or an M
 | `[View] Bounds` | 1 | 0: the view bike's parents in the scene left as they are |
 | `[Diag] ViewDraw` | 1 (2 since 2026-11-10a) | 0: no `view: drawn?` lines |
 | `[View] Near` | 0: never written | (an A/B for TESTING's step 9: 5 puts the camera's near plane at 5 while the view bike shows) |
-| `[View] FovSearch` | 1 (2 since 2026-11-10a) | 0: one search at the first want, +0x100..+0x1F0, degrees only |
+| `[View] FovSearch` | 1 (2 since 2026-11-10a; only with `[View] Fov=1` since 2026-11-14a) | 0: one search at the first want, +0x100..+0x1F0, degrees only |
 | `[View] FovOffset` (its range) | auto | (0x40-0x1AC with `FovSearch=1`, within PlayerCamera; 0x100-0x1F0 with 0) |
-| `[Sound] HeardRiseGears` | 2.5,0.95,0.5,1 (test 51) | 1,1,1,1 (or empty); 1,0.95,0.5,1 the build's first set |
-| `[Sound] ShiftGapGears` | 0,2.0,2.5 (test 51; 0,2,3 since 2026-11-10a) | empty; 0,1.5,1.75 the build's first set |
+| `[Sound] HeardRiseGears` | 2.5,0.95,0.5,1 (test 51; 2,0.79,0.65,1,1 since 2026-11-14a) | 1,1,1,1 (or empty); 1,0.95,0.5,1 the build's first set |
+| `[Sound] ShiftGapGears` | 0,2.0,2.5 (test 51; 0,2,3 since 2026-11-10a, 0,2,3,1.5 since 2026-11-14a) | empty; 0,1.5,1.75 the build's first set |
 | MCM Sound "Water sound loop" (`CMB_FxWaterLoop`) | "Wet road, gentle" (3, new) | "Wet road (the mod's own)" (2) |
 | `[Look] FastMount` (test 51) | 1 | 0: the worn bike removed at every getting off, its mods attached at every equip and its colours swapped there and again |
 | `[Look] MountGuard` | 1 | 0: the look synced before the parked bike's menu, no activation guard, no watchdog |
@@ -709,14 +875,14 @@ back:
 | `[Room] SnapDrop` | 250 | 100 |
 | `[Sound] IdleDb` (changed) | -9 | -11 (`-10` the tester's choice) |
 | `[Sound] ShiftTime`, `ShiftDipTime` (changed) | 0.55, 0.4 | 0.35, 0.24 |
-| `[Sound] LaunchFlare` | 0.5 | 0: no launch rev |
+| `[Sound] LaunchFlare` | 0.5 (0.35 since 2026-11-14a) | 0: no launch rev |
 | `[Sound] LaunchFlareTime` | 1.2 (seconds) | (a parameter) |
 | `[Fx] WaterSpeedFull` (changed) | 900 | 600 |
 | `[Fx] WaterCurve` | 2 | 1: the speed's share linear |
 | `[Fx] WaterChurnDb`, `WaterRoadDb` | -8, 0 (dB) | (trims of the MCM's two loops; unused with "As the 2026-11-02a build (spray)") |
 | `[View] TipTime` | 0.4 (seconds) | (the MCM's "Look down ..." eased over this; 0 = at once) |
-| `[View] FovTime` | 0.3 (seconds) | (the MCM's "Field of view ..." eased to and back over this) |
-| `[View] FovOffset` | auto | (where PlayerCamera keeps the world FOV: found by its value, or a hex offset 0x100-0x1F0) |
+| `[View] FovTime` | 0.3 (seconds) | (the riding field of view eased to and back over this; only with `[View] Fov=1` since 2026-11-14a) |
+| `[View] FovOffset` | auto | (where PlayerCamera keeps the world FOV: found by its value, or a hex offset 0x100-0x1F0; only with `[View] Fov=1` since 2026-11-14a) |
 | `[Look] Cull` (changed) | 0 | 1: hidden parts also culled by the game's flags |
 
 What they do:
@@ -781,7 +947,7 @@ gives 2026-11-02a's chrome, discs and rims back whole (tick it below the main mo
 | `[Sound] IdleDb` (changed) | -11 (-9 since 2026-11-06a) | -17.2 (`-10` louder, `-12` softer) |
 | `[Fx] WaterGain` | 0 (dB) | (0 is the 2026-11-01a build's level; -6 halves the water) |
 | `[View] Eye` | 1 | 0: the first-person bike at its own place (2026-11-01a: by full speed you sat over its rear wheel) |
-| `[View] EyeAt`, `EyeSide`, `EyeSmooth`, `EyeSmoothZ`, `EyeMax` | 0,12,128, 1, 0.05, 0.25, 150 | (parameters: your eye's place on the bike, x right, y forward, z up; `EyeSide=0` follows fore-aft and height only) |
+| `[View] EyeAt`, `EyeSide`, `EyeSmooth`, `EyeSmoothZ`, `EyeMax` | 0,12,128 (0,1,128 since 2026-11-14a), 1, 0.05, 0.25, 150 (`EyeSide`, `EyeSmooth` and `EyeSmoothZ` unused with `EyeLock=1`) | (parameters: your eye's place on the bike, x right, y forward, z up; `EyeSide=0` follows fore-aft and height only) |
 | `[View] StaleLines` | 3 | 0: every "third-person skeleton stopped / moves again" line logged |
 | `[Diag] FpsLine` | 1 | 0: no "time: the last 10 s: N frames a second ..." line |
 
@@ -838,7 +1004,7 @@ The 2026-11-02a build's look changes had no key: its package's optional folder "
 | `[Steer] LandSoft` | 1 | 0: the game's hard landings as they come |
 | `[Steer] LandSoftNames` | pool | (where the soft landings' names come from: `pool` or `game`) |
 | `[Room] SnapSpot` | 1 | 0: the first spot with room taken as before |
-| `[Sound] ShiftDraw` (changed) | 2300,3000 | 2000,2900 |
+| `[Sound] ShiftDraw` (changed) | 2300,3000 (3200,3700 since 2026-11-14a) | 2000,2900 |
 | `[Sound] StopShift` | 1 | 0: a stop is a gear, then the clutch |
 | `[Sound] HeardStop`, `HeardBrake`, `StopGap`, `StopHold`, `StopAfter` | 300, 600, 0.4, 0.4, 0.3 | (parameters; inert with `StopShift=0`) |
 | `[TailLight] Enabled` | 1 | 0: the light parked far below, lighting nothing |
@@ -880,11 +1046,13 @@ Data/                         mirrors the game's Data folder
     CMB_PlayerAliasScript     save/load hook
     CMB_MCMRelay              global functions MCM's keybinds and buttons call; each finds the controller and calls it
     CMB_HotkeyF4SE            optional F4SE hotkey; since 2026-11-10a it also uses a potion the plugin took from a
-                              favourites hotkey at speed (`CMB_RiderQuickUse`)
+                              favourites hotkey at speed (`CMB_RiderQuickUse`), since 2026-11-14a also one whose clip
+                              the plugin cut before the game used it (QuickCut)
     CMB_GearRestoreF4SE       optional (F4SE): puts slot-57 gear back on after a ride
     CMB_LookF4SE              optional (F4SE, since 2026-11-07a): the chosen look's material swap on the parked and
                               first-person bikes (and on the ridden one where the game refuses its mods); since
-                              2026-11-08a also the colours (the free paint, body-colour rims, the plate's)
+                              2026-11-08a also the colours (the free paint, body-colour rims, the plate's), since
+                              2026-11-14a also into the chosen options' swaps before the ridden bike goes on
     CMB_RamScript             knocks enemies over (does anything only with F4SE and CMB_Slope.dll, whose rays see them)
   Meshes/CMB/                 the bike meshes and CMB_BikeParts.ini go here (built by tools/rider)
   Textures/CMB/Bike/          the bike's textures (built by tools/rider); the three palette textures earlier builds
@@ -919,23 +1087,29 @@ tools/rider/                  bike meshes (from the Sketchfab model or the vanil
                               shapes' own material files (look_shapes.py)
 tools/sound/                  engine sound: the loops built from the recording, the engine model, a ride renderer,
                               the old synthesiser (Python + numpy)
+tools/package/                since 2026-11-14a: packages a build (its README.txt, Data/ and two zips) from a commit and
+                              the previous package's assets, and verifies the zips (docs/BUILD_GUIDE.md, *For developers:
+                              packaging a build*)
 ```
 
 ## Roadmap
 
 1. **Done, in testing in game:** ride / park / call / side bag / companions / fuel, worn and parked bike meshes,
    seated riding animations with lean, MCM menu, engine sound and gear restore.
-2. **In testing, the 2026-11-07a to 2026-11-10a builds:** customising at the bike (the badges, the paint, the
-   mirrors at a field kit; then the rims, the tyres, a free paint colour and the licence plate), the 2026-11-09a
-   build's fixes for tests 50 and 51 (the parked bike kept out of people, items at speed, Caution, the wheels, the
-   bridge's posts, the truck, first person, the gears, the water, the field kit, getting on), and the 2026-11-10a
-   build's for test 52 (getting on quicker, items by hotkey at speed, the field kit with Global Stash, Free colour's
-   first ride, Caution 50's sidestep, the parked bike's guard, first person's diagnostic, the engine in the Pip-Boy,
-   3rd gear, the front wheel's shadow, the gentle water louder). **Next:** the next rounds of in-game testing; the
-   remaining vanilla-timed stop and idle clips. Wheel spin and the bars' turn come with the Sketchfab build and F4SE
-   (see DESIGN.md); more customisation in later builds (the helmet badges in 3D, the plates redrawn, the saddle's
-   colour, wear), weathered paint, more badges, the front fender, the headlamp's colour and the seat; luggage and the
-   mod's own toolbox and parts box.
+2. **In testing, the 2026-11-07a to 2026-11-14a builds:** customising at the bike (the badges, the paint, the mirrors at
+   a field kit; then the rims, the tyres, a free paint colour and the licence plate), the 2026-11-09a build's fixes for
+   tests 50 and 51 (the parked bike kept out of people, items at speed, Caution, the wheels, the bridge's posts, the
+   truck, first person, the gears, the water, the field kit, getting on), the 2026-11-10a build's for test 52
+   (getting on quicker, items by hotkey at speed, the field kit with Global Stash, Free colour's first ride, Caution
+   50's sidestep, the parked bike's guard, first person's diagnostic, the engine in the Pip-Boy, 3rd gear, the front
+   wheel's shadow, the gentle water louder), and the 2026-11-14a build's for test 53 (number keys at speed, Free colour
+   in third person, first person steady with the eye over the seat, the FOV dropped, the field kit's names, preview and
+   settlements, the engine quiet in menus, five gears). **Next:** the 2026-11-14b build (handguns on the bike, looking
+   back when reversing, the A/D lean in first person, sidesteps round bigger things, the right-hand cables); the next
+   rounds of in-game testing; the remaining vanilla-timed stop and idle clips. Wheel spin and the bars' turn come with
+   the Sketchfab build and F4SE (see DESIGN.md); more customisation in later builds (the helmet badges in 3D, the plates
+   redrawn, the saddle's colour, wear), weathered paint, more badges, the front fender, the headlamp's colour and the
+   seat; luggage and the mod's own toolbox and parts box.
 3. **Later:** a visible pillion passenger, mount/dismount animations. Possibly a v2 built on the engine's mount
    system instead ([DESIGN.md](docs/DESIGN.md)).
 

@@ -615,6 +615,13 @@ Group Fixes_56
 	{0xBF6: 1 when the ride's worn bike is held and coloured and the rider seated (RideReady); Mount fades in on it.}
 EndGroup
 
+; 2026-11-14a, test 53's wish l: the field kit only in your settlements. None = 2026-11-10a (anywhere).
+Group Fixes_57
+	GlobalVariable Property CMB_KitWhere Auto Const
+	{0xBF7: 1 = the parked bike's Customise only in a settlement of yours (its workshop yours; CustomiseBlocker), 0 = anywhere
+	(2026-11-10a). The MCM's "Field kit only in your settlements".}
+EndGroup
+
 ; ---------------------------------------------------------------------------
 ; Constants
 ; ---------------------------------------------------------------------------
@@ -3130,8 +3137,9 @@ EndFunction
 
 ; 2026-11-09a (test 51): a bit of CMB_LookOptions (0xBF4), the plugin's [Look] switches for this script (1 FastMount, 2
 ; KitHeld, 4 ParkedReload, 8 PaletteIndex, 16 MountGuard, 32 HueFree; 64 the plugin writes the worn bike's colours; since
-; 2026-11-10a 128 KitStash, 256 KitRetry, 512 MountEarly, 1024 WornColoursFirst, 2048 HueSwap); the ESP's 4031 without the
-; plugin. false without the global (an older ESP: 2026-11-09a as of t54-merge).
+; 2026-11-10a 128 KitStash, 256 KitRetry, 512 MountEarly, 1024 WornColoursFirst, 2048 HueSwap; since 2026-11-14a 4096
+; WornIndex, 8192 KeptMods, 16384 WornIndex was on this game session, so the options' swaps may hold its indexes); the ESP's
+; 4031 without the plugin. false without the global (an older ESP: 2026-11-09a as of t54-merge).
 bool Function LookOption(int aiBit)
 	if !CMB_LookOptions
 		return false
@@ -4967,12 +4975,14 @@ Function EquipBike(bool abPoseAhead = false)
 		; at the bike switched) put on first, as at getting on, so a swap mid-ride (a weapon drawn, a hit)
 		; gives this armour mods of the look CMB_LookCode's rim style and the colour values are of.
 		LookSync("the worn bike's equip")
+		WornIndexRestore()   ; 2026-11-14a: WornIndex turned off this session: the options' swaps as the ESP has them first
 		lookWorn = lookApplied
 		; 2026-11-07a: the chosen look's mods on it before it goes on (no call with a stock look).
 		int refused = AttachLook(wanted, true)
 		; 2026-11-10a (test 52, Free colour blue on the first ride; the plugin's [Look] WornColoursFirst, bit 1024): the colour
 		; values written before the equip, so the plugin's first write into the new shapes is this look's (WornColoursWrite).
-		bool first = LookOption(1024)
+		; 2026-11-14a ([Look] WornIndex, bit 4096): always before it (the indexes must be in the swaps when the game builds it).
+		bool first = LookOption(1024) || LookOption(4096)
 		int written = -2
 		if first
 			written = WornColoursWrite()
@@ -5045,15 +5055,19 @@ bool wornRefit = false         ; fewer mods found: the ride tick puts the worn b
 ; the mods were refused or (no bit 64) the look has colours, and the mods counted.
 Function EquipKept(Armor akArmor)
 	LookSync("the worn bike's equip")
+	WornIndexRestore()   ; 2026-11-14a: WornIndex turned off this session: the options' swaps as the ESP has them first
 	int count = PlayerRef.GetItemCount(akArmor)
 	int refused = 0
 	bool active = LookActive()   ; a stock look: no mods on it, none to count
 	; 2026-11-10a (test 52, Free colour blue on the first ride: the paint's V came 0.33 s after the shapes were held; the
 	; plugin's [Look] WornColoursFirst, bit 1024): the colour values written before the equip (WornColoursWrite), its answer
-	; kept for the swap below. Without the bit: after it (2026-11-09a).
-	bool first = LookOption(1024)
+	; kept for the swap below. Without the bit: after it (2026-11-09a). 2026-11-14a ([Look] WornIndex, bit 4096): always
+	; before it (the indexes must be in the mods' swaps when the game builds the worn 3D).
+	bool first = LookOption(1024) || LookOption(4096)
 	int written = -2
-	if count == 1 && KeptLook(akArmor) == lookApplied
+	; 2026-11-14a ([Look] KeptMods, bit 8192): kept when its mods are the look's (KeptKey); 2026-11-10a the whole look.
+	string kept = KeptKey()
+	if count == 1 && KeptLook(akArmor) == kept
 		lookWorn = lookApplied
 		lookRimMods = KeptRims(akArmor)
 		refused = KeptRefused(akArmor)
@@ -5071,7 +5085,7 @@ Function EquipKept(Armor akArmor)
 		PlayerRef.AddItem(akArmor, 1, true)
 		lookWorn = lookApplied
 		refused = AttachLook(akArmor, true)
-		KeptRemember(akArmor, lookApplied, lookRimMods, refused)
+		KeptRemember(akArmor, kept, lookRimMods, refused)
 		if first
 			written = WornColoursWrite()
 		endif
@@ -5095,6 +5109,8 @@ Function EquipKept(Armor akArmor)
 			if LookOption(64)
 				Log("Look: Free colour on the worn bike: the plugin writes it, and the F4SE swap once after the fade too (HueSwap)")
 			endif
+		elseif written == 1 && !wornRefused && LookOption(64) && LookOption(4096)
+			Log("Look: the worn bike's colours are in its mods' swaps before the equip (WornIndex): no F4SE swap after the fade")
 		endif
 	endif
 	if active
@@ -5109,19 +5125,35 @@ EndFunction
 ; 2026-11-10a (test 52), EquipBike and EquipKept: the look's colour values into the plugin's fixed globals (CMB_LookF4SE's
 ; WriteWornColours: 1 a colour, 0 none, the globals -1; -1 no F4SE) when the look has colours or the last ones are to be
 ; cleared; -2 neither (no call). With [Look] WornColoursFirst (bit 1024) before the equip, else after it (2026-11-09a).
+; 2026-11-14a ([Look] WornIndex, bit 4096): CMB_LookF4SE's WriteWornIndexes, the same values also as the colour indexes of
+; the chosen options' own swaps (the forms the worn bike's mods add), so the game builds the worn 3D with them.
 int Function WornColoursWrite()
 	if LookColoursOn() || lookColoursWorn
+		if LookOption(4096)
+			return CallLookF4SE("WriteWornIndexes")
+		endif
 		return CallLookF4SE("WriteWornColours")
 	endif
 	return -2
+EndFunction
+
+; 2026-11-14a: [Look] WornIndex off after it was on this game session (CMB_LookOptions 16384 without 4096; the plugin's): the
+; chosen options' swaps put back as the ESP has them before the worn bike's 3D is built (CMB_LookF4SE's RestoreWornIndexes:
+; read, set only on a difference), so its colours are 2026-11-10a's. Nothing with a look that has no colour (its options
+; were never edited), nor with either bit as the session began with WornIndex off (no call: 2026-11-10a).
+Function WornIndexRestore()
+	if !LookOption(4096) && LookOption(16384) && LookColoursOn()
+		CallLookF4SE("RestoreWornIndexes")
+	endif
 EndFunction
 
 ; 2026-11-10a (test 52, Free colour rode blue: the plugin's raw write of the paint's V may come after the game set the
 ; material up for drawing; test 51 showed an F4SE swap does change a live 3D), EquipKept with the plugin's bit 64: with
 ; [Look] HueSwap (bit 2048) and Free colour's paint (CMB_LookF4SE's CMB_LookPaintV at 0 or more, as just written), the F4SE
 ; swap once after the fade too (LookFollowUp's ApplyWornColours). Off, or another paint: the plugin's write alone (2026-11-09a).
+; 2026-11-14a ([Look] WornIndex, bit 4096): none (the colours are in the mods' swaps when the game builds the worn 3D).
 bool Function WornHueSwap()
-	if !LookOption(2048)
+	if !LookOption(2048) || LookOption(4096)
 		return false
 	endif
 	ScriptObject look = CastAs("CMB_LookF4SE")
@@ -5168,6 +5200,34 @@ string Function KeptLook(Armor akArmor)
 		return wornLookRider
 	endif
 	return wornLookFrame
+EndFunction
+
+; 2026-11-14a ([Look] KeptMods, CMB_LookOptions 8192; test 53: the two getting ons 1.2 s slower after a look change, the
+; second for the MCM's hue alone, 7 identical mods attached again): what EquipKept compares the kept armour on and remembers:
+; "off" (Customise at the bike off: no mods), else "mods" and each slot's choice as AttachLook(abWorn) attaches it (not the
+; mirrors, which the plugin hides by CMB_LookCode, nor the plate's two colour slots, which have no mod on the worn bike; no
+; hue: Free colour's hue and shade reach the worn bike as colour values). Without the bit the whole look (lookApplied:
+; 2026-11-10a). A save from 2026-11-10a remembers a lookApplied: attached afresh once.
+string Function KeptKey()
+	if !LookOption(8192)
+		return lookApplied
+	endif
+	if !LookIsOn()
+		return "off"
+	endif
+	string text = "mods"
+	int s = 0
+	while s < LookSlots
+		if s != LookSlotMirrors && !LookSlotColour(s)
+			int i = LookChoice(s, true)
+			if s == LookSlotPlateText && i == LookTextNone && LookChoice(s, false) == LookTextOwn
+				i = 0   ; as AttachLook: the plate's own text "None" carries no mod
+			endif
+			text += " " + i
+		endif
+		s += 1
+	endwhile
+	return text
 EndFunction
 
 int Function KeptRims(Armor akArmor)
@@ -5309,6 +5369,7 @@ bool kitBagLinked = false      ; the side bag is the kit's container (LinkKit)
 int bagBefore = 0              ; ...and its item count then
 string lookWsWhy = ""          ; BikeWorkshop's reason for no workshop
 string lookNotice = ""         ; CustomiseBlocker's notification, if the player should see one
+ObjectReference kitGateWs = None ; 2026-11-14a: the bike's settlement's workshop CustomiseBlocker found (CMB_KitWhere 1), for LinkKit
 bool lookNoF4seSaid = false    ; "no CMB_LookF4SE" logged this session
 bool lookWasActive = false     ; the bikes were last given a non-stock look (so the stock one is put back)
 string lookApplied = ""        ; LookState() when ApplyLook last ran ("" not yet): LookSync's test
@@ -5800,6 +5861,12 @@ Function LookAfterLoad()
 		Log("Look: a stray CMB_BikeLook taken back after the load (" + stray + ").")
 	endif
 	ApplyLook("load")
+	; 2026-11-14a ([Look] WornIndex, bits 4096 and 16384): the options' swaps follow the loaded look (indexed, or put back as the
+	; ESP has them), so any worn 3D the game builds from them is this look's; riding with another look than the worn bike's,
+	; left (its colours are the save's values: the plugin's writer). Neither bit: no call (2026-11-10a).
+	if (LookOption(4096) || LookOption(16384)) && (!riding || lookWorn == lookApplied)
+		CallLookF4SE("LoadWornIndexes")
+	endif
 	; 2026-11-08a: or its colours, while the look is the one the worn bike was put on with (else its mods
 	; keep their look, the save's colour values theirs, till its next equip: a moved rim style at the next
 	; ride tick, LookRimsMoved). 2026-11-09a (test 51, FastMount): as at its equip, the colours not when the
@@ -5824,6 +5891,7 @@ EndFunction
 ; Why a session can't start now ("" if it can); lookNotice the player's notification, if any.
 string Function CustomiseBlocker()
 	lookNotice = ""
+	kitGateWs = None
 	string missing = ""
 	if !CMB_LookOn
 		missing += " CMB_LookOn"
@@ -5858,6 +5926,20 @@ string Function CustomiseBlocker()
 	elseif swimming
 		lookNotice = "Not while swimming."
 		return "swimming."
+	endif
+	; 2026-11-14a (test 53, wish l): with CMB_KitWhere 1 the field kit only in a settlement of yours, the parked bike standing
+	; in for the kit not yet placed. When the plugin's workshop records or the game's workshop script are missing (a game
+	; whose workshop scripts are replaced) the session starts: the kit is never lost for good. 0 or None: anywhere.
+	if CMB_KitWhere && CMB_KitWhere.GetValue() >= 1.0
+		kitGateWs = BikeWorkshop(BikeRef)
+		if kitGateWs
+			Log("Customise: in your settlement (its workshop " + kitGateWs.GetFormID() + "): the field kit allowed (CMB_KitWhere 1).")
+		elseif lookWsWhy == "no workshop records in the plugin" || lookWsWhy == "no WorkshopParentScript"
+			Log("Customise: can't tell whether this is your settlement (" + lookWsWhy + "): allowed (CMB_KitWhere 1).")
+		else
+			lookNotice = "The field kit works only in your settlements."
+			return "not in one of your settlements (" + lookWsWhy + "): the field kit is for your settlements only (CMB_KitWhere 1)."
+		endif
 	endif
 	return ""
 EndFunction
@@ -6072,6 +6154,12 @@ Function LinkKit()
 		return
 	endif
 	ObjectReference ws = BikeWorkshop(kit)
+	if !ws && kitGateWs
+		; 2026-11-14a (CMB_KitWhere 1): the kit is placed 110 units from the bike, and the edge of the build area can run
+		; between them: the bike's settlement's workshop (CustomiseBlocker's) all the same.
+		Log("Customise: the kit's own check found no workshop (" + lookWsWhy + "): the bike's settlement's workshop " + kitGateWs.GetFormID() + " all the same")
+		ws = kitGateWs
+	endif
 	if ws && WorkshopItemKeyword && LinkedWorkbenchContainerKeyword
 		kit.SetLinkedRef(ws, WorkshopItemKeyword)
 		kit.SetLinkedRef(ws, LinkedWorkbenchContainerKeyword)
@@ -6364,6 +6452,7 @@ Function EndCustomise(string asWhy, bool abApply = true)
 	endif
 	KitTidy()
 	customising = false
+	kitGateWs = None
 	lookEnding = false
 	if lookMenuSeen && lookEvents == 0
 		Log("Customise: the menu was open and no mod event came (OnPlayerModArmorWeapon)")
@@ -7481,17 +7570,42 @@ Form quickItem = None
 float quickAt = -100.0
 
 Function QuickUsed(Form akItem, int aiSlot, int aiValue, int aiCount)
+	; 2026-11-14a (test 53, QuickCut): aiValue negative = the plugin's -(count * 16 + slot): the game's use clip cut before
+	; it used the item; aiCount -1 = the game used it itself (CMB_HotkeyF4SE's own OnItemEquipped saw it): not again; -2 = the ride
+	; ended before the script's equip (review).
+	string how = "QuickUse"
+	if aiValue < 0
+		how = "QuickCut"
+	endif
 	if akItem as Potion && aiCount > 0
 		quickItem = akItem
 		quickAt = Utility.GetCurrentRealTime()
-		Log("Used " + akItem + " by its hotkey at speed: equipped by the script (QuickUse, slot " + aiSlot + ").")
+		if aiValue < 0
+			Log("Used " + akItem + " by its hotkey at speed: its use clip was cut before the game used it: equipped by the script (QuickCut, slot " + aiSlot + ").")
+		else
+			Log("Used " + akItem + " by its hotkey at speed: equipped by the script (QuickUse, slot " + aiSlot + ").")
+		endif
+	elseif akItem as Potion && aiCount == -2
+		Log("Not used: " + akItem + " by its hotkey at speed: the ride ended before the script could equip it, after its use clip was cut (QuickCut, slot " + aiSlot + ", CMB_RiderQuickUse " + aiValue + ").")
+	elseif akItem as Potion && aiCount < 0
+		Log("Not used again: " + akItem + " by its hotkey at speed: the game used it itself (QuickCut, slot " + aiSlot + ", CMB_RiderQuickUse " + aiValue + ").")
 	elseif akItem as Potion
-		Log("Not used: " + akItem + " by its hotkey at speed: none left, the stack's last one gone (QuickUse, slot " + aiSlot + ", CMB_RiderQuickUse " + aiValue + ").")
+		Log("Not used: " + akItem + " by its hotkey at speed: none left, the stack's last one gone (" + how + ", slot " + aiSlot + ", CMB_RiderQuickUse " + aiValue + ").")
 	elseif akItem
-		Log("Not used by its hotkey at speed: slot " + aiSlot + " holds " + akItem + " now, not a potion (QuickUse, CMB_RiderQuickUse " + aiValue + ").")
+		Log("Not used by its hotkey at speed: slot " + aiSlot + " holds " + akItem + " now, not a potion (" + how + ", CMB_RiderQuickUse " + aiValue + ").")
 	else
-		Log("Not used by its hotkey at speed: slot " + aiSlot + " is empty now (QuickUse, CMB_RiderQuickUse " + aiValue + ").")
+		Log("Not used by its hotkey at speed: slot " + aiSlot + " is empty now (" + how + ", CMB_RiderQuickUse " + aiValue + ").")
 	endif
+EndFunction
+
+; 2026-11-14a (the skeptic's finding 3): CMB_HotkeyF4SE saw CMB_RiderQuickUse's count go up by more than one between two
+; looks: a hand-over written over before it was read, its item not used. Only CMB_HotkeyF4SE calls it.
+Function QuickGap(int aiFrom, int aiTo, int aiValue)
+	int lost = aiTo - aiFrom - 1
+	if lost < 0
+		lost += 999
+	endif
+	Log("Not used by its hotkey at speed: " + lost + " hand-over(s) written over before the script looked (CMB_RiderQuickUse's count " + aiFrom + " then " + aiTo + ", now " + aiValue + ").")
 EndFunction
 
 ; 2026-11-06a: CMB_RiderUseOwn's helpers, through CMB_HotkeyF4SE (F4SE's FavoritesManager; this script runs without

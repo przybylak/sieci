@@ -17,6 +17,244 @@ The log goes to `Documents\My Games\Fallout4\Logs\Script\Papyrus.0.log`. Every m
 
 Without F4SE you'll see one or two harmless errors about the `F4SE` / `CMB_HotkeyF4SE` scripts not being found. That's the mod checking whether they're there. When something breaks, send the log, plus a screenshot or a short clip if it's visual.
 
+## The 2026-11-14a build: test 53's fixes, in this order
+
+This is the fixes build for test 53 (run on 2026-11-10a: a stimpak by its number key at speed never used, its clip cut
+12 times; Free colour blue in third person on every ride but the one the game loaded into; the riding FOV written back
+by the game) and for its wishes: first person steady with your eye further back, the field kit's item and slots named, a
+preview of the whole bike, the kit only in your settlements, the FOV dropped, the engine silent in the Pip-Boy and the
+pause menu, and gears that rise more, smoothly, with no 2nd to 1st drop on a lift. What test 53 liked is as it was:
+getting on in about 2 s, the field kit's menu holding beside Global Stash by SKK, the front end's shadow, the bike seen
+in first person, Caution 50's sidestep, the tip, the engine held through a menu. Not in this build, coming in
+2026-11-14b: handguns on the bike, looking back when reversing in first person, the A/D lean, sidesteps round bigger
+things, the right-hand cables. Steps 1-14 in this order; each says what to look for and the log line that answers it.
+Every new behaviour has an off value that gives the 2026-11-10a build back (README's first key table; the item's and
+slots' names are the one exception), so each A/B is one key or one MCM setting away. Five steps settle what only the
+game can: the number keys' way in (step 1), which key the bike's hotkey is (step 2), the Palette test (step 6), the
+camera's own place in first person (step 7) and the field kit's preview (step 9).
+
+Before you start:
+- install as a Replace (2026-11-14a over 2026-11-10a); F4SE and `CMB_Slope.dll` as before. If you edited
+  `CMB_Slope.ini`, put your values into the new one: several sections have new keys, and `[View] EyeAt` and seven
+  `[Sound]` gear keys have new defaults;
+- keep Global Stash by SKK installed; play with `CMB_AllowCombat` as you usually do;
+- copy both logs aside before every quit (`CMB_Slope_stepN.log`, `Papyrus_stepN.log`): the plugin keeps only one earlier
+  session;
+- a change to `CMB_Slope.ini` is read when you get on: save the file, get off and on (no restart), unless a step says
+  otherwise;
+- the 2026-11-10a build's steps (the next section) were test 53's: no need to run them again, but two of them weren't
+  tried then and are asked again here (steps 13 and 14).
+
+The log's first lines: `CMB_Slope.log` has six settings lines more than before: `  quick (2026-11-14a, test 53):
+QuickKeyCodes=auto (the game's Quickkey names, else QuickKeys' virtual keys 0x31,0x32,...,0xBD,0xBB) QuickKeyState=1
+QuickCut=1 UseStopUnapplied=wait UseStopWaitMax=3 UseStopLead=1.5 QuickProbe=1`, `  look (2026-11-14a, test 53):
+WornIndex=1 KeptMods=1 Repass=0; [Diag] WornPasses=1 HandoverFromReady=1: CMB_LookOptions 32767 for the scripts`, `  kit
+(2026-11-14a): [Look] KitPreview=1 (New: pos 0,0,0, turn 0,0.02,44.764, scale 0.3, zoom -1..1) KitPreviewLog=1`, `  view
+(2026-11-14a, test 53): EyeLock=1 (EyeAt held on the bike as tilted, at once) EyeAxes=1 Camera=1 EyeAtCamera=1 (the view
+bike moved to the camera's own place of the frame) Fov=0 (CMB_ViewFov left alone: the game's own FOV); [Diag]
+ViewLock=1`, and two `  sound (2026-11-14a, test 53): HeardKeep=1 HeardCreep=0.3 LiftDown=0.08: ...` and `  sound
+(2026-11-14a, test 53): MenuQuiet=1 MenuQuietOut=0.15 MenuQuietIn=0.3: ...`; the older lines now read `  view: Enabled=1
+... EyeAt=(0, 1, 128) ...`, `  sound: ... Gears=410.6,636.4,954.5,1272.7,1626.4 ShiftRpm=3500 ...`, `  sound:
+HeardRiseGears=2,0.79,0.65,1,1 ShiftGapGears=0,2,3,1.5: ... at least 1.25, 2, 3, 1.5 s in gears 1-4 ...`, and the
+2026-11-10a and 2026-11-09a look lines say `CMB_LookOptions 32767 for the scripts`. No `kit:` line at all, and the MCM
+still showing "Field of view riding in first person", mean an older ESP or MCM folder is loaded: stop and say so.
+
+**Number keys at speed** (steps 1-4; test 53: no `quick:` line ever came, because the game gives a key as its Windows
+key code, 0x31 for number key 1, where the plugin looked for scan codes)
+
+1. **A stimpak by its number key**: a stimpak on number key 1, Jet on another number key. At full speed press 1 three
+   times, a second apart, then Jet's key once. Is each used at once, with no animation and no slow-down?
+   - `CMB_Slope.log`, each press: `quick: key 0x31 (the slot 1, the game's 'Quickkey1') at 812 u/s: Stimpak (00023736, a
+     potion) handed to the script's watch, not the game's animated use (allowStimpakUse 1): CMB_RiderQuickUse 17`. The
+     log now names a key by the game's own code in hex: number key 1 is 0x31, 2 is 0x32 and so on to 9 = 0x39, 0 is
+     0x30, - is 0xBD and = is 0xBB. `Papyrus.0.log`: `Used [Form <Stimpak (00023736)>] by its hotkey at speed: equipped
+     by the script (QuickUse, slot 1).` and `Used [Form <Stimpak (00023736)>] while riding.`
+   - The self-test (send every one of these lines): at the first ride `quick: self-test: the live singleton ...` and
+     `quick: probe: ...`; `input: the first movement key from the game: 'Forward' 0x57 (...): the game's key codes are
+     virtual keys (QuickProbe)` (0x11 there instead would mean scan codes after all: say so); each ride `quick:
+     self-test: in N s: ...`, which should end `the favourites' handler is reached (its input handling on, +0x18: 1)
+     (QuickProbe)` (`... NOT reached through its vtables ...` is a finding, not a failure of yours); `quick: the first
+     quickkey event through OnButtonEvent: 0x31 'Quickkey1' ...`; at each ride's end `quick: this ride: 3 number-key
+     press(es) by the keyboard's own state ..., 9 through OnButtonEvent (presses 3, holds 3, releases 3; taken 3, the
+     game's 0) ...`; and any `... NOT through OnButtonEvent ...` line.
+   - With an animation mod's decoration after the use: `rider: an item's use clip at N u/s (its props, ..., this frame;
+     the script's hand-over 0.3N s before them, CMB_RiderQuickUse 17): IdleStop sent to the graph (UseStop): taken; ...`
+     (the short dip as from the Pip-Boy).
+2. **The bike's hotkey: 0 or B?** Get on and get off once each with the bike's own F4SE hotkey, the way you always do,
+   and tell us which key you pressed. `quick: the bike's hotkey CMB_HotkeyCode 48: ...` once, then at each ride's start
+   and end `quick: the ride began 1.92 s after the 0 key (0x30) went down, ...: CMB_HotkeyCode 48 is pressed as a
+   virtual key, as F4SE gives it (QuickProbe)`, or `... after the B key (0x42) ...: ... as a DirectInput scan code`.
+   (The MCM's help says "48 = B"; if the log says 0, that help is wrong and a later build fixes it. A press of the 0 key
+   that is also a potion's slot 10 says `(also the bike's hotkey: CMB_HotkeyCode 48)`.)
+3. **When the plugin can't take the key** (an A/B): `[Steer] QuickUse=0`, get on, ride fast, press the stimpak's key
+   twice quickly. Two heals, no slow-down? Then Jet once: one dose, not two?
+   - `CMB_Slope.log`: `rider: an item's use clip at N u/s (its props, ..., this frame; number key 0x31 (the slot 1) 0.3N
+     s before them, not taken from the game): IdleStop sent to the graph (UseStop): taken; ...`, then `quick: number key
+     (0x31, the slot 1) at N u/s: Stimpak (...) not taken from the game, its use clip cut at the props before the item
+     came: handed to the script's watch to use it (QuickCut): CMB_RiderQuickUse -N`. `Papyrus.0.log`: `Used [Form
+     <Stimpak ...>] by its hotkey at speed: its use clip was cut before the game used it: equipped by the script
+     (QuickCut, slot 1).` For Jet, `Not used again: [Form <Jet ...>] by its hotkey at speed: the game used it itself
+     (QuickCut, ...)` is the script holding back a second dose.
+4. Also `QuickCut=0` (QuickUse still 0), get on, a stimpak by its key at speed: about a second of the use animation,
+   then it stops. Healed? The speed held? `rider: an item's use clip at N u/s (its props, ..., this frame): no item used
+   yet (...): left to play until it is, 3 s at most (UseStopUnapplied)`, then `rider: an item's use clip at N u/s (the
+   item used N s into its clip, CMB_RiderItemUse N; its props, ...): IdleStop sent to the graph (UseStop): taken; ...`.
+   Then put `QuickUse=1` and `QuickCut=1` back.
+
+**Free colour in third person** (steps 5-6; test 53: blue in third person on every ride but the one the game loaded
+into)
+
+5. **Free colour, ridden**: choose Free colour with a hue other than 210 (at 210 blue is the right colour), for example
+   126 (green), and a plate with coloured letters and background; Apply. Get on in third person by the hotkey and by E,
+   and watch the paint and the plate from the first moment you see the bike. Is it your hue from the start, on every
+   ride? Ride, get off, get on a few times, and once after changing only the hue in the MCM (Apply). Switch to first
+   person and back: the same colour both ways? Once, load a save made while riding in third person: right?
+   - `Papyrus.0.log`: `Look: the worn bike's colour indexes before its equip (WornIndex): Paint 4 of 4 set Plate 2 of 2
+     set Plate text 2 of 2 set, colours: paint 0.337402 rims -1 plate 0.267578 text 0.218750` (later rides `... Paint 4
+     as they were ...`), and `Look: the worn bike's colours are in its mods' swaps before the equip (WornIndex): no F4SE
+     swap after the fade`.
+   - `CMB_Slope.log`: `look: CMB_BikeWornRiderF_static_paint colour 0.3374 written (read back 0.3374; the paint); was
+     0.3374 already, N passes built before it` means the game built the paint with your colour; `...; was 0.3960, ...`
+     means it didn't. Send the two lines `look: the worn paint's passes 0.5 s on: ...` and `... 2.0 s on: ...` of a blue
+     ride and of a right one.
+   - After the hue-only change: does getting on take the usual time, not about a second longer? `Look: the worn bike's
+     kept mods (the look unchanged): no attach` and no `Look: 7 of 7 mods on the worn bike`.
+   - Only if third person is still blue (or the old hue): `[Look] Repass=1`, get off and on. Right now? `look: Repass:
+     BSShaderUtil::ClearRenderPasses (Address Library 2317600) at +0x21C8CA0, as F4SE 0.7.9 has it`, then `look:
+     CMB_BikeWornRiderF_static_paint: its render passes cleared after the write (Repass: ...)`. If the game crashes with
+     it, say so. Put it back to 0.
+6. **The Palette test paint ride**: at the field kit choose Paint "Palette test: colour index" and ride in third person:
+   is the bike cobalt (a strong blue) or primer grey? `CMB_Slope.log`: `look: the worn paint not written (CMB_LookPaintV
+   -1: Paint isn't Free colour): CMB_BikeWornRiderF_static_paint's material holds 0.4609 (...)`: 0.4609 means the game
+   put the swap's own colour on the ridden bike (what the Free colour fix relies on), 0.6641 that it didn't. Then back
+   to Free colour. Optional A/B: `[Look] WornIndex=0`, get on: third person blue again as in test 53 (that proves the
+   fix), with `Look: the worn bike's colour indexes put back as the ESP has them (WornIndex off): ...` once; then 1
+   again.
+
+**First person** (steps 7-8; test 53: "the bike was shaking violently", "sitting on the fuel tank", and the FOV slider
+to go)
+
+7. **Steady, and the eye further back**: ride in first person for 2-3 minutes on a flat road, standing still on a slope,
+   and through turns. Does the bike still shake? Do you sit in the right place now, over the seat with the tank in front
+   of you? If you still sit too far forward or back, try the MCM's "Eye forward on the bike" and tell us the number you
+   like. Park on a slope in first person (the bike leaning back or forward): the bars and the dial should stay still in
+   front of you, the ground tilting under the bike.
+   - `CMB_Slope.log`: `camera: FirstPersonState (vtable +0x...): GetTranslation (slot 0xD, +0x...) wrapped ([View]
+     Camera; EyeAtCamera=1: the view bike moved to the camera's own place of each frame)` once, at the first
+     first-person frame on the bike (send instead any `... not wrapped`, `camera: GetTranslation not called in 1.0 s
+     ...` or `camera: EyeAtCamera off this session: ...`); the eye line every 2 s ends `; on the bike as tilted (pitch
+     P, roll R, lift L) the eye at (0.0, 1.0, 128.0) (EyeLock: EyeAt held there)`; and every 2 s a `view: lock: the last
+     2.0 s (N frames): ...` line: send them (its last figure, `the camera root N at most from that place at the next
+     task`, near 0 means the bike follows the camera's own place of each frame).
+   - A/B, one ride each: `[View] EyeLock=0` (2026-11-10a's view: does the shake come back?); then EyeLock=1 with
+     `EyeAtCamera=0` (worse at full speed?); then `EyeAxes=0`. Which felt steadiest? Optional: `EyeAt=0,12,128`
+     (2026-11-10a's seat place) for one ride, to compare. Put them back.
+8. **The FOV is gone**: the MCM's Riding page no longer has "Field of view riding in first person", and first person
+   keeps the game's own field of view. There is no `camera: the world FOV` line in the session; if your save had the
+   slider set, `view: CMB_ViewFov 90 (an older save's riding FOV) left alone: [View] Fov=0, the game's own FOV (1 =
+   used, as 2026-11-10a)` once. Nothing to do but look.
+
+**The field kit** (steps 9-10; test 53's wishes: the item read "Default", a tyre filled the preview, the slots had no
+names, and the kit only in your settlements)
+
+9. **Its name, its slots and the preview**: in Sanctuary choose Customise at the parked bike. Take a screenshot as the
+   armour menu opens, and one after picking a paint and a rim. Then zoom all the way out with the mouse wheel and all
+   the way in (the plugin logs it). Is the item called "Motorbike"? Do the slot rows read "Paint: Factory", "Rims: ...",
+   "Tank L: ..."? Does the whole bike show, turned three-quarters? (It may be small: zoom in.)
+   - `CMB_Slope.log`: `kit: the preview's transform written (the new one): pos 0,0,0, turn 0,0.02,44.764, scale 0.3,
+     zoom -1..1 (it was pos 0,0,0, turn 0,0,135, scale 0.45, zoom 0.5..1.5)` once at the start; `kit: the preview's
+     record CMB_BikeLookPreview (...)` and four `kit: the game's preview transform ...` lines; at Customise `kit: the
+     menu's 3D: item ...` and, while you zoom, `kit: the menu's zoom settled at ...`. Send them all: they tell the next
+     build which numbers the game uses.
+   - Only if the bike isn't whole or well placed: the MCM's "Field kit preview" section, "Tune (the sliders below)";
+     move "Preview size (%)", "Preview turn", "Preview up / down" and the two zooms; leave the MCM and Customise again.
+     Which values looked right? `kit: the preview's transform written (the MCM's sliders): ...`.
+   - A/B: "Field kit preview" "As before": 2026-11-10a's view (the tyre) again, `kit: the preview's transform written
+     (back to the ESP's): ...`. Then back to "New".
+10. **Only in your settlements**: Customise in Sanctuary works as before (`Customise: in your settlement (its workshop
+    151806): the field kit allowed (CMB_KitWhere 1).` in `Papyrus.0.log`). Park on a road outside any settlement and
+    choose Customise: a message "The field kit works only in your settlements." and nothing comes out of the side bag
+    (`Customise refused: not in one of your settlements (no settlement location): the field kit is for your settlements
+    only (CMB_KitWhere 1).`). Then the MCM's Look "Field kit only in your settlements" off, the same spot: the kit
+    opens, parts from the side bag as before. The MCM's "Free customising" with "Apply the look" on the road: the look
+    changes (it works anywhere). Put the switch back on.
+
+**The engine** (steps 11-12)
+
+11. **Silence in the Pip-Boy and the pause menu**: at full speed open the Pip-Boy for 3 s, then close it; then the same
+    with Esc. The engine should go quiet within a moment of opening and come back at the same note after closing. Once
+    riding through water: is the water sound quiet in the menu too? (The start and stop sounds are unchanged.)
+   - `CMB_Slope.log`: `sound: held at gear 3, 2084 rpm, heard 800 u/s while a menu pauses the game (UI menu mode 1); the
+     loops out over 0.15 s (MenuQuiet)` at the open, then `sound: resumed after 3.1 s: gear 3, ...; the held 800 u/s fed
+     0.25 s (the reading back to 721); the loops back over 0.30 s from the close (MenuQuiet)` (numbers for
+     illustration). If you still hear the engine in the menu with these lines there, the game keeps the sound's level
+     while paused: say so. A/B: `[Sound] MenuQuiet=0`.
+12. **The gears**: from a stop, full throttle to the top speed: five gears, each change higher than before (about
+    3200-3400 rpm, into 5th about 2500), the note rising all through 2nd and 3rd, a short 4th, then the cruise as
+    before. Pull away and tap off the throttle briefly in 2nd while the bike is still speeding up: the note shouldn't
+    drop or blip down to 1st. Ride steadily at about a quarter of the top speed and let go of the throttle for a moment:
+    no down-and-up blip. A normal stop from speed: the down-shift blips as before.
+   - `CMB_Slope.log`: `sound: gear 2 at ...` up to `sound: gear 5 at ...`; no `gear 1 ..., a blip` right after a `gear
+     2` line with the bike faster; the trace's engine word ` keep` while the note is held up; after each getting off
+     `sound: generation N's ride: the note held N times for N s while the bike gained (HeardKeep), N lift down-shift(s)
+     held back (LiftDown); ...`.
+   - Tell us: do the higher shifts and the short 4th sound right, or too busy? Does the throttle-off sound at the top of
+     a pull sound stretched (its loop is pitched up further than before)?
+   - A/B: `[Sound] HeardKeep=0` (the note may sag while the bike gains), `LiftDown=0`; 2026-11-10a's gears all together:
+     `ShiftRpm=2500`, `Gears=555.556,750,960,1161.6`, `ShiftDraw=2300,3000`, `HeardRiseGears=2.5,0.95,0.5,1`,
+     `ShiftGapGears=0,2,3`, `LaunchRise=350`, `LaunchFlare=0.5`; milder shifts with the new gears:
+     `ShiftDraw=2900,3400`.
+
+**Asked again: what test 53 didn't try** (steps 13-14)
+
+13. **The guard beside a downed NPC** (2026-11-10a's step 8): knock an NPC down beside the parked bike and get off next
+    to them: the bike stays hidden until they stand up. `CMB_Slope.log`: `room: ask N at (...), heading H (the parked
+    bike's place: ParkGuard): someone in it: XXXXXXXX (skeleton.nif, layer 8: a body, no capsule met), ...` (a standing
+    one: `(..., layer 30)`). Also get off beside a dog or a crouching NPC (`... someone in it: ... (the ground taken at
+    the bike's place: the ray stopped 61 over it, on the bike)` after the settle), and on a bridge over someone, the
+    bike's spot well under you: it shows (`... no one in it (21 rays down, 16 across); the player 312 above it: not
+    counted (GuardPlayerZ)`).
+14. **The A/Bs**: one at a time, each for a ride or two, then put it back. Each gives one part of 2026-11-10a (or of an
+    earlier build) back, so you can tell whether that part's change is what you notice:
+   - `[Look] MountEarly=0`: getting on as 2026-11-09a, the screen back only at "Mounted." (is today's about 2 s really
+     quicker?);
+   - `[Room] GuardBodies=0`, with step 13: the bike shows while the NPC lies there;
+   - `[Steer] SidestepCaution=0`: Caution 50's sidestep at its own reach (does it find posts later?);
+   - `[Sound] MenuHold=0`: the engine steps on, silent, through a menu, so it comes back in 1st after the close (test
+     52's drop);
+   - `[View] EyeLock=0` (step 7), `[Steer] QuickUse=0` (step 3), `[Look] WornIndex=0` (step 6), `[Sound] HeardKeep=0`
+     (step 12), if you haven't already.
+
+The off values, each giving 2026-11-10a: `[Steer] QuickKeyCodes=scan`, `QuickKeyState=0`, `QuickCut=0`,
+`UseStopUnapplied=cut`; `[Diag] QuickProbe=0`, `WornPasses=0`, `HandoverFromReady=0`, `ViewLock=0`; `[Look]
+WornIndex=0`, `KeptMods=0`, `Repass=0` (its default), `KitPreview=0`, `KitPreviewLog=0`; MCM "Field kit only in your
+settlements" off, "Field kit preview" As before; `[View] EyeAt=0,12,128`, `EyeLock=0`, `EyeAxes=0`, `Camera=0`,
+`EyeAtCamera=0`, `Fov=1` (with `set CMB_ViewFov to 90` in the console: the MCM slider is gone); `[Sound] MenuQuiet=0`,
+`HeardKeep=0`, `LiftDown=0`, and the gears as in step 12. The item's and slots' names have no switch (an ESP built with
+the generator's `--kit-names 0` has 2026-11-10a's; it isn't in the package). The 2026-11-10a build's own switches back
+to 2026-11-09a's are all still there.
+
+Send both logs a session, any crash log, the screenshots of step 9, and a video if you have one.
+
+### Questions for you (test 54)
+
+- **T54-1 (step 1).** A stimpak by its number key at speed: used at once, no clip, the speed kept? Jet too?
+- **T54-2 (step 2).** Which key do you press for the bike's hotkey, 0 or B?
+- **T54-3 (steps 3 and 4).** With QuickUse off: healed each time, one Jet dose? With QuickCut off too: healed after
+  about a second of the animation?
+- **T54-4 (step 5).** Free colour right in third person from the first moment, on every ride? The plate? After a load?
+  Getting on as quick after a hue change?
+- **T54-5 (step 6).** The Palette test: cobalt or primer grey?
+- **T54-6 (step 7).** First person: any shake left? Your seat place right (or the "Eye forward" number you like)? Which
+  A/B was steadiest?
+- **T54-7 (step 9).** The item "Motorbike", the slot names, the whole bike in the preview? If you tuned it, which
+  values?
+- **T54-8 (step 10).** Refused on the road, allowed in Sanctuary, and anywhere with the switch off?
+- **T54-9 (step 11).** The engine and the water quiet in the Pip-Boy and the pause menu, and back at the same note?
+- **T54-10 (step 12).** The five gears: the higher shifts, the short 4th, no drop on a lift, the throttle-off sound?
+- **T54-11 (step 13).** The bike hidden while a knocked-down NPC lay in its place?
+- **T54-12 (step 14).** Anything an A/B made better or worse?
+
 ## The 2026-11-10a build: test 52's fixes, in this order
 
 This is the fixes build for test 52 (run on 2026-11-09a: the field kit's menu shut by Global Stash by SKK, items by
@@ -661,7 +899,7 @@ and, if you have one, a bag or other gear that sits in an unusual slot.
 | `set CMB_RiderUseOwn to 0` | every potion equipped while riding starts the item watch, another mod's dummy too, as in 2026-11-02a (since 2026-11-06a; default 1: only the Pip-Boy, the favourites and hotkeys count; needs F4SE) |
 | `set CMB_Caution to 70` | the bike eases off for a wall or a car ahead a little earlier (MCM Riding "Caution (how early the bike eases off for obstacles, %)", since 2026-11-09a; 50-100, default 50 for a new save since 2026-11-10a, 60 before, a save keeping its own; 100 = as 2026-11-08a; read again once a second while riding; needs F4SE and CMB_Slope.dll) |
 | `set CMB_ViewTip to 15` | the view eases 15 degrees down on getting into first person on the bike (MCM "Look down on getting into first person (deg)", since 2026-11-06a; 0-45, default 20; 0 = left as it is, as 2026-11-02a) |
-| `set CMB_ViewFov to 90` | the world field of view while riding in first person (MCM "Field of view riding in first person", since 2026-11-06a; 60-120, default 0: your own) |
+| `set CMB_ViewFov to 90` | the world field of view while riding in first person (since 2026-11-06a, the MCM's slider till 2026-11-10a; 60-120, default 0: your own); since 2026-11-14a used only with `[View] Fov=1` in `CMB_Slope.ini` |
 | `set CMB_ViewEyeUp to -8`, `set CMB_ViewEyeForward to -6` | your eye on the bike lower (the bike higher into view) and back (MCM "Eye height on the bike", -30..20, and "Eye forward on the bike", -30..30, since 2026-11-06a; default 0: `[View] EyeAt` as it is; at once) |
 | `set CMB_TailLightMode to 0` | no tail lamp light, the lens only glows (default 1; next time you get on) |
 | `set CMB_FirstPersonBike to 0` | no bike in first person (default 1; next time you get on) |
@@ -675,7 +913,9 @@ and, if you have one, a bag or other gear that sits in an unusual slot.
 | `set CMB_LookOn to 0` | no Customise in the parked bike's menu and the stock look on every bike, as 2026-11-06a (MCM Look "Customise at the bike", since 2026-11-07a; default 1; the bikes at the next getting on, activation of the parked bike, "Apply the look" or load) |
 | `set CMB_KitMode to 1` / `2` / `3` / `4` | the field kit forced: the toolbox / the toolbox with the armour bench's keyword (both tests: the toolbox can't be sat in) / the armour bench / since 2026-11-09a the game's armour bench, `WorkbenchArmorA` (MCM "Field kit", since 2026-11-07a; default 0, automatic: since 2026-11-09a the armour bench, then the game's, the one that worked remembered; up to 2026-11-08a the toolbox, then the armour bench) |
 | `set CMB_KitWorked to -1` | automatic starts again from the armour bench (since 2026-11-07a, console only; automatic writes 3 or 4 here when a mode worked, and forgets a 1 or 2 an older build wrote) |
-| `set CMB_LookOptions to 0` | without F4SE only: the script switches all off, as 2026-11-08a (since 2026-11-09a; the ESP's 4031 = all on: 1 FastMount, 2 KitHeld, 4 ParkedReload, 8 PaletteIndex, 16 MountGuard, 32 HueFree, and since 2026-11-10a 128 KitStash, 256 KitRetry, 512 MountEarly, 1024 WornColoursFirst, 2048 HueSwap; 63 = 2026-11-09a's; with F4SE `CMB_Slope.dll` writes it from `[Look]` at its start, at a load and on getting on, so set those keys instead) |
+| `set CMB_LookOptions to 0` | without F4SE only: the script switches all off, as 2026-11-08a (since 2026-11-09a; the ESP's 4031 = all on: 1 FastMount, 2 KitHeld, 4 ParkedReload, 8 PaletteIndex, 16 MountGuard, 32 HueFree, and since 2026-11-10a 128 KitStash, 256 KitRetry, 512 MountEarly, 1024 WornColoursFirst, 2048 HueSwap; 63 = 2026-11-09a's; with F4SE `CMB_Slope.dll` writes it from `[Look]` at its start, at a load and on getting on, so set those keys instead: since 2026-11-14a 32767 at its defaults, with 4096 WornIndex, 8192 KeptMods and its own 16384, which the ESP's 4031 leaves off) |
+| `set CMB_KitWhere to 0` | the field kit anywhere, as 2026-11-10a (MCM Look "Field kit only in your settlements", since 2026-11-14a; default 1: Customise opens the kit only in a settlement whose workshop is yours) |
+| `set CMB_KitPreview to 0` | the field kit's preview as 2026-11-10a (MCM "Field kit preview" As before, since 2026-11-14a; default 1 New; 2 Tune, with `CMB_KitPrevSize`, `CMB_KitPrevTurn`, `CMB_KitPrevTilt`, `CMB_KitPrevUp`, `CMB_KitPrevZoomOut` and `CMB_KitPrevZoomIn`; needs `CMB_Slope.dll`; at the next Customise) |
 | `set CMB_KitBagLink to 0` | the field kit uses your own components (and a settlement's workshop) only (MCM "Parts from the side bag", since 2026-11-07a; default 1: outside your settlements the side bag's too) |
 | `set CMB_LookHue to 120` | the Free colour paint's hue, 0-359 round the colour wheel (MCM Look "Paint hue", since 2026-11-08a; default 210; used only with Paint "Free colour", from "Apply the look" or the next getting on or activation of the parked bike) |
 | `set CMB_LookShade to 2` | the Free colour paint's shade: 0 Deep, 1 Normal (the default), 2 Light, 3 Pastel (MCM Look "Paint shade", since 2026-11-08a) |

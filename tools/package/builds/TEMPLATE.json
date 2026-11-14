@@ -1,0 +1,39 @@
+{
+  "_about": "Template of a build's manifest: copy it to builds/<build>.json (2026-11-14a.json for the next one) and fill it in. Keys starting with _ are comments and are ignored; an unknown key is refused. package.sh reads vs_previous.removed (those assets are dropped) and stamps what pex_header and zip say; the guard and verify_zips.py check everything else. The values below are 2026-11-10a's: change each to the new build's.",
+
+  "build": "2026-11-14a",
+
+  "_previous": "The build whose package is the asset base (ASSETS) and what verify_zips.py --previous is given. The verifier refuses a --previous folder whose name does not end in _<this>.",
+  "previous": "2026-11-10a",
+
+  "esp": {
+    "_records": "The TES4 header's record count and next object ID, as the generator wrote them. /opt/cmb/tools/espcmp.py <old.esp> <new.esp> prints both ('HEDR records 1043 -> 1045, next ID 0xBF5 -> 0xBF7'), and the verifier prints what it found when these are wrong.",
+    "records": 1045,
+    "next_object_id": "0xBF7",
+    "_edids": "Records that must be in the plugin, as TYPE:EditorID (or the editor ID alone): the ones this build adds or changes, so an old plugin cannot pass. espcmp.py --list names them.",
+    "edids": [
+      "GLOB:CMB_RiderQuickUse",
+      "GLOB:CMB_RideReady"
+    ]
+  },
+
+  "_counts": "Files per extension (lower case) over README.txt and Data/, all of them: a count that is off by one fails.",
+  "counts": {
+    "bgsm": 427, "hkx": 212, "dds": 123, "wav": 15, "psc": 12, "pex": 12,
+    "json": 6, "nif": 5, "ini": 2, "esp": 1, "dll": 1, "txt": 1
+  },
+
+  "_vs_previous": "Every file that is not the commit's (the assets and the compiled scripts) is compared with the previous package by sha256. List here, as package paths (Data/...), exactly the ones that differ: 'changed' and 'added' map each path to its sha256 in THIS package, or to null to accept any content; 'removed' lists what the previous package has and this one must not (package.sh drops those from the asset base). A file listed as changed that is still the previous one fails, and so does a difference that is not listed. A compiled script counts as changed when its code differs (its header's compile time and source folder always do). 'verify_zips.py ... --list-changes' prints this block from the two packages: read it, then paste it.",
+  "vs_previous": {
+    "changed": {
+      "_example Data/Scripts/CMB_ControllerScript.pex": null,
+      "_example Data/Meshes/CMB/CMB_BikeWorn.nif": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "added": {},
+    "removed": []
+  },
+
+  "_pex_header": "Leave this key out: the compiled scripts' headers then carry the packaged commit's committer time and the source folder /tmp/tmp.0000000000. (2026-11-10a.json sets compile_time and source_dir to rebuild that build's files byte for byte.)",
+
+  "_zip": "Leave this key out: every zip member then carries the packaged commit's committer time (UTC). 'mtime' (\"2026-11-08 21:03:18\") sets another time for all, 'mtime_overrides' one per package path."
+}

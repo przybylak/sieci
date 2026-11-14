@@ -156,18 +156,6 @@
     },
     {
       "type": "slider",
-      "text": "Field of view riding in first person",
-      "help": "The game\u0027s field of view while you ride in first person (more shows more of the bike, and widens the world too); back to yours as you get off or leave first person. 0 = your own, as before. Needs F4SE and CMB_Slope.dll.",
-      "valueOptions": {
-        "min": 0,
-        "max": 120,
-        "step": 5,
-        "sourceType": "GlobalValue",
-        "sourceForm": "CommonwealthMotorbike.esp|8B1"
-      }
-    },
-    {
-      "type": "slider",
       "text": "Eye forward on the bike",
       "help": "Moves your seat in first person forward (\u002B) or back (-), in game units. 0 = the plugin\u0027s EyeAt. At once.",
       "valueOptions": {
@@ -571,8 +559,17 @@
     },
     {
       "type": "switcher",
+      "text": "Field kit only in your settlements",
+      "help": "On: the parked bike\u0027s Customise opens the field kit only in a settlement of yours (its workshop is yours); anywhere else it says so and nothing comes out of the side bag. Off: anywhere, as the 2026-11-10a build. \u0022Free customising\u0022 below works anywhere either way.",
+      "valueOptions": {
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|BF7"
+      }
+    },
+    {
+      "type": "switcher",
       "text": "Parts from the side bag",
-      "help": "Outside your settlements the field kit uses the side bag\u0027s components as well as yours. Off: only yours (and a settlement\u0027s workshop).",
+      "help": "Outside your settlements the field kit uses the side bag\u0027s components as well as yours (only with the field kit allowed anywhere). Off: only yours (and a settlement\u0027s workshop).",
       "valueOptions": {
         "sourceType": "GlobalValue",
         "sourceForm": "CommonwealthMotorbike.esp|8C4"
@@ -1055,6 +1052,96 @@
         "script": "CMB_MCMRelay",
         "function": "LookApply",
         "params": []
+      }
+    },
+    {
+      "type": "section",
+      "text": "Field kit preview"
+    },
+    {
+      "type": "stepper",
+      "text": "Field kit preview",
+      "help": "How the field kit\u0027s armour menu shows the bike (needs F4SE and CMB_Slope.dll). New: smaller and turned three-quarters, with room to zoom out. As before: the 2026-11-10a build\u0027s view (a tyre filled the screen). Tune: the sliders below set it. Takes effect at the next Customise.",
+      "valueOptions": {
+        "options": [
+          "As before",
+          "New",
+          "Tune (the sliders below)"
+        ],
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|BF8"
+      }
+    },
+    {
+      "type": "slider",
+      "text": "Preview size (%)",
+      "help": "Tune only: the bike\u0027s size in the field kit\u0027s preview, in % (New: 30). Change it, leave the menu and press Customise again.",
+      "valueOptions": {
+        "min": 10,
+        "max": 200,
+        "step": 5,
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|BF9"
+      }
+    },
+    {
+      "type": "slider",
+      "text": "Preview turn",
+      "help": "Tune only: turns the bike round in the preview, in steps of 6.4 degrees (New: 7, about 45 degrees).",
+      "valueOptions": {
+        "min": -28,
+        "max": 28,
+        "step": 1,
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|BFA"
+      }
+    },
+    {
+      "type": "slider",
+      "text": "Preview tilt",
+      "help": "Tune only: tips the bike in the preview, in steps of 6.4 degrees (New: 0).",
+      "valueOptions": {
+        "min": -14,
+        "max": 14,
+        "step": 1,
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|BFB"
+      }
+    },
+    {
+      "type": "slider",
+      "text": "Preview up / down",
+      "help": "Tune only: moves the bike up (\u002B) or down (-) in the preview, in game units (New: 0).",
+      "valueOptions": {
+        "min": -150,
+        "max": 150,
+        "step": 5,
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|BFC"
+      }
+    },
+    {
+      "type": "slider",
+      "text": "Preview zoom out",
+      "help": "Tune only: the preview\u0027s zoom limit outwards (New: -1).",
+      "valueOptions": {
+        "min": -3,
+        "max": 1,
+        "step": 0.25,
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|BFD"
+      }
+    },
+    {
+      "type": "slider",
+      "text": "Preview zoom in",
+      "help": "Tune only: the preview\u0027s zoom limit inwards (New: 1).",
+      "valueOptions": {
+        "min": 0,
+        "max": 3,
+        "step": 0.25,
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|BFE"
       }
     },
     {

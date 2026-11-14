@@ -34,10 +34,19 @@ climbed again after it: the game pauses, the reading decays to 0, the model coas
 3 s"): MenuHold, a frame the caller says paused (a menu pausing the game) steps nothing, the held state's mix heard, and
 after it the speed held is fed until the reading is back to 0.9 of it, the brake, or MenuRejoin s; ShiftGapGears 0,2,3
 (3rd 3.00 s from rest, 2.50 before). MenuHold=0 with ShiftGapGears 0,2,2.5 is the 2026-11-09a build's model exactly
-(--check-off checks all five builds; --check-menu the hold).
+(--check-menu the hold). The 2026-11-14a build (test 53: "a bit flat - didn't raise RPM as much as I was expecting", "the
+climb in the sound wasn't smooth, it was dropping when it shouldn't"): HeardKeep (the throttle on and the bike gaining, the heard
+speed isn't pulled down to a slower bike, the demand is a pull's, the rpm's target never under the rpm: the note never falls
+while the bike gains), LiftDown (a lift's down-shift only once the heard speed is 8 % under the lift's: no 2nd -> 1st on a lift
+while the speed holds), and five gears for a 3200-3700 shift point (ShiftRpm 3500, Gears, ShiftDraw, HeardRiseGears,
+ShiftGapGears, LaunchRise 650, LaunchFlare 0.35: the cruise in 5th at 1937 rpm as 10a's 4th). HeardKeep=0 and LiftDown=0 with the
+2026-11-10a table (ShiftRpm 2500, Gears 555.556,750,960,1161.6, ShiftDraw 2300,3000, HeardRiseGears 2.5,0.95,0.5,1,
+ShiftGapGears 0,2,3, LaunchRise 350, LaunchFlare 0.5) is the 2026-11-10a build's model exactly (--check-off checks all six
+builds; --check-climb the gears).
 
-Gearbox. Four gears with the measured steps 1.35 / 1.28 / 1.21; each gear's entry is its speed at ShiftRpm (2500).
-2nd reaches ShiftRpm at 750 u/s (3000 rpm at the top speed), 4th cruises at the top speed at 1937 rpm.
+Gearbox. Up to the 2026-11-10a build four gears with the measured steps 1.35 / 1.28 / 1.21; each gear's entry is its speed
+at ShiftRpm (2500). 2nd reaches ShiftRpm at 750 u/s (3000 rpm at the top speed), 4th cruises at the top speed at 1937 rpm.
+Since the 2026-11-14a build five (steps 1.55 / 1.5 / 1.33 / 1.28 at ShiftRpm 3500), 5th cruising as 4th did (DEFAULTS' Gears).
   - Up-shift when the gear's rpm at this speed passes ShiftLo + (ShiftRpm - ShiftLo) * pull, where pull is the
     rider's load above the cruise load, 0..1 (0 at a steady speed with the key held; 1 when gaining
     (1 - CruiseLoad) * FullAccel = 220 u/s^2 or more, as the game's 300 u/s^2 does): full throttle shifts at 2500,
@@ -160,14 +169,27 @@ DEFAULTS = dict(
     ClutchDecel=150.0,    # u/s^2 of slowing that counts as stopping: the game's coast is 450, its brake 2250, the
                           # demo's brake 375; the demo's coast has levelled out to < 60 by 422 u/s (judgement)
     AccelTau=0.25,        # s, the acceleration's smoothing: holds the shift schedule with 0.5-3 % speed noise a frame
-    # --- gears: speed (u/s) at ShiftRpm; rpm per u/s 4.50 / 3.333 / 2.604 / 2.152
-    Gears=[555.556, 750.0, 960.0, 1161.6],
+    # --- gears: speed (u/s) at ShiftRpm; rpm per u/s 8.525 / 5.5 / 3.667 / 2.75 / 2.152 (the 2026-11-14a build's five;
+    # 4.50 / 3.333 / 2.604 / 2.152 the 2026-11-10a build's four)
+    Gears=[410.6, 636.4, 954.5, 1272.7, 1626.4],
+                          # the 2026-11-14a build (test 53: "a bit flat - didn't raise RPM as much as I was expecting"; its
+                          # up-shifts at a median 2430 / 2590 / 2363, 3rd all it had at 900 u/s, 2344 rpm, 1.5 s before its
+                          # 3 s were over): five gears for ShiftRpm 3500 and ShiftDraw 3200-3700, the steps 1.55 / 1.5 /
+                          # 1.33 / 1.28, the top gear the 2026-11-10a build's 4th to the digit (900 u/s = 1937 rpm: the
+                          # cruise kept, the user's 1900-2050), 3rd all of 3300 at 900. With four and the cruise kept the
+                          # last shift would fall 3264 -> 1937 (x 1.68) and a steady 600-700 u/s sit in 3rd at 2300-2700;
+                          # with five the part-throttle cruise stays at 1680-2240 at any steady speed. The harness's game,
+                          # a full pull from rest: up-shifts at 1.45 s 3217 rpm, 3.45 s 3383, 6.45 s 3264, 7.95 s 2475 (into
+                          # 5th, 1937), 2nd 2454 -> 3383, 3rd 2445 -> 3264 climbing all its 3 s (2026-11-10a: 1.54 s 2548,
+                          # 3.54 s 2631, 6.54 s 2344, 3rd flat its last 1.5 s). 555.556, 750, 960, 1161.6 with ShiftRpm 2500:
+                          # the 2026-11-10a build's four, whose basis follows:
                           # (666.667, 900, 1152, 1393.92 at ShiftRpm 3000 x 2500/3000, so each gear's rpm per u/s is
                           # unchanged by the lower shift point)
                           # steps 1.35 (1->2: autumn 1.35 n 10, paris 1.26-1.39), 1.28 (2->3: paris 1.25-1.32, daily
                           # 1.29-1.31), 1.21 (3->4: daily/paris 1.18-1.21); 4th at 900 u/s = 1937 rpm (the user: cruise
                           # near 1900-2050; their stretch at 117-132 s cruises at 1957)
-    ShiftRpm=2500.0,      # full-throttle up-shift (3000, the pooled rides' p75-p90, put the pulls back where the user
+    ShiftRpm=3500.0,      # the 2026-11-14a build: 3500, the gears' speeds above at it (2500 the 2026-11-10a build's). Before:
+                          # full-throttle up-shift (3000, the pooled rides' p75-p90, put the pulls back where the user
                           # had called an earlier demo too high): the user's three daily stretches shift at median
                           # ~2290-2470, the daily ride at 2262 (p10-p90 1626-2558)
     ShiftLo=2200.0,       # steady-key up-shift: gentle up-shifts (< 300 rpm/s) median 2328, p25 2009; 2200 leaves
@@ -183,7 +205,9 @@ DEFAULTS = dict(
     DownGap=0.5,          # s after any shift before a down-shift (and an up-shift): without it braking made three
                           # down-shifts in 0.58 s
     ShiftCatch=0.9,       # the engine within 10 % of the up-shift point (it lags its gear by ~0.1 s pulling: 4.5 %)
-    HeardRiseGears=(2.5, 0.95, 0.5, 1.0),
+    HeardRiseGears=(2.0, 0.79, 0.65, 1.0, 1.0),
+                          # the 2026-11-14a build's five (1st 1.45 s, 2nd 2.00, 3rd 3.00, 4th 1.50 in the harness's game
+                          # with ShiftGapGears below; 2.5, 0.95, 0.5, 1: the 2026-11-10a build's four). Before:
                           # the 2026-11-09a build (test 50: "3rd gear pinned", 1.26 s against 2nd's 1.42): the heard
                           # speed's rise in each gear x HeardRise (the rise only; the slip's LaunchRise x vs / HeardRise
                           # and HeardLead's and the up-shift's "faster than HeardRise" keep the plain one; a missing value
@@ -198,7 +222,9 @@ DEFAULTS = dict(
                           # case where 2nd outlasts 3rd (2nd waits for the bike). 1,0.95,0.5,1: the 2026-11-09a build as
                           # of t54-merge (3.83, 1.54, 1.75; 4th at 7.13 s); 1,1,1,1: the 2026-11-06a build's (3.83,
                           # 1.46, 1.25; 6.55 s)
-    ShiftGapGears=(0.0, 2.0, 3.0),
+    ShiftGapGears=(0.0, 2.0, 3.0, 1.5),
+                          # the 2026-11-14a build: 4th at least 1.5 s before the cruise's 5th (0, 2, 3: the 2026-11-10a
+                          # build's, three for its four gears). Before:
                           # s, the least time in gear N (1st, 2nd, ...) before its up-shift, since the last up-shift as
                           # MinShiftGap (0 or missing: MinShiftGap). Test 50's tester asked for 2nd about 1.5-1.6 s and
                           # 3rd 1.7-1.9, the longer (0,1.5,1.75: the 2026-11-09a build as of t54-merge); test 51's for
@@ -340,14 +366,20 @@ DEFAULTS = dict(
                           # Blip=0: the rpm just rises to the new gear's (autumn, no blip)
     LaunchDraw=(1250.0, 1500.0),   # rpm: each pull's slip start, drawn (paris 1250-1500, median 1380); 0,0: IdleRpm +
                                    # Launch x the key (1500, as up to test 44)
-    LaunchRise=350.0,     # rpm/s the slip climbs at the heard speed's fastest rise (paris 370, IQR 250-540; daily 270,
+    LaunchRise=650.0,     # the 2026-11-14a build: 650 for 1st's 8.525 rpm a u/s (350 the 2026-11-10a build's). Before:
+                          # rpm/s the slip climbs at the heard speed's fastest rise (paris 370, IQR 250-540; daily 270,
                           # autumn 310); 0: a flat slip (as up to test 44: 1.5-2 s at 1500, then a sprint)
-    LaunchFlare=0.5,      # the 2026-11-06a build (test 49: "I just want take off to be faster"): a launch press revs the
+    LaunchFlare=0.35,     # the 2026-11-14a build: 0.35 with LaunchRise 650 (0.5 the 2026-11-10a build's). Before:
+                          # the 2026-11-06a build (test 49: "I just want take off to be faster"): a launch press revs the
                           # slip x (1 + LaunchFlare x share), the share 1 -> 0 as a cosine over LaunchFlareTime: in the
                           # harness's game 1938 rpm and -1.1 dB at +0.5 s (1432 and -5.2 before), the up-shifts as before;
                           # 0: none (the 2026-11-02a build's); 0.3 milder, 0.6 punchier
     LaunchFlareTime=1.2,  # s, the launch rev's fade
-    ShiftDraw=(2300.0, 3000.0),    # rpm: each pull's full-throttle up-shift, drawn (paris first shifts 2000-2900,
+    ShiftDraw=(3200.0, 3700.0),    # the 2026-11-14a build: 3200-3700 (2300,3000 the 2026-11-10a build's): the throttle-
+                                   # shut loops top out at 3500 rpm (Off2800 x MaxPitch 1.25) and the on family at 4125,
+                                   # so a pull's flare over 3500 meets the off family's clamp for a few hundredths of a
+                                   # second at most; 3800-4200 tried: the off family at the clamp 0.37 s of every pull
+                                   # (needs an Off3300 loop). Before: rpm: each pull's full-throttle up-shift, drawn (paris first shifts 2000-2900,
                                    # median 2370); 0,0: ShiftRpm (every pull-away identical, as up to test 44). The
                                    # 2026-11-01a build (test 47: "rpm could be slightly higher the closer it is to
                                    # shifting gear"; its 1->2 at a median 2355, 2->3 2347, 3->4 2289): 2300-3000, 1->2
@@ -382,6 +414,24 @@ DEFAULTS = dict(
                           # frame keeping the last input speed; 0: paused ignored (the 2026-11-09a build's)
     MenuRejoin=1.0,       # s, at most: after a hold the speed held is fed (and the last speed with it: no acceleration
                           # from the decayed reading) until the reading is back to 0.9 of it or the brake goes on
+    # --- the 2026-11-14a build (test 53: "the climb in the sound wasn't smooth, it was dropping when it shouldn't"; replayed,
+    # the note fell over 50 rpm/s with the key held and the bike gaining for 37.5 s of 706 s, 120 spells, and 2nd dropped to
+    # 1st on a lift 9 times out of a gear just entered: with the throttle on a heard speed over the bike's was pulled down to
+    # it over HeardTau whether the bike slowed or gained (out of 1st it is the slip's, 518 u/s with the bike at 220-300), the
+    # launch rev's fade outran the slip's climb, and a lift's down-shift needed only CoastDown)
+    HeardKeep=1,          # 1: the throttle on and the bike gaining a quarter of HeardRise or more (35 u/s^2): the heard speed is
+                          # not pulled down to a slower bike (it creeps on at HeardCreep of its gear's rise, at most 2 HeardLead
+                          # ahead of the bike), the rider's demand at least the cruise's plus the gain's (a pull: the full
+                          # throttle's shift point), and the rpm's target never under the rpm (the launch rev's fade, a shift's
+                          # landing); a steady or slowing bike pulls it down over HeardTau as before. 0: the 2026-11-10a build's
+    HeardCreep=0.3,       # the share of the gear's heard rise the heard speed keeps climbing at ahead of a gaining bike (0-1)
+    LiftDown=0.08,        # a coast's down-shift (CoastDown's) also needs the heard speed this share under where it was at the
+                          # lift (the throttle's last on frame, or the highest since): the heard speed never goes under the
+                          # bike's, so a lift while the speed holds or rises never shifts down; a real coast gets there in
+                          # 0.3-0.4 s (StopAfter, then HeardStop), a stop's 5-4-3-2 is unchanged (its bands 12 % and more
+                          # apart). Never for a gear under DownRpm (too tall by the throttle-on rule's own measure: after a hit
+                          # with the key held, test 53's 23:32:57, the design's rule kept 4th at idle, 300 u/s, through taps of
+                          # the key). 0: the 2026-11-10a build's
 )
 EPS = 1e-4      # timer comparisons: float and double agree when a time is a whole number of frames
 LAND = 1.03     # the heard speed: an up-shift lands the next gear this much over DownRpm at the bike's own speed
@@ -475,6 +525,11 @@ class Engine:
         self.rejoin_why = 0                    # why the last feed ended: 1 the reading back, 2 the brake, 3 MenuRejoin
         self.hold_v = 0.0                      # the input speed the hold kept
         self.rejoin_t = 0.0                    # the feed's time so far
+        self.vh_on = 0.0                       # the 2026-11-14a build (LiftDown): the heard speed at the lift (the throttle's last on
+                                               # frame), or its highest since
+        self.keep = False                      # ... (HeardKeep): the throttle on and the bike gaining this frame
+        self.climbed = False                   # ... HeardKeep changed something this frame (the heard speed held up, the rpm held)
+        self.lift_held = False                 # ... LiftDown held a coast's down-shift back this frame
 
     def noise(self):
         """uniform in [-1, 1) from a 32-bit LCG (Numerical Recipes' constants): the C twin draws the same numbers."""
@@ -521,6 +576,8 @@ class Engine:
         self.acc_s += (accel - self.acc_s) * (1.0 - math.exp(-dt / c["AccelTau"]))
         self.held = bool(held)
         on = not braking and forward > 0.0
+        if on or self.vh > self.vh_on:
+            self.vh_on = self.vh               # the 2026-11-14a build (LiftDown): the heard speed at the lift, or its highest since
         if on and not self.was_on:             # a press: this pull's shift point and launch
             if c["ShiftDraw"][1] > 0.0:
                 self.shift_at = self.draw(c["ShiftDraw"][0], c["ShiftDraw"][1])
@@ -543,11 +600,19 @@ class Engine:
         if v >= c["ClutchSpeed"]:
             self.launch = False
         lead = c["HeardLead"] if (on and self.gear == 0 and (self.launch or self.acc_s > c["HeardRise"])) else 0.0
+        # the 2026-11-14a build (HeardKeep): the throttle on and the bike gaining (a quarter of HeardRise or more): the heard speed
+        # is not pulled down to a slower bike; it creeps on at HeardCreep of its gear's rise, no further than 2 HeardLead ahead
+        self.keep = bool(c["HeardKeep"]) and heard and on and self.acc_s > 0.25 * c["HeardRise"]
+        self.climbed = self.lift_held = False
         if heard:
+            rg = c["HeardRiseGears"]   # the 2026-11-09a build: this gear's share of HeardRise (x 1 when missing)
+            rise = c["HeardRise"] * (rg[self.gear] if self.gear < len(rg) else 1.0)
             if v + lead > self.vh:
-                rg = c["HeardRiseGears"]   # the 2026-11-09a build: this gear's share of HeardRise (x 1 when missing)
-                rise = c["HeardRise"] * (rg[self.gear] if self.gear < len(rg) else 1.0)
                 self.vh = min(v + lead, self.vh + rise * dt)
+            elif on and self.keep:
+                self.climbed = True
+                if self.vh < v + 2.0 * c["HeardLead"]:
+                    self.vh = min(v + 2.0 * c["HeardLead"], self.vh + c["HeardCreep"] * rise * dt)
             elif on:
                 self.vh += (v + lead - self.vh) * (1.0 - math.exp(-dt / c["HeardTau"]))
             else:
@@ -562,6 +627,8 @@ class Engine:
             want = 0.0
         elif heard:
             want = min(1.0, c["CruiseLoad"] + (1.0 - c["CruiseLoad"]) * max(0.0, v + lead - self.vh) / c["HeardPull"]) * forward
+            if self.keep:   # the 2026-11-14a build (HeardKeep): the bike gaining under a heard speed ahead of it is a pull all the same
+                want = max(want, min(1.0, c["CruiseLoad"] + self.acc_s / c["FullAccel"]) * forward)
         else:
             want = min(1.0, c["CruiseLoad"] + max(0.0, self.acc_s) / c["FullAccel"]) * forward
         lwant = 1.0 if (self.blip_left > EPS and not on) else want    # a coast down-shift's blip: the throttle opened
@@ -649,9 +716,14 @@ class Engine:
                             and self.since_shift >= (c["StopGap"] if c["StopShift"] else c["DownGap"]) - EPS
                             and not (c["StopShift"] and v < c["ClutchSpeed"]
                                      and self.stop_t + c["BlipTime"] > c["StopHold"] + EPS)):
-                        self.gear -= 1             # a down-shift with a blip
-                        self.since_shift = 0.0
-                        self.blip_left = c["BlipTime"]
+                        # the 2026-11-14a build (LiftDown): only once the heard speed is LiftDown under the lift's (or its highest
+                        # since), unless the gear is under DownRpm already (too tall by the throttle-on rule's own measure)
+                        self.lift_held = (c["LiftDown"] > 0.0 and vs > self.vh_on * (1.0 - c["LiftDown"])
+                                          and vs * k >= c["DownRpm"])
+                        if not self.lift_held:
+                            self.gear -= 1         # a down-shift with a blip
+                            self.since_shift = 0.0
+                            self.blip_left = c["BlipTime"]
                 elif (self.gear > 0 and self.rpm * self.rpm > v * v * k * self.gear_k(self.gear - 1)
                       and self.since_shift >= c["DownGap"] - EPS):
                     # coasting: to the gear whose rpm is nearer the engine's (silent: the rpm doesn't rise when shut)
@@ -677,6 +749,9 @@ class Engine:
                 if c["LaunchFlare"] > 0.0 and 0.0 <= self.flare_t < T:    # the launch rev on the slip (2026-11-06a)
                     sf = slip * (1.0 + c["LaunchFlare"] * (0.5 + 0.5 * math.cos(math.pi * self.flare_t / T)))
                 target = max(target, sf)       # the clutch slips until 1st takes over
+            if self.keep and target < self.rpm:
+                target = self.rpm              # the 2026-11-14a build (HeardKeep): the bike gaining, the note doesn't fall
+                self.climbed = True            # (the launch rev's fade, a shift's landing)
             tau = c["RpmUp"] if target > self.rpm else c["RpmDown"]
             self.coasting = False
         elif heard:
@@ -821,25 +896,42 @@ class Engine:
 #   - 2026-11-06a (the 2026-11-09a build's two off): HeardRiseGears 1,1,1,1, ShiftGapGears empty, 6bc75e4's model (the
 #     2026-11-08a build's too: unchanged), check_off_2026-11-06a.txt;
 #   - 2026-11-09a (the 2026-11-10a build's two off): ShiftGapGears 0,2,2.5, MenuHold 0, 1712b81's model,
-#     check_off_2026-11-09a.txt.
+#     check_off_2026-11-09a.txt;
+#   - 2026-11-10a (the 2026-11-14a build's off): HeardKeep 0, LiftDown 0 and the 2026-11-10a build's gear table (ShiftRpm 2500,
+#     Gears 555.556,750,960,1161.6, ShiftDraw 2300,3000, HeardRiseGears 2.5,0.95,0.5,1, ShiftGapGears 0,2,3, LaunchRise 350,
+#     LaunchFlare 0.5), c716330's model, check_off_2026-11-10a.txt.
 # Each build's set carries the later builds' off values too (0c3df02's and 993f582's ShiftTime and ShiftDipTime were 0.35 and
 # 0.24 and they had no LaunchFlare; none of the older models had HeardRiseGears or ShiftGapGears; their models take unknown
 # keys), so the older files' hashes stand; only their headers' JSON is newer. MenuHold (the 2026-11-10a build) acts only on a
 # paused frame and none of these rides pauses (its own rides are MENU_RIDES, below), so the four older files are as they were,
-# their line 2 without it.
-OFF_KEYS_10A = {"MenuHold": 0}   # the 2026-11-10a build's new key off (its ShiftGapGears 0,2,3: each set below names its own)
-OFF_09A = {"HeardRiseGears": [1.0, 1.0, 1.0, 1.0], "ShiftGapGears": [], **OFF_KEYS_10A}   # the 2026-11-09a build's two off (and the 10a's)
-OFF_31A = {"StopShift": 0, "ShiftDraw": [2000.0, 2900.0], "IdleDb": -17.2, "ShiftTime": 0.35, "ShiftDipTime": 0.24, "LaunchFlare": 0.0, **OFF_09A}
-OFF_01A = {"IdleDb": -17.2, "ShiftTime": 0.35, "ShiftDipTime": 0.24, "LaunchFlare": 0.0, **OFF_09A}
-OFF_02A = {"IdleDb": -11.0, "ShiftTime": 0.35, "ShiftDipTime": 0.24, "LaunchFlare": 0.0, **OFF_09A}
+# their line 2 without it. The 2026-11-14a build's HeardKeep and LiftDown change nothing at 0, and its table's seven keys were the
+# same in every older model but where a set names its own (ShiftDraw, LaunchFlare, HeardRiseGears, ShiftGapGears), so every
+# older set carries OFF_KEYS_14A and the 2026-11-10a values of those four under its own: the five older files stand as they
+# were (their line 2 without the new keys).
+OFF_KEYS_14A = {"HeardKeep": 0, "LiftDown": 0.0, "ShiftRpm": 2500.0, "Gears": [555.556, 750.0, 960.0, 1161.6], "LaunchRise": 350.0}
+OFF_TABLE_10A = {"ShiftDraw": [2300.0, 3000.0], "LaunchFlare": 0.5, "HeardRiseGears": [2.5, 0.95, 0.5, 1.0], "ShiftGapGears": [0.0, 2.0, 3.0]}
+
+
+def _with(own, later):
+    """A build's off values: its own, then the later builds' for the keys it doesn't name."""
+    return {**own, **{k: v for k, v in later.items() if k not in own}}
+
+
+OFF_10A_MODEL = {**OFF_KEYS_14A, **OFF_TABLE_10A}   # the 2026-11-10a build's model: the 2026-11-14a build's nine off
+OFF_KEYS_10A = _with({"MenuHold": 0}, OFF_10A_MODEL)   # the 2026-11-10a build's new key off (its ShiftGapGears 0,2,3: each set below names its own)
+OFF_09A = _with({"HeardRiseGears": [1.0, 1.0, 1.0, 1.0], "ShiftGapGears": []}, OFF_KEYS_10A)   # the 2026-11-09a build's two off (and the later builds')
+OFF_31A = _with({"StopShift": 0, "ShiftDraw": [2000.0, 2900.0], "IdleDb": -17.2, "ShiftTime": 0.35, "ShiftDipTime": 0.24, "LaunchFlare": 0.0}, OFF_09A)
+OFF_01A = _with({"IdleDb": -17.2, "ShiftTime": 0.35, "ShiftDipTime": 0.24, "LaunchFlare": 0.0}, OFF_09A)
+OFF_02A = _with({"IdleDb": -11.0, "ShiftTime": 0.35, "ShiftDipTime": 0.24, "LaunchFlare": 0.0}, OFF_09A)
 OFF_06A = dict(OFF_09A)
-OFF_09A_MODEL = {"ShiftGapGears": [0.0, 2.0, 2.5], **OFF_KEYS_10A}   # the 2026-11-09a build's model: the 2026-11-10a build's two off
+OFF_09A_MODEL = _with({"ShiftGapGears": [0.0, 2.0, 2.5]}, OFF_KEYS_10A)   # the 2026-11-09a build's model: the 2026-11-10a build's two off
 OFF_BUILDS = {   # --off NAME: (the off values, the expected file here, the build, the commit its model is from)
     "31a": (OFF_31A, "check_off_2026-10-31a.txt", "2026-10-31a", "0c3df02"),
     "01a": (OFF_01A, "check_off_2026-11-01a.txt", "2026-11-01a", "993f582"),
     "02a": (OFF_02A, "check_off_2026-11-02a.txt", "2026-11-02a", "f0253e8"),
     "06a": (OFF_06A, "check_off_2026-11-06a.txt", "2026-11-06a", "6bc75e4"),
     "09a": (OFF_09A_MODEL, "check_off_2026-11-09a.txt", "2026-11-09a", "1712b81"),
+    "10a": (OFF_10A_MODEL, "check_off_2026-11-10a.txt", "2026-11-10a", "c716330"),
 }
 CHECK_ON = [("On1400", 1400.0), ("On1700", 1700.0), ("On2000", 2000.0), ("On2400", 2400.0), ("On2800", 2800.0), ("On3300", 3300.0)]
 CHECK_OFF = [("Off1400", 1400.0), ("Off1800", 1800.0), ("Off2300", 2300.0), ("Off2800", 2800.0)]
@@ -944,9 +1036,15 @@ def _menu_ride(script, dt=0.006):
     return out
 
 
-def _menu_run(ride, hold):
-    """Each frame's (gear, rpm, clutch, rejoin, mix) with MenuHold=hold, and the hold's figures."""
-    e = Engine(CHECK_ON, CHECK_OFF, CHECK_IDLE, {"MenuHold": hold})
+# The rides were made for the 2026-11-10a build's table (3rd flat at the top speed by 5.0 s): with the 2026-11-14a build's 3rd
+# still climbs there, so after the feed the note goes on up past the 2 % band (2782 -> 2858 rpm). The hold is checked on both
+# rides with that table, and on the cruise (5th at the top speed: steady) with the defaults.
+MENU_SETS = [("the 2026-11-10a table", OFF_10A_MODEL, ("cruise", "third")), ("the defaults", {}, ("cruise",))]
+
+
+def _menu_run(ride, hold, cfg=None):
+    """Each frame's (gear, rpm, clutch, rejoin, mix) with MenuHold=hold (and cfg), and the hold's figures."""
+    e = Engine(CHECK_ON, CHECK_OFF, CHECK_IDLE, dict(cfg or {}, MenuHold=hold))
     rows, fed = [], None
     for dt, v, fwd, brk, pz in ride:
         mix = e.step(dt, v, fwd, brk, False, pz)
@@ -959,19 +1057,19 @@ def _menu_run(ride, hold):
 def check_menu():
     """0 if on every MENU_RIDES ride MenuHold=1 holds the engine across the menu and its feed (the gear and the clutch as at the
     menu's start, the rpm within 2 %, the held frames' mix unchanged) and no down-shift or clutch follows in MENU_AFTER s,
-    and MenuHold=0 (the 2026-11-09a build's model) does not."""
+    and MenuHold=0 (the 2026-11-09a build's model) does not (each ride of MENU_SETS with its set)."""
     bad = 0
-    for name, script in MENU_RIDES.items():
-        ride = _menu_ride(script)
+    for label, cfg, name in ((label, cfg, name) for label, cfg, names in MENU_SETS for name in names):
+        ride = _menu_ride(MENU_RIDES[name])
         p0 = next(i for i, f in enumerate(ride) if f[4])
         p1 = next(i for i in range(p0, len(ride)) if not ride[i][4])
-        rows, fed = _menu_run(ride, 1)
+        rows, fed = _menu_run(ride, 1, cfg)
         r1 = next((i for i in range(p1, len(ride)) if not rows[i][3]), len(ride) - 1)
         after = r1 + int(round(MENU_AFTER / ride[0][0]))
         g0, rpm0 = rows[p0 - 1][0], rows[p0 - 1][1]
         for hold in (1, 0):
             if hold == 0:
-                rows, _ = _menu_run(ride, 0)
+                rows, _ = _menu_run(ride, 0, cfg)
             span = rows[p0:r1 + 1]
             gears = sorted({r[0] + 1 for r in span})
             lo, hi = min(r[1] for r in span), max(r[1] for r in span)
@@ -986,13 +1084,104 @@ def check_menu():
                 "" if clutch is None else ", the clutch in at +%.2f s" % ((clutch - p0) * dt), "" if mixes else ", the held mix moved")
             if hold:
                 why = {1: "the reading back", 2: "the brake", 3: "MenuRejoin"}.get(fed[2], "?") if fed else "none"
-                print("menu %s MenuHold=1: held at gear %d, %.0f rpm; the held %.0f u/s fed %.2f s (%s); %s; %s" % (
-                    name, g0 + 1, rpm0, fed[0] if fed else 0.0, fed[1] if fed else 0.0, why, words, "ok" if ok else "NOT held"))
+                print("menu %s (%s) MenuHold=1: held at gear %d, %.0f rpm; the held %.0f u/s fed %.2f s (%s); %s; %s" % (
+                    name, label, g0 + 1, rpm0, fed[0] if fed else 0.0, fed[1] if fed else 0.0, why, words, "ok" if ok else "NOT held"))
                 bad += not ok
             else:
-                print("menu %s MenuHold=0 (the 2026-11-09a build's model): %s; %s" % (name, words, "the hold's check fails, as it should" if not ok else "PASSES (it should not)"))
+                print("menu %s (%s) MenuHold=0 (the 2026-11-09a build's model): %s; %s" % (name, label, words, "the hold's check fails, as it should" if not ok else "PASSES (it should not)"))
                 bad += ok
     print("check-menu: %s" % ("the engine held through each menu (MenuHold=1), not with MenuHold=0" if not bad else "FAILED (%d)" % bad))
+    return 1 if bad else 0
+
+
+# --- The 2026-11-14a build's gears (--check-climb; HeardKeep, LiftDown and the five-gear table), in the harness's game.
+CLIMB_PULL = [(14, "W")]                  # a full pull from rest: 1st 1.45 s, 2nd 2.00, 3rd 3.00, 4th 1.50, then the cruise in 5th
+CLIMB_WANT = (1.45, 2.0, 3.0, 1.5)        # ... each gear's length (+-0.1), the first three up-shifts over 3000 rpm
+CLIMB_LIFTS = [(0.7, "W"), (0.6, "-"), (1.3, "W"), (0.2, "-"), (4, "W")]   # two lifts in a launch: the 2026-11-10a model's
+                                          # note falls 0.68 s while the bike gains (205 rpm deep)
+CLIMB_SLOW = (2.3, 0.25, 190.0)           # a slow bike gaining 190 u/s^2 all through, the key let go 0.25 s at 2.3 s: the
+                                          # 2026-11-10a model blips 2nd down to 1st at 1373 rpm with the bike at 443 u/s
+CLIMB_STEADY = ((470.0, "the 2026-11-10a table"), (300.0, "the defaults"))   # a steady bike (190 u/s^2 to it, then held), the key
+                                          # let go 0.5 s at 5 s, the bike holding its speed: in 2nd at 1567 rpm (the 10a table) or
+                                          # 1650 (the defaults), under CoastDown: LiftDown=0 blips 2nd down to 1st and up again
+CLIMB_FALL = (50.0, 35.0)                 # "falling while gaining": over 50 rpm/s, the key held, the clutch out, no shift's
+                                          # gap, the bike gaining over 35 u/s^2 (a quarter of HeardRise)
+
+
+def _climb_slow_ride(dt=1.0 / 60.0, top=900.0, lift_at=None, secs=7.0, lift_for=None):
+    """(dt, speed, forward, braking) a frame: CLIMB_SLOW's bike, 7 s (top: held at that speed; lift_at, lift_for: the lift)."""
+    lift, lift_len, a = CLIMB_SLOW
+    lift = lift if lift_at is None else lift_at
+    lift_len = lift_len if lift_for is None else lift_for
+    out, v = [], 0.0
+    for i in range(int(round(secs / dt))):
+        t = i * dt
+        v = min(top, v + a * dt)
+        out.append((dt, v, 0.0 if lift <= t < lift + lift_len else 1.0, False))
+    return out
+
+
+def _climb_run(cfg, ride):
+    """The up-shifts [(t, from, to, rpm before)], the blips [(t, from, to, rpm before, bike)], the seconds the note fell
+    while the bike gained, and the frames' highest rpm."""
+    e = Engine(CHECK_ON, CHECK_OFF, CHECK_IDLE, cfg)
+    ups, blips, fall, t, most = [], [], 0.0, 0.0, 0.0
+    for dt, v, fwd, brk in ride:
+        rpm0, g0 = e.rpm, e.gear
+        e.step(dt, v, fwd, brk, False)
+        t += dt
+        most = max(most, e.rpm)
+        if e.gear > g0 and not e.clutch:
+            ups.append((t, g0 + 1, e.gear + 1, rpm0))
+        elif e.gear < g0 and e.blip_left > EPS:
+            blips.append((t, g0 + 1, e.gear + 1, rpm0, v))
+        if (fwd > 0.0 and not brk and not e.clutch and e.shift_left <= EPS and e.acc_s > CLIMB_FALL[1]
+                and (e.rpm - rpm0) / dt < -CLIMB_FALL[0]):
+            fall += dt
+    return ups, blips, fall, most
+
+
+def check_climb():
+    """0 if the defaults' full pull has four up-shifts, the first three over 3000 rpm, the gears' lengths CLIMB_WANT +-0.1;
+    on CLIMB_LIFTS the defaults' note never falls while the bike gains (the 2026-11-10a model's more than 0.5 s); on
+    CLIMB_SLOW's ride the defaults blip no gear down (HeardKeep: no sag; the 2026-11-10a model 2nd to 1st); on CLIMB_STEADY's
+    rides LiftDown 0.08 blips no gear down (with the 2026-11-10a table and HeardKeep=0 at 470 u/s, with the defaults at 300) and
+    LiftDown=0 does, 2nd to 1st. Each with the 2026-11-10a model too, which fails the first three."""
+    bad = 0
+    ride = _game_ride(CLIMB_PULL)
+    for label, cfg in (("the defaults", {}), ("the 2026-11-10a model", OFF_10A_MODEL)):
+        ups, _, _, most = _climb_run(cfg, ride)
+        lengths = [ups[0][0]] + [b[0] - a[0] for a, b in zip(ups, ups[1:])] if ups else []
+        ok = (len(ups) == 4 and [u[2] for u in ups] == [2, 3, 4, 5] and all(u[3] > 3000.0 for u in ups[:3])
+              and all(abs(x - w) <= 0.1 for x, w in zip(lengths, CLIMB_WANT)))
+        print("climb pull (%s): up-shifts %s; gears %s s long (%s +-0.1), the highest rpm %.0f; %s" % (
+            label, ", ".join("%d->%d at %.2f s, %.0f rpm" % (u[1], u[2], u[0], u[3]) for u in ups) or "none",
+            " / ".join("%.2f" % x for x in lengths), " / ".join("%g" % w for w in CLIMB_WANT), most,
+            ("ok" if ok else "NOT as it should be") if not cfg else ("fails, as it should" if not ok else "PASSES (it should not)")))
+        bad += (not ok) if not cfg else ok
+    ride = _game_ride(CLIMB_LIFTS)
+    for label, cfg in (("the defaults", {}), ("the 2026-11-10a model", OFF_10A_MODEL)):
+        _, _, fall, _ = _climb_run(cfg, ride)
+        ok = fall < 0.02 if not cfg else fall > 0.5
+        print("climb lifts (%s): the note falling while the bike gains %.2f s (%s); %s" % (
+            label, fall, "none" if not cfg else "over 0.5", "ok" if ok else "NOT as it should be"))
+        bad += not ok
+    table = {k: OFF_10A_MODEL[k] for k in OFF_10A_MODEL if k not in ("HeardKeep", "LiftDown")}
+    rides = [("climb slow lift", _climb_slow_ride(), (("the defaults", {}, False), ("the 2026-11-10a model", OFF_10A_MODEL, True)))]
+    for top, which in CLIMB_STEADY:
+        sets = ((("the 2026-11-10a table, HeardKeep=0, LiftDown=0.08", dict(table, HeardKeep=0), False),
+                 ("the 2026-11-10a model", OFF_10A_MODEL, True)) if which != "the defaults" else
+                (("the defaults", {}, False), ("the defaults, LiftDown=0", {"LiftDown": 0.0}, True)))
+        rides.append(("climb steady lift at %.0f u/s" % top, _climb_slow_ride(top=top, lift_at=5.0, secs=7.5, lift_for=0.5), sets))
+    for name, ride, sets in rides:
+        for label, cfg, want in sets:
+            _, blips, _, _ = _climb_run(cfg, ride)
+            ok = bool(blips) == want and (not want or any(b[1:3] == (2, 1) for b in blips))
+            print("%s (%s): %s; %s" % (name, label, ", ".join("a blip %d->%d at %.2f s, %.0f rpm, the bike %.0f u/s" % (b[1], b[2], b[0], b[3], b[4])
+                                                               for b in blips) or "no blip", "ok" if ok else "NOT as it should be"))
+            bad += not ok
+    print("check-climb: %s" % ("the gears climb, nothing falls while the bike gains, no lift blips (the 2026-11-10a model fails as it should)"
+                                if not bad else "FAILED (%d)" % bad))
     return 1 if bad else 0
 
 
@@ -1032,7 +1221,7 @@ def _off_words(off):
 
 def write_expected(model_path, out_path, build="31a"):
     """The expected file from another model (that build's own engine_model.py: 0c3df02's for 31a, 993f582's for 01a, f0253e8's for 02a,
-    6bc75e4's for 06a, 1712b81's for 09a), run with that build's off values."""
+    6bc75e4's for 06a, 1712b81's for 09a, c716330's for 10a), run with that build's off values."""
     off, _, name, commit = OFF_BUILDS[build]
     engine_cls = _load_model(model_path)
     lines = ["# engine_model.py --check-off: the %s build's model (%s's tools/sound/engine_model.py) over these rides," % (name, commit),
@@ -1104,24 +1293,28 @@ if __name__ == "__main__":
                                  "against that build's frames (2026-10-31a: StopShift=0, ShiftDraw 2000,2900, IdleDb -17.2; "
                                  "2026-11-01a: IdleDb -17.2; 2026-11-02a: IdleDb -11, ShiftTime 0.35, ShiftDipTime 0.24, "
                                  "LaunchFlare 0; 2026-11-06a: HeardRiseGears 1,1,1,1, ShiftGapGears empty; 2026-11-09a: ShiftGapGears "
-                                 "0,2,2.5, MenuHold 0; each with the later builds' off values too).")
+                                 "0,2,2.5, MenuHold 0; 2026-11-10a: HeardKeep 0, LiftDown 0 and its gear table; each with the later builds' off values too).")
     ap.add_argument("--check-off", action="store_true", help="the off values against check_off_2026-10-31a.txt, check_off_2026-11-01a.txt, check_off_2026-11-02a.txt, "
-                    "check_off_2026-11-06a.txt and check_off_2026-11-09a.txt (exit 1 if any frame differs); --off NAME: only that build's")
-    ap.add_argument("--off", choices=sorted(OFF_BUILDS), help="the build: 31a (0c3df02's model), 01a (993f582's), 02a (f0253e8's), 06a (6bc75e4's) or 09a "
-                    "(1712b81's); with --write-expected 31a by default")
+                    "check_off_2026-11-06a.txt, check_off_2026-11-09a.txt and check_off_2026-11-10a.txt (exit 1 if any frame differs); --off NAME: only that build's")
+    ap.add_argument("--off", choices=sorted(OFF_BUILDS), help="the build: 31a (0c3df02's model), 01a (993f582's), 02a (f0253e8's), 06a (6bc75e4's), 09a "
+                    "(1712b81's) or 10a (c716330's); with --write-expected 31a by default")
     ap.add_argument("--check-menu", action="store_true", help="the 2026-11-10a build's MenuHold over MENU_RIDES: the engine held through a menu pausing the "
                     "game and its feed, and not with MenuHold=0 (exit 1 otherwise)")
+    ap.add_argument("--check-climb", action="store_true", help="the 2026-11-14a build's gears: the full pull's four up-shifts over 3000 rpm (but the "
+                    "last) and each gear's length, no fall of the note while the bike gains through two lifts, no blip on a slow bike's lift "
+                    "with LiftDown (exit 1 otherwise; the 2026-11-10a model's failures shown beside)")
     ap.add_argument("--against", metavar="MODEL", help="with --check-off: compare frame by frame with another engine_model.py instead "
                     "(the --off build's values, 31a by default)")
     ap.add_argument("--expected", metavar="FILE", help="with --check-off: the expected file (default: the --off build's file here)")
     ap.add_argument("--write-expected", metavar="MODEL", help="write the --off build's expected file from that build's engine_model.py "
-                    "(0c3df02's for 31a, 993f582's for 01a, f0253e8's for 02a, 6bc75e4's for 06a, 1712b81's for 09a)")
+                    "(0c3df02's for 31a, 993f582's for 01a, f0253e8's for 02a, 6bc75e4's for 06a, 1712b81's for 09a, c716330's for 10a)")
     ap.add_argument("--out", metavar="FILE", help="with --write-expected: where (default: the --off build's file here)")
     a = ap.parse_args()
     if a.write_expected:
         b = a.off or "31a"
         here = os.path.join(os.path.dirname(os.path.abspath(__file__)), OFF_BUILDS[b][1])
         sys.exit(write_expected(a.write_expected, a.out or here, b))
-    if a.check_off or a.check_menu:
-        sys.exit(max(check_off(a.expected, a.against, a.off) if a.check_off else 0, check_menu() if a.check_menu else 0))
+    if a.check_off or a.check_menu or a.check_climb:
+        sys.exit(max(check_off(a.expected, a.against, a.off) if a.check_off else 0, check_menu() if a.check_menu else 0,
+                     check_climb() if a.check_climb else 0))
     ap.print_help()

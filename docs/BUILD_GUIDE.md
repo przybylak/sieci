@@ -249,7 +249,68 @@ The loop is repeatable byte for byte, and 1712b81's tool still makes 2026-11-09a
 `CMB_FxWaterRoadLP.wav`, is unchanged). `check_off_2026-11-09a.txt` is written from 1712b81's model (`git show
 1712b81:tools/sound/engine_model.py > old.py`, then `--write-expected old.py --off 09a`).
 
+Since 2026-11-14a (test 53's fixes) the generator makes eight records more, right after `CMB_RideReady` and only with
+the look: `CMB_KitWhere` 0xBF7 (1) and the field kit preview's seven, `CMB_KitPreview` 0xBF8 (1), `CMB_KitPrevSize`
+0xBF9 (30), `CMB_KitPrevTurn` 0xBFA (7), `CMB_KitPrevTilt` 0xBFB (0), `CMB_KitPrevUp` 0xBFC (0), `CMB_KitPrevZoomOut`
+0xBFD (-1) and `CMB_KitPrevZoomIn` 0xBFE (1), float globals (it throws unless they land there: `CMB_Slope.dll` looks for
+the seven by ID), `CMB_KitWhere` filled into the controller's group `Fixes_57`. The look item's object template is named
+"Motorbike" and every look mod "<slot label>: <option>" (`look_options.json`'s new `label` per slot). `--look-ids`
+appends the eight (838 IDs). `tools/build.sh` prints `checked cmb_controllerscript: 194 properties`, `... names on: the
+item's template 'Motorbike', 263 mods named <slot label>: <option>; the MCM's Look section 21 controls` and "plugin and
+scripts agree"; the ESP holds **1053** in its header's count (no new group), its next ID **0xBFF** (769 IDs left under
+the 0xF00 guard). The MCM's `config.json` gains Look's "Field kit only in your settlements" and a section "Field kit
+preview" (a stepper and six sliders), the side bag's help a clause, and loses Riding's "Field of view riding in first
+person"; `keybinds.json` doesn't change. `dotnet tools/esp-generator/bin/out/EspGenerator.dll --kit-names 0
+<folder>/CommonwealthMotorbike.esp` makes an A/B plugin with 2026-11-10a's names ("Default" and the bare option names;
+not shipped), which `check_plugin.py ... --kit-names 0` checks; `--look-build 2026-11-07a` still writes the 2026-11-07a
+build's ESP, `config.json` and `keybinds.json` byte for byte, with or without `--kit-names 0`. `check.sh` prints no
+warning (12 .pex); the F4SE stub `ScriptObject.psc` gains `RegisterForRemoteEvent` and `UnregisterForRemoteEvent`, as
+F4SE 0.7.9's own (`audit_stubs.py`: 0 problems). Test 53's fixes change no asset: the meshes, textures, materials,
+sounds and clips are 2026-11-10a's. `python3 -I tools/sound/engine_model.py --check-off` checks six builds (the new
+`check_off_2026-11-10a.txt` is written from c716330's model: `git show c716330:tools/sound/engine_model.py > old.py`,
+then `--write-expected old.py --off 10a`) and `--check-climb` the five gears.
+
 The vanilla form IDs the plugins use (PlayerRef, XMarker, HumanRace, HumanRaceSubGraphData, SpeedMult, CarryWeight, FallingDamageMod, Health, Pip-Boy, AnimArchetypePlayer) were checked against Mutagen's FormKey list generated from the real `Fallout4.esm`. The record layouts were also compared field by field with xEdit's Fallout 4 definitions.
+
+## For developers: packaging a build
+
+Since 2026-11-14a the release package is made by `tools/package` ([its README](../tools/package/README.md) has the
+details and every rule): `package.sh` makes `CommonwealthMotorbike_<build>/` (`README.txt` and `Data/`) and its two
+zips, `CommonwealthMotorbike_<build>.zip` and `CommonwealthMotorbike_MO2.zip` (`Data`'s contents at its root, a Mod
+Organizer 2 mod folder as it is), from one commit of this repository and the asset base: the previous package's `Data`
+folder, with any newly built assets laid over it. `verify_zips.py` proves both zips afterwards. Bash, git, Python 3's
+standard library and Caprica are all it needs. For a build:
+
+1. Write `tools/package/builds/<build>.json` from `builds/TEMPLATE.json` (the ESP's record count and next object ID and
+   the records it must hold; the files per extension; the assets and compiled scripts that differ from the previous
+   package, which the verifier fails if they aren't listed) and the build's notes into
+   `tools/package/README.template.txt` (line 1 names the build and keeps `@COMMIT@`; the heading `WHAT'S NEW IN
+   <build>`; ASCII; the credit block at its end exactly as `CREDITS.txt`). Commit: the tracked files under `Data/` and
+   `tools/` must be clean.
+2. Restore the asset base from the previous package's zip, unpacked as data (`bash tools/package/package.sh --extract
+   <its zip> <folder>`), and prove it (`bash tools/package/package.sh --check-assets
+   <folder>/CommonwealthMotorbike_<previous>/Data`: every file of `assets.sha256` there byte for byte, and no other
+   asset).
+3. Package: `BUILD=<build> ASSETS=<previous Data> [OVERLAY=<new assets>] OUT=<out> CAPRICA=<Caprica> bash
+   tools/package/package.sh`. It reads the commit's objects, never the working tree: the tracked files under `Data/`
+   (but the four synthesised engine WAVs, which come from the asset base) and one `.pex` per `.psc`, compiled from the
+   commit's sources by its own `tools/syntax-check/check.sh`, the headers stamped with the commit's time so that two
+   runs give the same bytes. It prints what it took from where, one `ok` line per guard check, both zips' sizes and md5
+   and `packaged commit <sha7>`; any `FAIL` stops it before a zip is written.
+4. Verify: `python3 -I tools/package/verify_zips.py <out>/CommonwealthMotorbike_<build>.zip
+   <out>/CommonwealthMotorbike_MO2.zip --repo . --commit HEAD --previous <the previous package's folder>
+   --list-changes`: one PASS or FAIL line per check, exit 0 only with no FAIL. `--list-changes` prints what differs from
+   the previous package, with each file's sha256: when it is exactly what the build meant to change, paste it into the
+   manifest's `vs_previous` (a later commit can hold it: `PACKAGE_COMMIT=<the build's commit>` still packages and names
+   the build's commit; give the verifier the same).
+5. Once the build has shipped, `bash tools/package/package.sh --write-assets-manifest <its Data folder>` rewrites
+   `assets.sha256` for the next build, to commit with its manifest.
+
+On a fresh machine the tools are rebuilt as in the steps above: MinGW-w64 for `CMB_Slope.dll` (step 1b; wine for its
+harness), Caprica for the scripts (`tools/syntax-check/build-caprica.sh`, step 2), the .NET 8 SDK for the generator
+(`tools/build.sh`, above), Python 3 for the rest; the asset base comes back from the last package's zip (step 2 of this
+list). `builds/2026-11-10a.json` rebuilds the 2026-11-10a package byte for byte and is the tools' own test
+(`tools/package/README.md`, *2026-11-10a, rebuilt*).
 
 ## Appendix: building the plugin by hand in the Creation Kit
 

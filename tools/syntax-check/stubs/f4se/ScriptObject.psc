@@ -13,6 +13,8 @@ Function RegisterForPlayerTeleport() native
 Function UnregisterForPlayerTeleport() native
 Function RegisterForMenuOpenCloseEvent(string asMenuName) native
 Function UnregisterForMenuOpenCloseEvent(string asMenuName) native
+bool Function RegisterForRemoteEvent(ScriptObject akEventSource, string asEventName) native
+Function UnregisterForRemoteEvent(ScriptObject akEventSource, string asEventName) native
 Function AddInventoryEventFilter(Form akFilter) native
 Function RemoveAllInventoryEventFilters() native
 

@@ -264,49 +264,57 @@ EndFunction
 
 ; 2026-11-08a: the four V of the look as chosen (no swap list read beyond the bounds); true if any is
 ; in use. All -1 with CMB_LookOn 0, every slot at its stock, or an older ESP (CMB_LookPaintV None).
+; 2026-11-14a (test 53's "paint -1 rims -1 plate -1 text -1": two threads in this script at once, LookFollowUp's in
+; ApplyWornColours' swap while PlaceTwins' second LookFollowUp composed): reckoned in locals, the five members set together at
+; the end with no call between them, so no other thread ever reads them half reset (the same values in the same order of
+; calls as 2026-11-10a's; no key).
 bool Function Colours()
-	paintV = -1.0
-	rimV = -1.0
-	plateV = -1.0
-	textV = -1.0
-	rimHue = false
-	if !LookOn() || !CMB_LookPaintV
-		return false
-	endif
-	int paint = Chosen(3)
-	int row = PaintRowOf(paint)
-	if row == -1
-		paintV = HueV()
-	endif
-	int rims = Chosen(5)
-	if RimBody && RimBodyTargets && rims > 0 && rims < RimBody.Length && RimBody[rims] == 1
-		if paintV >= 0.0
-			rimV = paintV
-			rimHue = RimBodyHueTargets && RimBodyHueTargets.Length == RimBodyTargets.Length
-		elseif row >= 0
-			rimV = (row + 0.5) / 64.0
+	float paint_v = -1.0
+	float rim_v = -1.0
+	float plate_v = -1.0
+	float text_v = -1.0
+	bool hue = false
+	if LookOn() && CMB_LookPaintV
+		int paint = Chosen(3)
+		int row = PaintRowOf(paint)
+		if row == -1
+			paint_v = HueV()
+		endif
+		int rims = Chosen(5)
+		if RimBody && RimBodyTargets && rims > 0 && rims < RimBody.Length && RimBody[rims] == 1
+			if paint_v >= 0.0
+				rim_v = paint_v
+				hue = RimBodyHueTargets && RimBodyHueTargets.Length == RimBodyTargets.Length
+			elseif row >= 0
+				rim_v = (row + 0.5) / 64.0
+			endif
+		endif
+		int plate = Chosen(7)
+		if plate >= 1
+			int back = Chosen(10) - 1
+			if back < 0
+				back = PlateOwn(PlateOwnBack, plate)
+			endif
+			if back >= 0 && back < 16
+				plate_v = ((plate - 1) * 16 + back + 0.5) / 256.0
+			endif
+		endif
+		if Chosen(8) > 1
+			int ink = Chosen(9) - 1
+			if ink < 0
+				ink = PlateOwn(PlateOwnInk, plate)
+			endif
+			if ink >= 0 && ink < 16
+				text_v = (ink + 0.5) / 16.0
+			endif
 		endif
 	endif
-	int plate = Chosen(7)
-	if plate >= 1
-		int back = Chosen(10) - 1
-		if back < 0
-			back = PlateOwn(PlateOwnBack, plate)
-		endif
-		if back >= 0 && back < 16
-			plateV = ((plate - 1) * 16 + back + 0.5) / 256.0
-		endif
-	endif
-	if Chosen(8) > 1
-		int ink = Chosen(9) - 1
-		if ink < 0
-			ink = PlateOwn(PlateOwnInk, plate)
-		endif
-		if ink >= 0 && ink < 16
-			textV = (ink + 0.5) / 16.0
-		endif
-	endif
-	return paintV >= 0.0 || rimV >= 0.0 || plateV >= 0.0 || textV >= 0.0
+	paintV = paint_v
+	rimV = rim_v
+	plateV = plate_v
+	textV = text_v
+	rimHue = hue
+	return paint_v >= 0.0 || rim_v >= 0.0 || plate_v >= 0.0 || text_v >= 0.0
 EndFunction
 
 ; The V's into the fixed globals CMB_Slope.dll reads for the worn bike (-1 = it writes nothing): the
@@ -445,6 +453,12 @@ MatSwap:RemapData[] Function Compose(bool abWorn = false)
 				int j = 0
 				while entries && j < entries.Length
 					MatSwap:RemapData e = entries[j]
+					; 2026-11-14a ([Look] WornIndex): a body-colour rim's entry WriteWornIndexes pointed at its hue twin (the worn
+					; bike's mods' own swap, edited in memory) composed as the ESP has it: its plain target (PlainBodyEntry), so
+					; the parked and first-person bikes get 2026-11-10a's entries whatever the last ride's paint was
+					if s == 5
+						e = PlainBodyEntry(e)
+					endif
 					int body = -1
 					if v >= 0.0 && s == 5
 						body = RimBodyTargets.Find(e.target)
@@ -478,6 +492,24 @@ MatSwap:RemapData[] Function Compose(bool abWorn = false)
 	CMB_LookSwap.SetRemapData(all)
 	composedCount = all.Length
 	return all
+EndFunction
+
+; 2026-11-14a ([Look] WornIndex): akEntry itself, or, when its target is one of RimBodyHueTargets (WriteWornIndexes renamed
+; it), a new struct with the plain twin RimBodyTargets names in the same place and the colour index no ESP entry of a rim has
+; (NoIndex); the form's own entry untouched.
+MatSwap:RemapData Function PlainBodyEntry(MatSwap:RemapData akEntry)
+	if !RimBodyTargets || !RimBodyHueTargets || RimBodyHueTargets.Length != RimBodyTargets.Length
+		return akEntry
+	endif
+	int twin = RimBodyHueTargets.Find(akEntry.target)
+	if twin < 0
+		return akEntry
+	endif
+	MatSwap:RemapData e = new MatSwap:RemapData
+	e.source = akEntry.source
+	e.target = RimBodyTargets[twin]
+	e.colorIndex = NoIndex()
+	return e
 EndFunction
 
 int Function Applied(MatSwap:RemapData[] akDone)
@@ -614,6 +646,209 @@ int Function WriteWornColours()
 		return 1
 	endif
 	return 0
+EndFunction
+
+; ---- 2026-11-14a (test 53: Free colour drawn blue in third person on every ride but the one the game loaded into) ----------
+; What third person drew was the worn paint material file's own lookup scale (0.3960, hue 210), though the plugin's write of
+; the look's V into that very material read back for the whole ride; first person and the parked bike were right. The parked
+; bike gets its colours from the game: its kept swap (CMB_LookSwap, F4SE-written entries with a colour index) applied by the
+; game itself when its 3D loads. [Look] WornIndex (CMB_Slope.ini; CMB_LookOptions 4096) does the same for the worn bike: the
+; look's V written, before the equip, as the colour remapping indexes of the chosen options' OWN material swaps, the very forms
+; the worn bike's mods add (CMB_LookSwaps_<slot>, MakeOption), so the game builds the worn 3D with the colour. The forms are
+; edited in memory only (F4SE's SetRemapData): a restart gives the ESP's back, and with WornIndex turned off after it was on
+; this game session (CMB_LookOptions 16384, the plugin's) RestoreWornIndexes puts the chosen ones back before each equip.
+; Off (no 4096, no 16384): none of this is called (2026-11-10a).
+
+; The colour remapping index of an ESP entry without one (no CNAM), as F4SE reads it from the game: Paint's Factory swap's
+; first entry (option 0, which nothing here edits). Read once and kept (the game's own value; -1 when it can't be read: then
+; nothing is put back).
+float noIndexValue = 0.0
+bool noIndexKnown = false
+float Function NoIndex()
+	if noIndexKnown
+		return noIndexValue
+	endif
+	FormList swaps = SwapList(3)
+	MatSwap sw = None
+	if swaps && swaps.GetSize() > 0
+		sw = swaps.GetAt(0) as MatSwap
+	endif
+	MatSwap:RemapData[] entries = None
+	if sw
+		entries = sw.GetRemapData()
+	endif
+	if !entries || entries.Length == 0
+		return -1.0
+	endif
+	noIndexValue = entries[0].colorIndex
+	noIndexKnown = true
+	return noIndexValue
+EndFunction
+
+; The slot's chosen option's own swap (as Compose takes it), or None.
+MatSwap Function ChosenSwap(int aiSlot)
+	FormList swaps = SwapList(aiSlot)
+	if !swaps
+		return None
+	endif
+	int at = SwapIndex(aiSlot, Chosen(aiSlot))
+	if at < 0 || at >= swaps.GetSize()
+		return None
+	endif
+	return swaps.GetAt(at) as MatSwap
+EndFunction
+
+; A body-colour rim's target's place in RimBodyTargets, or in RimBodyHueTargets when IndexSlot renamed it (-1: neither).
+int Function BodyAt(string asTarget)
+	if !RimBodyTargets
+		return -1
+	endif
+	int at = RimBodyTargets.Find(asTarget)
+	if at < 0 && RimBodyHueTargets && RimBodyHueTargets.Length == RimBodyTargets.Length
+		at = RimBodyHueTargets.Find(asTarget)
+	endif
+	return at
+EndFunction
+
+; The slot's chosen swap with afV as its entries' colour index (abRestore: NoIndex, the ESP's), as Compose colours the
+; parked bike's: every entry for the paint (3), the plate (7) and its text (8); for the rims (5) the body-colour entries
+; only, pointed at their hue twins with abHue (Free colour), else at the plain targets. Nothing with afV under 0 (the slot
+; carries no colour: its option is never edited). Read first, SetRemapData only on a difference (F4SE's Set clears and
+; re-adds every entry: the others make the round trip with their own index). " <slot> <n> set" / " ... as they were".
+string Function IndexSlot(int aiSlot, float afV, bool abHue, bool abRestore)
+	if afV < 0.0
+		return ""
+	endif
+	MatSwap sw = ChosenSwap(aiSlot)
+	if !sw
+		return ""
+	endif
+	float index = afV
+	if abRestore
+		index = NoIndex()
+		if !noIndexKnown
+			return " " + SlotName(aiSlot) + " not put back (no Factory swap to read the ESP's index from)"
+		endif
+	endif
+	MatSwap:RemapData[] entries = sw.GetRemapData()
+	int carried = 0
+	int changed = 0
+	int j = 0
+	while entries && j < entries.Length
+		MatSwap:RemapData e = entries[j]
+		bool carries = aiSlot != 5
+		string target = e.target
+		if aiSlot == 5
+			int body = BodyAt(e.target)
+			if body >= 0
+				carries = true
+				target = RimBodyTargets[body]
+				if abHue && !abRestore
+					target = RimBodyHueTargets[body]
+				endif
+			endif
+		endif
+		if carries
+			carried += 1
+			if e.colorIndex != index || e.target != target
+				e.colorIndex = index
+				e.target = target
+				changed += 1
+			endif
+		endif
+		j += 1
+	endwhile
+	if changed > 0
+		sw.SetRemapData(entries)
+		indexChanges += changed
+		return " " + SlotName(aiSlot) + " " + changed + " of " + carried + " set"
+	endif
+	return " " + SlotName(aiSlot) + " " + carried + " as they were"
+EndFunction
+
+string Function SlotName(int aiSlot)
+	if aiSlot == 3
+		return "Paint"
+	elseif aiSlot == 5
+		return "Rims"
+	elseif aiSlot == 7
+		return "Plate"
+	elseif aiSlot == 8
+		return "Plate text"
+	endif
+	return "slot " + aiSlot
+EndFunction
+
+; The four slots indexed (abRestore: put back) with the values Colours() just reckoned, as one text ("" nothing looked at);
+; indexChanges the entries changed (for the log only). The values are taken into locals first, before any call (another
+; thread's Colours may set the members again: the same values).
+int indexChanges = 0
+string Function IndexAll(bool abRestore)
+	float paint_v = paintV
+	float rim_v = rimV
+	float plate_v = plateV
+	float text_v = textV
+	bool hue = rimHue
+	indexChanges = 0
+	string text = IndexSlot(3, paint_v, false, abRestore) + IndexSlot(5, rim_v, hue, abRestore)
+	text += IndexSlot(7, plate_v, false, abRestore) + IndexSlot(8, text_v, false, abRestore)
+	if text != ""
+		text += ", colours: paint " + VText(paint_v) + " rims " + VText(rim_v) + " plate " + VText(plate_v) + " text " + VText(text_v)
+	endif
+	return text
+EndFunction
+
+; The controller's WornColoursWrite with [Look] WornIndex (bit 4096), before the worn bike's equip: WriteWornColours (the
+; values into the plugin's globals: its writer still colours a worn 3D the game built before the indexes were in, as after a
+; load) and the same values into the chosen options' swaps. 1 if the look has a colour, else 0.
+int Function WriteWornIndexes()
+	bool any = Colours()
+	string text = IndexAll(false)
+	WriteColours()
+	if text != ""
+		Log("Look: the worn bike's colour indexes before its equip (WornIndex):" + text)
+	endif
+	if any
+		return 1
+	endif
+	return 0
+EndFunction
+
+; The controller's WornIndexRestore (WornIndex off after it was on: CMB_LookOptions 16384 without 4096), before the equip: the
+; chosen options' swaps as the ESP has them; a line only when one was changed. The entries changed (0 none).
+int Function RestoreWornIndexes()
+	Colours()
+	string text = IndexAll(true)
+	int changed = indexChanges
+	if changed > 0
+		Log("Look: the worn bike's colour indexes put back as the ESP has them (WornIndex off):" + text)
+	endif
+	return changed
+EndFunction
+
+; The controller's LookAfterLoad: the options' swaps follow the loaded save's look (a 3D the game builds from them now is
+; that look's): indexed with WornIndex (no globals written: the save's are the worn bike's), put back with only 16384. -2
+; neither bit (nothing called), else the entries changed.
+int Function LoadWornIndexes()
+	int options = 0
+	if CMB_LookOptions
+		options = CMB_LookOptions.GetValue() as int
+	endif
+	bool index = (options / 4096) % 2 == 1
+	if !index && (options / 16384) % 2 == 0
+		return -2
+	endif
+	Colours()
+	string text = IndexAll(!index)
+	int changed = indexChanges
+	if changed > 0
+		if index
+			Log("Look: the worn bike's colour indexes after the load (WornIndex):" + text)
+		else
+			Log("Look: the worn bike's colour indexes put back as the ESP has them after the load (WornIndex off):" + text)
+		endif
+	endif
+	return changed
 EndFunction
 
 ; 2026-11-09a (test 51's black screen; the controller's MountGuard watchdog, bit 16): the menus open now among those that

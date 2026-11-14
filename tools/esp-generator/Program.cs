@@ -6,6 +6,7 @@
 //   dotnet run -c Release -- --dump <plugin.esp>   print what a plugin contains
 //   dotnet run -c Release -- --look-ids look_ids.txt   write the save-stable ID list (appends only)
 //   dotnet run -c Release -- --recipe-bench CMB_WorkbenchBike <output.esp>   an A/B plugin: the look recipes on CMB_WorkbenchBike
+//   dotnet run -c Release -- --kit-names 0 <output.esp>   an A/B plugin: the look item and mods named as 2026-11-10a
 //
 // Vanilla form IDs below were checked against Mutagen.Bethesda.FormKeys.Fallout4
 // (generated from the real Fallout4.esm), except PlayerRef (00000014), which is
@@ -278,6 +279,20 @@ public static class Program
             LookRecords.RecipeBench = true;
             args = args[2..];
         }
+        // 2026-11-14a (test 53, wish f): `--kit-names 0` first gives the look item's template and the 263 look mods
+        // 2026-11-10a's names back ("Default", each option's bare name): the names' off value, an A/B ESP (only FULL strings
+        // differ, the same records and FormIDs: safe to swap in a save). `--kit-names 1` is the default. The rest of the
+        // arguments as without it.
+        if (args.Length >= 2 && args[0] == "--kit-names")
+        {
+            if (args[1] != "0" && args[1] != "1")
+            {
+                Console.Error.WriteLine($"--kit-names {args[1]}: 0 (2026-11-10a's names) or 1 (the default).");
+                return 1;
+            }
+            LookRecords.KitNames = args[1] == "1";
+            args = args[2..];
+        }
         if (args.Length == 2 && args[0] == "--dump")
         {
             Dump(args[1]);
@@ -410,9 +425,15 @@ public static class Program
                      "CMB_KitMode", new[] { "Automatic", "Toolbox (a test: it can't be sat in)", "Toolbox, bench keyword (a test)", "Armour bench", "The game's armour bench" })
                : Look("stepper", "Field kit", "Automatic tries the toolbox, then an armour bench, and remembers the one that worked. The others force one (for a test).",
                      "CMB_KitMode", new[] { "Automatic", "Toolbox", "Toolbox (armour bench keyword)", "Armour bench" }),
-            Look("switcher", "Parts from the side bag", "Outside your settlements the field kit uses the side bag's components as well as yours. Off: only yours (and a settlement's workshop).",
-                "CMB_KitBagLink"),
         };
+        // 2026-11-14a (test 53, wish l): "Field kit only in your settlements" (CMB_KitWhere, 0xBF7) after "Field kit", and the side
+        // bag's help says when it applies. Only with C2's block (`--look-build 2026-11-07a`: 2026-11-07a's controls as they were).
+        if (c2)
+            lookSection.Add(Look("switcher", "Field kit only in your settlements", "On: the parked bike's Customise opens the field kit only in a settlement of yours (its workshop is yours); anywhere else it says so and nothing comes out of the side bag. Off: anywhere, as the 2026-11-10a build. \"Free customising\" below works anywhere either way.",
+                "CMB_KitWhere"));
+        lookSection.Add(Look("switcher", "Parts from the side bag", c2 ? "Outside your settlements the field kit uses the side bag's components as well as yours (only with the field kit allowed anywhere). Off: only yours (and a settlement's workshop)."
+                                                                       : "Outside your settlements the field kit uses the side bag's components as well as yours. Off: only yours (and a settlement's workshop).",
+            "CMB_KitBagLink"));
         if (c2)
             lookSection.Add(Look("switcher", "Crude plate texts", "Crude wasteland humour and mild swearing among the plate texts at the field kit. Off: they aren't offered, and a plate wearing one shows its own text (at the next getting on, activation or Apply).",
                 "CMB_LookPlateCrude"));
@@ -460,6 +481,30 @@ public static class Program
             },
         });
 
+        // 2026-11-14a (test 53, wish f: the kit's preview was a tyre filling the screen): the section "Field kit preview" after the
+        // Look section, CMB_Slope.dll's [Look] KitPreview on CMB_KitPreview (0xBF8) and Tune's six sliders (0xBF9-0xBFE; the
+        // ESP's values are New's). Only with C2's block (`--look-build 2026-11-07a`: none).
+        var previewSection = new List<object>();
+        if (c2)
+            previewSection.AddRange(new[]
+            {
+                Section("Field kit preview"),
+                Look("stepper", "Field kit preview", "How the field kit's armour menu shows the bike (needs F4SE and CMB_Slope.dll). New: smaller and turned three-quarters, with room to zoom out. As before: the 2026-11-10a build's view (a tyre filled the screen). Tune: the sliders below set it. Takes effect at the next Customise.",
+                    "CMB_KitPreview", new[] { "As before", "New", "Tune (the sliders below)" }),
+                Slider("Preview size (%)", "Tune only: the bike's size in the field kit's preview, in % (New: 30). Change it, leave the menu and press Customise again.",
+                    "CMB_KitPrevSize", 10, 200, 5),
+                Slider("Preview turn", "Tune only: turns the bike round in the preview, in steps of 6.4 degrees (New: 7, about 45 degrees).",
+                    "CMB_KitPrevTurn", -28, 28, 1),
+                Slider("Preview tilt", "Tune only: tips the bike in the preview, in steps of 6.4 degrees (New: 0).",
+                    "CMB_KitPrevTilt", -14, 14, 1),
+                Slider("Preview up / down", "Tune only: moves the bike up (+) or down (-) in the preview, in game units (New: 0).",
+                    "CMB_KitPrevUp", -150, 150, 5),
+                Slider("Preview zoom out", "Tune only: the preview's zoom limit outwards (New: -1).",
+                    "CMB_KitPrevZoomOut", -3, 1, 0.25f),
+                Slider("Preview zoom in", "Tune only: the preview's zoom limit inwards (New: 1).",
+                    "CMB_KitPrevZoomIn", 0, 3, 0.25f),
+            });
+
         var config = new
         {
             modName,
@@ -492,7 +537,9 @@ public static class Program
                 Switcher("Bike in first person", "Shows the bike under you in first person (needs F4SE and CMB_Slope.dll). Takes effect the next time you get on.", "CMB_FirstPersonBike"),
                 Slider("Look down on getting into first person (deg)", "Each time you go into first person on the bike, the view eases down this far so the dial and bars are in sight; look up whenever you like. 0 = the view left as it is (as before). Needs F4SE and CMB_Slope.dll.",
                     "CMB_ViewTip", 0, 45, 1),
-                Slider("Field of view riding in first person", "The game's field of view while you ride in first person (more shows more of the bike, and widens the world too); back to yours as you get off or leave first person. 0 = your own, as before. Needs F4SE and CMB_Slope.dll.",
+                // 2026-11-14a (test 53, wish j: the game writes its own 80 back): no FOV slider with C2's block (the global CMB_ViewFov
+                // stays at 0x8B1, 0 = your own: the plugin finds it by ID); `--look-build 2026-11-07a` keeps it (2026-11-07a's MCM).
+                c2 ? null! : Slider("Field of view riding in first person", "The game's field of view while you ride in first person (more shows more of the bike, and widens the world too); back to yours as you get off or leave first person. 0 = your own, as before. Needs F4SE and CMB_Slope.dll.",
                     "CMB_ViewFov", 0, 120, 5),
                 Slider("Eye forward on the bike", "Moves your seat in first person forward (+) or back (-), in game units. 0 = the plugin's EyeAt. At once.",
                     "CMB_ViewEyeForward", -30, 30, 1),
@@ -564,7 +611,7 @@ public static class Program
                 new { type = "hotkey", id = "ToggleHeadlamp", text = "Headlamp on / off", help = "Switches the headlamp while riding, until you get off or the next dusk or dawn; the setting above stays as it is." },
                 Switcher("Headlamp casts shadows", "The beam casts shadows (costlier: the game runs only a few shadow lights at once). Takes effect the next time you get on.", "CMB_HeadlampShadows"),
                 Switcher("Tail lamp lights the road", "The tail lamp casts a small red light behind the bike, brighter while you brake (needs F4SE and CMB_Slope.dll). Takes effect the next time you get on.", "CMB_TailLightMode"),
-            }.Concat(lookSection).Concat(new object[]
+            }.Concat(lookSection).Concat(previewSection).Concat(new object[]
             {
                 Section("Hotkeys"),
                 new { type = "hotkey", id = "ToggleRide", text = "Get on / off / call the bike", help = "If you use this, set the built-in hotkey below to 0 so the key doesn't fire twice." },
@@ -1303,6 +1350,37 @@ public static class Program
                 throw new InvalidOperationException($"CMB_RiderQuickUse and CMB_RideReady must be 0xBF5-0xBF6 (CMB_Slope.dll looks for them), got {gRiderQuickUse.FormKey.ID:X}, {gRideReady.FormKey.ID:X}");
         }
 
+        // --- 2026-11-14a, test 53's answer (the kit unit): the round's eight forms, 0xBF7-0xBFE, right after 2026-11-10a's
+        // 0xBF6 (only with C2's block: `--look-build 2026-11-07a` makes none). CMB_KitWhere (wish l): 1 = Customise only in
+        // a settlement of yours (the controller's CustomiseBlocker), 0 = anywhere (2026-11-10a); the MCM's "Field kit only in
+        // your settlements". CMB_KitPreview (wish f: the preview showed a tyre): CMB_Slope.dll's [Look] KitPreview writes the
+        // look item's preview transform (CMB_BikeLookPreview, 0x8CC, untouched in the ESP) as 0 = the ESP's (2026-11-10a),
+        // 1 = the plugin's new values, 2 = the six CMB_KitPrev* sliders (Tune): size %, turn and tilt in steps of 6.394796
+        // (6.39 deg whether the engine reads radians or degrees), up/down, the two zoom limits. Their ESP values are mode 1's
+        // (size 30, turn 7 = 44.76 deg, tilt 0, up 0, zoom -1..1), so Tune starts where New is. The plugin finds the seven
+        // by ID (its KIT_PREVIEW_ID .. and the harness's KIT_PREVIEW_FORMID .. use these numbers: renumber them together).
+        GlobalFloat? gKitWhere = null;
+        if (look.HasC2)
+        {
+            if (mod.ModHeader.Stats.NextFormID != 0xBF7)
+                throw new InvalidOperationException($"2026-11-14a's forms start at 0xBF7, after 2026-11-10a's 0xBF6; the next ID is 0x{mod.ModHeader.Stats.NextFormID:X}");
+            gKitWhere = Global(mod, "CMB_KitWhere", 1);
+            var kit57 = new IMajorRecordGetter[]
+            {
+                gKitWhere,
+                Global(mod, "CMB_KitPreview", 1),
+                Global(mod, "CMB_KitPrevSize", 30),
+                Global(mod, "CMB_KitPrevTurn", 7),
+                Global(mod, "CMB_KitPrevTilt", 0),
+                Global(mod, "CMB_KitPrevUp", 0),
+                Global(mod, "CMB_KitPrevZoomOut", -1),
+                Global(mod, "CMB_KitPrevZoomIn", 1),
+            };
+            for (int i = 0; i < kit57.Length; i++)
+                if (kit57[i].FormKey.ID != 0xBF7 + i)
+                    throw new InvalidOperationException($"2026-11-14a's kit globals must be 0xBF7-0xBFE (CMB_Slope.dll finds the preview's seven by ID), got {string.Join(", ", kit57.Select(r => $"{r.EditorID} {r.FormKey.ID:X}"))}");
+        }
+
         // --- Controller quest ---
         quest.Name = "Commonwealth Motorbike";
         quest.Data = new QuestData
@@ -1600,6 +1678,12 @@ public static class Program
                 Obj("CMB_RiderQuickUse", gRiderQuickUse!),
                 Obj("CMB_RideReady", gRideReady!),
             });
+            // 2026-11-14a, test 53: the controller's Fixes_57 group, 1, after CMB_RideReady: the field kit only in your
+            // settlements (0xBF7). Not with `--look-build 2026-11-07a` (None: anywhere, 2026-11-10a's).
+            controller.Properties.InsertRange(controller.Properties.FindIndex(p => p.Name == "CMB_RideReady") + 1, new ScriptProperty[]
+            {
+                Obj("CMB_KitWhere", gKitWhere!),
+            });
         }
 
         quest.VirtualMachineAdapter = new QuestAdapter
@@ -1857,7 +1941,7 @@ public static class Program
                                     string? Since, bool Crude, int? RimStyle, string? Finish);
         public sealed record Slot(string Key, string Ap, string Name, string Global, int Default, string List, string? Swaps,
                                   string ListId, string? SwapsId, string[] Sources, Option[] Options,
-                                  string? Since, string? GlobalId, string? ApId);
+                                  string? Since, string? GlobalId, string? ApId, string? Label);
         public sealed record Set(int Index, string Key, string Name, int? Paint, int? TankLeft, int? TankRight, int? Fender, int? Plate);
 
         // The first ID after 2026-11-06a's forms; CMB_LookCode is LookCodeId (0x8AF), the one below it.
@@ -1870,6 +1954,12 @@ public static class Program
         public static string Through = C2Build;
         // 2026-11-09a (test 51): `--recipe-bench CMB_WorkbenchBike` puts the recipes' BNAM back (MakeOption).
         public static bool RecipeBench;
+        // 2026-11-14a (test 53, wish f: the kit's item listed as "Default", its mod slots read as the mods): the look item's
+        // template named "Motorbike" (its FULL names every instance made from it) and each look mod "<slot label>: <option>"
+        // (the slot's row in the armour menu shows the attached mod's name). Never through 2026-11-07a (C1's ESP byte for
+        // byte); `--kit-names 0` gives 2026-11-10a's names (an A/B ESP).
+        public static bool KitNames = true;
+        public static bool NamesOn => KitNames && Through != C1Build;
         public const string ToolboxModel = @"SetDressing\Toolbox\Toolbox_Large.nif";                       // the game's, by path
         public const string BenchModel = @"Furniture\Workstations\WorkbenchArmor\WorkstationArmorB01.nif"; // WorkbenchArmorA's, by path
         public const string LooseModModel = @"Props\ModsPartBox\ModCrate.nif";                              // the game's loose mods'
@@ -1982,7 +2072,8 @@ public static class Program
                     : o.GetProperty("swap").EnumerateArray().Select(e => (e[0].GetString()!, e[1].GetString()!)).ToArray(),
                 o.GetProperty("ids").EnumerateArray().Select(x => x.ValueKind == JsonValueKind.Null ? null : x.GetString()).ToArray(),
                 Opt(o, "since")?.GetString(), Opt(o, "crude")?.GetBoolean() ?? false, Opt(o, "rim_style")?.GetInt32(), Opt(o, "finish")?.GetString()))
-            .ToArray(), Opt(s, "since")?.GetString(), Opt(s, "global_id")?.GetString(), Opt(s, "ap_id")?.GetString())).ToArray();
+            .ToArray(), Opt(s, "since")?.GetString(), Opt(s, "global_id")?.GetString(), Opt(s, "ap_id")?.GetString(),
+            Opt(s, "label")?.GetString())).ToArray();
 
         public static Set[] ReadSets(JsonElement root) => root.GetProperty("sets").EnumerateArray().Select(s => new Set(
             s.GetProperty("index").GetInt32(), S(s, "key")!, S(s, "name")!, I(s, "paint"), I(s, "tank_left"), I(s, "tank_right"), I(s, "fender"),
@@ -2248,7 +2339,9 @@ public static class Program
             {
                 new ObjectTemplate<Armor.Property>
                 {
-                    Name = "Default",
+                    // 2026-11-14a (wish f): "Motorbike", the item's name in the menu (2026-11-10a's "Default": `--kit-names 0`,
+                    // and always through 2026-11-07a).
+                    Name = NamesOn ? "Motorbike" : "Default",
                     Default = true,
                     Includes = new(look.Slots.Select(s => new ObjectTemplateInclude { Mod = mods[s.Key][0].ToLink<IAObjectModificationGetter>(), AttachPointIndex = 0 })),
                 },
@@ -2310,7 +2403,10 @@ public static class Program
                 swaps[s.Key].Add(sw);
             }
             var omod = At(new ArmorModification(mod.GetNextFormKey(), Fallout4Release.Fallout4) { EditorID = $"CMB_mod_{s.Key}_{o.Key}" }, o.Ids[1]!);
-            omod.Name = o.Name;
+            // 2026-11-14a (wish f): "<slot label>: <option>" (the slot's row shows the attached mod's name), the label from
+            // look_options.json; the bare option name with `--kit-names 0` and through 2026-11-07a. Nothing reads a mod's
+            // FULL (the scripts find a mod by its list, the MCM's lists are the table's names, the loose mods keep theirs).
+            omod.Name = NamesOn && s.Label != null ? $"{s.Label}: {o.Name}" : o.Name;
             omod.AttachPoint.SetTo(ap);
             omod.TargetOmodKeywords = new() { look.MaBike };
             if (sw != null)
@@ -2537,7 +2633,7 @@ public static class Program
                                       $"model {a.WorldModel?.Male?.Model?.File?.ToString() ?? "none"} preview {(a.PreviewTransform.IsNull ? "none" : a.PreviewTransform.FormKey.ToString())} " +
                                       $"armatures [{string.Join(",", a.Armatures.Select(x => x.ArmorAddon.FormKey))}] slot {a.BipedBodyTemplate?.FirstPersonFlags} name {a.Name?.String ?? "none"}");
                     foreach (var t in a.ObjectTemplates ?? Enumerable.Empty<IObjectTemplateGetter<Armor.Property>>())
-                        Console.WriteLine($"      template default {t.Default} addon {t.AddonIndex} includes [{string.Join(",", t.Includes.Select(i => $"{i.Mod.FormKey}@{i.AttachPointIndex}"))}]");
+                        Console.WriteLine($"      template default {t.Default} addon {t.AddonIndex} includes [{string.Join(",", t.Includes.Select(i => $"{i.Mod.FormKey}@{i.AttachPointIndex}"))}] name {t.Name?.String ?? "none"}");
                     break;
                 case IArmorAddonGetter aa:
                     Console.WriteLine($"      addon slot {aa.BodyTemplate?.FirstPersonFlags} race {aa.Race.FormKey} model {aa.WorldModel?.Male?.File}|{aa.WorldModel?.Female?.File}");

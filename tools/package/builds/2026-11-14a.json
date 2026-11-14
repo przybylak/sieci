@@ -1,0 +1,46 @@
+{
+  "_about": "Build 2026-11-14a (test 53's fixes), packaged on 2026-11-10a's package as the asset base. Keys starting with _ are comments. No asset changes in this build: the meshes, textures, materials, sounds and clips are 2026-11-10a's. The commit's own files that change (checked against the commit, not listed below): Data/CommonwealthMotorbike.esp, Data/F4SE/Plugins/CMB_Slope.dll, Data/F4SE/Plugins/CMB_Slope.ini, Data/MCM/Config/CommonwealthMotorbike/config.json and the sources CMB_ControllerScript.psc, CMB_HotkeyF4SE.psc and CMB_LookF4SE.psc (git diff --stat c716330 <the build's commit> -- Data).",
+
+  "build": "2026-11-14a",
+
+  "_previous": "The 2026-11-10a package: the asset base (ASSETS=<it>/Data) and the verifier's --previous.",
+  "previous": "2026-11-10a",
+
+  "esp": {
+    "_records": "espcmp.py c716330's ESP against this one: 'TES4: HEDR records 1045 -> 1053, next ID 0xBF7 -> 0xBFF', 'added 8 (000BF7-000BFE): 8 GLOB'.",
+    "records": 1053,
+    "next_object_id": "0xBFF",
+    "_edids": "The eight new globals (000BF7-000BFE), the two records changed in more than a name (the look item's template name, the controller's VMAD with CMB_KitWhere) and 2026-11-10a's two globals.",
+    "edids": [
+      "GLOB:CMB_KitWhere",
+      "GLOB:CMB_KitPreview",
+      "GLOB:CMB_KitPrevSize",
+      "GLOB:CMB_KitPrevTurn",
+      "GLOB:CMB_KitPrevTilt",
+      "GLOB:CMB_KitPrevUp",
+      "GLOB:CMB_KitPrevZoomOut",
+      "GLOB:CMB_KitPrevZoomIn",
+      "ARMO:CMB_BikeLook",
+      "QUST:CMB_ControllerQuest",
+      "GLOB:CMB_RiderQuickUse",
+      "GLOB:CMB_RideReady"
+    ]
+  },
+
+  "_counts": "As 2026-11-10a's: no file added or removed.",
+  "counts": {
+    "bgsm": 427, "hkx": 212, "dds": 123, "wav": 15, "psc": 12, "pex": 12,
+    "json": 6, "nif": 5, "ini": 2, "esp": 1, "dll": 1, "txt": 1
+  },
+
+  "_vs_previous": "Only the assets and the compiled scripts are compared with the previous package here: no asset changes, and the three scripts whose sources changed compile to new code. null accepts any content; verify_zips.py --list-changes prints each one's sha256 to paste in after the first package (step 3 of tools/package/README.md).",
+  "vs_previous": {
+    "changed": {
+      "Data/Scripts/CMB_ControllerScript.pex": null,
+      "Data/Scripts/CMB_HotkeyF4SE.pex": null,
+      "Data/Scripts/CMB_LookF4SE.pex": null
+    },
+    "added": {},
+    "removed": []
+  }
+}

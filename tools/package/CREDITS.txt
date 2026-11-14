@@ -1,0 +1,12 @@
+These files are partly derived from Bethesda's (the parked bike's collision, the clips): for your
+own install only.
+  Bike model: "Harley Davidson Iron 883 2015" by Nieve5677 (CC-BY-4.0)
+    https://sketchfab.com/3d-models/harley-davidson-iron-883-2015-612071b783f14a7288df2d361be9a244
+    by https://sketchfab.com/niev, licence https://creativecommons.org/licenses/by/4.0/
+    Changed for the game: cut down to about 230,000 triangles, given UV maps and textures baked
+    from the full model, scaled, and put on the vanilla motorcycle's collision; the speedometer's
+    dial and needle, the lights' shells, the under-bar mirrors and the badges are the mod's own.
+  Engine sound: built from demodave's "Harley Davidson Sportster - Idling with Engine Revs"
+    (https://freesound.org/s/502690/, CC0; credited with thanks).
+  Water sounds: the two wet-road loops, made from "Cars driving on a wet road 3" (Pixabay 101246,
+    freesound_community), under the Pixabay Content License; the recording isn't included.

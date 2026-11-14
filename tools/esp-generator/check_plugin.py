@@ -39,9 +39,16 @@ Reads the generator's --dump output on stdin and the .psc files, and fails if:
   - (2026-11-10a, test 52's answer) CMB_RiderQuickUse and CMB_RideReady (found by CMB_Slope.dll by ID) aren't at
     0xBF5-0xBF6 with their 0, CMB_LookOptions isn't 4031 (the eleven script bits on, 64 off) or CMB_Caution 50, the
     controller's Fixes_56 (CMB_RiderQuickUse, CMB_RideReady) isn't filled with them, or the MCM's Caution help doesn't
-    begin with "50, the default:".
+    begin with "50, the default:",
+  - (2026-11-14a, test 53's answer: the kit unit) the eight globals aren't at 0xBF7-0xBFE with their values (CMB_KitWhere 1,
+    the preview's seven found by CMB_Slope.dll by ID: CMB_KitPreview 1 and Tune's six at New's 30, 7, 0, 0, -1, 1), the
+    controller's Fixes_57 (CMB_KitWhere) isn't filled with it, the look item's template isn't named "Motorbike" or a look
+    mod isn't "<its slot's label>: <its option's name>" (the table's `label`; `--kit-names 0`, an A/B ESP: "Default" and
+    the bare names, checked with check_plugin.py --kit-names 0), the MCM's Look section hasn't "Field kit only in your
+    settlements" after "Field kit", its "Field kit preview" section isn't the stepper and the six sliders on those
+    globals, or the MCM still has the "Field of view riding in first person" slider (wish j: CMB_ViewFov stays at 0x8B1).
 
-  dotnet run -c Release -- --dump CommonwealthMotorbike.esp | python3 check_plugin.py <Scripts/Source/User>
+  dotnet run -c Release -- --dump CommonwealthMotorbike.esp | python3 check_plugin.py <Scripts/Source/User> [--kit-names 0]
 """
 import json
 import re
@@ -141,6 +148,23 @@ WORKBENCH_ARMOR_A = "12EA9B:Fallout4.esm"
 # 2026-11-10a, test 52's answer: the two globals CMB_Slope.dll finds by ID and writes (the scripts read them), both 0.
 FIXED_56 = {"CMB_RiderQuickUse": "000BF5", "CMB_RideReady": "000BF6"}
 GLOBALS_56 = {"CMB_RiderQuickUse": "0", "CMB_RideReady": "0"}
+# 2026-11-14a, test 53's answer (the kit unit): the field kit only in your settlements (the controller's) and the preview's
+# seven CMB_Slope.dll finds by ID ([Look] KitPreview; Tune's six at New's values), their IDs and values.
+FIXED_57 = {"CMB_KitWhere": "000BF7", "CMB_KitPreview": "000BF8", "CMB_KitPrevSize": "000BF9", "CMB_KitPrevTurn": "000BFA",
+            "CMB_KitPrevTilt": "000BFB", "CMB_KitPrevUp": "000BFC", "CMB_KitPrevZoomOut": "000BFD", "CMB_KitPrevZoomIn": "000BFE"}
+GLOBALS_57 = {"CMB_KitWhere": "1", "CMB_KitPreview": "1", "CMB_KitPrevSize": "30", "CMB_KitPrevTurn": "7", "CMB_KitPrevTilt": "0",
+              "CMB_KitPrevUp": "0", "CMB_KitPrevZoomOut": "-1", "CMB_KitPrevZoomIn": "1"}
+# ... the look item's template name and the look mods' names: on (the shipped ESP) or `--kit-names 0` (2026-11-10a's).
+KIT_NAMES = True
+# ... the MCM's preview section: (type, text, global, options or (min, max, step)).
+PREVIEW_57 = [("stepper", "Field kit preview", "CMB_KitPreview", ["As before", "New", "Tune (the sliders below)"]),
+              ("slider", "Preview size (%)", "CMB_KitPrevSize", (10, 200, 5)),
+              ("slider", "Preview turn", "CMB_KitPrevTurn", (-28, 28, 1)),
+              ("slider", "Preview tilt", "CMB_KitPrevTilt", (-14, 14, 1)),
+              ("slider", "Preview up / down", "CMB_KitPrevUp", (-150, 150, 5)),
+              ("slider", "Preview zoom out", "CMB_KitPrevZoomOut", (-3, 1, 0.25)),
+              ("slider", "Preview zoom in", "CMB_KitPrevZoomIn", (0, 3, 0.25))]
+FOV_SLIDER = "Field of view riding in first person"
 # ... and the MCM's Caution help's start (the ESP's 50).
 CAUTION_HELP_56 = "50, the default:"
 # ... and the look recipes' workbench keyword: none (the dump's "bench none"; `--recipe-bench CMB_WorkbenchBike` is an A/B).
@@ -301,6 +325,14 @@ def check_fx(recs, engine_model):
         r = by_edid.get(name)
         if r is None or r["type"] != "GlobalFloat" or r.get("value") != want_value:
             problems.append(f"{name}: {None if r is None else (r['type'], r.get('value'))}, expected a GlobalFloat of {want_value}")
+    for name, want_id in FIXED_57.items():
+        got = (by_edid.get(name) or {}).get("id")
+        if got != want_id:
+            problems.append(f"{name}: at {got}, expected {want_id} (CMB_Slope.dll finds the preview's seven by ID; look_ids.txt)")
+    for name, want_value in GLOBALS_57.items():
+        r = by_edid.get(name)
+        if r is None or r["type"] != "GlobalFloat" or r.get("value") != want_value:
+            problems.append(f"{name}: {None if r is None else (r['type'], r.get('value'))}, expected a GlobalFloat of {want_value}")
     r = by_edid.get(SOUND_54[0])
     if r is None or r["type"] != "SoundDescriptor" or r["id"] != SOUND_54[1]:
         problems.append(f"{SOUND_54[0]}: {None if r is None else (r['type'], r['id'])}, expected a SoundDescriptor at {SOUND_54[1]} (look_ids.txt)")
@@ -359,6 +391,29 @@ def check_mcm(scripts_folder: Path):
                         f"on {vo.get('sourceForm')}; expected the slider \"{caution}\" 50-100 step 5 on CMB_Caution ({FIXED_54['CMB_Caution']})")
     elif not str(c.get("help")).startswith(CAUTION_HELP_56):   # 2026-11-10a: the ESP's 50 is the default
         problems.append(f"MCM: \"{caution}\"'s help {str(c.get('help'))[:40]!r}..., expected it to begin {CAUTION_HELP_56!r} (CMB_Caution's 50)")
+    # 2026-11-14a (wish j): no FOV slider (the game writes its own back); CMB_ViewFov stays at 0x8B1 (FIXED_51).
+    if FOV_SLIDER in texts:
+        problems.append(f"MCM: \"{FOV_SLIDER}\" is still in the menu (dropped in 2026-11-14a)")
+    # 2026-11-14a (wish f): the "Field kit preview" section: the stepper and Tune's six sliders, each on its global (by ID).
+    start = next((i for i, c in enumerate(content) if c.get("type") == "section" and c.get("text") == "Field kit preview"), None)
+    section = []
+    if start is None:
+        problems.append("MCM: no \"Field kit preview\" section")
+    else:
+        for c in content[start + 1:]:
+            if c.get("type") == "section":
+                break
+            section.append(c)
+    if start is not None and len(section) != len(PREVIEW_57):
+        problems.append(f"MCM Field kit preview: {len(section)} controls, expected {len(PREVIEW_57)}")
+    for c, (ctype, text, glob, options) in zip(section, PREVIEW_57):
+        vo = c.get("valueOptions", {})
+        got = (vo.get("min"), vo.get("max"), vo.get("step")) if ctype == "slider" else vo.get("options")
+        want_form = f"CommonwealthMotorbike.esp|{int(FIXED_57[glob], 16):X}"
+        if (c.get("type"), c.get("text"), vo.get("sourceForm"), got) != (ctype, text, want_form, options if ctype != "slider" else tuple(options)) \
+                or not c.get("help"):
+            problems.append(f"MCM Field kit preview: {c.get('type')} {c.get('text')!r} on {vo.get('sourceForm')} {got}; expected {ctype} {text!r} on "
+                            f"{want_form} {options}, with a help text")
     water = next((c for c in content if c.get("text") == "Water sound loop"), {})
     options = (water.get("valueOptions") or {}).get("options")
     want = ["As the 2026-11-02a build (spray)", "Churning water", "Wet road (the mod's own)", "Wet road, gentle"]
@@ -399,7 +454,7 @@ LOOK_PATTERNS = {
     "furn": re.compile(r"furn bench (\d+) wbdt (\d+) mnam ([0-9A-F]{8}) markers (\d+) vmad (\S+) keywords \[(.*?)\] model (.*)$"),
     "marker": re.compile(r"marker (\d+) enabled (\S+) offset (\S+) rot (\S+) keyword (\S+) entry ([0-9A-F]{8})$"),
     "armor": re.compile(r"armor playable (\S+) keywords \[(.*?)\] aps \[(.*?)\] model (\S+) preview (\S+) armatures \[(.*?)\] slot (\S+) name (.*)$"),
-    "template": re.compile(r"template default (\S+) addon (\S+) includes \[(.*?)\]$"),
+    "template": re.compile(r"template default (\S+) addon (\S+) includes \[(.*?)\] name (.*)$"),
     "keyword": re.compile(r"keyword type (\S+) name (.*)$"),
     "misc": re.compile(r"misc model (\S+) preview (\S+) keywords \[(.*?)\] value (\S+) weight (\S+) name (.*)$"),
     "model": re.compile(r"model (\S+) name (.*)$"),
@@ -545,7 +600,7 @@ def check_look(lines, scripts_folder: Path):
     # The options: a swap (none for `follow` and `colour`), an object mod and a recipe each, at the table's IDs, as the
     # table says. A slot's swap list holds its options' swaps in option order (PlateText's from its option 1: its 0, the
     # plate's own, has none; TankR's 17, "Same as the left", last, none); the colour slots have no swap list.
-    swaps_total = recipes = loose = crude = 0
+    swaps_total = recipes = loose = crude = named = 0
     omod_ids, slot_sources, follows = set(), {}, []
     want_crude = ("GetGlobalValue", fk(CRUDE_SWITCH), "EqualTo", "1", "Subject")
     for s in table["slots"]:
@@ -583,9 +638,12 @@ def check_look(lines, scripts_folder: Path):
             o_ap, o_targets, o_loose, o_props, o_name = omod["omod"][0]
             want_props = f"MaterialSwaps:Add:{sw_id}{OURS}:0" if sw_id else ""
             want_loose = fk(o["loose"]) if o["loose"] else "none"
-            if (o_ap, links(o_targets), o_loose, o_props, o_name) != (ap, [fk("CMB_ma_Bike")], want_loose, want_props, o["name"]):
+            # 2026-11-14a (wish f): "<slot label>: <option>" (the menu's row shows the attached mod's name); --kit-names 0 the bare name.
+            want_name = f"{s['label']}: {o['name']}" if KIT_NAMES else o["name"]
+            if (o_ap, links(o_targets), o_loose, o_props, o_name) != (ap, [fk("CMB_ma_Bike")], want_loose, want_props, want_name):
                 problems.append(f"CMB_mod_{name}: ap {o_ap} targets {o_targets} loose {o_loose} properties [{o_props}] name {o_name!r}; "
-                                f"expected {ap}, [{fk('CMB_ma_Bike')}], {want_loose}, [{want_props}], {o['name']!r}")
+                                f"expected {ap}, [{fk('CMB_ma_Bike')}], {want_loose}, [{want_props}], {want_name!r}")
+            named += 1
             if o["loose"]:
                 loose += 1
             if o["index"] >= len(listed) or listed[o["index"]] != (f"{mod_id}{OURS}", "ArmorModification"):
@@ -640,6 +698,7 @@ def check_look(lines, scripts_folder: Path):
     # The look item and the riding armours: the keyword and every slot's attach point (every object mod's among them); the
     # item playable with one default template, each slot's option 0, one per attach point.
     option0 = [f"{s['options'][0]['ids'][1]}{OURS}@0" for s in table["slots"]]
+    template_name = None
     for name in ["CMB_BikeLook"] + RIDING_ARMOURS:
         r = rec(name, "Armor")
         if not r or not r.get("armor"):
@@ -649,10 +708,15 @@ def check_look(lines, scripts_folder: Path):
             problems.append(f"{name}: keywords [{keywords}] aps [{appr}], expected CMB_ma_Bike and the {len(aps)} attach points {aps}")
         templates = r.get("template", [])
         if name == "CMB_BikeLook":
+            template_name = templates[0][3] if templates else None
             if (playable, model, preview) != ("True", r"CMB\CMB_BikeParked.nif", fk("CMB_BikeLookPreview")):
                 problems.append(f"CMB_BikeLook: playable {playable} model {model} preview {preview}, expected a playable item, the parked nif, CMB_BikeLookPreview")
             if len(templates) != 1 or templates[0][0] != "True" or links(templates[0][2]) != option0:
                 problems.append(f"CMB_BikeLook: templates {templates}, expected one default with each slot's option 0 {option0}")
+            # 2026-11-14a (wish f): the template's name is every instance's name in the menu ("Default" in 2026-11-10a).
+            elif templates[0][3] != ("Motorbike" if KIT_NAMES else "Default"):
+                problems.append(f"CMB_BikeLook: its template named {templates[0][3]!r}, expected {'Motorbike' if KIT_NAMES else 'Default'!r} "
+                                f"(the item's name in the armour menu{'' if KIT_NAMES else '; --kit-names 0'})")
         elif playable != "False" or templates:
             problems.append(f"{name}: playable {playable}, templates {templates}: the riding armours stay unplayable, with no template")
     for r in recs:
@@ -744,11 +808,14 @@ def check_look(lines, scripts_folder: Path):
                                      ("CMB_LookF4SE", f4se, "CMB_LookOptions", f"{fk('CMB_LookOptions')} "),
                                      # 2026-11-10a (test 52): the controller's Fixes_56
                                      ("CMB_ControllerScript", ctl, "CMB_RiderQuickUse", f"{fk('CMB_RiderQuickUse')} "),
-                                     ("CMB_ControllerScript", ctl, "CMB_RideReady", f"{fk('CMB_RideReady')} ")):
+                                     ("CMB_ControllerScript", ctl, "CMB_RideReady", f"{fk('CMB_RideReady')} "),
+                                     # 2026-11-14a (test 53): the controller's Fixes_57
+                                     ("CMB_ControllerScript", ctl, "CMB_KitWhere", f"{fk('CMB_KitWhere')} ")):
         if not (have.get(name) or "").startswith(want):
             problems.append(f"{script}.{name}: {have.get(name) or 'none'}, expected {want.strip()}")
     for script, group, have in (("CMB_ControllerScript", "Look_C1", ctl), ("CMB_ControllerScript", "Look_C2", ctl),
                                 ("CMB_ControllerScript", "Fixes_55", ctl), ("CMB_ControllerScript", "Fixes_56", ctl),
+                                ("CMB_ControllerScript", "Fixes_57", ctl),
                                 ("CMB_LookF4SE", None, f4se)):
         declared = look_group(scripts_folder, script, group)
         missing = [p for p in declared if p not in have]
@@ -788,7 +855,9 @@ def check_look(lines, scripts_folder: Path):
     line = (f"checked {n_options} look options in {len(table['slots'])} slots: {swaps_total} swaps, {recipes} look recipes, no BNAM (as the game's armour mod recipes), "
             f"{loose} loose mods, {crude} crude behind {CRUDE_SWITCH}, sources {'unique' if not shared else 'SHARED'} per slot, "
             f"CMB_LookCode {code['id'] if code else 'none'}, colours {colours[0]}-{colours[-1]}, "
-            f"highest {highest}; look_ids.txt {len(committed)} IDs")
+            f"highest {highest}; look_ids.txt {len(committed)} IDs; "
+            f"names {'on' if KIT_NAMES else 'off (--kit-names 0)'}: the item's template {template_name!r}, {named} mods named "
+            f"{'<slot label>: <option>' if KIT_NAMES else 'as the options'}")
     return problems, line
 
 
@@ -814,6 +883,7 @@ def check_mcm_look(scripts_folder: Path, lines):
     want = [("switcher", "Customise at the bike", "CMB_LookOn", None, None),
             ("stepper", "Field kit", "CMB_KitMode", ["Automatic", "Toolbox (a test: it can't be sat in)", "Toolbox, bench keyword (a test)", "Armour bench",
                                                      "The game's armour bench"], None),
+            ("switcher", "Field kit only in your settlements", "CMB_KitWhere", None, None),   # 2026-11-14a (wish l)
             ("switcher", "Parts from the side bag", "CMB_KitBagLink", None, None),
             ("switcher", "Crude plate texts", "CMB_LookPlateCrude", None, None),
             ("switcher", "Free customising (no field kit, no cost)", "CMB_LookFree", None, "control"),
@@ -854,6 +924,12 @@ def check_mcm_look(scripts_folder: Path, lines):
 
 
 def main() -> int:
+    global KIT_NAMES
+    if sys.argv[2:] == ["--kit-names", "0"]:   # 2026-11-14a: the A/B ESP of `--kit-names 0` (2026-11-10a's names)
+        KIT_NAMES = False
+    elif sys.argv[2:]:
+        print(f"usage: check_plugin.py <Scripts/Source/User> [--kit-names 0], not {sys.argv[2:]}")
+        return 2
     scripts = parse_scripts(Path(sys.argv[1]))
     dump = sys.stdin.read().splitlines()
     attached = parse_dump(dump)

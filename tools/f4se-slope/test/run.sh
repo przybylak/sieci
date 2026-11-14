@@ -55,7 +55,19 @@
 # backpush 6, riderinplace 18, riderheldonly 8, load 43, climb 125, wall 75, ram 110, hits 22, launch 13, caution 24,
 # backing 56, arms 47, room 149, roomold 59, decals 77, sound 110, look 67, view 157, fx 46, custom 64); 1757 before its
 # review's fixes; 1688 at 2026-11-09a (1682 before its review's fixes, 1667 before test 51's fixes), 1611 in 25 modes
-# at 2026-11-08a.
+# at 2026-11-08a. The 2026-11-14a build (test 53's fixes) adds: the number keys at speed by the game's own key codes
+# and Quickkey names, the favourites' self-test, an item's use clip judged at its props by its own cause, rule 3's wait
+# and QuickCut's hand-over to the hotkey script (arms, 47 + 21); the field kit's preview written by the plugin and its
+# menu's 3D logged (12), and Free colour's worn indexes in CMB_LookOptions (4096-16384), the worn paint's render passes,
+# Repass and the paint not written (12) (custom, 64 + 24); an older ESP's dormant preview (roomold, 59 + 1); the
+# first-person eye held on the bike as tilted, its axes along your heading, the camera's own place of the frame through
+# GetTranslation, the lock's line, the FOV dropped and EyeAt 0,1,128 (view, 157 + 19); the engine silent in a menu
+# (MenuQuiet), the note not falling while the bike gains (HeardKeep), no 2nd -> 1st on a lift (LiftDown) and the five
+# gears (12), and the hand-over line from the bike's ready time (3) (sound, 110 + 15); the water loop silent in a menu
+# (fx, 46 + 2). DEF57 rides every older mode at the new keys' off values. Expected at 2026-11-14a: 1844 checks ok (full
+# 382, probe 10, guard 8, wrongversion 4, transposed 76, disagree 6, backpush 6, riderinplace 18, riderheldonly 8, load
+# 43, climb 125, wall 75, ram 110, hits 22, launch 13, caution 24, backing 56, arms 68, room 149, roomold 60, decals 77,
+# sound 125, look 67, view 176, fx 48, custom 88).
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 WORK="$(mktemp -d)"
@@ -83,6 +95,17 @@ DEF55='Look/FastMount=0 Look/KitHeld=0 Look/ParkedReload=0 Look/PaletteIndex=0 L
 # plugin; -3 is 09a's level with the rebuilt loop, an A/B), and the changed defaults of ViewDraw, FovSearch, TipYield and
 # ShiftGapGears (DEF54 already pins them for every older mode).
 DEF56='Look/KitStash=0 Look/KitRetry=0 Look/MountEarly=0 Look/RideReady=0 Look/WornColoursFirst=0 Look/HueSwap=0 Diag/WornColour=0 Steer/QuickUse=0 Steer/UseStopCue=any Steer/UseStopNotUnder= Steer/UseStopAt=knees Steer/SidestepCaution=0 Steer/SidestepMouse=3 Room/GuardBodies=0 Room/GuardFloor=0 Room/GuardPlayerZ=0 Diag/Paused=0 View/Parent=0 View/Update=0 Diag/ViewDrawEvery=0 Sound/MenuHold=0'
+# 2026-11-14a, test 53's fixes: the round's new keys at their off values (2026-11-10a, c716330), the same way (after DEF54's,
+# DEF55's and DEF56's). The kit unit's: KitPreview and KitPreviewLog (not KitPreviewPos, Turn, Scale and Zoom: New's values,
+# acting only with KitPreview). The view unit's: EyeLock, EyeAxes, Camera, EyeAtCamera, Fov=1 (CMB_ViewFov as in 10a),
+# ViewLock and EyeAt at 10a's 0,12,128 (its default is 0,1,128 now). The quick unit's: QuickKeyCodes, QuickKeyState, QuickCut,
+# UseStopUnapplied and QuickProbe (not UseStopWaitMax and UseStopLead: they act only with UseStopUnapplied=wait). The colour
+# unit's: WornIndex, KeptMods, WornPasses and HandoverFromReady (not Repass: its default 0 is off). The sound unit's: HeardKeep,
+# LiftDown, MenuQuiet and the gear table's changed defaults at 10a's values (ShiftRpm, Gears, ShiftDraw, LaunchRise,
+# LaunchFlare; HeardRiseGears and ShiftGapGears DEF54 already pins; not HeardCreep, MenuQuietOut, MenuQuietIn: they act only
+# with HeardKeep or MenuQuiet on). The [Sound] key is HeardKeep, not the design's Climb: [Steer] Climb exists, and the loop's
+# "already named" test is section-blind.
+DEF57='Look/KitPreview=0 Look/KitPreviewLog=0 View/EyeLock=0 View/EyeAxes=0 View/Camera=0 View/EyeAtCamera=0 View/Fov=1 Diag/ViewLock=0 View/EyeAt=0,12,128 Steer/QuickKeyCodes=scan Steer/QuickKeyState=0 Steer/QuickCut=0 Steer/UseStopUnapplied=cut Diag/QuickProbe=0 Look/WornIndex=0 Look/KeptMods=0 Diag/WornPasses=0 Diag/HandoverFromReady=0 Sound/HeardKeep=0 Sound/LiftDown=0 Sound/MenuQuiet=0 Sound/ShiftRpm=2500 Sound/Gears=555.556,750,960,1161.6 Sound/ShiftDraw=2300,3000 Sound/LaunchRise=350 Sound/LaunchFlare=0.5'
 run() { # <name> <mode> <ini body>
   if [ -n "$ONLY" ] && [ "$ONLY" != "$1" ]; then return; fi
   mkdir -p "$WORK/$1"
@@ -97,7 +120,7 @@ run() { # <name> <mode> <ini body>
     esac
   done
   local sec key pre rest
-  for kv in $DEF54 $DEF55 $DEF56; do
+  for kv in $DEF54 $DEF55 $DEF56 $DEF57; do
     sec="[${kv%%/*}]\n" kv="${kv#*/}" key="${kv%%=*}"
     case "$ini" in "$key="*|*"\n$key="*) continue;; esac
     case "$ini" in *'\n') ;; *) ini="$ini\n";; esac
@@ -144,7 +167,7 @@ run backing 12 "$KNOWN[Tilt]\nTrace=1\nPivotHeight=74\nPivotForward=0\nBumpMax=0
 PARTS20="${PARTS/BarAngle=10/BarAngle=20}"   # the game's bar angle, so the bars reach 12 deg on the spot
 run arms 13 "$KNOWN[Tilt]\nMaxRoll=10\nPivotHeight=74\nPivotForward=0\nTorsoLean=8\nTorsoTwist=0.75\nTorsoSideLean=0.25\nBumpMax=0\nLiftRate=0\nSuspension=0\nArmPole=1.1,-0.3,-0.9\nArmPoleTurn=0.35,-0.3,-1.0\nArmPoleTurnBars=10\n$PARTS20"   # test 41's finding 5: the inside arm's fade at 5 and 12 deg of the bars, both arms, ArmPoleTurn=0,0,0 for a ride, the arm lines' figures against the bones; TorsoLean 8 so the arms are solved with the bars straight
 run room 14 "$KNOWN$TILT0[Room]\nBox=1\nSide=40\nFore=110\nRaysRetry=1\nLine=50\nGroundNear=25\nGroundSlope=25\nAround=1\nLineFallback=0\nSlide=1\nTilted=1\nParkTilt=1\nParkRoll=20\nParkCheck=1\nSnapNext=1\nSnapSpot=1\nSnapBest=1\nSnapDrop=250\n"   # test 41: the brought bike's spot, the controller's room asks played by the harness (modes 14 and 15 only; mode 11 is the ESP without the CMB_Room globals); test 42's spot: Box, Side, Fore and RaysRetry at their defaults, so rides can rewrite Box and RaysRetry to 0; test 44: Line and GroundNear at their defaults, so a ride can rewrite them to 0 and 60 (test 44's build); test 45's GroundSlope at its default, so a ride can rewrite it to 0 (test 45's first build); test 46's Around, LineFallback, Slide, Tilted, ParkTilt and ParkRoll at their defaults, so a ride can rewrite the five to test 45's build (the controller's PickBikeSpot played for calls); test 47's ParkCheck and SnapNext at their defaults, so rides can rewrite each to 0 (test 46's build; the controller's getting off and its navmesh snap's word played); the 2026-11-01a build's SnapSpot at its default, so a ride can rewrite it to 0 (the 2026-10-31a build; the controller's navmesh point played); the 2026-11-06a build's SnapBest and SnapDrop at their defaults, so rides can rewrite them to 0 and 100 (2026-11-02a)
-run roomold 15 "$KNOWN$TILT0"   # test 43: an ESP of test 42's build (the six CMB_Room globals, no CMB_RoomAskAngle) with this plugin: the eight rays as before; no [Room] section, the code's defaults
+run roomold 15 "$KNOWN$TILT0[Look]\nKitPreview=1\nKitPreviewLog=1\n"   # test 43: an ESP of test 42's build (the six CMB_Room globals, no CMB_RoomAskAngle) with this plugin: the eight rays as before; no [Room] section, the code's defaults; 2026-11-14a: [Look] KitPreview=1 and KitPreviewLog=1 (the defaults), so the older ESP's dormant preview is tried
 run decals 18 "$KNOWN[Tilt]\nMaxRoll=10\nTrace=1\nPivotHeight=74\nPivotForward=0\nTorsoLean=0\nBumpMax=0\nLiftRate=0\nSuspension=0\nDecalsFollow=1\nReuseByWalk=1\nPoolWait=1\nOrphanRestore=1\nRepointEveryFrame=1\nPoseCheck=1\nSeatKneeMin=52\n[Diag]\nRepointLines=3\nRiderCopies=320\n$PARTS"   # 2026-11-01a (test 47's floating rider): the decals that follow, the copy pool reused by the walk, its wait, the orphans put back, the re-points every frame and their lines, the clips' knees (logs.md 2.6's D1-D10, each under the game's smart and raw re-point); every new key at its default, so the run can rewrite each to its off value (RiderCopies to 3 and 40)
 SOUND='[Sound]\nDrive=1\nLibrary=\nSetVolume=1\nFirstFade=400\nWander=0.055\nWanderTau=1.5\nWanderLevel=0.3\nWanderSteady=0.25\nWanderSmooth=0.5\nWanderMax=0.06\nShiftTime=0.55\nShiftDip=4\nShiftDipTime=0.4\nLevelScale=1\nLevelOffset=5\nIdleDb=-9\nHeardSpeed=1\nCoastFall=150\nDownRpm=1475\nClutchFall=750\nLaunchDraw=1250,1500\nLaunchRise=350\nLaunchFlare=0.5\nLaunchFlareTime=1.2\nShiftDraw=2300,3000\nDownHold=1\nDownHeld=1\nStopShift=1\nHeardStop=300\nHeardBrake=600\nStopGap=0.4\nStopHold=0.4\nStopAfter=0.3\nLoops=idle:860,on:1400,on:1700,on:2000,on:2400,on:2800,on:3300,off:1400,off:1800,off:2300,off:2800\n'   # the 2026-11-06a build's IdleDb (-9, test 49's "slightly louder"), ShiftTime 0.55, ShiftDipTime 0.4 and LaunchFlare 0.5 (with LaunchFlareTime 1.2) written so rides can rewrite them to the 2026-11-02a build's -11, 0.35, 0.24 and 0 (and IdleDb to the 2026-11-01a build's -17.2) and drop IdleDb and LaunchFlare (the code's defaults)
 run sound 16 "$KNOWN[Tilt]\nTrace=1\nPivotHeight=74\nPivotForward=0\nBumpMax=0\nLiftRate=0\nSuspension=0\n$SOUND"   # test 44's build: the engine sound (mode 16 only); Drive, Library, FirstFade, Wander, LevelScale and Loops at their defaults so the run can rewrite them (test 46: SetVolume and LevelOffset too, which rides rewrite to 0 for test 45's FadeTo and levels), and test 45's HeardSpeed, CoastFall, DownRpm, ClutchFall, LaunchDraw, LaunchRise, ShiftDraw, DownHold and DownHeld, which a ride rewrites to test 44's values; test 47's WanderTau, WanderLevel, WanderSteady, WanderSmooth and ShiftDip and the 2026-10-31a build's WanderMax, which rides rewrite to test 46's; the 2026-11-01a build's ShiftDraw 2300,3000 and StopShift with its five, which rides rewrite to the 2026-10-31a build's and StopAfter to 0 (the other modes have no [Sound] section: the code's defaults, the driver idle with nothing handed over); Trace=1 for the trace line's engine word

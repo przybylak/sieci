@@ -1,0 +1,56 @@
+{
+  "_about": "Build 2026-11-10a (commit c716330), the last package of the old, lost packager. This file makes the tools here rebuild it byte for byte: the folder's 817 files and both zips (md5 9f9bd48dc638748b3ef637cdb26a2e74 and 8ece91bf4617ee0bd214c78b22d0d67c). Keys starting with _ are comments.",
+
+  "build": "2026-11-10a",
+
+  "_previous": "The package the asset base comes from and the verifier compares with. The 2026-11-09a package went with the old container, so this build is checked against its own package: nothing changes.",
+  "previous": "2026-11-10a",
+
+  "esp": {
+    "records": 1045,
+    "next_object_id": "0xBF7",
+    "_edids": "This build's two new records (000BF5, 000BF6), the three it changed and 2026-11-09a's gentle water loop.",
+    "edids": [
+      "GLOB:CMB_RiderQuickUse",
+      "GLOB:CMB_RideReady",
+      "GLOB:CMB_Caution",
+      "GLOB:CMB_LookOptions",
+      "QUST:CMB_ControllerQuest",
+      "SNDR:CMB_FxWaterRoadSoftLPSD"
+    ]
+  },
+
+  "counts": {
+    "bgsm": 427, "hkx": 212, "dds": 123, "wav": 15, "psc": 12, "pex": 12,
+    "json": 6, "nif": 5, "ini": 2, "esp": 1, "dll": 1, "txt": 1
+  },
+
+  "vs_previous": { "changed": {}, "added": {}, "removed": [] },
+
+  "_pex_header": "What the old packager's compile left in the twelve .pex headers: its clock and its mktemp folder. A new build leaves this key out.",
+  "pex_header": { "compile_time": 1794171794, "source_dir": "/tmp/tmp.oJnLCmGqgx" },
+
+  "_zip": "The old packager stored each file's own modification time; these are the original zip's. A new build leaves this key out (every member then carries the commit's time).",
+  "zip": {
+    "mtime": "2026-11-08 21:03:18",
+    "mtime_overrides": {
+      "Data/F4SE/Plugins/CMB_Slope.dll": "2026-11-08 21:03:04",
+      "Data/F4SE/Plugins/CMB_Slope.ini": "2026-11-08 21:03:04",
+      "Data/Sound/FX/CMB/CMB_EngineCruiseLP.wav": "2026-10-30 23:01:52",
+      "Data/Sound/FX/CMB/CMB_EngineIdleLP.wav": "2026-10-30 23:01:52",
+      "Data/Sound/FX/CMB/CMB_EngineOff1400LP.wav": "2026-10-30 23:01:52",
+      "Data/Sound/FX/CMB/CMB_EngineOff1800LP.wav": "2026-10-30 23:01:52",
+      "Data/Sound/FX/CMB/CMB_EngineOff2300LP.wav": "2026-10-30 23:01:52",
+      "Data/Sound/FX/CMB/CMB_EngineOff2800LP.wav": "2026-10-30 23:01:52",
+      "Data/Sound/FX/CMB/CMB_EngineOn1400LP.wav": "2026-10-30 23:01:52",
+      "Data/Sound/FX/CMB/CMB_EngineOn1700LP.wav": "2026-10-30 23:01:54",
+      "Data/Sound/FX/CMB/CMB_EngineOn2400LP.wav": "2026-10-30 23:01:54",
+      "Data/Sound/FX/CMB/CMB_EngineOn2800LP.wav": "2026-10-30 23:01:54",
+      "Data/Sound/FX/CMB/CMB_EngineOn3300LP.wav": "2026-10-30 23:01:54",
+      "Data/Sound/FX/CMB/CMB_EngineStart.wav": "2026-10-30 23:01:54",
+      "Data/Sound/FX/CMB/CMB_EngineStop.wav": "2026-10-30 23:01:54",
+      "Data/Sound/FX/CMB/CMB_FxWaterRoadLP.wav": "2026-11-06 17:32:22",
+      "Data/Sound/FX/CMB/CMB_FxWaterRoadSoftLP.wav": "2026-11-08 16:21:56"
+    }
+  }
+}
