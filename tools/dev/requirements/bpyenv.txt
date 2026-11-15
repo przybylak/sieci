@@ -1,0 +1,14 @@
+# bpyenv: uv pip sync <this file> into a Python 3.13 venv (tools/dev/setup_tools.sh --assets)
+attrs==26.1.0
+bpy==5.1.2
+cattrs==26.2.1
+certifi==2026.10.23
+charset-normalizer==3.5.2
+cython==3.3.1
+idna==3.20
+numpy==2.5.4
+requests==2.34.2
+texture2ddecoder==1.0.6
+typing-extensions==4.16.0
+urllib3==2.8.0
+zstandard==0.25.0

@@ -20,3 +20,32 @@ tools/f4se-slope/test/last_*.log
 tools/sound/out/
 Data/Sound/FX/CMB/CMB_EngineOn*LP.wav
 Data/Sound/FX/CMB/CMB_EngineOff*LP.wav
+# Nothing built or downloaded is committed (tools/dev/README.md). The toolchain lives outside the repository
+# ($CMB_ROOT, tools/dev/setup_tools.sh); these catch a copy of any of it made inside a checkout.
+ddsenv/
+meshenv/
+bpyenv/
+uvenv/
+.venv/
+venv/
+tools/dev/**/build/
+*.dll
+!/Data/F4SE/Plugins/CMB_Slope.dll
+*.so
+*.exe
+*.nif
+*.dds
+*.bgsm
+*.bgem
+*.hkx
+*.wav
+!/Data/Sound/FX/CMB/CMB_EngineIdleLP.wav
+!/Data/Sound/FX/CMB/CMB_EngineCruiseLP.wav
+!/Data/Sound/FX/CMB/CMB_EngineStart.wav
+!/Data/Sound/FX/CMB/CMB_EngineStop.wav
+*.xwm
+*.fuz
+*.zip
+*.7z
+*.ba2
+*.esm

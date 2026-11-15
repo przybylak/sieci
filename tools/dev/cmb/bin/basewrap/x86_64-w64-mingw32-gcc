@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# First in PATH for build_at_base.sh: the real MinGW gcc, with the image base fixed for a -shared link
+# (MinGW's ld otherwise derives a DLL's base from a hash of the -o path, so every checkout's differs).
+real=/usr/bin/x86_64-w64-mingw32-gcc
+if [ -n "${CMB_IMAGE_BASE:-}" ]; then
+  for a in "$@"; do
+    if [ "$a" = -shared ]; then exec "$real" "$@" "-Wl,--image-base=$CMB_IMAGE_BASE"; fi
+  done
+fi
+exec "$real" "$@"

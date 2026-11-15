@@ -1,0 +1,8 @@
+# ddsenv: uv pip sync <this file> into a Python 3.13 venv (tools/dev/setup_tools.sh --assets)
+archspec==0.2.7
+click==8.5.1
+etcpak==0.9.15
+numpy==2.5.4
+pillow==13.0.0
+quicktex==0.3.1
+texture2ddecoder==1.0.6
