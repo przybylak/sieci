@@ -1061,7 +1061,7 @@
     {
       "type": "stepper",
       "text": "Field kit preview",
-      "help": "How the field kit\u0027s armour menu shows the bike (needs F4SE and CMB_Slope.dll). New: smaller and turned three-quarters, with room to zoom out. As before: the 2026-11-10a build\u0027s view (a tyre filled the screen). Tune: the sliders below set it. Takes effect at the next Customise.",
+      "help": "How the field kit\u0027s armour menu shows the bike (needs F4SE and CMB_Slope.dll). New: the whole bike, turned three-quarters, 400 ahead of the menu\u0027s camera (zoom in with the mouse wheel). As before: the 2026-11-10a build\u0027s view (a tyre filled the screen). Tune: the sliders below set it. Takes effect at the next Customise.",
       "valueOptions": {
         "options": [
           "As before",
@@ -1074,12 +1074,12 @@
     },
     {
       "type": "slider",
-      "text": "Preview size (%)",
-      "help": "Tune only: the bike\u0027s size in the field kit\u0027s preview, in % (New: 30). Change it, leave the menu and press Customise again.",
+      "text": "Preview distance",
+      "help": "Tune only: how far ahead of the menu\u0027s camera the bike sits in the field kit\u0027s preview, in game units (New: 400; more: smaller, less: bigger). Change it, leave the menu and press Customise again.",
       "valueOptions": {
-        "min": 10,
-        "max": 200,
-        "step": 5,
+        "min": 100,
+        "max": 2000,
+        "step": 25,
         "sourceType": "GlobalValue",
         "sourceForm": "CommonwealthMotorbike.esp|BF9"
       }
@@ -1135,7 +1135,7 @@
     {
       "type": "slider",
       "text": "Preview zoom in",
-      "help": "Tune only: the preview\u0027s zoom limit inwards (New: 1).",
+      "help": "Tune only: the preview\u0027s zoom limit inwards (New: 3).",
       "valueOptions": {
         "min": 0,
         "max": 3,

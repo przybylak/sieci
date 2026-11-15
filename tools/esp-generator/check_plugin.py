@@ -41,7 +41,8 @@ Reads the generator's --dump output on stdin and the .psc files, and fails if:
     controller's Fixes_56 (CMB_RiderQuickUse, CMB_RideReady) isn't filled with them, or the MCM's Caution help doesn't
     begin with "50, the default:",
   - (2026-11-14a, test 53's answer: the kit unit) the eight globals aren't at 0xBF7-0xBFE with their values (CMB_KitWhere 1,
-    the preview's seven found by CMB_Slope.dll by ID: CMB_KitPreview 1 and Tune's six at New's 30, 7, 0, 0, -1, 1), the
+    the preview's seven found by CMB_Slope.dll by ID: CMB_KitPreview 1 and Tune's six at New's 400, 7, 0, 0, -1, 3 since
+    2026-11-15a: the first one Tune's distance, the zoom in 3; 30 and 1 in 2026-11-14a), the
     controller's Fixes_57 (CMB_KitWhere) isn't filled with it, the look item's template isn't named "Motorbike" or a look
     mod isn't "<its slot's label>: <its option's name>" (the table's `label`; `--kit-names 0`, an A/B ESP: "Default" and
     the bare names, checked with check_plugin.py --kit-names 0), the MCM's Look section hasn't "Field kit only in your
@@ -152,13 +153,13 @@ GLOBALS_56 = {"CMB_RiderQuickUse": "0", "CMB_RideReady": "0"}
 # seven CMB_Slope.dll finds by ID ([Look] KitPreview; Tune's six at New's values), their IDs and values.
 FIXED_57 = {"CMB_KitWhere": "000BF7", "CMB_KitPreview": "000BF8", "CMB_KitPrevSize": "000BF9", "CMB_KitPrevTurn": "000BFA",
             "CMB_KitPrevTilt": "000BFB", "CMB_KitPrevUp": "000BFC", "CMB_KitPrevZoomOut": "000BFD", "CMB_KitPrevZoomIn": "000BFE"}
-GLOBALS_57 = {"CMB_KitWhere": "1", "CMB_KitPreview": "1", "CMB_KitPrevSize": "30", "CMB_KitPrevTurn": "7", "CMB_KitPrevTilt": "0",
-              "CMB_KitPrevUp": "0", "CMB_KitPrevZoomOut": "-1", "CMB_KitPrevZoomIn": "1"}
+GLOBALS_57 = {"CMB_KitWhere": "1", "CMB_KitPreview": "1", "CMB_KitPrevSize": "400", "CMB_KitPrevTurn": "7", "CMB_KitPrevTilt": "0",
+              "CMB_KitPrevUp": "0", "CMB_KitPrevZoomOut": "-1", "CMB_KitPrevZoomIn": "3"}   # 2026-11-15a: 400 and 3 (14a: 30, 1)
 # ... the look item's template name and the look mods' names: on (the shipped ESP) or `--kit-names 0` (2026-11-10a's).
 KIT_NAMES = True
 # ... the MCM's preview section: (type, text, global, options or (min, max, step)).
 PREVIEW_57 = [("stepper", "Field kit preview", "CMB_KitPreview", ["As before", "New", "Tune (the sliders below)"]),
-              ("slider", "Preview size (%)", "CMB_KitPrevSize", (10, 200, 5)),
+              ("slider", "Preview distance", "CMB_KitPrevSize", (100, 2000, 25)),   # 2026-11-15a (14a: "Preview size (%)", 10-200 step 5)
               ("slider", "Preview turn", "CMB_KitPrevTurn", (-28, 28, 1)),
               ("slider", "Preview tilt", "CMB_KitPrevTilt", (-14, 14, 1)),
               ("slider", "Preview up / down", "CMB_KitPrevUp", (-150, 150, 5)),

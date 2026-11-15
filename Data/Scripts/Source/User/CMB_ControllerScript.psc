@@ -3138,8 +3138,9 @@ EndFunction
 ; 2026-11-09a (test 51): a bit of CMB_LookOptions (0xBF4), the plugin's [Look] switches for this script (1 FastMount, 2
 ; KitHeld, 4 ParkedReload, 8 PaletteIndex, 16 MountGuard, 32 HueFree; 64 the plugin writes the worn bike's colours; since
 ; 2026-11-10a 128 KitStash, 256 KitRetry, 512 MountEarly, 1024 WornColoursFirst, 2048 HueSwap; since 2026-11-14a 4096
-; WornIndex, 8192 KeptMods, 16384 WornIndex was on this game session, so the options' swaps may hold its indexes); the ESP's
-; 4031 without the plugin. false without the global (an older ESP: 2026-11-09a as of t54-merge).
+; WornIndex, 8192 KeptMods, 16384 WornIndex was on this game session, so the options' swaps may hold its indexes; since
+; 2026-11-15a 32768 KitDefer, 65536 MountQuick); the ESP's 4031 without the plugin. false without the global (an older ESP:
+; 2026-11-09a as of t54-merge).
 bool Function LookOption(int aiBit)
 	if !CMB_LookOptions
 		return false
@@ -5208,25 +5209,44 @@ EndFunction
 ; mirrors, which the plugin hides by CMB_LookCode, nor the plate's two colour slots, which have no mod on the worn bike; no
 ; hue: Free colour's hue and shade reach the worn bike as colour values). Without the bit the whole look (lookApplied:
 ; 2026-11-10a). A save from 2026-11-10a remembers a lookApplied: attached afresh once.
+; 2026-11-15a ([Look] MountQuick, CMB_LookOptions 65536; test 54: getting on 0.85 s slower than 10a, this key's 30-odd reads of
+; every slot at each getting on among it): the key is a function of the look as put on (lookApplied, which EquipKept's LookSync
+; brings up to date first: LookState holds every choice it reads, resolved) and of the plate text's raw global (its own "None"
+; and a chosen "None" resolve alike), so it is kept with that tag and made again only when the tag changes. Off: made at every
+; call (2026-11-14a).
+string keptKeyTag = ""         ; the tag keptKeyMade was made for ("" none)
+string keptKeyMade = ""
 string Function KeptKey()
 	if !LookOption(8192)
 		return lookApplied
 	endif
-	if !LookIsOn()
-		return "off"
-	endif
-	string text = "mods"
-	int s = 0
-	while s < LookSlots
-		if s != LookSlotMirrors && !LookSlotColour(s)
-			int i = LookChoice(s, true)
-			if s == LookSlotPlateText && i == LookTextNone && LookChoice(s, false) == LookTextOwn
-				i = 0   ; as AttachLook: the plate's own text "None" carries no mod
-			endif
-			text += " " + i
+	string tag = ""
+	if LookOption(65536)
+		tag = lookApplied + " | text"
+		if CMB_Look_PlateText
+			tag += " " + CMB_Look_PlateText.GetValue()
 		endif
-		s += 1
-	endwhile
+		if tag == keptKeyTag && keptKeyMade != ""
+			return keptKeyMade
+		endif
+	endif
+	string text = "off"
+	if LookIsOn()
+		text = "mods"
+		int s = 0
+		while s < LookSlots
+			if s != LookSlotMirrors && !LookSlotColour(s)
+				int i = LookChoice(s, true)
+				if s == LookSlotPlateText && i == LookTextNone && LookChoice(s, false) == LookTextOwn
+					i = 0   ; as AttachLook: the plate's own text "None" carries no mod
+				endif
+				text += " " + i
+			endif
+			s += 1
+		endwhile
+	endif
+	keptKeyTag = tag
+	keptKeyMade = text
 	return text
 EndFunction
 
@@ -5843,6 +5863,9 @@ EndFunction
 ; swap again if its mods were refused (the load gives the player new 3D).
 Function LookAfterLoad()
 	lookNoF4seSaid = false
+	; review (2026-11-15a, MountQuick): the remembered colour-index pass belongs to the session before the load; forgotten
+	; before anything here can yield, so a getting on during the load's own compose never skips the pass on another save's key
+	CallLookF4SE("ForgetWornIndexes")
 	lookCrudeSaid = -1   ; 2026-11-08a: said again in this session's log
 	lookViewDue = false
 	wornSwapDue = false
@@ -5866,6 +5889,9 @@ Function LookAfterLoad()
 	; left (its colours are the save's values: the plugin's writer). Neither bit: no call (2026-11-10a).
 	if (LookOption(4096) || LookOption(16384)) && (!riding || lookWorn == lookApplied)
 		CallLookF4SE("LoadWornIndexes")
+	elseif LookOption(65536)
+		; 2026-11-15a ([Look] MountQuick): no pass at this load, so none remembered (the swaps may be another save's look's)
+		CallLookF4SE("ForgetWornIndexes")
 	endif
 	; 2026-11-08a: or its colours, while the look is the one the worn bike was put on with (else its mods
 	; keep their look, the save's colour values theirs, till its next equip: a moved rim style at the next
@@ -5979,6 +6005,9 @@ Function BeginCustomise()
 	endif
 	; 2026-11-09a (test 51): [Look] KitHeld (CMB_LookOptions bit 2), read once a session; off: 2026-11-08a's ladder below.
 	kitHeldOn = LookOption(2)
+	; 2026-11-15a (test 54): [Look] KitDefer (bit 32768), read once a session too (LookModded)
+	kitDeferOn = LookOption(32768) || LookF4SEText("KitDeferText") == "1"   ; review: also without the plugin
+	kitColoursDeferred = 0
 	kitMenuAt = -1.0
 	kitInAtOpen = false
 	kitRemembered = false
@@ -6415,7 +6444,15 @@ Function LookModded(Form akBase, ObjectMod akMod)
 				endif
 				g.SetValue(i as float)
 			endif
-			if LookSlotColour(s)
+			if LookSlotColour(s) && kitDeferOn
+				; 2026-11-15a ([Look] KitDefer, CMB_LookOptions 32768; test 54: both crashes, a null read in d3d11 from the
+				; world's deferred pre-pass, came in the frame this re-compose put its swap on the parked bike's live 3D under
+				; the armour bench's menu, 14:03:47 and 14:05:30; the MCM's Apply, outside that menu, didn't crash): no swap on
+				; the parked bike while the menu is open. The session's end puts the look on it (EndCustomise's ApplyLook, as
+				; every other choice made here), once the menu has closed.
+				kitColoursDeferred += 1
+				Log("Customise: " + LookSlotText(s) + " = " + LookName(s, i) + " (" + i + "): on the parked bike when the menu closes (KitDefer)")
+			elseif LookSlotColour(s)
 				; 2026-11-08a: a plate colour's mod carries no swap, so the menu can't preview it: the
 				; parked bike beside the kit is re-composed at once instead.
 				int applied = CallLookF4SE("ApplyParked", None, "the field kit")
@@ -6460,6 +6497,12 @@ Function EndCustomise(string asWhy, bool abApply = true)
 	Log("Customise: " + asWhy + " after " + Tenths(lasted) + " s, " + lookChanged + " changes; the look: " + LookNow())
 	if CMB_Look_TankR && LookChoice(LookSlotTankR, false) == LookFollowLeft
 		Log("Customise: the right tank badge follows the left: " + LookName(LookSlotTankL, LookChoice(LookSlotTankL, false)))
+	endif
+	if kitColoursDeferred > 0
+		; 2026-11-15a ([Look] KitDefer): the plate colours held back in the menu go on with the rest (a load's own ApplyLook does it
+		; without abApply)
+		Log("Customise: the plate colours chosen in the menu (" + kitColoursDeferred + ") go on the parked bike with the look, the menu closed (KitDefer)")
+		kitColoursDeferred = 0
 	endif
 	if abApply
 		ApplyLook("the field kit")
@@ -6728,6 +6771,8 @@ float Property KitMenuHeld = 2.0 AutoReadOnly
 {KitHeld: a menu open this long (real time: timers don't run in it) counts as the mode working.}
 
 bool kitHeldOn = false         ; KitHeld for this session (BeginCustomise reads CMB_LookOptions once)
+bool kitDeferOn = false        ; 2026-11-15a: KitDefer (CMB_LookOptions 32768) for this session, read with KitHeld
+int kitColoursDeferred = 0     ; ...the plate colours it held back from the parked bike this session (the session's end puts them on)
 float kitMenuAt = -1.0         ; KitHeld: real time of this attempt's menu open (-1: no open event, KitTick's guess)
 bool kitInAtOpen = false       ; KitHeld: the player in the kit when the menu opened
 bool kitRemembered = false     ; KitHeld: this attempt's "worked" said (KitRemember once an attempt)

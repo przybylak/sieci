@@ -216,6 +216,17 @@ python3 -I tools/sound/render.py --loops <loops> --out ride.wav --ride ride.csv
   "Gears": [555.556, 750, 960, 1161.6], "ShiftDraw": [2300, 3000], "HeardRiseGears": [2.5, 0.95, 0.5, 1],
   "ShiftGapGears": [0, 2, 3], "LaunchRise": 350, "LaunchFlare": 0.5}'`. (The plugin's `MenuQuiet`, the engine and
   the water quiet in a menu, is in the volumes it sends, not in the model.)
+- Test 54 ("I think sounds were okay now", but "bike reaches 50 just on gear 2, but it still goes on for 2 more without
+  gaining speed": the bike at its top, 935 u/s, by the end of 2nd, 3rd to 5th heard at a speed that no longer changed):
+  the user kept the gears ("those are now perfect when it comes to sound"), so the 2026-11-15a build changes the bike,
+  not this model. The plugin's `[Steer] PullTime=5.5` (`PullFrom=0.6`) lets the throttle climb above 0.6 of the top at
+  most 0.0727 of the top a second, so the bike reaches its top about 6 s after the press, as the heard speed meets it
+  late in 3rd. While the bike stays `HeardPull` (60 u/s) or more ahead of the heard speed the model takes nothing else
+  from it, so the sound is 2026-11-14a's frame for frame; 5.5 s is the slowest pull that keeps that (simulated with the
+  plugin's throttle against this model: the rpm within about 20 of 14a's, the up-shifts at the same times; 6 s about 90
+  rpm lower late in 3rd, 7 s a flat 3rd; the simulation scripts are not in the repository). After a lift at speed the
+  slower bike rides under the heard speed for a while: `HeardKeep` holds the note and the heard speed then rides with
+  the bike, a gentler pull. No key or default of the model changed: `--check-off` and its six files stand.
 - The CSV (`ride.csv`, 10 rows a second) gives the gear, rpm, load, on-family weight, clutch, shift and coast state,
   and the level. `ride_frames.csv` gives every frame's gain and pitch per loop.
 

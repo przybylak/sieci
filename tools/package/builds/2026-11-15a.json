@@ -1,0 +1,45 @@
+{
+  "_about": "Build 2026-11-15a (test 54's fixes), packaged on 2026-11-10a's package as the asset base (2026-11-14a changed no asset). Keys starting with _ are comments. No asset changes in this build: the meshes, textures, materials, sounds and clips are 2026-11-10a's. The commit's own files that change (checked against the commit, not listed below): Data/CommonwealthMotorbike.esp, Data/F4SE/Plugins/CMB_Slope.dll, Data/F4SE/Plugins/CMB_Slope.ini, Data/MCM/Config/CommonwealthMotorbike/config.json and the sources CMB_ControllerScript.psc and CMB_LookF4SE.psc (git diff --stat 353d8de <the build's commit> -- Data).",
+
+  "build": "2026-11-15a",
+
+  "_previous": "The 2026-11-14a package: the verifier's --previous. Its Data holds the same assets as 2026-11-10a's, either can be the asset base (ASSETS=<it>/Data).",
+  "previous": "2026-11-14a",
+
+  "esp": {
+    "_records": "No new form this build: espcmp.py 353d8de's ESP against this one: 'TES4: same', 'added 0', 'removed 0', 'changed 2' (000BF9 GLOB CMB_KitPrevSize FLTV 30 -> 400, 000BFE GLOB CMB_KitPrevZoomIn FLTV 1 -> 3). The header read back: 1053 records, next ID 0xBFF, as 2026-11-14a's.",
+    "records": 1053,
+    "next_object_id": "0xBFF",
+    "_edids": "As 2026-11-14a's manifest: the eight globals of 2026-11-14a (000BF7-000BFE, two of them changed in this build), the look item, the controller quest and 2026-11-10a's two globals.",
+    "edids": [
+      "GLOB:CMB_KitWhere",
+      "GLOB:CMB_KitPreview",
+      "GLOB:CMB_KitPrevSize",
+      "GLOB:CMB_KitPrevTurn",
+      "GLOB:CMB_KitPrevTilt",
+      "GLOB:CMB_KitPrevUp",
+      "GLOB:CMB_KitPrevZoomOut",
+      "GLOB:CMB_KitPrevZoomIn",
+      "ARMO:CMB_BikeLook",
+      "QUST:CMB_ControllerQuest",
+      "GLOB:CMB_RiderQuickUse",
+      "GLOB:CMB_RideReady"
+    ]
+  },
+
+  "_counts": "As 2026-11-14a's: no file added or removed.",
+  "counts": {
+    "bgsm": 427, "hkx": 212, "dds": 123, "wav": 15, "psc": 12, "pex": 12,
+    "json": 6, "nif": 5, "ini": 2, "esp": 1, "dll": 1, "txt": 1
+  },
+
+  "_vs_previous": "Only the assets and the compiled scripts are compared with the previous package here: no asset changes, and the two scripts whose sources changed (git diff --stat 353d8de <the build's commit> -- Data/Scripts: CMB_ControllerScript.psc, CMB_LookF4SE.psc) compile to new code. null accepts any content; verify_zips.py --list-changes prints each one's sha256 to paste in after the first package (step 3 of tools/package/README.md).",
+  "vs_previous": {
+    "changed": {
+      "Data/Scripts/CMB_ControllerScript.pex": null,
+      "Data/Scripts/CMB_LookF4SE.pex": null
+    },
+    "added": {},
+    "removed": []
+  }
+}

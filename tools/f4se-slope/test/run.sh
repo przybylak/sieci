@@ -67,7 +67,12 @@
 # (fx, 46 + 2). DEF57 rides every older mode at the new keys' off values. Expected at 2026-11-14a: 1844 checks ok (full
 # 382, probe 10, guard 8, wrongversion 4, transposed 76, disagree 6, backpush 6, riderinplace 18, riderheldonly 8, load
 # 43, climb 125, wall 75, ram 110, hits 22, launch 13, caution 24, backing 56, arms 68, room 149, roomold 60, decals 77,
-# sound 125, look 67, view 176, fx 48, custom 88).
+# sound 125, look 67, view 176, fx 48, custom 88). The 2026-11-15a build (test 54's fixes) adds: CMB_LookOptions' 32768
+# KitDefer and 65536 MountQuick (custom, + 6); the field kit's preview 400 ahead of the menu's camera at 45 degrees, Tune's
+# first slider as the distance and the menu's scene and camera lines (custom, + 7); GetTranslation's answer as the camera
+# root's world, the Lead by the game's frame, the first-person bike hidden until its look is on, EyeAt 0,-5,125 (view, + 11);
+# the slower pull above PullFrom (launch + 4, sound + 3) and three earlier logs kept (load + 2, wrongversion + 1): expected
+# custom 101, view 187, launch 17, sound 128, load 45, wrongversion 5, the rest as 2026-11-14a's: 1878 checks.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 WORK="$(mktemp -d)"
@@ -106,6 +111,14 @@ DEF56='Look/KitStash=0 Look/KitRetry=0 Look/MountEarly=0 Look/RideReady=0 Look/W
 # with HeardKeep or MenuQuiet on). The [Sound] key is HeardKeep, not the design's Climb: [Steer] Climb exists, and the loop's
 # "already named" test is section-blind.
 DEF57='Look/KitPreview=0 Look/KitPreviewLog=0 View/EyeLock=0 View/EyeAxes=0 View/Camera=0 View/EyeAtCamera=0 View/Fov=1 Diag/ViewLock=0 View/EyeAt=0,12,128 Steer/QuickKeyCodes=scan Steer/QuickKeyState=0 Steer/QuickCut=0 Steer/UseStopUnapplied=cut Diag/QuickProbe=0 Look/WornIndex=0 Look/KeptMods=0 Diag/WornPasses=0 Diag/HandoverFromReady=0 Sound/HeardKeep=0 Sound/LiftDown=0 Sound/MenuQuiet=0 Sound/ShiftRpm=2500 Sound/Gears=555.556,750,960,1161.6 Sound/ShiftDraw=2300,3000 Sound/LaunchRise=350 Sound/LaunchFlare=0.5'
+# 2026-11-15a, test 54's fixes: the round's new keys at their off values (2026-11-14a, 353d8de), the same way (after DEF54's
+# to DEF57's). The look unit's: KitDefer and MountQuick (CMB_LookOptions 32768 and 65536). The kit unit's: KitTuneDistance
+# and KitPreviewScene, and New's four values at 14a's (their defaults changed: pos 0,400,0, turn 0,0,0.785398, scale 1, zoom
+# -1..3), so custom's 14a checks (K0-K8) ride 14a's preview exactly. The view unit's: CameraWorld, LeadFrame and LookWait
+# (EyeAt's new default 0,-5,125 needs nothing: DEF57's 0,12,128 already gives every older mode its 10a eye). The drive unit's:
+# PullTime=0 (not PullFrom: it acts only with PullTime on) and KeepLogs=1 (mode 9 takes it out before its load for the code's
+# 3; mode 2 keeps 1).
+DEF58='Look/KitDefer=0 Look/MountQuick=0 Look/KitPreviewPos=0,0,0 Look/KitPreviewTurn=0,0.02,44.764 Look/KitPreviewScale=0.3 Look/KitPreviewZoom=-1,1 Look/KitTuneDistance=0 Look/KitPreviewScene=0 View/CameraWorld=0 View/LeadFrame=0 View/LookWait=0 Steer/PullTime=0 Diag/KeepLogs=1'
 run() { # <name> <mode> <ini body>
   if [ -n "$ONLY" ] && [ "$ONLY" != "$1" ]; then return; fi
   mkdir -p "$WORK/$1"
@@ -120,7 +133,7 @@ run() { # <name> <mode> <ini body>
     esac
   done
   local sec key pre rest
-  for kv in $DEF54 $DEF55 $DEF56 $DEF57; do
+  for kv in $DEF54 $DEF55 $DEF56 $DEF57 $DEF58; do
     sec="[${kv%%/*}]\n" kv="${kv#*/}" key="${kv%%=*}"
     case "$ini" in "$key="*|*"\n$key="*) continue;; esac
     case "$ini" in *'\n') ;; *) ini="$ini\n";; esac

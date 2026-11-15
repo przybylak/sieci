@@ -123,7 +123,9 @@
  * getting on, 1 and 3 seconds into the ride and on getting off, what changed: that's
  * how the slope limit's and the ground normal's places were found. The log of the session
  * before is kept as CMB_Slope_prev.log (test 40: the game restarted after the load that lost
- * the lean, and the log that would have said why was gone).
+ * the lean, and the log that would have said why was gone); since 2026-11-15a the two before it
+ * too, as CMB_Slope_prev2.log and CMB_Slope_prev3.log ([Diag] KeepLogs; test 54's two crash
+ * restarts lost a session's log).
  *
  * Built with MinGW-w64 (tools/f4se-slope/build.sh). Plain C: F4SE's plugin interface
  * is plain structs and function pointers, and the one C++ object F4SE calls into (the
@@ -682,6 +684,12 @@ static void SidestepEnd(const char *why, const char *what);
  * inputs up to 0.5): from rest only, the throttle from LaunchFrom closing on the top over LaunchTau, never slower than 0.45 / Accel
  * a second, the cap's lead LaunchLead meanwhile; a stuck launch (under 20 a second on the 0.05 s measure 0.6 s on) back to Lead at once. */
 static float g_launchTau = 1.5f, g_launchFrom = 0.25f, g_launchLead = 0.45f;   /* [Steer] LaunchTau (s; 0 = the even ramp from a tenth, 2026-11-02a), LaunchFrom, LaunchLead (of the top) */
+/* The pull (2026-11-15a, test 54: "bike reaches 50 just on gear 2, but it still goes on for 2 more without gaining speed"; the
+ * user's pick: a slower pull, the sound's gears as they are). Above PullFrom of the top the throttle climbs at most
+ * (1 - PullFrom) / PullTime of the top a second (ThrottleRise's last step), so the speed rises with the engine's heard speed
+ * (its gears' own rise and least times) instead of reaching the top in 2nd; a launch ends once the bike is that fast. */
+static float g_pullTime58 = 5.5f, g_pullFrom58 = 0.6f;   /* [Steer] PullTime (s from PullFrom to the top; 0 = as fast as Accel and LaunchTau give, 2026-11-14a), PullFrom (of the top) */
+static bool g_pullBound58;                               /* the last read's rise was held to the pull's rate (the trace's word) */
 /* Test 49's calls from on top of a truck (2026-11-06a): with no spot with room, the most room's own snap and the place it found
  * asked as a navmesh point (the script's, CMB_RoomOptions bit 32), and a navmesh point's ground down to SnapDrop below theirs. */
 static int g_roomSnapBest = 1;              /* [Room] SnapBest: bit 32 with SnapSpot and CMB_RoomAskKind; 0 = the most room taken as before (2026-11-02a) */
@@ -955,6 +963,17 @@ static int g_lookRepass57 = 0;                /* [Look] Repass */
 static int g_diagWornPasses57 = 1;            /* [Diag] WornPasses */
 static int g_diagHandoverReady57 = 1;         /* [Diag] HandoverFromReady */
 static float g_rr57ReadyAt = -1.0f;           /* g_clock when CMB_RideReady was written 1 this ride (-1 not yet) */
+/* 2026-11-15a, test 54's keys (the look unit's; each off value = 2026-11-14a, 353d8de: run.sh's DEF58 rides every older mode at
+ * them). Two more switches the scripts read through CMB_LookOptions (IniSwitch, default 1), read with the look (ReadLookKeys58, in
+ * ReadLookFixes55 after ReadLookKeys57), their own line (LogLookFixes58, after 57's) at the start and when a value changes.
+ * [Look] KitDefer (32768): a plate colour chosen at the field kit goes on the parked bike when the kit's menu has closed (the
+ * session's end, as the MCM's Apply after its menu), never as a material swap on the parked bike's live 3D while the workbench menu
+ * is open (test 54's two crashes in that frame); 0 = re-composed at once in the menu (2026-11-14a). [Look] MountQuick (65536): getting
+ * on skips WornIndex's pass when the chosen options' swaps already hold the look's colour indexes (the look unchanged since the last
+ * pass, one swap read to check it) and takes the kept worn bike's key from the look as last put on (test 54: the equip 0.9 s later
+ * than 10a's); 0 = both worked out afresh at every getting on (2026-11-14a). */
+#define LOOK58_SCRIPT_KEYS    2
+static int g_look58[LOOK58_SCRIPT_KEYS] = { 1, 1 };
 /* [Steer] (ReadRiderFixes56, the quick unit's): QuickUse, a potion's quickkey at speed swallowed and its slot written to
  * CMB_RiderQuickUse (0: the game's animated use); QuickUseAbove (u/s, 0-2000); QuickKeys (the scan codes of slots 1..n,
  * 1-12 of them, each 1-255; the number row 2-13); UseStopCue (1 props: props needed within 0.5 s; 0 any); UseStopNotUnder
@@ -1008,6 +1027,12 @@ static float g_viewThirdOffset = 150.0f;      /* [Diag] ViewThirdOffset */
  * (0-1; 1: CMB_ViewFov used, 2026-11-10a); [Diag] ViewLock (0-1; 0: no "view: lock:" line). [View] EyeAt's default is
  * 0,1,128 since 2026-11-14a (0,12,128 = 2026-11-10a). */
 static int g_viewEyeLock = 1, g_viewEyeAxes = 1, g_viewCamera = 1, g_viewEyeAtCamera = 1, g_viewFov = 0, g_diagViewLock = 1;
+/* [View] (ReadViewFixes58, the view unit's, 2026-11-15a: test 54's "it still shakes" and the stock red first-person bike):
+ * CameraWorld (0-1; 0: GetTranslation's answer read through the camera root's parent, 2026-11-14a), LeadFrame (0-1; 0: the
+ * Lead's time the task's own interval, 2026-11-14a), LookWait (s, 0-10; 0: the view bike shown as soon as its 3D is in,
+ * 2026-11-14a). [View] EyeAt's default is 0,-5,125 since 2026-11-15a (0,1,128 = 2026-11-14a). */
+static int g_viewCameraWorld = 1, g_viewLeadFrame = 1;
+static float g_viewLookWait = 3.0f;
 /* [Sound], [Diag] and [Fx] (ReadSoundFixes56, the sound56 unit's): MenuHold (0 = 09a), MenuRejoin (s, 0.1-5), Paused (0:
  * no lines), WaterGentleDb (dB, -40..12; 0 = 09a's plugin, -3 = 09a's level with the rebuilt loop). */
 static int g_menuHold = 1;                    /* [Sound] MenuHold (0 = 2026-11-09a) */
@@ -1023,6 +1048,8 @@ static void ReadSoundFixes57(const char *ini, bool log);   /* after ReadSoundFix
 static void ReadLookFixes56(const char *ini, bool log);    /* in ReadLookFixes55, before CMB_LookOptions' value */
 static bool ReadLookKeys57(const char *ini);              /* 2026-11-14a: in ReadLookFixes55 before ReadLookFixes56 */
 static void LogLookFixes57(bool log, bool changed);        /* ... and its line after it */
+static bool ReadLookKeys58(const char *ini);              /* 2026-11-15a: in ReadLookFixes55 after ReadLookKeys57 */
+static void LogLookFixes58(bool log, bool changed);        /* ... and its line after 57's */
 static void ReadRiderFixes56(const char *ini, bool log);   /* at ReadRiderFixes54's end */
 static void ReadQuickFixes57(const char *ini, bool log);   /* after it (2026-11-14a, the quick unit's) */
 static void ReadDriveFixes56(const char *ini, bool log);   /* at ReadDriveFixes54's end */
@@ -1396,6 +1423,11 @@ static float g_tiltZeroSince = -1.0f;       /* riding with CMB_TiltLive at 0 (th
 static int g_tiltZeroSaid;                  /* this ride: 1 that's been said, 2 and that it came back */
 static int g_logRotated;                    /* the session before's log: 1 kept as CMB_Slope_prev.log, -1 it couldn't be, 0 there was none */
 static unsigned long g_logRotateError;
+/* 2026-11-15a (test 54: two crash restarts in a row lost session A's log): [Diag] KeepLogs, the earlier sessions' logs kept, read from
+ * the plugin's INI before the log is opened; 1 = CMB_Slope_prev.log alone (the 2026-11-14a build). */
+static int g_keepLogs58 = 3;
+static int g_logOlder58, g_logOlderFailed58;  /* this start: older logs moved on (CMB_Slope_prev.log -> CMB_Slope_prev2.log, ...), and moves that failed */
+static unsigned long g_logOlderError58;
 
 /* The moving parts (CMB_BikeParts.ini, written by harley_meshes.py next to the meshes, in
  * the worn bike's own space: +Y forward, Z up). A shape whose culling sphere sits on an
@@ -1496,9 +1528,20 @@ static const char *AfterLoadNote(void)
 	return note;
 }
 
+/* 2026-11-15a: the name of the k-th earlier session's log (k 1: <stem>_prev.log, k 2-9: <stem>_prev<k>.log); stem the path's first n chars. */
+static void LogGenName58(char *out, size_t size, const char *path, size_t n, int k)
+{
+	if (k <= 1)
+		snprintf(out, size, "%.*s_prev.log", (int)n, path);
+	else
+		snprintf(out, size, "%.*s_prev%d.log", (int)n, path, k);
+}
+
 /* The log of the session before kept as CMB_Slope_prev.log, one generation (test 40: the game
  * was restarted after the load that lost the lean, and its log was gone): moved aside just
- * before the new one is opened in its place. */
+ * before the new one is opened in its place. 2026-11-15a (KeepLogs): with KeepLogs N the older
+ * ones are moved on first, CMB_Slope_prev<N-1>.log -> CMB_Slope_prev<N>.log ... CMB_Slope_prev.log ->
+ * CMB_Slope_prev2.log (the oldest kept replaced), then the log as before. */
 static void RotateLog(const char *path)
 {
 	char prev[MAX_PATH];
@@ -1511,6 +1554,21 @@ static void RotateLog(const char *path)
 		return;
 	memcpy(prev, path, n);
 	strcpy(prev + n, "_prev.log");
+	if (g_keepLogs58 > 1 && n + sizeof("_prev9.log") <= sizeof(prev)) {
+		char from[MAX_PATH], to[MAX_PATH];
+		for (int k = g_keepLogs58; k >= 2; k--) {
+			LogGenName58(from, sizeof(from), path, n, k - 1);
+			LogGenName58(to, sizeof(to), path, n, k);
+			if (GetFileAttributesA(from) == INVALID_FILE_ATTRIBUTES)
+				continue;
+			if (MoveFileExA(from, to, MOVEFILE_REPLACE_EXISTING)) {
+				g_logOlder58++;
+			} else {
+				g_logOlderFailed58++;
+				g_logOlderError58 = GetLastError();
+			}
+		}
+	}
 	if (MoveFileExA(path, prev, MOVEFILE_REPLACE_EXISTING)) {
 		g_logRotated = 1;
 	} else {
@@ -1519,9 +1577,23 @@ static void RotateLog(const char *path)
 	}
 }
 
+/* 2026-11-15a: [Diag] KeepLogs from the INI beside the plugin (ReadSettings' rule), before the log exists: 1-9, else 3. */
+static void ReadKeepLogs58(void)
+{
+	char ini[MAX_PATH];
+	DWORD got = GetModuleFileNameA(g_module, ini, sizeof(ini));
+	char *dot = got && got < sizeof(ini) ? strrchr(ini, '.') : NULL;
+	if (!dot)
+		return;
+	strcpy(dot, ".ini");
+	int keep = (int)GetPrivateProfileIntA("Diag", "KeepLogs", 3, ini);
+	g_keepLogs58 = keep >= 1 && keep <= 9 ? keep : 3;
+}
+
 static void OpenLog(void)
 {
 	char path[MAX_PATH];
+	ReadKeepLogs58();
 	if (SUCCEEDED(SHGetFolderPathA(NULL, CSIDL_PERSONAL | CSIDL_FLAG_CREATE, NULL, SHGFP_TYPE_CURRENT, path))) {
 		strncat(path, "\\My Games\\Fallout4\\F4SE", sizeof(path) - strlen(path) - 1);
 		CreateDirectoryA(path, NULL);
@@ -1600,6 +1672,22 @@ static float ArmPoleNow(int side, float out[3])
 	for (int i = 0; i < 3; i++)
 		out[i] = (1.0f - k) * g_armPole[i] / la + k * g_armPoleTurn[i] / lt;
 	return k;
+}
+
+/* 2026-11-15a (test 54's pull): PullTime and PullFrom, read with the lean's keys on every mount, on a line of their own. */
+static void ReadPull58(const char *ini, bool log)
+{
+	float was[2] = { g_pullTime58, g_pullFrom58 };
+	g_pullTime58 = IniFloat(ini, "Steer", "PullTime", 5.5f, 0.0f, 30.0f);
+	g_pullFrom58 = IniFloat(ini, "Steer", "PullFrom", 0.6f, 0.1f, 0.95f);
+	if (!log && was[0] == g_pullTime58 && was[1] == g_pullFrom58)
+		return;
+	if (g_pullTime58 > 0.0f)
+		Log("  steer (2026-11-15a, test 54): above %g of the top the throttle climbs at most %.3g of the top a second, the top %g s from there at full throttle, the launch's curve "
+		    "and the even ramp alike (PullTime, PullFrom: the speed rising with the engine's gears); a launch from rest ends once the bike is that fast%s",
+		    g_pullFrom58, (1.0f - g_pullFrom58) / g_pullTime58, g_pullTime58, log ? "" : " (read again on getting on)");
+	else
+		Log("  steer (2026-11-15a, test 54): PullTime=0: the throttle climbs as Accel and LaunchTau give it at any speed (the 2026-11-14a build)%s", log ? "" : " (read again on getting on)");
 }
 
 /* The lean into turns, the upper body and the face look-ahead, read again on every mount (an
@@ -1909,6 +1997,7 @@ static void ReadLeanSettings(const char *ini, bool log)
 		                     "is a face the front wheel is in: a wall, not a thing under the bike (UnderBikeTop=1)"
 		                   : "a wall behind the front wheel's edge with that wheel's ray half a radius or more up is under the bike, an obstacle, however high (UnderBikeTop=0, test 46's build)",
 		    log ? "" : " (read again on getting on)");
+	ReadPull58(ini, log);
 }
 
 /* 2026-11-02a's keys on a fourth "  ram:" line (the three before word for word as before): HitChain and PendingFoe. */
@@ -3169,7 +3258,8 @@ static void ReadLookSettings(const char *ini, bool log)
  * PaintWheel and PlateColours both 1 and the four look colours found; coloursKnown false, before the globals are looked
  * for: as if found); since 2026-11-10a the five more script switches' bits, 128 KitStash to 2048 HueSwap (4095 at the
  * defaults); since 2026-11-14a 4096 WornIndex, 8192 KeptMods and 16384 WornIndex read 1 this session (32767 at the
- * defaults; 4095 with DEF57's WornIndex=0 KeptMods=0 from the start). */
+ * defaults; 4095 with DEF57's WornIndex=0 KeptMods=0 from the start); since 2026-11-15a 32768 KitDefer and 65536 MountQuick (131071
+ * at the defaults; 32767 with DEF58's KitDefer=0 MountQuick=0). */
 static int LookOptionsValue(bool coloursKnown)
 {
 	int v = 0;
@@ -3181,6 +3271,8 @@ static int LookOptionsValue(bool coloursKnown)
 		v += g_look57[i] ? 4096 << i : 0;
 	if (g_wornIndexSeen57)
 		v += 16384;
+	for (int i = 0; i < LOOK58_SCRIPT_KEYS; i++)
+		v += g_look58[i] ? 32768 << i : 0;   /* 2026-11-15a: 32768 KitDefer, 65536 MountQuick */
 	if (g_lookPaintWheel && g_lookPlateColours && (g_lookColourGlobal[0] || !coloursKnown))
 		v += 64;
 	return v;
@@ -3207,8 +3299,10 @@ static void ReadLookFixes55(const char *ini, bool log)
 	g_lookLightingOnly = IniSwitch(ini, "LightingOnly");
 	changed |= was[LOOK55_SCRIPT_KEYS] != g_lookRehold || was[LOOK55_SCRIPT_KEYS + 1] != g_lookLightingOnly;
 	bool changed57 = ReadLookKeys57(ini);   /* 2026-11-14a, test 53: WornIndex, KeptMods (and 16384), Repass, [Diag] WornPasses, HandoverFromReady (before 56's value) */
+	bool changed58 = ReadLookKeys58(ini);   /* 2026-11-15a, test 54: KitDefer, MountQuick (before 56's value) */
 	ReadLookFixes56(ini, log);   /* 2026-11-10a, test 52: the five more bits, RideReady, [Diag] WornColour (before the value) */
 	LogLookFixes57(log, changed57);
+	LogLookFixes58(log, changed58);
 	int value = LookOptionsValue(g_globalsMissingLogged);
 	if (log || changed || value != loggedValue)
 		Log("  look (2026-11-09a fixes): FastMount=%d KitHeld=%d ParkedReload=%d PaletteIndex=%d MountGuard=%d HueFree=%d Rehold=%d LightingOnly=%d: "
@@ -3281,6 +3375,34 @@ static void LogLookFixes57(bool log, bool changed)
 	loggedValue = value;
 }
 
+/* 2026-11-15a (test 54's answer, the look unit's): [Look] KitDefer and MountQuick (the scripts', CMB_LookOptions 32768 and 65536;
+ * IniSwitch, default 1; each 0 = 2026-11-14a). Read in ReadLookFixes55 (the start and getting on) after ReadLookKeys57, before
+ * ReadLookFixes56, so every look line gives the value as written; its own line (LogLookFixes58, after 57's) at the start and when a
+ * key or the value changes. */
+static bool ReadLookKeys58(const char *ini)
+{
+	static const char *const keys[LOOK58_SCRIPT_KEYS] = { "KitDefer", "MountQuick" };
+	bool changed = false;
+	for (int i = 0; i < LOOK58_SCRIPT_KEYS; i++) {
+		int was = g_look58[i];
+		g_look58[i] = IniSwitch(ini, keys[i]);
+		changed |= was != g_look58[i];
+	}
+	return changed;
+}
+
+static void LogLookFixes58(bool log, bool changed)
+{
+	static int loggedValue = -1;
+	int value = LookOptionsValue(g_globalsMissingLogged);
+	if (log || changed || value != loggedValue)
+		Log("  look (2026-11-15a, test 54): KitDefer=%d (%s) MountQuick=%d (%s): CMB_LookOptions %d for the scripts%s", g_look58[0],
+		    g_look58[0] ? "the kit's plate colours on the parked bike at the menu's close" : "the parked bike re-composed in the kit's menu",
+		    g_look58[1], g_look58[1] ? "getting on reuses an unchanged look's indexes and kept key" : "worked out afresh at every getting on", value,
+		    log ? "" : " (read again on getting on)");
+	loggedValue = value;
+}
+
 /* [TailLight] (2026-11-01a, test 47's item 11a: "you can tell it's on, but it's not producing light"): a second
  * carried light, the headlamp's way. On getting on (log false), an ESP without CMB_TailRefHi/Lo is said once. */
 static void ReadTailLightSettings(const char *ini, bool log)
@@ -3341,16 +3463,18 @@ static void ReadViewEyeSettings(const char *ini, bool log)
 	/* 2026-11-14a (test 53's (b), "sitting on the fuel tank"): the default 0,1,128, 11 back from 0,12,128 (= 2026-11-10a):
 	 * the game's own first-person camera at a stop sits at (0.0, 0.8, 125.2) in the bike's space (test 53, 131 lines), over
 	 * the rider's COM (CMB_RiderSeat.json: y 0, z 73), 6 ahead of the hips (y -5), 7 behind the seat's front edge (y 7.7,
-	 * the tank's rear) and 37 behind the grips (y 38.4); y 12 was 4 ahead of the seat's front edge, over the tank. */
-	GetPrivateProfileStringA("View", "EyeAt", "0,1,128", value, sizeof(value), ini);
+	 * the tank's rear) and 37 behind the grips (y 38.4); y 12 was 4 ahead of the seat's front edge, over the tank.
+	 * 2026-11-15a (test 54, "I think -6 and -9 was the best for me as in camera positioning"): 0,-5,125, the tester's MCM
+	 * eye forward -6 and eye up -3 on 0,1,128 (= 2026-11-14a). */
+	GetPrivateProfileStringA("View", "EyeAt", "0,-5,125", value, sizeof(value), ini);
 	if (sscanf(value, "%f,%f,%f", &v[0], &v[1], &v[2]) == 3 && isfinite(v[0]) && isfinite(v[1]) && isfinite(v[2]) && v[0] >= -40.0f && v[0] <= 40.0f &&
 	    v[1] >= -60.0f && v[1] <= 80.0f && v[2] >= 80.0f && v[2] <= 170.0f) {
 		memcpy(g_viewEyeAt, v, sizeof(v));
 	} else {
 		g_viewEyeAt[0] = 0.0f;
-		g_viewEyeAt[1] = 1.0f;
-		g_viewEyeAt[2] = 128.0f;
-		Log("view: [View] EyeAt=%s isn't x,y,z within x -40..40, y -60..80, z 80..170: the default 0,1,128 kept", value);
+		g_viewEyeAt[1] = -5.0f;
+		g_viewEyeAt[2] = 125.0f;
+		Log("view: [View] EyeAt=%s isn't x,y,z within x -40..40, y -60..80, z 80..170: the default 0,-5,125 kept", value);
 	}
 	g_viewEyeSide = (int)GetPrivateProfileIntA("View", "EyeSide", 1, ini) != 0;
 	g_viewEyeSmooth = IniFloat(ini, "View", "EyeSmooth", 0.05f, 0.0f, 1.0f);
@@ -3485,6 +3609,25 @@ static void ReadViewFixes57(const char *ini, bool log)
 	logged = true;
 }
 
+/* 2026-11-15a (test 54's shake and red flash; the view unit's keys): [View] CameraWorld and LeadFrame (0-1 each), LookWait
+ * (s, 0-10). Out of range: the default. Its own line at the start and when a value changes. */
+static void ReadViewFixes58(const char *ini, bool log)
+{
+	int wasI[2] = { g_viewCameraWorld, g_viewLeadFrame };
+	float wasF = g_viewLookWait;
+	g_viewCameraWorld = (int)GetPrivateProfileIntA("View", "CameraWorld", 1, ini) != 0;
+	g_viewLeadFrame = (int)GetPrivateProfileIntA("View", "LeadFrame", 1, ini) != 0;
+	g_viewLookWait = IniFloat(ini, "View", "LookWait", 3.0f, 0.0f, 10.0f);
+	static bool logged;
+	if (log || !logged || wasI[0] != g_viewCameraWorld || wasI[1] != g_viewLeadFrame || wasF != g_viewLookWait)
+		Log("  view (2026-11-15a, test 54): CameraWorld=%d (%s) LeadFrame=%d (%s) LookWait=%g (%s)%s", g_viewCameraWorld,
+		    g_viewCameraWorld ? "GetTranslation's answer the camera root's world" : "GetTranslation's answer read through the camera root's parent, as 2026-11-14a",
+		    g_viewLeadFrame, g_viewLeadFrame ? "the Lead's time the game's frame" : "the Lead's time the task's own, as 2026-11-14a", g_viewLookWait,
+		    g_viewLookWait > 0.0f ? "the view bike kept hidden until its look is on, for at most that" : "the view bike shown as soon as its 3D is in, as 2026-11-14a",
+		    log ? "" : " (read again on getting on)");
+	logged = true;
+}
+
 /* [View] (2026-11-01a, test 47's item 12: "in 1st person the bike model isn't even visible"): a third carried
  * reference, an unskinned copy of the riding bike shown only in first person. */
 static void ReadViewSettings(const char *ini, bool log)
@@ -3529,6 +3672,7 @@ static void ReadViewSettings(const char *ini, bool log)
 	ReadViewFixes55(ini, log);   /* 2026-11-09a, test 51: TipLoadGrace (the skins unit's) */
 	ReadViewFixes56(ini, log);   /* 2026-11-10a, test 52: Parent, Update, ViewDrawEvery, ViewThird, ViewThirdOffset (the view unit's) */
 	ReadViewFixes57(ini, log);   /* 2026-11-14a, test 53: EyeLock, EyeAxes, Camera, EyeAtCamera, Fov, ViewLock (the view unit's) */
+	ReadViewFixes58(ini, log);   /* 2026-11-15a, test 54: CameraWorld, LeadFrame, LookWait (the view unit's) */
 }
 
 static void ReadLampSettings(const char *ini)
@@ -9850,6 +9994,12 @@ typedef struct {
 	int count, matched, over;
 	ViewShape shapes[VIEW_SHAPES];
 	bool hidden;                         /* hidden and parked (once per change) */
+	/* 2026-11-15a ([View] LookWait): this 3D's first sight, its look seen on, the lines said, and each shape's shader
+	 * property, material and lookup scale's bits as first seen */
+	float lookSince;
+	bool lookOn, lookHeldSaid;
+	uintptr_t lookProp[VIEW_SHAPES], lookMat[VIEW_SHAPES];
+	uint32_t lookScale[VIEW_SHAPES];
 } ViewRig;
 static ViewRig g_viewRig[2];             /* [0] the reference the globals name, [1] the one a handover keeps */
 static bool g_viewFirstWas, g_viewShownSaid;
@@ -9934,6 +10084,90 @@ static int ViewSkinOf(ViewShape *vs)   /* the held worn skin of the shape's labe
 	return -1;
 }
 
+/* ---- 2026-11-15a (test 54's "default red is showing for a moment"): [View] LookWait. The script tells the plugin the view
+ * bike's reference as soon as it is placed and colours it later (LookOnView: a 0.1 s timer, again every 0.5 s while busy,
+ * then CMB_LookF4SE.ApplyTo: WaitFor3DLoad and F4SE's latent ApplyMaterialSwap, which gives each matching shape's shader
+ * property another material and sets its lookup scale), in test 54 1.1-1.4 s after its 3D came in, while the plugin showed
+ * the 3D at once: the stock red bike in first person for about 0.6 s, and at a hand-over a stock new one beside the old one,
+ * then alone. Each 3D's matched shapes' shader property (BSGeometry +0x138), material (+0x58) and lookup scale (material
+ * +0xB8) are kept at its first sight (ViewMatch); its look is on once any of them changed (the swap), or every matched shape
+ * with a material shows its worn twin's diffuse texture (+0x48), lookup texture (+0x68) and lookup scale (within 0.0001;
+ * the look on already, or a stock look; the paint's diffuse texture set), or CMB_LookCode has no look chosen at the bike
+ * (bit 2 clear: the script puts none on), or LookWait seconds after the first sight while riding (never hidden for good).
+ * Until then it stays hidden in first person, and a hand-over keeps the old one shown. One line when it holds the view
+ * bike back in first person, one when its look is on. 0 = shown as soon as its 3D is in (2026-11-14a). ---- */
+static bool NameEnds56(const char *name, const char *end);   /* with the look's diagnostics, below */
+static void ViewLookFirst58(ViewRig *v)
+{
+	v->lookSince = (float)g_clock;
+	v->lookOn = v->lookHeldSaid = false;
+	for (int i = 0; i < v->count; i++) {
+		uintptr_t prop = ReadPtr(v->shapes[i].shape + 0x138), mat = prop ? ReadPtr(prop + 0x58) : 0;
+		v->lookProp[i] = prop;
+		v->lookMat[i] = mat;
+		v->lookScale[i] = 0;
+		if (mat && Accessible(mat + 0xB8, 4, false))
+			memcpy(&v->lookScale[i], (const void *)(mat + 0xB8), 4);
+	}
+}
+
+static bool ViewLookSame58(uintptr_t a, uintptr_t b)   /* two materials showing the same: diffuse and lookup textures, lookup scale */
+{
+	if (!Accessible(a + 0x48, 0x74, false) || !Accessible(b + 0x48, 0x74, false))
+		return false;
+	float sa = *(const volatile float *)(a + 0xB8), sb = *(const volatile float *)(b + 0xB8);
+	return ReadPtr(a + 0x48) == ReadPtr(b + 0x48) && ReadPtr(a + 0x68) == ReadPtr(b + 0x68) && isfinite(sa) && isfinite(sb) && fabsf(sa - sb) <= 0.0001f;
+}
+
+/* Each frame the rig has a 3D: true once its look is on (said once); with LookWait 0, always. */
+static bool ViewLookOn58(ViewRig *v, uint32_t id)
+{
+	if (g_viewLookWait <= 0.0f || v->lookOn)
+		return true;
+	if (!v->root || !v->node)
+		return false;
+	if (!g_riding) {
+		v->lookSince = (float)g_clock;   /* the wait runs while riding (a 3D seen before the ride begins) */
+		return false;
+	}
+	char how[160] = "";
+	int changed = 0, compared = 0, same = 0;
+	bool paint = false;
+	for (int i = 0; i < v->count; i++) {
+		uintptr_t prop = ReadPtr(v->shapes[i].shape + 0x138), mat = prop ? ReadPtr(prop + 0x58) : 0;
+		uint32_t bits = 0;
+		if (mat && Accessible(mat + 0xB8, 4, false))
+			memcpy(&bits, (const void *)(mat + 0xB8), 4);
+		if (prop != v->lookProp[i] || mat != v->lookMat[i] || bits != v->lookScale[i])
+			changed++;
+		int k = mat ? ViewSkinOf(&v->shapes[i]) : -1;
+		uintptr_t wprop = k >= 0 && g_skins[k].shape ? ReadPtr(g_skins[k].shape + 0x138) : 0, wmat = wprop ? ReadPtr(wprop + 0x58) : 0;
+		if (!wmat)
+			continue;
+		compared++;
+		if (ViewLookSame58(mat, wmat)) {
+			same++;
+			if (NameEnds56(v->shapes[i].label, "static_paint") && ReadPtr(mat + 0x48))
+				paint = true;
+		}
+	}
+	int code = g_lookCodeGlobal ? (int)GlobalValue(g_lookCodeGlobal) : 0;
+	float waited = (float)g_clock - v->lookSince;
+	if (changed)
+		snprintf(how, sizeof(how), "its materials swapped (%d of %d shape(s))", changed, v->count);
+	else if (compared && same == compared && paint)
+		snprintf(how, sizeof(how), "its %d shape(s) with a material show the worn bike's already", compared);
+	else if (!g_lookCodeGlobal || !(code & 4))
+		snprintf(how, sizeof(how), "no look chosen at the bike (CMB_LookCode %d): none to wait for", code);
+	else if (waited >= g_viewLookWait)
+		snprintf(how, sizeof(how), "not seen in %g s (%d of %d shape(s) with a material as the worn bike's): shown as it is", g_viewLookWait, same, compared);
+	else
+		return false;
+	v->lookOn = true;
+	Log("view: the view bike %08X's look on %.2f s after its 3D: %s ([View] LookWait)", id, waited, how);
+	return true;
+}
+
 /* A reference's 3D first seen (or a new one): its node and shapes, each matched to a worn skin by its label. */
 static void ViewMatch(ViewRig *v, uintptr_t root, uint32_t id)
 {
@@ -9984,6 +10218,7 @@ static void ViewMatch(ViewRig *v, uintptr_t root, uint32_t id)
 	Log("view: the reference %08X's 3D ('%.32s', %s): %d shape(s) under '%s', %d matched by label to the worn bike's %d held skin(s)%s%s%s", id, OrNone(ObjectName(root)),
 	    OrNone(ObjectTypeName(root)), v->count, g_viewNodeName, v->matched, g_skinCount, v->count > v->matched ? "; not matched (kept at the bike's own place): " : "", unmatched,
 	    v->over ? " (more than the plugin carries left hidden)" : "");
+	ViewLookFirst58(v);   /* 2026-11-15a: [View] LookWait, its materials as first seen */
 }
 
 /* ---- 2026-11-10a (test 52, vs 1.4: the bike's own render state, H2): [View] Update. At ViewPut's and ViewHide's end
@@ -10449,6 +10684,9 @@ static struct {
 	Cam57Rig rig[2];
 	bool pOk;                            /* a call since the last task, on its thread, armed: p the camera's place it gave */
 	float p[3];
+	float pAlt[3], out[3], parentAt[3];  /* 2026-11-15a: the other reading ([View] CameraWorld), the answer itself, the root's parent's place */
+	uintptr_t parent;                    /* the camera root's parent at that call (0 none) */
+	bool firstSaid;                      /* the first check's line (CameraWorld=1), once a session */
 	int bad;                             /* tasks running with the camera root over 0.05 from p */
 	float armedFor;                      /* armed with no call yet this session (s) */
 	volatile LONG callsAll, callsOff;    /* every call this session; this lock window's off the task's thread (Interlocked: any thread) */
@@ -10489,17 +10727,28 @@ static void Cam57Move(const Cam57Rig *r, const float t[3])
 	}
 }
 
-static bool Cam57World(const float *out, float p[3])   /* the state's translation as the camera root's world */
+/* The state's translation as the camera root's world. 2026-11-15a ([View] CameraWorld=1): the answer IS the root's world
+ * (test 54: read through the root's parent, as 2026-11-14a did, it was off the root by the camera's distance from the
+ * world's origin, 118676, ten frames running, so EyeAtCamera turned itself off on its first frame; FreeCameraState's own
+ * translation, which its GetTranslation answers, is a place in the world: CommonLibF4's FreeCameraState.h); pAlt the other
+ * reading, for the self-check's lines. 0: through the root's parent's world (2026-11-14a). */
+static bool Cam57World(const float *out, float p[3], float pAlt[3])
 {
 	uintptr_t camera = ReadPtr(g_base + RVA_PLAYER_CAMERA), root = camera ? ReadPtr(camera + OFF_CAMERA_ROOT) : 0, parent = root ? ReadPtr(root + OFF_PARENT) : 0;
-	float P[9], pp[3], ps, Pi[9], q[3];
+	float P[9], pp[3], ps, Pi[9], q[3], through[3];
+	g_cam57.parent = 0;
+	memset(g_cam57.parentAt, 0, sizeof(g_cam57.parentAt));
 	if (parent && IsA(parent, RTTI_AVOBJECT) && NodeWorldChecked(parent, P, pp, &ps, Pi)) {
 		MulV(P, out, q);
 		for (int k = 0; k < 3; k++)
-			p[k] = ps * q[k] + pp[k];
+			through[k] = ps * q[k] + pp[k];
+		g_cam57.parent = parent;
+		memcpy(g_cam57.parentAt, pp, 12);
 	} else {
-		memcpy(p, out, 12);
+		memcpy(through, out, 12);
 	}
+	memcpy(p, g_viewCameraWorld ? out : through, 12);
+	memcpy(pAlt, g_viewCameraWorld ? through : out, 12);
 	return isfinite(p[0]) && isfinite(p[1]) && isfinite(p[2]);
 }
 
@@ -10512,10 +10761,12 @@ static void Cam57GetTranslation(uintptr_t state, float *out)
 		return;
 	}
 	g_cam57.calls++;
-	float p[3];
-	if (!g_cam57.armed || !out || !Cam57On() || !Cam57World(out, p))
+	float p[3], pAlt[3];
+	if (!g_cam57.armed || !out || !Cam57On() || !Cam57World(out, p, pAlt))
 		return;
 	memcpy(g_cam57.p, p, 12);
+	memcpy(g_cam57.pAlt, pAlt, 12);
+	memcpy(g_cam57.out, out, 12);
 	g_cam57.pOk = true;
 	float delta[3] = { p[0] - g_cam57.placed[0], p[1] - g_cam57.placed[1], p[2] - g_cam57.placed[2] }, step[3];
 	float size = sqrtf(delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2]);
@@ -10566,16 +10817,30 @@ static void Cam57Task(void)
 		uintptr_t camera = ReadPtr(g_base + RVA_PLAYER_CAMERA), root = camera ? ReadPtr(camera + OFF_CAMERA_ROOT) : 0;
 		float N[9], n[3], s, Ni[9];
 		if (root && IsA(root, RTTI_AVOBJECT) && NodeWorldChecked(root, N, n, &s, Ni)) {
-			float gap = Dist3f(n, g_cam57.p);
+			float gap = Dist3f(n, g_cam57.p), gapAlt = Dist3f(n, g_cam57.pAlt);
 			g_cam57.gapLast = gap;
 			if (gap > g_cam57.gapMax)
 				g_cam57.gapMax = gap;
+			if (g_viewCameraWorld && !g_cam57.firstSaid) {   /* 2026-11-15a: the first check's numbers, so a test settles the answer's space */
+				g_cam57.firstSaid = true;
+				const float *lt = Accessible(root + OFF_LOCAL_ROT + 0x30, 12, false) ? (const float *)(root + OFF_LOCAL_ROT + 0x30) : NULL;
+				char par[160] = "no parent";
+				if (g_cam57.parent)
+					snprintf(par, sizeof(par), "its parent %.40s '%.40s' at (%.1f, %.1f, %.1f)", OrNone(ObjectTypeName(g_cam57.parent)), OrNone(ObjectName(g_cam57.parent)),
+					         g_cam57.parentAt[0], g_cam57.parentAt[1], g_cam57.parentAt[2]);
+				Log("camera: GetTranslation's answer (%.1f, %.1f, %.1f) as the camera root's world ([View] CameraWorld=1): the root %.2f from it at the next task; read through "
+				    "the root's parent (2026-11-14a's reading) %.2f; the root's local (%.1f, %.1f, %.1f), %s",
+				    g_cam57.out[0], g_cam57.out[1], g_cam57.out[2], gap, gapAlt, lt ? lt[0] : NAN, lt ? lt[1] : NAN, lt ? lt[2] : NAN, par);
+			}
 			g_cam57.bad = gap > 0.05f ? g_cam57.bad + 1 : 0;
 			if (g_cam57.bad >= 10 && !g_cam57.off) {
 				g_cam57.off = true;
+				char alt[160] = "";
+				if (g_viewCameraWorld)
+					snprintf(alt, sizeof(alt), " (its answer taken as the root's world, [View] CameraWorld=1; read through the root's parent, as 2026-11-14a: %.2f)", gapAlt);
 				Log("camera: EyeAtCamera off this session: the camera root %.2f from GetTranslation's place at the next frame, 10 frames running (something moves the camera "
-				    "after its update): the view bike by the task alone",
-				    gap);
+				    "after its update): the view bike by the task alone%s",
+				    gap, alt);
 			}
 		}
 	} else if (g_cam57.armedLast && !g_cam57.callsAll && !g_cam57.notCalledSaid) {
@@ -10613,12 +10878,69 @@ static void Cam57Rig57(ViewRig *v, uintptr_t root)   /* a rig placed locked this
 	g_cam57.armed = g_cam57.armedLast = true;
 }
 
+/* [View] LeadFrame (2026-11-15a, test 54). F4SE runs its permanent tasks from its MessageQueueProcessTask hook, which the
+ * game calls twice a frame, back to back (test 54: the camera root moved on half the tasks only, by two tasks' travel; the
+ * fade node's frame counter grew about 100 a second, the plugin's frame line said 200; the Lead's guess was off by a whole
+ * frame's travel on every task), so the second task of a frame, the one whose placement is drawn, led by the speed for
+ * its own near-0 interval: a frame behind at render without the wrapper, and the turn a frame behind with it. The Lead's
+ * time is the game's frame instead: the time between the last two tasks at which the camera root's world place had changed
+ * (with one task a frame, the task's own interval). The lock line then counts the camera's move and the Lead's error at
+ * those tasks only, and says how many tasks ran a game frame. 0 = the task's own interval (2026-11-14a). */
+static struct {
+	double movedAt;                      /* g_clock at the last task that saw the camera root moved (-1: none) */
+	float frame;                         /* the time between the last two of them (s; 0: none yet) */
+	float e[3];
+	bool eOk, movedNow;
+	int since, n;                        /* tasks since the last move; this lock window's frames */
+	float tasks[LOCK57_N], frames[LOCK57_N];
+} g_lead58 = { .movedAt = -1.0 };
+
+static void Lead58Reset(void)
+{
+	g_lead58.movedAt = -1.0;
+	g_lead58.frame = 0.0f;
+	g_lead58.eOk = g_lead58.movedNow = false;
+	g_lead58.since = 0;
+}
+
+static void Lead58Frame(void)   /* each riding frame, before the view bike is placed */
+{
+	uintptr_t camera = ReadPtr(g_base + RVA_PLAYER_CAMERA), root = camera ? ReadPtr(camera + OFF_CAMERA_ROOT) : 0;
+	g_lead58.movedNow = false;
+	if (!root || !Accessible(root + OFF_WORLD_POS, 12, false)) {
+		g_lead58.eOk = false;
+		return;
+	}
+	float e[3];
+	memcpy(e, (const void *)(root + OFF_WORLD_POS), 12);
+	bool moved = g_lead58.eOk && memcmp(e, g_lead58.e, 12) != 0;
+	memcpy(g_lead58.e, e, 12);
+	g_lead58.eOk = true;
+	g_lead58.since++;
+	if (!moved)
+		return;
+	g_lead58.movedNow = true;
+	if (g_lead58.movedAt >= 0.0) {
+		float f = (float)(g_clock - g_lead58.movedAt);
+		if (f > 0.0f && f <= 0.25f) {
+			g_lead58.frame = f;
+			if (g_lead58.n < LOCK57_N) {
+				g_lead58.tasks[g_lead58.n] = (float)g_lead58.since;
+				g_lead58.frames[g_lead58.n++] = f;
+			}
+		}
+	}
+	g_lead58.movedAt = g_clock;
+	g_lead58.since = 0;
+}
+
 static void Cam57LetGo(void)   /* the view bike let go of (getting off, a load): no rigs, no check pending */
 {
 	g_cam57.pOk = g_cam57.armed = g_cam57.armedLast = g_cam57.arming = false;
 	g_cam57.rigs = 0;
 	g_cam57.bad = 0;
 	g_cam57.margin = 0.0f;
+	Lead58Reset();   /* 2026-11-15a: [View] LeadFrame's frame afresh */
 }
 
 /* [Diag] ViewLock (2026-11-14a): what moves the view bike against the camera, every 2 s while it shows in first person with
@@ -10689,12 +11011,20 @@ static void Lock57Line(void)
 		snprintf(cam, sizeof(cam), "; GetTranslation: %d call(s) on the task's thread, %d off it, %s%d move(s) of the view bike %.1f (median) / %.1f (most), the camera root %.2f at most from that place at the next task",
 		         g_cam57.calls, (int)InterlockedExchange(&g_cam57.callsOff, 0), g_cam57.off ? "EyeAtCamera off: " : !g_viewEyeAtCamera ? "EyeAtCamera 0: " : "", ns, sMed, sMost, g_cam57.gapMax);
 	}
+	char frame58[160] = "";   /* 2026-11-15a: [View] LeadFrame's part */
+	if (g_viewLeadFrame) {
+		int nf = g_lead58.n;
+		float tMed = Median57(g_lead58.tasks, nf), fMed = Median57(g_lead58.frames, nf);
+		snprintf(frame58, sizeof(frame58), "; LeadFrame: %.1f task(s) a game frame (median of %d), the frame %.1f ms (median), the camera's moves and the Lead's error at its tasks",
+		         tMed, nf, fMed * 1000.0f);
+	}
+	g_lead58.n = 0;
 	Log("view: lock: the last %.1f s (%d frames): the camera moved %.1f (median) / %.1f (most) a frame between tasks, the Lead's guess off it by %.2f / %.2f; the tilt turned %.2f deg and "
 	    "lifted %.2f a frame at most; EyeAt %.2f at most from the camera on the bike as tilted (EyeLock %d); the bone's forward %.1f deg %s of your heading on average (%.1f at most), "
-	    "its axes turning %.2f deg a frame at most apart from your heading (EyeAxes %d)%s",
+	    "its axes turning %.2f deg a frame at most apart from your heading (EyeAxes %d)%s%s",
 	    span, g_lock57.frames, med, most, errMed, errMost, g_lock57.tiltMax, g_lock57.liftMax, g_lock57.eyeOffMax, g_viewEyeLock,
 	    fabsf(g_lock57.frames ? g_lock57.yawSum / (float)g_lock57.frames : 0.0f), g_lock57.yawSum >= 0.0f ? "right" : "left", g_lock57.yawMax, g_lock57.boneMax,
-	    g_viewEyeLock && g_viewEyeAxes, cam);
+	    g_viewEyeLock && g_viewEyeAxes, cam, frame58);
 	g_lock57.at = (float)g_clock;
 	g_lock57.frames = g_lock57.nMove = 0;
 	g_lock57.tiltMax = g_lock57.liftMax = g_lock57.yawSum = g_lock57.yawMax = g_lock57.boneMax = g_lock57.eyeOffMax = 0.0f;
@@ -10716,8 +11046,9 @@ static void Lock57Frame(const float Wb[9], const float W0[9], const float w0[3],
 	}
 	if (g_lock57.at < 0.0f)
 		g_lock57.at = (float)g_clock;
-	/* (1) the camera's move since the last task, against the Lead's guess made there */
-	if (g_lock57.prevOk && g_lock57.nMove < LOCK57_N) {
+	/* (1) the camera's move since the last task, against the Lead's guess made there (2026-11-15a, LeadFrame=1: at the tasks
+	 * that saw the camera move, a game frame's) */
+	if (g_lock57.prevOk && g_lock57.nMove < LOCK57_N && (!g_viewLeadFrame || g_lead58.movedNow)) {
 		float m[3] = { e[0] - g_lock57.e[0], e[1] - g_lock57.e[1], e[2] - g_lock57.e[2] };
 		g_lock57.move[g_lock57.nMove] = sqrtf(m[0] * m[0] + m[1] * m[1] + m[2] * m[2]);
 		g_lock57.err[g_lock57.nMove++] = Dist3f(m, g_lock57.lead);
@@ -12616,6 +12947,7 @@ static bool FrameViewShow(bool *firstOut, const char **whyOut)   /* 2026-11-06a:
 {
 	Carried *c = &g_carryView;
 	Cam57Task();   /* 2026-11-14a ([View] EyeAtCamera): last frame's GetTranslation checked, its rigs let go of */
+	Lead58Frame();   /* 2026-11-15a ([View] LeadFrame): whether the camera moved since the last task, the game's frame */
 	if (!g_viewRefGlobals[0])
 		return false;   /* an older ESP: said once on getting on */
 	int changed = CarriedTrack(c, CarriedSettled(c, g_viewRefGlobals));
@@ -12675,7 +13007,8 @@ static bool FrameViewShow(bool *firstOut, const char **whyOut)   /* 2026-11-06a:
 		memcpy(w057, w, 12);
 		if (g_viewLead > 0.0f && g_frameDt > 0.0f) {
 			static const float zAxis[3] = { 0.0f, 0.0f, 1.0f };
-			float dt = g_frameDt > 0.05f ? 0.05f : g_frameDt;   /* a hitch frame mustn't throw it ahead */
+			float dt = g_viewLeadFrame && g_lead58.frame > 0.0f ? g_lead58.frame : g_frameDt;   /* 2026-11-15a ([View] LeadFrame): the game's frame */
+			dt = dt > 0.05f ? 0.05f : dt;   /* a hitch frame mustn't throw it ahead */
 			float on = g_speedAlongFast * dt * g_viewLead, turn = -g_headingRate / 57.29578f * dt * g_viewLead;   /* the heading grows turning right: about +z that's negative */
 			float Q[9], W2[9];
 			AxisRotation(zAxis, turn, Q);
@@ -12720,8 +13053,8 @@ static bool FrameViewShow(bool *firstOut, const char **whyOut)   /* 2026-11-06a:
 		const char *end = NULL;
 		if (!oldRoot || oldRoot != old->root)
 			end = "its 3D is gone";
-		else if (newRoot && (float)g_clock - c->new3DSince >= g_viewHandoverTime)
-			end = "the new one has had its 3D for the HandoverTime";
+		else if (newRoot && (float)g_clock - c->new3DSince >= g_viewHandoverTime && (g_viewLookWait <= 0.0f || (cur->root == newRoot && cur->lookOn)))
+			end = "the new one has had its 3D for the HandoverTime";   /* 2026-11-15a ([View] LookWait): and its look on */
 		if (end) {
 			if (g_vp56.moved && g_vp56.root == old->root)
 				ViewParentBack56("a handover's old one parked");   /* 2026-11-10a */
@@ -12758,6 +13091,7 @@ static bool FrameViewShow(bool *firstOut, const char **whyOut)   /* 2026-11-06a:
 	}
 	if (root != cur->root)
 		ViewMatch(cur, root, c->refId);
+	bool lookOn58 = ViewLookOn58(cur, c->refId);   /* 2026-11-15a: [View] LookWait, in any camera (a hand-over's end reads it) */
 	if (third56 && cur->node) {   /* 2026-11-10a, ViewThird: the twin beside the bike in third person */
 		static const float zero3[3] = { 0.0f, 0.0f, 0.0f };
 		const float right[3] = { g_viewThirdOffset, 0.0f, 0.0f };
@@ -12775,6 +13109,15 @@ static bool FrameViewShow(bool *firstOut, const char **whyOut)   /* 2026-11-06a:
 		}
 		(void)zero3;
 		return false;
+	}
+	if (!why && cur->node && !lookOn58) {   /* 2026-11-15a ([View] LookWait): hidden in first person until its look is on */
+		why = "its look not on yet";
+		*whyOut = why;
+		if (!cur->lookHeldSaid) {
+			cur->lookHeldSaid = true;
+			Log("view: first person: the view bike %08X kept hidden until its look is on (%.2f s after its 3D; [View] LookWait %g s at most)%s", c->refId,
+			    (float)g_clock - cur->lookSince, g_viewLookWait, c->old ? ": the old one shown meanwhile" : "");
+		}
 	}
 	if (why || !cur->node) {
 		if (why && !first && g_riding)
@@ -14253,8 +14596,9 @@ static void FrameTilt(void)
 					snprintf(land, sizeof(land), ", landing hold on while the speed comes back");
 			}
 			UseHoldTraceWord(land, sizeof(land));   /* 2026-11-06a: the use hold's (UseHold) */
-			Log("throttle: speed %.2f of the top, input %.2f (keys %.2f, %.2f%s%s%s%s)", g_throttle, InputForSpeed(g_throttle),
-			    g_keys[0], g_keys[1], g_throttleWrote ? ", the game gets the throttle's" : "", g_throttleCapped ? ", held to the measured speed" : "", slide, land);
+			Log("throttle: speed %.2f of the top, input %.2f (keys %.2f, %.2f%s%s%s%s%s)", g_throttle, InputForSpeed(g_throttle),
+			    g_keys[0], g_keys[1], g_throttleWrote ? ", the game gets the throttle's" : "", g_throttleCapped ? ", held to the measured speed" : "", slide, land,
+			    g_pullBound58 ? ", at the pull's rate (PullTime)" : "");   /* 2026-11-15a */
 		}
 		if (g_partsOk)
 			Log("parts: bars %+.1f deg (turning %+.0f deg/s), wheels at %.2f rad | ndl=%.1f brk=%d tl=%.1f", g_barNow, g_headingRate, g_wheelAngle, g_needleDeg, g_brakeOn ? 1 : 0,
@@ -20171,22 +20515,25 @@ static const char *BrakeWhich(double now)
  * top or for something ahead (never at once: no snap down), at once for a stall, a let-go or the brake. */
 static bool g_launchOn, g_launchWatch, g_launchForwardWas;
 static double g_launchAt, g_launchEndAt = -100.0;
-static float g_launchCross[3], g_launchCapped, g_launchLeadEnd;   /* the crossings' times (-1: not yet), the time the cap bound, the allowance at the curve's end */
+static float g_launchCross[4], g_launchCapped, g_launchLeadEnd;   /* the crossings' times (-1: not yet), the time the cap bound, the allowance at the curve's end */
 static bool g_launchFall;                                          /* the allowance falls to Lead from g_launchLeadEnd over 0.3 s from g_launchEndAt */
+static bool g_launchPull58;                                        /* 2026-11-15a: this launch began with PullTime on (its watch goes on to "the top", 0.97) */
 
 static void LaunchLine(const char *why)
 {
-	static const char *const names[3] = { "0.3 of the top", "half", "0.9" };
-	char cross[160] = "";
+	static const char *const names[4] = { "0.3 of the top", "half", "0.9", "the top (0.97)" };
+	char cross[200] = "", pull[96] = "";
 	size_t n = 0;
-	for (int i = 0; i < 3 && n < sizeof(cross); i++) {
+	for (int i = 0; i < (g_launchPull58 ? 4 : 3) && n < sizeof(cross); i++) {
 		if (g_launchCross[i] >= 0.0f)
 			n += (size_t)snprintf(cross + n, sizeof(cross) - n, "%s%s after %.2f s", i ? ", " : "", names[i], g_launchCross[i]);
 		else
 			n += (size_t)snprintf(cross + n, sizeof(cross) - n, "%s%s not reached", i ? ", " : "", names[i]);
 	}
-	Log("launch: from rest: %s (the throttle from %g closing on the top over %g s, the cap's lead %g: LaunchTau); the cap bound %.2f s%s%s", cross, g_launchFrom, g_launchTau,
-	    g_launchLead > g_lead ? g_launchLead : g_lead, g_launchCapped, why ? "; " : "", why ? why : "");
+	if (g_launchPull58 && g_pullTime58 > 0.0f)   /* 2026-11-15a: the pull's rate above PullFrom */
+		snprintf(pull, sizeof(pull), "; above %g of the top at most %.3g a second (PullTime)", g_pullFrom58, (1.0f - g_pullFrom58) / g_pullTime58);
+	Log("launch: from rest: %s (the throttle from %g closing on the top over %g s, the cap's lead %g: LaunchTau); the cap bound %.2f s%s%s%s", cross, g_launchFrom, g_launchTau,
+	    g_launchLead > g_lead ? g_launchLead : g_lead, g_launchCapped, pull, why ? "; " : "", why ? why : "");
 	g_launchWatch = false;
 }
 
@@ -20231,8 +20578,8 @@ static void LaunchFrame(bool forward, bool braking, float dt)
 		float t = (float)(now - g_launchAt);
 		if (g_launchOn && g_throttleCapped)
 			g_launchCapped += dt;   /* the last read's bind */
-		static const float marks[3] = { 0.3f, 0.5f, 0.9f };
-		for (int i = 0; i < 3; i++)
+		static const float marks[4] = { 0.3f, 0.5f, 0.9f, 0.97f };
+		for (int i = 0; i < (g_launchPull58 ? 4 : 3); i++)
 			if (g_launchCross[i] < 0.0f && frac >= marks[i])
 				g_launchCross[i] = t;
 		const char *why = !forward ? (braking ? BrakeWhich(now) : "forward let go") : NULL;
@@ -20252,10 +20599,12 @@ static void LaunchFrame(bool forward, bool braking, float dt)
 				LaunchEnd(now, why, false);
 			else if (g_launchOn && g_throttle >= 1.0f)
 				LaunchEnd(now, NULL, true);   /* the top: the watch goes on */
+			else if (g_launchOn && g_pullTime58 > 0.0f && frac >= g_pullFrom58)
+				LaunchEnd(now, NULL, true);   /* 2026-11-15a: the pull takes over (its rate under the curve's; the cap's lead back to Lead over 0.3 s) */
 		} else if (why) {
 			LaunchLine(why);
 		}
-		if (g_launchWatch && (g_launchCross[2] >= 0.0f || t > 8.0f))
+		if (g_launchWatch && (g_launchPull58 ? (g_launchCross[3] >= 0.0f || t > 12.0f) : (g_launchCross[2] >= 0.0f || t > 8.0f)))
 			LaunchLine(NULL);
 	}
 	if (fresh && !g_launchOn && g_launchTau > 0.0f && !braking && frac < 0.1f && g_inputMode == INPUT_PASS && g_airFor <= 0.0f && !g_climbOn && !g_landHolding) {
@@ -20263,22 +20612,43 @@ static void LaunchFrame(bool forward, bool braking, float dt)
 		g_launchFall = false;
 		g_launchAt = now;
 		g_launchCapped = 0.0f;
-		for (int i = 0; i < 3; i++)
+		g_launchPull58 = g_pullTime58 > 0.0f;
+		for (int i = 0; i < 4; i++)
 			g_launchCross[i] = -1.0f;
 		if (g_throttle < g_launchFrom)
 			g_throttle = g_launchFrom;
 	}
 }
 
+/* 2026-11-15a (PullTime): the rise's share above PullFrom at most (1 - PullFrom) / PullTime dt; under PullFrom as given. PullTime=0:
+ * the rise as given, bit for bit (2026-11-14a). */
+static float PullRise58(float rise, float dt)
+{
+	g_pullBound58 = false;
+	if (!(g_pullTime58 > 0.0f) || !(rise > 0.0f))
+		return rise;
+	float from = g_pullFrom58, most = (1.0f - from) / g_pullTime58 * dt;
+	if (g_throttle >= from) {
+		if (rise <= most)
+			return rise;
+		g_pullBound58 = true;
+		return most;
+	}
+	if (g_throttle + rise - from <= most)
+		return rise;   /* under PullFrom, or crossing it within the rate */
+	g_pullBound58 = true;
+	return from - g_throttle + most;
+}
+
 /* Forward's rise each read: the even ramp (dt / Accel, at least 0.05 s: 2026-11-02a's), or in a launch the curve's pull,
- * (1 - throttle)(1 - e^(-dt / LaunchTau)), never under 0.45 dt / Accel. */
+ * (1 - throttle)(1 - e^(-dt / LaunchTau)), never under 0.45 dt / Accel; then above PullFrom the pull's rate (2026-11-15a). */
 static float ThrottleRise(float dt)
 {
 	float even = dt / (g_accel > 0.05f ? g_accel : 0.05f);
 	if (!g_launchOn)
-		return even;
+		return PullRise58(even, dt);
 	float rise = (1.0f - g_throttle) * (1.0f - expf(-dt / g_launchTau)), least = 0.45f * even;
-	return rise > least ? rise : least;
+	return PullRise58(rise > least ? rise : least, dt);
 }
 
 /* The cap's lead over the measured speed: Lead (2026-11-02a's), LaunchLead (never under Lead) in a launch, falling to Lead over
@@ -20319,6 +20689,7 @@ static void AfterInput(void)
 	g_keys[0] = x;
 	g_keys[1] = y;
 	g_throttleWrote = false;
+	g_pullBound58 = false;   /* 2026-11-15a: set again by this read's rise if the pull's rate held it */
 	bool keysOk = g_inputActive && isfinite(x) && isfinite(y);
 	bool forward = keysOk && y > 0.2f, back = keysOk && y < -0.2f;
 	/* The throttle: the speed, as a fraction of the top, builds up over Accel seconds on the
@@ -27481,7 +27852,22 @@ static void ApLog(const ApGates *g, float since, const char *why)
  * pointer or zoom limits seen (at most 8 a menu), and a line each time the zoom settles at a new value (at most 12 a
  * menu): whether the zoom is a value between the limits or a 0..1 progress, and what it does to the model's world
  * transform. Every read behind Accessible and the model's RTTI (the loaded model's layout is BaseLoadedInventoryModel's,
- * which CommonLibF4 gives only for DisplayItemModel: "layout not as expected" once otherwise). KitPreviewLog=0: no line. */
+ * which CommonLibF4 gives only for DisplayItemModel: "layout not as expected" once otherwise). KitPreviewLog=0: no line.
+ *
+ * 2026-11-15a (test 54: no preview, the menu's camera inside the bike; the kit unit). Test 54's lines settled three things:
+ * the menu reads the turn as radians (its matrix was Rz(0.7817) Ry(0.02): 44.764 rad = 44.79 deg, the 0.02 about y in it);
+ * it doesn't use the scale (the record's 0.3, the model's scale 1.000, the manager's 1.000); and with pos 0 it centres the
+ * bike's bound 42.5 ahead (2.4, 42.5, -1.3), r 109.6: the camera inside the sphere. The game's own records put y at
+ * 134-348 (x, z within 7) under every turn: the position is the menu's (y away from the camera), not the turned model's.
+ * So New is now pos 0,400,0, turn 0,0,0.785398 (45 deg), scale 1, zoom -1..3 (the minigun's): the bike's centre about 440
+ * ahead, 12 deg either side across. The four keys at 14a's values (0,0,0; 0,0.02,44.764; 0.3; -1,1) are 2026-11-14a.
+ * [Look] KitTuneDistance=1 (the default): Tune's first slider (CMB_KitPrevSize, 0xBF9; the MCM's "Preview distance") is
+ * pos y, 100..2000 (anything else, a 14a save's 30 among them, New's), x and the scale New's; 0 = 14a's Tune (the scale =
+ * the slider / 100, pos x and y 0). [Look] KitPreviewScene=1 (the default; with KitPreviewLog): after each menu 3D line,
+ * "kit: the menu's scene:" (the manager's flags, first and stored places, first rotation, renderer; the model's pan
+ * limits; its parents) and "kit: the menu's camera:" (an NiCamera among the parents' children: its place, axes and
+ * frustum, the bike's centre along its axes, whether the whole bike is in view; or the view from the scene's origin).
+ * 0 = neither (2026-11-14a). */
 #define KIT_TRNS_ID          0x8CCu        /* CMB_BikeLookPreview */
 #define KIT_PREVIEW_ID       0xBF8u        /* CMB_KitPreview; then 0xBF9-0xBFE: CMB_KitPrevSize, Turn, Tilt, Up, ZoomOut, ZoomIn */
 #define KIT_PREV_GLOBALS     6
@@ -27490,7 +27876,7 @@ static void ApLog(const ApGates *g, float since, const char *why)
 #define RTTI_EXAMINE_MENU    ".?AVExamineMenu@@"
 #define OFF_FORM_FLAGS       0x10          /* TESForm::formFlags */
 #define OFF_TRNS_DATA        0x20          /* BGSTransform::data: position[3], rotation[3], scale, minZoom, maxZoom */
-#define KIT_TURN_STEP        6.394796f     /* 360 / (180 / pi - 1): a step turns 6.39 deg as radians and as degrees */
+#define KIT_TURN_STEP        6.394796f     /* 360 / (180 / pi - 1): a step turns 6.39 deg as radians (the menu's, test 54) and as degrees */
 #define OFF_UI_MENU_STACK    0x190         /* UI::menuStack: data, capacity, size at +0x10 */
 #define OFF_EXAMINE_INV3D    0x110         /* WorkbenchMenuBase::inv3DModelManager */
 #define OFF_INV3D_FLAGS      0x10          /* bits: 0 useBoundForScale, 5 centerOnBoundCenter */
@@ -27502,9 +27888,18 @@ static void ApLog(const ApGates *g, float since, const char *why)
 #define OFF_LIM_MODEL        0x10          /* the loaded model's NiAVObject; initialDistance +0x28, boundRadius +0x2C, horizontalBound +0x30, verticalBound +0x34, verticalBoundOffset +0x38 */
 #define KIT_MENU_LINES       8
 #define KIT_ZOOM_LINES       12
+#define KIT_TUNE_AWAY_MIN    100.0f        /* 2026-11-15a: Tune's distance (CMB_KitPrevSize as pos y), its range */
+#define KIT_TUNE_AWAY_MAX    2000.0f
+#define OFF_INV3D_FIRST      0x48          /* initialPosition; storedPostion +0x54, initialRotation +0x60 (3 rows of 4) */
+#define OFF_INV3D_RENDERER   0xC0          /* str3DRendererName (a BSFixedString) */
+#define OFF_INV3D_X_TURN     0x120         /* storedXRotation */
+#define OFF_LIM_PAN          0x18          /* the loaded model's panMinima (x, y); panMaxima +0x20 */
+#define OFF_NICAMERA_FRUSTUM 0x160         /* NiCamera::viewFrustum: left, right, top, bottom, near, far, ortho (a byte at +0x18) */
+#define KIT_SCENE_UP         8             /* the model's parents looked at, at most */
 
 static int g_kitPreviewOn = 1, g_kitPreviewLog = 1;   /* [Look] KitPreview, KitPreviewLog (0 = 2026-11-10a) */
-static float g_kitNew[9] = { 0.0f, 0.0f, 0.0f, 0.0f, 0.02f, 44.764f, 0.3f, -1.0f, 1.0f };   /* mode 1: [Look] KitPreviewPos, Turn, Scale, Zoom */
+static int g_kitTuneDistance = 1, g_kitPreviewScene = 1;   /* 2026-11-15a: [Look] KitTuneDistance, KitPreviewScene (0 = 2026-11-14a) */
+static float g_kitNew[9] = { 0.0f, 400.0f, 0.0f, 0.0f, 0.0f, 0.785398f, 1.0f, -1.0f, 3.0f };   /* mode 1: [Look] KitPreviewPos, Turn, Scale, Zoom */
 static int g_kitLooked;                    /* the record and the globals looked for (again after a failed look, when the keys come on again) */
 static uintptr_t g_kitTrns;                /* CMB_BikeLookPreview, a TRNS of ours */
 static float g_kitEsp[9];                  /* its nine floats as the ESP has them, taken before any write */
@@ -27540,10 +27935,10 @@ static void KitIniFloats(const char *ini, const char *key, int n, float lo, floa
  * start and when one changes. A failed look (no record, no global) is tried again when the keys come on again. */
 static void ReadKitPreview57(const char *ini, bool log)
 {
-	int wasOn = g_kitPreviewOn, wasLog = g_kitPreviewLog;
+	int wasOn = g_kitPreviewOn, wasLog = g_kitPreviewLog, wasTune = g_kitTuneDistance, wasScene = g_kitPreviewScene;
 	float was[9];
 	memcpy(was, g_kitNew, sizeof(was));
-	static const float def[9] = { 0.0f, 0.0f, 0.0f, 0.0f, 0.02f, 44.764f, 0.3f, -1.0f, 1.0f };
+	static const float def[9] = { 0.0f, 400.0f, 0.0f, 0.0f, 0.0f, 0.785398f, 1.0f, -1.0f, 3.0f };   /* 2026-11-15a (14a: 0,0,0; 0,0.02,44.764; 0.3; -1,1) */
 	memcpy(g_kitNew, def, sizeof(def));
 	g_kitPreviewOn = IniSwitch(ini, "KitPreview");
 	g_kitPreviewLog = IniSwitch(ini, "KitPreviewLog");
@@ -27560,6 +27955,12 @@ static void ReadKitPreview57(const char *ini, bool log)
 	if (log || wasOn != g_kitPreviewOn || wasLog != g_kitPreviewLog || memcmp(was, g_kitNew, sizeof(was)) != 0)
 		Log("  kit (2026-11-14a): [Look] KitPreview=%d (New: pos %g,%g,%g, turn %g,%g,%g, scale %g, zoom %g..%g) KitPreviewLog=%d%s", g_kitPreviewOn,
 		    g_kitNew[0], g_kitNew[1], g_kitNew[2], g_kitNew[3], g_kitNew[4], g_kitNew[5], g_kitNew[6], g_kitNew[7], g_kitNew[8], g_kitPreviewLog,
+		    log ? "" : " (read again on getting on)");
+	g_kitTuneDistance = IniSwitch(ini, "KitTuneDistance");   /* 2026-11-15a, test 54 */
+	g_kitPreviewScene = IniSwitch(ini, "KitPreviewScene");
+	if (log || wasTune != g_kitTuneDistance || wasScene != g_kitPreviewScene)
+		Log("  kit (2026-11-15a): [Look] KitTuneDistance=%d (Tune's first slider: %s) KitPreviewScene=%d (the menu's scene and camera lines%s)%s",
+		    g_kitTuneDistance, g_kitTuneDistance ? "the distance, pos y" : "the scale, pos 0", g_kitPreviewScene, g_kitPreviewScene ? ", with KitPreviewLog" : ": none",
 		    log ? "" : " (read again on getting on)");
 }
 
@@ -27630,7 +28031,9 @@ static void KitLook57(void)
 		KitTransformLine57(game[i].name, game[i].id, ((LookupFormByID_t)(g_base + RVA_LOOKUP_FORM))(game[i].id));
 }
 
-/* The target for a mode: 0 the ESP's, 1 New ([Look]), 2 Tune (the six sliders; New's where one isn't a number). */
+/* The target for a mode: 0 the ESP's, 1 New ([Look]), 2 Tune (the six sliders; New's where one isn't a number). 2026-11-15a:
+ * with [Look] KitTuneDistance=1 Tune's first slider is the distance (pos y; outside 100..2000, as a 14a save's 30, New's)
+ * and x and the scale stay New's (the menu doesn't use the scale); 0 = 14a's (the scale = slider / 100, pos x and y 0). */
 static void KitTarget57(int mode, float t[9])
 {
 	if (mode == 0) {
@@ -27643,13 +28046,16 @@ static void KitTarget57(int mode, float t[9])
 	float v[KIT_PREV_GLOBALS];
 	for (int i = 0; i < KIT_PREV_GLOBALS; i++)
 		v[i] = GlobalValue(g_kitPrevGlobals[i]);
-	if (isfinite(v[0]) && v[0] >= 1.0f && v[0] <= 1000.0f)
+	if (!g_kitTuneDistance && isfinite(v[0]) && v[0] >= 1.0f && v[0] <= 1000.0f)
 		t[6] = v[0] / 100.0f;
 	if (isfinite(v[1]) && fabsf(v[1]) <= 150.0f)
 		t[5] = v[1] * KIT_TURN_STEP;
 	if (isfinite(v[2]) && fabsf(v[2]) <= 150.0f)
 		t[3] = v[2] * KIT_TURN_STEP;
-	t[0] = t[1] = 0.0f;
+	if (!g_kitTuneDistance)
+		t[0] = t[1] = 0.0f;
+	else if (isfinite(v[0]) && v[0] >= KIT_TUNE_AWAY_MIN && v[0] <= KIT_TUNE_AWAY_MAX)
+		t[1] = v[0];
 	if (isfinite(v[3]) && fabsf(v[3]) <= 1000.0f)
 		t[2] = v[3];
 	if (isfinite(v[4]) && fabsf(v[4]) <= 10.0f)
@@ -27723,6 +28129,99 @@ static uintptr_t KitExamineMenu57(uint32_t *item)
 	return 0;
 }
 
+/* 2026-11-15a ([Look] KitPreviewScene): text appended to a line being built. */
+static void KitCat58(char *buf, size_t size, size_t *len, const char *fmt, ...)
+{
+	if (*len >= size - 1)
+		return;
+	va_list args;
+	va_start(args, fmt);
+	int n = vsnprintf(buf + *len, size - *len, fmt, args);
+	va_end(args);
+	if (n > 0)
+		*len = *len + (size_t)n < size - 1 ? *len + (size_t)n : size - 1;
+}
+
+/* 2026-11-15a (test 54: the camera inside the bike; [Look] KitPreviewScene=1, with KitPreviewLog): after a menu 3D line,
+ * where the menu's scene keeps the bike and what looks at it. "kit: the menu's scene:": the manager's flag byte (bits 0
+ * useBoundForScale, 2 useStoredModelPosition, 4 modelPositionInScreenCoords, 5 centerOnBoundCenter), its initialPosition,
+ * storedPostion, initialRotation and storedXRotation, its str3DRendererName; the loaded model's pan limits; the model's
+ * parents (OFF_PARENT up, at most KIT_SCENE_UP: class, name, world place and scale). "kit: the menu's camera:": the first
+ * NiCamera among those parents' children and grandchildren: its world place and rotation (rows), its frustum (+0x160:
+ * left, right, top, bottom, near, far, ortho) and the view's degrees, the bike's bound centre along the camera's axes
+ * (Gamebryo's: x ahead, y up, z right: the rotation's columns), its sphere's half-angle and whether the whole sphere is in
+ * the view; none found: the bike's centre and half-angle seen from the scene's origin. Only read. */
+static void KitSceneLines58(uint32_t item, uintptr_t mgr, uintptr_t models, uintptr_t model)
+{
+	uint8_t flags = *(const uint8_t *)(mgr + OFF_INV3D_FLAGS);
+	const float *ip = (const float *)(mgr + OFF_INV3D_FIRST), *sp = ip + 3, *ir = (const float *)(mgr + OFF_INV3D_FIRST + 0x18);
+	const float *pan = (const float *)(models + OFF_LIM_PAN);
+	char chain[1024];
+	size_t len = 0;
+	chain[0] = 0;
+	int levels = 0;
+	uintptr_t cam = 0, camUnder = 0, p = ReadPtr(model + OFF_PARENT);
+	for (; p && levels < KIT_SCENE_UP; p = ReadPtr(p + OFF_PARENT)) {
+		if ((p & 7) || !IsA(p, RTTI_AVOBJECT) || !Accessible(p, OFF_AV_FLAGS + 8, false)) {
+			KitCat58(chain, sizeof(chain), &len, "%san unreadable one (%p)", levels ? " < " : "", (void *)p);
+			p = 0;
+			break;
+		}
+		const float *wp = (const float *)(p + OFF_WORLD_POS);
+		KitCat58(chain, sizeof(chain), &len, "%s'%.40s' (%.40s) at (%.1f, %.1f, %.1f) scale %.3f", levels ? " < " : "", OrNone(ObjectName(p)),
+		         OrNone(ObjectTypeName(p)), wp[0], wp[1], wp[2], *(const float *)(p + OFF_WORLD_SCALE));
+		levels++;
+		if (!cam && (cam = ViewChildOfType54(p, RTTI_NICAMERA, 0)) != 0)
+			camUnder = p;
+	}
+	if (!levels)
+		KitCat58(chain, sizeof(chain), &len, "none");
+	else if (p)
+		KitCat58(chain, sizeof(chain), &len, " < ... (more)");
+	Log("kit: the menu's scene: item %08X; the manager's flags %02X (bound for scale %d, stored place %d, screen place %d, centre on bound %d), first place "
+	    "(%.1f, %.1f, %.1f), stored place (%.1f, %.1f, %.1f), first rotation (%.4f %.4f %.4f / %.4f %.4f %.4f / %.4f %.4f %.4f), stored x turn %.3f, "
+	    "renderer '%s'; the model's pan from (%.1f, %.1f) to (%.1f, %.1f); its parents (%d): %s",
+	    item, flags, flags & 1, (flags >> 2) & 1, (flags >> 4) & 1, (flags >> 5) & 1, ip[0], ip[1], ip[2], sp[0], sp[1], sp[2], ir[0], ir[1], ir[2], ir[4], ir[5],
+	    ir[6], ir[8], ir[9], ir[10], *(const float *)(mgr + OFF_INV3D_X_TURN), OrNone(EntryString(ReadPtr(mgr + OFF_INV3D_RENDERER))), pan[0], pan[1], pan[2],
+	    pan[3], levels, chain);
+	const float *wb = (const float *)(model + OFF_WORLD_BOUND);
+	float r = wb[3];
+	if (!cam || !Accessible(cam, NICAMERA_SIZE, false)) {
+		float d = sqrtf(wb[0] * wb[0] + wb[1] * wb[1] + wb[2] * wb[2]);
+		char half[64] = "round the origin (the origin inside it)";
+		if (d > r && r > 0.0f)
+			snprintf(half, sizeof(half), "%.1f deg either side", asinf(r / d) * 57.29578f);
+		Log("kit: the menu's camera: %s among the %d parent(s)' children and grandchildren; seen from the scene's origin the bike's centre (%.1f, %.1f, %.1f) "
+		    "is %.1f away, its sphere (r %.1f) %s", cam ? "one found but not readable" : "none found", levels, wb[0], wb[1], wb[2], d, r, half);
+		return;
+	}
+	const float *cp = (const float *)(cam + OFF_WORLD_POS), *cr = (const float *)(cam + OFF_WORLD_ROT), *f = (const float *)(cam + OFF_NICAMERA_FRUSTUM);
+	uint8_t ortho = *(const uint8_t *)(cam + OFF_NICAMERA_FRUSTUM + 0x18);
+	float v[3] = { wb[0] - cp[0], wb[1] - cp[1], wb[2] - cp[2] };
+	float ahead = v[0] * cr[0] + v[1] * cr[4] + v[2] * cr[8], up = v[0] * cr[1] + v[1] * cr[5] + v[2] * cr[9], right = v[0] * cr[2] + v[1] * cr[6] + v[2] * cr[10];
+	float dist = sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+	bool persp = !ortho && ViewFrustumShape54(f);
+	char view[64] = "not a symmetric perspective one", fit[200];
+	if (persp)
+		snprintf(view, sizeof(view), "%.1f x %.1f deg", ViewFrustumAcross54(f), ViewFrustumUpDown54(f));
+	if (!(dist > r))
+		snprintf(fit, sizeof(fit), "no: the camera inside the bike's sphere");
+	else if (!(ahead > 0.0f))
+		snprintf(fit, sizeof(fit), "no: the bike's centre behind the camera");
+	else if (!persp)
+		snprintf(fit, sizeof(fit), "unknown (the frustum), its sphere %.1f deg either side", asinf(r / dist) * 57.29578f);
+	else {
+		float half = asinf(r / dist) * 57.29578f, across = atan2f(fabsf(right), ahead) * 57.29578f, upDown = atan2f(fabsf(up), ahead) * 57.29578f;
+		float h = atanf(f[1]) * 57.29578f, vv = atanf(f[2]) * 57.29578f;
+		snprintf(fit, sizeof(fit), "%s (its sphere %.1f deg either side, its centre %.1f deg across and %.1f up or down of the view's middle, the view %.1f and %.1f "
+		         "deg either side)", across + half <= h && upDown + half <= vv ? "yes" : "no", half, across, upDown, h, vv);
+	}
+	Log("kit: the menu's camera: '%.40s' (%.40s) under '%.40s' at (%.1f, %.1f, %.1f), rotation (%.4f %.4f %.4f / %.4f %.4f %.4f / %.4f %.4f %.4f); frustum %g, %g, "
+	    "%g, %g, near %g, far %g, ortho %d: %s; the bike's centre %.1f along its x (ahead), %.1f along y (up), %.1f along z (right), %.1f away (r %.1f): the "
+	    "whole bike in view: %s", OrNone(ObjectName(cam)), OrNone(ObjectTypeName(cam)), OrNone(ObjectName(camUnder)), cp[0], cp[1], cp[2], cr[0], cr[1], cr[2],
+	    cr[4], cr[5], cr[6], cr[8], cr[9], cr[10], f[0], f[1], f[2], f[3], f[4], f[5], ortho, view, ahead, up, right, dist, r, fit);
+}
+
 /* KitPreviewLog's menu lines, four times a second. */
 static void KitMenu57(void)
 {
@@ -27786,6 +28285,8 @@ static void KitMenu57(void)
 		    lr[10], ws, wp[0], wp[1], wp[2], wb[0], wb[1], wb[2], wb[3], flags & 1, (flags >> 5) & 1, mscale, mpos[0], mpos[1], mpos[2], mg[1], mg[2], mg[3],
 		    mg[0], lim[0], lim[1], lim[2], lim[3], lim[4], n, rec, g_kitTrns ? *(const uint32_t *)(g_kitTrns + OFF_FORM_FLAGS) : 0u);
 		g_kitMenuLines++;
+		if (g_kitPreviewScene)   /* 2026-11-15a, test 54: the scene's two lines */
+			KitSceneLines58(item, mgr, models, model);
 	}
 	g_kitMenuModel = model;
 	g_kitMenuLimits[0] = mg[2];
@@ -28187,12 +28688,26 @@ __declspec(dllexport) bool F4SEPlugin_Load(const F4SEInterface *f4se)
 	OpenLog();
 	SYSTEMTIME day;
 	GetLocalTime(&day);   /* the lines' times carry no date */
-	Log("CMB_Slope %d for Fallout 4 1.11.240 (F4SE %08X, runtime %08X), started %04u-%02u-%02u; %s", PLUGIN_VERSION,
+	char older[200] = "";   /* 2026-11-15a (KeepLogs): the older sessions' logs moved on; KeepLogs=1: nothing (the 2026-11-14a build's words) */
+	if (g_keepLogs58 > 1 && g_logRotated != 0) {
+		static const char *const count[9] = { "", "one", "two", "three", "four", "five", "six", "seven", "eight" };
+		if (g_logOlder58 == 1)
+			snprintf(older, sizeof(older), ", the one before it as CMB_Slope_prev2.log (KeepLogs=%d)", g_keepLogs58);
+		else if (g_logOlder58 == 2)
+			snprintf(older, sizeof(older), ", the two before it as CMB_Slope_prev2.log and CMB_Slope_prev3.log (KeepLogs=%d)", g_keepLogs58);
+		else if (g_logOlder58 > 2 && g_logOlder58 < 9)
+			snprintf(older, sizeof(older), ", the %s before it as CMB_Slope_prev2.log to CMB_Slope_prev%d.log (KeepLogs=%d)", count[g_logOlder58], g_logOlder58 + 1, g_keepLogs58);
+		else
+			snprintf(older, sizeof(older), " (KeepLogs=%d: none older)", g_keepLogs58);
+	}
+	Log("CMB_Slope %d for Fallout 4 1.11.240 (F4SE %08X, runtime %08X), started %04u-%02u-%02u; %s%s", PLUGIN_VERSION,
 	    f4se->f4seVersion, f4se->runtimeVersion, day.wYear, day.wMonth, day.wDay,
 	    g_logRotated > 0 ? "the session before's log kept as CMB_Slope_prev.log"
-	    : g_logRotated < 0 ? "the session before's log couldn't be kept as CMB_Slope_prev.log" : "no log of a session before");
+	    : g_logRotated < 0 ? "the session before's log couldn't be kept as CMB_Slope_prev.log" : "no log of a session before", older);
 	if (g_logRotated < 0)
 		Log("  (MoveFileEx error %lu)", g_logRotateError);
+	if (g_logOlderFailed58)
+		Log("  (KeepLogs: %d older log(s) couldn't be moved on, MoveFileEx error %lu)", g_logOlderFailed58, g_logOlderError58);
 	if (f4se->isEditor || f4se->runtimeVersion != RUNTIME_1_11_240) {
 		Log("not the game version this was made for: staying off");
 		return false;

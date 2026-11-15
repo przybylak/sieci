@@ -1,34 +1,31 @@
-COMMONWEALTH MOTORBIKE - READY-TO-INSTALL FILES (2026-11-14a, repository commit @COMMIT@)
+COMMONWEALTH MOTORBIKE - READY-TO-INSTALL FILES (2026-11-15a, repository commit @COMMIT@)
 
 The Data folder is the whole mod except the rider-pose plugin, which has to be built from
 your own load order:
 
-  Data\CommonwealthMotorbike.esp      the plugin (since this build eight more records, for the field
-                                      kit's settlements switch and its preview, and the kit's item and
-                                      slots named)
+  Data\CommonwealthMotorbike.esp      the plugin (no new record since 2026-11-14a; this build changes two
+                                      starting values of the field kit preview's Tune sliders)
   Data\Scripts\*.pex                  compiled scripts (Caprica, Fallout 4 format; no Creation Kit
-                                      needed), twelve, as 2026-11-10a's: CMB_HotkeyF4SE (since this
-                                      build it also uses a potion whose use clip the plugin cut at
-                                      speed), CMB_GearRestoreF4SE and CMB_LookF4SE (the customised look on
-                                      the parked and first-person bikes and its colours, since this build
-                                      also the ridden bike's) need F4SE. Three change: the controller,
-                                      CMB_HotkeyF4SE and CMB_LookF4SE
+                                      needed), twelve, as 2026-11-14a's: CMB_HotkeyF4SE,
+                                      CMB_GearRestoreF4SE and CMB_LookF4SE (the customised look on the
+                                      parked, ridden and first-person bikes and its colours) need F4SE.
+                                      Two change: the controller and CMB_LookF4SE
   Data\Scripts\Source\User\*.psc      their sources
   Data\MCM\                           Mod Configuration Menu page and hotkeys (since this build the
-                                      field kit's "only in your settlements" switch and its preview
-                                      section; the riding field of view setting is gone)
+                                      field kit preview's "Preview size (%)" slider is "Preview distance")
   Data\F4SE\Plugins\CMB_Slope.dll     F4SE plugin: steeper slopes, farther camera, bike tilt, steering,
                                       the speedometer, the lights and the mirrors, the bike in first
                                       person, the landing and water sounds, the sidestep, the launch,
                                       items at speed, the look you fit at the bike, the parked bike kept
                                       out of people, Caution, the wheels, the gears, items by hotkey at
                                       speed, the bike's ready signal at getting on, the parked bike's
-                                      guard, the engine through a menu, and since this build the number
-                                      keys at speed by the game's own key codes, Free colour in third
-                                      person, the first-person bike held steady under your eye, the field
-                                      kit's preview, the engine quiet in menus and five gears (Fallout 4
-                                      1.11.240 + F4SE 0.7.9 only); its settings are in CMB_Slope.ini
-                                      beside it
+                                      guard, the engine through a menu, the number keys at speed, Free
+                                      colour in third person, the first-person bike held under your eye,
+                                      the field kit's preview, the engine quiet in menus, five gears, and
+                                      since this build the camera's place in first person read right, the
+                                      first-person bike hidden until it is coloured, the slower pull and
+                                      three earlier logs kept (Fallout 4 1.11.240 + F4SE 0.7.9 only); its
+                                      settings are in CMB_Slope.ini beside it
   Data\Sound\FX\CMB\                  engine sounds: the idle, start and stop and ten riding loops, built
                                       from a real V-twin's recording, and the mod's own two wet-road water
                                       loops, CMB_FxWaterRoadLP.wav and the gentler
@@ -50,136 +47,125 @@ your own load order:
                                                                  + CMB_RiderSeat.json
   Data\Meshes\Actors\Character\Animations\MT\CMB_Rider\Female\   106 female clips (CBBE seat height), same files
 
-No optional folder, as 2026-11-10a. If the 2026-11-06a package's "Commonwealth Motorbike - 2026-11-02a look
+No optional folder, as 2026-11-14a. If the 2026-11-06a package's "Commonwealth Motorbike - 2026-11-02a look
 (A-B)" is still in MO2, keep it unticked (or remove it): it has the old badge and none of the new shapes.
 
-WHAT'S NEW IN 2026-11-14a
-  The fixes build for test 53 (run on 2026-11-10a), with most of its wishes; five come in the next build,
-  2026-11-14b (below). What test 53 liked is as it was: getting on in about 2 s, the field kit's menu
-  holding beside Global Stash by SKK, the front end's shadow, the bike seen in first person, Caution 50's
-  sidestep, the tip, the engine held through a menu. Changed: the ESP (8 new records, and the field kit's
-  item and slot names), three scripts (the controller, CMB_HotkeyF4SE and CMB_LookF4SE), the MCM page,
-  CMB_Slope.dll and CMB_Slope.ini. The meshes, textures, materials, sounds, riding clips and the
-  rider-pose plugin are 2026-11-10a's.
+WHAT'S NEW IN 2026-11-15a
+  The fixes build for test 54 (run on 2026-11-14a), with two of its wishes: your eye where you put it,
+  and the speed climbing with the gears. You chose fixes first, and the slower pull so that the gear
+  sounds stay exactly as they are. What test 54 liked is as it was: the number keys at speed, the
+  bike's hotkey on B, Free colour in third person, the field kit's names and its settlements rule, the
+  engine quiet in menus, the five gears' sound, the guard beside a knocked-down NPC. Changed: the ESP
+  (two values), two scripts (the controller and CMB_LookF4SE), the MCM page, CMB_Slope.dll and
+  CMB_Slope.ini. The meshes, textures, materials, sounds, riding clips and the rider-pose plugin are
+  2026-11-10a's.
 
-  WHAT TEST 54 SHOULD TRY (WHAT TO TEST below has the steps):
-  - a stimpak by its number key at full speed: healed at once, with no animation and the speed kept;
-  - which key you press for the bike's own hotkey: 0 or B;
-  - Free colour in third person from the first moment of every ride, and the "Palette test" paint ridden:
-    cobalt or grey?
-  - first person: no shake, and you sit over the seat, not on the tank;
-  - the field kit: the item named "Motorbike", the slots named, the whole bike in the preview, and only in
-    your settlements;
-  - the Pip-Boy and the pause menu silent at speed;
-  - the five gears;
-  - and, not tried in test 53, the guard beside a knocked-down NPC and a few A/Bs.
+  WHAT TEST 55 SHOULD TRY (WHAT TO TEST below has the steps):
+  - the field kit: plate colours, "The plate's own" among them, several times in one visit: no crash,
+    and the colours on the parked bike once you leave the menu; the preview: the whole bike, zoomed
+    fully out and in ("Preview distance" in Tune if it is too near or too far);
+  - first person: FIRST set the MCM's "Eye forward on the bike" and "Eye height on the bike" back to 0
+    (your save keeps them), then ride on rough ground: steady now? your eye in the right place? and
+    first person right after getting on: no red tank;
+  - getting on: about as quick as in test 53 again (about 2.5 s to the screen back);
+  - the pull: from a stop the speed keeps climbing through the gears and reaches the top about when 3rd
+    ends; how it feels speeding up again after a lift or a hit; a few A/Bs;
+  - the logs: three earlier sessions kept;
+  - and, not tried in test 54, the field kit refused on a road outside a settlement, and allowed
+    anywhere with the MCM switch off.
 
-  TEST 53'S FIXES:
-  - Number keys at speed (a stimpak by its number key was never used: the game gives a key as its own key
-    code, 0x31 for number key 1, where the plugin looked for scan codes, so it never saw the key, and the
-    use clip was then cut before the game applied the item): the plugin now finds a number key by the
-    game's own name and code ([Steer] QuickKeyCodes), and the log names a key in hex ("quick: key 0x31
-    ..."). If it still can't take a key (a gamepad, or [Steer] QuickUse=0), the clip is cut and the hotkey
-    script uses the item unless the game already did ([Steer] QuickCut), or the clip plays until the item
-    is used and is cut then ([Steer] UseStopUnapplied): either way the stimpak heals. Each use now counts
-    for one clip only, so a double tap, or a stimpak right after a chem, is no longer cut unused. A
-    self-test says where a key gets lost and which key the bike's hotkey really is ([Diag] QuickProbe).
-  - Free colour in third person (blue on every ride but the one the game loaded into): the colours are
-    written into the chosen options' own colour swaps before the bike goes on, so the game builds the
-    ridden bike with them, as it builds the parked bike; no swap after the fade ([Look] WornIndex). A
-    hue-only change no longer puts the bike's parts on again, about 1.2 s quicker getting on ([Look]
-    KeptMods). A diagnostic says what the paint held ([Diag] WornPasses), and [Look] Repass=1 is an A/B if
-    it is still wrong.
-  - The riding field of view (the game wrote its own back every frame): gone, with its MCM slider, as you
-    wished; an older save's setting is ignored ([View] Fov=0).
-  - The engine's late-start line counted from the press, which a look change could stretch: it counts from
-    the moment the bike was ready now ([Diag] HandoverFromReady).
+  TEST 54'S FIXES:
+  - The two crashes at the field kit (both right after "Plate background: The plate's own"): a plate
+    colour chosen at the kit used to change the parked bike beside it at once, while the menu was open,
+    and both crashes came in the frames right after that. The plate colours you choose there now go on
+    the parked bike when you leave the menu, with the rest of the look, as the MCM's Apply does (the MCM
+    never crashed) ([Look] KitDefer). You see them on the parked bike once the menu has closed.
+  - First person still shook: the fix that makes the first-person bike follow the game's own camera
+    switched itself off on its first frame, because it read the camera's place in the wrong space (the
+    log's "118676" was the camera's distance from the world's origin). It reads it as the world place
+    it is now ([View] CameraWorld). The plugin's frame task also turned out to run twice for each frame
+    the game draws, so the bike's lead guess was nearly 0 every second run: it now uses the game's own
+    frame ([View] LeadFrame).
+  - No preview in the kit's menu (its camera was inside the bike): the menu turns out to read the turn
+    in radians, ignore the scale and place the bike ahead of its camera by the position. New now puts the
+    whole bike 400 ahead, turned three-quarters, with room to zoom; in Tune the first slider is "Preview
+    distance" (less is a bigger bike). Two more log lines say where the menu's camera is, so the next
+    build can set the final distance.
+  - The stock red tank for a moment in first person right after getting on: the first-person bike now
+    stays hidden until its colours are on (3 s at most), and at a hand-over the old one stays until the
+    new one is coloured ([View] LookWait).
+  - Getting on about 0.85 s slower than 2026-11-10a: last build's Free colour fix redid its colour work
+    at every getting on; with the look unchanged it is now skipped (one check), so getting on is about
+    as quick as before ([Look] MountQuick).
+  - The session logs: the plugin now keeps the three sessions before as CMB_Slope_prev.log,
+    CMB_Slope_prev2.log and CMB_Slope_prev3.log, so a crash and two restarts no longer lose one ([Diag]
+    KeepLogs).
+  - Your eye: the default now holds the "eye forward" -6 and "eye up" -3 you used ([View] EyeAt=0,-5,125);
+    the MCM's two eye sliders still add to it, so set them back to 0.
+  - The speed and the gears ("bike reaches 50 just on gear 2, but it still goes on for 2 more without
+    gaining speed"): above 0.6 of its top speed the bike now takes 5.5 s more to reach it, from a stop and
+    at speed alike, so the speed climbs with the gears and the top comes about when 3rd ends and 4th
+    comes in (about 6 s after the press). The take-off is as before, and the engine's gears and their
+    sound are untouched: 5.5 s is the slowest pull that keeps the sound as it is ([Steer] PullTime,
+    PullFrom). After a lift or a hit at speed the bike climbs back at the same, slower rate.
 
-  TEST 53'S WISHES:
-  - First person steady, your eye further back: the first-person bike is held so your eye stays put on it
-    as it tilts (on a slope, in a lean, over a bump), at once every frame, pointing along your heading,
-    and it follows the game's own camera each frame ([View] EyeLock, EyeAxes, Camera, EyeAtCamera). Your
-    eye sits 11 units further back, over the seat, where the game's own camera is at a stop ([View]
-    EyeAt=0,1,128; the MCM's "Eye forward on the bike" still adds to it). A "view: lock:" line every 2 s
-    says what still moves ([Diag] ViewLock).
-  - The field kit: the armour menu calls the item "Motorbike" (it read "Default") and names each choice
-    with its slot ("Paint: Factory", "Rims: ...", "Tank L: ..."); its preview shows the whole bike,
-    smaller and turned three-quarters, with room to zoom (the MCM's "Field kit preview": New, As before,
-    or Tune with six sliders; [Look] KitPreview); and with the MCM's "Field kit only in your settlements"
-    on, Customise opens the kit only in a settlement of yours: elsewhere a message, and nothing comes out
-    of the side bag. "Free customising" in the MCM works anywhere.
-  - Silence in the Pip-Boy and the pause menu: the engine and the water sound fade out within 0.15 s while
-    a menu pauses the game and come back at the same note after it ([Sound] MenuQuiet).
-  - The gears: five gears shifting higher, at about 3200-3400 rpm at full throttle (into 5th about 2500),
-    2nd and 3rd rising all the way, a short 4th, the cruise as before; the note no longer drops while the
-    bike is gaining ([Sound] HeardKeep), and a short lift of the throttle no longer blips 2nd down to 1st
-    ([Sound] LiftDown). A stop still shifts down with blips.
-
-  NEXT BUILD, 2026-11-14b (not in this one):
-  - handguns on the bike (in the right hand, the left on the bar); looking back when reversing in first
-    person; the lean on A/D in first person; sidestepping round bigger things than posts; the right-hand
-    cables that float in first person.
+  NEXT BUILD, 2026-11-15b (not in this one):
+  - A and D turning the bike in first person as the mouse does, with a slight lean; the rider's arms and
+    body seen in first person; looking back when reversing in first person; handguns on the bike (in the
+    right hand, the left on the bar); sidestepping big objects, not only posts; the right-hand cables
+    that float in first person.
 
   MCM:
-    Look gains "Field kit only in your settlements" (on), after "Field kit"; a new section after Look,
-    "Field kit preview" (New; As before is 2026-11-10a's view; Tune uses its six sliders: size, turn,
-    tilt, up / down, zoom out, zoom in); Riding's "Field of view riding in first person" is gone. The side
-    bag's help says its parts count only with the kit allowed anywhere. Console: set CMB_KitWhere to 0,
-    set CMB_KitPreview to 0.
+    In the "Field kit preview" section "Preview size (%)" is now "Preview distance" (100-2000, 400 = New:
+    how far ahead of the menu's camera the bike sits; a save from 2026-11-14a first shows 30, which means
+    New's 400 until you move it), and "Preview zoom in" starts at 3. Riding's "Eye forward on the bike"
+    and "Eye height on the bike" are as before, but set both to 0 now (above).
 
   CMB_SLOPE.INI (every new key at its default in the file, with its comment):
-    [Steer] QuickKeyCodes=auto, QuickKeyState=1, QuickCut=1, UseStopUnapplied=wait, UseStopWaitMax=3,
-    UseStopLead=1.5; [Look] WornIndex=1, KeptMods=1, Repass=0, KitPreview=1, KitPreviewLog=1
-    (KitPreviewPos, KitPreviewTurn, KitPreviewScale and KitPreviewZoom commented out at their defaults);
-    [View] EyeLock=1, EyeAxes=1, Camera=1, EyeAtCamera=1, Fov=0; [Diag] QuickProbe=1, WornPasses=1,
-    HandoverFromReady=1, ViewLock=1; [Sound] HeardKeep=1, HeardCreep=0.3, LiftDown=0.08, MenuQuiet=1,
-    MenuQuietOut=0.15, MenuQuietIn=0.3. Changed defaults: [View] EyeAt=0,1,128 (was 0,12,128); [Sound]
-    ShiftRpm=3500 (2500), Gears=410.6,636.4,954.5,1272.7,1626.4 (555.556,750,960,1161.6),
-    ShiftDraw=3200,3700 (2300,3000), HeardRiseGears=2,0.79,0.65,1,1 (2.5,0.95,0.5,1),
-    ShiftGapGears=0,2,3,1.5 (0,2,3), LaunchRise=650 (350), LaunchFlare=0.35 (0.5).
+    [Steer] PullTime=5.5, PullFrom=0.6; [Look] KitDefer=1, MountQuick=1, KitTuneDistance=1,
+    KitPreviewScene=1; [View] CameraWorld=1, LeadFrame=1, LookWait=3; [Diag] KeepLogs=3. Changed
+    defaults: [View] EyeAt=0,-5,125 (was 0,1,128); [Look] KitPreviewPos=0,400,0 (0,0,0),
+    KitPreviewTurn=0,0,0.785398 (0,0.02,44.764), KitPreviewScale=1 (0.3), KitPreviewZoom=-1,3 (-1,1), the
+    four commented out at their defaults.
 
-  EVERY NEW THING HAS A SWITCH whose off value is 2026-11-10a:
-    [Steer] QuickKeyCodes=scan, QuickKeyState=0, QuickCut=0, UseStopUnapplied=cut; [Look] WornIndex=0,
-    KeptMods=0, KitPreview=0 (Repass=0 is its default); [View] EyeAt=0,12,128, EyeLock=0, EyeAxes=0,
-    Camera=0, EyeAtCamera=0, Fov=1 (then set CMB_ViewFov in the console: the slider is gone); [Diag]
-    QuickProbe=0, WornPasses=0, HandoverFromReady=0, ViewLock=0; [Sound] MenuQuiet=0, HeardKeep=0,
-    LiftDown=0, and the gears all together at ShiftRpm=2500, Gears=555.556,750,960,1161.6,
-    ShiftDraw=2300,3000, HeardRiseGears=2.5,0.95,0.5,1, ShiftGapGears=0,2,3, LaunchRise=350,
-    LaunchFlare=0.5; MCM "Field kit only in your settlements" off, "Field kit preview" As before. The one
-    exception is the field kit's item and slot names (only names: an ESP with 2026-11-10a's can be built
-    from the repository with the generator's --kit-names 0, and isn't in this package). 2026-11-10a's
-    switches back to 2026-11-09a's are all still there.
+  EVERY NEW THING HAS A SWITCH whose off value is 2026-11-14a:
+    [Look] KitDefer=0 (save first: it may crash at the kit again), MountQuick=0, KitTuneDistance=0,
+    KitPreviewScene=0, and KitPreviewPos=0,0,0, KitPreviewTurn=0,0.02,44.764, KitPreviewScale=0.3,
+    KitPreviewZoom=-1,1; [View] EyeAt=0,1,128, CameraWorld=0, LeadFrame=0, LookWait=0; [Steer]
+    PullTime=0; [Diag] KeepLogs=1 (read at the game's start). With KitTuneDistance=0 "Preview distance"
+    is the old size slider again (its old 30 then by set CMB_KitPrevSize to 30 in the console: the
+    slider now starts at 100). 2026-11-14a's switches back to 2026-11-10a's are all still there.
 
   KNOWN, LEFT FOR NOW:
-  - Whether the number keys reach the game's favourites handler at all is the self-test's to say; if they
-    don't, QuickCut or UseStopUnapplied still heal at speed, after the clip's first moment.
-  - The MCM's help for the built-in hotkey says "48 = B"; it may really be the 0 key (step 2 tells).
-  - Free colour in third person relies on the game applying a swap's colour while it builds the ridden
-    bike: the Palette test (step 6) says whether it does. An option you didn't choose keeps the last
-    colour written into it until you choose it again (only the armour menu's preview shows that). The
-    first getting on after a real change of parts (not just a colour) is still about 1.2 s slower.
-  - The field kit's preview numbers are a first guess: the bike may be small (zoom in, or Tune), and test
-    54's log lines set the final ones. The names have no switch in the game.
-  - First person: how much of the shake goes is test 54's to say; the "view: lock:" lines tell what is
-    left.
-  - Whether the game lets a sound fade while it is paused is test 54's question; the throttle-off sound at
-    the top of a pull is pitched further up than before.
-  - From 2026-11-10a: with an animation mod that plays a decoration after each item use, a use at speed
-    still starts that decoration, cut at its first frame (a dip of about 100-150 u/s for about 0.3 s);
-    Caution 50 is only a new save's default; with [Lamp] Ahead set under about 10 and MCM "Headlamp casts
-    shadows" on, the front end can shadow its own beam (the default 28 keeps it clear); when getting on, a
-    follower is stowed and the headlamp lit up to about a second after the screen is back.
+  - With IAF / Chem Reanimations, an item used at speed (by its number key too) is used at once, but the
+    start of that mod's decoration clip still shows for a moment after each use.
+  - The plate colours chosen at the field kit now show on the parked bike when the menu closes, not
+    while it is open (the menu's preview never showed them either).
+  - The preview's 400 is worked out from test 54's numbers: the bike may look small (zoom in, or Tune);
+    test 55's log sets the final value.
+  - First person: that the camera's place is a world place is inferred (about 70% sure; one log line a
+    session settles it). With the bike now keeping up with the camera your eye may feel a little
+    further back at speed than in test 54. If it still feels like riding without suspension while the
+    log says "the camera root 0.00", what is left is the game's own camera over the bumps.
+  - The slower pull leaves little margin to the engine's own climb late in 3rd; after a lift at speed
+    the note follows the bike, a gentler pull; a lower MCM speed makes the pull slower too.
+  - From 2026-11-14a: an option you didn't choose keeps the last colour written into it until you
+    choose it again (only the armour menu's preview shows that); the first getting on after a real
+    change of parts (not just a colour) is about 1.2 s slower.
+  - From 2026-11-10a: Caution 50 is only a new save's default; with [Lamp] Ahead set under about 10 and
+    MCM "Headlamp casts shadows" on, the front end can shadow its own beam (the default 28 keeps it
+    clear); when getting on, a follower is stowed and the headlamp lit up to about a second after the
+    screen is back.
   - From 2026-11-09a: a bike kept hidden by the guard when you go through a door or fast travel stays
     hidden where it waits until you call it; the parked bike blinks once when its look is put on outside a
     ride; the riding armours kept between rides stay in your inventory, hidden: before uninstalling, get
     off and run cqf CMB_ControllerQuest EmergencyReset, which takes them out too.
-  - From 2026-11-08a: the plate's colours aren't previewed in the armour menu, and after you take a new
-    design there the preview shows the old design's own text until you leave the kit; the rim styles you
-    didn't fit are still drawn, invisible, on the parked bike; a rim style changed in the MCM while riding
-    (or a load mid-ride with "Customise at the bike" off, on a rim style) puts the ridden bike on again
-    within about a second; without F4SE the parked and first-person bikes stay stock and the ridden bike's
-    colours stay their defaults; weathered paint, more badges, the front fender, the headlamp's colour and
-    the seat come later.
+  - From 2026-11-08a: after you take a new plate design at the kit the preview shows the old design's
+    own text until you leave the kit; the rim styles you didn't fit are still drawn, invisible, on the
+    parked bike; a rim style changed in the MCM while riding (or a load mid-ride with "Customise at the
+    bike" off, on a rim style) puts the ridden bike on again within about a second; without F4SE the
+    parked and first-person bikes stay stock and the ridden bike's colours stay their defaults; weathered
+    paint, more badges, the front fender, the headlamp's colour and the seat come later.
 
 BORROWED BY PATH (the game's own files, resolved in its archives; none is in this package; nothing new)
   the field kit's toolbox     SetDressing\Toolbox\Toolbox_Large.nif
@@ -193,7 +179,7 @@ BORROWED BY PATH (the game's own files, resolved in its archives; none is in thi
   the other rims' shine       Shared\Cubemaps\mipblur_DefaultOutside1_dielectric.dds, as the stock rims
   Records by FormID: the armour bench's keywords and idle, the workshop keywords, the loose mods' type,
   the toolbox's sound, the six components, the Armorer perk and the game's own armour bench
-  (WorkbenchArmorA, the field kit's mode 4) (docs\ASSETS.md lists them); since this build the plugin also
+  (WorkbenchArmorA, the field kit's mode 4) (docs\ASSETS.md lists them); since 2026-11-14a the plugin also
   reads four of the game's own preview transforms for its log (MiscMod01, xTranMiniGun,
   ArmorTorsoPowerT60, ArmorHatExtraLarge) and writes nothing into them. Global Stash by SKK, another mod,
   is only asked about: whether its plugin (SKKGlobalStashScrapping.esp) is loaded, and then four of its
@@ -205,68 +191,62 @@ INSTALL / UPDATE (Mod Organizer 2)
      mod in MO2 and install this one fresh. By hand without MO2: copy Data over and let everything
      overwrite. The separate "Commonwealth Motorbike - Rider Pose" mod from make_rider_pose.bat stays as
      it is: no need to rerun make_rider_pose.bat.
-  3. If you had edited CMB_Slope.ini, put your values into the new one: [Steer], [Look], [View], [Diag]
-     and [Sound] have new keys, and EyeAt and seven [Sound] gear keys new defaults (README.md's first key
-     table lists them).
-  4. Load test 53's save. Keep Global Stash by SKK installed. Before every quit copy both logs aside,
-     renamed with the step (CMB_Slope_stepN.log, Papyrus_stepN.log): the plugin keeps only one earlier
-     session. Then WHAT TO TEST below.
+  3. If you had edited CMB_Slope.ini, put your values into the new one: [Steer], [Look], [View] and
+     [Diag] have new keys, and [View] EyeAt and the four KitPreview values new defaults (README.md's
+     first key table lists them).
+  4. Load test 54's save. In the MCM set "Eye forward on the bike" and "Eye height on the bike" back to
+     0 first. Keep Global Stash by SKK installed. The plugin now keeps the logs of the three sessions
+     before; say which session each step was in. Then WHAT TO TEST below.
   Updating mid-ride: get off first, save, then update.
 
-WHAT TO TEST (docs\TESTING.md, "The 2026-11-14a build", has the details and the log lines; the
+WHAT TO TEST (docs\TESTING.md, "The 2026-11-15a build", has the details and the log lines; the
 numbers are its steps)
-  1. Number keys at speed: a stimpak on number key 1, Jet on another. At full speed press 1 three times, a
-     second apart, then Jet's key. Used at once, no animation, the speed kept? The log now names keys in
-     hex (number key 1 is "key 0x31"); send every "quick: self-test" and "quick: this ride" line.
-  2. The bike's hotkey: get on and off once each with it, as you always do, and tell us which key you
-     press, 0 or B (the "quick: the ride began ... after the ... key" lines say which the game saw).
-  3. [Steer] QuickUse=0, get on, a stimpak by its key at speed twice quickly: two heals, no slow-down? Jet
-     once: one dose?
-  4. Also QuickCut=0 (QuickUse still 0): about a second of the animation, then it stops; healed, the speed
-     held? Then QuickUse=1 and QuickCut=1 back.
-  5. Free colour (a hue other than 210, a plate with colours), in third person by the hotkey and by E:
-     your hue from the first moment, every ride, and after a hue-only change (getting on as quick)? First
-     person the same? After a load? Only if still wrong: [Look] Repass=1, get off and on; then back to 0.
-  6. Paint "Palette test: colour index" at the field kit, ridden in third person: cobalt or primer grey?
-     Optional: [Look] WornIndex=0, get on: blue again as in test 53? Then 1.
-  7. First person, flat, on a slope and through turns: any shake? Your seat over the seat, not on the tank
-     (or the MCM's "Eye forward on the bike" number you like)? Parked on a slope: the bars and dial still?
-     A/B one ride each: [View] EyeLock=0; EyeAtCamera=0; EyeAxes=0. Send the "view: lock:" and "camera:"
-     lines.
-  8. The FOV setting is gone from the MCM; first person keeps the game's own field of view.
-  9. Field kit in Sanctuary: the item "Motorbike", the slots "Paint: Factory" and so on, the whole bike in
-     the preview? Screenshots as the menu opens and after a paint and a rim; zoom all the way out and in.
-     Only if it looks wrong: "Field kit preview" Tune and its sliders (which values?). A/B: As before (the
-     tyre).
-  10. Customise on a road: refused with a message, nothing out of the side bag? With "Field kit only in
-      your settlements" off: the kit opens. "Free customising" works anywhere.
-  11. The Pip-Boy and Esc at full speed, 3 s each: quiet within a moment, the same note after? In water,
-      the water quiet too?
-  12. Gears: full throttle from a stop: five gears, higher shifts, 2nd and 3rd rising, a short 4th? A
-      short lift in 2nd while speeding up, and at a steady low speed: no blip to 1st? A stop: blips as
-      before.
-  13. Not tried in test 53: knock an NPC down beside the parked bike and get off next to them: the bike
-      hidden until they stand up?
-  14. Not tried in test 53: a few A/Bs, one at a time: [Look] MountEarly=0, [Room] GuardBodies=0 (with
-      step 13), [Steer] SidestepCaution=0, [Sound] MenuHold=0, HeardKeep=0. Anything better or worse?
-  Send CMB_Slope.log (and CMB_Slope_prev.log after a crash), Papyrus.0.log, the copies you saved, any
-  crash log, the screenshots of step 9, and a video if you have one.
+  1. Field kit in Sanctuary (save first): in one visit take a new plate design, then "Plate background:
+     The plate's own", then a "Plate letters" colour and two or three more plate colours. No crash? Leave
+     the menu: your plate colours on the parked bike now? Two or three times.
+  2. The preview: a screenshot as the menu opens. The whole bike, turned three-quarters? Zoom all the
+     way out and all the way in (a second at each end, screenshots). Only if it is too near or too far:
+     "Field kit preview" Tune, "Preview distance" (less = bigger); which value looked right?
+  3. First person, with the eye sliders at 0: a flat road at full speed, rough ground, turns, standing
+     still. Still shaking? Your eye in the right place, standing and at speed (if you move the sliders,
+     to what)? A/B one ride each: [View] CameraWorld=0, LeadFrame=0. Send the "camera:" and "view:
+     lock:" lines.
+  4. Get on and switch to first person straight away, several times: no bike for about a second, then
+     your colours, never the red one? Ride on past a few cell changes: no red flicker? A/B: [View]
+     LookWait=0.
+  5. Get on and off five times with the look unchanged: about 2.5 s to the screen back? Free colour
+     right from the first moment? Then a hue change in the MCM, and once after a restart and a load.
+     A/B: [Look] MountQuick=0.
+  6. From a stop, forward held to the top speed on a long flat road: the take-off as before, then the
+     speed climbing through 2nd and 3rd, the top about when 3rd ends (about 6 s)? The gears sounding as
+     in test 54? Too slow or too quick?
+  7. At speed let go for half a second and press again; pull away again from half speed after a turn;
+     a hit or a kerb at speed: sluggish? The note while it gains? A/Bs in [Steer], one or two rides
+     each: PullFrom=0.8, PullTime=6, PullTime=7 (and PullTime=4.5 if 5.5 feels too slow); PullTime=0
+     is the old pull.
+  8. After three starts: CMB_Slope_prev.log, CMB_Slope_prev2.log and CMB_Slope_prev3.log beside
+     CMB_Slope.log, and its first line saying so?
+  9. Not tried in test 54: Customise on a road outside a settlement: refused with a message, nothing out
+     of the side bag? With "Field kit only in your settlements" off, the same spot: the kit opens?
+  10. Any A/B you haven't tried yet, one at a time (KitDefer=0 only on a save you can lose). Anything
+      better or worse?
+  Send CMB_Slope.log and its three _prev logs, Papyrus.0.log, any crash log, the screenshots of step 2,
+  and a video if you have one.
 
 QUESTIONS FOR YOU (docs\TESTING.md has them in full)
-  T54-1. A stimpak by its number key at speed: used at once, no clip, the speed kept? Jet too?
-  T54-2. Which key do you press for the bike's hotkey, 0 or B?
-  T54-3. With QuickUse off: healed each time, one Jet dose? With QuickCut off too: healed after about a
-         second?
-  T54-4. Free colour right in third person from the first moment, every ride? The plate? After a load?
-  T54-5. The Palette test: cobalt or primer grey?
-  T54-6. First person: any shake left? Your seat place right? Which A/B was steadiest?
-  T54-7. The item "Motorbike", the slot names, the whole bike in the preview? If you tuned it, which
-         values?
-  T54-8. Refused on the road, allowed in Sanctuary, and anywhere with the switch off?
-  T54-9. The engine and the water quiet in the Pip-Boy and the pause menu, and back at the same note?
-  T54-10. The five gears: the higher shifts, the short 4th, no drop on a lift, the throttle-off sound?
-  T54-11. The bike hidden while a knocked-down NPC lay in its place?
-  T54-12. Anything an A/B made better or worse?
+  T55-1. Plate colours at the field kit, "The plate's own" after a new design among them: no crash? The
+         colours on the parked bike once you left the menu?
+  T55-2. The preview: the whole bike? Zoomed fully out and in? If you moved "Preview distance", to what?
+  T55-3. First person with the eye sliders at 0: steady on rough ground? Your eye's place right,
+         standing and at speed?
+  T55-4. First person right after getting on: no red tank? Any red flicker at a hand-over?
+  T55-5. Getting on as quick as in test 53 (about 2.5 s to the screen back)? Free colour still right?
+  T55-6. From a stop: does the speed climb with the gears now, the top as 3rd ends? Too slow or too
+         quick? The gears' sound as good as in test 54?
+  T55-7. Speeding up again after a lift, a turn or a hit: sluggish? Which A/B felt best?
+  T55-8. Three earlier logs there after three starts?
+  T55-9. Refused on the road, allowed anywhere with the switch off?
+  T55-10. Anything an A/B made better or worse?
 
 TIMING STAND-INS (optional, as before)
   38 clips use a stand-in vanilla clip for their timing because these weren't extracted:

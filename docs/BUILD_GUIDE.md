@@ -270,6 +270,21 @@ sounds and clips are 2026-11-10a's. `python3 -I tools/sound/engine_model.py --ch
 `check_off_2026-11-10a.txt` is written from c716330's model: `git show c716330:tools/sound/engine_model.py > old.py`,
 then `--write-expected old.py --off 10a`) and `--check-climb` the five gears.
 
+Since 2026-11-15a (test 54's fixes) the generator makes no new record: the ESP keeps **1053** in its header's count and
+its next ID **0xBFF**, look_ids.txt its 838 IDs. Two globals' values change, `CMB_KitPrevSize` 0xBF9 30 -> **400** and
+`CMB_KitPrevZoomIn` 0xBFE 1 -> **3** (Tune now starts at New's preview), and in `config.json` the "Field kit preview"
+section's first slider is "Preview distance" (100-2000, step 25, on the same global) where it was "Preview size (%)"
+(10-200, step 5), with the stepper's and "Preview zoom in"'s helps; `keybinds.json` doesn't change. A record-by-record
+comparison with 2026-11-14a's plugin: `TES4: same`, `added 0`, `removed 0`, `changed 2` (the two FLTV). `tools/build.sh`
+prints `checked cmb_controllerscript: 194 properties` and "plugin and scripts agree" as before; `--look-build
+2026-11-07a` still writes the 2026-11-07a build's three files byte for byte, and `check_plugin.py ... --kit-names 0`
+still passes. Two scripts change (`CMB_ControllerScript.psc`, `CMB_LookF4SE.psc`; `check.sh`: 12 .pex, no warning, no
+new native in the stubs). No asset changes: the meshes, textures, materials, sounds and clips are 2026-11-10a's. The
+engine model doesn't change either (the slower pull is the plugin's throttle, `[Steer] PullTime`): `engine_model.py
+--check-off` checks the same six builds and no new `check_off` file is written. The harness
+(`tools/f4se-slope/test/run.sh`, 26 modes) expects 1878 checks: custom 101, view 187, launch 17, sound 128, load 45,
+wrongversion 5, the rest as 2026-11-14a's; `DEF58` rides every older mode at this build's off values.
+
 The vanilla form IDs the plugins use (PlayerRef, XMarker, HumanRace, HumanRaceSubGraphData, SpeedMult, CarryWeight, FallingDamageMod, Health, Pip-Boy, AnimArchetypePlayer) were checked against Mutagen's FormKey list generated from the real `Fallout4.esm`. The record layouts were also compared field by field with xEdit's Fallout 4 definitions.
 
 ## For developers: packaging a build

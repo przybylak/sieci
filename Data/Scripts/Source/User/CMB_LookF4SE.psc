@@ -98,6 +98,12 @@ float rimV = -1.0         ; a body-colour rim: the paint's row of paint_p.dds ((
 float plateV = -1.0       ; a plate design: ((design - 1) x 16 + background + 0.5) / 256 of plate_p.dds
 float textV = -1.0        ; a plate text: (ink + 0.5) / 16 of plate_text_p.dds
 bool rimHue = false       ; a body-colour rim with Free colour: its targets swapped for their hue twins
+; 2026-11-15a ([Look] MountQuick): the options Colours() read them for (Paint, Rims, Plate, the plate text as shown; -1 with
+; CMB_LookOn 0 or an older ESP), set with the V's: the key of a WornIndex pass (IndexKey).
+int chosenPaint = -1
+int chosenRims = -1
+int chosenPlate = -1
+int chosenText = -1
 
 GlobalVariable Function SlotGlobal(int aiSlot)
 	if aiSlot == 0
@@ -138,6 +144,15 @@ bool Function PaletteIndexOn()
 	endif
 	int options = CMB_LookOptions.GetValue() as int
 	return (options / 8) % 2 == 1
+EndFunction
+
+; 2026-11-15a (test 54): CMB_LookOptions' bit 32768, the plugin's [Look] KitDefer, and 65536, its MountQuick; false without the
+; global or the plugin (2026-11-14a).
+bool Function LookOptionOn(int aiBit)
+	if !CMB_LookOptions
+		return false
+	endif
+	return ((CMB_LookOptions.GetValue() as int) / aiBit) % 2 == 1
 EndFunction
 
 ; The slot's global as it stands (0 with CMB_LookOn 0 or no global).
@@ -274,13 +289,17 @@ bool Function Colours()
 	float plate_v = -1.0
 	float text_v = -1.0
 	bool hue = false
+	int paint = -1   ; 2026-11-15a: kept with the V's (chosenPaint .. chosenText; the same calls in the same order)
+	int rims = -1
+	int plate = -1
+	int text = -1
 	if LookOn() && CMB_LookPaintV
-		int paint = Chosen(3)
+		paint = Chosen(3)
 		int row = PaintRowOf(paint)
 		if row == -1
 			paint_v = HueV()
 		endif
-		int rims = Chosen(5)
+		rims = Chosen(5)
 		if RimBody && RimBodyTargets && rims > 0 && rims < RimBody.Length && RimBody[rims] == 1
 			if paint_v >= 0.0
 				rim_v = paint_v
@@ -289,7 +308,7 @@ bool Function Colours()
 				rim_v = (row + 0.5) / 64.0
 			endif
 		endif
-		int plate = Chosen(7)
+		plate = Chosen(7)
 		if plate >= 1
 			int back = Chosen(10) - 1
 			if back < 0
@@ -299,7 +318,8 @@ bool Function Colours()
 				plate_v = ((plate - 1) * 16 + back + 0.5) / 256.0
 			endif
 		endif
-		if Chosen(8) > 1
+		text = Chosen(8)
+		if text > 1
 			int ink = Chosen(9) - 1
 			if ink < 0
 				ink = PlateOwn(PlateOwnInk, plate)
@@ -314,6 +334,10 @@ bool Function Colours()
 	plateV = plate_v
 	textV = text_v
 	rimHue = hue
+	chosenPaint = paint
+	chosenRims = rims
+	chosenPlate = plate
+	chosenText = text
 	return paint_v >= 0.0 || rim_v >= 0.0 || plate_v >= 0.0 || text_v >= 0.0
 EndFunction
 
@@ -522,6 +546,10 @@ EndFunction
 ; The parked bike: compose, keep (SetMaterialSwap: the game puts it on whenever the bike's 3D loads;
 ; the stock look keeps none) and apply now if its 3D is loaded. Returns the entries applied.
 int Function ApplyParked(string asFrom = "")
+	bool menuShut = true
+	if KitDeferOn()
+		menuShut = ExamineClosed(asFrom)   ; 2026-11-15a ([Look] KitDefer): never into the parked bike's live 3D under the workbench menu
+	endif
 	MatSwap:RemapData[] all = Compose()
 	if !all || !BikeRef
 		Log("Look: the parked bike: no CMB_LookSwap, swap lists or bike in the plugin (" + asFrom + ")")
@@ -533,8 +561,12 @@ int Function ApplyParked(string asFrom = "")
 		BikeRef.SetMaterialSwap(None)
 	endif
 	int applied = 0
-	if BikeRef.Is3DLoaded()
+	if BikeRef.Is3DLoaded() && menuShut
 		applied = Applied(BikeRef.ApplyMaterialSwap(CMB_LookSwap, false))
+	elseif !menuShut
+		; review (2026-11-15a): the workbench menu still listed after ExamineClosed's 100 waits: the swap kept for the bike's
+		; next 3D load (SetMaterialSwap above), never put on its live 3D under the menu
+		Log("Look: the parked bike's swap kept for its next load, not put on now: the workbench menu is still open (" + asFrom + ", KitDefer)")
 	endif
 	string kept = ""
 	if !composedActive
@@ -542,6 +574,46 @@ int Function ApplyParked(string asFrom = "")
 	endif
 	Log("Look: the parked bike's swap holds " + composedCount + " entries, " + applied + " applied now (" + asFrom + ")" + kept + ColoursText())
 	return applied
+EndFunction
+
+; 2026-11-15a ([Look] KitDefer, CMB_LookOptions 32768; test 54: both crashes, a null read in d3d11 from the world's deferred
+; pre-pass, came in the frame the field kit's "Plate background" put this swap on the parked bike's live 3D under the armour
+; bench's menu; the MCM's Apply and the kit's own end, outside that menu, never crashed): while the workbench menu
+; (ExamineMenu) is open, the compose and the swap wait for its close. The controller's LookModded no longer calls ApplyParked
+; there (the session's end puts the look on), so this only holds a caller that comes in while the menu is still closing (the
+; kit left before the menu's close event). Utility.Wait doesn't return in menu mode: the first one comes back after the
+; close; at most 100 (10 s outside menu mode) in case the menu stays listed. Nothing when the menu isn't open.
+bool Function ExamineClosed(string asFrom)
+	if !UI.IsMenuOpen("ExamineMenu")
+		return true
+	endif
+	float at = Utility.GetCurrentRealTime()
+	Log("Look: the parked bike's swap waits for the workbench menu to close (" + asFrom + ", KitDefer)")
+	int n = 0
+	while n < 100 && UI.IsMenuOpen("ExamineMenu")
+		Utility.Wait(0.1)
+		n += 1
+	endwhile
+	if UI.IsMenuOpen("ExamineMenu")
+		return false   ; review (2026-11-15a): still open after 100 waits: ApplyParked keeps the swap for the next load only
+	endif
+	Log("Look: the workbench menu closed " + (Utility.GetCurrentRealTime() - at) + " s later: the parked bike's swap now (" + asFrom + ", KitDefer)")
+	return true
+EndFunction
+
+; Review (2026-11-15a): KitDefer by the plugin's bit (CMB_LookOptions 32768), and always without the plugin
+; (F4SE.GetPluginVersion("CMB_Slope") -1: a game or save without CMB_Slope keeps the ESP's 4031): the parked bike's swap
+; never goes onto its live 3D under the workbench menu there either.
+bool Function KitDeferOn()
+	return LookOptionOn(32768) || F4SE.GetPluginVersion("CMB_Slope") < 0
+EndFunction
+
+; KitDeferOn for the controller (LookF4SEText): "1" or "0".
+string Function KitDeferText()
+	if KitDeferOn()
+		return "1"
+	endif
+	return "0"
 EndFunction
 
 ; One reference (the first-person bike): wait for its 3D, then apply the composed swap.
@@ -761,6 +833,12 @@ string Function IndexSlot(int aiSlot, float afV, bool abHue, bool abRestore)
 	if changed > 0
 		sw.SetRemapData(entries)
 		indexChanges += changed
+	endif
+	if !indexProbe && aiSlot != 5 && !abRestore && carried > 0
+		indexProbe = sw   ; 2026-11-15a ([Look] MountQuick): every entry of a paint, plate or text option carries the index
+		indexProbeV = index
+	endif
+	if changed > 0
 		return " " + SlotName(aiSlot) + " " + changed + " of " + carried + " set"
 	endif
 	return " " + SlotName(aiSlot) + " " + carried + " as they were"
@@ -790,6 +868,8 @@ string Function IndexAll(bool abRestore)
 	float text_v = textV
 	bool hue = rimHue
 	indexChanges = 0
+	indexProbe = None   ; 2026-11-15a: the pass's first indexed paint, plate or text swap (MountQuick's check)
+	indexProbeV = -1.0
 	string text = IndexSlot(3, paint_v, false, abRestore) + IndexSlot(5, rim_v, hue, abRestore)
 	text += IndexSlot(7, plate_v, false, abRestore) + IndexSlot(8, text_v, false, abRestore)
 	if text != ""
@@ -798,12 +878,87 @@ string Function IndexAll(bool abRestore)
 	return text
 EndFunction
 
+; ---- 2026-11-15a ([Look] MountQuick, CMB_LookOptions 65536; test 54: getting on 0.85 s slower than 10a, the fade to the
+; equip 2.30 s median against 1.35 s; this pass's 40-odd reads and GetRemapData calls at every getting on with nothing changed,
+; "Paint 4 as they were plate 2 as they were Plate text 2 as they were"): a pass that leaves the chosen options' swaps holding
+; the look's indexes is remembered (IndexKey: the options and the V's, as Colours() read them; indexProbe: one of the swaps it
+; indexed, with its index). The next WriteWornIndexes with the same key reads that one swap (one GetRemapData): its index still
+; there, the pass is skipped (the other swaps are untouched since: only a pass edits them, and every pass, put-back and load
+; forgets the key first); else (a restart gave the ESP's back) the pass as before. A look whose only colour is a body-colour
+; rim's has no probe: the pass as before. Off (no 65536): the pass at every call (2026-11-14a; the key is forgotten, never used).
+string wornIndexKey = ""         ; the key of the last pass whose swaps still hold its indexes ("" none known)
+MatSwap wornIndexProbe = None    ; one of its swaps (a paint, plate or text option's: every entry carries the index)
+float wornIndexProbeV = -1.0     ; ...and that index
+int wornIndexPasses = 0          ; passes begun (a pass ending after another began remembers nothing)
+MatSwap indexProbe = None        ; IndexAll's first indexed paint, plate or text swap, and its index
+float indexProbeV = -1.0
+
+string Function IndexKey()
+	return "paint " + chosenPaint + " " + paintV + ", rims " + chosenRims + " " + rimV + " " + rimHue + ", plate " + chosenPlate + " " + plateV + ", text " + chosenText + " " + textV
+EndFunction
+
+; 1: asKey is the remembered pass's and its probe still holds its index (the pass not needed); 0 no pass remembered or another
+; look; -1 remembered, but the probe's index isn't there (the key forgotten).
+int Function IndexesKept(string asKey)
+	if wornIndexKey == "" || asKey != wornIndexKey || !wornIndexProbe
+		return 0
+	endif
+	MatSwap:RemapData[] entries = wornIndexProbe.GetRemapData()
+	if entries && entries.Length > 0 && entries[0].colorIndex == wornIndexProbeV
+		return 1
+	endif
+	wornIndexKey = ""
+	return -1
+EndFunction
+
+; After a pass begun as number aiPass with the key asKey: remembered when no other pass began meanwhile and it indexed a probe.
+Function IndexesRemember(int aiPass, string asKey)
+	if aiPass == wornIndexPasses && indexProbe
+		wornIndexKey = asKey
+		wornIndexProbe = indexProbe
+		wornIndexProbeV = indexProbeV
+	else
+		wornIndexKey = ""
+	endif
+EndFunction
+
+; The controller's LookAfterLoad with MountQuick when LoadWornIndexes isn't called: the swaps in memory may be another save's
+; look's (or, after a restart, the ESP's): nothing remembered. Returns 0.
+int Function ForgetWornIndexes()
+	wornIndexPasses += 1
+	wornIndexKey = ""
+	return 0
+EndFunction
+
 ; The controller's WornColoursWrite with [Look] WornIndex (bit 4096), before the worn bike's equip: WriteWornColours (the
 ; values into the plugin's globals: its writer still colours a worn 3D the game built before the indexes were in, as after a
-; load) and the same values into the chosen options' swaps. 1 if the look has a colour, else 0.
+; load) and the same values into the chosen options' swaps. 1 if the look has a colour, else 0. 2026-11-15a (MountQuick): the
+; values only when the swaps hold them already (IndexesKept).
 int Function WriteWornIndexes()
 	bool any = Colours()
+	bool quick = LookOptionOn(65536)
+	string key = ""
+	if quick
+		key = IndexKey()
+		int kept = IndexesKept(key)
+		if kept == 1
+			WriteColours()
+			Log("Look: the worn bike's colour indexes before its equip (WornIndex): in its options' swaps since the last pass, the look unchanged (MountQuick)" + ColoursText())
+			if any
+				return 1
+			endif
+			return 0
+		elseif kept == -1
+			Log("Look: the worn bike's colour indexes: the last pass's are gone from its options' swaps (a restart?): written again (MountQuick)")
+		endif
+	endif
+	wornIndexPasses += 1
+	int pass = wornIndexPasses
+	wornIndexKey = ""
 	string text = IndexAll(false)
+	if quick
+		IndexesRemember(pass, key)
+	endif
 	WriteColours()
 	if text != ""
 		Log("Look: the worn bike's colour indexes before its equip (WornIndex):" + text)
@@ -817,6 +972,8 @@ EndFunction
 ; The controller's WornIndexRestore (WornIndex off after it was on: CMB_LookOptions 16384 without 4096), before the equip: the
 ; chosen options' swaps as the ESP has them; a line only when one was changed. The entries changed (0 none).
 int Function RestoreWornIndexes()
+	wornIndexPasses += 1   ; 2026-11-15a: the swaps put back: no pass remembered (MountQuick)
+	wornIndexKey = ""
 	Colours()
 	string text = IndexAll(true)
 	int changed = indexChanges
@@ -835,11 +992,21 @@ int Function LoadWornIndexes()
 		options = CMB_LookOptions.GetValue() as int
 	endif
 	bool index = (options / 4096) % 2 == 1
+	wornIndexPasses += 1   ; 2026-11-15a: a load: what was remembered is another session's or another save's (MountQuick)
+	int pass = wornIndexPasses
+	wornIndexKey = ""
 	if !index && (options / 16384) % 2 == 0
 		return -2
 	endif
 	Colours()
+	string key = ""
+	if index && (options / 65536) % 2 == 1
+		key = IndexKey()
+	endif
 	string text = IndexAll(!index)
+	if key != ""
+		IndexesRemember(pass, key)
+	endif
 	int changed = indexChanges
 	if changed > 0
 		if index

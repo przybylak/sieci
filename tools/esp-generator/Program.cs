@@ -483,16 +483,18 @@ public static class Program
 
         // 2026-11-14a (test 53, wish f: the kit's preview was a tyre filling the screen): the section "Field kit preview" after the
         // Look section, CMB_Slope.dll's [Look] KitPreview on CMB_KitPreview (0xBF8) and Tune's six sliders (0xBF9-0xBFE; the
-        // ESP's values are New's). Only with C2's block (`--look-build 2026-11-07a`: none).
+        // ESP's values are New's). Only with C2's block (`--look-build 2026-11-07a`: none). 2026-11-15a (test 54: the menu's
+        // camera inside the bike; the menu doesn't use the scale): the first slider is the distance (CMB_KitPrevSize as the
+        // record's pos y, 100-2000, New 400; [Look] KitTuneDistance), the zoom in's New 3, the stepper's help New's.
         var previewSection = new List<object>();
         if (c2)
             previewSection.AddRange(new[]
             {
                 Section("Field kit preview"),
-                Look("stepper", "Field kit preview", "How the field kit's armour menu shows the bike (needs F4SE and CMB_Slope.dll). New: smaller and turned three-quarters, with room to zoom out. As before: the 2026-11-10a build's view (a tyre filled the screen). Tune: the sliders below set it. Takes effect at the next Customise.",
+                Look("stepper", "Field kit preview", "How the field kit's armour menu shows the bike (needs F4SE and CMB_Slope.dll). New: the whole bike, turned three-quarters, 400 ahead of the menu's camera (zoom in with the mouse wheel). As before: the 2026-11-10a build's view (a tyre filled the screen). Tune: the sliders below set it. Takes effect at the next Customise.",
                     "CMB_KitPreview", new[] { "As before", "New", "Tune (the sliders below)" }),
-                Slider("Preview size (%)", "Tune only: the bike's size in the field kit's preview, in % (New: 30). Change it, leave the menu and press Customise again.",
-                    "CMB_KitPrevSize", 10, 200, 5),
+                Slider("Preview distance", "Tune only: how far ahead of the menu's camera the bike sits in the field kit's preview, in game units (New: 400; more: smaller, less: bigger). Change it, leave the menu and press Customise again.",
+                    "CMB_KitPrevSize", 100, 2000, 25),
                 Slider("Preview turn", "Tune only: turns the bike round in the preview, in steps of 6.4 degrees (New: 7, about 45 degrees).",
                     "CMB_KitPrevTurn", -28, 28, 1),
                 Slider("Preview tilt", "Tune only: tips the bike in the preview, in steps of 6.4 degrees (New: 0).",
@@ -501,7 +503,7 @@ public static class Program
                     "CMB_KitPrevUp", -150, 150, 5),
                 Slider("Preview zoom out", "Tune only: the preview's zoom limit outwards (New: -1).",
                     "CMB_KitPrevZoomOut", -3, 1, 0.25f),
-                Slider("Preview zoom in", "Tune only: the preview's zoom limit inwards (New: 1).",
+                Slider("Preview zoom in", "Tune only: the preview's zoom limit inwards (New: 3).",
                     "CMB_KitPrevZoomIn", 0, 3, 0.25f),
             });
 
@@ -1359,6 +1361,10 @@ public static class Program
         // (6.39 deg whether the engine reads radians or degrees), up/down, the two zoom limits. Their ESP values are mode 1's
         // (size 30, turn 7 = 44.76 deg, tilt 0, up 0, zoom -1..1), so Tune starts where New is. The plugin finds the seven
         // by ID (its KIT_PREVIEW_ID .. and the harness's KIT_PREVIEW_FORMID .. use these numbers: renumber them together).
+        // 2026-11-15a (test 54: the menu reads radians, ignores the scale, puts the bike at the position, y away from its
+        // camera): New is pos 0,400,0, turn 45 deg, scale 1, zoom -1..3, and CMB_KitPrevSize is Tune's distance (the
+        // record's pos y): its value 400 (was 30), CMB_KitPrevZoomIn 3 (was 1). A save keeps a global's value: a 14a save's
+        // 30 is outside the slider's 100-2000, and the plugin then uses New's 400.
         GlobalFloat? gKitWhere = null;
         if (look.HasC2)
         {
@@ -1369,12 +1375,12 @@ public static class Program
             {
                 gKitWhere,
                 Global(mod, "CMB_KitPreview", 1),
-                Global(mod, "CMB_KitPrevSize", 30),
+                Global(mod, "CMB_KitPrevSize", 400),
                 Global(mod, "CMB_KitPrevTurn", 7),
                 Global(mod, "CMB_KitPrevTilt", 0),
                 Global(mod, "CMB_KitPrevUp", 0),
                 Global(mod, "CMB_KitPrevZoomOut", -1),
-                Global(mod, "CMB_KitPrevZoomIn", 1),
+                Global(mod, "CMB_KitPrevZoomIn", 3),
             };
             for (int i = 0; i < kit57.Length; i++)
                 if (kit57[i].FormKey.ID != 0xBF7 + i)
