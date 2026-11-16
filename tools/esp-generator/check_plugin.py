@@ -59,8 +59,21 @@ Reads the generator's --dump output on stdin and the .psc files, and fails if:
     controller's Fixes_59 (the five, WeaponTypeRifle 0x04A0A1, ActionSheath 0x046BAF) isn't filled with them, or the MCM
     hasn't the stepper "Weapons while riding" (None / Handguns only / Any weapon (standing poses)) on CMB_RideWeapons
     where "Allow combat while riding" was (after "Bike tilts with the ground (max degrees)"), or still has that switch.
+  - (2026-11-16a, C3: the 3D helmets, the Gunners skull, the seat's colour, the alphabetical lists) the third block isn't
+    c3_ids' 72 (0xC08-0xC4F) at the table's IDs; the 34 older tank swaps don't end with their slot's four helmet
+    identities (sources_c3), a C3 option's entries or a Seat entry's V (CNAM (row + 0.5) / 16) aren't the table's; the
+    placeholders CMB_LookSwaps_PlateInk and _PlateBack aren't empty FormLists, or CMB_LookCategories and CMB_LookSwapLists
+    aren't 12 lists, index = slot; the look item and both riding armours haven't CMB_ap_Seat or the template the Seat's
+    option 0; a look recipe's priority isn't its option's display rank (ui_order: pinned, then by name, the palette test
+    last; 0 with --kit-order table); the controller's Look_C3 (CMB_Look_Seat, TankRightOf, UiOrder, UiRank, UiStart) or
+    CMB_LookF4SE's (CMB_Look_Seat, TankRightOf, SeatV) aren't filled with the table's (a group's UiOrder not a permutation,
+    UiRank not its inverse; the full properties Ui<slot> aren't the plugin's to fill); or the MCM's Look section hasn't the
+    Seat after Tyres (22 controls) or a dropdown of ui_order's isn't bound to its Ui<slot> on CMB_ControllerScript
+    (PropertyValueInt on the quest) with its choices in display order (on the globals in table order with --kit-order table),
+    or any PropertyValueInt control of the MCM names a property its scriptName doesn't declare as an int.
 
-  dotnet run -c Release -- --dump CommonwealthMotorbike.esp | python3 check_plugin.py <Scripts/Source/User> [--kit-names 0]
+  dotnet run -c Release -- --dump CommonwealthMotorbike.esp | python3 check_plugin.py <Scripts/Source/User>
+      [--kit-names 0] [--kit-order table] [--mcm <the Data folder an A/B plugin's MCM was written to>]
 """
 import json
 import re
@@ -398,11 +411,17 @@ def perk_lines(lines):
     return out
 
 
+def mcm_config(scripts_folder: Path) -> Path:
+    """The MCM's config.json checked: the scripts' Data's, or (2026-11-16a) --mcm <Data>'s (an A/B build's folder)."""
+    data = Path(MCM_DATA) if MCM_DATA else scripts_folder.parents[2]
+    return data / "MCM" / "Config" / "CommonwealthMotorbike" / "config.json"
+
+
 def check_mcm(scripts_folder: Path):
     """2026-11-06a: the MCM help of "Bike sounds through the mod's own records" names the two controls whose own
     records play whatever it says ("Landing sounds without metal" on, "Water sound loop" past its first choice), and
     both are in the menu under those names."""
-    config = scripts_folder.parents[2] / "MCM" / "Config" / "CommonwealthMotorbike" / "config.json"
+    config = mcm_config(scripts_folder)
     controls = {}
 
     def walk(o):
@@ -596,18 +615,96 @@ def slope_defines():
         return {}
 
 
+# 2026-11-16a (C3): the table may hold a later build's entries (each an object with "since": <build>) before the generator
+# makes their records (the contract commit held C3's so). The plugin is checked against the table through the build the
+# generator writes by default (LOOK_THROUGH, LookRecords.Through in Program.cs), with the generator's own filter
+# (LookRecords.Until): every array element and object member that is an object whose `since` is a later build is dropped.
+# look_ids.txt's lines in a dropped block's range (a `*_ids` section with a later `since`) whose ID the plugin doesn't hold
+# are that build's, not checked yet; a record the plugin does hold at such an ID is checked as every other.
+C2_BUILD, C3_BUILD = "2026-11-08a", "2026-11-16a"
+LOOK_THROUGH = C3_BUILD
+# 2026-11-16a: `--kit-order table` (an A/B ESP): the recipes' priority 0, the MCM on the globals in table order, the Ui
+# arrays the identity; with `--mcm <Data>` the MCM files checked are that folder's (default: the scripts' Data).
+KIT_ORDER_ALPHA = True
+MCM_DATA = None
+
+
+def look_until(node, through=LOOK_THROUGH):
+    later = lambda x: isinstance(x, dict) and isinstance(x.get("since"), str) and x["since"] > through
+    if isinstance(node, list):
+        return [look_until(x, through) for x in node if not later(x)]
+    if isinstance(node, dict):
+        return {k: look_until(v, through) for k, v in node.items() if not later(v)}
+    return node
+
+
+def look_table():
+    """(the table through LOOK_THROUGH, [(first, last, since)] of the later builds' ID blocks)."""
+    raw = json.loads(LOOK_OPTIONS.read_text(encoding="utf-8"))
+    later = [(int(b["first"], 16), int(b["last"], 16), b["since"]) for k, b in raw.items()
+             if k.endswith("_ids") and isinstance(b, dict) and isinstance(b.get("since"), str) and b["since"] > LOOK_THROUGH]
+    table = look_until(raw)
+    # 2026-11-16a: a slot's sources_c3 appends its sources, and every option of an earlier build with a swap names their
+    # identities after its own entries (the generator's LookRecords.ReadSlot): the 34 older tank swaps' helmet identities.
+    for s in table["slots"]:
+        add = (s.get("sources_c3") or {}).get("add")
+        if add:
+            s["sources"] = s["sources"] + add
+            for o in s["options"]:
+                if o["swap"] is not None and o.get("since") != C3_BUILD:
+                    o["swap"] = o["swap"] + [[x, x] for x in add]
+    return table, later
+
+
+def ui_groups(table, alpha=None):
+    """2026-11-16a: [(group key, its option indices in display order)] for ui_order's groups (the slots in slot order, then
+    the faction sets), as LookRecords.UiGroups: a group's option 0 and its `off` and `follow` options first in index
+    order, the rest by name (the names lower-cased, ordinal; ties by index), ui_order's `last` at the end; the steppers, and
+    every group with `--kit-order table`, in index order."""
+    alpha = KIT_ORDER_ALPHA if alpha is None else alpha
+    ui = table["ui_order"]
+    out = []
+    for g in ui["groups"]:
+        if g == "FactionSet":
+            items = [(x["index"], x["key"], x["name"], x["index"] == 0) for x in table["sets"]]
+        else:
+            slot = next(x for x in table["slots"] if x["key"] == g)
+            items = [(o["index"], o["key"], o["name"], o["index"] == 0 or o["kind"] in ("off", "follow")) for o in slot["options"]]
+        if not alpha or g in ui["steppers"]:
+            out.append((g, [i[0] for i in items]))
+            continue
+        last = [i for i in items if not i[3] and f"{g}:{i[1]}" in ui["last"]]
+        rest = sorted((i for i in items if not i[3] and i not in last), key=lambda i: (i[2].lower(), i[0]))
+        out.append((g, [i[0] for i in items if i[3]] + [i[0] for i in rest] + [i[0] for i in last]))
+    return out
+
+
+def ui_arrays(groups):
+    """(UiOrder, UiRank, UiStart) of ui_groups' groups."""
+    order, rank, start = [], [], []
+    for _, g in groups:
+        start.append(len(order))
+        order += g
+        r = [0] * len(g)
+        for k, i in enumerate(g):
+            r[i] = k
+        rank += r
+    return order, rank, start
+
+
 def look_group(scripts_folder: Path, script, group):
     """The property names of a .psc's Group <group> (or of the whole script with group None)."""
     text = (scripts_folder / f"{script}.psc").read_text(encoding="utf-8", errors="replace")
     if group:
         m = re.search(rf"^\s*Group\s+{group}\b(.*?)^\s*EndGroup", text, re.IGNORECASE | re.MULTILINE | re.DOTALL)
         text = m.group(1) if m else ""
-    return [m.group(2) for m in (PROPERTY.match(l.split(";")[0]) for l in text.splitlines()) if m]
+    # 2026-11-16a: only the Auto ones (a full property, Get/Set with no Auto, isn't the plugin's to fill: Look_C3's Ui<slot>)
+    return [m.group(2) for m in (PROPERTY.match(l.split(";")[0]) for l in text.splitlines()) if m and "auto" in m.group(3).lower()]
 
 
 def check_look(lines, scripts_folder: Path):
     """(problems, the summary line)."""
-    table = json.loads(LOOK_OPTIONS.read_text(encoding="utf-8"))
+    table, later_blocks = look_table()
     recs = look_records(lines)
     by_id = {r["id"]: r for r in recs}
     by_edid = {r["edid"]: r for r in recs}
@@ -668,6 +765,16 @@ def check_look(lines, scripts_folder: Path):
     # The options: a swap (none for `follow` and `colour`), an object mod and a recipe each, at the table's IDs, as the
     # table says. A slot's swap list holds its options' swaps in option order (PlateText's from its option 1: its 0, the
     # plate's own, has none; TankR's 17, "Same as the left", last, none); the colour slots have no swap list.
+    # 2026-11-16a: the display order (ui_order) and each recipe's priority, its option's rank (0 through 2026-11-08a and with
+    # --kit-order table).
+    has_c3 = "ui_order" in table
+    groups = ui_groups(table) if has_c3 else []
+    ui_order, ui_rank, ui_start = ui_arrays(groups)
+    priority = {}
+    if has_c3 and KIT_ORDER_ALPHA:
+        for si, s in enumerate(table["slots"]):
+            for o in s["options"]:
+                priority[(s["key"], o["index"])] = ui_rank[ui_start[si] + o["index"]]
     swaps_total = recipes = loose = crude = named = 0
     omod_ids, slot_sources, follows = set(), {}, []
     want_crude = ("GetGlobalValue", fk(CRUDE_SWITCH), "EqualTo", "1", "Subject")
@@ -680,7 +787,13 @@ def check_look(lines, scripts_folder: Path):
             swap_listed = []
             if s["swaps"] is not None or s["sources"] or any(o["kind"] != "colour" for o in s["options"]):
                 problems.append(f"{s['key']}: a slot without a swap list holds only `colour` options and no sources")
-            if by_edid.get(f"CMB_LookSwaps_{s['key']}"):
+            ph = s.get("swaps_placeholder")   # 2026-11-16a: its empty list at its place in CMB_LookSwapLists
+            if ph:
+                r = by_id.get(ph["id"])
+                if not r or r["edid"] != ph["list"] or r["type"] != "FormList" or r.get("item"):
+                    problems.append(f"{ph['list']}: {None if not r else (r['edid'], r['type'], len(r.get('item', [])))} at {ph['id']}, "
+                                    f"expected an empty FormList (the placeholder: CMB_LookSwapLists index = slot)")
+            elif by_edid.get(f"CMB_LookSwaps_{s['key']}"):
                 problems.append(f"CMB_LookSwaps_{s['key']}: in the plugin, but {s['key']} has no swaps")
         else:
             swap_listed = (by_id.get(s["swaps_id"]) or {}).get("item", [])
@@ -737,10 +850,11 @@ def check_look(lines, scripts_folder: Path):
             want_conditions = [("HasPerk", f"{table['perks'][o['perk']]}{GAME}", "EqualTo", "1", "Subject")] if o["perk"] else []
             if o.get("crude"):
                 want_conditions.append(want_crude)
-            if not cobj or cobj["edid"] != f"CMB_co_{name}" or cobj.get("cobj") != [(f"{mod_id}{OURS}", RECIPE_BENCH, "1/0")] \
+            want_counts = f"1/{priority.get((s['key'], o['index']), 0)}"   # 2026-11-16a: the option's display rank
+            if not cobj or cobj["edid"] != f"CMB_co_{name}" or cobj.get("cobj") != [(f"{mod_id}{OURS}", RECIPE_BENCH, want_counts)] \
                     or cobj.get("component", []) != want_components or cobj.get("condition", []) != want_conditions:
                 problems.append(f"CMB_co_{name} at {co_id}: {None if not cobj else (cobj['edid'], cobj.get('cobj'), cobj.get('component'), cobj.get('condition'))}, "
-                                f"expected CMB_mod_{name}, no BNAM, {want_components}, {want_conditions}")
+                                f"expected CMB_mod_{name}, no BNAM, counts {want_counts}, {want_components}, {want_conditions}")
             else:
                 recipes += 1
                 crude += want_crude in want_conditions
@@ -758,7 +872,8 @@ def check_look(lines, scripts_folder: Path):
             if c[0] not in omod_ids or c[1] != RECIPE_BENCH:
                 problems.append(f"{r['edid']}: creates {c[0]} on {c[1]}: not a look option's object mod without a BNAM")
     for name, lists in (("CMB_LookCategories", [s["list_id"] for s in table["slots"]]),
-                        ("CMB_LookSwapLists", [s["swaps_id"] for s in table["slots"] if s["swaps_id"]])):
+                        ("CMB_LookSwapLists", [s["swaps_id"] or (s.get("swaps_placeholder") or {}).get("id") for s in table["slots"]
+                                               if s["swaps_id"] or s.get("swaps_placeholder")])):
         r = rec(name, "FormList")
         if r and r.get("item", []) != [(f"{i}{OURS}", "FormList") for i in lists]:
             problems.append(f"{name}: {r.get('item')}, expected the {len(lists)} lists {lists} in slot order")
@@ -862,6 +977,27 @@ def check_look(lines, scripts_folder: Path):
         "RimFinishV": floats(-1 if not isinstance(finish_row.get(o["finish"]), int) else (finish_row[o["finish"]] + 0.5) / rim_rows
                              for o in slot["Rims"]["options"]),
     }
+    # 2026-11-16a (C3): the controller's Look_C3 arrays (per TankL option the TankR index of its key; the display order's
+    # three over 13 groups) and CMB_LookF4SE's (TankRightOf; per Seat option its V, -1 the stock seat).
+    if has_c3:
+        right = [next((j for j, r in enumerate(slot["TankR"]["options"]) if r["key"] == o["key"]), -1) for o in slot["TankL"]["options"]]
+        want_arrays.update({"TankRightOf": ints(right), "UiOrder": ints(ui_order), "UiRank": ints(ui_rank), "UiStart": ints(ui_start)})
+        want_f4se.update({"TankRightOf": ints(right),
+                          "SeatV": floats(-1 if o["cnam"] is None else o["cnam"] for o in slot["Seat"]["options"])})
+        for script, have, name, edid in (("CMB_ControllerScript", ctl, "CMB_Look_Seat", "CMB_Look_Seat"),
+                                         ("CMB_LookF4SE", f4se, "CMB_Look_Seat", "CMB_Look_Seat")):
+            if not (have.get(name) or "").startswith(f"{fk(edid)} "):
+                problems.append(f"{script}.{name}: {have.get(name) or 'none'}, expected {edid} ({fk(edid)})")
+        # The plugin's own arrays: per group a permutation, UiRank its inverse, the pinned first (as the table's rule).
+        got_order = [int(x) for x in re.findall(r"-?\d+", (ctl.get("UiOrder") or "").split("]")[0])]
+        got_rank = [int(x) for x in re.findall(r"-?\d+", (ctl.get("UiRank") or "").split("]")[0])]
+        for gi, (g, want_g) in enumerate(groups):
+            a, n = ui_start[gi], len(want_g)
+            og, rg = got_order[a:a + n], got_rank[a:a + n]
+            if sorted(og) != list(range(n)) or any(rg[i] != k for k, i in enumerate(og) if 0 <= i < n):
+                problems.append(f"UiOrder/UiRank's group {g}: not a permutation of its {n} options and its inverse")
+        if sum(len(x) for _, x in groups) != len(keys) + len(sets):
+            problems.append(f"ui_order's groups: {sum(len(x) for _, x in groups)} entries, {len(keys)} options and {len(sets)} sets")
     if len(table["paint_row_of_option"]) != len(slot["Paint"]["options"]):
         problems.append(f"paint_row_of_option: {len(table['paint_row_of_option'])} rows, {len(slot['Paint']['options'])} Paint options")
     for script, have, arrays in (("CMB_ControllerScript", ctl, want_arrays), ("CMB_LookF4SE", f4se, want_f4se)):
@@ -888,6 +1024,7 @@ def check_look(lines, scripts_folder: Path):
         if not (have.get(name) or "").startswith(want):
             problems.append(f"{script}.{name}: {have.get(name) or 'none'}, expected {want.strip()}")
     for script, group, have in (("CMB_ControllerScript", "Look_C1", ctl), ("CMB_ControllerScript", "Look_C2", ctl),
+                                *((("CMB_ControllerScript", "Look_C3", ctl),) if has_c3 else ()),
                                 ("CMB_ControllerScript", "Fixes_55", ctl), ("CMB_ControllerScript", "Fixes_56", ctl),
                                 ("CMB_ControllerScript", "Fixes_57", ctl), ("CMB_ControllerScript", "Fixes_59", ctl),
                                 ("CMB_LookF4SE", None, f4se)):
@@ -905,7 +1042,8 @@ def check_look(lines, scripts_folder: Path):
     if int(highest, 16) >= ESL_RESERVE_FROM:
         problems.append(f"{by_id[highest]['edid']} at {highest}: past 0x{ESL_RESERVE_FROM:X} (the light plugin's last IDs stay free)")
     committed = [l.split() for l in LOOK_IDS.read_text(encoding="utf-8").splitlines() if l.strip() and not l.startswith("#")]
-    moved = [f"{e} {i}" for e, i in committed if (by_id.get(i) or {}).get("edid") != e]
+    pending = [(e, i) for e, i in committed if i not in by_id and any(a <= int(i, 16) <= b for a, b, _ in later_blocks)]
+    moved = [f"{e} {i}" for e, i in committed if (e, i) not in pending and (by_id.get(i) or {}).get("edid") != e]
     if moved:
         problems.append(f"look_ids.txt: {len(moved)} ID(s) not as committed (save-stable: a later build only appends), the first: "
                         f"{moved[0]} (now {(by_edid.get(moved[0].split()[0]) or {}).get('id')})")
@@ -917,29 +1055,52 @@ def check_look(lines, scripts_folder: Path):
         problems.append(f"look_ids.txt: {len(new)} record(s) not in it (append them: the generator's --look-ids), the first: {new[0]}")
     c2 = table["c2_ids"]
     first, last = int(c2["first"], 16), int(c2["last"], 16)
-    c2_table = {g["id"] for g in c2_globals} | {s[k] for s in table["slots"] if "global_id" in s for k in ("global_id", "ap_id", "list_id")} \
-        | {s["swaps_id"] for s in table["slots"] if "global_id" in s and s["swaps_id"]} \
-        | {i for s in table["slots"] for o in s["options"] if o.get("since") or "global_id" in s for i in o["ids"] if i}
+    c2_slots = [s for s in table["slots"] if s.get("since") == C2_BUILD]
+    c2_table = {g["id"] for g in c2_globals} | {s[k] for s in c2_slots for k in ("global_id", "ap_id", "list_id")} \
+        | {s["swaps_id"] for s in c2_slots if s["swaps_id"]} \
+        | {i for s in table["slots"] for o in s["options"] if o.get("since") == C2_BUILD or s.get("since") == C2_BUILD for i in o["ids"] if i}
     c2_plugin = {r["id"] for r in recs if first <= int(r["id"], 16) <= last}
     if c2_plugin != c2_table or len(c2_table) != c2["count"] or last - first + 1 != c2["count"]:
         problems.append(f"C2's block: {len(c2_plugin)} records in {c2['first']}-{c2['last']}, the table's {len(c2_table)} IDs "
                         f"(c2_ids {c2['count']}); not in the plugin {sorted(c2_table - c2_plugin)[:3]}, not in the table {sorted(c2_plugin - c2_table)[:3]}")
+    # 2026-11-16a (C3): the third block, exactly c3_ids' 72 (0xC08-0xC4F): the Seat's global and attach point, the tank and
+    # fender options, the Seat's options and lists, the two placeholders; the Seat's global at 0, its attach point "Seat".
+    c3_line = ""
+    if has_c3:
+        c3 = table["c3_ids"]
+        f3, l3 = int(c3["first"], 16), int(c3["last"], 16)
+        c3_slots = [s for s in table["slots"] if s.get("since") == C3_BUILD]
+        c3_table = {s[k] for s in c3_slots for k in ("global_id", "ap_id", "list_id", "swaps_id") if s.get(k)} \
+            | {s["swaps_placeholder"]["id"] for s in table["slots"] if s.get("swaps_placeholder")} \
+            | {i for s in table["slots"] for o in s["options"] if o.get("since") == C3_BUILD for i in o["ids"] if i}
+        c3_plugin = {r["id"] for r in recs if f3 <= int(r["id"], 16) <= l3}
+        if c3_plugin != c3_table or len(c3_table) != c3["count"] or l3 - f3 + 1 != c3["count"] or f3 != 0xC08:
+            problems.append(f"C3's block: {len(c3_plugin)} records in {c3['first']}-{c3['last']}, the table's {len(c3_table)} IDs "
+                            f"(c3_ids {c3['count']}, from 000C08); not in the plugin {sorted(c3_table - c3_plugin)[:3]}, not in the table {sorted(c3_plugin - c3_table)[:3]}")
+        for s in c3_slots:
+            at(s["global"], s["global_id"], "the slot's global_id")
+            at(s["ap"], s["ap_id"], "the slot's ap_id")
+        changed = sum(1 for v in priority.values() if v)
+        c3_line = (f"; C3 {c3['first']}-{c3['last']} ({len(c3_plugin)}), the lists {'alphabetical' if KIT_ORDER_ALPHA else 'in table order (--kit-order table)'}: "
+                   f"{changed} recipes with a priority")
 
     n_options = sum(len(s["options"]) for s in table["slots"])
     line = (f"checked {n_options} look options in {len(table['slots'])} slots: {swaps_total} swaps, {recipes} look recipes, no BNAM (as the game's armour mod recipes), "
             f"{loose} loose mods, {crude} crude behind {CRUDE_SWITCH}, sources {'unique' if not shared else 'SHARED'} per slot, "
             f"CMB_LookCode {code['id'] if code else 'none'}, colours {colours[0]}-{colours[-1]}, "
-            f"highest {highest}; look_ids.txt {len(committed)} IDs; "
+            f"highest {highest}; look_ids.txt {len(committed) - len(pending)} IDs"
+            + (f" (and {len(pending)} of {', '.join(sorted({s for _, _, s in later_blocks}))} the plugin doesn't hold yet)" if pending else "")
+            + "; "
             f"names {'on' if KIT_NAMES else 'off (--kit-names 0)'}: the item's template {template_name!r}, {named} mods named "
-            f"{'<slot label>: <option>' if KIT_NAMES else 'as the options'}")
+            f"{'<slot label>: <option>' if KIT_NAMES else 'as the options'}" + c3_line)
     return problems, line
 
 
 def check_mcm_look(scripts_folder: Path, lines):
     """The MCM's Look section: its controls in order, each on its global (the plugin's ID) with the table's names (a
     slider with its range), in or outside the free-mode group."""
-    table = json.loads(LOOK_OPTIONS.read_text(encoding="utf-8"))
-    config = json.loads((scripts_folder.parents[2] / "MCM" / "Config" / "CommonwealthMotorbike" / "config.json").read_text(encoding="utf-8"))
+    table = look_table()[0]
+    config = json.loads(mcm_config(scripts_folder).read_text(encoding="utf-8"))
     ids = {r["edid"]: r["id"] for r in look_records(lines)}
     content = config.get("content", [])
     start = next((i for i, c in enumerate(content) if c.get("type") == "section" and c.get("text") == "Look"), None)
@@ -954,6 +1115,16 @@ def check_mcm_look(scripts_folder: Path, lines):
     sets = [x["name"] for x in table["sets"]]
     shades = [x[0] for x in table["hue_palette"]["shades"]]
     in_group = lambda ctype, text, glob: (ctype, text, glob, names[glob], "condition")
+    # 2026-11-16a (C3): the Seat after Tyres; with the alphabetical lists each of ui_order's dropdowns lists its choices in
+    # display order and is bound to its full property on the controller (PropertyValueInt, CMB_ControllerScript, the quest).
+    has_c3 = "ui_order" in table
+    bound = {}   # the global -> (its property, the names in display order)
+    if has_c3 and KIT_ORDER_ALPHA:
+        glob_of = {s["key"]: s["global"] for s in table["slots"]} | {"FactionSet": "CMB_LookFactionSet"}
+        for g, order in ui_groups(table):
+            if g in table["ui_order"]["dropdowns"]:
+                all_names = sets if g == "FactionSet" else names[glob_of[g]]
+                bound[glob_of[g]] = (table["ui_order"]["dropdowns"][g], [all_names[i] for i in order])
     want = [("switcher", "Customise at the bike", "CMB_LookOn", None, None),
             ("stepper", "Field kit", "CMB_KitMode", ["Automatic", "Toolbox (a test: it can't be sat in)", "Toolbox, bench keyword (a test)", "Armour bench",
                                                      "The game's armour bench"], None),
@@ -970,6 +1141,7 @@ def check_mcm_look(scripts_folder: Path, lines):
             in_group("stepper", "Mirrors", "CMB_Look_Mirrors"),
             in_group("dropdown", "Rims", "CMB_Look_Rims"),
             in_group("stepper", "Tyres", "CMB_Look_Tyres"),
+            *((in_group("dropdown", "Seat", "CMB_Look_Seat"),) if has_c3 else ()),
             in_group("dropdown", "Plate", "CMB_Look_Plate"),
             in_group("dropdown", "Plate text", "CMB_Look_PlateText"),
             in_group("dropdown", "Plate letters", "CMB_Look_PlateInk"),
@@ -979,16 +1151,35 @@ def check_mcm_look(scripts_folder: Path, lines):
     problems = []
     if len(section) != len(want):
         problems.append(f"MCM Look: {len(section)} controls, expected {len(want)}")
+    quest = f"CommonwealthMotorbike.esp|{int(ids.get('CMB_ControllerQuest', '0'), 16):X}"
     for c, (ctype, text, target, options, group) in zip(section, want):
         vo = c.get("valueOptions", {})
-        got_target = (c.get("action") or {}).get("function") if ctype == "button" else vo.get("sourceForm")
+        got_target = (c.get("action") or {}).get("function") if ctype == "button" \
+            else ("property", vo.get("sourceForm"), vo.get("scriptName"), vo.get("propertyName")) if vo.get("sourceType") == "PropertyValueInt" \
+            else vo.get("sourceForm")
         want_target = target if ctype == "button" else f"CommonwealthMotorbike.esp|{int(ids.get(target, '0'), 16):X}"
+        if target in bound:
+            want_target = ("property", quest, "CMB_ControllerScript", bound[target][0])
+            options = bound[target][1]
         got_group = "control" if c.get("groupControl") == 1 else "condition" if c.get("groupCondition") == 1 else None
         got_options = (vo.get("min"), vo.get("max"), vo.get("step")) if ctype == "slider" else vo.get("options")
         if (c.get("type"), c.get("text"), got_target, got_options, got_group) != (ctype, text, want_target, options, group) \
                 or not c.get("help"):
             problems.append(f"MCM Look: {c.get('type')} {c.get('text')!r} on {got_target} options {got_options} group {got_group}; "
                             f"expected {ctype} {text!r} on {want_target} options {options} group {group}, with a help text")
+    # 2026-11-16a's review: every control the MCM reads and writes through a script's property (PropertyValueInt, anywhere on
+    # the page) names a property its script declares, as an int (a full property is the script's own, never in the plugin's
+    # VMAD, so the plugin-vs-script check can't see a misspelt or retyped one)
+    declared = parse_scripts(scripts_folder)
+    for c in content:
+        vo = c.get("valueOptions") or {}
+        if vo.get("sourceType") != "PropertyValueInt":
+            continue
+        script, prop = str(vo.get("scriptName") or ""), str(vo.get("propertyName") or "")
+        got = declared.get(script.lower(), {}).get(prop.lower())
+        if got is None or got[0].lower() != "int":
+            problems.append(f"MCM: {c.get('type')} {c.get('text')!r} reads and writes {script}.{prop}, which "
+                            + ("isn't declared there" if got is None else f"is declared {got[0]}, not int"))
     # 2026-11-09a (test 51): the Free colour sentence ends the hue's and the shade's helps (moving either chooses Free colour).
     free = 'Moving it chooses Paint "Free colour" when you Apply (or at the next getting on).'
     for c in section:
@@ -998,12 +1189,21 @@ def check_mcm_look(scripts_folder: Path, lines):
 
 
 def main() -> int:
-    global KIT_NAMES
-    if sys.argv[2:] == ["--kit-names", "0"]:   # 2026-11-14a: the A/B ESP of `--kit-names 0` (2026-11-10a's names)
-        KIT_NAMES = False
-    elif sys.argv[2:]:
-        print(f"usage: check_plugin.py <Scripts/Source/User> [--kit-names 0], not {sys.argv[2:]}")
-        return 2
+    global KIT_NAMES, KIT_ORDER_ALPHA, MCM_DATA
+    # 2026-11-14a: `--kit-names 0`, the A/B ESP of 2026-11-10a's names. 2026-11-16a: `--kit-order table`, the A/B ESP of
+    # 2026-11-15b's order (its MCM: `--mcm <the folder the generator wrote it to>`).
+    rest = sys.argv[2:]
+    while rest:
+        if rest[:2] == ["--kit-names", "0"]:
+            KIT_NAMES = False
+        elif rest[:2] == ["--kit-order", "table"]:
+            KIT_ORDER_ALPHA = False
+        elif rest[:1] == ["--mcm"] and len(rest) >= 2:
+            MCM_DATA = rest[1]
+        else:
+            print(f"usage: check_plugin.py <Scripts/Source/User> [--kit-names 0] [--kit-order table] [--mcm <Data>], not {sys.argv[2:]}")
+            return 2
+        rest = rest[2:]
     scripts = parse_scripts(Path(sys.argv[1]))
     dump = sys.stdin.read().splitlines()
     attached = parse_dump(dump)

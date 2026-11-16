@@ -28,6 +28,9 @@ lighting shader does, as far as is cheap:
   shade, a body-colour rim's paint row, a plate design's background, its text's ink), the follows (TankR, the plate's
   own text), the crude-text switch and the echo entries (target -> target), and the worn bike's rim group (the styles
   but CMB_LookCode's specked, as the plugin does); --compose prints the composed swap and the four colour values;
+  since 2026-11-16a (C3) the seat's colour (its entries with the option's V, SeatV), "Same as the left" through
+  TankRightOf (the left's 17-19 are the right's 18-20), and the tank options before C3 with the four helmet
+  identities their records gain (sources_c3); --look-build 2026-11-08a composes the table as 2026-11-15b's ESP has it;
 - shapes without Cast_Shadows cast none, single-sided ones are culled from behind;
 - day and night presets (night: the lamp on, its beam a spot light where the plugin puts the game's light).
 
@@ -37,10 +40,12 @@ lighting shader does, as far as is cheap:
     <bpy python> -I tools/rider/look_render.py --compare <dir> <prefixA> <prefixB> <out.png>
     <bpy python> -I tools/rider/look_render.py --list-views
     python3 -I tools/rider/look_render.py --compose --swap Rims:laced_body,Paint:free [--hue 120 --shade 2] [--crude 0]
+    python3 -I tools/rider/look_render.py --compose --swap TankL:enclavehelm3d,TankR:follow,Seat:tan [--look-build 2026-11-08a]
     <bpy python> -I tools/rider/look_render.py --pynifly ... --data <Data> --out <dir> --sheet rims,tyres,plates,hue \
         [--swap <the other slots>] [--extra-shapes <a stage with the rim-style shapes, when the nifs lack them>]
 
---data is a Data folder: Meshes\\CMB (the nifs, CMB_BikeParts.ini, CMB_BikeFit.json), Textures, Materials.
+--data is a Data folder: Meshes\\CMB (the nifs, CMB_BikeParts.ini, CMB_BikeFit.json), Textures, Materials; each
+--overlay (since 2026-11-16a) another one over it, the last given winning (a unit's packaging overlay, placeholder art).
 Paths are matched without regard to case, as the game does. Nothing from the files read is ever executed.
 """
 
@@ -145,6 +150,21 @@ for _deg in (-16, 0, 16):
 VIEWS["cables_cut_n20"] = dict(cam=(60, 68, 80), at=(6, 67, 72), lens=45, bar=-1)
 VIEWS["cables_cut_p20"] = dict(cam=(60, 68, 80), at=(6, 67, 72), lens=45, bar=+1)
 SETS["cables"] = [f"cables_{w}_{t}" for w in ("eye", "r") for t in ("n16", "0", "p16")] + ["cables_cut_n20", "cables_cut_p20"]
+# since 2026-11-16a (C3): the 3D helmets on the tank plates (worn frame: the left plate's centre (-13.4, 33.3, 77.2), its
+# normal (-0.977, -0.184, 0.104), 22.4-44.6 along y; the right one at x +14.65, the normal's x +0.977; a helmet stands on the
+# plate's forward half, about y 37.5): each side square on from 60 out along the normal (85 mm: the plate and its bevel),
+# the left in a low sun across the relief (sun: toward it, 12 degrees over the plate's plane from the front and above),
+# the kit's three-quarter (the parked bike from a standing eye at the field kit's side, front left), riding distance (the
+# third-person camera's, from behind on the left) and the left at night (the Enclave's eyes)
+_HELM_SUN = (-0.257, 0.649, 0.716)
+VIEWS["helm_l"] = dict(cam=(-72.0, 26.5, 83.8), at=(-13.4, 37.5, 77.6), lens=85)
+VIEWS["helm_r"] = dict(cam=(73.2, 26.5, 83.8), at=(14.6, 37.5, 77.6), lens=85)
+VIEWS["helm_l_graze"] = dict(cam=(-72.0, 26.5, 83.8), at=(-13.4, 37.5, 77.6), lens=85, sun=_HELM_SUN)
+VIEWS["helm_kit"] = dict(cam=(-80, 52, 108), at=(-12, 35, 75), lens=45, parked=True)
+VIEWS["helm_ride"] = dict(cam=(-90, -170, 115), at=(0, 30, 70), lens=50)
+VIEWS["night_helm_l"] = dict(cam=(-72.0, 26.5, 83.8), at=(-13.4, 37.5, 77.6), lens=85, preset=NIGHT)
+SETS["c3"] = ["helm_l", "helm_r", "helm_l_graze", "helm_kit", "helm_ride", "night_helm_l", "t49_tank_l", "t49_tank_r",
+              "t49_seat_l", "t49_seat_r"]
 SHEETS = {"closeups": SETS["close"]}
 # the look sheets (--sheet all, since 2026-11-07a): every option of a slot on the parked bike, the worn one and the
 # bench's preview. The plates' centres and outward normals from the shipped static_badge (worn frame: the left plate
@@ -169,6 +189,8 @@ LOOK_FRAMES = {
 }
 for _k in ("Plate", "PlateText", "PlateInk", "PlateBack"):
     LOOK_FRAMES[_k] = {"parked": dict(VIEWS["plate_kit"], parked=True), "worn": dict(VIEWS["plate_45"]), "preview": PREVIEW}
+# since 2026-11-16a (C3): the seat, parked from the left, worn from the right (test 49's seat views)
+LOOK_FRAMES["Seat"] = {"parked": dict(VIEWS["t49_seat_l"], parked=True), "worn": dict(VIEWS["t49_seat_r"]), "preview": PREVIEW}
 # --sheet groups (since 2026-11-08a): rims, tyres, plates (the four plate slots), hue (Paint 45 "Free colour" at
 # HUE_STEPS hues x the 4 shades on one frame)
 SHEET_GROUPS = {"rims": ["Rims"], "tyres": ["Tyres"], "plates": ["Plate", "PlateText", "PlateInk", "PlateBack"]}
@@ -226,15 +248,17 @@ def rim_of(name):
 # files
 
 class DataIndex:
-    """Case-insensitive lookup of game paths (backslashes, any case) under a Data folder."""
+    """Case-insensitive lookup of game paths (backslashes, any case) under a Data folder, and (since 2026-11-16a) any
+    overlay folders over it: a path in a later one wins, as a mod manager's later folder does."""
 
-    def __init__(self, root):
+    def __init__(self, root, overlays=()):
         self.root = Path(root)
         self.files = {}
-        for d, _, fs in os.walk(self.root):
-            for f in fs:
-                p = Path(d) / f
-                self.files[str(p.relative_to(self.root)).replace("\\", "/").lower()] = p
+        for top in [self.root] + [Path(o) for o in overlays or ()]:
+            for d, _, fs in os.walk(top):
+                for f in fs:
+                    p = Path(d) / f
+                    self.files[str(p.relative_to(top)).replace("\\", "/").lower()] = p
 
     def find(self, game_path, under=""):
         if not game_path:
@@ -630,20 +654,65 @@ def hue_v(hue, shade):
     return (int(shade) * 256 + int(round(float(hue) * 255 / 359)) + 0.5) / 1024
 
 
+LATEST = "latest"
+C2_BUILD = "2026-11-08a"   # the last build before C3: an option without `since`, or one through it, is "before C3"
+
+
+def look_until(node, through=LATEST):
+    """The table as a build has it (since 2026-11-16a; check_plugin.py's rule): every object whose `since` is later than
+    `through` dropped (--look-build 2026-11-08a: 2026-11-15b's ESP), the whole table with "latest"."""
+    if through == LATEST:
+        return node
+    later = lambda x: isinstance(x, dict) and isinstance(x.get("since"), str) and x["since"] > through
+    if isinstance(node, list):
+        return [look_until(x, through) for x in node if not later(x)]
+    if isinstance(node, dict):
+        return {k: look_until(v, through) for k, v in node.items() if not later(v)}
+    return node
+
+
+def tank_right_of(opts):
+    """CMB_LookF4SE's and the controller's TankRightOf (since 2026-11-16a): per TankL option the TankR option with the same
+    key (0-16 the same index, TankL 17-19 TankR 18-20); None with a table before C3 (no c3_ids: the scripts' old rule, the
+    right is the left's own index)."""
+    if "c3_ids" not in opts:
+        return None
+    slots = {s["key"]: s for s in opts["slots"]}
+    right = {o["key"]: o["index"] for o in slots["TankR"]["options"] if o["kind"] != "follow"}
+    return [right.get(o["key"], 0) for o in slots["TankL"]["options"]]
+
+
+def option_swap(slot, o):
+    """An option's swap entries as its record holds them: the table's, and (since 2026-11-16a, the contract's rule) for an
+    option from before C3 with a swap the identity of each of its slot's `sources_c3.add` after them (the 34 older tank
+    options' four helmet identities); none for an option without a swap."""
+    sw = [tuple(e) for e in (o.get("swap") or [])]
+    add = (slot.get("sources_c3") or {}).get("add") or []
+    if sw and add and (not isinstance(o.get("since"), str) or o["since"] <= C2_BUILD):
+        sw += [(a, a) for a in add]
+    return sw
+
+
 def resolve(opts, choice, crude=1):
     """{slot key: its option} for every slot (the unchosen at their default), as the controller resolves them:
-    TankR's "Same as the left" the left's; PlateText 0 "The plate's own" the design's own text (plates[].own_text); a
-    crude text with "Crude plate texts" off (crude 0) the design's own too."""
+    TankR's "Same as the left" the left's (since 2026-11-16a through TankRightOf, the old rule without it); PlateText 0
+    "The plate's own" the design's own text (plates[].own_text); a crude text with "Crude plate texts" off (crude 0) the
+    design's own too."""
     slots = {s["key"]: s for s in opts["slots"]}
     out = {}
     for sk, s in slots.items():
         key = choice.get(sk, s["options"][s["default"]]["key"])
+        if sk == "TankR" and key == "follow":
+            key = next(x["key"] for x in s["options"] if x["kind"] == "follow")   # --swap TankR:follow
         o = next((o for o in s["options"] if o["key"] == key), None)
         if o is None:
             raise SystemExit(f"--swap: no option {key!r} in {sk} ({', '.join(x['key'] for x in s['options'])})")
         out[sk] = o
     if "TankR" in out and out["TankR"]["kind"] == "follow":
-        out["TankR"] = next(x for x in slots["TankR"]["options"] if x["key"] == out["TankL"]["key"])
+        left, right_of, opts_r = out["TankL"]["index"], tank_right_of(opts), slots["TankR"]["options"]
+        i = right_of[left] if right_of and left < len(right_of) else left
+        o = opts_r[i] if 0 <= i < len(opts_r) else opts_r[0]
+        out["TankR"] = opts_r[0] if o["kind"] == "follow" else o
     if "PlateText" in out:
         own = opts["plates"][out["Plate"].get("design") or 0]["own_text"]
         if out["PlateText"]["kind"] == "follow" or (out["PlateText"].get("crude") and not crude):
@@ -660,8 +729,9 @@ def compose_entries(opts, choice, hue=None, shade=None, crude=1):
     targets, the paint's row's V ((paint_row_of_option + 0.5) / 64), or with Free colour the hue's V on the body
     targets' bodyhue twins (rim_body_targets); a plate design d on its entries, ((d - 1) x 16 + background + 0.5) / 256
     (PlateBack - 1, or the design's own background); a plate text on its entries, (ink + 0.5) / 16 (PlateInk - 1, or the
-    design's own ink). The slots not in `choice` are left out (their sources keep their own materials), but their
-    defaults count for the colours."""
+    design's own ink); since 2026-11-16a the seat's option's V (SeatV, the CNAM its entries carry) on each entry onto
+    another file, V["seat"] (-1 the stock seat). The slots not in `choice` are left out (their sources keep their own
+    materials), but their defaults count for the colours."""
     hp = opts.get("hue_palette") or {}
     hue = hp.get("default", [210, 1])[0] if hue is None else hue
     shade = hp.get("default", [210, 1])[1] if shade is None else shade
@@ -687,13 +757,15 @@ def compose_entries(opts, choice, hue=None, shade=None, crude=1):
     if text is not None and text["kind"] == "text" and ("PlateText" in choice or "Plate" in choice):
         ink = res["PlateInk"]["colour"] if res["PlateInk"]["colour"] is not None else opts["plates"][d]["own_ink"]
         V["CMB_LookPlateTextV"] = (ink + 0.5) / 16
+    seat = res.get("Seat")
+    V["seat"] = float(seat["cnam"]) if seat is not None and seat.get("cnam") is not None and "Seat" in choice else -1.0
     entries, originals = [], []
     for s in opts["slots"]:
         sk = s["key"]
         if sk not in choice and not (sk == "PlateText" and "Plate" in choice):
             continue
         o = res[sk]
-        for src, dst in o["swap"] or []:
+        for src, dst in option_swap(s, o):
             ci, o_dst = None, dst
             if sk == "Paint" and free:
                 ci = V["CMB_LookPaintV"]
@@ -705,6 +777,8 @@ def compose_entries(opts, choice, hue=None, shade=None, crude=1):
                 ci = V["CMB_LookPlateV"]
             elif sk == "PlateText" and V["CMB_LookPlateTextV"] >= 0:
                 ci = V["CMB_LookPlateTextV"]
+            elif sk == "Seat" and V["seat"] >= 0 and mat_key(dst) != mat_key(src) and mat_key(dst) != "cmb\\bike\\off.bgsm":
+                ci = V["seat"]   # Compose's SlotV(11) on an OwnEntry
             entries.append((src, dst, ci))
             originals.append(o_dst)
     echoes = {}
@@ -793,14 +867,20 @@ def extra_shapes(stage, labels, shapes, seat_at, data, use_bgsm, worn):
     """Shapes a nif doesn't have yet, from a stage folder (shapes/<label>.npz in the parked frame, uv/<label>.npz per
     corner, or the shape file's uv_fixed): each named as the nif names its wheel's cast rim with the label in its place, with that rim's shader
     block and the label's own materials file (<label>.bgsm, or _worn.bgsm on the worn bike). For looking at the rim
-    styles before the nifs carry them (look_wheels.py --standin, or the mesh unit's stage)."""
+    styles before the nifs carry them (look_wheels.py --standin, or the mesh unit's stage). Since 2026-11-16a also the 3D
+    helmets (static_helm<Name><L|R>): named and shaded as the nif's tank plate of that side (static_badgeTank<L|R>), their
+    role by their name (_static_: none)."""
     out = []
     names = {s["name"].lower(): s for s in shapes}
     for label in labels:
         if any(n.endswith("_" + label.lower()) for n in names):
             continue
-        w = "wheelF" if "wheelF" in label else "wheelR"
-        cast = next((s for n, s in names.items() if n.endswith(f"_{w.lower()}_rim")), None)
+        if label.startswith("static_helm"):
+            w = "static_badgeTank" + label[-1]
+            cast = next((s for n, s in names.items() if n.endswith("_" + w.lower())), None)
+        else:
+            w = ("wheelF" if "wheelF" in label else "wheelR") + "_rim"
+            cast = next((s for n, s in names.items() if n.endswith(f"_{w.lower()}")), None)
         sp, up = Path(stage) / "shapes" / f"{label}.npz", Path(stage) / "uv" / f"{label}.npz"
         if cast is None or not sp.exists():
             continue
@@ -816,9 +896,10 @@ def extra_shapes(stage, labels, shapes, seat_at, data, use_bgsm, worn):
         v = pos[tri].reshape(-1, 3)
         v = np.c_[-v[:, 0], seat_at - v[:, 1], v[:, 2]]
         n = None if nrm is None else nrm[tri].reshape(-1, 3) * np.array([-1.0, -1.0, 1.0])
-        name = cast["name"][:-len(w + "_rim")] + label
+        name = cast["name"][:-len(w)] + label
         mat = "Materials\\CMB\\Bike\\" + label + ("_worn" if worn else "") + ".bgsm"
-        out.append(dict(name=name, v=v, n=n, uv=uvc.reshape(-1, 2), tri=np.arange(len(v)).reshape(-1, 3), role=cast["role"],
+        role = role_of(name)[0] if label.startswith("static_helm") else cast["role"]
+        out.append(dict(name=name, v=v, n=n, uv=uvc.reshape(-1, 2), tri=np.arange(len(v)).reshape(-1, 3), role=role,
                         variant=0, rim=rim_of(name), shader=material_shader(dict(cast["shader"]["block"], name=mat), mat, data,
                                                                             use_bgsm)))
     return out
@@ -1324,6 +1405,12 @@ class Scene:
         self.lamp.rotation_euler = (-beam).to_track_quat("Z", "Y").to_euler()
         self.lamp.data.energy = self.args.lamp_power if (night and lamp_on) else 0.0
 
+    def set_sun(self, toward=None):
+        """The sun from this direction (toward it, worn frame; since 2026-11-16a a view's `sun`, e.g. helm_l_graze's low
+        sun across the relief), else the day preset's SUN_DIR."""
+        from mathutils import Vector
+        self.sun.rotation_euler = Vector(toward or SUN_DIR).normalized().to_track_quat("Z", "Y").to_euler()
+
     def look(self, cam, at, lens):
         from mathutils import Vector
         self.cam.location = Vector(cam)
@@ -1394,6 +1481,9 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--pynifly", type=Path)
     ap.add_argument("--data", type=Path, help="a Data folder (Meshes\\CMB, Textures, Materials)")
+    ap.add_argument("--overlay", type=Path, action="append",
+                    help="(since 2026-11-16a) a Data folder over --data, its files winning (again for more, the last winning):"
+                         " a unit's packaging overlay, or placeholder art")
     ap.add_argument("--nif", default="Meshes/CMB/CMB_BikeWorn.nif", help="the riding bike, relative to --data")
     ap.add_argument("--parked-nif", default="Meshes/CMB/CMB_BikeParked.nif")
     ap.add_argument("--out", type=Path)
@@ -1441,6 +1531,10 @@ def main():
     ap.add_argument("--look-options", type=Path,
                     default=Path(__file__).resolve().parent.parent / "esp-generator" / "look_options.json",
                     help="the customisation's option table (--swap, --sheet all)")
+    ap.add_argument("--look-build", default=LATEST,
+                    help="(since 2026-11-16a) the table as this build's ESP has it: every entry `since` a later build "
+                         "dropped (2026-11-08a: 2026-11-15b's, no seat, no C3 options, TankRightOf None); latest (the default)"
+                         " the whole table")
     ap.add_argument("--swap", help="render with these choices' material swaps composed, e.g. TankL:bos,Paint:navy "
                                    "(look_options.json's slot and option keys; a Mirrors choice also sets the worn "
                                    "bike's mirror, as the plugin does)")
@@ -1454,7 +1548,8 @@ def main():
                     help="print the composed swap of --swap (its entries with their colour indices, the echo entries, the "
                          "four colour values) and exit: no render (since 2026-11-08a)")
     ap.add_argument("--extra-shapes", type=Path,
-                    help="a stage folder whose rim-style shapes (shapes/, uv/) join the nifs' when the nifs lack them")
+                    help="a stage folder whose rim-style shapes (shapes/, uv/) join the nifs' when the nifs lack them; since "
+                         "2026-11-16a also the 3D helmets' (emblems.shape_order: static_helmEnclaveL ...), on their plates")
     ap.add_argument("--compare", nargs=4, metavar=("DIR", "PREFIX_A", "PREFIX_B", "OUT"))
     ap.add_argument("--list-views", action="store_true")
     args = ap.parse_args()
@@ -1462,9 +1557,16 @@ def main():
         for k, v in SETS.items():
             print(f"{k}: {', '.join(v)}")
         return 0
-    opts = json.loads(args.look_options.read_text()) if (args.swap or args.sheet or args.compose) and args.look_options.exists() else None
+    want_opts = args.swap or args.sheet or args.compose or args.extra_shapes
+    opts = json.loads(args.look_options.read_text()) if want_opts and args.look_options.exists() else None
+    if opts is not None:
+        opts = look_until(opts, args.look_build)
     if args.compose:
-        entries, V = compose_entries(opts, parse_choice(args.swap), args.hue, args.shade, args.crude)
+        choice = parse_choice(args.swap)
+        entries, V = compose_entries(opts, choice, args.hue, args.shade, args.crude)
+        res = resolve(opts, choice, args.crude)
+        print(f"look build {args.look_build}: TankRightOf {tank_right_of(opts)}; " +
+              ", ".join(f"{sk} {o['index']} {o['key']}" for sk, o in res.items() if sk in choice or sk == "TankR" and "TankL" in choice))
         for src, dst, ci in entries:
             print(f"{src} -> {dst}" + ("" if ci is None else f"  colorIndex {ci:.6f}"))
         print(f"{len(entries)} entries; " + ", ".join(f"{k} {v:.6f}" if v >= 0 else f"{k} -1" for k, v in V.items()))
@@ -1495,7 +1597,7 @@ def main():
         if n not in VIEWS:
             ap.error(f"no view {n!r} (--list-views)")
     t0 = time.time()
-    data = DataIndex(args.data)
+    data = DataIndex(args.data, args.overlay)
     parts = read_parts(data.find("Meshes/CMB/CMB_BikeParts.ini"))
     fit = data.find("Meshes/CMB/CMB_BikeFit.json")
     seat_at = json.loads(fit.read_text()).get("seat_at", 27.69) if fit else 27.69
@@ -1505,6 +1607,7 @@ def main():
     scene.setup()
     worn = read_nif(args.pynifly, data.find(args.nif), data, args.bgsm)
     rim_labels = [lab for st in (opts or {}).get("rim_styles", []) for lab in st["shapes"]]
+    rim_labels += ((opts or {}).get("emblems") or {}).get("shape_order", [])   # since 2026-11-16a: the 3D helmets
     if args.extra_shapes:
         worn += extra_shapes(args.extra_shapes, rim_labels, worn, seat_at, data, args.bgsm, True)
     scene.add_shapes(worn, "worn")
@@ -1526,7 +1629,8 @@ def main():
         print(f"--swap {args.swap}: {n} shapes swapped" + (f", the worn bike's mirrors {mc}" if mc is not None else "")
               + (f", the worn bike's rims style {rc}" if rc is not None else ""))
     t_build = time.time() - t0
-    lines = [f"data {args.data}, worn {args.nif}: {len(worn)} shapes, bgsm {args.bgsm}"]
+    lines = [f"data {args.data}{''.join(' + ' + str(o) for o in args.overlay or [])}, worn {args.nif}: {len(worn)} shapes, "
+             f"bgsm {args.bgsm}, look build {args.look_build}"]
     for s in worn:
         sh = s["shader"]
         lines.append(f"  {s['name']:<38} {s['role']:<9}{'v' + str(s['variant']) if s['variant'] else '  '}"
@@ -1544,7 +1648,7 @@ def main():
     for n in names:
         v = VIEWS[n]
         st = view_state(n, v, args, parts)
-        sig = (st["preset"], st["lamp"], v["cam"], v["at"], v["lens"], tuple(apply_state(scene, st, parts)))
+        sig = (st["preset"], st["lamp"], v["cam"], v["at"], v["lens"], v.get("sun"), tuple(apply_state(scene, st, parts)))
         path = args.out / f"{args.prefix}{n}.png"
         if sig in done:
             shutil.copyfile(done[sig], path)
@@ -1552,6 +1656,7 @@ def main():
             print(f"{n}: the same frame as {done[sig].name} (copied)", flush=True)
             continue
         scene.set_preset(st["preset"], st["lamp"], parts)
+        scene.set_sun(v.get("sun"))
         scene.look(v["cam"], v["at"], v["lens"])
         scene.sc.render.filepath = str(path)
         t1 = time.time()
@@ -1593,6 +1698,7 @@ def look_sheets(args, scene, parts, opts, slot_keys, aliases, t0):
                 st["rim"] = rc
             apply_state(scene, st, parts)
             scene.set_preset(st["preset"], st["lamp"], parts)
+            scene.set_sun(v.get("sun"))
             scene.look(v["cam"], v["at"], v["lens"])
             path = d / f"{stem}_{fname}.png"
             scene.sc.render.filepath = str(path)

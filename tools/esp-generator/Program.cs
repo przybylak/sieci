@@ -7,6 +7,8 @@
 //   dotnet run -c Release -- --look-ids look_ids.txt   write the save-stable ID list (appends only)
 //   dotnet run -c Release -- --recipe-bench CMB_WorkbenchBike <output.esp>   an A/B plugin: the look recipes on CMB_WorkbenchBike
 //   dotnet run -c Release -- --kit-names 0 <output.esp>   an A/B plugin: the look item and mods named as 2026-11-10a
+//   dotnet run -c Release -- --kit-order table <output.esp>   an A/B plugin: the look lists in table order (2026-11-15b's)
+//   dotnet run -c Release -- --look-build 2026-11-08a <output.esp>   2026-11-15b's plugin and MCM (2026-11-07a: fdb5b3a's)
 //
 // Vanilla form IDs below were checked against Mutagen.Bethesda.FormKeys.Fallout4
 // (generated from the real Fallout4.esm), except PlayerRef (00000014), which is
@@ -296,6 +298,20 @@ public static class Program
             LookRecords.KitNames = args[1] == "1";
             args = args[2..];
         }
+        // 2026-11-16a (C3, the alphabetical lists): `--kit-order table` first gives the look recipes their priority 0 back and
+        // binds the MCM's Look dropdowns to the globals in table order (2026-11-15b's lists, the Seat's after Tyres): the
+        // order's off value, an A/B ESP (only the recipes' INTV and the MCM's JSON differ, the same records and FormIDs; the Ui
+        // arrays the identity). `--kit-order alpha` is the default. The rest of the arguments as without it.
+        if (args.Length >= 2 && args[0] == "--kit-order")
+        {
+            if (args[1] != "alpha" && args[1] != "table")
+            {
+                Console.Error.WriteLine($"--kit-order {args[1]}: alpha (the default) or table (2026-11-15b's order).");
+                return 1;
+            }
+            LookRecords.KitOrderAlpha = args[1] == "alpha";
+            args = args[2..];
+        }
         if (args.Length == 2 && args[0] == "--dump")
         {
             Dump(args[1]);
@@ -400,8 +416,9 @@ public static class Program
         var lookSlots = LookRecords.ReadSlots(lookTable).ToDictionary(s => s.Key);
         string[] Names(string slot) => lookSlots[slot].Options.Select(o => o.Name).ToArray();
         // 2026-11-08a: and a slider (range: min, max, step) in the group.
+        // 2026-11-16a: or a dropdown bound to a full property of the controller (uiProperty: PropertyValueInt on the quest).
         object Look(string type, string text, string help, string global, string[]? options = null, int? groupControl = null, int? groupCondition = null,
-                    (float Min, float Max, float Step)? range = null)
+                    (float Min, float Max, float Step)? range = null, string? uiProperty = null)
         {
             var c = new Dictionary<string, object> { ["type"] = type, ["text"] = text, ["help"] = help };
             if (groupControl is int gc)
@@ -410,9 +427,36 @@ public static class Program
                 c["groupCondition"] = g;
             c["valueOptions"] = range is var (min, max, step)
                 ? new { min, max, step, sourceType = "GlobalValue", sourceForm = Form(Rec(global)) }
-                : options == null ? Global(global) : new { options, sourceType = "GlobalValue", sourceForm = Form(Rec(global)) };
+                : options == null ? Global(global)
+                : uiProperty != null ? (object)new { options, sourceType = "PropertyValueInt", sourceForm = quest, scriptName = "CMB_ControllerScript", propertyName = uiProperty }
+                : new { options, sourceType = "GlobalValue", sourceForm = Form(Rec(global)) };
             return c;
         }
+        // 2026-11-16a (C3, the alphabetical lists): with the Seat's slot in the table and `--kit-order alpha` (the default), each
+        // of the eleven dropdowns (ui_order's `dropdowns`) lists its choices in display order (pinned first, then by name, the
+        // palette test last: LookRecords.UiGroups) and is bound to its full property on the controller (Ui<slot>: Get the
+        // rank of the global's index, Set(rank) the index into the global). Through 2026-11-08a or with `--kit-order table`:
+        // on the globals in table order, as 2026-11-15b's.
+        bool c3 = lookSlots.ContainsKey("Seat");
+        var lookSets = LookRecords.ReadSets(lookTable);
+        Dictionary<string, string>? uiProps = null;
+        var uiNames = new Dictionary<string, string[]>();
+        if (c3 && LookRecords.KitOrderAlpha)
+        {
+            var slotArr = LookRecords.ReadSlots(lookTable);
+            var keys = LookRecords.UiGroupKeys(lookTable);
+            var order = LookRecords.UiGroups(lookTable, slotArr, lookSets, true);
+            uiProps = lookTable.GetProperty("ui_order").GetProperty("dropdowns").EnumerateObject().ToDictionary(p => p.Name, p => p.Value.GetString()!);
+            for (int i = 0; i < keys.Length; i++)
+            {
+                var names = keys[i] == "FactionSet" ? lookSets.Select(x => x.Name).ToArray() : Names(keys[i]);
+                uiNames[keys[i]] = order[i].Select(k => names[k]).ToArray();
+            }
+        }
+        object Pick(string type, string text, string help, string slot, string global) =>
+            uiProps != null && uiProps.TryGetValue(slot, out var prop)
+                ? Look(type, text, help, global, uiNames[slot], groupCondition: 1, uiProperty: prop)
+                : Look(type, text, help, global, slot == "FactionSet" ? lookSets.Select(x => x.Name).ToArray() : Names(slot), groupCondition: 1);
         // The Look section: 2026-11-07a's 11 controls, and since 2026-11-08a 20 (the crude switch outside the free-mode group;
         // in it the hue and shade after Paint, the rims, tyres and the plate's four after Mirrors). `--look-build 2026-11-07a`
         // writes 07a's 11 as they were.
@@ -444,10 +488,10 @@ public static class Program
         {
             Look("switcher", "Free customising (no field kit, no cost)", "Choose the look here instead: the choices below, then \"Apply the look\". No field kit and no components. Off: the choices are hidden, and the bike keeps the look it has.",
                 "CMB_LookFree", groupControl: 1),
-            Look("dropdown", "Tank badge, left", "The badge on the tank's left side (Stock: the winged wheel, as it came).", "CMB_Look_TankL", Names("TankL"), groupCondition: 1),
-            Look("dropdown", "Tank badge, right", "The badge on the tank's right side. \"Same as the left\" follows the left one.", "CMB_Look_TankR", Names("TankR"), groupCondition: 1),
-            Look("dropdown", "Rear fender badge", "A badge on the rear fender (None: as it came).", "CMB_Look_Fender", Names("Fender"), groupCondition: 1),
-            Look("dropdown", "Paint", "The tank's and fenders' paint and the coachline (Factory: the oxblood, as it came).", "CMB_Look_Paint", Names("Paint"), groupCondition: 1),
+            Pick("dropdown", "Tank badge, left", "The badge on the tank's left side (Stock: the winged wheel, as it came).", "TankL", "CMB_Look_TankL"),
+            Pick("dropdown", "Tank badge, right", "The badge on the tank's right side. \"Same as the left\" follows the left one.", "TankR", "CMB_Look_TankR"),
+            Pick("dropdown", "Rear fender badge", "A badge on the rear fender (None: as it came).", "Fender", "CMB_Look_Fender"),
+            Pick("dropdown", "Paint", "The tank's and fenders' paint and the coachline (Factory: the oxblood, as it came).", "Paint", "CMB_Look_Paint"),
         });
         if (c2)
             lookSection.AddRange(new[]
@@ -461,21 +505,26 @@ public static class Program
             });
         lookSection.Add(Look("stepper", "Mirrors", "The stock mirrors, mirrors under the bars (egg or D), or none.", "CMB_Look_Mirrors", Names("Mirrors"), groupCondition: 1));
         if (c2)
+        {
+            lookSection.Add(Pick("dropdown", "Rims", "The wheels' style and finish (Stock: the cast wheels, as they came). Body colour follows the paint.", "Rims", "CMB_Look_Rims"));
+            lookSection.Add(Look("stepper", "Tyres", "Black (as they came), whitewalls or a red line.", "CMB_Look_Tyres", Names("Tyres"), groupCondition: 1));
+            // 2026-11-16a (C3): the seat's colour after the tyres (`--look-build 2026-11-08a`: none). Its help names the piped seats by
+            // their names, not their place (the review: "the last four" held only in table order, `--kit-order table`).
+            if (c3)
+                lookSection.Add(Pick("dropdown", "Seat", "The seat's leather colour (Dark brown: as it came). The \"with ... piping\" ones are two-tone, with a contrasting welt.", "Seat", "CMB_Look_Seat"));
             lookSection.AddRange(new[]
             {
-                Look("dropdown", "Rims", "The wheels' style and finish (Stock: the cast wheels, as they came). Body colour follows the paint.", "CMB_Look_Rims", Names("Rims"), groupCondition: 1),
-                Look("stepper", "Tyres", "Black (as they came), whitewalls or a red line.", "CMB_Look_Tyres", Names("Tyres"), groupCondition: 1),
-                Look("dropdown", "Plate", "The licence plate's design (Stock: the plain plate, as it came).", "CMB_Look_Plate", Names("Plate"), groupCondition: 1),
-                Look("dropdown", "Plate text", "The plate's lettering. \"The plate's own\" is the design's; the crude ones show as the plate's own while \"Crude plate texts\" is off.",
-                    "CMB_Look_PlateText", Names("PlateText"), groupCondition: 1),
-                Look("dropdown", "Plate letters", "The letters' colour (\"The plate's own\": the design's).", "CMB_Look_PlateInk", Names("PlateInk"), groupCondition: 1),
-                Look("dropdown", "Plate background", "The plate's colour (\"The plate's own\": the design's).", "CMB_Look_PlateBack", Names("PlateBack"), groupCondition: 1),
+                Pick("dropdown", "Plate", "The licence plate's design (Stock: the plain plate, as it came).", "Plate", "CMB_Look_Plate"),
+                Pick("dropdown", "Plate text", "The plate's lettering. \"The plate's own\" is the design's; the crude ones show as the plate's own while \"Crude plate texts\" is off.",
+                    "PlateText", "CMB_Look_PlateText"),
+                Pick("dropdown", "Plate letters", "The letters' colour (\"The plate's own\": the design's).", "PlateInk", "CMB_Look_PlateInk"),
+                Pick("dropdown", "Plate background", "The plate's colour (\"The plate's own\": the design's).", "PlateBack", "CMB_Look_PlateBack"),
             });
+        }
         lookSection.AddRange(new[]
         {
-            Look("dropdown", "Faction set", c2 ? "Sets the paint, all three badges and, for some factions, the plate to one faction's when you press Apply."
-                                              : "Sets the paint and all three badges to one faction's when you press Apply.", "CMB_LookFactionSet",
-                LookRecords.ReadSets(lookTable).Select(x => x.Name).ToArray(), groupCondition: 1),
+            Pick("dropdown", "Faction set", c2 ? "Sets the paint, all three badges and, for some factions, the plate to one faction's when you press Apply."
+                                              : "Sets the paint and all three badges to one faction's when you press Apply.", "FactionSet", "CMB_LookFactionSet"),
             new Dictionary<string, object>
             {
                 ["type"] = "button", ["text"] = "Apply the look",
@@ -1463,6 +1512,17 @@ public static class Program
                     throw new InvalidOperationException($"2026-11-15b's weapons forms must be 0xC03-0xC07 (CMB_Slope.dll finds four by ID), got {string.Join(", ", weapons59.Select(r => $"{r.EditorID} {r.FormKey.ID:X}"))}");
         }
 
+        // --- 2026-11-16a (C3: the 3D helmet badges, the Gunners skull, the seat's colour, the alphabetical lists): the third look
+        // block, 0xC08-0xC4F (look_options.json's c3_ids), right after 2026-11-15b's weapons forms: the Seat's global and attach
+        // point, TankL 17-19, TankR 18-20 and Fender 18, the Seat's 15 options, its option list, the two empty placeholder swap
+        // lists (PlateInk's, PlateBack's: CMB_LookSwapLists index = slot) and the Seat's swap list; in place the tank and fender
+        // lists, the lists of lists, the look item's and the riding armours' 12th attach point, the template's 12th option 0
+        // and every look recipe's priority (its option's display rank; 0 with `--kit-order table`). The 34 older tank swaps'
+        // helmet identities are in their MSWPs from the start (LookRecords.ReadSlots). `--look-build 2026-11-08a`: none of it
+        // (2026-11-15b's ESP byte for byte).
+        if (look.HasC3)
+            look.BuildC3(mod);
+
         // --- Controller quest ---
         quest.Name = "Commonwealth Motorbike";
         quest.Data = new QuestData
@@ -1788,6 +1848,28 @@ public static class Program
                 Obj("WeaponTypeRifle", new FormKey(ModKey.FromFileName("Fallout4.esm"), 0x04A0A1)),
                 Obj("ActionSheath", new FormKey(ModKey.FromFileName("Fallout4.esm"), 0x046BAF)),
             });
+        // 2026-11-16a (C3): the controller's Look_C3 group, 5, after LookSetPlate (the Seat's global; per TankL option the TankR
+        // index of the same key; the display order's three arrays, 13 groups: the 12 slots, then the faction sets), and
+        // CMB_LookF4SE's 3 at its end (the Seat's global, TankRightOf, per Seat option its V or -1). The controller's eleven
+        // Ui<slot> are full properties the plugin doesn't fill. Not with `--look-build 2026-11-08a` (None: 11 slots, the old
+        // "Same as the left").
+        if (look.HasC3)
+        {
+            controller.Properties.InsertRange(controller.Properties.FindIndex(p => p.Name == "LookSetPlate") + 1, new ScriptProperty[]
+            {
+                Obj("CMB_Look_Seat", look.SlotGlobal("Seat")),
+                IntList("TankRightOf", look.TankRightOf),
+                IntList("UiOrder", look.UiOrder),
+                IntList("UiRank", look.UiRank),
+                IntList("UiStart", look.UiStart),
+            });
+            lookF4se.Properties.AddRange(new ScriptProperty[]
+            {
+                Obj("CMB_Look_Seat", look.SlotGlobal("Seat")),
+                IntList("TankRightOf", look.TankRightOf),
+                FloatList("SeatV", look.SeatV),
+            });
+        }
 
         quest.VirtualMachineAdapter = new QuestAdapter
         {
@@ -2039,22 +2121,35 @@ public static class Program
         // Since 2026-11-08a (C2) an option or a slot may carry `since` (the build that added it), a slot its own global's and
         // attach point's IDs (C1's are made in one run from FirstId), an option `crude` (PlateText), `rim_style` and `finish`
         // (Rims). A slot without swaps (the plate's two colour slots) has Swaps and SwapsId null and no sources.
+        // Since 2026-11-16a (C3) an option may carry `row` (a palette row: Paint's of paint_p, the Seat's of seat_p), `badge`
+        // (the plate's badge) and `emblem` (a 3D helmet of the table's `emblems`); a slot `sources_c3` (SourcesC3: sources C3
+        // appends, already in Sources, and their identities already in every older option's Swap: ReadSlots) and a colour
+        // slot `swaps_placeholder` (its empty swap list in CMB_LookSwapLists).
         public sealed record Option(int Index, string Key, string Name, string Kind, float? Cnam, (string Component, uint Count)[] Cost,
                                     string? Perk, string? Loose, (string From, string To)[]? Swap, string?[] Ids,
-                                    string? Since, bool Crude, int? RimStyle, string? Finish);
+                                    string? Since, bool Crude, int? RimStyle, string? Finish,
+                                    int? Row = null, string? Badge = null, string? Emblem = null);
         public sealed record Slot(string Key, string Ap, string Name, string Global, int Default, string List, string? Swaps,
                                   string ListId, string? SwapsId, string[] Sources, Option[] Options,
-                                  string? Since, string? GlobalId, string? ApId, string? Label);
+                                  string? Since, string? GlobalId, string? ApId, string? Label,
+                                  string[]? SourcesC3 = null, string? PlaceholderList = null, string? PlaceholderId = null);
         public sealed record Set(int Index, string Key, string Name, int? Paint, int? TankLeft, int? TankRight, int? Fender, int? Plate);
 
         // The first ID after 2026-11-06a's forms; CMB_LookCode is LookCodeId (0x8AF), the one below it.
         public const uint FirstId = 0x8BA;
+        // 2026-11-16a: C3's block starts right after 2026-11-15b's weapons forms (0xC03-0xC07).
+        public const uint C3FirstId = 0xC08;
         // The builds the table knows: C1's entries carry no `since`, C2's "2026-11-08a". The generator's `--look-build <b>`
         // sets Through, and LoadTable drops every entry of a later build: `--look-build 2026-11-07a` makes 2026-11-07a's
-        // ESP (and MCM) byte for byte, the off value of everything C2 adds.
-        public const string C1Build = "2026-11-07a", C2Build = "2026-11-08a";
-        public static readonly string[] Builds = { C1Build, C2Build };
-        public static string Through = C2Build;
+        // ESP (and MCM) byte for byte, the off value of everything C2 adds. 2026-11-16a (C3): its entries carry "2026-11-16a"
+        // and `--look-build 2026-11-08a` makes 2026-11-15b's ESP and MCM byte for byte (the off value of everything C3 adds).
+        public const string C1Build = "2026-11-07a", C2Build = "2026-11-08a", C3Build = "2026-11-16a";
+        public static readonly string[] Builds = { C1Build, C2Build, C3Build };
+        public static string Through = C3Build;
+        // 2026-11-16a (C3): the lists' display order, alphabetical (ui_order) or `--kit-order table` (2026-11-15b's order: the
+        // recipes' priority 0, the MCM on the globals, the Ui arrays the identity).
+        public static bool KitOrderAlpha = true;
+        public static bool Later(string? since, string build) => since != null && string.CompareOrdinal(since, build) > 0;
         // 2026-11-09a (test 51): `--recipe-bench CMB_WorkbenchBike` puts the recipes' BNAM back (MakeOption).
         public static bool RecipeBench;
         // 2026-11-14a (test 53, wish f: the kit's item listed as "Default", its mod slots read as the mods): the look item's
@@ -2098,6 +2193,17 @@ public static class Program
         readonly Dictionary<string, GlobalFloat> c2Globals = new();
         public GlobalFloat C2Global(string editorId) => c2Globals[editorId];
         public bool HasC2 => Slots.Any(s => s.Since != null) || Slots.Any(s => s.Options.Any(o => o.Since != null));
+        // 2026-11-16a: C3's block (BuildC3, after 2026-11-15b's forms) and its fills; false through 2026-11-08a.
+        public bool HasC3 => Slots.Any(s => s.Since == C3Build) || Slots.Any(s => s.Options.Any(o => o.Since == C3Build));
+        // Per TankL option the TankR index with the same key ("Same as the left" resolves through it: 17 -> 18 ... since C3).
+        public int[] TankRightOf => SlotOf("TankL").Options.Select(o => Array.FindIndex(SlotOf("TankR").Options, r => r.Key == o.Key)).ToArray();
+        // Per Seat option its palette V ((row + 0.5) / 16, the swap's CNAM), -1 for the stock seat (no palette).
+        public float[] SeatV => SlotOf("Seat").Options.Select(o => o.Cnam ?? -1f).ToArray();
+        // The display order (ui_order; BuildC3): 13 groups (the slots in slot order, then the faction sets), UiOrder[UiStart[g] +
+        // rank] the option shown at that rank, UiRank[UiStart[g] + index] the option's rank.
+        public int[] UiOrder { get; private set; } = Array.Empty<int>();
+        public int[] UiRank { get; private set; } = Array.Empty<int>();
+        public int[] UiStart { get; private set; } = Array.Empty<int>();
         public Slot SlotOf(string key) => Slots.First(s => s.Key == key);
         public int[] PaintRow { get; private set; } = Array.Empty<int>();
         public int[] PlateOwnText { get; private set; } = Array.Empty<int>();
@@ -2163,10 +2269,17 @@ public static class Program
         static JsonElement? Opt(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.ValueKind != JsonValueKind.Null ? v : null;
         static uint Id(string hex) => Convert.ToUInt32(hex, 16);
 
-        public static Slot[] ReadSlots(JsonElement root) => root.GetProperty("slots").EnumerateArray().Select(s => new Slot(
-            S(s, "key")!, S(s, "ap")!, S(s, "name")!, S(s, "global")!, s.GetProperty("default").GetInt32(), S(s, "list")!, S(s, "swaps"),
-            S(s, "list_id")!, S(s, "swaps_id"), s.GetProperty("sources").EnumerateArray().Select(x => x.GetString()!).ToArray(),
-            s.GetProperty("options").EnumerateArray().Select(o => new Option(
+        public static Slot[] ReadSlots(JsonElement root) => root.GetProperty("slots").EnumerateArray().Select(ReadSlot).ToArray();
+
+        // 2026-11-16a (C3): a slot's `sources_c3` (only through 2026-11-16a: Until drops it through 2026-11-08a) appends its
+        // sources to the slot's, and every option of an earlier build with a swap gains their identities after its own
+        // entries (the 34 tank MSWPs: an unchosen helmet's own invisible file put back); a C3 option names all of them
+        // itself. A colour slot's `swaps_placeholder` names its empty swap list.
+        static Slot ReadSlot(JsonElement s)
+        {
+            var add = Opt(s, "sources_c3")?.GetProperty("add").EnumerateArray().Select(x => x.GetString()!).ToArray();
+            var placeholder = Opt(s, "swaps_placeholder");
+            var options = s.GetProperty("options").EnumerateArray().Select(o => new Option(
                 o.GetProperty("index").GetInt32(), S(o, "key")!, S(o, "name")!, S(o, "kind")!,
                 o.GetProperty("cnam").ValueKind == JsonValueKind.Null ? null : o.GetProperty("cnam").GetSingle(),
                 o.GetProperty("cost").EnumerateArray().Select(c => (c[0].GetString()!, c[1].GetUInt32())).ToArray(),
@@ -2174,9 +2287,17 @@ public static class Program
                 o.GetProperty("swap").ValueKind == JsonValueKind.Null ? null
                     : o.GetProperty("swap").EnumerateArray().Select(e => (e[0].GetString()!, e[1].GetString()!)).ToArray(),
                 o.GetProperty("ids").EnumerateArray().Select(x => x.ValueKind == JsonValueKind.Null ? null : x.GetString()).ToArray(),
-                Opt(o, "since")?.GetString(), Opt(o, "crude")?.GetBoolean() ?? false, Opt(o, "rim_style")?.GetInt32(), Opt(o, "finish")?.GetString()))
-            .ToArray(), Opt(s, "since")?.GetString(), Opt(s, "global_id")?.GetString(), Opt(s, "ap_id")?.GetString(),
-            Opt(s, "label")?.GetString())).ToArray();
+                Opt(o, "since")?.GetString(), Opt(o, "crude")?.GetBoolean() ?? false, Opt(o, "rim_style")?.GetInt32(), Opt(o, "finish")?.GetString(),
+                Opt(o, "row")?.GetInt32(), Opt(o, "badge")?.GetString(), Opt(o, "emblem")?.GetString()))
+                .Select(o => add != null && o.Swap != null && o.Since != C3Build ? o with { Swap = o.Swap.Concat(add.Select(x => (x, x))).ToArray() } : o)
+                .ToArray();
+            var sources = s.GetProperty("sources").EnumerateArray().Select(x => x.GetString()!).Concat(add ?? Array.Empty<string>()).ToArray();
+            return new Slot(
+                S(s, "key")!, S(s, "ap")!, S(s, "name")!, S(s, "global")!, s.GetProperty("default").GetInt32(), S(s, "list")!, S(s, "swaps"),
+                S(s, "list_id")!, S(s, "swaps_id"), sources, options, Opt(s, "since")?.GetString(), Opt(s, "global_id")?.GetString(),
+                Opt(s, "ap_id")?.GetString(), Opt(s, "label")?.GetString(),
+                add, placeholder?.GetProperty("list").GetString(), placeholder?.GetProperty("id").GetString());
+        }
 
         public static Set[] ReadSets(JsonElement root) => root.GetProperty("sets").EnumerateArray().Select(s => new Set(
             s.GetProperty("index").GetInt32(), S(s, "key")!, S(s, "name")!, I(s, "paint"), I(s, "tank_left"), I(s, "tank_right"), I(s, "fender"),
@@ -2195,7 +2316,8 @@ public static class Program
                     fail.Add($"perks.{name}: not {fk.ID:X6} (Vanilla.Perks)");
             // 2026-11-08a's kinds: hue (Paint 45), rim, tyre, design (Plate), text (PlateText), colour (PlateInk, PlateBack: an
             // object mod and a recipe, no swap). `follow` is TankR's last ("Same as the left") or PlateText's 0 (the plate's own).
-            var kinds = new[] { "identity", "off", "badge", "paint", "mirror", "follow", "hue", "rim", "tyre", "design", "text", "colour" };
+            // 2026-11-16a's: emblem (a 3D helmet on its ground cell), seat (a seat_palette row, its V the swap's CNAM).
+            var kinds = new[] { "identity", "off", "badge", "paint", "mirror", "follow", "hue", "rim", "tyre", "design", "text", "colour", "emblem", "seat" };
             foreach (var s in slots)
             {
                 for (int i = 0; i < s.Options.Length; i++)
@@ -2205,8 +2327,10 @@ public static class Program
                     if (!kinds.Contains(o.Kind)) fail.Add($"{s.Key}:{o.Key}: kind {o.Kind}");
                     if ((o.Kind is "follow" or "colour") != (o.Swap == null) || (o.Swap == null) != (o.Ids[0] == null))
                         fail.Add($"{s.Key}:{o.Key}: only a `follow` or `colour` option has no swap (and no MSWP ID)");
-                    if (o.Kind == "follow" && !(s.Key == "TankR" && i == s.Options.Length - 1) && !(s.Key == "PlateText" && i == 0))
-                        fail.Add($"{s.Key}:{o.Key}: `follow` is only TankR's last option and PlateText's first");
+                    // TankR's last before C3's options (17: C3 appends 18-20 after it).
+                    if (o.Kind == "follow" && !(s.Key == "TankR" && o.Since != C3Build && s.Options.Skip(i + 1).All(x => x.Since == C3Build))
+                        && !(s.Key == "PlateText" && i == 0))
+                        fail.Add($"{s.Key}:{o.Key}: `follow` is only TankR's last option (before C3's) and PlateText's first");
                     if ((o.Kind == "colour") != (s.Swaps == null))
                         fail.Add($"{s.Key}:{o.Key}: a `colour` option is in a slot without swaps, and only there");
                     if (o.Crude && (s.Key != "PlateText" || o.Kind != "text"))
@@ -2227,10 +2351,17 @@ public static class Program
                 if ((s.Swaps == null) != (s.SwapsId == null) || (s.Swaps == null) != (s.Sources.Length == 0))
                     fail.Add($"{s.Key}: a slot without swaps has no swap list and no sources, and only it");
             }
-            // The colour slots last (the swap lists' list holds the others' in slot order: index = slot).
-            var firstColour = Array.FindIndex(slots, s => s.Swaps == null);
-            if (firstColour >= 0 && slots.Skip(firstColour).Any(s => s.Swaps != null))
-                fail.Add("the slots without swaps (PlateInk, PlateBack) must be the last");
+            // The colour slots last (the swap lists' list holds the others' in slot order: index = slot); 2026-11-16a: or each
+            // with an empty placeholder swap list when a slot with swaps follows (the Seat after PlateInk and PlateBack), and
+            // only then.
+            for (int i = 0; i < slots.Length; i++)
+            {
+                bool before = slots.Skip(i + 1).Any(x => x.Swaps != null);
+                if (slots[i].Swaps == null && before != (slots[i].PlaceholderId != null))
+                    fail.Add($"{slots[i].Key}: a slot without swaps is last, or has a swaps_placeholder when a slot with swaps follows it");
+                if (slots[i].PlaceholderId != null && slots[i].Swaps != null)
+                    fail.Add($"{slots[i].Key}: a swaps_placeholder on a slot with swaps");
+            }
             var sources = slots.SelectMany(s => s.Sources.Select(src => (s.Key, src))).ToArray();
             foreach (var g in sources.GroupBy(x => x.src.ToLowerInvariant()).Where(g => g.Count() > 1))
                 fail.Add($"the source {g.Key} is in {string.Join(" and ", g.Select(x => x.Key))}: a source belongs to one slot");
@@ -2238,6 +2369,11 @@ public static class Program
                 if (sets[i].Index != i || (i == 0) != (sets[i].Paint == null)) fail.Add($"set {sets[i].Key}: index {sets[i].Index} at {i}");
             if (slots.Any(s => s.Since != null) || slots.Any(s => s.Options.Any(o => o.Since != null)))
                 CheckTableC2(root, slots, sets, fail);
+            if (slots.Any(s => s.Since == C3Build) || slots.Any(s => s.Options.Any(o => o.Since == C3Build)))
+                CheckTableC3(root, slots, sets, fail);
+            foreach (var s in slots)
+                foreach (var o in s.Options.Where(o => Later(o.Since, Through) || Later(s.Since, Through)))
+                    fail.Add($"{s.Key}:{o.Key}: since {o.Since ?? s.Since}, later than the build {Through}");
             if (fail.Count > 0)
                 throw new InvalidOperationException("look_options.json:\n  " + string.Join("\n  ", fail));
         }
@@ -2252,20 +2388,20 @@ public static class Program
             var c2Ids = new List<(string What, string Id)>();
             foreach (var g in root.GetProperty("fixed_globals").EnumerateArray().Concat(root.GetProperty("script_globals").EnumerateArray()))
                 c2Ids.Add((S(g, "edid")!, S(g, "id")!));
-            foreach (var s in slots.Where(s => s.Since != null))
+            foreach (var s in slots.Where(s => s.Since == C2Build))
             {
                 if (s.GlobalId == null || s.ApId == null) fail.Add($"{s.Key}: a C2 slot without global_id or ap_id");
                 c2Ids.Add((s.Global, s.GlobalId ?? "-"));
             }
-            foreach (var s in slots.Where(s => s.Since != null)) c2Ids.Add((s.Ap, s.ApId ?? "-"));
+            foreach (var s in slots.Where(s => s.Since == C2Build)) c2Ids.Add((s.Ap, s.ApId ?? "-"));
             foreach (var s in slots.Where(s => s.Since == null))
-                foreach (var o in s.Options.Where(o => o.Since != null))
+                foreach (var o in s.Options.Where(o => o.Since == C2Build))
                     c2Ids.AddRange(o.Ids.Where(x => x != null).Select(x => ($"{s.Key}:{o.Key}", x!)));
-            foreach (var s in slots.Where(s => s.Since != null))
+            foreach (var s in slots.Where(s => s.Since == C2Build))
                 foreach (var o in s.Options)
                     c2Ids.AddRange(o.Ids.Where(x => x != null).Select(x => ($"{s.Key}:{o.Key}", x!)));
-            foreach (var s in slots.Where(s => s.Since != null)) c2Ids.Add((s.List, s.ListId));
-            foreach (var s in slots.Where(s => s.Since != null && s.SwapsId != null)) c2Ids.Add((s.Swaps!, s.SwapsId!));
+            foreach (var s in slots.Where(s => s.Since == C2Build)) c2Ids.Add((s.List, s.ListId));
+            foreach (var s in slots.Where(s => s.Since == C2Build && s.SwapsId != null)) c2Ids.Add((s.Swaps!, s.SwapsId!));
             // In that order, the generator's: each ID the one after the last.
             for (int i = 0; i < c2Ids.Count; i++)
                 if (c2Ids[i].Id == "-" || Id(c2Ids[i].Id) != first + (uint)i)
@@ -2312,6 +2448,120 @@ public static class Program
                     fail.Add($"{s.Key}: its options 1 on aren't plate_colours");
             foreach (var x in sets)
                 if (x.Plate is int p && (p < 1 || p >= plate.Options.Length)) fail.Add($"set {x.Key}: plate {p}");
+        }
+
+        // 2026-11-16a (C3): the third block's IDs (every one once, from c3_ids' first, contiguous, in BuildC3's order: the new
+        // slots' globals, their attach points, the older slots' C3 options in slot order, the new slots' options, their option
+        // lists, the placeholder swap lists in slot order, the new slots' swap lists), C2's all below it; the 3D options'
+        // swaps (the plate to the ground cell, the side's own helmet to the emblem's material, the other identities), the
+        // badges' targets, the Seat's rows, V and files, the left tank's keys on the right, the display order's groups.
+        static void CheckTableC3(JsonElement root, Slot[] slots, Set[] sets, List<string> fail)
+        {
+            var c3 = root.GetProperty("c3_ids");
+            uint first = Id(c3.GetProperty("first").GetString()!), last = Id(c3.GetProperty("last").GetString()!);
+            var news = slots.Where(s => s.Since == C3Build).ToArray();
+            var ids = new List<(string What, string? Id)>();
+            foreach (var s in news) ids.Add((s.Global, s.GlobalId));
+            foreach (var s in news) ids.Add((s.Ap, s.ApId));
+            foreach (var s in slots.Where(s => s.Since != C3Build))
+                foreach (var o in s.Options.Where(o => o.Since == C3Build))
+                    ids.AddRange(o.Ids.Where(x => x != null).Select(x => ($"{s.Key}:{o.Key}", x)));
+            foreach (var s in news)
+                foreach (var o in s.Options)
+                    ids.AddRange(o.Ids.Where(x => x != null).Select(x => ($"{s.Key}:{o.Key}", x)));
+            foreach (var s in news) ids.Add((s.List, s.ListId));
+            foreach (var s in slots.Where(s => s.PlaceholderId != null)) ids.Add((s.PlaceholderList!, s.PlaceholderId));
+            foreach (var s in news.Where(s => s.SwapsId != null)) ids.Add((s.Swaps!, s.SwapsId));
+            for (int i = 0; i < ids.Count; i++)
+                if (ids[i].Id == null || Id(ids[i].Id!) != first + (uint)i)
+                    fail.Add($"{ids[i].What}: {ids[i].Id ?? "none"}, expected {first + (uint)i:X6} (C3's IDs from {first:X6} in the table's order, once each)");
+            if (ids.Count != c3.GetProperty("count").GetInt32() || first + (uint)ids.Count - 1 != last || Id(c3.GetProperty("next").GetString()!) != last + 1
+                || first != C3FirstId)
+                fail.Add($"c3_ids: {ids.Count} IDs from {first:X6}, the table says {c3.GetProperty("count").GetInt32()} to {last:X6} (C3 starts at 0xC08, after 2026-11-15b's 0xC07)");
+            var badges = root.GetProperty("badges").EnumerateArray().ToDictionary(b => S(b, "key")!);
+            var emblems = root.GetProperty("emblems").GetProperty("items").EnumerateArray().ToDictionary(e => S(e, "key")!);
+            Slot Of(string key) => slots.First(s => s.Key == key);
+            foreach (var s in slots)
+                foreach (var o in s.Options.Where(o => o.Since == C3Build))
+                {
+                    if (o.Kind is "badge" or "emblem")
+                    {
+                        if (o.Badge == null || !badges.TryGetValue(o.Badge, out var b))
+                        { fail.Add($"{s.Key}:{o.Key}: badge {o.Badge} isn't in `badges`"); continue; }
+                        var plate = S(b, "material")!;
+                        var own = b.GetProperty("slots").EnumerateArray().Select(x => x.GetString()).ToArray();
+                        if ((o.Kind == "badge") != own.Contains(s.Key) || (o.Kind == "emblem" && own.Length != 0))
+                            fail.Add($"{s.Key}:{o.Key}: its badge {o.Badge}'s slots [{string.Join(", ", own)}] (a flat badge names the slot; a 3D helmet's ground none)");
+                        string? emb = null;
+                        if (o.Kind == "emblem")
+                        {
+                            if (o.Emblem == null || !emblems.TryGetValue(o.Emblem, out var e) || S(e, "ground") != o.Badge
+                                || !e.GetProperty("shapes").TryGetProperty(s.Key, out var shape))
+                            { fail.Add($"{s.Key}:{o.Key}: emblem {o.Emblem} isn't in `emblems` on {o.Badge} with a {s.Key} shape"); continue; }
+                            emb = $"CMB\\Bike\\{shape.GetString()}";
+                            foreach (var (from, to) in o.Swap!)
+                            {
+                                var want = s.Sources.Take(2).Contains(from) ? plate
+                                         : from == emb + ".bgsm" || from == emb + "_worn.bgsm" ? S(e, "material")! : from;
+                                if (to != want) fail.Add($"{s.Key}:{o.Key}: {from} -> {to}, expected {want}");
+                            }
+                        }
+                        else
+                            foreach (var (from, to) in o.Swap!)
+                                if (to != (s.Sources.Take(2).Contains(from) ? plate : from))
+                                    fail.Add($"{s.Key}:{o.Key}: {from} -> {to}, expected {(s.Sources.Take(2).Contains(from) ? plate : from)}");
+                    }
+                    if (o.Cnam != null && o.Kind != "seat") fail.Add($"{s.Key}:{o.Key}: a colour index (cnam) on a {o.Kind} option");
+                }
+            var pal = root.GetProperty("seat_palette");
+            int rows = pal.GetProperty("size")[1].GetInt32();
+            var rowKey = pal.GetProperty("rows").EnumerateArray().ToDictionary(r => r.GetProperty("row").GetInt32(), r => S(r, "key")!);
+            var seat = Of("Seat");
+            foreach (var o in seat.Options.Skip(1))
+            {
+                if (o.Kind != "seat" || o.Row is not int row || !rowKey.TryGetValue(row, out var k) || k != o.Key || o.Cnam != (row + 0.5f) / rows)
+                    fail.Add($"Seat:{o.Key}: kind {o.Kind}, row {o.Row}, cnam {o.Cnam} (a seat_palette row of its key, cnam (row + 0.5) / {rows})");
+                var want = seat.Sources.Select(x => (x, x.Replace("static_seat", $"static_seat_{o.Key}"))).ToArray();
+                if (o.Swap == null || !o.Swap.SequenceEqual(want))
+                    fail.Add($"Seat:{o.Key}: its swap isn't static_seat_{o.Key}.bgsm and static_seat_{o.Key}_worn.bgsm");
+            }
+            var right = Of("TankR").Options.Select(o => o.Key).ToHashSet();
+            foreach (var o in Of("TankL").Options.Where(o => !right.Contains(o.Key)))
+                fail.Add($"TankL:{o.Key}: no TankR option of that key (TankRightOf)");
+            var ui = root.GetProperty("ui_order");
+            var groups = UiGroupKeys(root);
+            if (!groups.SequenceEqual(slots.Select(s => s.Key).Append("FactionSet")))
+                fail.Add($"ui_order.groups: {string.Join(", ", groups)}, not the slots in order and then FactionSet");
+            foreach (var d in ui.GetProperty("dropdowns").EnumerateObject().Select(x => x.Name)
+                         .Concat(ui.GetProperty("steppers").EnumerateArray().Select(x => x.GetString()!)))
+                if (!groups.Contains(d)) fail.Add($"ui_order: {d} isn't a group");
+        }
+
+        // 2026-11-16a (C3): the display order's groups (ui_order.groups: the slots in slot order, then the faction sets), and per
+        // group its option indices in display order. Alphabetical (alpha): a group's option 0 and its `off` and `follow`
+        // options first in index order, the rest by name (ordinal over the names lower-cased, ties by index), ui_order's `last`
+        // at the end; the steppers (and everything when not alpha) in index order. The faction sets: "(none)" first.
+        public static string[] UiGroupKeys(JsonElement root) =>
+            root.GetProperty("ui_order").GetProperty("groups").EnumerateArray().Select(x => x.GetString()!).ToArray();
+
+        public static int[][] UiGroups(JsonElement root, Slot[] slots, Set[] sets, bool alpha)
+        {
+            var ui = root.GetProperty("ui_order");
+            var steppers = ui.GetProperty("steppers").EnumerateArray().Select(x => x.GetString()!).ToHashSet();
+            var last = ui.GetProperty("last").EnumerateArray().Select(x => x.GetString()!).ToHashSet();
+            return UiGroupKeys(root).Select(g =>
+            {
+                var items = g == "FactionSet"
+                    ? sets.Select(x => (x.Index, x.Key, x.Name, Pinned: x.Index == 0)).ToArray()
+                    : slots.First(s => s.Key == g).Options.Select(o => (o.Index, o.Key, o.Name, Pinned: o.Index == 0 || o.Kind is "off" or "follow")).ToArray();
+                if (!alpha || steppers.Contains(g))
+                    return items.Select(i => i.Index).ToArray();
+                bool Last((int Index, string Key, string Name, bool Pinned) i) => !i.Pinned && last.Contains($"{g}:{i.Key}");
+                return items.Where(i => i.Pinned).Select(i => i.Index)
+                    .Concat(items.Where(i => !i.Pinned && !Last(i)).OrderBy(i => i.Name.ToLowerInvariant(), StringComparer.Ordinal).ThenBy(i => i.Index).Select(i => i.Index))
+                    .Concat(items.Where(Last).Select(i => i.Index))
+                    .ToArray();
+            }).ToArray();
         }
 
         public static LookRecords Build(Fallout4Mod mod, Armor ridingArmor, Armor ridingArmorFrame, Message parkedMenu)
@@ -2436,7 +2686,10 @@ public static class Program
             // default template (each slot's option 0, the stock look, on its attach point); the riding armours take the
             // look's mods (the keyword, the attach points; no template); C1's option lists and swap lists take C2's options
             // of their slots (Paint's 46th, Free colour); the lists of lists take C2's lists (the colour slots have no swaps).
-            foreach (var s in look.Slots)
+            // 2026-11-16a: over the slots through 2026-11-08a here; C3's Seat gets its 12th attach point and option 0 in
+            // BuildC3 (its records come after 2026-11-15b's forms).
+            var upToC2 = look.Slots.Where(s => s.Since != C3Build).ToArray();
+            foreach (var s in upToC2)
                 item.AttachParentSlots.Add(aps[s.Key]);
             item.ObjectTemplates = new()
             {
@@ -2446,7 +2699,7 @@ public static class Program
                     // and always through 2026-11-07a).
                     Name = NamesOn ? "Motorbike" : "Default",
                     Default = true,
-                    Includes = new(look.Slots.Select(s => new ObjectTemplateInclude { Mod = mods[s.Key][0].ToLink<IAObjectModificationGetter>(), AttachPointIndex = 0 })),
+                    Includes = new(upToC2.Select(s => new ObjectTemplateInclude { Mod = mods[s.Key][0].ToLink<IAObjectModificationGetter>(), AttachPointIndex = 0 })),
                 },
             };
             foreach (var a in new[] { ridingArmor, ridingArmorFrame })
@@ -2454,7 +2707,7 @@ public static class Program
                 a.Keywords ??= new();
                 a.Keywords.Add(look.MaBike);
                 a.AttachParentSlots ??= new();
-                foreach (var s in look.Slots)
+                foreach (var s in upToC2)
                     a.AttachParentSlots.Add(aps[s.Key]);
             }
             for (int i = 0; i < c1.Length; i++)
@@ -2486,6 +2739,7 @@ public static class Program
                 throw new InvalidOperationException($"{count} look records made, {made.Count} at the table's IDs");
             if (mod.ModHeader.Stats.NextFormID != made.Max(x => x.Id) + 1)
                 throw new InvalidOperationException($"the next ID after the look is 0x{mod.ModHeader.Stats.NextFormID:X}, not 0x{made.Max(x => x.Id) + 1:X}");
+            look.c3 = new C3State(root, item, new[] { ridingArmor, ridingArmorFrame }, aps, loose, mods, swaps, optionLists, swapLists);
             return look;
         }
 
@@ -2541,6 +2795,7 @@ public static class Program
             if (o.Crude)
                 cobj.Conditions.Add(Is(Condition.Function.GetGlobalValue, look.C2Global("CMB_LookPlateCrude").FormKey, 1));
             cobj.CreatedObjectCounts = new() { new ConstructibleCreatedObjectCount { Count = 1, Priority = 0 } };
+            look.recipes[(s.Key, o.Index)] = cobj;
         }
 
         // 2026-11-08a (C2): the second block, in the table's order (c2_ids, from 0xA14; each record at its ID, checked by
@@ -2559,13 +2814,13 @@ public static class Program
                 throw new InvalidOperationException($"C2's records start at 0x{first:X} (look_options.json's c2_ids), the next ID is 0x{mod.ModHeader.Stats.NextFormID:X}");
             foreach (var g in root.GetProperty("fixed_globals").EnumerateArray().Concat(root.GetProperty("script_globals").EnumerateArray()))
                 look.c2Globals[S(g, "edid")!] = At(Global(mod, S(g, "edid")!, g.GetProperty("value").GetSingle()), S(g, "id")!);
-            var c2 = look.Slots.Where(s => s.Since != null).ToArray();
+            var c2 = look.Slots.Where(s => s.Since == C2Build).ToArray();
             foreach (var s in c2)
                 look.slotGlobals[s.Key] = At(Global(mod, s.Global, s.Default), s.GlobalId!);
             foreach (var s in c2)
                 aps[s.Key] = At(Kw(mod, s.Ap, Keyword.TypeEnum.AttachPoint, s.Name), s.ApId!);
             foreach (var s in look.Slots.Where(s => s.Since == null))
-                foreach (var o in s.Options.Where(o => o.Since != null))
+                foreach (var o in s.Options.Where(o => o.Since == C2Build))
                     MakeOption(mod, look, s, o, aps[s.Key], loose, mods, swaps, made);
             foreach (var s in c2)
             {
@@ -2593,6 +2848,109 @@ public static class Program
                 f => f.GetProperty("palette").ValueKind == JsonValueKind.Number ? f.GetProperty("palette").GetInt32() : -1);
             look.RimFinishV = look.SlotOf("Rims").Options.Select(o => o.Finish != null && finishRow[o.Finish] >= 0
                 ? (finishRow[o.Finish] + 0.5f) / finishRows : -1.0f).ToArray();
+        }
+
+        // 2026-11-16a (C3): what BuildC3 continues from (Build's look item, riding armours, attach points, mods, swaps and lists),
+        // and every look recipe by (slot, option index) for the priorities.
+        sealed record C3State(JsonElement Root, Armor Item, Armor[] Riding, Dictionary<string, Keyword> Aps, Dictionary<string, MiscItem> Loose,
+                              Dictionary<string, List<ArmorModification>> Mods, Dictionary<string, List<MaterialSwap>> Swaps,
+                              List<FormList> OptionLists, List<FormList> SwapLists);
+        C3State? c3;
+        readonly Dictionary<(string Slot, int Index), ConstructibleObject> recipes = new();
+
+        // 2026-11-16a (C3): the third block, in the table's order (c3_ids, from 0xC08, right after 2026-11-15b's weapons forms;
+        // each record at its ID): the new slots' globals (CMB_Look_Seat 0, the stock seat) and attach points (CMB_ap_Seat
+        // "Seat"), the older slots' C3 options (TankL 17-19, TankR 18-20, Fender 18: a swap, an object mod and a recipe each),
+        // the new slots' options (the Seat's 15, each swap's two entries with its V as CNAM), their option lists, the
+        // placeholders (CMB_LookSwaps_PlateInk and _PlateBack, empty) and the new slots' swap lists. In place: the older
+        // slots' option and swap lists take their C3 options; CMB_LookCategories and CMB_LookSwapLists take a list for each
+        // later slot (index = slot: 12 each, 9 and 10 of the swaps' the placeholders); the look item and both riding armours
+        // the new attach points, the template each new slot's option 0; the display order's arrays (UiGroups) and every look
+        // recipe's created-object priority, its option's rank (0, as before, with `--kit-order table`).
+        public void BuildC3(Fallout4Mod mod)
+        {
+            var st = c3 ?? throw new InvalidOperationException("LookRecords.BuildC3 before Build");
+            var made = new List<(IMajorRecordGetter Record, uint Id)>();
+            T At<T>(T r, string id) where T : IMajorRecordGetter { made.Add((r, Id(id))); return r; }
+            var ids = st.Root.GetProperty("c3_ids");
+            var first = Id(ids.GetProperty("first").GetString()!);
+            if (first != C3FirstId || mod.ModHeader.Stats.NextFormID != first)
+                throw new InvalidOperationException($"C3's records start at 0x{first:X} (look_options.json's c3_ids), right after 2026-11-15b's weapons forms; the next ID is 0x{mod.ModHeader.Stats.NextFormID:X}");
+            var before = mod.EnumerateMajorRecords().Count();
+            var news = Slots.Where(s => s.Since == C3Build).ToArray();
+            foreach (var s in news)
+                slotGlobals[s.Key] = At(Global(mod, s.Global, s.Default), s.GlobalId!);
+            foreach (var s in news)
+                st.Aps[s.Key] = At(Kw(mod, s.Ap, Keyword.TypeEnum.AttachPoint, s.Name), s.ApId!);
+            foreach (var s in Slots.Where(s => s.Since != C3Build))
+                foreach (var o in s.Options.Where(o => o.Since == C3Build))
+                    MakeOption(mod, this, s, o, st.Aps[s.Key], st.Loose, st.Mods, st.Swaps, made);
+            foreach (var s in news)
+            {
+                st.Mods[s.Key] = new();
+                st.Swaps[s.Key] = new();
+                foreach (var o in s.Options)
+                    MakeOption(mod, this, s, o, st.Aps[s.Key], st.Loose, st.Mods, st.Swaps, made);
+            }
+            foreach (var s in news)
+                st.OptionLists.Add(At(List(mod, s.List, st.Mods[s.Key].Select(m => m.FormKey)), s.ListId));
+            var placeholders = Slots.Where(s => s.PlaceholderId != null)
+                .ToDictionary(s => s.Key, s => At(List(mod, s.PlaceholderList!, Enumerable.Empty<FormKey>()), s.PlaceholderId!));
+            foreach (var s in news.Where(s => s.Swaps != null))
+                st.SwapLists.Add(At(List(mod, s.Swaps!, st.Swaps[s.Key].Select(m => m.FormKey)), s.SwapsId!));
+
+            // In place: the older slots' lists, index = option (TankR's swap list in option order: its 17 has none).
+            static FormLink<IFallout4MajorRecordGetter> Link(IMajorRecordGetter r) => new(r.FormKey);
+            foreach (var s in Slots.Where(s => s.Since != C3Build && s.Options.Any(o => o.Since == C3Build)))
+            {
+                var ol = st.OptionLists.First(l => l.EditorID == s.List);
+                foreach (var m in st.Mods[s.Key].Skip(ol.Items.Count))
+                    ol.Items.Add(Link(m));
+                var sl = st.SwapLists.First(l => l.EditorID == s.Swaps);
+                foreach (var w in st.Swaps[s.Key].Skip(sl.Items.Count))
+                    sl.Items.Add(Link(w));
+            }
+            foreach (var s in Slots.Skip(Categories.Items.Count))
+                Categories.Items.Add(Link(st.OptionLists.First(l => l.EditorID == s.List)));
+            foreach (var s in Slots.Skip(SwapLists.Items.Count))
+                SwapLists.Items.Add(Link(placeholders.TryGetValue(s.Key, out var ph) ? ph
+                    : s.Swaps != null ? st.SwapLists.First(l => l.EditorID == s.Swaps)
+                    : throw new InvalidOperationException($"{s.Key}: no swap list and no placeholder (CMB_LookSwapLists: index = slot)")));
+            foreach (var s in news)
+            {
+                st.Item.AttachParentSlots!.Add(st.Aps[s.Key]);
+                foreach (var a in st.Riding)
+                    a.AttachParentSlots!.Add(st.Aps[s.Key]);
+                st.Item.ObjectTemplates![0].Includes.Add(new ObjectTemplateInclude { Mod = st.Mods[s.Key][0].ToLink<IAObjectModificationGetter>(), AttachPointIndex = 0 });
+            }
+
+            // The display order (ui_order) and the recipes' priorities.
+            var groups = UiGroups(st.Root, Slots, Sets, KitOrderAlpha);
+            UiStart = groups.Select((g, i) => groups.Take(i).Sum(x => x.Length)).ToArray();
+            UiOrder = groups.SelectMany(g => g).ToArray();
+            UiRank = groups.SelectMany(g =>
+            {
+                var r = new int[g.Length];
+                for (int k = 0; k < g.Length; k++)
+                    r[g[k]] = k;
+                return r;
+            }).ToArray();
+            if (KitOrderAlpha)
+                for (int si = 0; si < Slots.Length; si++)
+                    foreach (var o in Slots[si].Options)
+                        recipes[(Slots[si].Key, o.Index)].CreatedObjectCounts![0].Priority = (ushort)UiRank[UiStart[si] + o.Index];
+
+            var wrong = made.Where(x => x.Record.FormKey.ID != x.Id).ToArray();
+            if (wrong.Length > 0)
+                throw new InvalidOperationException("C3's records off their IDs (look_options.json): " +
+                    string.Join(", ", wrong.Take(5).Select(x => $"{x.Record.EditorID} 0x{x.Record.FormKey.ID:X} (expected 0x{x.Id:X})")));
+            var count = mod.EnumerateMajorRecords().Count() - before;
+            if (count != made.Count || made.Select(x => x.Id).Distinct().Count() != made.Count || made.Count != ids.GetProperty("count").GetInt32())
+                throw new InvalidOperationException($"{count} C3 records made, {made.Count} at the table's IDs, c3_ids says {ids.GetProperty("count").GetInt32()}");
+            if (mod.ModHeader.Stats.NextFormID != Id(ids.GetProperty("next").GetString()!))
+                throw new InvalidOperationException($"the next ID after C3's block is 0x{mod.ModHeader.Stats.NextFormID:X}, not c3_ids' next {ids.GetProperty("next").GetString()}");
+            if (Categories.Items.Count != Slots.Length || SwapLists.Items.Count != Slots.Length || recipes.Count != Slots.Sum(s => s.Options.Length))
+                throw new InvalidOperationException($"CMB_LookCategories {Categories.Items.Count}, CMB_LookSwapLists {SwapLists.Items.Count}, {recipes.Count} recipes: not one a slot ({Slots.Length}) and one an option");
         }
 
         static Keyword Kw(Fallout4Mod mod, string editorId, Keyword.TypeEnum type, string? name)

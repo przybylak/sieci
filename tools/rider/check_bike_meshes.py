@@ -3,7 +3,7 @@
 
   python check_bike_meshes.py --pynifly <io_scene_nifly> --data <Data> [--reference <27c Data>/Meshes/CMB]
       [--stage-dir <stage>] [--look-reference <the previous build's Data>] [--look-options <look_options.json>]
-      [--look-targets art|all] [--look-c2]
+      [--look-targets art|all] [--look-c2] [--look-c3] [--knees <the riding clips' folder>] [--ground-field <badges.json>]
 
 What it checks (FAIL lines make the exit status 1; INFO lines are numbers for the notes):
   shapes     every worn nif has the 30 shapes of harley_meshes.LABELS (the stage's, with --stage-dir: 28 with --disc
@@ -91,6 +91,23 @@ What it checks (FAIL lines make the exit status 1; INFO lines are numbers for th
              materials file, every corner one of static_black's vertices (position, UV and normal: its UVs on
              static_black's atlas), the cut where it meets static_black's kept triangles at most CUT_R from the steering
              axis (the gap a turn opens there), and the tank clear of it with the bars within BarAngle
+  c3         (2026-11-16a, look_emblems.py, the 3D helmets; found by the shapes in the worn nif, --look-c3 demands them) the
+             four shapes static_helmEnclaveL/R and static_helmBosL/R last in every nif (51 parked, 54 worn and view: the
+             plugin's 55 of MAX_SKINS 64), each naming its own materials file (<shape>.bgsm parked, <shape>_worn.bgsm the
+             others), skinned in the worn nifs only, shown by the node flag, an alpha property each; their 8 own files
+             invisible (alpha test 255, alpha 0, no shadow, off_d/_n/_s, no cube): hidden until a tank option swaps them;
+             helm_enclave.bgsm and helm_bos.bgsm as the table's emblems.items (the glow over helms_g with no cube; the
+             chrome cube at 0.8); on the parked nif (full precision) each helmet at most EMBLEM_MAX_VERTS vertices and
+             EMBLEM_TRIS triangles, SKIRT..HEIGHT_MAX over its plate (cast along the plate's normal onto it), every vertex
+             EMBLEM_FIELD_INSET inside its ground's enamel field (unit B's, the area both plates show, inside the chrome
+             bevel: emblem_pieces.GROUND_FIELD_UV or --ground-field's badges.json, mapped through the plate's UVs) and
+             inside the plate's outline inset EMBLEM_INSET, no outward-facing vertex over the plate within EMBLEM_PAINT of the paint (the walls'
+             foot and the skirt go through: the plate is 0.03-0.5 over the paint under them), clear of every other shape
+             (its plate and the other helmet on it, its alternative, aside); the bar assembly (front_*, fork_*, the
+             under-bar mirrors among them) turned within BarAngle at least EMBLEM_BARS clear of them (the view nif); with --knees the rider's legs in every
+             riding clip (the package's CMB_Rider and Female: the leg bones through PyNifly's skeleton.nif, in the bike's
+             frame by CMB_RiderSeat.json) against each helmet and, for comparison, its plate (an estimated LEG_RADIUS of
+             flesh round the bones; no body mesh here); the budget TEX_BUDGET_C3
 """
 
 import argparse
@@ -106,6 +123,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import harley_meshes as H  # noqa: E402
 import bar_cables as BC  # noqa: E402
+import emblem_pieces as EP  # noqa: E402
 from build_bike_meshes import _block_offsets  # noqa: E402
 from nearest import TriangleGrid  # noqa: E402
 
@@ -119,9 +137,26 @@ TEX_BUDGET_LOOK = (104, 102.0)
 # The second customisation build's (2026-11-08a, C2: art-wheels' rim atlas, cast maps, tyres and hue palette, art-plates'
 # plate atlases, palettes and the stock re-sample): plan t53 2.2's budget; 2026-11-07a's tree keeps TEX_BUDGET_LOOK
 TEX_BUDGET_C2 = (124, 125.0)
+# 2026-11-16a (C3): 2026-11-15b's 123 files and 118.6 MB, the helmets' four (helms_d/_n/_s/_g, 1.3 MB: unit A) and the
+# seat's index map and palette (0.7 MB: unit C); the plates' and badges' atlases keep their sizes (unit B)
+TEX_BUDGET_C3 = (130, 125.0)
 ART_WHEELS = ("rim", "cast", "wheelf_tyre_", "wheelr_tyre_", "paint_hue", "static_paint_hue", "fork_paint_hue", "paint_p")
 ART_PLATES = ("plate_", "text_", "plates_", "static_plate_d", "static_plate_n", "static_plate_s")
 LOOK_OPTIONS = Path(__file__).resolve().parent.parent / "esp-generator" / "look_options.json"
+# 2026-11-16a (C3): the 3D helmets (look_emblems.py, unit A) and the other units' files that arrive at the merge
+C3_LABELS = tuple(label for label, _, _ in EP.SHAPES)
+C3_SEAT = ("static_seat_", "seat_p")              # unit C's seat colours (look_seat.py)
+C3_BADGES = ("badge_gunskull", "badge_hg_")       # unit B's skull and the helmets' grounds (look_badges.py)
+EMBLEM_MAX_VERTS = 6000   # a helmet's vertices at most (c3.md 3.1; MAX_VERTS is the shapes' general limit)
+EMBLEM_TRIS = (2500, 3500)
+EMBLEM_INSET = 0.3        # the footprint inside the plate's outline inset this much
+EMBLEM_FIELD_INSET = 0.1  # every vertex this far inside its ground's enamel field (the build insets the footprint 0.2)
+EMBLEM_PAINT = 0.25       # no helmet vertex this near the paint but the wall's foot and the skirt (the overlay rule)
+EMBLEM_BARS = 0.3         # the bar assembly turned within BarAngle at least this clear of the helmets (the author's minimum:
+                          # the under-bar mirrors cross the right plate 1.3 over it at full lock; the right helmets' relief
+                          # is made shallower there, emblem_pieces.MIRROR_CLEAR)
+MAX_SKINS = 64            # CMB_Slope.dll's bike shapes (the worn nif's and the main shape)
+LEG_RADIUS = 5.0          # the knee's and the shin's flesh round the leg bones (an estimate: no body mesh here)
 # The option table's names are scanned for the brand words above (BRAND: Fallout's own factions and fictional brands
 # are fine; the scan keeps real-world names out of the menus)
 NAME_BRANDS = tuple(w.decode() for w in BRAND)
@@ -269,6 +304,11 @@ def art_owner(leaf):
         return "art-plates"
     if low.startswith(ART_WHEELS):
         return "art-wheels"
+    if low.startswith(C3_SEAT) and low not in ("static_seat.bgsm", "static_seat_worn.bgsm", "static_seat_d.dds",
+                                               "static_seat_n.dds", "static_seat_s.dds"):
+        return "seat (unit C)"
+    if low.startswith(C3_BADGES):
+        return "art-badges (unit B)"
     return None
 
 
@@ -292,7 +332,7 @@ def look_checks(rep, args, opts, labels, materials, textures, worn_geo, worn_nam
         if (worn_names.get(label) or "").lower() != mat(label + "_worn"):
             bad.append(f"{label} worn {worn_names.get(label)!r}")
     c2_rims, c2_plate = H.RIM_STYLE_LABELS[0][0] in labels, H.PLATE_TEXT in labels
-    rep.check(not bad and len([x for x in labels if x not in RIDDEN_ONLY]) == len(H.look_labels(c2_rims, c2_plate)),
+    rep.check(not bad and len([x for x in labels if x not in RIDDEN_ONLY + C3_LABELS]) == len(H.look_labels(c2_rims, c2_plate)),
               f"custom: {len(labels)} shapes; {', '.join(new)} in the worn, parked and view nifs (the view's names the worn's), "
               f"each its own materials file and the plugin's fixed role by name; the parked nif's under-bar mirrors "
               f"({', '.join(H.PARKED_OFF)}) not hidden, naming <label>_off.bgsm", "; ".join(bad))
@@ -394,10 +434,11 @@ def c2_checks(rep, args, labels, materials, worn_geo, worn_names, parked_geo, pa
     import bike_pieces as BP
     meshes = args.data / "Meshes" / "CMB"
     want = [lb for lb, _ in H.look_labels(True, True)]
-    built = [x for x in labels if x not in RIDDEN_ONLY]   # 2026-11-15b's front_cables (bar_cables.py) aside
+    built = [x for x in labels if x not in RIDDEN_ONLY + C3_LABELS]   # 2026-11-15b's front_cables (bar_cables.py) and
+    later = [x for x in labels if x in RIDDEN_ONLY + C3_LABELS]          # 2026-11-16a's helmets (look_emblems.py) aside
     rep.check(built == want, f"c2: {len(built)} shapes in the worn and view nifs, {len([x for x in built if x not in H.WORN_ONLY])} "
                              f"in the parked (49 and 46: 2026-11-07a's 33 and 30, the plate's two, the 14 rim styles)"
-                             + (f"; and {', '.join(x for x in labels if x in RIDDEN_ONLY)} (bar_cables.py)" if built != labels else ""),
+                             + (f"; and {', '.join(later)} (bar_cables.py, look_emblems.py)" if later else ""),
               "" if built == want else f"missing {sorted(set(want) - set(built))}, extra {sorted(set(built) - set(want))}")
     mat = lambda name: f"materials\\cmb\\bike\\{name}.bgsm".lower()   # noqa: E731
     # the new shapes' own materials files: named, the invisible ones invisible, static_plate's over its own textures
@@ -646,6 +687,284 @@ def cable_checks(rep, meshes, labels, worn_geo, parts, tank):
                                  f"degrees", f"{gap:.2f} (at {at:+.0f})")
 
 
+def _shape_full(nif, name):
+    """A shape's full-precision (or half-float) vertices, triangles and decoded normals from bar_cables' reader."""
+    k = nif.shape_named(name)
+    if k is None:
+        return None
+    s = BC.TriShape(nif.blocks[k])
+    at = ((s.desc >> 16) & 0xF) * 4
+    return s.positions(), s.tris, s.records[:, at:at + 3].astype(np.float64) / 255.0 * 2.0 - 1.0
+
+
+def c3_checks(rep, args, meshes, labels, materials, parts):
+    """2026-11-16a (C3, look_emblems.py): the 3D helmets: four shapes a nif, last, invisible on their own files until a
+    tank option's swap; their limits, their place on the plates and their clearances."""
+    import bgsm as B
+    stems = (("CMB_BikeParked", "CMB_Bike", ""), ("CMB_BikeWorn", "CMB_BikeWorn", "_worn"),
+             ("CMB_BikeWornRider", "CMB_BikeWornRider", "_worn"), ("CMB_BikeWornRiderF", "CMB_BikeWornRiderF", "_worn"),
+             (VIEW, VIEW, "_worn"))
+    counts, bad, names = [], [], {}
+    for stem, nm, w in stems:
+        path = meshes / f"{stem}.nif"
+        if not path.exists():
+            continue
+        nif = BC.Nif(path.read_bytes())
+        shapes = [nif.name_of(k) for k in nif.shapes()]
+        counts.append(f"{stem} {len(shapes)}")
+        want = [f"{nm}_{label}" for label in C3_LABELS]
+        if shapes[-4:] != want:
+            bad.append(f"{stem}: its last shapes {shapes[-4:]}")
+        for label in C3_LABELS:
+            k = nif.shape_named(f"{nm}_{label}")
+            if k is None:
+                continue
+            s = BC.TriShape(nif.blocks[k])
+            mat = nif.strings[struct.unpack_from("<i", nif.blocks[s.shader], 4)[0]].decode()
+            names.setdefault(label + w, set()).add(mat.lower())
+            if mat.lower() != f"materials\\cmb\\bike\\{label}{w}.bgsm".lower():
+                bad.append(f"{stem}_{label}: materials file {mat}")
+            if (s.skin >= 0) != (stem in WORN) or struct.unpack_from("<I", s.head, 12)[0] & 1:
+                bad.append(f"{stem}_{label}: skinned {s.skin >= 0}, flags {struct.unpack_from('<I', s.head, 12)[0]}")
+            if s.alpha < 0:
+                bad.append(f"{stem}_{label}: no alpha property")
+    worn_n = next((int(c.split()[-1]) for c in counts if c.startswith("CMB_BikeWorn ")), 0)
+    rep.check(not bad and worn_n + 1 <= MAX_SKINS,
+              f"c3: the four helmets ({', '.join(C3_LABELS)}) last in every nif, each naming its own materials file "
+              f"(<shape>.bgsm parked, <shape>_worn.bgsm ridden and in first person), skinned in the worn nifs only, shown "
+              f"by the node flag, an alpha property each; the plugin's shapes {worn_n + 1} of MAX_SKINS {MAX_SKINS}",
+              "; ".join(counts + bad[:8]))
+    # invisible by default: the own files (alpha test 255, alpha 0, no shadows, off's textures, no cube)
+    bad = []
+    for stem_w in sorted(names):
+        path = materials.get(f"cmb\\bike\\{stem_w}.bgsm".lower())
+        if path is None:
+            bad.append(f"{stem_w}.bgsm missing")
+            continue
+        m = B.read(path)
+        if not (m["alpha_test"] and m["alpha_test_ref"] == 255 and m["alpha"] == 0.0 and not m["cast_shadows"]
+                and m["textures"]["diffuse"].lower() == "cmb\\bike\\off_d.dds" and not m["environment_mapping"]):
+            bad.append(f"{stem_w}: alpha test {m['alpha_test']} ref {m['alpha_test_ref']} alpha {m['alpha']} shadows "
+                       f"{m['cast_shadows']} diffuse {m['textures']['diffuse']} env {m['environment_mapping']}")
+    rep.check(len(names) == 8 and not bad, f"c3: the helmets invisible until a swap: their {len(names)} own materials "
+                                            f"files alpha test 255, alpha 0, no shadow, off_d/_n/_s, no cube", "; ".join(bad))
+    # the emblem materials (the swaps' targets): helm_enclave glows by helms_g with no cube, helm_bos on the chrome cube
+    opts = json.loads(LOOK_OPTIONS.read_text()) if LOOK_OPTIONS.exists() else {}
+    bad = []
+    for item in (opts.get("emblems") or {}).get("items", []):
+        leaf = item["material"].replace("/", "\\").lower()
+        path = materials.get(leaf)
+        if path is None:
+            bad.append(f"{item['material']} missing")
+            continue
+        m = B.read(path)
+        t = {k: v.replace("/", "\\").lower() for k, v in m["textures"].items()}
+        tex = {k: v.replace("/", "\\").lower() for k, v in opts["emblems"]["textures"].items()}
+        if (t["diffuse"], t["normal"], t["smoothspec"]) != (tex["diffuse"], tex["normal"], tex["smoothspec"]):
+            bad.append(f"{item['material']}: textures {t['diffuse']}, {t['normal']}, {t['smoothspec']}")
+        if item["glow"] and not (m["glowmap"] and m["emit_enabled"] and t["glow"] == tex["glow"] and not m["environment_mapping"]):
+            bad.append(f"{item['material']}: glow map {m['glowmap']} {t['glow']!r}, env {m['environment_mapping']}")
+        if item.get("env_scale") and not (m["environment_mapping"] and abs(m["env_map_mask_scale"] - item["env_scale"]) < 1e-6
+                                          and t["envmap"] == opts["emblems"]["env"].lower() and not m["glowmap"]):
+            bad.append(f"{item['material']}: env {m['environment_mapping']} {m['env_map_mask_scale']:g} {t['envmap']!r}")
+    rep.check(not bad and opts.get("emblems"), "c3: the emblems' materials files as the table's emblems.items (helm_enclave "
+                                               "the glow shader over helms_g, no cube; helm_bos the chrome cube at 0.8)",
+              "; ".join(bad))
+    # the shapes on the parked nif's plates (full precision)
+    nif = BC.Nif((meshes / "CMB_BikeParked.nif").read_bytes())
+    paint = _shape_full(nif, "CMB_Bike_static_paint")
+    others = {}
+    for k in nif.shapes():
+        name = nif.name_of(k)
+        if name.startswith("CMB_Bike_") and name[len("CMB_Bike_"):] not in C3_LABELS + ("static_paint",) \
+                and not name.endswith(("_static_badgeTankL", "_static_badgeTankR")):
+            s = BC.TriShape(nif.blocks[k])
+            others[name[len("CMB_Bike_"):]] = s.positions()[s.tris]
+    lines, bad, worst = [], [], {"h": 0.0, "inset": np.inf, "paint": np.inf, "other": (np.inf, "")}
+    fields = {name: EP.GROUND_FIELD_UV for name in EP.HELMETS}
+    if args.ground_field:
+        gb = json.loads(args.ground_field.read_text())["badges"]
+        fields = {name: tuple(tuple(p) for p in gb[f"hg_{name}"]["field"]["outline_plate_uv"]) for name in EP.HELMETS}
+    for label, helmet, side in EP.SHAPES:
+        g = _shape_full(nif, f"CMB_Bike_{label}")
+        pl = _shape_full(nif, f"CMB_Bike_{EP.PLATES[side]}")
+        if g is None or pl is None:
+            bad.append(f"{label}: not in the parked nif")
+            continue
+        v, f, n = g
+        fr = EP.plate_frame(*pl, BC.TriShape(nif.blocks[nif.shape_named(f"CMB_Bike_{EP.PLATES[side]}")]).uvs())
+        rel = v - fr["origin"]
+        xy = np.column_stack([rel @ fr["right"], rel @ fr["up"]])
+        W, N, hit = EP.cast_on_plate(fr, xy)
+        if not hit.all():
+            bad.append(f"{label}: {int((~hit).sum())} vertices off its plate")
+            continue
+        h = rel @ fr["n"] - W
+        poly = EP.inset_polygon(fr["outline"], EMBLEM_INSET)
+        inset = float(EP.inside_convex(poly, xy).min())
+        if len(v) > EMBLEM_MAX_VERTS or not EMBLEM_TRIS[0] <= len(f) <= EMBLEM_TRIS[1]:
+            bad.append(f"{label}: {len(v)} vertices, {len(f)} triangles")
+        if h.max() > EP.HEIGHT_MAX + 1e-3 or h.min() < EP.SKIRT - 0.02:
+            bad.append(f"{label}: {h.min():.3f}..{h.max():.3f} over its plate")
+        if inset < 0:
+            bad.append(f"{label}: {-inset:.3f} outside the plate's outline inset {EMBLEM_INSET:g}")
+        # inside its ground's enamel field (unit B's; the area both plates show), clear of the chrome bevel
+        field = EP.field_outline(fr, fields[helmet], 16)
+        in_field = -float(EP.sd_polygon(field, xy).max())
+        if in_field < EMBLEM_FIELD_INSET:
+            bad.append(f"{label}: {in_field:.3f} inside its ground's field (under {EMBLEM_FIELD_INSET:g})")
+        worst["field"] = min(worst.get("field", np.inf), in_field)
+        # the paint: only the walls' foot and the skirt may come near (a vertex there faces along the plate, not out)
+        tris = paint[0][paint[1]]
+        lo, hi = v.min(axis=0) - 3, v.max(axis=0) + 3
+        c = tris.mean(axis=1)
+        tris = tris[np.all((c > lo) & (c < hi), axis=1)]
+        d = TriangleGrid(tris, 0.6).closest(v, reach=1.0)[2]
+        facing = n @ fr["n"] > math.cos(math.radians(45.0))
+        near = (d < EMBLEM_PAINT) & (h > 0.0) & facing
+        if near.any():
+            bad.append(f"{label}: {int(near.sum())} outward-facing vertices over the plate within {EMBLEM_PAINT:g} of the paint")
+        top = h > EMBLEM_PAINT
+        if top.any() and d[top].min() < EMBLEM_PAINT:
+            bad.append(f"{label}: {d[top].min():.3f} from the paint {EMBLEM_PAINT:g} up")
+        # every other shape (but its plate and the other helmets, its alternatives on the same plate)
+        clear = (np.inf, "")
+        for name, t in others.items():
+            cc = t.mean(axis=1)
+            t = t[np.all((cc > lo) & (cc < hi), axis=1)]
+            if len(t):
+                dd = TriangleGrid(t, 1.0).closest(v[h > 0.0], reach=1.0)[2]
+                clear = min(clear, (float(dd.min()), name))
+        if clear[0] < EMBLEM_PAINT:
+            bad.append(f"{label}: {clear[0]:.3f} from {clear[1]}")
+        worst["h"] = max(worst["h"], float(h.max()))
+        worst["inset"] = min(worst["inset"], inset)
+        worst["paint"] = min(worst["paint"], float(d[top].min()) if top.any() else np.inf)
+        worst["other"] = min(worst["other"], clear)
+        lines.append(f"{label} {len(v)} vertices, {len(f)} triangles, {np.ptp(xy[:, 0]):.2f} wide and {np.ptp(xy[:, 1]):.2f} tall "
+                     f"(its foot), {h.min():+.2f}..{h.max():.2f} over its plate, {in_field:.2f} inside its ground's field, "
+                     f"{inset:.2f} inside the plate's outline inset {EMBLEM_INSET:g}, {d.min():.2f} from the paint ({d[top].min() if top.any() else 0:.2f} "
+                     f"from {EMBLEM_PAINT:g} up), " + (f"{clear[0]:.2f} from {clear[1]}" if clear[1] else "no other shape within 3"))
+    rep.check(not bad, f"c3: each helmet at most {EMBLEM_MAX_VERTS} vertices and {EMBLEM_TRIS[0]}-{EMBLEM_TRIS[1]} triangles, "
+                       f"{EP.SKIRT:g}..{EP.HEIGHT_MAX:g} over its plate (the parked nif, full precision), every vertex at "
+                       f"least {EMBLEM_FIELD_INSET:g} inside its ground's enamel field ("
+                       + (f"{args.ground_field}" if args.ground_field else "emblem_pieces.GROUND_FIELD_UV")
+                       + f": the area both plates show, inside the chrome bevel) and the plate's outline inset {EMBLEM_INSET:g}, nothing facing out within {EMBLEM_PAINT:g} of the paint (the wall's "
+                       f"foot and the skirt aside: the plate is 0.03-0.5 over it there), clear of every other shape",
+              "; ".join(bad[:8]))
+    for line in lines:
+        rep.info("c3 helmet", line)
+    # the bars turned within BarAngle against the helmets (fixed): the worn nif's front_* shapes
+    sp = np.array([float(x) for x in parts.get("SteerPoint", "0,0,0").split(",")])
+    ax = H.unit(np.array([float(x) for x in parts.get("SteerAxis", "0,0,1").split(",")]))
+    bar = float(parts.get("BarAngle", "20"))
+    view = BC.Nif((meshes / f"{VIEW}.nif").read_bytes()) if (meshes / f"{VIEW}.nif").exists() else None
+    if view is not None:
+        front = np.vstack([BC.TriShape(view.blocks[k]).positions() for k in view.shapes()
+                           if "_front_" in view.name_of(k).lower() or "_fork" in view.name_of(k).lower()])
+        gaps = []
+        for label in C3_LABELS + tuple(EP.PLATES.values()):
+            g = _shape_full(view, f"{VIEW}_{label}")
+            if g is None:
+                continue
+            tris = g[0][g[1]]
+            r_axis = BC.axis_distance(g[0], sp, ax)
+            a_axis = (g[0] - sp) @ ax
+            fr_r, fr_a = BC.axis_distance(front, sp, ax), (front - sp) @ ax
+            sel = (fr_r > r_axis.min() - 6) & (fr_r < r_axis.max() + 6) & (fr_a > a_axis.min() - 6) & (fr_a < a_axis.max() + 6)
+            gap, at = H.turning_clearance(front[sel], tris, sp, ax, bar) if sel.any() else (np.inf, 0.0)
+            gaps.append((label, gap, at))
+        helm = [x for x in gaps if x[0] in C3_LABELS]
+        rep.check(helm and min(x[1] for x in helm) >= EMBLEM_BARS,
+                  f"c3: the bar assembly (front_*, fork_*) turned within BarAngle {bar:g} at least {EMBLEM_BARS:g} clear of "
+                  f"the helmets ({VIEW}.nif, full precision; a gap over 6 reads as the distance to the box)",
+                  "; ".join(f"{lb} {gp:.1f} (at {at:+.0f})" for lb, gp, at in gaps))
+    if args.knees:
+        knee_checks(rep, args.knees, meshes, args.pynifly)
+    else:
+        rep.info("c3 knees", "not measured (--knees <the riding clips' folder>): TESTING step 1, in game")
+
+
+def knee_checks(rep, clips: Path, meshes: Path, pyn: Path):
+    """The rider's legs against the helmets in every riding clip (the package's CMB_Rider and its Female folder): the
+    legs' bone lines (thigh to calf to foot, the clips' own joints through PyNifly's Fallout 4 skeleton.nif for the
+    hierarchy) in the bike's frame (CMB_RiderSeat.json: the bike rides on its bone through its bind), their least distance
+    to each helmet and, for comparison, to its plate. The flesh round the bones is not here (no body mesh): the clearance
+    printed is that distance less LEG_RADIUS, an estimate; the game is the proof (TESTING step 1)."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import riding_anims as R
+    from rigmath import Rig
+    A = R.load_anim_module(pyn)
+    from pyn.pynifly import NifFile
+    sk = NifFile(str(pyn / "skeletons" / "FO4" / "skeleton.nif"))
+    view = BC.Nif((meshes / f"{VIEW}.nif").read_bytes())
+    targets = {label: _shape_full(view, f"{VIEW}_{label}")[0] for label in C3_LABELS + tuple(EP.PLATES.values())}
+    legs = (("LLeg_Thigh", "LLeg_Calf"), ("LLeg_Calf", "LLeg_Foot"), ("RLeg_Thigh", "RLeg_Calf"), ("RLeg_Calf", "RLeg_Foot"))
+    best = {label: (np.inf, "") for label in targets}
+    nclips = nframes = 0
+    for folder in (clips, clips / "Female"):
+        seat = folder / "CMB_RiderSeat.json"
+        if not seat.exists():
+            continue
+        js = json.loads(seat.read_text())
+        bind = np.array(js["transform"], np.float64)
+        for path in sorted(folder.glob("*.hkx")):
+            a = A.load_fo4_animation(str(path))
+            names = list(a.bone_names)
+            if not all(b in names for b in ("COM",) + tuple(x for l in legs for x in l)):
+                continue
+            parents = []
+            for nm in names:
+                node = sk.nodes.get(nm)
+                p = node.parent if node is not None else None
+                while p is not None and p.name not in names:
+                    p = p.parent
+                parents.append(names.index(p.name) if p is not None else -1)
+            if any(p >= i for i, p in enumerate(parents)):
+                order_ok = False
+            else:
+                order_ok = True
+            rig = Rig(names=names, parents=parents, ref_t=np.zeros((len(names), 3)), ref_q=np.tile([0, 0, 0, 1.0], (len(names), 1)))
+            com = names.index("COM")
+            nclips += 1
+            for fi in range(a.num_frames):
+                lt = np.array([a.tracks[i].translations[fi] for i in range(len(names))], np.float64)
+                lq = np.array([a.tracks[i].rotations[fi] for i in range(len(names))], np.float64)
+                if order_ok:
+                    G = rig.fk(lt, lq)
+                else:
+                    G = np.zeros((len(names), 4, 4))
+                    done = np.zeros(len(names), bool)
+                    from rigmath import compose, q_to_mat
+                    while not done.all():
+                        for i, p in enumerate(parents):
+                            if not done[i] and (p < 0 or done[p]):
+                                loc = compose(lt[i], q_to_mat(lq[i]))
+                                G[i] = loc if p < 0 else G[p] @ loc
+                                done[i] = True
+                to_bike = bind @ np.linalg.inv(G[com])
+                pts = {nm: (to_bike @ G[names.index(nm)][:, 3])[:3] for pair in legs for nm in pair}
+                nframes += 1
+                for label, v in targets.items():
+                    for a0, a1 in legs:
+                        p0, p1 = pts[a0], pts[a1]
+                        e = p1 - p0
+                        t = np.clip((v - p0) @ e / max(e @ e, 1e-9), 0, 1)
+                        d = float(np.linalg.norm(v - (p0 + t[:, None] * e), axis=1).min())
+                        if d < best[label][0]:
+                            best[label] = (d, f"{path.parent.name}/{path.stem} frame {fi} {a0}-{a1}")
+    if not nframes:
+        rep.info("c3 knees", f"no riding clip with the leg bones in {clips}")
+        return
+    helm = {lb: x for lb, x in best.items() if lb in C3_LABELS}
+    worst = min(x[0] for x in helm.values())
+    rep.check(worst - LEG_RADIUS > 0.0,
+              f"c3 knees: in {nclips} riding clips ({nframes} frames, male and female) the legs' bone lines at least "
+              f"{worst:.1f} from the helmets (an estimated flesh of {LEG_RADIUS:g} round them leaves {worst - LEG_RADIUS:.1f}; "
+              f"the plates, for comparison: " + ", ".join(f"{lb} {best[lb][0]:.1f}" for lb in EP.PLATES.values()) + ")",
+              "; ".join(f"{lb} {d:.1f} ({where})" for lb, (d, where) in helm.items()))
+
+
 def shadow_checks56(rep, shadow_of, roles, parked_names, materials, bgsmaterial):
     """The shadows' rule since the 2026-11-10a build (test 52's wish, the front wheel's shadow; test 34's "no shadow
     from the front end" dropped: harley_meshes.load_shaders): in the worn and view nifs each shape's cast-shadow bit
@@ -728,6 +1047,15 @@ def main() -> int:
     ap.add_argument("--look-c2", action="store_true",
                     help="the nifs must be the second customisation build's (2026-11-08a: harley_meshes.py --look-rims 1 "
                          "--look-plate 1); without it, its checks run when the nifs have its shapes")
+    ap.add_argument("--look-c3", action="store_true",
+                    help="the nifs must have the C3 helmets (2026-11-16a, look_emblems.py); without it, its checks run when "
+                         "the nifs have them")
+    ap.add_argument("--ground-field", type=Path,
+                    help="unit B's badges.json: the helmets' grounds' enamel fields (default the outline recorded in "
+                         "emblem_pieces.GROUND_FIELD_UV)")
+    ap.add_argument("--knees", type=Path,
+                    help="the riding clips' folder (Meshes/Actors/Character/Animations/MT/CMB_Rider): the legs against the "
+                         "helmets in every clip (C3)")
     ap.add_argument("--look-targets", choices=("art", "all"), default="art",
                     help="art (until the art unit's files are in the tree): the badge materials files (badge_*.bgsm) the "
                          "option table's swaps target are listed when missing; all: every target must be there")
@@ -758,7 +1086,9 @@ def main() -> int:
         labels = [label for label, _ in (H.look_labels(rims0, plate0) if look0 else H.LABELS)]
         if f"CMB_BikeWorn_{BC.LABEL}".encode() in wb:   # 2026-11-15b: bar_cables.py's split, after the build's shapes
             labels.append(BC.LABEL)
-    roles = dict(H.LABELS + H.LOOK_LABELS + H.C2_LABELS + ((BC.LABEL, "front"),))
+        if f"CMB_BikeWorn_{C3_LABELS[0]}".encode() in wb:   # 2026-11-16a: look_emblems.py's helmets, after those
+            labels += list(C3_LABELS)
+    roles = dict(H.LABELS + H.LOOK_LABELS + H.C2_LABELS + ((BC.LABEL, "front"),) + tuple((x, "") for x in C3_LABELS))
     look = H.FENDER_BADGE in labels   # the customisation build's nifs (2026-11-07a, --look-slots 1)
     look_path = args.look_options or (LOOK_OPTIONS if look and LOOK_OPTIONS.exists() else None)
     look_opts = json.loads(look_path.read_text()) if look_path else None
@@ -992,9 +1322,9 @@ def main() -> int:
                 if t:
                     vanilla_cubes.add(("textures\\" + t.replace("/", "\\")).lower())
     look_palettes = set()   # the option table's palettes: one mip, no row blur (2026-11-07a's paint_p; 2026-11-08a's
-    if look_opts:           # paint_hue_p, rim_p, plate_p and plate_text_p)
+    if look_opts:           # paint_hue_p, rim_p, plate_p and plate_text_p; 2026-11-16a's seat_p)
         for pal in (look_opts["palette"], look_opts.get("hue_palette"), look_opts.get("rim_palette"),
-                    *(look_opts.get("plate_palette") or {}).values()):
+                    *(look_opts.get("plate_palette") or {}).values(), look_opts.get("seat_palette")):
             if isinstance(pal, dict) and pal.get("texture"):
                 look_palettes.add(pal["texture"].replace("/", "\\").lower())
     missing_tex, bad_dds, seen, art_tex = [], [], set(), {}
@@ -1044,7 +1374,8 @@ def main() -> int:
     if bike_tex.exists():
         dds = list(bike_tex.rglob("*.dds"))
         total = sum(p.stat().st_size for p in dds)
-        budget = TEX_BUDGET_C2 if any(lb in labels for lb, _ in H.C2_LABELS) else TEX_BUDGET_LOOK if look else TEX_BUDGET
+        budget = (TEX_BUDGET_C3 if all(lb in labels for lb in C3_LABELS) else TEX_BUDGET_C2 if any(lb in labels for lb, _ in H.C2_LABELS)
+                  else TEX_BUDGET_LOOK if look else TEX_BUDGET)
         rep.check(len(dds) <= budget[0] and total <= budget[1] * 1024 * 1024,
                   f"textures: Textures/CMB/Bike {len(dds)} files, {total / 1048576:.1f} MB of DDS (budget {budget[0]} "
                   f"files, {budget[1]:g} MB)")
@@ -1396,6 +1727,11 @@ def main() -> int:
                   "" if c2 else f"{len(labels)} shapes, none of them")
     if c2 or args.look_c2:
         c2_checks(rep, args, labels, materials, worn_geo, worn_names, parked_geo, parked_names, P)
+    c3 = all(x in labels for x in C3_LABELS)
+    if args.look_c3:
+        rep.check(c3, "c3: the 2026-11-16a helmets (look_emblems.py)", "" if c3 else f"{len(labels)} shapes, none of them")
+    if c3:
+        c3_checks(rep, args, meshes, labels, materials, parts)
 
     # --- brand ----------------------------------------------------------------------------------------------------
     hits = []

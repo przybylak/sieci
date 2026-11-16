@@ -650,6 +650,148 @@ Group Fixes_59
 	{Fallout4.esm 0x046BAF: the put-away's fallback (PlayIdleAction) when the plugin's call isn't there or didn't do it.}
 EndGroup
 
+; 2026-11-16a (C3, build A): the seat's colour (slot 11), the 3D helmets' right-side follow and the alphabetical dropdowns.
+; None is Mandatory: an older ESP leaves them None, and then the look has 11 slots, the right tank's "Same as the left" is the
+; left's own index and the dropdowns' properties give the globals' own values (2026-11-15b). The Ui<slot> properties are full
+; ones (Get and Set): the plugin fills none of them; the MCM's dropdowns are bound to them (PropertyValueInt).
+Group Look_C3
+	GlobalVariable Property CMB_Look_Seat Auto Const
+	{0xC08: the seat, an index into CMB_LookOptions_Seat (0 = as it came, the dark brown leather; 1-10 a colour, 11-14 a colour
+	with contrasting piping).}
+	int[] Property TankRightOf Auto Const
+	{Per TankL option: the TankR option with the same key (0-16 the same index, TankL 17-19 TankR 18-20: "Same as the left", 17,
+	sits before them). The right tank's "Same as the left" resolves through it.}
+	int[] Property UiOrder Auto Const
+	{The dropdowns' display order: 13 groups (the 12 slots in slot order, then the faction sets), each from UiStart[g]:
+	UiOrder[UiStart[g] + rank] = the option index shown at that rank (pinned first, then by name, Paint's palette test last;
+	the steppers, Mirrors and Tyres, in index order).}
+	int[] Property UiRank Auto Const
+	{UiOrder's inverse within each group: UiRank[UiStart[g] + index] = that option's rank.}
+	int[] Property UiStart Auto Const
+	{Each group's first entry in UiOrder and UiRank (13; a slot's is its LookSlotStart). A group ends where the next starts,
+	the last at UiOrder's end.}
+	int Property UiTankL
+	{MCM "Tank badge, left": the rank of CMB_Look_TankL's option in the dropdown's (alphabetical) list; set: the option at that
+	rank. The global keeps the option index (saves and the field kit unchanged).}
+		int Function Get()
+			return UiGet(0)
+		EndFunction
+		Function Set(int aiRank)
+			UiSet(0, aiRank)
+		EndFunction
+	EndProperty
+	int Property UiTankR
+	{MCM "Tank badge, right" (CMB_Look_TankR; "Same as the left" pinned after the stock badge).}
+		int Function Get()
+			return UiGet(1)
+		EndFunction
+		Function Set(int aiRank)
+			UiSet(1, aiRank)
+		EndFunction
+	EndProperty
+	int Property UiFender
+	{MCM "Rear fender badge" (CMB_Look_Fender).}
+		int Function Get()
+			return UiGet(2)
+		EndFunction
+		Function Set(int aiRank)
+			UiSet(2, aiRank)
+		EndFunction
+	EndProperty
+	int Property UiPaint
+	{MCM "Paint" (CMB_Look_Paint; the palette test last).}
+		int Function Get()
+			return UiGet(3)
+		EndFunction
+		Function Set(int aiRank)
+			UiSet(3, aiRank)
+		EndFunction
+	EndProperty
+	int Property UiRims
+	{MCM "Rims" (CMB_Look_Rims).}
+		int Function Get()
+			return UiGet(5)
+		EndFunction
+		Function Set(int aiRank)
+			UiSet(5, aiRank)
+		EndFunction
+	EndProperty
+	int Property UiPlate
+	{MCM "Plate" (CMB_Look_Plate).}
+		int Function Get()
+			return UiGet(7)
+		EndFunction
+		Function Set(int aiRank)
+			UiSet(7, aiRank)
+		EndFunction
+	EndProperty
+	int Property UiPlateText
+	{MCM "Plate text" (CMB_Look_PlateText; "The plate's own" and None pinned).}
+		int Function Get()
+			return UiGet(8)
+		EndFunction
+		Function Set(int aiRank)
+			UiSet(8, aiRank)
+		EndFunction
+	EndProperty
+	int Property UiPlateInk
+	{MCM "Plate letters" (CMB_Look_PlateInk).}
+		int Function Get()
+			return UiGet(9)
+		EndFunction
+		Function Set(int aiRank)
+			UiSet(9, aiRank)
+		EndFunction
+	EndProperty
+	int Property UiPlateBack
+	{MCM "Plate background" (CMB_Look_PlateBack).}
+		int Function Get()
+			return UiGet(10)
+		EndFunction
+		Function Set(int aiRank)
+			UiSet(10, aiRank)
+		EndFunction
+	EndProperty
+	int Property UiSeat
+	{MCM "Seat" (CMB_Look_Seat).}
+		int Function Get()
+			return UiGet(11)
+		EndFunction
+		Function Set(int aiRank)
+			UiSet(11, aiRank)
+		EndFunction
+	EndProperty
+	int Property UiFactionSet
+	{MCM "Faction set" (CMB_LookFactionSet, group 12; None pinned).}
+		int Function Get()
+			return UiGet(12)
+		EndFunction
+		Function Set(int aiRank)
+			UiSet(12, aiRank)
+		EndFunction
+	EndProperty
+EndGroup
+
+; 2026-11-16a (C3), design 3.7's fallback (b), not in this build's ESP: if the test round finds that MCM's property source
+; doesn't call a full property's Get and Set, a later ESP adds eleven globals (CMB_LookUi_<slot>, 0xC50-0xC5A) holding the
+; dropdowns' ranks, binds the dropdowns to them (GlobalValue) and fills these. The controller then syncs them with the slots'
+; globals (LookUiPull, LookUiPush): from them at the MCM's Apply and at LookSync (only a group the MCM moved since the last
+; push), to them whenever the look is put on (ApplyLook: the Apply, the field kit's end, a load, a LookSync that changed
+; something). None (this build): nothing synced, no call.
+Group Look_C3_UiFallback
+	GlobalVariable Property CMB_LookUi_TankL Auto Const
+	GlobalVariable Property CMB_LookUi_TankR Auto Const
+	GlobalVariable Property CMB_LookUi_Fender Auto Const
+	GlobalVariable Property CMB_LookUi_Paint Auto Const
+	GlobalVariable Property CMB_LookUi_Rims Auto Const
+	GlobalVariable Property CMB_LookUi_Plate Auto Const
+	GlobalVariable Property CMB_LookUi_PlateText Auto Const
+	GlobalVariable Property CMB_LookUi_PlateInk Auto Const
+	GlobalVariable Property CMB_LookUi_PlateBack Auto Const
+	GlobalVariable Property CMB_LookUi_Seat Auto Const
+	GlobalVariable Property CMB_LookUi_FactionSet Auto Const
+EndGroup
+
 ; ---------------------------------------------------------------------------
 ; Constants
 ; ---------------------------------------------------------------------------
@@ -1082,6 +1224,9 @@ Event OnInit()
 		AudioCategoryFSTplayer.UnMute()
 	endif
 	TryDeliverKeys()
+	; 2026-11-16a's review (fallback b, none in this ESP): a new game's dropdowns' fallback globals given the look's ranks, so a
+	; move in the MCM before the first look is put on is taken at the next sync (not overwritten as "the first sync")
+	LookUiPush()
 EndEvent
 
 ; Called by CMB_PlayerAliasScript every time a save is loaded.
@@ -5299,7 +5444,7 @@ string Function KeptKey()
 		text = "mods"
 		int s = 0
 		while s < LookSlots
-			if s != LookSlotMirrors && !LookSlotColour(s)
+			if s != LookSlotMirrors && !LookSlotColour(s) && (s < LookSlotSeat || LookSlotThere(s))   ; 2026-11-16a: as LookState
 				int i = LookChoice(s, true)
 				if s == LookSlotPlateText && i == LookTextNone && LookChoice(s, false) == LookTextOwn
 					i = 0   ; as AttachLook: the plate's own text "None" carries no mod
@@ -5380,11 +5525,11 @@ EndFunction
 
 string Property LookMenuName = "ExamineMenu" AutoReadOnly
 {The armour bench's menu (the field kit opens it).}
-int Property LookSlots = 11 AutoReadOnly
+int Property LookSlots = 12 AutoReadOnly
 {The slots, in CMB_LookCategories' order: 0 the left tank badge, 1 the right, 2 the rear fender badge,
 3 the paint, 4 the mirrors; since 2026-11-08a 5 the rims, 6 the tyres, 7 the plate, 8 the plate's text,
-9 its letters' colour, 10 its background colour (an older ESP has the first five only: the others'
-globals None, nothing done for them).}
+9 its letters' colour, 10 its background colour; since 2026-11-16a 11 the seat (an older ESP has the first
+five or eleven only: the others' globals None, nothing done for them, the seat not even in LookState).}
 int Property LookSlotTankL = 0 AutoReadOnly
 int Property LookSlotTankR = 1 AutoReadOnly
 int Property LookSlotFender = 2 AutoReadOnly
@@ -5396,6 +5541,7 @@ int Property LookSlotPlate = 7 AutoReadOnly
 int Property LookSlotPlateText = 8 AutoReadOnly
 int Property LookSlotPlateInk = 9 AutoReadOnly
 int Property LookSlotPlateBack = 10 AutoReadOnly
+int Property LookSlotSeat = 11 AutoReadOnly
 int Property LookFollowLeft = 17 AutoReadOnly
 {The right tank's option "Same as the left" (its default): the left's choice, wherever a look is put on.}
 int Property LookPaintFree = 45 AutoReadOnly
@@ -5494,6 +5640,8 @@ GlobalVariable Function LookGlobal(int aiSlot)
 		return CMB_Look_PlateInk
 	elseif aiSlot == LookSlotPlateBack
 		return CMB_Look_PlateBack
+	elseif aiSlot == LookSlotSeat
+		return CMB_Look_Seat   ; 2026-11-16a: None with an older ESP
 	endif
 	return None
 EndFunction
@@ -5508,7 +5656,8 @@ FormList Function LookList(int aiSlot)
 EndFunction
 
 ; The slot's choice: its global, or 0 (the stock look) when it is missing or past its list. With
-; abResolved the right tank's "Same as the left" (17) is the left's choice (the two lists agree on 0-16),
+; abResolved the right tank's "Same as the left" (17) is the left's choice (the two lists agree on 0-16;
+; 2026-11-16a: through TankRightOf, LookRightOf, since the left's 17-19 are the right's 18-20),
 ; and (2026-11-08a) the plate text as shown: "The plate's own" (0) is the plate's own text
 ; (LookPlateOwnText: "None", 1, on the stock plate), and so is a crude one while "Crude plate texts"
 ; (CMB_LookPlateCrude) is off, said once a change.
@@ -5525,10 +5674,25 @@ int Function LookChoice(int aiSlot, bool abResolved)
 		return 0   ; the stock look: no list looked at (getting on with it reads the globals only)
 	endif
 	if abResolved && aiSlot == LookSlotTankR && i == LookFollowLeft
-		return LookChoice(LookSlotTankL, true)
+		return LookRightOf(LookChoice(LookSlotTankL, true))
 	endif
 	FormList options = LookList(aiSlot)
 	if i < 0 || (options && i >= options.GetSize())
+		return 0
+	endif
+	return i
+EndFunction
+
+; 2026-11-16a (C3): "Same as the left" for the left's choice aiLeft: the right's option with the same key (TankRightOf); with
+; an older ESP (TankRightOf None) or past its end the left's own index (the old rule). 0 (stock) when that isn't in the right's
+; list.
+int Function LookRightOf(int aiLeft)
+	int i = aiLeft
+	if TankRightOf && aiLeft >= 0 && aiLeft < TankRightOf.Length
+		i = TankRightOf[aiLeft]
+	endif
+	FormList options = LookList(LookSlotTankR)
+	if i < 0 || (options && i >= options.GetSize()) || i == LookFollowLeft
 		return 0
 	endif
 	return i
@@ -5651,11 +5815,13 @@ string Function LookSlotText(int aiSlot)
 		return "plate text"
 	elseif aiSlot == LookSlotPlateInk
 		return "plate letters"
+	elseif aiSlot == LookSlotPlateBack
+		return "plate background"
 	endif
-	return "plate background"
+	return "seat"
 EndFunction
 
-; 2026-11-08a: a slot the ESP has (an older one: the first five only).
+; 2026-11-08a: a slot the ESP has (an older one: the first five only; 2026-11-15b's: eleven, no seat).
 bool Function LookSlotThere(int aiSlot)
 	return aiSlot < LookSlotRims || LookGlobal(aiSlot) != None
 EndFunction
@@ -5849,7 +6015,9 @@ string Function LookState()
 	string text = "on"
 	int s = 0
 	while s < LookSlots
-		text += " " + LookChoice(s, true)
+		if s < LookSlotSeat || LookSlotThere(s)   ; 2026-11-16a: the seat with its global only (an older ESP: 15b's string)
+			text += " " + LookChoice(s, true)
+		endif
 		s += 1
 	endwhile
 	if LookChoice(LookSlotPaint, false) == LookPaintFree && CMB_LookHue && CMB_LookShade
@@ -5864,6 +6032,9 @@ EndFunction
 ; agree. Nothing when it matches (the globals read, no call on any bike), nor in a session (its end
 ; puts the look on).
 Function LookSync(string asFrom)
+	if !customising
+		LookUiPull(asFrom)   ; 2026-11-16a (fallback b, none in this ESP): the MCM's dropdown moves first, as a global bound to them
+	endif
 	LookHueWanted(asFrom)   ; 2026-11-09a ([Look] HueFree): the MCM's hue or shade moved since chooses Free colour
 	if (!CMB_LookCode && !CMB_LookOn) || customising
 		return   ; an older ESP (no look), or a session
@@ -5883,8 +6054,12 @@ Function ApplyLook(string asFrom)
 	if !CMB_LookCode && !CMB_LookOn
 		return   ; an older ESP: no look
 	endif
+	; 2026-11-16a's review (fallback b, none in this ESP): the MCM's dropdown moves taken before the push below writes the look's
+	; ranks over them (a load, the kit's end); after LookSync's or the MCM's Apply's own pull it takes nothing
+	LookUiPull(asFrom)
 	LookHueRecord()   ; the review of 2026-11-09a (A4, A5; [Look] HueFree): the look as put on, for LookHueWanted
 	lookApplied = LookState()
+	LookUiPush()   ; 2026-11-16a (fallback b, none in this ESP): the dropdowns' fallback globals show the look as put on
 	bool active = LookActive()
 	float code = 0.0
 	lookRimCode = 0
@@ -5931,6 +6106,7 @@ Function LookAfterLoad()
 	; before anything here can yield, so a getting on during the load's own compose never skips the pass on another save's key
 	CallLookF4SE("ForgetWornIndexes")
 	lookCrudeSaid = -1   ; 2026-11-08a: said again in this session's log
+	lookUiGetSaid = false   ; 2026-11-16a: the MCM's first read through a dropdown's property, said again this session
 	lookViewDue = false
 	wornSwapDue = false
 	; 2026-11-09a (test 51): no count of parked look work, after-the-fade check or activation from before the load is true
@@ -7010,6 +7186,7 @@ EndFunction
 ; (0-359, whole) and shade (0-3), then put on (the ridden bike's worn look at the next getting on).
 ; Also the way back to stock with free customising off.
 Function LookApplyFromMcm()
+	LookUiPull("the MCM")   ; 2026-11-16a (fallback b, none in this ESP): the dropdowns' moves into the slots' globals first
 	LookHueWanted("the MCM")   ; 2026-11-09a ([Look] HueFree): the hue or shade moved chooses Free colour (a set here wins)
 	if !CMB_LookCode || !CMB_LookCategories
 		Log("Look: from the MCM: no look records (an older ESP): nothing done.")
@@ -7118,6 +7295,207 @@ string Function LookShadeName(int aiShade)
 		return "Light"
 	endif
 	return "Pastel"
+EndFunction
+
+; ---------------------------------------------------------------------------
+; 2026-11-16a (C3, design 3.7): the MCM's look dropdowns in alphabetical order
+; ---------------------------------------------------------------------------
+; The dropdowns list their options in display order (the pinned ones first, then by name; look_options.json's ui_order) and
+; are bound to the Ui<slot> properties (Group Look_C3): Get gives the rank of the option the slot's global holds, Set writes
+; the option at the chosen rank into it. Only the presentation moves: the globals, the saves and the field kit keep the
+; option index. 13 groups: the 12 slots in slot order (the steppers, Mirrors and Tyres, keep their own globals and index
+; order), then the faction sets (12). Without the arrays (an older ESP) a rank is the index itself (2026-11-15b's lists).
+
+int Property LookUiGroups = 13 AutoReadOnly
+int Property LookUiFactionSet = 12 AutoReadOnly
+{The faction sets' group in the Ui arrays (its global CMB_LookFactionSet).}
+
+bool lookUiGetSaid = false     ; the first Get of a session said in the log (the property route works)
+int[] lookUiPushed             ; fallback (b): per group the rank last written into its CMB_LookUi_ global (-1 none); None: none yet
+
+; Group aiGroup's global: a slot's (0-11) or the faction set's (12).
+GlobalVariable Function UiGroupGlobal(int aiGroup)
+	if aiGroup == LookUiFactionSet
+		return CMB_LookFactionSet
+	endif
+	return LookGlobal(aiGroup)
+EndFunction
+
+; Group aiGroup's length in UiOrder and UiRank (from UiStart[g] to the next group's start, the last to UiOrder's end); 0 when
+; the arrays are missing (an older ESP), don't agree or don't hold the group.
+int Function UiGroupSize(int aiGroup)
+	if !UiOrder || !UiRank || !UiStart || aiGroup < 0 || aiGroup >= UiStart.Length || UiRank.Length != UiOrder.Length
+		return 0
+	endif
+	int start = UiStart[aiGroup]
+	int stop = UiOrder.Length
+	if aiGroup + 1 < UiStart.Length
+		stop = UiStart[aiGroup + 1]
+	endif
+	if start < 0 || stop < start || stop > UiOrder.Length
+		return 0
+	endif
+	return stop - start
+EndFunction
+
+; An option index's rank in its group's dropdown (the index itself without the arrays or out of the group's range).
+int Function UiRankOf(int aiGroup, int aiIndex)
+	if aiIndex < 0 || aiIndex >= UiGroupSize(aiGroup)
+		return aiIndex
+	endif
+	return UiRank[UiStart[aiGroup] + aiIndex]
+EndFunction
+
+; The option index shown at a rank (the rank itself without the arrays or out of the group's range: LookApplyFromMcm clamps it).
+int Function UiIndexAt(int aiGroup, int aiRank)
+	if aiRank < 0 || aiRank >= UiGroupSize(aiGroup)
+		return aiRank
+	endif
+	return UiOrder[UiStart[aiGroup] + aiRank]
+EndFunction
+
+string Function UiGroupText(int aiGroup)
+	if aiGroup == LookUiFactionSet
+		return "faction set"
+	endif
+	return LookSlotText(aiGroup)
+EndFunction
+
+string Function UiOptionText(int aiGroup, int aiIndex)
+	if aiGroup == LookUiFactionSet
+		return "set " + aiIndex
+	endif
+	return LookName(aiGroup, aiIndex)
+EndFunction
+
+; The Ui<slot> properties' Get: the rank of the option the group's global holds (0 without the global). The first of a session
+; is said once (the MCM reads the dropdowns through the properties: design 3.7's question, settled by this line).
+int Function UiGet(int aiGroup)
+	GlobalVariable g = UiGroupGlobal(aiGroup)
+	if !g
+		return 0
+	endif
+	int i = g.GetValue() as int
+	int rank = UiRankOf(aiGroup, i)
+	if !lookUiGetSaid
+		lookUiGetSaid = true
+		Log("Look: the MCM reads its dropdowns through the controller's properties (the " + UiGroupText(aiGroup) + "'s: " + UiOptionText(aiGroup, i) + " (" + i + ") at rank " + rank + Ternary(UiGroupSize(aiGroup) > 0, "", ", no Ui arrays: the index itself") + ")")
+	endif
+	return rank
+EndFunction
+
+; ...their Set: the option at that rank into the group's global (only on a difference), said. Nothing else: the look goes on at
+; the MCM's Apply or the next LookSync, as with the dropdown bound to the global itself (2026-11-15b).
+Function UiSet(int aiGroup, int aiRank)
+	GlobalVariable g = UiGroupGlobal(aiGroup)
+	if !g
+		return
+	endif
+	int i = UiIndexAt(aiGroup, aiRank)
+	if g.GetValue() != (i as float)
+		g.SetValue(i as float)
+		Log("Look: the MCM's " + UiGroupText(aiGroup) + " dropdown (its property): rank " + aiRank + " = " + UiOptionText(aiGroup, i) + " (" + i + ")")
+	endif
+EndFunction
+
+; Fallback (b): group aiGroup's CMB_LookUi_ global (None: not in the ESP, or a stepper's group, 4 Mirrors and 6 Tyres).
+GlobalVariable Function UiFallbackGlobal(int aiGroup)
+	if aiGroup == 0
+		return CMB_LookUi_TankL
+	elseif aiGroup == 1
+		return CMB_LookUi_TankR
+	elseif aiGroup == 2
+		return CMB_LookUi_Fender
+	elseif aiGroup == 3
+		return CMB_LookUi_Paint
+	elseif aiGroup == 5
+		return CMB_LookUi_Rims
+	elseif aiGroup == 7
+		return CMB_LookUi_Plate
+	elseif aiGroup == 8
+		return CMB_LookUi_PlateText
+	elseif aiGroup == 9
+		return CMB_LookUi_PlateInk
+	elseif aiGroup == 10
+		return CMB_LookUi_PlateBack
+	elseif aiGroup == 11
+		return CMB_LookUi_Seat
+	elseif aiGroup == LookUiFactionSet
+		return CMB_LookUi_FactionSet
+	endif
+	return None
+EndFunction
+
+; Fallback (b) in the ESP: any of the eleven globals filled (this build: none, so the hooks below do nothing, no call).
+bool Function UiFallbackOn()
+	return CMB_LookUi_TankL || CMB_LookUi_TankR || CMB_LookUi_Fender || CMB_LookUi_Paint || CMB_LookUi_Rims || CMB_LookUi_Plate || CMB_LookUi_PlateText || CMB_LookUi_PlateInk || CMB_LookUi_PlateBack || CMB_LookUi_Seat || CMB_LookUi_FactionSet
+EndFunction
+
+; Fallback (b), ApplyLook: each group's CMB_LookUi_ global set to the rank of its global's option (only on a difference), the
+; ranks remembered (so a pull tells the MCM's moves from the scripts' own). Returns the globals written.
+int Function LookUiPush()
+	if !UiFallbackOn()
+		return 0
+	endif
+	if !lookUiPushed || lookUiPushed.Length != LookUiGroups
+		lookUiPushed = new int[13]
+		int k = 0
+		while k < lookUiPushed.Length
+			lookUiPushed[k] = -1
+			k += 1
+		endwhile
+	endif
+	int wrote = 0
+	int g = 0
+	while g < LookUiGroups
+		GlobalVariable ui = UiFallbackGlobal(g)
+		GlobalVariable slot = UiGroupGlobal(g)
+		if ui && slot
+			int rank = UiRankOf(g, slot.GetValue() as int)
+			if ui.GetValue() != (rank as float)
+				ui.SetValue(rank as float)
+				wrote += 1
+			endif
+			lookUiPushed[g] = rank
+		endif
+		g += 1
+	endwhile
+	return wrote
+EndFunction
+
+; Fallback (b), LookSync and the MCM's Apply (before anything reads the slots' globals): a group whose CMB_LookUi_ global holds
+; another rank than the last pushed (the MCM moved it) sets its global to the option at that rank, said. Before the first push
+; (a save from before the fallback ESP, or a new game) nothing is taken: the saved choices win, and their ranks are pushed.
+; Returns how many groups it took.
+int Function LookUiPull(string asFrom)
+	if !UiFallbackOn()
+		return 0
+	endif
+	if !lookUiPushed || lookUiPushed.Length != LookUiGroups
+		LookUiPush()
+		Log("Look: the dropdowns' fallback globals given the look's ranks (" + asFrom + ", the first sync)")
+		return 0
+	endif
+	int took = 0
+	int g = 0
+	while g < LookUiGroups
+		GlobalVariable ui = UiFallbackGlobal(g)
+		GlobalVariable slot = UiGroupGlobal(g)
+		if ui && slot
+			int rank = ui.GetValue() as int
+			if rank != lookUiPushed[g]
+				int i = UiIndexAt(g, rank)
+				if slot.GetValue() != (i as float)
+					slot.SetValue(i as float)
+				endif
+				lookUiPushed[g] = rank
+				took += 1
+				Log("Look: the MCM's " + UiGroupText(g) + " dropdown (its fallback global, " + asFrom + "): rank " + rank + " = " + UiOptionText(g, i) + " (" + i + ")")
+			endif
+		endif
+		g += 1
+	endwhile
+	return took
 EndFunction
 
 ; ---------------------------------------------------------------------------

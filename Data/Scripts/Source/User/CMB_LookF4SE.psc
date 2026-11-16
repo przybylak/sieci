@@ -76,10 +76,24 @@ Group Fixes_55
 	body colour's V is rimV).}
 EndGroup
 
+; 2026-11-16a (C3, build A): the seat's colour (slot 11) and the 3D helmets' right-side follow. None (an older ESP) = 11 slots,
+; the right tank's "Same as the left" the left's own index (2026-11-15b).
+Group Look_C3
+	GlobalVariable Property CMB_Look_Seat Auto Const
+	{0xC08: the seat, an index into CMB_LookOptions_Seat (0 = as it came, the dark brown leather; 1-14 the colours).}
+	int[] Property TankRightOf Auto Const
+	{Per TankL option: the TankR option with the same key (0-16 the same index; the 3D helmets and the skull, TankL 17-19, are
+	TankR 18-20, after "Same as the left"). "Same as the left" resolves through it.}
+	float[] Property SeatV Auto Const
+	{Per Seat option: its row's V of seat_p.dds ((row + 0.5) / 16, the CNAM its two entries carry); -1 for option 0 (the
+	stock seat: its own files, no palette, nothing written).}
+EndGroup
+
 ; The composed look: every slot's chosen swap's entries in slot order (the right tank's "Same as the
 ; left", 17, is the left's choice; with CMB_LookOn 0 every slot's option 0, the identities, which put
 ; a loaded bike back to stock), set into CMB_LookSwap. composedCount its entries, composedActive true
-; if any slot is off its option 0.
+; if any slot is off its option 0. 2026-11-16a: the seat's entries with its V (SeatV, as a coloured entry and its echo: the worn
+; bike's own mods may have put the target on already).
 int composedCount = 0
 bool composedActive = false
 
@@ -88,6 +102,9 @@ bool composedActive = false
 ; holds these nine), 9 PlateInk, 10 PlateBack (no swaps). The plate text's 1 is "None" (off.bgsm); its
 ; 0, "The plate's own", has no swap, so CMB_LookSwaps_PlateText's entry k - 1 is option k. The plate's
 ; colours are 16 (plate_p.dds: 16 background rows a design; plate_text_p.dds: 16 inks).
+; 2026-11-16a (C3): 11 Seat. CMB_LookSwapLists holds twelve, index = slot: 9 and 10 are empty placeholders (the plate's colour
+; slots still have no swaps), 11 the Seat's (index = option). The right tank's swap list skips "Same as the left" (17), so
+; its options 18-20 (the 3D helmets, the skull) are its entries 17-19. An older ESP: nine lists, no seat.
 
 ; 2026-11-08a: the look's colour values (V, a palette row's centre: an entry's colorIndex, and the
 ; fixed globals CMB_Slope.dll copies into the worn bike's materials), set by Colours(); -1 = none. The
@@ -104,6 +121,11 @@ int chosenPaint = -1
 int chosenRims = -1
 int chosenPlate = -1
 int chosenText = -1
+; 2026-11-16a (C3): the seat's option and its V (SeatV; -1 the stock seat, Customise off or an older ESP), set by Colours() with
+; the others. Not one of the "colours" Colours() returns: the seat's mods carry their V (CNAM), so the worn bike's equip needs
+; no F4SE swap for it; Compose and WornIndex write it so no path leaves the seat at colour index 0.
+int chosenSeat = -1
+float seatValue = -1.0
 
 GlobalVariable Function SlotGlobal(int aiSlot)
 	if aiSlot == 0
@@ -128,6 +150,8 @@ GlobalVariable Function SlotGlobal(int aiSlot)
 		return CMB_Look_PlateInk
 	elseif aiSlot == 10
 		return CMB_Look_PlateBack
+	elseif aiSlot == 11
+		return CMB_Look_Seat   ; 2026-11-16a: None with an older ESP (its slot then composes nothing)
 	endif
 	return None
 EndFunction
@@ -172,15 +196,22 @@ FormList Function SwapList(int aiSlot)
 	return CMB_LookSwapLists.GetAt(aiSlot) as FormList
 EndFunction
 
-; Option aiChoice's entry in the slot's swap list (-1: none).
+; Option aiChoice's entry in the slot's swap list (-1: none). 2026-11-16a: the right tank's list skips "Same as the left" (17,
+; no swap), so its options past it are one entry earlier (18-20 at 17-19; an older ESP has none past 17).
 int Function SwapIndex(int aiSlot, int aiChoice)
 	if aiSlot == 8
+		return aiChoice - 1
+	elseif aiSlot == 1 && aiChoice >= 17
+		if aiChoice == 17
+			return -1
+		endif
 		return aiChoice - 1
 	endif
 	return aiChoice
 EndFunction
 
-; aiChoice if the slot has that option, else 0 (its stock look).
+; aiChoice if the slot has that option, else 0 (its stock look). 2026-11-16a: an option with no entry in its list (SwapIndex
+; -1: an unresolved "Same as the left") is the stock look too, as it was while TankR's list ended at 16.
 int Function InRange(int aiSlot, int aiChoice)
 	if aiChoice <= 0
 		return 0
@@ -192,22 +223,32 @@ int Function InRange(int aiSlot, int aiChoice)
 		return aiChoice
 	endif
 	FormList swaps = SwapList(aiSlot)
-	if !swaps || SwapIndex(aiSlot, aiChoice) >= swaps.GetSize()
+	int at = SwapIndex(aiSlot, aiChoice)
+	if !swaps || at < 0 || at >= swaps.GetSize()
 		return 0
 	endif
 	return aiChoice
 EndFunction
 
+; 2026-11-16a (C3): "Same as the left" for the left's option aiLeft: the right's option with the same key (TankRightOf); with an
+; older ESP (TankRightOf None) or past its end the left's own index (the old rule: both lists agree on 0-16).
+int Function RightOf(int aiLeft)
+	if TankRightOf && aiLeft >= 0 && aiLeft < TankRightOf.Length
+		return TankRightOf[aiLeft]
+	endif
+	return aiLeft
+EndFunction
+
 ; The slot's choice as composed (as the controller's LookChoice with abResolved): 0 with CMB_LookOn 0,
-; the right tank's 17 the left's, the plate text as shown (TextShown: with CMB_LookOn 0 the stock plate's
-; own, "None", so a loaded bike's text goes back to none).
+; the right tank's 17 the left's (2026-11-16a: through RightOf), the plate text as shown (TextShown: with CMB_LookOn 0 the stock
+; plate's own, "None", so a loaded bike's text goes back to none).
 int Function Chosen(int aiSlot)
 	GlobalVariable g = SlotGlobal(aiSlot)
 	int i = 0
 	if g && LookOn()
 		i = g.GetValue() as int
 		if aiSlot == 1 && i == 17 && CMB_Look_TankL
-			i = CMB_Look_TankL.GetValue() as int
+			i = RightOf(InRange(0, CMB_Look_TankL.GetValue() as int))
 		endif
 	endif
 	if aiSlot == 8
@@ -293,6 +334,8 @@ bool Function Colours()
 	int rims = -1
 	int plate = -1
 	int text = -1
+	int seat = -1    ; 2026-11-16a: the seat's option and V (SeatValueOf), after the four (no call between the members' sets)
+	float seat_v = -1.0
 	if LookOn() && CMB_LookPaintV
 		paint = Chosen(3)
 		int row = PaintRowOf(paint)
@@ -329,6 +372,10 @@ bool Function Colours()
 			endif
 		endif
 	endif
+	if LookOn() && SeatV
+		seat = Chosen(11)
+		seat_v = SeatValueOf(seat)
+	endif
 	paintV = paint_v
 	rimV = rim_v
 	plateV = plate_v
@@ -338,7 +385,18 @@ bool Function Colours()
 	chosenRims = rims
 	chosenPlate = plate
 	chosenText = text
+	chosenSeat = seat
+	seatValue = seat_v
 	return paint_v >= 0.0 || rim_v >= 0.0 || plate_v >= 0.0 || text_v >= 0.0
+EndFunction
+
+; 2026-11-16a (C3): a Seat option's V (SeatV: its seat_p.dds row's, the CNAM of its two entries), -1 for the stock seat (option
+; 0), past SeatV's end or without it (an older ESP).
+float Function SeatValueOf(int aiSeat)
+	if SeatV && aiSeat >= 0 && aiSeat < SeatV.Length
+		return SeatV[aiSeat]
+	endif
+	return -1.0
 EndFunction
 
 ; The V's into the fixed globals CMB_Slope.dll reads for the worn bike (-1 = it writes nothing): the
@@ -356,7 +414,8 @@ Function SetV(GlobalVariable akGlobal, float afValue)
 	endif
 EndFunction
 
-; The slot's V for its entries (-1 none; the rims' only on the body-colour targets).
+; The slot's V for its entries (-1 none; the rims' only on the body-colour targets; 2026-11-16a: the seat's on its entries
+; that swap to another file, i.e. both of options 1-14's).
 float Function SlotV(int aiSlot)
 	if aiSlot == 3
 		return paintV
@@ -366,16 +425,26 @@ float Function SlotV(int aiSlot)
 		return plateV
 	elseif aiSlot == 8
 		return textV
+	elseif aiSlot == 11
+		return seatValue
 	endif
 	return -1.0
 EndFunction
 
-; For the log lines: ", colours: paint <V> rims <V> plate <V> text <V>" ("" with an older ESP).
+; For the log lines: ", colours: paint <V> rims <V> plate <V> text <V>" ("" with an older ESP); 2026-11-16a: " seat <V>" after
+; them with the C3 ESP (SeatV there).
 string Function ColoursText()
 	if !CMB_LookPaintV
 		return ""
 	endif
-	return ", colours: paint " + VText(paintV) + " rims " + VText(rimV) + " plate " + VText(plateV) + " text " + VText(textV)
+	return ", colours: paint " + VText(paintV) + " rims " + VText(rimV) + " plate " + VText(plateV) + " text " + VText(textV) + SeatText(seatValue)
+EndFunction
+
+string Function SeatText(float afValue)
+	if !SeatV
+		return ""
+	endif
+	return " seat " + VText(afValue)
 EndFunction
 
 string Function VText(float afValue)
@@ -457,7 +526,7 @@ MatSwap:RemapData[] Function Compose(bool abWorn = false)
 	int s = 0
 	while s < slots
 		FormList swaps = CMB_LookSwapLists.GetAt(s) as FormList
-		if swaps
+		if swaps && swaps.GetSize() > 0   ; 2026-11-16a: the plate colours' empty placeholders (9, 10) compose nothing, as before
 			int i = Chosen(s)
 			if (s < 5 && i != 0) || (s >= 5 && Raw(s) != 0)
 				composedActive = true   ; (the plate text's "The plate's own" is stock even shown as "None")
@@ -489,8 +558,8 @@ MatSwap:RemapData[] Function Compose(bool abWorn = false)
 					endif
 					if own >= 0.0 && OwnEntry(e)
 						AddColoured(all, sources, echoes, e.source, e.target, e.target, own)
-					elseif v < 0.0 || (s == 5 && body < 0)
-						all.Add(e)
+					elseif v < 0.0 || (s == 5 && body < 0) || (s == 11 && !OwnEntry(e))
+						all.Add(e)   ; (2026-11-16a: a seat entry onto its own file keeps the ESP's)
 						sources.Add(e.source)
 					else
 						string target = e.target
@@ -787,6 +856,9 @@ EndFunction
 ; only, pointed at their hue twins with abHue (Free colour), else at the plain targets. Nothing with afV under 0 (the slot
 ; carries no colour: its option is never edited). Read first, SetRemapData only on a difference (F4SE's Set clears and
 ; re-adds every entry: the others make the round trip with their own index). " <slot> <n> set" / " ... as they were".
+; 2026-11-16a (C3): the seat (11), its entries onto another file (OwnEntry), with SeatV's V both ways: the ESP's own entries
+; carry that V (CNAM), so putting them back is the same V, never NoIndex. Never the MountQuick probe (a restart keeps its V:
+; it can't tell that the others' indexes are gone).
 string Function IndexSlot(int aiSlot, float afV, bool abHue, bool abRestore)
 	if afV < 0.0
 		return ""
@@ -796,7 +868,7 @@ string Function IndexSlot(int aiSlot, float afV, bool abHue, bool abRestore)
 		return ""
 	endif
 	float index = afV
-	if abRestore
+	if abRestore && aiSlot != 11
 		index = NoIndex()
 		if !noIndexKnown
 			return " " + SlotName(aiSlot) + " not put back (no Factory swap to read the ESP's index from)"
@@ -808,7 +880,7 @@ string Function IndexSlot(int aiSlot, float afV, bool abHue, bool abRestore)
 	int j = 0
 	while entries && j < entries.Length
 		MatSwap:RemapData e = entries[j]
-		bool carries = aiSlot != 5
+		bool carries = aiSlot != 5 && (aiSlot != 11 || OwnEntry(e))
 		string target = e.target
 		if aiSlot == 5
 			int body = BodyAt(e.target)
@@ -834,7 +906,7 @@ string Function IndexSlot(int aiSlot, float afV, bool abHue, bool abRestore)
 		sw.SetRemapData(entries)
 		indexChanges += changed
 	endif
-	if !indexProbe && aiSlot != 5 && !abRestore && carried > 0
+	if !indexProbe && aiSlot != 5 && aiSlot != 11 && !abRestore && carried > 0
 		indexProbe = sw   ; 2026-11-15a ([Look] MountQuick): every entry of a paint, plate or text option carries the index
 		indexProbeV = index
 	endif
@@ -853,27 +925,32 @@ string Function SlotName(int aiSlot)
 		return "Plate"
 	elseif aiSlot == 8
 		return "Plate text"
+	elseif aiSlot == 11
+		return "Seat"
 	endif
 	return "slot " + aiSlot
 EndFunction
 
 ; The four slots indexed (abRestore: put back) with the values Colours() just reckoned, as one text ("" nothing looked at);
 ; indexChanges the entries changed (for the log only). The values are taken into locals first, before any call (another
-; thread's Colours may set the members again: the same values).
+; thread's Colours may set the members again: the same values). 2026-11-16a: and the seat, after them (SeatV's V; nothing with
+; the stock seat or an older ESP).
 int indexChanges = 0
 string Function IndexAll(bool abRestore)
 	float paint_v = paintV
 	float rim_v = rimV
 	float plate_v = plateV
 	float text_v = textV
+	float seat_v = seatValue
 	bool hue = rimHue
 	indexChanges = 0
 	indexProbe = None   ; 2026-11-15a: the pass's first indexed paint, plate or text swap (MountQuick's check)
 	indexProbeV = -1.0
 	string text = IndexSlot(3, paint_v, false, abRestore) + IndexSlot(5, rim_v, hue, abRestore)
 	text += IndexSlot(7, plate_v, false, abRestore) + IndexSlot(8, text_v, false, abRestore)
+	text += IndexSlot(11, seat_v, false, abRestore)
 	if text != ""
-		text += ", colours: paint " + VText(paint_v) + " rims " + VText(rim_v) + " plate " + VText(plate_v) + " text " + VText(text_v)
+		text += ", colours: paint " + VText(paint_v) + " rims " + VText(rim_v) + " plate " + VText(plate_v) + " text " + VText(text_v) + SeatText(seat_v)
 	endif
 	return text
 EndFunction
@@ -894,7 +971,7 @@ MatSwap indexProbe = None        ; IndexAll's first indexed paint, plate or text
 float indexProbeV = -1.0
 
 string Function IndexKey()
-	return "paint " + chosenPaint + " " + paintV + ", rims " + chosenRims + " " + rimV + " " + rimHue + ", plate " + chosenPlate + " " + plateV + ", text " + chosenText + " " + textV
+	return "paint " + chosenPaint + " " + paintV + ", rims " + chosenRims + " " + rimV + " " + rimHue + ", plate " + chosenPlate + " " + plateV + ", text " + chosenText + " " + textV + ", seat " + chosenSeat + " " + seatValue
 EndFunction
 
 ; 1: asKey is the remembered pass's and its probe still holds its index (the pass not needed); 0 no pass remembered or another

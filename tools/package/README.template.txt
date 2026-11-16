@@ -1,21 +1,22 @@
-COMMONWEALTH MOTORBIKE - READY-TO-INSTALL FILES (2026-11-15b, repository commit @COMMIT@)
+COMMONWEALTH MOTORBIKE - READY-TO-INSTALL FILES (2026-11-16a, repository commit @COMMIT@)
 
 The Data folder is the whole mod except the rider-pose plugin, which has to be built from
 your own load order:
 
-  Data\CommonwealthMotorbike.esp      the plugin (nine new records since 2026-11-15a: the settings for
-                                      looking back, the view's lean and the look key, and the rule for
-                                      weapons on the bike with its list of handgun keywords)
+  Data\CommonwealthMotorbike.esp      the plugin (72 new records since 2026-11-15b: the seat's slot and
+                                      its 15 choices, the two 3D helmet badges and the Gunners skull on
+                                      both tanks and the skull on the rear fender, and their lists; the
+                                      look's recipes carry their place in the alphabetical order)
   Data\Scripts\*.pex                  compiled scripts (Caprica, Fallout 4 format; no Creation Kit
                                       needed), twelve, as before: CMB_HotkeyF4SE, CMB_GearRestoreF4SE
                                       and CMB_LookF4SE (the customised look on the parked, ridden and
                                       first-person bikes and its colours) need F4SE. Two change: the
-                                      controller and CMB_GearRestoreF4SE (it also reads a gun's own
-                                      keywords for the handgun rule)
+                                      controller (the seat's slot, the MCM's dropdowns, "Same as the
+                                      left" for the new choices) and CMB_LookF4SE (the seat's colour)
   Data\Scripts\Source\User\*.psc      their sources
-  Data\MCM\                           Mod Configuration Menu page and hotkeys (since this build Riding's
-                                      "Allow combat while riding" is "Weapons while riding", with two new
-                                      first-person controls, and Hotkeys has a "Look key")
+  Data\MCM\                           Mod Configuration Menu page and hotkeys (since this build Look has
+                                      a "Seat" dropdown after "Tyres", and its dropdowns list their
+                                      choices alphabetically)
   Data\F4SE\Plugins\CMB_Slope.dll     F4SE plugin: steeper slopes, farther camera, bike tilt, steering,
                                       the speedometer, the lights and the mirrors, the bike in first
                                       person, the landing and water sounds, the sidestep, the launch,
@@ -27,12 +28,12 @@ your own load order:
                                       the field kit's preview, the engine quiet in menus, five gears, the
                                       camera's place in first person read right, the first-person bike
                                       hidden until it is coloured, the slower pull, three earlier logs
-                                      kept, and since this build A and D turning the bike in first person,
-                                      the view's lean, looking back and the look key, a handgun drawn
-                                      seated and the put-away, your own body in first person, the wide
-                                      sidestep, and the lamps and the frame-rate line by the game's frame
-                                      (Fallout 4 1.11.240 + F4SE 0.7.9 only); its settings are in
-                                      CMB_Slope.ini beside it
+                                      kept, A and D turning the bike in first person, the view's lean,
+                                      looking back and the look key, a handgun drawn seated and the
+                                      put-away, your own body in first person, the wide sidestep, and the
+                                      lamps and the frame-rate line by the game's frame (Fallout 4
+                                      1.11.240 + F4SE 0.7.9 only); its settings are in CMB_Slope.ini
+                                      beside it. Both are 2026-11-15b's, unchanged
   Data\Sound\FX\CMB\                  engine sounds: the idle, start and stop and ten riding loops, built
                                       from a real V-twin's recording, and the mod's own two wet-road water
                                       loops, CMB_FxWaterRoadLP.wav and the gentler
@@ -44,15 +45,18 @@ your own load order:
                                       height) and planted on the ground (CMB_BikeWorn.nif);
                                       CMB_BikeView.nif, the bike you see under you in first person;
                                       CMB_BikeParts.ini tells the plugin where its wheels, steering
-                                      axis, lens and speedometer needle are. Since this build the three
-                                      worn nifs and CMB_BikeView.nif have the right-hand cables in a
-                                      shape of their own that turns with the bars; CMB_BikeParked.nif and
-                                      CMB_BikeParts.ini are 2026-11-10a's, unchanged
-  Data\Textures\CMB\Bike\             its textures, 123 DDS, 2026-11-10a's, unchanged
-  Data\Materials\CMB\Bike\            its material files, 427, 2026-11-10a's, unchanged: one per surface
-                                      for the riding bike, *_worn.bgsm, and one per surface for the
-                                      parked bike. The meshes need them: a missing material file shows
-                                      the bike magenta.
+                                      axis, lens and speedometer needle are. Since this build all five
+                                      nifs carry the two 3D helmets on each tank plate, invisible until
+                                      you choose one; CMB_BikeParts.ini is 2026-11-10a's, unchanged
+  Data\Textures\CMB\Bike\             its textures, 129 DDS: since this build the helmets' four and the
+                                      seat's two are new, and the badge atlas (the skull and the
+                                      helmets' enamel plates) and the six plate textures (the emblems
+                                      and the new plate font) change
+  Data\Materials\CMB\Bike\            its material files, 468 (41 new since 2026-11-15b: the helmets'
+                                      ten, the skull's and the two enamel plates' three, the seat's 28):
+                                      one per surface for the riding bike, *_worn.bgsm, and one per
+                                      surface for the parked bike. The meshes need them: a missing
+                                      material file shows the bike magenta.
   Data\Meshes\Actors\Character\Animations\MT\CMB_Rider\          106 riding clips + CMB_RiderClips.json
                                                                  + CMB_RiderSeat.json
   Data\Meshes\Actors\Character\Animations\MT\CMB_Rider\Female\   106 female clips (CBBE seat height), same files
@@ -60,14 +64,93 @@ your own load order:
 No optional folder, as 2026-11-14a. If the 2026-11-06a package's "Commonwealth Motorbike - 2026-11-02a look
 (A-B)" is still in MO2, keep it unticked (or remove it): it has the old badge and none of the new shapes.
 
-WHAT'S NEW IN 2026-11-15b
-  The wishes build for tests 53 and 54, on top of 2026-11-15a (test 54's fixes), which you haven't
-  tried yet: this package holds both, and test 55 covers both. What test 54 liked is as it was. Changed
-  since 2026-11-15a: the ESP (nine new records), two scripts (the controller and CMB_GearRestoreF4SE),
-  the MCM page, CMB_Slope.dll, CMB_Slope.ini and four bike meshes (the right-hand cables). The
-  textures, materials, sounds, riding clips and the rider-pose plugin are 2026-11-10a's.
+WHAT'S NEW IN 2026-11-16a
+  The third customisation build, the first of two art builds (the author's picks): 3D helmet badges,
+  the Gunners skull, the plates redrawn with a new plate font, the seat's colour, and the lists in
+  alphabetical order. Nothing of riding changes: CMB_Slope.dll and CMB_Slope.ini are 2026-11-15b's.
+  You haven't tried 2026-11-15a and 2026-11-15b yet: this package holds both, and test 55 (below)
+  can run before test 56, after it or in the same round. Changed since 2026-11-15b: the ESP (72 new
+  records), two scripts (the controller and CMB_LookF4SE), the MCM page, the five bike meshes, the
+  badge atlas and the plate textures; new: the helmets' and the seat's textures and materials.
 
-  WHAT TEST 55 SHOULD TRY (WHAT TO TEST below has the steps):
+  WHAT TEST 56 SHOULD TRY (WHAT TO TEST below has the steps, 56-1 to 56-14):
+  - the kit's lists and the MCM's dropdowns in alphabetical order, and a choice in the MCM applied
+    as named (two probes: the log lines answer them);
+  - the two 3D helmets: on their enamel plates, in the preview, parked, ridden and in first person;
+    the Enclave's eyes at night; your knees in hard leans; the under-bar mirrors at full lock;
+    "Same as the left"; nothing left over after going back to Stock; the Gunners skull;
+  - each plate design at riding distance;
+  - each seat colour, the dark ones in the game's light, the piped ones close up, the seat with Free
+    colour and an MCM Apply mid-ride, an old save;
+  - the frame rate beside the parked bike.
+
+  NEW IN THIS BUILD:
+  - Tank badges "Enclave helmet (3D)" and "Brotherhood helmet (3D)" (Steel 2, Screws 1, Adhesive 1):
+    the tank's badge plate becomes a plain enamel plate with the stock badge's chrome edge (black for
+    the Enclave, steel grey for the Brotherhood) and a cast helmet emblem of our own stands on it,
+    centred on the plate and angled with it, about 2.5 cm proud: it catches the light and casts its
+    own shading. The Enclave's eyes glow amber. "Same as the left" follows a 3D left. The flat
+    "Enclave helmet" and "Brotherhood helmet" stay. Every bike carries both helmets on both sides,
+    invisible until chosen, so going back to a flat badge or Stock leaves no helmet behind.
+  - "Gunners skull" on both tanks and the rear fender (Adhesive 1, Cloth 1): a bone-white skull with
+    a cross on the brow and a stitched mouth, no plate round it.
+  - The licence plates: every design's emblem redrawn at the plate's own size, so it keeps its shape
+    at riding distance, and a new die-pressed plate font for the texts and legends, in the style of
+    1950s plates: narrow, square, flat-cut and raised. Layouts, texts and colours as before.
+  - A new slot, "Seat" (Cloth 2, Adhesive 1; Dark brown, as it came, free): Black, Tobacco brown,
+    Saddle tan, Oxblood, Olive drab, Cream, Slate grey, Red, Navy, Pre-war turquoise, and four with a
+    contrasting piping: Black with red piping, Black with cream piping, Dark brown with cream piping,
+    Oxblood with black piping. The leather keeps its grain, shading and worn edges; the black seats
+    have half the stock leather's sheen so they read darker than the stock brown. Faction sets leave
+    the seat.
+  - The lists: the MCM's eleven Look dropdowns (both tank badges, the fender, Paint, Rims, Seat, the
+    plate's four, Faction set) list their choices alphabetically after the pinned ones (as it came,
+    None, "Same as the left", "The plate's own"; Paint's "Palette test: colour index" last); Mirrors
+    and Tyres stay steppers. The kit's lists get the same order if the armour menu sorts by the
+    recipes' priority (test 56 tells). Your saved choices don't change, only the order shown.
+  - The first getting on after the update puts the look's mods on afresh once (logged).
+
+  NEXT:
+  - The fixes tests 55 and 56 ask for. Then build B, the second art build: wear and weathered paint
+    (Weathered, Dusty, Muddy, Rusty, Bloody, two combinations, muddy tyres), a badge on the front
+    fender, the headlamp's colour (the lens and the beam) and two more badges, Nuka-Cola and Red
+    Rocket; later, from 2026-11-15b's open ends, seated clips for a drawn pistol, the left hand to
+    the pistol while reloading, first person's own pistol, an MCM switch for your body in first
+    person.
+
+  MCM:
+    Look: "Seat" after "Tyres" (22 controls; "Dark brown (as it came)" in every save); the eleven
+    dropdowns alphabetical, read and set through the controller's properties (the globals keep the
+    option's number, so saves don't change). If a dropdown always shows its first choice or a choice
+    there does nothing, say so: the next build binds them to globals of their own.
+
+  CMB_SLOPE.INI: no new key; the file is 2026-11-15b's (below).
+
+  EVERY NEW THING IS OPT-IN: each slot starts as it came, and the helmets stay invisible until
+    chosen. The old order of the lists and the old plates are files, not keys (README.md's first
+    table): the 2026-11-15b package's six plate textures (Data\Textures\CMB\Bike\plates_d/_n/_s.dds
+    and plate_text_d/_n/_s.dds) in an MO2 mod of their own ticked below this one give the old
+    letters and emblems back.
+
+  KNOWN, LEFT FOR NOW:
+  - Whether the kit's lists follow the alphabetical order (and which way up), and whether the MCM's
+    dropdowns work through the controller's properties, are test 56's to say.
+  - The helmets are smaller than first planned: they fit inside the enamel plate both sides show and
+    clear of the under-bar mirrors at full lock. Every bike draws the four hidden helmets (about
+    14,000 triangles): test 56 measures the frame rate beside the parked bike.
+  - A piped seat looks like its plain colour from riding distance (the welt is under a pixel there).
+    The steel grey plate on the Brotherhood paint is the weakest contrast of all the paints (it reads
+    by its chrome edge and gloss).
+  - The 2026-11-15b build's known issues (below) still hold.
+
+2026-11-15b AND 2026-11-15a (IN THIS PACKAGE TOO: TEST 55)
+  2026-11-15b is the wishes build for tests 53 and 54, on top of 2026-11-15a (test 54's fixes), which
+  you haven't tried yet: this package holds both, and test 55 covers both. What test 54 liked is as it
+  was. Changed in 2026-11-15b since 2026-11-15a: the ESP (nine new records), two scripts (the
+  controller and CMB_GearRestoreF4SE), the MCM page, CMB_Slope.dll, CMB_Slope.ini and four bike meshes
+  (the right-hand cables); its textures, materials, sounds and riding clips were 2026-11-10a's.
+
+  WHAT TEST 55 SHOULD TRY (WHAT TO TEST below has the steps, 1 to 24):
   - FIRST set the MCM's "Eye forward on the bike" and "Eye height on the bike" back to 0 (your save
     keeps them), and check that Riding's "Weapons while riding" says "Handguns only";
   - steps 1-10, 2026-11-15a's: the field kit's plate colours with no crash and its preview; first
@@ -83,7 +166,7 @@ WHAT'S NEW IN 2026-11-15b
   - step 22, the right-hand cables turning with the bars; step 23, the frame-rate line; step 24, the
     A/Bs.
 
-  TEST 53'S AND 54'S WISHES (new in this build):
+  TEST 53'S AND 54'S WISHES (2026-11-15b):
   - A and D in first person ("can turning with A and D be the same as when turning with mouse?"): they
     now turn the bike as the mouse does, with the lean and the bars, instead of moving you sideways
     ([Steer] FirstKeys).
@@ -146,11 +229,6 @@ WHAT'S NEW IN 2026-11-15b
   - The speed and the gears ("bike reaches 50 just on gear 2"): above 0.6 of its top speed the bike
     takes 5.5 s more to reach it, so the speed climbs with the gears and the top comes about when 3rd
     ends; the engine's gears and their sound are untouched ([Steer] PullTime, PullFrom).
-
-  NEXT:
-  - The fixes test 55 asks for; later, from this build's open ends: seated clips for a drawn pistol,
-    the left hand to the pistol while reloading, first person's own pistol, an MCM switch for your body
-    in first person.
 
   MCM:
     Riding: "Weapons while riding" (None, Handguns only, Any weapon (standing poses)) where "Allow combat
@@ -228,8 +306,7 @@ WHAT'S NEW IN 2026-11-15b
     own text until you leave the kit; the rim styles you didn't fit are still drawn, invisible, on the
     parked bike; a rim style changed in the MCM while riding (or a load mid-ride with "Customise at the
     bike" off, on a rim style) puts the ridden bike on again within about a second; without F4SE the
-    parked and first-person bikes stay stock and the ridden bike's colours stay their defaults; weathered
-    paint, more badges, the front fender, the headlamp's colour and the seat come later.
+    parked and first-person bikes stay stock and the ridden bike's colours stay their defaults.
 
 BORROWED BY PATH (the game's own files, resolved in its archives; none is in this package; nothing new)
   the field kit's toolbox     SetDressing\Toolbox\Toolbox_Large.nif
@@ -245,7 +322,7 @@ BORROWED BY PATH (the game's own files, resolved in its archives; none is in thi
   the toolbox's sound, the six components, the Armorer perk and the game's own armour bench
   (WorkbenchArmorA, the field kit's mode 4) (docs\ASSETS.md lists them); since 2026-11-14a the plugin also
   reads four of the game's own preview transforms for its log (MiscMod01, xTranMiniGun,
-  ArmorTorsoPowerT60, ArmorHatExtraLarge) and writes nothing into them; since this build the ESP's
+  ArmorTorsoPowerT60, ArmorHatExtraLarge) and writes nothing into them; since 2026-11-15b the ESP's
   handgun list holds the game's pistol keyword (WeaponTypePistol), and the controller names the rifle
   keyword (WeaponTypeRifle) and the game's sheathe action (ActionSheath). Global Stash by SKK, another
   mod, is only asked about: whether its plugin (SKKGlobalStashScrapping.esp) is loaded, and then four of
@@ -254,22 +331,58 @@ BORROWED BY PATH (the game's own files, resolved in its archives; none is in thi
 INSTALL / UPDATE (Mod Organizer 2)
   1. Get off the bike, save, quit. If you edited CMB_Slope.ini, keep a copy of it.
   2. Install this zip's Data under the old mod's name and choose Replace (not Merge), or remove the old
-     mod in MO2 and install this one fresh (over 2026-11-14a: this package holds 2026-11-15a too). By
-     hand without MO2: copy Data over and let everything overwrite. The separate "Commonwealth
-     Motorbike - Rider Pose" mod from make_rider_pose.bat stays as it is: no need to rerun it. (If you
-     run make_rider_pose.bat from the repository at this build's commit, it now also writes
-     CMB_RiderPose_report.txt next to CMB_RiderPose.esp: please send it; the plugin it makes is the same.)
-  3. If you had edited CMB_Slope.ini, put your values into the new one: [Tilt], [Steer], [Lamp], [Look],
-     [View] and [Diag] have new keys, and [View] EyeAt and the four KitPreview values new defaults
-     (README.md's first two key tables list them).
-  4. Load test 54's save. In the MCM set "Eye forward on the bike" and "Eye height on the bike" back to
-     0 first, and check that "Weapons while riding" says "Handguns only". Keep Global Stash by SKK
-     installed. The plugin keeps the logs of the three sessions before; say which session each step was
-     in. Then WHAT TO TEST below.
+     mod in MO2 and install this one fresh (over 2026-11-15b, or over 2026-11-14a: this package holds
+     2026-11-15a and 2026-11-15b too). By hand without MO2: copy Data over and let everything
+     overwrite. The separate "Commonwealth Motorbike - Rider Pose" mod from make_rider_pose.bat stays
+     as it is: no need to rerun it. (If you run make_rider_pose.bat from the repository at this
+     build's commit, it also writes CMB_RiderPose_report.txt next to CMB_RiderPose.esp: please send
+     it; the plugin it makes is the same.)
+  3. If you had edited CMB_Slope.ini: from 2026-11-15b nothing changed in it; from 2026-11-14a put your
+     values into the new one: [Tilt], [Steer], [Lamp], [Look], [View] and [Diag] have new keys, and
+     [View] EyeAt and the four KitPreview values new defaults (README.md's key tables list them).
+  4. Load your save. In the MCM's Look section check "Seat" after "Tyres". Coming from 2026-11-14a:
+     set "Eye forward on the bike" and "Eye height on the bike" back to 0 first, and check that
+     "Weapons while riding" says "Handguns only". Keep Global Stash by SKK installed. The plugin keeps
+     the logs of the three sessions before; say which session each step was in. Then WHAT TO TEST
+     below.
   Updating mid-ride: get off first, save, then update.
 
-WHAT TO TEST (docs\TESTING.md, "The 2026-11-15a build" for steps 1-10 and "The 2026-11-15b build"
-for steps 11-24, has the details and the log lines; the numbers are its steps)
+WHAT TO TEST, TEST 56 (docs\TESTING.md, "The 2026-11-16a build", has the details and the log lines;
+the numbers are its steps)
+  56-1. The field kit's "Tank L", "Seat" and "Paint" lists: alphabetical from the top, from the
+        bottom, or the old order? Screenshots.
+  56-2. The MCM's Look dropdowns alphabetical, each showing your choice from before? Papyrus.0.log:
+        "Look: the MCM reads its dropdowns through the controller's properties ..." on opening the
+        page. Choose Seat "Saddle tan" and Tank badge, right "Brotherhood helmet (3D)", Apply: on the
+        bike as named, still shown when you reopen the MCM? A seat chosen at the kit then shown in
+        the MCM? If a dropdown is stuck on its first choice or a choice does nothing, say so.
+  56-3. At the kit, "Tank L: Enclave helmet (3D)" and "Tank R: Brotherhood helmet (3D)", then the other
+        way round: in the preview, parked, ridden and in first person, each inside its enamel plate,
+        raised and cast-looking? Screenshots.
+  56-4. After dark: the Enclave's eyes amber, parked and ridden, the headlamp on and off? Too bright,
+        too dim, plastic? The metals by day?
+  56-5. Both helmets on: lean hard both ways at speed, stop with the left foot down: any knee or leg
+        through a helmet (which side, when)?
+  56-6. The under-bar mirrors (egg, then D) at full lock both ways: clear of the helmets?
+  56-7. "Same as the left" with a 3D left; a 3D left with the flat Enclave helmet on the right; both
+        back to Stock: nothing left over on any bike, after a ride and after a save and a load?
+  56-8. "Gunners skull" on the left, the right and the rear fender: how does it look?
+  56-9. Each plate design at riding distance, with its own text and with one of yours: the new letters
+        and emblems legible? Which aren't?
+  56-10. Each seat colour, parked, ridden and in first person: as its name, grain and worn edges kept?
+  56-11. Black, Oxblood, Tobacco brown, Navy and the stock Dark brown, by day, in shade and at night,
+         close and from a few steps: which look alike? Black darker than the stock brown and still
+         leather? Pre-war turquoise?
+  56-12. The four piped seats close up: the welt clearly in its second colour?
+  56-13. Free colour paint with a coloured seat, the hue moved: the seat unchanged? The seat changed in
+         the MCM with Apply while riding: the first-person bike at once, the ridden one at the next
+         getting on? A save from before the update: the seat as it came? Back to Dark brown: as before?
+  56-14. Your frame rate 3-4 m from the parked bike at a fixed spot, still for 20 s: on 2026-11-15b
+         (if you run test 55 first) and on this build, stock and with both helmets on.
+  Send Papyrus.0.log and CMB_Slope.log of each session and the screenshots of 56-1 and 56-3.
+
+WHAT TO TEST, TEST 55 (if you haven't run it yet; docs\TESTING.md, "The 2026-11-15a build" for steps
+1-10 and "The 2026-11-15b build" for steps 11-24, has the details and the log lines)
   1. Field kit in Sanctuary (save first): in one visit take a new plate design, then "Plate background:
      The plate's own", then a "Plate letters" colour and two or three more plate colours. No crash? Leave
      the menu: your plate colours on the parked bike now? Two or three times.
@@ -342,11 +455,27 @@ for steps 11-24, has the details and the log lines; the numbers are its steps)
       broken behind the headlamp at full lock?
   23. Just look: the "time: the last 10 s" line about your real frame rate, ending "the plugin's task
       2.0 times a frame"? A/B: [Lamp] FrameLead=0.
-  24. Any of this build's A/Bs you haven't tried yet, one at a time. Anything better or worse?
+  24. Any of 2026-11-15b's A/Bs you haven't tried yet, one at a time. Anything better or worse?
   Send CMB_Slope.log and its three _prev logs, Papyrus.0.log, any crash log, CMB_RiderPose_report.txt
   if you made it, the screenshots of steps 2 and 15, and a video of steps 16 and 18 if you can.
 
 QUESTIONS FOR YOU (docs\TESTING.md has them in full)
+  T56-1. The kit's lists: alphabetical from the top, from the bottom, or the old order?
+  T56-2. The MCM's dropdowns alphabetical? The "reads its dropdowns" line? A choice applied as named,
+         still shown after the kit?
+  T56-3. The 3D helmets inside their plates, raised and cast-looking? Their size and place right?
+  T56-4. The Enclave's eyes at night? The metals by day?
+  T56-5. Any knee or leg through a helmet?
+  T56-6. The under-bar mirrors clear of the helmets at full lock?
+  T56-7. Anything left over after "Same as the left", a flat right, Stock again, a ride and a load?
+  T56-8. The Gunners skull?
+  T56-9. The plates at riding distance: legible? Which designs or characters aren't?
+  T56-10. Each seat colour as its name, grain and worn edges kept?
+  T56-11. Which dark seats look alike in the game's light? Black still leather? Pre-war turquoise?
+  T56-12. The piped seats' welts clear close up?
+  T56-13. The seat apart from Free colour? The MCM's Apply mid-ride? An old save's seat?
+  T56-14. The frame rate beside the parked bike, before and after, stock and with the helmets?
+  (test 55)
   T55-1. Plate colours at the field kit, "The plate's own" after a new design among them: no crash? The
          colours on the parked bike once you left the menu?
   T55-2. The preview: the whole bike? Zoomed fully out and in? If you moved "Preview distance", to what?

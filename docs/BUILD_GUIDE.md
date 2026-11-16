@@ -337,6 +337,98 @@ full lock. The four nifs' sha256: `CMB_BikeView.nif` 1a5faffc..., `CMB_BikeWorn.
 9c621c21..., `CMB_BikeWornRiderF.nif` 99bd4135... (the package manifest has them in full); two runs give the same. The
 package lays them over the asset base with `OVERLAY=<overlay>/Data` (a Data-like folder: `Meshes/CMB/...` at its top).
 
+Since 2026-11-16a (the third customisation build, C3: the 3D helmet badges, the Gunners skull, the plates' emblems and
+font, the seat's colour, the alphabetical lists) the generator makes **72** records more, right after the weapons'
+0xC07 and only with the look, as a third block `c3_ids` of `look_options.json` (every C3 entry carries `"since":
+"2026-11-16a"`): `CMB_Look_Seat` 0xC08 (0, the seat as it came), `CMB_ap_Seat` 0xC09 (an attach point named "Seat"),
+the tank options "Enclave helmet (3D)", "Brotherhood helmet (3D)" and "Gunners skull" (TankL 17-19 at 0xC0A-0xC12,
+TankR 18-20 at 0xC13-0xC1B; MSWP, OMOD, COBJ each) and the fender's "Gunners skull" (18, 0xC1C-0xC1E), the Seat's 15
+options (0xC1F-0xC4B: as it came, ten solid colours, four with a contrasting piping; each swap's two entries carry the
+colour's V, (row + 0.5) / 16, as CNAM), its option list `CMB_LookOptions_Seat` 0xC4C, two empty swap lists
+`CMB_LookSwaps_PlateInk` 0xC4D and `CMB_LookSwaps_PlateBack` 0xC4E (so `CMB_LookSwapLists` stays index = slot with the
+Seat at 11) and `CMB_LookSwaps_Seat` 0xC4F: 1 GLOB, 1 KYWD, 22 MSWP, 22 OMOD, 22 COBJ, 4 FLST. The block throws unless
+`NextFormID` is 0xC08 at its start and each record lands at its table ID. In place: the 34 tank swaps of 2026-11-07a's
+tank options gain the four helmet shapes' identities (2 -> 6 entries, the slots' `sources_c3`), the tank and fender
+lists the new options, `CMB_LookCategories` and `CMB_LookSwapLists` the Seat's (12 each), the look item and both riding
+armours a 12th attach point and the template its option 0, and every look recipe's created-object priority its
+option's place in the alphabetical order (the pinned ones first: as it came, None, "Same as the left", "The plate's
+own"; Paint's palette test last; the steppers Mirrors and Tyres in their order; an option 0's priority stays 0, so 273
+of the 285 recipes carry one). The controller's group `Look_C3` gets five properties after `LookSetPlate`
+(`CMB_Look_Seat`, `TankRightOf`, `UiOrder`, `UiRank`, `UiStart`; the eleven full properties `UiTankL` ... `UiFactionSet`
+are the script's own, never filled) and CMB_LookF4SE's three at its end (`CMB_Look_Seat`, `TankRightOf`, `SeatV`); the
+controller's group `Look_C3_UiFallback` (eleven globals for a later ESP, should MCM not call the full properties) is
+left unfilled. `--look-ids` appends the 72 (look_ids.txt **919** IDs; append-only: never renumber or remove a line). In
+`config.json` the Look section gets the dropdown "Seat" after "Tyres" (22 controls), and the eleven dropdowns (both tank
+badges, the fender, Paint, Rims, Seat, the plate's four, Faction set) list their choices alphabetically after the pinned
+ones and read and write the controller's properties `UiTankL` ... `UiFactionSet` (`"sourceType": "PropertyValueInt"`,
+`"scriptName": "CMB_ControllerScript"`, on the quest 0x80D) instead of the globals; `keybinds.json` doesn't change.
+`tools/build.sh` prints `checked cmb_controllerscript: 208 properties`, `checked cmb_lookf4se: 36 properties`, `checked
+285 look options in 12 slots: 249 swaps, 285 look recipes, ... highest 000C4F; look_ids.txt 919 IDs; ... C3
+000C08-000C4F (72), the lists alphabetical: 273 recipes with a priority; the MCM's Look section 22 controls` and "plugin
+and scripts agree"; the ESP holds **1134** in its header's count (no new group), its next ID **0xC50** (688 IDs left
+under the 0xF00 guard). A record-by-record comparison with 2026-11-15b's plugin: `TES4: HEDR records 1062 -> 1134, next
+ID 0xC08 -> 0xC50`, `added 72 (000C08-000C4F): 22 COBJ, 22 MSWP, 22 OMOD, 4 FLST, 1 GLOB, 1 KYWD`, `removed 0`, `changed
+298` (34 MSWP, 252 COBJ priorities, 8 FLST, 3 ARMO, the controller quest's VMAD). Two scripts change,
+`CMB_ControllerScript.psc` (slot 11, the right tank's follow through `TankRightOf`, the dropdowns' properties and the
+fallback's hooks) and `CMB_LookF4SE.psc` (the seat's V in Compose and WornIndex, the follow); `check.sh`: 12 .pex, no
+warning. The F4SE plugin and `CMB_Slope.ini` don't change (2026-11-15b's, byte for byte), nor does the harness.
+
+The off switches of the ESP (none of the two is in the package; each A/B ESP is checked by `check_plugin.py`):
+```
+dotnet tools/esp-generator/bin/out/EspGenerator.dll --look-build 2026-11-08a <folder>/CommonwealthMotorbike.esp
+#   -> 2026-11-15b's ESP, config.json and keybinds.json byte for byte (none of the 72, nothing in place);
+#      --look-build 2026-11-07a still the 2026-11-07a build's (fdb5b3a); the generator knows 07a, 08a and 16a
+dotnet tools/esp-generator/bin/out/EspGenerator.dll --kit-order table <folder>/CommonwealthMotorbike.esp
+#   -> the presentation in table order: every recipe's priority 0, the MCM's dropdowns on the globals in table order
+#      (2026-11-15b's lists, the C3 choices at their ends), the Ui arrays the identity; espcmp against the default:
+#      changed 274 (273 COBJ INTV, the quest's VMAD)
+dotnet tools/esp-generator/bin/out/EspGenerator.dll --dump <folder>/CommonwealthMotorbike.esp | \
+    python3 -I tools/esp-generator/check_plugin.py Data/Scripts/Source/User --kit-order table --mcm <folder>
+#   -> "plugin and scripts agree" (an A/B's MCM is checked from its own folder: --mcm <its Data-like folder>)
+```
+
+The art of C3 is built from the shipped files and the repository's own drawing code, with no stage and no bake
+([ASSETS.md](ASSETS.md), *The third customisation build's files*): the helmets by `look_emblems.py` (the new
+`emblems` stage of `build_bike.sh`, after `cables`) and `emblem_art.py`, the skull, the grounds and the plates by
+`bike_art.py --badges` / `--plates`, `look_badges.py` and `look_plates.py`, the seat by `look_seat.py`. From the
+repository, with the mesh Python and the DDS Python ([ASSETS.md](ASSETS.md), *Tools*), into one overlay a unit:
+```
+python3 -I tools/rider/bike_art.py --badges --out <art_b>           # the skull, the two enamel grounds (badges.json)
+<DDS python> -I tools/rider/look_badges.py --art <art_b> --out <overlay B>                 # 3 DDS, 3 new materials
+python3 -I tools/rider/bike_art.py --plates --out <art_p>           # the die-pressed font, the emblems at plate scale
+<DDS python> -I tools/rider/look_plates.py --art <art_p> --out <overlay B>                 # 6 DDS change
+<mesh python> -I tools/rider/look_emblems.py --data <2026-11-10a's Data> --data <2026-11-15b's meshes> \
+    --out <overlay A>/Meshes/CMB --pynifly <PyNifly> [--ground-field <art_b>/badges.json]   # the five nifs
+<DDS python> -I tools/rider/emblem_art.py --data <overlay A>                               # 4 DDS, 10 materials
+<DDS python> -I tools/rider/look_seat.py --data <overlay C> --base <2026-11-10a's Data> \
+    --base <2026-11-15b's meshes> --pynifly <PyNifly>                                      # 2 DDS, 28 materials
+```
+Each tool has its `--check` (below, and [ASSETS.md](ASSETS.md)); two runs give the same bytes, and the 61 files of the
+2026-11-16a package rebuild byte for byte from this commit. The off switches of the art, each giving 2026-11-15b's files
+byte for byte: `look_emblems.py --emblems 0` (`EMBLEMS=0`: the five nifs as they are, no helmet art), `bike_art.py
+--badges --through 2026-11-08a` with `look_badges.py --through 2026-11-08a` (the 13-badge atlas), `bike_art.py --plates
+--plate-font 2026-11-08a --plate-emblems 2026-11-09a` (the stroked font and the 2026-11-09a emblems: `plates_d/_n/_s.dds`
+b5eacce3..., 78b75210..., 8892936a..., `plate_text_d/_n/_s.dds` f81f2791..., 2884547f..., cff4e808...); `look_seat.py`
+only adds files (the seat's option 0 is the shipped files). In a game install the A/B is the 2026-11-15b package's files
+copied back over this build's (the five nifs, the three badge and six plate textures). The checks over the whole tree
+(the 2026-11-10a package's Data with 2026-11-15b's four meshes and the three overlays laid over it, in that order):
+```
+<mesh python> -I tools/rider/check_bike_meshes.py --pynifly <PyNifly> --data <tree> --look-c3 [--look-targets all] \
+    --ground-field <art_b>/badges.json --knees <tree>/Meshes/Actors/Character/Animations/MT/CMB_Rider
+#   -> 80 PASS, "all checks passed": 51 shapes parked, 54 worn and view (55 of the plugin's 64), the helmets inside their
+#      ground's enamel field and clear of the bars' sweep and the riding clips' legs, 468 materials files, 129 DDS
+#      (120.5 MB of the 125 MB budget), seat_p.dds a palette (A8R8G8B8, one mip)
+<DDS python> -I tools/rider/look_badges.py --check --art <art_b> --out <tree> \
+    --plate-nif <tree>/Meshes/CMB/CMB_BikeParked.nif --pynifly <PyNifly> --base <2026-11-15b's tree>   # all passed
+<DDS python> -I tools/rider/look_plates.py --check --art <art_p> --out <tree>          # 22 checks, all passed
+<DDS python> -I tools/rider/look_seat.py --check --data <tree> --base <2026-11-10a's Data> --base <2026-11-15b's meshes> \
+    --pynifly <PyNifly>                                                               # all checks passed
+<DDS python> -I tools/rider/emblem_art.py --check --data <tree> --reference <2026-11-10a's Data>   # all passed
+```
+The package lays the four overlays over the asset base in order, `OVERLAY=<2026-11-15b's meshes>:<overlay
+A>:<overlay B>:<overlay C>` (a colon-separated list, the later winning): 47 files new and 14 changed against
+2026-11-15b's package (the five nifs, the three badge textures and the six plate textures).
+
 The vanilla form IDs the plugins use (PlayerRef, XMarker, HumanRace, HumanRaceSubGraphData, SpeedMult, CarryWeight, FallingDamageMod, Health, Pip-Boy, AnimArchetypePlayer) were checked against Mutagen's FormKey list generated from the real `Fallout4.esm`. The record layouts were also compared field by field with xEdit's Fallout 4 definitions.
 
 ## For developers: packaging a build

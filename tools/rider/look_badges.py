@@ -3,7 +3,9 @@
 
     <dds python> -I look_badges.py --art <stage>/art_badges --out <Data-like tree> [--look-options <json>]
     <dds python> -I look_badges.py --check --art <stage>/art_badges --out <tree> [--plate-npz <stage>/shapes/static_badge.npz]
-    <dds python> -I look_badges.py --sheet <out.png> --out <tree> [--plate-npz ...]
+        [--plate-nif <Data>/Meshes/CMB/CMB_BikeParked.nif --pynifly <io_scene_nifly>] [--base <an older tree>]
+    <dds python> -I look_badges.py --sheet <out.png> --out <tree> [--plate-npz ... | --plate-nif ... --pynifly ...]
+    (every mode: [--through <build>] reads the table as that build had it, as bike_art.py --badges --through)
 
 Writes, under --out (a Data folder's layout):
 
@@ -23,8 +25,11 @@ Writes, under --out (a Data folder's layout):
         plates read true from outside, measured).
 
 --check (no writing): the atlas' sizes and formats; every cell's alpha inside its drawn 512 x 213; the 16-pixel
-margin's alpha 0 at every mip it is a texel or more wide; each badge's coverage 25-82 % of the plate's rectangle; with
---plate-npz, the share of each emblem outside what both tank plates show; the 17 materials read back byte for byte
+margin's alpha 0 at every mip it is a texel or more wide; each badge's coverage 25-82 % of the plate's rectangle (a lone
+figure with no ground, the paint round it, from 15 %: the Gunners skull, since 2026-11-16a); with --plate-npz (a stage's
+static_badge) or --plate-nif (the built parked nif's two tank plates, since 2026-11-16a: no stage needed), the share of
+each emblem outside what both tank plates show; with --base (an older tree's atlas), every cell that tree's badges use
+the same BC3 / BC5 blocks at mips 0-5 in all three textures (a new cell changes no old one); the materials read back
 (bgsm.py) and hold the transform, the textures and the flags above; the brand words (check_bike_meshes.py's) in
 no badge's name, motif or key; and the guard: no game texture path is a file under --out (nothing of the game copied).
 
@@ -166,9 +171,47 @@ def write(args, opts):
 
 # --- the plates' outlines ----------------------------------------------------------------------------------------
 
-def plate_masks(at, npz):
+def rasterise(at, uv, tris):
+    """A cell's (ch, cw) mask: True under the triangles (UVs in the plate's rectangle, mapped as the badges are)."""
+    (cw, ch), (dw, dh) = at["cell"], at["draw"]
+    u0, v0, u1, v1 = at["plate_rect"]
+    py, px = np.mgrid[0:ch, 0:cw] + 0.5
+    X = (uv[tris][..., 0] - u0) / (u1 - u0) * dw
+    Y = (ch - dh) / 2 + (uv[tris][..., 1] - v0) / (v1 - v0) * dh
+    m = np.zeros((ch, cw), bool)
+    for (x0, x1, x2), (y0, y1, y2) in zip(X, Y):
+        d = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2)
+        if abs(d) < 1e-12:
+            continue
+        l0 = ((y1 - y2) * (px - x2) + (x2 - x1) * (py - y2)) / d
+        l1 = ((y2 - y0) * (px - x2) + (x0 - x2) * (py - y2)) / d
+        m |= (l0 >= -1e-9) & (l1 >= -1e-9) & (1 - l0 - l1 >= -1e-9)
+    return m
+
+
+def plate_masks_nif(at, nif, pynifly):
+    """(left, right) plate masks from a built parked nif's CMB_Bike_static_badgeTankL and _TankR (their UVs, read
+    through PyNifly): the plates as the game draws them, with no stage folder (since 2026-11-16a)."""
+    if pynifly is None:
+        raise SystemExit("--plate-nif needs --pynifly <io_scene_nifly>")
+    sys.path.insert(0, str(pynifly))
+    from pyn import pynifly as P
+    f = P.NifFile(str(nif))
+    out = {}
+    for s in f.shapes:
+        for side, tag in (("left", "_static_badgeTankL"), ("right", "_static_badgeTankR")):
+            if s.name.endswith(tag):
+                out[side] = rasterise(at, np.asarray(s.uvs, np.float64), np.asarray(s.tris, np.int64))
+    if set(out) != {"left", "right"}:
+        raise SystemExit(f"{nif}: no static_badgeTankL and static_badgeTankR shapes")
+    return out["left"], out["right"]
+
+
+def plate_masks(at, npz, nif=None, pynifly=None):
     """(left, right) plate masks over one cell (ch, cw), True where the plate shows the badge, from the shipped
-    static_badge geometry's fixed UVs (bike_pieces.badge_uvs); None without the file."""
+    static_badge geometry's fixed UVs (bike_pieces.badge_uvs), or a built parked nif's plates; None without either."""
+    if nif:
+        return plate_masks_nif(at, nif, pynifly)
     if not npz:
         return None
     import bike_pieces as bp
@@ -209,6 +252,63 @@ def safe_mask(at):
 
 # --- the check ---------------------------------------------------------------------------------------------------
 
+def through(node, build):
+    """The table as build `build` had it (bike_art.look_through, check_plugin.py's look_until): objects with a later
+    "since" left out; None: as it is."""
+    if build is None:
+        return node
+    later = lambda x: isinstance(x, dict) and isinstance(x.get("since"), str) and x["since"] > build
+    if isinstance(node, list):
+        return [through(x, build) for x in node if not later(x)]
+    if isinstance(node, dict):
+        return {k: through(v, build) for k, v in node.items() if not later(v)}
+    return node
+
+
+def dds_levels(path):
+    """A DDS's header and each level's bytes (BC formats), mip 0 first."""
+    import write_dds
+    data = Path(path).read_bytes()
+    info, _ = write_dds.read_dds(path)
+    bb = {"bc1": 8, "bc4": 8, "bc3": 16, "bc5": 16, "bc7": 16}[info["format"]]
+    off = len(data) - sum(max(1, (info["w"] >> k) // 4) * max(1, (info["h"] >> k) // 4) * bb for k in range(info["mips"]))
+    out = []
+    for k in range(info["mips"]):
+        w4, h4 = max(1, (info["w"] >> k) // 4), max(1, (info["h"] >> k) // 4)
+        out.append(np.frombuffer(data, np.uint8, w4 * h4 * bb, off).reshape(h4, w4, bb))
+        off += w4 * h4 * bb
+    return info, out
+
+
+def old_cells(rep, args, at, opts):
+    """--base: every cell the older tree's atlas has a badge of ours in (look_options.json's badges with no later
+    "since") keeps its BC blocks at mips 0-5, in _d, _n and _s: a new cell changes no old one's texels."""
+    old = [b for b in opts["badges"] if b["art"] == "ours" and not (b.get("since") and b["since"] > "2026-11-08a")]
+    (W, H), (cw, ch) = at["size"], at["cell"]
+    bad, n = [], 0
+    for k in ("diffuse", "normal", "smoothspec"):
+        rel = at[k].split("\\")
+        a, b = Path(args.out, "Textures", *rel), Path(args.base, "Textures", *rel)
+        if not b.exists():
+            bad.append(f"{b} missing")
+            continue
+        (ia, la), (ib, lb) = dds_levels(a), dds_levels(b)
+        if (ia["w"], ia["h"], ia["format"]) != (ib["w"], ib["h"], ib["format"]):
+            bad.append(f"{a.name}: {ia} against {ib}")
+            continue
+        f = W // ia["w"]                                            # _n and _s are half size
+        for lv in range(6):
+            s = f << lv
+            for bd in old:
+                c, r = bd["cell"]
+                sl = (slice(r * ch // s // 4, (r + 1) * ch // s // 4), slice(c * cw // s // 4, (c + 1) * cw // s // 4))
+                n += 1
+                if not np.array_equal(la[lv][sl], lb[lv][sl]):
+                    bad.append(f"{a.name} mip {lv} {bd['key']}")
+    rep.check(not bad, f"--base: the {len(old)} older badges' cells keep their blocks at mips 0-5 in the three textures "
+                       f"({n} cell levels, against {args.base})", "; ".join(bad[:8]))
+
+
 class Report:
     def __init__(self):
         self.fails = 0
@@ -240,7 +340,7 @@ def check(args, opts):
     rep.check(7.5e6 <= total <= 9.5e6, "the atlas' three textures about 8.4 MB", f"{total} bytes")
     meta = json.loads(Path(args.art, "badges.json").read_text()) if args.art else None
     ours = [b for b in opts["badges"] if b["art"] == "ours"]
-    masks = plate_masks(at, args.plate_npz)
+    masks = plate_masks(at, args.plate_npz, args.plate_nif, args.pynifly)
     both = (masks[0] & masks[1]) if masks else None
     if "diffuse" in dec:
         levels = dec["diffuse"]
@@ -257,7 +357,7 @@ def check(args, opts):
                 outside.append(f"{b['key']} {int((cell[ring] > 0).sum())} texels")
             cov = float((cell[y0:y1] >= 128).mean())
             covs[b["key"]] = cov
-            if not 0.25 <= cov <= 0.82:
+            if not (0.15 if b["colours"].get("ground") is None else 0.25) <= cov <= 0.82:
                 cov_bad.append(f"{b['key']} {cov:.2f}")
             for lv, img in enumerate(levels):
                 m = margin >> lv
@@ -278,7 +378,8 @@ def check(args, opts):
         rep.check(not outside, f"every cell's alpha inside its drawn {dw} x {dh}", "; ".join(outside))
         rep.check(not margin_bad, f"the {margin}-pixel margin's alpha 0 at every mip it is a texel or more wide (mips 0-"
                                   f"{int(np.log2(margin))})", "; ".join(margin_bad))
-        rep.check(not cov_bad, "each badge covers 25-82 % of the plate's rectangle",
+        rep.check(not cov_bad, "each badge covers 25-82 % of the plate's rectangle (a lone figure without a ground "
+                               "from 15 %)",
                   "; ".join(cov_bad) or ", ".join(f"{k} {v:.2f}" for k, v in covs.items()))
         if both is not None:
             rep.check(not plate_bad, "each emblem inside what both tank plates show (0.5 % or less outside)",
@@ -290,7 +391,9 @@ def check(args, opts):
     if meta is not None:
         keys = sorted(meta["badges"])
         rep.check(keys == sorted(b["key"] for b in ours) and all(meta["badges"][b["key"]]["cell"] == b["cell"] for b in ours),
-                  "badges.json: our 13 in look_options.json's cells", ", ".join(keys))
+                  f"badges.json: our {len(ours)} in look_options.json's cells", ", ".join(keys))
+    if args.base:
+        old_cells(rep, args, at, opts)
     # the materials
     template = template_path(args.out)
     tmpl = bgsm.loads(template.read_bytes()) if template.exists() else None
@@ -342,9 +445,13 @@ def check(args, opts):
     rep.check(not bad, f"the {len(names)} badge materials: read back byte for byte, the transform, the textures, clamp, "
                        f"alpha test 128, two-sided, decal on for the fender's, the stock badge's chrome on ours",
               "; ".join(bad))
-    targets = sorted({t for s in opts["slots"] for o in s["options"] if o["kind"] == "badge" for _, t in o["swap"]})
+    # the badge files these options swap to (since 2026-11-16a the tank options also name the 3D helmets' own files, as
+    # identities, and the 3D options their helmets' materials: unit A's, check_bike_meshes.py --look-targets all's)
+    targets = sorted({t for s in opts["slots"] for o in s["options"] if o["kind"] in ("badge", "emblem")
+                      for _, t in o["swap"] if t.split("\\")[-1].startswith("badge_")})
     missing = [t for t in targets if not Path(args.out, "Materials", *t.split("\\")).exists()]
-    rep.check(not missing, f"every badge target of look_options.json's swaps there ({len(targets)})", "; ".join(missing))
+    rep.check(not missing, f"every badge_ target of look_options.json's badge and 3D emblem swaps there ({len(targets)})",
+              "; ".join(missing))
     words = brand_words()
     text = json.dumps([[b["key"], b["name"], b["motif"]] for b in opts["badges"]]
                       + ([meta] if meta is not None else [])).lower()
@@ -387,7 +494,7 @@ def sheet(args, opts):
     n = np.asarray(Image.fromarray(faces[0][0]).resize((W, H), Image.BILINEAR)).astype(np.float64) / 255 * 2 - 1
     _, faces = write_dds.read_dds(Path(args.out, "Textures", *at["smoothspec"].split("\\")))
     s = np.asarray(Image.fromarray(faces[0][0]).resize((W, H), Image.BILINEAR)).astype(np.float64) / 255
-    masks = plate_masks(at, args.plate_npz) or safe_mask(at)
+    masks = plate_masks(at, args.plate_npz, args.plate_nif, args.pynifly) or safe_mask(at)
     fender = np.zeros((ch, cw), bool)
     fender[int((ch - dh) / 2):int((ch + dh) / 2), :] = True
     rows = []
@@ -415,13 +522,15 @@ def sheet(args, opts):
         col = col + (ss[..., :1] * ss[..., 1:2]) * 0.25 * lit ** 8
         a = (rgba[..., 3] >= 0.5).astype(np.float64)
         tiles = []
+        shown = set(b["slots"]) | {sl["key"] for sl in opts["slots"] for o in sl["options"]   # a 3D helmet's ground
+                                   if o["kind"] == "emblem" and o.get("badge") == b["key"]}
         for m, slot in ((masks[0], "TankL"), (masks[1], "TankR"), (fender, "Fender")):
             bg = np.zeros((ch, cw, 3)) + np.array(PAINT) / 255 * 0.85
             bg[~m] = (0.16, 0.16, 0.18)
-            show = a * m * (slot in b["slots"])
+            show = a * m * (slot in shown)
             t = bg * (1 - show[..., None]) + col * show[..., None]
             t = (np.clip(t, 0, 1) * 255).astype(np.uint8)
-            if slot not in b["slots"]:
+            if slot not in shown:
                 draw_text(t, 12, ch // 2 - 7, "NOT IN THIS SLOT", 2, (150, 150, 150))
             tiles.append(np.pad(t, ((0, 0), (0, 6), (0, 0)), constant_values=24))
         row = np.concatenate(tiles, 1)
@@ -453,9 +562,16 @@ def main():
     ap.add_argument("--look-options", type=Path, default=HERE.parent / "esp-generator" / "look_options.json")
     ap.add_argument("--check", action="store_true")
     ap.add_argument("--plate-npz", type=Path, help="the stage's shapes/static_badge.npz: the tank plates' outlines")
+    ap.add_argument("--plate-nif", type=Path, help="(since 2026-11-16a) a built CMB_BikeParked.nif: the tank plates' "
+                                                   "outlines from its static_badgeTankL and _TankR, through PyNifly")
+    ap.add_argument("--pynifly", type=Path, help="PyNifly's io_scene_nifly folder (needed with --plate-nif)")
+    ap.add_argument("--base", type=Path, help="(--check, since 2026-11-16a) an older tree: its badges' cells must keep "
+                                              "their blocks at mips 0-5")
+    ap.add_argument("--through", metavar="BUILD", help="(since 2026-11-16a) the table as build BUILD had it (its entries "
+                                                       "with a later \"since\" left out)")
     ap.add_argument("--sheet", type=Path, help="write a flat contact sheet of every badge on every slot here")
     args = ap.parse_args()
-    opts = json.loads(args.look_options.read_text())
+    opts = through(json.loads(args.look_options.read_text()), args.through)
     if args.check:
         return check(args, opts)
     if args.sheet:

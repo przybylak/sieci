@@ -54,6 +54,7 @@
    "list_id": "000A08",
    "swaps_id": "000A0D",
    "sources": ["CMB\\Bike\\static_badgeTankL.bgsm", "CMB\\Bike\\static_badgeTankL_worn.bgsm"],
+   "sources_c3": {"since": "2026-11-16a", "add": ["CMB\\Bike\\static_helmEnclaveL.bgsm", "CMB\\Bike\\static_helmEnclaveL_worn.bgsm", "CMB\\Bike\\static_helmBosL.bgsm", "CMB\\Bike\\static_helmBosL_worn.bgsm"], "what": "C3: the side's two 3D helmets' own materials files (each invisible), appended to the slot's sources: every option before C3 gains their identities after its own entries (34 MSWPs in place), each C3 option names all six"},
    "options": [
     {"index": 0, "key": "stock", "name": "Stock (winged wheel)", "kind": "identity", "badge": null, "row": null, "mirror": null, "cnam": null, "cost": [], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankL.bgsm", "CMB\\Bike\\static_badgeTankL.bgsm"], ["CMB\\Bike\\static_badgeTankL_worn.bgsm", "CMB\\Bike\\static_badgeTankL_worn.bgsm"]], "ids": ["0008D7", "0008D8", "0008D9"]},
     {"index": 1, "key": "none", "name": "None", "kind": "off", "badge": null, "row": null, "mirror": null, "cnam": null, "cost": [], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankL.bgsm", "CMB\\Bike\\off.bgsm"], ["CMB\\Bike\\static_badgeTankL_worn.bgsm", "CMB\\Bike\\off.bgsm"]], "ids": ["0008DA", "0008DB", "0008DC"]},
@@ -71,7 +72,10 @@
     {"index": 13, "key": "atom", "name": "Children of Atom", "kind": "badge", "badge": "atom", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankL.bgsm", "CMB\\Bike\\badge_atom.bgsm"], ["CMB\\Bike\\static_badgeTankL_worn.bgsm", "CMB\\Bike\\badge_atom.bgsm"]], "ids": ["0008FE", "0008FF", "000900"]},
     {"index": 14, "key": "army", "name": "Pre-war army star", "kind": "badge", "badge": "army", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankL.bgsm", "CMB\\Bike\\badge_army.bgsm"], ["CMB\\Bike\\static_badgeTankL_worn.bgsm", "CMB\\Bike\\badge_army.bgsm"]], "ids": ["000901", "000902", "000903"]},
     {"index": 15, "key": "gunners_g", "name": "Gunners (game art)", "kind": "badge", "badge": "gunners_g", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankL.bgsm", "CMB\\Bike\\badge_gunners_g.bgsm"], ["CMB\\Bike\\static_badgeTankL_worn.bgsm", "CMB\\Bike\\badge_gunners_g.bgsm"]], "ids": ["000904", "000905", "000906"]},
-    {"index": 16, "key": "army_g", "name": "Pre-war army star (game art)", "kind": "badge", "badge": "army_g", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankL.bgsm", "CMB\\Bike\\badge_army_g.bgsm"], ["CMB\\Bike\\static_badgeTankL_worn.bgsm", "CMB\\Bike\\badge_army_g.bgsm"]], "ids": ["000907", "000908", "000909"]}
+    {"index": 16, "key": "army_g", "name": "Pre-war army star (game art)", "kind": "badge", "badge": "army_g", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankL.bgsm", "CMB\\Bike\\badge_army_g.bgsm"], ["CMB\\Bike\\static_badgeTankL_worn.bgsm", "CMB\\Bike\\badge_army_g.bgsm"]], "ids": ["000907", "000908", "000909"]},
+    {"index": 17, "key": "enclavehelm3d", "name": "Enclave helmet (3D)", "kind": "emblem", "badge": "hg_enclave", "row": null, "mirror": null, "cnam": null, "cost": [["c_Steel", 2], ["c_Screws", 1], ["c_Adhesive", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankL.bgsm", "CMB\\Bike\\badge_hg_enclave.bgsm"], ["CMB\\Bike\\static_badgeTankL_worn.bgsm", "CMB\\Bike\\badge_hg_enclave.bgsm"], ["CMB\\Bike\\static_helmEnclaveL.bgsm", "CMB\\Bike\\helm_enclave.bgsm"], ["CMB\\Bike\\static_helmEnclaveL_worn.bgsm", "CMB\\Bike\\helm_enclave.bgsm"], ["CMB\\Bike\\static_helmBosL.bgsm", "CMB\\Bike\\static_helmBosL.bgsm"], ["CMB\\Bike\\static_helmBosL_worn.bgsm", "CMB\\Bike\\static_helmBosL_worn.bgsm"]], "ids": ["000C0A", "000C0B", "000C0C"], "emblem": "enclave", "since": "2026-11-16a"},
+    {"index": 18, "key": "boshelm3d", "name": "Brotherhood helmet (3D)", "kind": "emblem", "badge": "hg_bos", "row": null, "mirror": null, "cnam": null, "cost": [["c_Steel", 2], ["c_Screws", 1], ["c_Adhesive", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankL.bgsm", "CMB\\Bike\\badge_hg_bos.bgsm"], ["CMB\\Bike\\static_badgeTankL_worn.bgsm", "CMB\\Bike\\badge_hg_bos.bgsm"], ["CMB\\Bike\\static_helmEnclaveL.bgsm", "CMB\\Bike\\static_helmEnclaveL.bgsm"], ["CMB\\Bike\\static_helmEnclaveL_worn.bgsm", "CMB\\Bike\\static_helmEnclaveL_worn.bgsm"], ["CMB\\Bike\\static_helmBosL.bgsm", "CMB\\Bike\\helm_bos.bgsm"], ["CMB\\Bike\\static_helmBosL_worn.bgsm", "CMB\\Bike\\helm_bos.bgsm"]], "ids": ["000C0D", "000C0E", "000C0F"], "emblem": "bos", "since": "2026-11-16a"},
+    {"index": 19, "key": "gunskull", "name": "Gunners skull", "kind": "badge", "badge": "gunskull", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankL.bgsm", "CMB\\Bike\\badge_gunskull.bgsm"], ["CMB\\Bike\\static_badgeTankL_worn.bgsm", "CMB\\Bike\\badge_gunskull.bgsm"], ["CMB\\Bike\\static_helmEnclaveL.bgsm", "CMB\\Bike\\static_helmEnclaveL.bgsm"], ["CMB\\Bike\\static_helmEnclaveL_worn.bgsm", "CMB\\Bike\\static_helmEnclaveL_worn.bgsm"], ["CMB\\Bike\\static_helmBosL.bgsm", "CMB\\Bike\\static_helmBosL.bgsm"], ["CMB\\Bike\\static_helmBosL_worn.bgsm", "CMB\\Bike\\static_helmBosL_worn.bgsm"]], "ids": ["000C10", "000C11", "000C12"], "since": "2026-11-16a"}
    ]
   },
   {
@@ -86,6 +90,7 @@
    "list_id": "000A09",
    "swaps_id": "000A0E",
    "sources": ["CMB\\Bike\\static_badgeTankR.bgsm", "CMB\\Bike\\static_badgeTankR_worn.bgsm"],
+   "sources_c3": {"since": "2026-11-16a", "add": ["CMB\\Bike\\static_helmEnclaveR.bgsm", "CMB\\Bike\\static_helmEnclaveR_worn.bgsm", "CMB\\Bike\\static_helmBosR.bgsm", "CMB\\Bike\\static_helmBosR_worn.bgsm"], "what": "C3: the side's two 3D helmets' own materials files (each invisible), appended to the slot's sources: every option before C3 gains their identities after its own entries (34 MSWPs in place), each C3 option names all six"},
    "options": [
     {"index": 0, "key": "stock", "name": "Stock (winged wheel)", "kind": "identity", "badge": null, "row": null, "mirror": null, "cnam": null, "cost": [], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankR.bgsm", "CMB\\Bike\\static_badgeTankR.bgsm"], ["CMB\\Bike\\static_badgeTankR_worn.bgsm", "CMB\\Bike\\static_badgeTankR_worn.bgsm"]], "ids": ["00090A", "00090B", "00090C"]},
     {"index": 1, "key": "none", "name": "None", "kind": "off", "badge": null, "row": null, "mirror": null, "cnam": null, "cost": [], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankR.bgsm", "CMB\\Bike\\off.bgsm"], ["CMB\\Bike\\static_badgeTankR_worn.bgsm", "CMB\\Bike\\off.bgsm"]], "ids": ["00090D", "00090E", "00090F"]},
@@ -104,7 +109,10 @@
     {"index": 14, "key": "army", "name": "Pre-war army star", "kind": "badge", "badge": "army", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankR.bgsm", "CMB\\Bike\\badge_army.bgsm"], ["CMB\\Bike\\static_badgeTankR_worn.bgsm", "CMB\\Bike\\badge_army.bgsm"]], "ids": ["000934", "000935", "000936"]},
     {"index": 15, "key": "gunners_g", "name": "Gunners (game art)", "kind": "badge", "badge": "gunners_g", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankR.bgsm", "CMB\\Bike\\badge_gunners_g.bgsm"], ["CMB\\Bike\\static_badgeTankR_worn.bgsm", "CMB\\Bike\\badge_gunners_g.bgsm"]], "ids": ["000937", "000938", "000939"]},
     {"index": 16, "key": "army_g", "name": "Pre-war army star (game art)", "kind": "badge", "badge": "army_g", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankR.bgsm", "CMB\\Bike\\badge_army_g.bgsm"], ["CMB\\Bike\\static_badgeTankR_worn.bgsm", "CMB\\Bike\\badge_army_g.bgsm"]], "ids": ["00093A", "00093B", "00093C"]},
-    {"index": 17, "key": "sameleft", "name": "Same as the left", "kind": "follow", "badge": null, "row": null, "mirror": null, "cnam": null, "cost": [], "perk": null, "loose": null, "swap": null, "ids": [null, "00093D", "00093E"]}
+    {"index": 17, "key": "sameleft", "name": "Same as the left", "kind": "follow", "badge": null, "row": null, "mirror": null, "cnam": null, "cost": [], "perk": null, "loose": null, "swap": null, "ids": [null, "00093D", "00093E"]},
+    {"index": 18, "key": "enclavehelm3d", "name": "Enclave helmet (3D)", "kind": "emblem", "badge": "hg_enclave", "row": null, "mirror": null, "cnam": null, "cost": [["c_Steel", 2], ["c_Screws", 1], ["c_Adhesive", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankR.bgsm", "CMB\\Bike\\badge_hg_enclave.bgsm"], ["CMB\\Bike\\static_badgeTankR_worn.bgsm", "CMB\\Bike\\badge_hg_enclave.bgsm"], ["CMB\\Bike\\static_helmEnclaveR.bgsm", "CMB\\Bike\\helm_enclave.bgsm"], ["CMB\\Bike\\static_helmEnclaveR_worn.bgsm", "CMB\\Bike\\helm_enclave.bgsm"], ["CMB\\Bike\\static_helmBosR.bgsm", "CMB\\Bike\\static_helmBosR.bgsm"], ["CMB\\Bike\\static_helmBosR_worn.bgsm", "CMB\\Bike\\static_helmBosR_worn.bgsm"]], "ids": ["000C13", "000C14", "000C15"], "emblem": "enclave", "since": "2026-11-16a"},
+    {"index": 19, "key": "boshelm3d", "name": "Brotherhood helmet (3D)", "kind": "emblem", "badge": "hg_bos", "row": null, "mirror": null, "cnam": null, "cost": [["c_Steel", 2], ["c_Screws", 1], ["c_Adhesive", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankR.bgsm", "CMB\\Bike\\badge_hg_bos.bgsm"], ["CMB\\Bike\\static_badgeTankR_worn.bgsm", "CMB\\Bike\\badge_hg_bos.bgsm"], ["CMB\\Bike\\static_helmEnclaveR.bgsm", "CMB\\Bike\\static_helmEnclaveR.bgsm"], ["CMB\\Bike\\static_helmEnclaveR_worn.bgsm", "CMB\\Bike\\static_helmEnclaveR_worn.bgsm"], ["CMB\\Bike\\static_helmBosR.bgsm", "CMB\\Bike\\helm_bos.bgsm"], ["CMB\\Bike\\static_helmBosR_worn.bgsm", "CMB\\Bike\\helm_bos.bgsm"]], "ids": ["000C16", "000C17", "000C18"], "emblem": "bos", "since": "2026-11-16a"},
+    {"index": 20, "key": "gunskull", "name": "Gunners skull", "kind": "badge", "badge": "gunskull", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeTankR.bgsm", "CMB\\Bike\\badge_gunskull.bgsm"], ["CMB\\Bike\\static_badgeTankR_worn.bgsm", "CMB\\Bike\\badge_gunskull.bgsm"], ["CMB\\Bike\\static_helmEnclaveR.bgsm", "CMB\\Bike\\static_helmEnclaveR.bgsm"], ["CMB\\Bike\\static_helmEnclaveR_worn.bgsm", "CMB\\Bike\\static_helmEnclaveR_worn.bgsm"], ["CMB\\Bike\\static_helmBosR.bgsm", "CMB\\Bike\\static_helmBosR.bgsm"], ["CMB\\Bike\\static_helmBosR_worn.bgsm", "CMB\\Bike\\static_helmBosR_worn.bgsm"]], "ids": ["000C19", "000C1A", "000C1B"], "since": "2026-11-16a"}
    ]
   },
   {
@@ -137,7 +145,8 @@
     {"index": 14, "key": "gunners_g", "name": "Gunners (game art)", "kind": "badge", "badge": "gunners_g", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeFender.bgsm", "CMB\\Bike\\badge_gunners_g.bgsm"], ["CMB\\Bike\\static_badgeFender_worn.bgsm", "CMB\\Bike\\badge_gunners_g.bgsm"]], "ids": ["000969", "00096A", "00096B"]},
     {"index": 15, "key": "army_g", "name": "Pre-war army star (game art)", "kind": "badge", "badge": "army_g", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeFender.bgsm", "CMB\\Bike\\badge_army_g.bgsm"], ["CMB\\Bike\\static_badgeFender_worn.bgsm", "CMB\\Bike\\badge_army_g.bgsm"]], "ids": ["00096C", "00096D", "00096E"]},
     {"index": 16, "key": "minutemen_g", "name": "Minutemen flag (game art)", "kind": "badge", "badge": "minutemen_g", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeFender.bgsm", "CMB\\Bike\\badge_minutemen_g.bgsm"], ["CMB\\Bike\\static_badgeFender_worn.bgsm", "CMB\\Bike\\badge_minutemen_g.bgsm"]], "ids": ["00096F", "000970", "000971"]},
-    {"index": 17, "key": "bosflag_g", "name": "Brotherhood flag (game art)", "kind": "badge", "badge": "bosflag_g", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeFender.bgsm", "CMB\\Bike\\badge_bosflag_g.bgsm"], ["CMB\\Bike\\static_badgeFender_worn.bgsm", "CMB\\Bike\\badge_bosflag_g.bgsm"]], "ids": ["000972", "000973", "000974"]}
+    {"index": 17, "key": "bosflag_g", "name": "Brotherhood flag (game art)", "kind": "badge", "badge": "bosflag_g", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeFender.bgsm", "CMB\\Bike\\badge_bosflag_g.bgsm"], ["CMB\\Bike\\static_badgeFender_worn.bgsm", "CMB\\Bike\\badge_bosflag_g.bgsm"]], "ids": ["000972", "000973", "000974"]},
+    {"index": 18, "key": "gunskull", "name": "Gunners skull", "kind": "badge", "badge": "gunskull", "row": null, "mirror": null, "cnam": null, "cost": [["c_Adhesive", 1], ["c_Cloth", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_badgeFender.bgsm", "CMB\\Bike\\badge_gunskull.bgsm"], ["CMB\\Bike\\static_badgeFender_worn.bgsm", "CMB\\Bike\\badge_gunskull.bgsm"]], "ids": ["000C1C", "000C1D", "000C1E"], "since": "2026-11-16a"}
    ]
   },
   {
@@ -429,6 +438,7 @@
    "swaps": null,
    "list_id": "000BEB",
    "swaps_id": null,
+   "swaps_placeholder": {"since": "2026-11-16a", "list": "CMB_LookSwaps_PlateInk", "id": "000C4D", "what": "C3: an empty swap list at this slot's place in CMB_LookSwapLists, so that list stays index = slot with the Seat (slot 11) after the two colour slots; the slot itself still has no swaps"},
    "sources": [],
    "options": [
     {"index": 0, "key": "own", "name": "The plate's own", "kind": "colour", "badge": null, "row": null, "mirror": null, "cnam": null, "cost": [], "perk": null, "loose": null, "swap": null, "ids": [null, "000BA3", "000BA4"], "since": "2026-11-08a", "colour": null},
@@ -464,6 +474,7 @@
    "swaps": null,
    "list_id": "000BEC",
    "swaps_id": null,
+   "swaps_placeholder": {"since": "2026-11-16a", "list": "CMB_LookSwaps_PlateBack", "id": "000C4E", "what": "C3: an empty swap list at this slot's place in CMB_LookSwapLists, so that list stays index = slot with the Seat (slot 11) after the two colour slots; the slot itself still has no swaps"},
    "sources": [],
    "options": [
     {"index": 0, "key": "own", "name": "The plate's own", "kind": "colour", "badge": null, "row": null, "mirror": null, "cnam": null, "cost": [], "perk": null, "loose": null, "swap": null, "ids": [null, "000BC5", "000BC6"], "since": "2026-11-08a", "colour": null},
@@ -487,6 +498,39 @@
    "since": "2026-11-08a",
    "global_id": "000A20",
    "ap_id": "000A26"
+  },
+  {
+   "key": "Seat",
+   "ap": "CMB_ap_Seat",
+   "name": "Seat",
+   "label": "Seat",
+   "global": "CMB_Look_Seat",
+   "default": 0,
+   "list": "CMB_LookOptions_Seat",
+   "swaps": "CMB_LookSwaps_Seat",
+   "list_id": "000C4C",
+   "swaps_id": "000C4F",
+   "sources": ["CMB\\Bike\\static_seat.bgsm", "CMB\\Bike\\static_seat_worn.bgsm"],
+   "options": [
+    {"index": 0, "key": "stock", "name": "Dark brown (as it came)", "kind": "identity", "badge": null, "row": null, "mirror": null, "cnam": null, "cost": [], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_seat.bgsm", "CMB\\Bike\\static_seat.bgsm"], ["CMB\\Bike\\static_seat_worn.bgsm", "CMB\\Bike\\static_seat_worn.bgsm"]], "ids": ["000C1F", "000C20", "000C21"], "since": "2026-11-16a"},
+    {"index": 1, "key": "black", "name": "Black", "kind": "seat", "badge": null, "row": 0, "mirror": null, "cnam": 0.03125, "cost": [["c_Cloth", 2], ["c_Adhesive", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_seat.bgsm", "CMB\\Bike\\static_seat_black.bgsm"], ["CMB\\Bike\\static_seat_worn.bgsm", "CMB\\Bike\\static_seat_black_worn.bgsm"]], "ids": ["000C22", "000C23", "000C24"], "since": "2026-11-16a"},
+    {"index": 2, "key": "tobacco", "name": "Tobacco brown", "kind": "seat", "badge": null, "row": 1, "mirror": null, "cnam": 0.09375, "cost": [["c_Cloth", 2], ["c_Adhesive", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_seat.bgsm", "CMB\\Bike\\static_seat_tobacco.bgsm"], ["CMB\\Bike\\static_seat_worn.bgsm", "CMB\\Bike\\static_seat_tobacco_worn.bgsm"]], "ids": ["000C25", "000C26", "000C27"], "since": "2026-11-16a"},
+    {"index": 3, "key": "tan", "name": "Saddle tan", "kind": "seat", "badge": null, "row": 2, "mirror": null, "cnam": 0.15625, "cost": [["c_Cloth", 2], ["c_Adhesive", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_seat.bgsm", "CMB\\Bike\\static_seat_tan.bgsm"], ["CMB\\Bike\\static_seat_worn.bgsm", "CMB\\Bike\\static_seat_tan_worn.bgsm"]], "ids": ["000C28", "000C29", "000C2A"], "since": "2026-11-16a"},
+    {"index": 4, "key": "oxblood", "name": "Oxblood", "kind": "seat", "badge": null, "row": 3, "mirror": null, "cnam": 0.21875, "cost": [["c_Cloth", 2], ["c_Adhesive", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_seat.bgsm", "CMB\\Bike\\static_seat_oxblood.bgsm"], ["CMB\\Bike\\static_seat_worn.bgsm", "CMB\\Bike\\static_seat_oxblood_worn.bgsm"]], "ids": ["000C2B", "000C2C", "000C2D"], "since": "2026-11-16a"},
+    {"index": 5, "key": "olive", "name": "Olive drab", "kind": "seat", "badge": null, "row": 4, "mirror": null, "cnam": 0.28125, "cost": [["c_Cloth", 2], ["c_Adhesive", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_seat.bgsm", "CMB\\Bike\\static_seat_olive.bgsm"], ["CMB\\Bike\\static_seat_worn.bgsm", "CMB\\Bike\\static_seat_olive_worn.bgsm"]], "ids": ["000C2E", "000C2F", "000C30"], "since": "2026-11-16a"},
+    {"index": 6, "key": "cream", "name": "Cream", "kind": "seat", "badge": null, "row": 5, "mirror": null, "cnam": 0.34375, "cost": [["c_Cloth", 2], ["c_Adhesive", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_seat.bgsm", "CMB\\Bike\\static_seat_cream.bgsm"], ["CMB\\Bike\\static_seat_worn.bgsm", "CMB\\Bike\\static_seat_cream_worn.bgsm"]], "ids": ["000C31", "000C32", "000C33"], "since": "2026-11-16a"},
+    {"index": 7, "key": "slate", "name": "Slate grey", "kind": "seat", "badge": null, "row": 6, "mirror": null, "cnam": 0.40625, "cost": [["c_Cloth", 2], ["c_Adhesive", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_seat.bgsm", "CMB\\Bike\\static_seat_slate.bgsm"], ["CMB\\Bike\\static_seat_worn.bgsm", "CMB\\Bike\\static_seat_slate_worn.bgsm"]], "ids": ["000C34", "000C35", "000C36"], "since": "2026-11-16a"},
+    {"index": 8, "key": "red", "name": "Red", "kind": "seat", "badge": null, "row": 7, "mirror": null, "cnam": 0.46875, "cost": [["c_Cloth", 2], ["c_Adhesive", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_seat.bgsm", "CMB\\Bike\\static_seat_red.bgsm"], ["CMB\\Bike\\static_seat_worn.bgsm", "CMB\\Bike\\static_seat_red_worn.bgsm"]], "ids": ["000C37", "000C38", "000C39"], "since": "2026-11-16a"},
+    {"index": 9, "key": "navy", "name": "Navy", "kind": "seat", "badge": null, "row": 8, "mirror": null, "cnam": 0.53125, "cost": [["c_Cloth", 2], ["c_Adhesive", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_seat.bgsm", "CMB\\Bike\\static_seat_navy.bgsm"], ["CMB\\Bike\\static_seat_worn.bgsm", "CMB\\Bike\\static_seat_navy_worn.bgsm"]], "ids": ["000C3A", "000C3B", "000C3C"], "since": "2026-11-16a"},
+    {"index": 10, "key": "turquoise", "name": "Pre-war turquoise", "kind": "seat", "badge": null, "row": 9, "mirror": null, "cnam": 0.59375, "cost": [["c_Cloth", 2], ["c_Adhesive", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_seat.bgsm", "CMB\\Bike\\static_seat_turquoise.bgsm"], ["CMB\\Bike\\static_seat_worn.bgsm", "CMB\\Bike\\static_seat_turquoise_worn.bgsm"]], "ids": ["000C3D", "000C3E", "000C3F"], "since": "2026-11-16a"},
+    {"index": 11, "key": "black_red", "name": "Black with red piping", "kind": "seat", "badge": null, "row": 10, "mirror": null, "cnam": 0.65625, "cost": [["c_Cloth", 2], ["c_Adhesive", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_seat.bgsm", "CMB\\Bike\\static_seat_black_red.bgsm"], ["CMB\\Bike\\static_seat_worn.bgsm", "CMB\\Bike\\static_seat_black_red_worn.bgsm"]], "ids": ["000C40", "000C41", "000C42"], "since": "2026-11-16a"},
+    {"index": 12, "key": "black_cream", "name": "Black with cream piping", "kind": "seat", "badge": null, "row": 11, "mirror": null, "cnam": 0.71875, "cost": [["c_Cloth", 2], ["c_Adhesive", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_seat.bgsm", "CMB\\Bike\\static_seat_black_cream.bgsm"], ["CMB\\Bike\\static_seat_worn.bgsm", "CMB\\Bike\\static_seat_black_cream_worn.bgsm"]], "ids": ["000C43", "000C44", "000C45"], "since": "2026-11-16a"},
+    {"index": 13, "key": "brown_cream", "name": "Dark brown with cream piping", "kind": "seat", "badge": null, "row": 12, "mirror": null, "cnam": 0.78125, "cost": [["c_Cloth", 2], ["c_Adhesive", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_seat.bgsm", "CMB\\Bike\\static_seat_brown_cream.bgsm"], ["CMB\\Bike\\static_seat_worn.bgsm", "CMB\\Bike\\static_seat_brown_cream_worn.bgsm"]], "ids": ["000C46", "000C47", "000C48"], "since": "2026-11-16a"},
+    {"index": 14, "key": "oxblood_black", "name": "Oxblood with black piping", "kind": "seat", "badge": null, "row": 13, "mirror": null, "cnam": 0.84375, "cost": [["c_Cloth", 2], ["c_Adhesive", 1]], "perk": null, "loose": null, "swap": [["CMB\\Bike\\static_seat.bgsm", "CMB\\Bike\\static_seat_oxblood_black.bgsm"], ["CMB\\Bike\\static_seat_worn.bgsm", "CMB\\Bike\\static_seat_oxblood_black_worn.bgsm"]], "ids": ["000C49", "000C4A", "000C4B"], "since": "2026-11-16a"}
+   ],
+   "since": "2026-11-16a",
+   "global_id": "000C08",
+   "ap_id": "000C09"
   }
  ],
  "badges": [
@@ -731,6 +775,51 @@
    },
    "material": "CMB\\Bike\\badge_bosflag_g.bgsm",
    "slots": ["Fender"]
+  },
+  {
+   "key": "gunskull",
+   "name": "Gunners skull",
+   "art": "ours",
+   "cell": [1, 3],
+   "motif": "a bone-white skull, long in the face, angled eye sockets, a small nose hole, a cross on the brow, a stitched mouth (a line with five or six short stitches); black features and a thin dark outline; no shield, no plate ground (the paint shows round it, as the Raiders')",
+   "colours": {
+    "ground": null,
+    "emblem": ["e8e2d0", "0e0f12"]
+   },
+   "textures": null,
+   "material": "CMB\\Bike\\badge_gunskull.bgsm",
+   "slots": ["TankL", "TankR", "Fender"],
+   "since": "2026-11-16a"
+  },
+  {
+   "key": "hg_enclave",
+   "name": "Enclave helmet (3D): its ground",
+   "art": "ours",
+   "cell": [2, 3],
+   "motif": "a plain black enamel ground with the stock badge's chrome bevel, no emblem: the 3D Enclave helmet (static_helmEnclaveL/R) stands on it",
+   "colours": {
+    "ground": "0e0f12",
+    "emblem": []
+   },
+   "textures": null,
+   "material": "CMB\\Bike\\badge_hg_enclave.bgsm",
+   "slots": [],
+   "since": "2026-11-16a"
+  },
+  {
+   "key": "hg_bos",
+   "name": "Brotherhood helmet (3D): its ground",
+   "art": "ours",
+   "cell": [3, 3],
+   "motif": "a plain steel grey (gunmetal) enamel ground with the stock badge's chrome bevel, no emblem: the 3D Brotherhood helmet (static_helmBosL/R) stands on it",
+   "colours": {
+    "ground": "545a64",
+    "emblem": []
+   },
+   "textures": null,
+   "material": "CMB\\Bike\\badge_hg_bos.bgsm",
+   "slots": [],
+   "since": "2026-11-16a"
   }
  ],
  "paint_rows": [
@@ -2729,6 +2818,132 @@
    },
    "bevel_shade": [0.5, 0.85],
    "ink_shade": [0.6, 1.2]
+  }
+ },
+ "c3_ids": {
+  "first": "000C08",
+  "last": "000C4F",
+  "count": 72,
+  "next": "000C50",
+  "esl_reserve_from": "000F00",
+  "since": "2026-11-16a",
+  "about": "Since 2026-11-16a (C3: the 3D helmet badges, the Gunners skull, the seat's colour, the alphabetical lists; SP t60 design c3.md). Every C3 entry is an object with \"since\": \"2026-11-16a\": the options TankL 17-19 and TankR 18-20 (enclavehelm3d, boshelm3d, gunskull), Fender 18 (gunskull), the slot Seat (slot 11, after PlateBack), the badges gunskull, hg_enclave and hg_bos, the tank slots' sources_c3, the colour slots' swaps_placeholder, and the sections c3_ids, emblems, seat_palette and ui_order. The generator's `--look-build 2026-11-08a` (and 2026-11-07a) drops them all, so its ESP and MCM are 2026-11-15b's (fdb5b3a's) byte for byte. C3's records are a third block after 2026-11-15b's weapons forms (0xC03-0xC07), IDs 0x000C08-0x000C4F (72, contiguous), in this order: the Seat's global (global_id) and attach point (ap_id), the new options of the earlier slots in slot order (TankL 17-19, TankR 18-20, Fender 18; ids [MSWP, OMOD, COBJ]), the Seat's options 0-14, its option list (list_id), then the swap lists: the two empty placeholders (PlateInk's, PlateBack's swaps_placeholder) and the Seat's (swaps_id), so CMB_LookSwapLists is index = slot over 12 slots. In place: the 34 MSWPs of TankL 0-16 and TankR 0-16 gain the identities of their slot's sources_c3 (after their own two entries), the tank and fender option and swap lists take the new options, CMB_LookCategories and CMB_LookSwapLists take the Seat's lists (and the placeholders), the look item and both riding armours a 12th attach point, the template a 12th option 0, every look recipe its created-object priority (ui_order). New kinds: `emblem` (a 3D helmet: `badge` the plate's ground cell, `emblem` a key of emblems.items; the side's helmet shape swapped to the emblem's material, the other helmet's identity) and `seat` (`row` a row of seat_palette; `cnam` its V = (row + 0.5) / 16 on both entries, the record's colour index). TankR's follow (17, \"Same as the left\") resolves by key, not by index: TankRightOf (per TankL option, the TankR index with the same key: 0-16 as they are, 17 -> 18, 18 -> 19, 19 -> 20). Contingency only (not listed in look_ids.txt): 11 GLOB CMB_LookUi_<slot> from 0x000C50 if MCM's property source can't call a full property."
+ },
+ "emblems": {
+  "since": "2026-11-16a",
+  "about": "The 3D helmet emblems (unit A): per side a shape standing upright on the tank's badge plate (the plate's triangles and UVs unchanged), hidden on its own invisible materials files (off_d/_n/_s, alpha test 255, alpha 0, no shadows: the rim styles' own files) until a tank option swaps it to the emblem's material. Shape names <stem>_<shape>: stems CMB_Bike (CMB_BikeParked.nif, unskinned, Materials\\CMB\\Bike\\<shape>.bgsm), CMB_BikeWorn, CMB_BikeWornRider, CMB_BikeWornRiderF (skinned, one bone, <shape>_worn.bgsm), CMB_BikeView (unskinned, under the NiNode CMB_BikeView, <shape>_worn.bgsm); appended after each nif's last shape in shape_order. One emblem material serves the parked and worn bikes. Textures: one 1024 x 512 atlas, a 512 x 512 cell a helmet (cell [col, row]; _s and _g at half size).",
+  "shape_order": ["static_helmEnclaveL", "static_helmEnclaveR", "static_helmBosL", "static_helmBosR"],
+  "textures": {
+   "diffuse": "CMB\\Bike\\helms_d.dds",
+   "normal": "CMB\\Bike\\helms_n.dds",
+   "smoothspec": "CMB\\Bike\\helms_s.dds",
+   "glow": "CMB\\Bike\\helms_g.dds"
+  },
+  "formats": {
+   "diffuse": ["BC1", 1024, 512],
+   "normal": ["BC5", 1024, 512],
+   "smoothspec": ["BC5", 512, 256],
+   "glow": ["BC1", 512, 256]
+  },
+  "cell": [512, 512],
+  "env": "Shared\\Cubemaps\\MetalChrome01Cube_e.dds",
+  "items": [
+   {
+    "key": "enclave",
+    "name": "Enclave helmet (3D)",
+    "cell": [0, 0],
+    "ground": "hg_enclave",
+    "material": "CMB\\Bike\\helm_enclave.bgsm",
+    "shader": "glow",
+    "glow": true,
+    "env_scale": null,
+    "colours": {
+     "metal": ["3a3d40", "1d1f22"],
+     "eyes": "ffb030"
+    },
+    "shapes": {
+     "TankL": "static_helmEnclaveL",
+     "TankR": "static_helmEnclaveR"
+    }
+   },
+   {
+    "key": "bos",
+    "name": "Brotherhood helmet (3D)",
+    "cell": [1, 0],
+    "ground": "hg_bos",
+    "material": "CMB\\Bike\\helm_bos.bgsm",
+    "shader": "env",
+    "glow": false,
+    "env_scale": 0.8,
+    "colours": {
+     "steel": "a8adb3",
+     "recess": "2a2c30"
+    },
+    "shapes": {
+     "TankL": "static_helmBosL",
+     "TankR": "static_helmBosR"
+    }
+   }
+  ]
+ },
+ "seat_palette": {
+  "since": "2026-11-16a",
+  "about": "The seat's colour (unit C): static_seat_i_d.dds (1024 BC1) is the shipped static_seat_d.dds re-sampled per texel into an index map (the body's shade over the leather to U 56-127, the piping's to 136-207, the wear patches to 0-47); seat_p.dds (256 x 16, A8R8G8B8, one mip) a row per colour, `body` at the leather's own shade and `piping` the welt's (sRGB); each row's worn tone (U 0-47) is look_seat.py's, from its body colour as the stock wear patch is from the leather. Materials static_seat_<key>.bgsm and static_seat_<key>_worn.bgsm: the shipped static_seat files' values, diffuse the index map, greyscale seat_p.dds, grayscale_to_palette_color on, grayscale_to_palette_scale V = (row + 0.5) / 16, _n and _s the shipped ones. Row 14 is the stock leather (the proof only: no option names it), row 15 spare.",
+  "texture": "CMB\\Bike\\seat_p.dds",
+  "index_map": "CMB\\Bike\\static_seat_i_d.dds",
+  "normal": "CMB\\Bike\\static_seat_n.dds",
+  "smoothspec": "CMB\\Bike\\static_seat_s.dds",
+  "size": [256, 16],
+  "v": "(row + 0.5) / 16",
+  "u": {
+   "wear": [0, 47],
+   "body": [56, 127],
+   "piping": [136, 207]
+  },
+  "leather": "231b16",
+  "wear_patch": "3a2c22",
+  "stock_row": 14,
+  "rows": [
+   {"row": 0, "key": "black", "body": "080808", "piping": "080808"},
+   {"row": 1, "key": "tobacco", "body": "764924", "piping": "764924"},
+   {"row": 2, "key": "tan", "body": "bf7028", "piping": "bf7028"},
+   {"row": 3, "key": "oxblood", "body": "681119", "piping": "681119"},
+   {"row": 4, "key": "olive", "body": "546d32", "piping": "546d32"},
+   {"row": 5, "key": "cream", "body": "f2e3bf", "piping": "f2e3bf"},
+   {"row": 6, "key": "slate", "body": "738292", "piping": "738292"},
+   {"row": 7, "key": "red", "body": "d02c2a", "piping": "d02c2a"},
+   {"row": 8, "key": "navy", "body": "162f72", "piping": "162f72"},
+   {"row": 9, "key": "turquoise", "body": "49b6ab", "piping": "49b6ab"},
+   {"row": 10, "key": "black_red", "body": "080808", "piping": "d02c2a"},
+   {"row": 11, "key": "black_cream", "body": "080808", "piping": "f2e3bf"},
+   {"row": 12, "key": "brown_cream", "body": "231b16", "piping": "f2e3bf"},
+   {"row": 13, "key": "oxblood_black", "body": "681119", "piping": "080808"},
+   {"row": 14, "key": "stock", "body": "231b16", "piping": "231b16"}
+  ]
+ },
+ "ui_order": {
+  "since": "2026-11-16a",
+  "about": "The alphabetical lists (D1 generates, D2's scripts read). The option indices (the globals, the saves) never change; only the presentation is ordered. Groups: the 12 slots in table order, then the faction sets (group 12). Per group the options in display order: `pinned` first in index order, then the rest by name (ordinal over the names lower-cased, ties by index), `last` at the end; the steppers keep index order. CMB_ControllerScript's int arrays: UiStart[g] the group's first entry (13 entries; for a slot UiStart[s] = LookSlotStart[s]), UiOrder[UiStart[g] + rank] = the option index shown at that rank, UiRank[UiStart[g] + index] = the option's rank (UiOrder's inverse within the group); 297 entries each (285 options and 12 sets). Each MCM dropdown is bound (sourceType PropertyValueInt, scriptName CMB_ControllerScript, the quest 0x80D) to a full property of the controller (`dropdowns`): Get returns the rank of the group's global's value, Set(rank) writes UiOrder's index into the global. Each look recipe's created-object priority is its option's rank. `--kit-order table` (an A/B ESP): priorities 0, the MCM bound to the globals in table order, the Ui arrays the identity.",
+  "groups": ["TankL", "TankR", "Fender", "Paint", "Mirrors", "Rims", "Tyres", "Plate", "PlateText", "PlateInk", "PlateBack", "Seat", "FactionSet"],
+  "dropdowns": {
+   "TankL": "UiTankL",
+   "TankR": "UiTankR",
+   "Fender": "UiFender",
+   "Paint": "UiPaint",
+   "Rims": "UiRims",
+   "Plate": "UiPlate",
+   "PlateText": "UiPlateText",
+   "PlateInk": "UiPlateInk",
+   "PlateBack": "UiPlateBack",
+   "Seat": "UiSeat",
+   "FactionSet": "UiFactionSet"
+  },
+  "steppers": ["Mirrors", "Tyres"],
+  "pinned": "a group's option 0 and its `off` and `follow` options (None, Same as the left, The plate's own)",
+  "last": ["Paint:test"],
+  "kit_order": {
+   "default": "alpha",
+   "off": "table"
   }
  }
 }

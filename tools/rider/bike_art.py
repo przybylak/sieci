@@ -36,9 +36,17 @@ hold. The texture stage (bike_textures.py) turns them into DDS and the materials
 
 --plates (since the 2026-11-08a build) writes only the licence plate's index maps (look_plates.py makes the DDS, the
 palettes and the materials): plates_d/_part/_h/_s.png (2048 x 1024: the 12 designs, our own art: backgrounds, beads,
-legends in our plate font and our script, emblems from the badge drawers scaled down (the Vault-Tec plate's cog, since
-the 2026-11-09a build, drawn at the plate's own scale), stickers), plate_text_d/_h/_s.png (2048: the 60 preset texts,
-stamped in our plate font) and plates.json; the other outputs are untouched by it.
+legends in our plate font and our script, emblems, stickers), plate_text_d/_h/_s.png (2048: the 60 preset texts,
+stamped in our plate font) and plates.json; the other outputs are untouched by it. Since the 2026-11-16a build the plate
+font is a die-pressed one of our own (narrow, square bowls, flat-cut ends, heavier, mechanical dies; --plate-font
+2026-11-08a: the stroked font before it) and every design's emblem is drawn at the plate's own scale, as the Vault-Tec
+cog was in 2026-11-09a (--plate-emblems 2026-11-09a: the badge drawers scaled down but that cog); plates.json records
+each emblem's box and neighbours for look_plates.py --check. --plate-font 2026-11-08a --plate-emblems 2026-11-09a: the
+2026-11-09a art, its textures byte for byte.
+
+--badges (since the 2026-11-07a build) writes only the faction badges' atlas (look_badges.py makes the DDS and the
+materials); since 2026-11-16a it has the Gunners skull and the 3D helmets' two enamel grounds too (cells (1, 3), (2, 3),
+(3, 3)), and --through 2026-11-08a reads the table as 2026-11-15b had it (its 13 badges, its atlas byte for byte).
 
 Normal maps are tangent space in Fallout 4's (Direct3D) convention: red along +u, green along +v
 (down the image), blue out of the surface; written as they are (no green flip). Colours are 8-bit
@@ -1016,10 +1024,101 @@ def draw_army(B, col):
     B.fill(sd_poly(cv, star_pts(cx, cy + 3, 62)), white, "enamel")
 
 
+# --- since the 2026-11-16a build: the Gunners skull and the 3D helmets' enamel grounds ----------------------------------
+# The skull is our own drawing from a written feature list (look_options.json's motif): a bone-white head, long in the
+# face, small ears, a cross on the brow, two angled eye sockets, a small nose hole, a stitched mouth, black features and a
+# thin dark outline, no ground (the paint shows round it, as the Raiders'). Every outline below is our own numbers.
+SKULL_HALF = [(256, 29), (281, 32), (301, 42), (313, 59), (318, 82), (319, 98), (327, 102), (333, 115), (331, 132),
+              (321, 141), (317, 154), (312, 174), (301, 193), (283, 207), (256, 214)]   # the right half, crown to chin
+SKULL_OUTLINE = 4.5            # px, the dark outline round the head
+GROUND_INSET, GROUND_R, GROUND_RIM = 5.0, 12.0, 7.0   # px: the grounds' plaque in the safe hexagon, its corners, the bevel
+
+
+def _skull_head():
+    right = SKULL_HALF
+    left = [(512 - x, y) for x, y in right[-2:0:-1]]
+    return smooth_closed(right + left, 8)
+
+
+def _skull_socket(side):
+    """An eye socket, `side` +1 the viewer's right: the inner end low and pointed toward the nose, the top edge rising
+    outward, the outer end round (an angled almond)."""
+    tip = [(272, 140), (267, 131)]                                     # the inner end: a point, low
+    top = bezier((267, 131), (262, 114), (283, 102), (305, 99), 10)     # the top edge, rising outward
+    end = _arc(306, 110.5, 11.5, 270, 450, 10)[1:]                      # the outer end, round
+    low = bezier((306, 122), (298, 130), (285, 134), (272, 140), 10)[1:-1]
+    pts = tip + top[1:] + end + low
+    if side < 0:
+        pts = [(512 - x, y) for x, y in pts]
+    return pts
+
+
+def _tapered(a, b, w0, w1):
+    """A stroke from a to b, w0 wide at a and w1 at b, flat ends (a brush's mark)."""
+    (ax, ay), (bx, by) = a, b
+    L = math.hypot(bx - ax, by - ay)
+    nx, ny = -(by - ay) / L, (bx - ax) / L
+    return [(ax + nx * w0 / 2, ay + ny * w0 / 2), (bx + nx * w1 / 2, by + ny * w1 / 2),
+            (bx - nx * w1 / 2, by - ny * w1 / 2), (ax - nx * w0 / 2, ay - ny * w0 / 2)]
+
+
+def draw_gunskull(B, col):
+    cv = B.cv
+    bone, black = hexrgb(col["emblem"][0]), hexrgb(col["emblem"][1])
+    head = sd_poly(cv, _skull_head())
+    B.fill(head, black, "enamel")                                    # the outline: the head's edge, dark
+    B.fill(head + SKULL_OUTLINE, bone, "enamel")
+    feats = []
+    for a, b, w0, w1 in (((231, 52), (281, 92), 10.5, 8.0), ((279, 51), (233, 93), 10.0, 7.5)):
+        feats.append(sd_poly(cv, _tapered(a, b, w0, w1)))           # the cross on the brow, two brush strokes
+    feats += [sd_poly(cv, _skull_socket(s)) for s in (-1, 1)]
+    feats.append(sd_poly(cv, [(256, 137), (263, 148), (267, 159), (261, 162), (256, 157), (251, 162), (245, 159),
+                              (249, 148)]))                          # the nose hole, two lobes at its foot
+    mouth = bezier((222, 181), (240, 186), (272, 186), (290, 179), 16)
+    feats.append(sd_stroke(cv, mouth, 6.0))
+    for k, (x, up, down, lean) in enumerate(((230, 8, 9, -1.0), (240, 10, 10, 0.5), (250, 11, 11, -0.5),
+                                              (261, 11, 10, 1.0), (271, 10, 11, -0.5), (281, 8, 9, 0.5))):
+        y = 184.5 - 0.0045 * (x - 256) ** 2                          # on the mouth's line: six stitches across it
+        feats.append(sd_stroke(cv, [(x - lean, y - up), (x + lean, y + down)], 4.6))
+    feat = np.minimum.reduce(feats)
+    B.fill(np.maximum(feat, head + SKULL_OUTLINE + 2.0), black, "enamel")
+    # the relief: the bone domed a little (a pressed enamel), the features sunk
+    inside = coverage(head + SKULL_OUTLINE)
+    r = np.hypot((cv.x - 256) / 70.0, (cv.y - 122) / 95.0)
+    dome = np.clip(1 - r * r, 0, 1)
+    B.relief = B.relief + inside * 0.18 * dome - coverage(np.maximum(feat, head + SKULL_OUTLINE + 2.0)) * 0.12
+
+
+def draw_ground(B, col):
+    """A 3D helmet's ground: the plate's hexagon (what both tank plates show) as a plain enamel field in the ground's
+    colour inside the stock badge's chrome bevel, no emblem. Returns the enamel field's outline for badges.json."""
+    plate = plaque_sd(B.cv, GROUND_INSET, GROUND_R)
+    B.rimmed(plate, hexrgb(col["ground"]), GROUND_RIM)
+    return dict(field=dict(safe_inset_px=GROUND_INSET + GROUND_RIM, corner_px=max(0.0, GROUND_R - GROUND_RIM),
+                           bevel_px=GROUND_RIM,
+                           outline=[[round(x, 2), round(y, 2)] for x, y in offset_convex(BADGE_SAFE, GROUND_INSET + GROUND_RIM)],
+                           what="the enamel field inside the bevel: BADGE_SAFE moved in safe_inset_px, its corners "
+                                "rounded corner_px (cell px; the plate's UV rectangle maps onto the cell's 512 x 213)"))
+
+
 BADGE_DRAW = {"bos": draw_bos, "boshelm": draw_boshelm, "enclave": draw_enclave, "enclavehelm": draw_enclavehelm,
               "gunners": draw_gunners, "minutemen": draw_minutemen, "railroad": draw_railroad,
               "institute": draw_institute, "vaulttec": draw_vaulttec, "atomcats": draw_atomcats,
-              "raiders": draw_raiders, "atom": draw_atom, "army": draw_army}
+              "raiders": draw_raiders, "atom": draw_atom, "army": draw_army,
+              "gunskull": draw_gunskull, "hg_enclave": draw_ground, "hg_bos": draw_ground}
+
+
+def look_through(node, through):
+    """The table as the build `through` had it: every object whose "since" is later dropped (check_plugin.py's
+    look_until); through None: the table as it is."""
+    if through is None:
+        return node
+    later = lambda x: isinstance(x, dict) and isinstance(x.get("since"), str) and x["since"] > through
+    if isinstance(node, list):
+        return [look_through(x, through) for x in node if not later(x)]
+    if isinstance(node, dict):
+        return {k: look_through(v, through) for k, v in node.items() if not later(v)}
+    return node
 
 
 def draw_badge_atlas(opts):
@@ -1040,7 +1139,7 @@ def draw_badge_atlas(opts):
         col = b["colours"]
         bleed = hexrgb(col["emblem"][0]) if col.get("ground") is None else CHROME
         B = BadgeArt(cw, ch, bleed)
-        BADGE_DRAW[b["key"]](B, col)
+        extra = BADGE_DRAW[b["key"]](B, col)
         # the margin: nothing within it, whatever a drawing did
         edge = np.minimum(np.minimum(B.cv.x - margin, cw - margin - B.cv.x), np.minimum(B.cv.y - margin, ch - margin - B.cv.y))
         B.alpha *= edge >= 0
@@ -1050,9 +1149,13 @@ def draw_badge_atlas(opts):
         s[r * ch // nscale:(r + 1) * ch // nscale, c * cw // nscale:(c + 1) * cw // nscale] = bs
         y0 = (ch - dh) / 2
         drawn = B.alpha[int(round(y0)):int(round(y0 + dh)), :]
+        if extra and "field" in extra:                     # a ground's enamel field in the plate's own UVs too
+            u0, v0, u1, v1 = at["plate_rect"]
+            extra["field"]["outline_plate_uv"] = [[round(u0 + x / dw * (u1 - u0), 5), round(v0 + (y - (ch - dh) / 2) / dh * (v1 - v0), 5)]
+                                                  for x, y in extra["field"]["outline"]]
         info[b["key"]] = dict(cell=[c, r], name=b["name"], motif=b["motif"], colours=col,
                               coverage=round(float(drawn.mean()), 4),
-                              box=[int(x) for x in _alpha_box(B.alpha)])
+                              box=[int(x) for x in _alpha_box(B.alpha)], **(extra or {}))
     meta = {"version": 1, "atlas": {k: at[k] for k in ("size", "cols", "rows", "cell", "draw", "margin", "plate_rect")},
             "maps": {"badges_d.png": "RGBA, A the emblem's outline (alpha test at 128), 2048",
                      "badges_n.png": "tangent space, Direct3D (G toward +v), 1024", "badges_s.png":
@@ -1383,6 +1486,467 @@ def _plate_glyphs():
 
 PLATE_GLYPHS = _plate_glyphs()
 
+# --- the die-pressed plate font (since the 2026-11-16a build) ------------------------------------------------------------
+# The author's "1950s US plate style": the look of letters pressed into a steel plate by a die. Narrow (48 px of a 92-px
+# cap, the 2026-11-08a font's 54), squarer bowls (rounded rectangles with straight sides, not circles), strokes a little
+# heavier (x DIE_WEIGHT: 15 px at the texts' cap), every free end cut flat (square to the stroke, or level with the cap
+# line or the baseline), square outer corners where stems meet bars, an even mechanical pitch (each character centred in
+# a die of DIE_PITCH; the legends' gaps all one width). Raised, its bevel baked as the 2026-11-08a font's (emboss).
+# Built here from bands (a stroke along a line, cut by boxes), rounded-rectangle rings (cut by boxes) and filled polygons
+# as exact signed distances in each glyph's inked box: our own construction, no font file, no outline of any typeface
+# copied. Each piece overlaps the next at a joint by more than the bevel's ramp, so no seam shows in the relief.
+# --plate-font 2026-11-08a keeps the stroked font above (round ends), and with it the 2026-11-08a texts byte for byte.
+PLATE_FONT_OLD, PLATE_FONT_NEW = "2026-11-08a", "2026-11-16a"
+PLATE_FONT = PLATE_FONT_NEW
+PLATE_EMBLEMS_OLD, PLATE_EMBLEMS_NEW = "2026-11-09a", "2026-11-16a"    # the designs' emblems (--plate-emblems)
+PLATE_EMBLEMS = PLATE_EMBLEMS_NEW
+DIE_WEIGHT = 1.15                   # every stroke a caller asks for, x this (the texts' 13 px -> 14.95)
+DIE_S_REF = PLATE_STROKE * DIE_WEIGHT
+DIE_PITCH = 62.0                    # px at the 92-px cap: the texts' die (48 inked + a stroke's gap)
+DIE_NARROW = {"-": 0.6, ".": 0.45, "?": 0.75, "!": 0.45, "'": 0.45}   # their dies, in pitches
+BIG = 1e4
+
+
+class _Box:
+    """A glyph's inked box w x h (px, y down) and its stroke s; X(f), Y(f) place on the strokes' centre lines (f 0-1
+    from the left or top stroke's middle to the right or bottom one's), as the 2026-11-08a font's centre-line box."""
+
+    def __init__(self, w, h, s):
+        self.w, self.h, self.s = w, h, s
+        self.L, self.R, self.T, self.B = s / 2, w - s / 2, s / 2, h - s / 2
+        self.xc = w / 2
+        self.o = max(0.0, min(0.25 * s + 0.5, w / 2 - s - 0.2))     # a piece's overlap past a joint's cut
+
+    def X(self, f):
+        return self.L + (self.R - self.L) * f
+
+    def Y(self, f):
+        return self.T + (self.B - self.T) * f
+
+    def r(self, f, cap=None):
+        """A bowl's centre-line corner radius: f of the centre-line width (at most `cap`)."""
+        r = f * (self.R - self.L)
+        return min(r, cap) if cap is not None else r
+
+
+def _keep(x0=-BIG, y0=-BIG, x1=BIG, y1=BIG):
+    """A box to keep (its signed distance, negative inside; the sharp corners' outside is the larger axis distance)."""
+    return lambda X, Y: np.maximum(np.maximum(x0 - X, X - x1), np.maximum(y0 - Y, Y - y1))
+
+
+def _band(p, q, s, keep=None):
+    """A stroke s wide along the line through p and q, cut flat square to it at p and q, or (keep: box functions) cut
+    by those instead (the line runs on beyond p and q)."""
+    (px, py), (qx, qy) = p, q
+    L = math.hypot(qx - px, qy - py)
+    ux, uy = (qx - px) / L, (qy - py) / L
+
+    def f(X, Y):
+        d = np.abs((X - px) * uy - (Y - py) * ux) - s / 2
+        if keep is None:
+            along = (X - px) * ux + (Y - py) * uy
+            d = np.maximum(d, np.maximum(-along, along - L))
+        else:
+            for k in keep:
+                d = np.maximum(d, k(X, Y))
+        return d
+    return f
+
+
+def _edge_band(p, q, s, inward, keep):
+    """A band whose one edge is the line p-q, lying on the side `inward` (+1: left of p->q in the image, y down)."""
+    (px, py), (qx, qy) = p, q
+    L = math.hypot(qx - px, qy - py)
+    nx, ny = inward * (qy - py) / L, -inward * (qx - px) / L
+    return _band((px + nx * s / 2, py + ny * s / 2), (qx + nx * s / 2, qy + ny * s / 2), s, keep)
+
+
+def _vbar(G, x, y0=0.0, y1=None):
+    return _band((x, y0), (x, G.h if y1 is None else y1), G.s)
+
+
+def _hbar(G, y, x0=0.0, x1=None):
+    return _band((x0, y), (G.w if x1 is None else x1, y), G.s)
+
+
+def _ring(G, x0, y0, x1, y1, r, keep=()):
+    """A rounded rectangle's outline stroked G.s wide: its centre line the box x0..x1, y0..y1 with corner radii r (one,
+    or (top left, top right, bottom right, bottom left)), cut to the boxes `keep` (all of them)."""
+    tl, tr, br, bl = (r,) * 4 if np.ndim(r) == 0 else r
+    cx, cy, hx, hy = (x0 + x1) / 2, (y0 + y1) / 2, (x1 - x0) / 2, (y1 - y0) / 2
+    lim = min(hx, hy)
+    tl, tr, br, bl = (max(0.0, min(v, lim)) for v in (tl, tr, br, bl))
+
+    def f(X, Y):
+        dx, dy = X - cx, Y - cy
+        rr = np.where(dx < 0, np.where(dy < 0, tl, bl), np.where(dy < 0, tr, br))
+        qx, qy = np.abs(dx) - hx + rr, np.abs(dy) - hy + rr
+        d = np.hypot(np.maximum(qx, 0), np.maximum(qy, 0)) + np.minimum(np.maximum(qx, qy), 0) - rr
+        d = np.abs(d) - G.s / 2
+        for k in keep:
+            d = np.maximum(d, k(X, Y))
+        return d
+    return f
+
+
+def _fill(pts):
+    """A filled polygon (its exact signed distance)."""
+    p = np.asarray(pts, np.float64)
+
+    def f(X, Y):
+        X, Y = np.broadcast_arrays(X, Y)
+        d = np.full(X.shape, np.inf)
+        inside = np.zeros(X.shape, bool)
+        for k in range(len(p)):
+            a, b = p[k], p[(k + 1) % len(p)]
+            d = np.minimum(d, seg_dist(X, Y, a, b))
+            cond = (a[1] > Y) != (b[1] > Y)
+            xint = a[0] + (Y - a[1]) * (b[0] - a[0]) / (b[1] - a[1] if b[1] != a[1] else 1e-12)
+            inside ^= cond & (X < xint)
+        return np.where(inside, -d, d)
+    return f
+
+
+def _dot(G, x, y1=None):
+    """The die's square full stop: a stroke-wide square on the baseline, its corners eased a little."""
+    y1 = G.h if y1 is None else y1
+    r, s = 0.18 * G.s, G.s
+
+    def f(X, Y):
+        qx, qy = np.abs(X - x) - s / 2 + r, np.abs(Y - (y1 - s / 2)) - s / 2 + r
+        return np.hypot(np.maximum(qx, 0), np.maximum(qy, 0)) + np.minimum(np.maximum(qx, qy), 0) - r
+    return f
+
+
+def _turned(pieces, G):
+    """The pieces turned 180 degrees in the box (6 -> 9)."""
+    return [lambda X, Y, f=f: f(G.w - X, G.h - Y) for f in pieces]
+
+
+def _die_glyphs():
+    """{char: (inked width at the 92-px cap and DIE_S_REF, builder(_Box) -> [pieces])}."""
+    g = {}
+
+    def glyph(ch, width):
+        def deco(fn):
+            g[ch] = (width, fn)
+            return fn
+        return deco
+
+    def bowl(G, f=0.38):
+        return G.r(f)
+
+    @glyph("A", 48)
+    def _A(G):
+        xa = 0.17 * G.w                                        # the legs' outer tops: a flat-topped, narrow A
+        cut = [_keep(0, 0, G.w, G.h)]
+        legL = _edge_band((0, G.h), (xa, 0), G.s, -1, cut)
+        legR = _edge_band((G.w, G.h), (G.w - xa, 0), G.s, 1, cut)
+        yb = G.Y(0.62)
+        t = G.s / math.cos(math.atan2(xa, G.h))
+        xl = xa * (1 - yb / G.h) + t / 2
+        return [legL, legR, _hbar(G, G.T, xa + 0.5, G.w - xa - 0.5), _hbar(G, yb, xl, G.w - xl)]
+
+    @glyph("B", 48)
+    def _B(G):
+        ym = G.Y(0.47)
+        ru = G.r(0.42, (ym - G.T) / 2)
+        rl = G.r(0.42, (G.B - ym) / 2)
+        return [_vbar(G, G.L), _ring(G, G.L, G.T, G.X(0.92), ym, (0, ru, ru, 0)), _ring(G, G.L, ym, G.R, G.B, (0, rl, rl, 0))]
+
+    @glyph("C", 48)
+    def _C(G):
+        rc = bowl(G)
+        y1, y2 = G.Y(0.28), G.Y(0.72)
+        ring = lambda k: _ring(G, G.L, G.T, G.R, G.B, rc, [k])
+        return [ring(_keep(x1=G.xc + G.o)), ring(_keep(y1=y1)), ring(_keep(y0=y2))]
+
+    @glyph("D", 48)
+    def _D(G):
+        rd = G.r(0.46)
+        return [_vbar(G, G.L), _ring(G, G.L, G.T, G.R, G.B, (0, rd, rd, 0))]
+
+    @glyph("E", 46)
+    def _E(G):
+        return [_vbar(G, G.L), _hbar(G, G.T), _hbar(G, G.Y(0.48), 0, G.w * 0.86), _hbar(G, G.B)]
+
+    @glyph("F", 46)
+    def _F(G):
+        return [_vbar(G, G.L), _hbar(G, G.T), _hbar(G, G.Y(0.48), 0, G.w * 0.84)]
+
+    @glyph("G", 48)
+    def _G(G):
+        rc = bowl(G)
+        y1, yg = G.Y(0.28), G.Y(0.53)
+        ring = lambda k: _ring(G, G.L, G.T, G.R, G.B, rc, [k])
+        return [ring(_keep(x1=G.xc + G.o)), ring(_keep(y1=y1)), ring(_keep(y0=yg)), _hbar(G, yg, G.X(0.48), G.w)]
+
+    @glyph("H", 48)
+    def _H(G):
+        return [_vbar(G, G.L), _vbar(G, G.R), _hbar(G, G.Y(0.48), G.L, G.R)]
+
+    @glyph("I", 30)
+    def _I(G):
+        return [_vbar(G, G.xc), _hbar(G, G.T), _hbar(G, G.B)]
+
+    @glyph("J", 46)
+    def _J(G):
+        rc = bowl(G)
+        ring = lambda k: _ring(G, G.L, -G.h, G.R, G.B, rc, [k])
+        return [ring(_keep(y0=0, x0=G.xc - G.o)), ring(_keep(y0=G.Y(0.64)))]
+
+    @glyph("K", 48)
+    def _K(G):
+        cut = [_keep(0, 0, G.w, G.h)]
+        arm = _band((G.L, G.Y(0.66)), (G.R + 0.2 * G.s, G.T - 0.1 * G.s), G.s, cut)
+        leg = _band((G.X(0.34), G.Y(0.42)), (G.R + 0.1 * G.s, G.B + 0.3 * G.s), G.s, cut + [_keep(y0=G.Y(0.36))])
+        return [_vbar(G, G.L), arm, leg]
+
+    @glyph("L", 46)
+    def _L(G):
+        return [_vbar(G, G.L), _hbar(G, G.B)]
+
+    @glyph("M", 54)
+    def _M(G):
+        yv = G.Y(0.66)
+        cut = [_keep(0, 0, G.w, yv)]
+        return [_vbar(G, G.L), _vbar(G, G.R), _band((G.L, 0), (G.xc, yv), G.s, cut + [_keep(x1=G.xc + G.o)]),
+                _band((G.R, 0), (G.xc, yv), G.s, cut + [_keep(x0=G.xc - G.o)])]
+
+    @glyph("N", 48)
+    def _N(G):
+        return [_vbar(G, G.L), _vbar(G, G.R), _band((G.L, 0), (G.R, G.h), G.s, [_keep(0, 0, G.w, G.h)])]
+
+    @glyph("O", 48)
+    def _O(G):
+        return [_ring(G, G.L, G.T, G.R, G.B, bowl(G, 0.40))]
+
+    @glyph("P", 48)
+    def _P(G):
+        yp = G.Y(0.54)
+        rp = G.r(0.44, (yp - G.T) / 2)
+        return [_vbar(G, G.L), _ring(G, G.L, G.T, G.R, yp, (0, rp, rp, 0))]
+
+    @glyph("Q", 48)
+    def _Q(G):
+        tail = _band((G.X(0.52), G.Y(0.66)), (G.w + G.s, G.h + 0.6 * G.s), 0.92 * G.s,
+                     [_keep(0, 0, G.w, G.h), _keep(y0=G.Y(0.6))])
+        return [_ring(G, G.L, G.T, G.R, G.B, bowl(G, 0.40)), tail]
+
+    @glyph("R", 48)
+    def _R(G):
+        yp = G.Y(0.50)
+        rp = G.r(0.44, (yp - G.T) / 2)
+        return [_vbar(G, G.L), _ring(G, G.L, G.T, G.R, yp, (0, rp, rp, 0)),
+                _band((G.X(0.30), yp), (G.R + 0.15 * G.s, G.h), G.s, [_keep(0, yp - G.s / 2, G.w, G.h)])]
+
+    @glyph("S", 48)
+    def _S(G):
+        ym = G.Y(0.48)
+        ru, rl = G.r(0.40, (ym - G.T) / 2), G.r(0.40, (G.B - ym) / 2)
+        y1, y2 = G.Y(0.27), G.Y(0.73)
+        up = lambda k: _ring(G, G.L + 0.6, G.T, G.R - 0.6, ym, ru, [k])
+        lo = lambda k: _ring(G, G.L, ym, G.R, G.B, rl, [k])
+        return [up(_keep(x1=G.xc + G.o)), up(_keep(y1=y1)), lo(_keep(x0=G.xc - G.o)), lo(_keep(y0=y2))]
+
+    @glyph("T", 48)
+    def _T(G):
+        return [_hbar(G, G.T), _vbar(G, G.xc)]
+
+    @glyph("U", 48)
+    def _U(G):
+        return [_ring(G, G.L, -G.h, G.R, G.B, bowl(G), [_keep(y0=0)])]
+
+    @glyph("V", 48)
+    def _V(G):
+        cut = [_keep(0, 0, G.w, G.h)]
+        return [_band((G.L, 0), (G.xc - 0.12 * G.s, G.h), G.s, cut + [_keep(x1=G.xc + G.o)]),
+                _band((G.R, 0), (G.xc + 0.12 * G.s, G.h), G.s, cut + [_keep(x0=G.xc - G.o)])]
+
+    @glyph("W", 54)
+    def _W(G):
+        yv = G.Y(0.34)
+        cut = [_keep(0, yv, G.w, G.h)]
+        return [_vbar(G, G.L), _vbar(G, G.R), _band((G.L, G.h), (G.xc, yv), G.s, cut + [_keep(x1=G.xc + G.o)]),
+                _band((G.R, G.h), (G.xc, yv), G.s, cut + [_keep(x0=G.xc - G.o)])]
+
+    @glyph("X", 48)
+    def _X(G):
+        cut = [_keep(0, 0, G.w, G.h)]
+        return [_band((G.L, 0), (G.R, G.h), G.s, cut), _band((G.R, 0), (G.L, G.h), G.s, cut)]
+
+    @glyph("Y", 48)
+    def _Y(G):
+        ym = G.Y(0.50)
+        cut = [_keep(0, 0, G.w, ym + G.s / 2)]
+        return [_band((G.L, 0), (G.xc, ym), G.s, cut + [_keep(x1=G.xc + G.o)]),
+                _band((G.R, 0), (G.xc, ym), G.s, cut + [_keep(x0=G.xc - G.o)]), _vbar(G, G.xc, ym - G.s * 0.3)]
+
+    @glyph("Z", 48)
+    def _Z(G):
+        return [_hbar(G, G.T), _hbar(G, G.B), _band((G.R, G.T), (G.L, G.B), G.s, [_keep(0, G.T, G.w, G.B)])]
+
+    @glyph("0", 45)
+    def _0(G):
+        return [_ring(G, G.L, G.T, G.R, G.B, bowl(G, 0.46))]
+
+    @glyph("1", 34)
+    def _1(G):
+        x = G.X(0.66)
+        ax, tx, ty = x + G.s / 2, 0.0, G.h * 0.24                 # the flag: its top edge on from the stem's top right
+        L = math.hypot(ax - tx, ty)
+        t = G.s * L / (ax - tx)                                     # the flag's height at its tip (s square to it)
+        yd = ty + t - (x - G.s / 2 - tx) * ty / (ax - tx)          # its lower edge meeting the stem's left side
+        return [_vbar(G, x), _fill([(ax, 0), (tx, ty), (tx, ty + t), (x - G.s / 2, yd), (x, yd)])]
+
+    @glyph("2", 48)
+    def _2(G):
+        r2 = bowl(G)
+        yd = G.Y(0.40)
+        ring = lambda k: _ring(G, G.L, G.T, G.R, yd + r2 + G.s, r2, [k])
+        diag = _band((G.R, yd), (G.L, G.B), G.s, [_keep(0, 0, G.w, G.h), _keep(y0=yd - G.s)])
+        return [ring(_keep(y1=G.Y(0.25))), ring(_keep(x0=G.xc - G.o, y1=yd + 0.5)), diag, _hbar(G, G.B)]
+
+    @glyph("3", 48)
+    def _3(G):
+        y3 = G.Y(0.42)
+        r3 = G.r(0.42, (G.B - y3) / 2)
+        bow = lambda k: _ring(G, G.L, y3, G.R, G.B, (0, r3, r3, r3), [k])
+        diag = _band((G.R, G.T), (G.X(0.30), y3), G.s, [_keep(0, 0, G.w, y3 + G.s / 2)])
+        return [_hbar(G, G.T), diag, bow(_keep(x0=G.X(0.26))), bow(_keep(y0=G.Y(0.76)))]
+
+    @glyph("4", 48)
+    def _4(G):
+        x, y = G.X(0.80), G.Y(0.68)
+        diag = _band((x, 0), (G.L, y), G.s, [_keep(0, 0, x, y + G.s / 2)])
+        return [_vbar(G, x), _hbar(G, y), diag]
+
+    @glyph("5", 48)
+    def _5(G):
+        y5 = G.Y(0.42)
+        r5 = G.r(0.42, (G.B - y5) / 2)
+        bow = lambda k: _ring(G, G.L, y5, G.R, G.B, (0, r5, r5, r5), [k])
+        return [_hbar(G, G.T), _vbar(G, G.L, 0, y5 + G.s / 2), bow(_keep(y1=y5 + G.s / 2 + G.o)),
+                bow(_keep(x0=G.xc - G.o)), bow(_keep(y0=G.Y(0.76)))]
+
+    def six(G):
+        y6 = G.Y(0.44)
+        ro, rb = bowl(G), G.r(0.42, (G.B - y6) / 2)
+        outer = lambda k: _ring(G, G.L, G.T, G.R, G.B, ro, [k])
+        return [outer(_keep(x1=G.xc + G.o)), outer(_keep(y1=G.Y(0.25))), _ring(G, G.L, y6, G.R, G.B, rb)]
+
+    @glyph("6", 48)
+    def _6(G):
+        return six(G)
+
+    @glyph("9", 48)
+    def _9(G):
+        return _turned(six(G), G)
+
+    @glyph("7", 48)
+    def _7(G):
+        return [_hbar(G, G.T), _band((G.R, G.T), (G.X(0.30), G.h), G.s, [_keep(0, G.T, G.w, G.h)])]
+
+    @glyph("8", 48)
+    def _8(G):
+        ym = G.Y(0.46)
+        ru, rl = G.r(0.40, (ym - G.T) / 2), G.r(0.42, (G.B - ym) / 2)
+        return [_ring(G, G.X(0.05), G.T, G.X(0.95), ym, ru), _ring(G, G.L, ym, G.R, G.B, rl)]
+
+    @glyph("-", 30)
+    def _dash(G):
+        return [_hbar(G, G.h * 0.52)]
+
+    @glyph(".", 15)
+    def _stop(G):
+        return [_dot(G, G.xc)]
+
+    @glyph("?", 40)
+    def _q(G):
+        yq = G.Y(0.50)
+        rq = G.r(0.40, (yq - G.T) / 2)
+        ring = lambda k: _ring(G, G.L, G.T, G.R, yq, rq, [k])
+        return [ring(_keep(y1=G.Y(0.24))), ring(_keep(x0=G.xc - G.o)), _vbar(G, G.xc, yq - G.s * 0.3, G.Y(0.72)),
+                _dot(G, G.xc)]
+
+    @glyph("!", 15)
+    def _bang(G):
+        return [_vbar(G, G.xc, 0, G.Y(0.68)), _dot(G, G.xc)]
+
+    @glyph("'", 15)
+    def _tick(G):
+        return [_vbar(G, G.xc, 0, G.h * 0.27)]
+
+    @glyph("♥", 52)
+    def _heart(G):
+        t = np.linspace(0, 2 * math.pi, 96, endpoint=False)
+        hx, hy = 16 * np.sin(t) ** 3, 13 * np.cos(t) - 5 * np.cos(2 * t) - 2 * np.cos(3 * t) - np.cos(4 * t)
+        sx, sy = (G.w / 2) / 16.0, (0.86 * G.h) / (hy.max() - hy.min())
+        return [_fill(list(zip(G.w / 2 + hx * sx, 0.05 * G.h + (hy.max() - hy) * sy)))]
+
+    @glyph("★", 54)
+    def _star(G):
+        R = min(G.w / 2 / math.cos(math.radians(18)), 0.52 * G.h)
+        return [_fill(star_pts(G.w / 2, 0.06 * G.h + R, R, 0.42 * R))]
+
+    return g
+
+
+DIE_GLYPHS = _die_glyphs()
+
+
+def _die_layout(text, cap, stroke, pitch, fit, max_condense, proportional, gap):
+    """plate_layout for the die-pressed font: the same answer's form ([(char, left of its centre-line box, x scale)],
+    width, condense), each glyph's inked width (its table width less DIE_S_REF) x scale + the stroke; monospace in dies
+    of DIE_PITCH (DIE_NARROW), or proportional with even gaps (0.2 cap)."""
+    s = stroke * DIE_WEIGHT
+    k = (cap - s) / (PLATE_CAP - DIE_S_REF)
+    pitch = DIE_PITCH * cap / PLATE_CAP if pitch is None else pitch
+    gap = 0.2 * cap if gap is None else gap
+    adv = []
+    for ch in text:
+        if ch == " ":
+            adv.append(PLATE_SPACE * pitch if not proportional else 0.42 * cap)
+        elif proportional:
+            adv.append(max(0.0, DIE_GLYPHS[ch][0] - DIE_S_REF) * k + s + gap)
+        else:
+            adv.append(pitch * DIE_NARROW.get(ch, 1.0))
+    total = sum(adv) - (gap if proportional and text else 0.0)
+    cond = 1.0
+    if fit is not None and total > fit:
+        cond = fit / total
+        if cond < 1 - max_condense - 1e-9:
+            raise ValueError(f"{text!r}: {total:.0f} px, more than {max_condense:.0%} over {fit:.0f}")
+    x = -total * cond / 2
+    out = []
+    for ch, a in zip(text, adv):
+        if ch != " ":
+            wc = max(0.0, DIE_GLYPHS[ch][0] - DIE_S_REF) * k * cond
+            mid = x + (a * cond - (gap * cond if proportional else 0.0)) / 2
+            out.append((ch, mid - wc / 2, k * cond))
+        x += a * cond
+    return out, total * cond, cond
+
+
+def _die_text_sd(cv, text, cx, cy, cap, stroke, slant, **kw):
+    """plate_text_sd for the die-pressed font: each glyph's pieces evaluated over its window, in its inked box (the
+    slant undone first: x - slant (cy - y))."""
+    lay, width, cond = plate_layout(text, cap, stroke, **kw)
+    s = stroke * DIE_WEIGHT
+    top = cy - cap / 2
+    sd = np.full((cv.h, cv.w), 1e3)
+    lean = abs(slant) * cap / 2
+    for ch, x0, kx in lay:
+        wi, build = DIE_GLYPHS[ch]
+        w = max(0.0, wi - DIE_S_REF) * kx + s
+        left = cx + x0 - s / 2
+        sl, X, Y = cv.window(left - lean - 3, top - 3, left + w + lean + 3, top + cap + 3)
+        Xl = X - slant * (cy - Y) - left
+        Yl = Y - top + 0 * X
+        d = np.minimum.reduce([f(Xl, Yl) for f in build(_Box(w, cap, s))])
+        sd[sl] = np.minimum(sd[sl], d)
+    return sd, width, cond
+
 
 def _window_sd(cv, strokes, half, fills, grow):
     """The signed distance (negative inside) of polylines stroked 2 x half wide (round joins and caps) and of filled
@@ -1420,7 +1984,10 @@ def plate_layout(text, cap=PLATE_CAP, stroke=PLATE_STROKE, pitch=None, fit=None,
     """Where each character goes: ([(char, left of its centreline box, x scale)], total width, condense) for a text
     centred on 0, in px. Monospace (the texts): each glyph centred in its advance (pitch; the space PLATE_SPACE, "-" "."
     "?" PLATE_NARROW); proportional (the legends): each glyph's inked width plus `gap`, the space 0.5 cap. A text wider
-    than `fit` is condensed (x only) to fit, by at most max_condense (else ValueError)."""
+    than `fit` is condensed (x only) to fit, by at most max_condense (else ValueError). The die-pressed font (since
+    2026-11-16a; PLATE_FONT) lays out the same way in its own widths and dies (_die_layout)."""
+    if PLATE_FONT != PLATE_FONT_OLD:
+        return _die_layout(text, cap, stroke, pitch, fit, max_condense, proportional, gap)
     k = (cap - stroke) / (PLATE_CAP - PLATE_STROKE)
     pitch = PLATE_PITCH * cap / PLATE_CAP if pitch is None else pitch
     gap = 0.2 * cap if gap is None else gap
@@ -1453,7 +2020,10 @@ def plate_layout(text, cap=PLATE_CAP, stroke=PLATE_STROKE, pitch=None, fit=None,
 
 def plate_text_sd(cv, text, cx, cy, cap=PLATE_CAP, stroke=PLATE_STROKE, slant=0.0, **kw):
     """The signed distance (px, negative inside) of `text` in the plate font, centred at (cx, cy) (the cap's middle),
-    and its layout's (width, condense). slant: x shift per px up (an italic lean)."""
+    and its layout's (width, condense). slant: x shift per px up (an italic lean). In the die-pressed font since
+    2026-11-16a (PLATE_FONT; its strokes x DIE_WEIGHT), the 2026-11-08a font's otherwise."""
+    if PLATE_FONT != PLATE_FONT_OLD:
+        return _die_text_sd(cv, text, cx, cy, cap, stroke, slant, **kw)
     lay, width, cond = plate_layout(text, cap, stroke, **kw)
     k = (cap - stroke) / (PLATE_CAP - PLATE_STROKE)
     top = cy - cap / 2 + stroke / 2
@@ -1584,6 +2154,7 @@ class PlateArt:
         self.fin = np.zeros((cv.h, cv.w, 2)) + np.array(FINISHES[finish])
         self.face = sd_box(cv, FACE_X0, FACE_Y0, FACE_X0 + FACE_W, FACE_Y0 + FACE_H, FACE_R)
         self.shade[self.face > 0] = EDGE_SHADE
+        self.emblem_spec = None          # since 2026-11-16a: the plate-scale emblem's box and neighbours (_Emblem)
 
     def put(self, sd, part, shade=None, finish=None, inside_face=True):
         """Paint where sd <= 0 (an index can't be blended: a texel is one part or another)."""
@@ -1843,9 +2414,12 @@ def plate_standard(P):
     sd, w = script_sd(cv, "Commonwealth", (FX(0.15) + FX(0.85)) / 2, TOP_Y + 11.5, 15.5, 3.4)
     P.put(sd, LEGEND, 1.0, "print")
     _std_legends(P, None, "POWERED BY ATOMS")
-    E = emblem_rec("atom", FIXED["white"], LEGEND, FIXED["red"], LEGEND, extra=[(hexrgb("e8ffd0"), FIXED["red"])])
-    P.emblem(E, (BADGE_C[0] - 86, BADGE_C[1] - 86, BADGE_C[0] + 86, BADGE_C[1] + 86), (FX(0.075), TOP_Y), 36.0,
-             mask=sd_circle(E.cv, *BADGE_C, 86))
+    if PLATE_EMBLEMS == PLATE_EMBLEMS_OLD:
+        E = emblem_rec("atom", FIXED["white"], LEGEND, FIXED["red"], LEGEND, extra=[(hexrgb("e8ffd0"), FIXED["red"])])
+        P.emblem(E, (BADGE_C[0] - 86, BADGE_C[1] - 86, BADGE_C[0] + 86, BADGE_C[1] + 86), (FX(0.075), TOP_Y), 36.0,
+                 mask=sd_circle(E.cv, *BADGE_C, 86))
+    else:
+        _plate_atom(P)
     sx = FX(0.915)
     P.put(sd_box(cv, sx - 26, TOP_Y - 14, sx - 15, TOP_Y + 14, 2.0), FIXED["white"], 1.0, "print")      # the month tab
     P.legend("11", sx - 20.5, TOP_Y, 9.0, part=FIXED["hole"], stroke=1.8, fit=9.0, max_condense=0.6)
@@ -1903,13 +2477,177 @@ def _plate_gear(P, centre, tip, root, teeth, hub, phase=0.0, part=LEGEND, duty=0
     return on
 
 
+# The designs' emblems at the plate's own scale (since the 2026-11-16a build; --plate-emblems 2026-11-09a keeps the
+# badges' drawers scaled down, Vault-Tec's cog alone at this scale). The Vault-Tec cog's way for every design: a few bold
+# parts drawn straight on the design cell, features 4 px or more, gaps 3-6 px, 8 px or more from the stripes, the welds
+# and the legends, ending above the plate texts' letters (78.5); each part one palette part, so the mips per part keep
+# the silhouette. Each records its box and its neighbours' parts in plates.json for look_plates.py --check (never next
+# to a neighbour at mips 0-3, its area at mips 1-3 within 0.7-1.6 of level 0's). Our own shapes, as everything here.
+EMBLEM_RELIEF = 0.03            # units: an emblem's print, raised as the 2026-11-09a cog
+
+
+class _Emblem:
+    """Collects an emblem's texels as it is put on a PlateArt, then its spec (box, parts, neighbours) for plates.json."""
+
+    def __init__(self, P, near, what):
+        self.P, self.near, self.what = P, near, what
+        self.mask = np.zeros(P.part.shape, bool)
+        self.parts = []
+
+    def put(self, sd, part, finish="print", relief=EMBLEM_RELIEF):
+        on = self.P.put(sd, part, 1.0, finish)
+        self.P.raise_(relief * on)
+        self.mask |= on
+        if part not in self.parts:
+            self.parts.append(part)
+        return on
+
+    def done(self):
+        on = self.mask & np.isin(self.P.part, self.parts)
+        ys, xs = np.nonzero(on)
+        self.P.emblem_spec = dict(box=[int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1],
+                                  parts=[int(p) for p in sorted(self.parts)], near=[int(p) for p in self.near],
+                                  what=self.what)
+
+
+def _plate_atom(P):
+    """The standard plate's: a nucleus (red) and two bold orbits (the legend's colour)."""
+    cv, (cx, cy) = P.cv, (58.0, 46.5)
+    E = _Emblem(P, [LEGEND, ACCENT, FIXED["red"]], "a nucleus and two bold orbits")
+    orbits = np.minimum.reduce([np.abs(sd_ellipse(cv, cx, cy, 20.5, 9.8, a)) - 2.8 for a in (33, -33)])
+    E.put(np.maximum(orbits, -sd_circle(cv, cx, cy, 8.4)), LEGEND)
+    E.put(sd_circle(cv, cx, cy, 5.4), FIXED["red"])
+    E.done()
+
+
+def _plate_bos(P):
+    """The Brotherhood's: a sword point up over a ring, three-step wings out from the ring."""
+    cv, (cx, cy) = P.cv, (72.0, 50.0)
+    E = _Emblem(P, [LEGEND], "a sword and three-step wings over a ring")
+    parts = [sd_ring(cv, cx, cy, 11.0, 4.6)]
+    for k, (half, reach) in enumerate(((5.0, 42.0), (4.6, 35.0), (4.2, 28.0))):   # the wings: long at the top
+        y = cy - 9.5 + 9.0 * k
+        for s in (-1, 1):
+            x_in, x_out = cx + s * 12.0, cx + s * reach
+            tip = [(x_in, y - half), (x_out, y - half - 1.5 + 0.4 * k), (x_out - s * 4.0, y + half), (x_in, y + half)]
+            parts.append(sd_poly(cv, tip))
+    blade = [(cx, 26.0), (cx + 3.0, 32.0), (cx + 3.0, 60.0), (cx - 3.0, 60.0), (cx - 3.0, 32.0)]
+    parts += [sd_poly(cv, blade), sd_box(cv, cx - 11.0, 59.0, cx + 11.0, 63.5, 1.0), sd_box(cv, cx - 2.2, 63.0, cx + 2.2, 68.0),
+              sd_circle(cv, cx, 69.5, 3.4)]
+    E.put(np.minimum.reduce(parts), LEGEND)
+    E.done()
+
+
+def _plate_minuteman(P):
+    """The Minutemen's: a tricorned head and shoulders with a musket, in a ring of five bold stars."""
+    cv, (cx, cy) = P.cv, (60.0, 49.5)
+    E = _Emblem(P, [LEGEND], "a tricorn head and musket in a ring of five bold stars")
+    stars = [sd_poly(cv, star_pts(cx + 20.5 * math.cos(math.radians(-90 + 72 * k)),
+                                  cy + 20.5 * math.sin(math.radians(-90 + 72 * k)), 6.8, 3.4)) for k in range(5)]
+    fig = [sd_poly(cv, [(cx - 11.5, cy - 4.0), (cx - 4.0, cy - 12.0), (cx + 4.0, cy - 12.5), (cx + 11.5, cy - 4.0),
+                        (cx + 4.0, cy - 6.0), (cx - 4.0, cy - 6.0)]),                       # the tricorn
+           sd_circle(cv, cx, cy - 1.0, 4.8),                                            # the head
+           sd_poly(cv, [(cx - 10.0, cy + 12.0), (cx - 7.0, cy + 4.5), (cx + 7.0, cy + 4.5), (cx + 10.0, cy + 12.0)]),
+           sd_stroke(cv, [(cx + 8.5, cy + 11.5), (cx + 13.0, cy - 10.0)], 4.0)]          # the musket at his shoulder
+    E.put(np.minimum.reduce(stars + fig), LEGEND)
+    E.done()
+
+
+def _plate_institute(P):
+    """The Institute's: a bold ring with a disc in it, its bar out to both sides."""
+    cv, (cx, cy) = P.cv, (60.0, 42.0)
+    E = _Emblem(P, [LEGEND, ACCENT], "the ring and its bar")
+    ring = sd_ring(cv, cx, cy, 11.0, 6.0)
+    bar = np.maximum(sd_box(cv, cx - 25.0, cy - 3.0, cx + 25.0, cy + 3.0, 1.0), -sd_circle(cv, cx, cy, 14.0))
+    E.put(np.minimum.reduce([ring, bar, sd_circle(cv, cx, cy, 4.2)]), LEGEND)
+    E.done()
+
+
+def _plate_skull(P):
+    """The Raider plate's: a bold sprayed skull over crossed bones, its eyes, nose and teeth the holes' black."""
+    cv, (cx, cy) = P.cv, (64.0, 39.0)
+    E = _Emblem(P, [LEGEND, FIXED["steel"]], "a bold spray skull over crossed bones")
+    rough = hash_noise(cv, 2.0, 118) * 0.7
+    bones = []
+    for s in (-1, 1):
+        a, b = (cx - s * 25.0, cy - 11.0), (cx + s * 25.0, cy + 14.0)
+        bones.append(sd_stroke(cv, [a, b], 5.0))
+        for p, q in ((a, b), (b, a)):
+            L = math.hypot(q[0] - p[0], q[1] - p[1])
+            ux, uy = (q[0] - p[0]) / L, (q[1] - p[1]) / L
+            for k in (-1, 1):
+                bones.append(sd_circle(cv, p[0] - uy * 3.2 * k + ux * 0.5, p[1] + ux * 3.2 * k + uy * 0.5, 3.6))
+    skull = np.minimum(sd_circle(cv, cx, cy - 1.0, 12.5), sd_box(cv, cx - 8.0, cy + 6.0, cx + 8.0, cy + 18.0, 3.0))
+    E.put(np.maximum(np.minimum.reduce(bones), -(skull - 3.5)) + rough, LEGEND, "paint")
+    E.put(skull + rough, LEGEND, "paint")
+    holes = [sd_ellipse(cv, cx - 5.5, cy + 1.0, 4.4, 3.9), sd_ellipse(cv, cx + 5.5, cy + 1.0, 4.4, 3.9),
+             sd_poly(cv, [(cx - 2.3, cy + 10.0), (cx + 2.3, cy + 10.0), (cx, cy + 5.8)]),
+             sd_box(cv, cx - 3.6, cy + 13.0, cx - 1.0, cy + 18.5), sd_box(cv, cx + 1.0, cy + 13.0, cx + 3.6, cy + 18.5)]
+    E.put(np.minimum.reduce(holes), FIXED["hole"], "paint")
+    E.done()
+
+
+def _plate_star(P):
+    """The army plate's: a bold five-point star touching its ring."""
+    cv, (cx, cy) = P.cv, (58.0, 51.0)
+    E = _Emblem(P, [LEGEND], "the army star in a ring")
+    E.put(np.minimum(sd_ring(cv, cx, cy, 16.6, 6.4), sd_poly(cv, star_pts(cx, cy + 0.6, 14.8, 6.9))), LEGEND)
+    E.done()
+
+
+def _plate_cap(P):
+    """Nuka-Cola's bottle cap, tidied: 12 crimps (21 at 2.6 px made a waffle at mip 1), a bigger star; its face white
+    with the star red (the red face was the plate's own red: the cap vanished at mip 3)."""
+    cv, (cx, cy) = P.cv, (58.0, 50.0)
+    E = _Emblem(P, [LEGEND, ACCENT], "a bottle cap, 12 crimps")
+    E.put(sd_poly(cv, gear_pts(cx, cy, 16.5, 20.5, 12, duty=0.5, flank=0.15)), FIXED["steel"], "steel", 0.06)
+    E.put(sd_circle(cv, cx, cy, 13.0), FIXED["white"], "enamel", 0.05)
+    E.put(sd_poly(cv, star_pts(cx, cy + 0.8, 10.0, 4.3)), FIXED["red"], "enamel", 0.05)
+    E.done()
+
+
+def _plate_rocket(P):
+    """Red Rocket's rocket, nose up and to the right: a bolder body, a 7-px window, bigger fins."""
+    cv, (cx, cy) = P.cv, (58.0, 46.5)
+    E = _Emblem(P, [LEGEND, ACCENT], "a rocket silhouette")
+    ang = math.radians(-35)
+    ca, sa = math.cos(ang), math.sin(ang)
+
+    def rot(pts):
+        return [(cx + px * ca - py * sa, cy + px * sa + py * ca) for px, py in pts]
+
+    k = 1.1
+    body = rot([(-19 * k, -6.8 * k), (6 * k, -6.8 * k), (24 * k, 0), (6 * k, 6.8 * k), (-19 * k, 6.8 * k)])
+    fins = rot([(-21 * k, -5.5 * k), (-9 * k, -5.5 * k), (-21 * k, -16 * k)]), rot([(-21 * k, 5.5 * k), (-9 * k, 5.5 * k), (-21 * k, 16 * k)])
+    E.put(np.minimum.reduce([sd_poly(cv, body)] + [sd_poly(cv, f) for f in fins]), LEGEND)
+    P.put(sd_circle(cv, *rot([(1.5, 0)])[0], 3.5), BASE, 1.0)
+    E.done()
+
+
+def _plate_terminal(P):
+    """RobCo's terminal, bolder: a solid screen in the legend's colour with its prompt and cursor cut in it (4.2 px),
+    the stand."""
+    cv, (cx, cy) = P.cv, (58.0, 47.0)
+    E = _Emblem(P, [LEGEND], "a terminal screen with its prompt")
+    prompt = np.minimum(sd_stroke(cv, [(cx - 11, cy - 7), (cx - 4, cy - 1.5), (cx - 11, cy + 4)], 4.2),
+                        sd_stroke(cv, [(cx, cy + 4.5), (cx + 10, cy + 4.5)], 4.2))
+    screen = np.maximum(sd_box(cv, cx - 20, cy - 16, cx + 20, cy + 13, 5.0), -prompt)
+    stand = np.minimum(sd_box(cv, cx - 4, cy + 12, cx + 4, cy + 19), sd_box(cv, cx - 11, cy + 18.5, cx + 11, cy + 23, 1.5))
+    E.put(np.minimum(screen, stand), LEGEND)
+    E.done()
+
+
 def plate_vaulttec(P):
     cv = P.cv
     P.bead()
     stripe = np.abs(P.face + 18.0) - 1.3
     P.put(stripe, ACCENT, 1.0, "print")
     _std_legends(P, "VAULT-TEC", "PREPARING FOR THE FUTURE!", top_span=(FX(0.17), FX(0.83)), bot_span=(FX(0.08), FX(0.92)))
-    _plate_gear(P, **VT_GEAR)
+    on = _plate_gear(P, **VT_GEAR)
+    if PLATE_EMBLEMS != PLATE_EMBLEMS_OLD:                      # the 2026-11-09a cog as it was; its spec recorded
+        E = _Emblem(P, [ACCENT, LEGEND], "a cog (2026-11-09a's, drawn at the plate's scale)")
+        E.mask, E.parts = on, [LEGEND]
+        E.done()
     _sticker(P, FX(0.905), TOP_Y, 44, 24, LEGEND, "V-T", BASE, cap=14.0, hole=True)
 
 
@@ -1919,11 +2657,14 @@ def plate_robco(P):
     P.shade = np.where(lines, 1.35, P.shade)
     P.bead()
     _std_legends(P, "ROBCO INDUSTRIES", "UNIFIED OPERATING SYSTEM", top_span=(FX(0.16), FX(0.82)))
-    x, y = FX(0.08), TOP_Y - 2                                  # the terminal: a monitor, its screen, a prompt
-    P.put(np.abs(sd_box(cv, x - 19, y - 14, x + 19, y + 12, 4.0)) - 1.8, LEGEND, 1.0, "print")
-    P.put(sd_box(cv, x - 5, y + 13, x + 5, y + 18, 1.0), LEGEND, 1.0, "print")
-    P.put(sd_stroke(cv, [(x - 11, y - 6), (x - 5, y - 1), (x - 11, y + 4)], 2.6), LEGEND, 1.0, "print")
-    P.put(sd_stroke(cv, [(x - 1, y + 4), (x + 8, y + 4)], 2.6), LEGEND, 1.0, "print")
+    if PLATE_EMBLEMS == PLATE_EMBLEMS_OLD:
+        x, y = FX(0.08), TOP_Y - 2                                  # the terminal: a monitor, its screen, a prompt
+        P.put(np.abs(sd_box(cv, x - 19, y - 14, x + 19, y + 12, 4.0)) - 1.8, LEGEND, 1.0, "print")
+        P.put(sd_box(cv, x - 5, y + 13, x + 5, y + 18, 1.0), LEGEND, 1.0, "print")
+        P.put(sd_stroke(cv, [(x - 11, y - 6), (x - 5, y - 1), (x - 11, y + 4)], 2.6), LEGEND, 1.0, "print")
+        P.put(sd_stroke(cv, [(x - 1, y + 4), (x + 8, y + 4)], 2.6), LEGEND, 1.0, "print")
+    else:
+        _plate_terminal(P)
     _sticker(P, FX(0.90), TOP_Y, 62, 22, LEGEND, "SERVICED", BASE, cap=10.0)
 
 
@@ -1936,13 +2677,16 @@ def plate_nuka(P):
     P.legend("ENJOY NUKA-COLA!", FX(0.5), BOT_Y + 2, c, part=BASE, fit=FX(0.86) - FX(0.14), finish="print")
     sd, w = script_sd(cv, "Nuka-Cola", FX(0.5), TOP_Y + 11.5, 15.5, 3.5)
     P.put(sd, LEGEND, 1.0, "print")
-    x, y = FX(0.075), TOP_Y                                     # the bottle cap: crimped steel, red, a white ring
-    P.put(sd_poly(cv, gear_pts(x, y, 15.0, 17.5, 21, duty=0.45)), FIXED["steel"], 1.0, "steel")
-    P.put(sd_circle(cv, x, y, 13.0), FIXED["red"], 1.0, "enamel")
-    P.put(sd_ring(cv, x, y, 9.0, 2.2), FIXED["white"], 1.0, "enamel")
-    P.put(sd_poly(cv, star_pts(x, y + 0.5, 6.0)), FIXED["white"], 1.0, "enamel")
-    r = np.hypot(cv.x - x, cv.y - y)
-    P.raise_(0.06 * np.clip((17.5 - r) / 3.0, 0, 1))
+    if PLATE_EMBLEMS == PLATE_EMBLEMS_OLD:
+        x, y = FX(0.075), TOP_Y                                     # the bottle cap: crimped steel, red, a white ring
+        P.put(sd_poly(cv, gear_pts(x, y, 15.0, 17.5, 21, duty=0.45)), FIXED["steel"], 1.0, "steel")
+        P.put(sd_circle(cv, x, y, 13.0), FIXED["red"], 1.0, "enamel")
+        P.put(sd_ring(cv, x, y, 9.0, 2.2), FIXED["white"], 1.0, "enamel")
+        P.put(sd_poly(cv, star_pts(x, y + 0.5, 6.0)), FIXED["white"], 1.0, "enamel")
+        r = np.hypot(cv.x - x, cv.y - y)
+        P.raise_(0.06 * np.clip((17.5 - r) / 3.0, 0, 1))
+    else:
+        _plate_cap(P)
 
 
 def plate_redrocket(P):
@@ -1953,17 +2697,20 @@ def plate_redrocket(P):
     P.put(sd_poly(cv, thin), ACCENT, 1.0, "print")
     P.bead()
     _std_legends(P, "RED ROCKET", "TRUCK STOP - SERVICE", top_span=(FX(0.16), FX(0.80)), bot_span=(FX(0.08), FX(0.88)))
-    x, y = FX(0.075), TOP_Y                                     # the rocket, nose up and to the right
-    ang = math.radians(-35)
-    ca, sa = math.cos(ang), math.sin(ang)
+    if PLATE_EMBLEMS == PLATE_EMBLEMS_OLD:
+        x, y = FX(0.075), TOP_Y                                     # the rocket, nose up and to the right
+        ang = math.radians(-35)
+        ca, sa = math.cos(ang), math.sin(ang)
 
-    def rot(pts):
-        return [(x + px * ca - py * sa, y + px * sa + py * ca) for px, py in pts]
+        def rot(pts):
+            return [(x + px * ca - py * sa, y + px * sa + py * ca) for px, py in pts]
 
-    body = rot([(-14, -4.5), (6, -4.5), (17, 0), (6, 4.5), (-14, 4.5)])
-    fins = rot([(-15, -4), (-9, -4), (-15, -11)]), rot([(-15, 4), (-9, 4), (-15, 11)])
-    P.put(np.minimum.reduce([sd_poly(cv, body)] + [sd_poly(cv, f) for f in fins]), LEGEND, 1.0, "print")
-    P.put(sd_circle(cv, *rot([(1, 0)])[0], 2.2), BASE, 1.0)
+        body = rot([(-14, -4.5), (6, -4.5), (17, 0), (6, 4.5), (-14, 4.5)])
+        fins = rot([(-15, -4), (-9, -4), (-15, -11)]), rot([(-15, 4), (-9, 4), (-15, 11)])
+        P.put(np.minimum.reduce([sd_poly(cv, body)] + [sd_poly(cv, f) for f in fins]), LEGEND, 1.0, "print")
+        P.put(sd_circle(cv, *rot([(1, 0)])[0], 2.2), BASE, 1.0)
+    else:
+        _plate_rocket(P)
 
 
 def plate_bos(P):
@@ -1978,17 +2725,23 @@ def plate_bos(P):
     P.raise_(0.004 * brushed)
     P.bead()
     _std_legends(P, "BROTHERHOOD OF STEEL", "AD VICTORIAM", top_span=(FX(0.235), FX(0.94)), bot_span=(FX(0.2), FX(0.8)))
-    E = emblem_rec("bos", BASE, LEGEND, None, LEGEND)
-    c = BADGE_C
-    P.emblem(E, (c[0] - 218, 28, c[0] + 218, 206), (FX(0.12), TOP_Y), 34.0)
+    if PLATE_EMBLEMS == PLATE_EMBLEMS_OLD:
+        E = emblem_rec("bos", BASE, LEGEND, None, LEGEND)
+        c = BADGE_C
+        P.emblem(E, (c[0] - 218, 28, c[0] + 218, 206), (FX(0.12), TOP_Y), 34.0)
+    else:
+        _plate_bos(P)
 
 
 def plate_minutemen(P):
     P.bead()
     _std_legends(P, "COMMONWEALTH MINUTEMEN", "AT A MINUTE'S NOTICE", top_span=(FX(0.16), FX(0.94)))
-    E = emblem_rec("minutemen", BASE, LEGEND, None, LEGEND)
-    c = BADGE_C
-    P.emblem(E, (c[0] - 93, c[1] - 93, c[0] + 93, c[1] + 93), (FX(0.085), TOP_Y), 36.0, mask=sd_circle(E.cv, *c, 93))
+    if PLATE_EMBLEMS == PLATE_EMBLEMS_OLD:
+        E = emblem_rec("minutemen", BASE, LEGEND, None, LEGEND)
+        c = BADGE_C
+        P.emblem(E, (c[0] - 93, c[1] - 93, c[0] + 93, c[1] + 93), (FX(0.085), TOP_Y), 36.0, mask=sd_circle(E.cv, *c, 93))
+    else:
+        _plate_minuteman(P)
 
 
 def plate_institute(P):
@@ -1997,9 +2750,12 @@ def plate_institute(P):
     for y in (FY(0.255), FY(0.745)):
         P.put(sd_stroke(cv, [(FX(0.06), y), (FX(0.94), y)], 1.6), ACCENT, 1.0, "print")
     _std_legends(P, "THE INSTITUTE", "MANKIND REDEFINED", top_span=(FX(0.18), FX(0.82)))
-    E = emblem_rec("institute", BASE, LEGEND, None, LEGEND)
-    c = BADGE_C
-    P.emblem(E, (c[0] - 87, c[1] - 87, c[0] + 87, c[1] + 87), (FX(0.085), TOP_Y), 34.0, mask=sd_circle(E.cv, *c, 87))
+    if PLATE_EMBLEMS == PLATE_EMBLEMS_OLD:
+        E = emblem_rec("institute", BASE, LEGEND, None, LEGEND)
+        c = BADGE_C
+        P.emblem(E, (c[0] - 87, c[1] - 87, c[0] + 87, c[1] + 87), (FX(0.085), TOP_Y), 34.0, mask=sd_circle(E.cv, *c, 87))
+    else:
+        _plate_institute(P)
 
 
 def plate_raider(P):
@@ -2028,9 +2784,12 @@ def plate_raider(P):
         P.put(r - 5.0, FIXED["steel"], 1.0, "steel")
         P.raise_(0.14 * np.sqrt(np.clip(1 - (r / 5.0) ** 2, 0, 1)))
         P.put(sd_stroke(cv, [(x - 2.6, y + rng.uniform(-1, 1)), (x + 2.6, y + rng.uniform(-1, 1))], 1.2), FIXED["hole"], 1.0)
-    E = emblem_rec("raiders", None, LEGEND, FIXED["hole"])
-    c = BADGE_C
-    P.emblem(E, (c[0] - 186, c[1] - 98, c[0] + 186, c[1] + 98), (FX(0.115), TOP_Y + 2), 40.0)
+    if PLATE_EMBLEMS == PLATE_EMBLEMS_OLD:
+        E = emblem_rec("raiders", None, LEGEND, FIXED["hole"])
+        c = BADGE_C
+        P.emblem(E, (c[0] - 186, c[1] - 98, c[0] + 186, c[1] + 98), (FX(0.115), TOP_Y + 2), 40.0)
+    else:
+        _plate_skull(P)
     tmp = Canvas(512, 256)
     sd, w, _ = plate_text_sd(tmp, "KEEP OFF", FX(0.56), TOP_Y + 3, 27.0, 5.2, proportional=True, slant=0.12)
     sd = _rotate(sd, FX(0.56), TOP_Y + 3, -4.0)
@@ -2062,9 +2821,12 @@ def plate_army(P):
     cv = P.cv
     P.bead()
     _std_legends(P, "U.S. ARMY", "MOTOR POOL - COMMONWEALTH", top_span=(FX(0.2), FX(0.8)))
-    E = emblem_rec("army", BASE, LEGEND, None, LEGEND)
-    c = BADGE_C
-    P.emblem(E, (c[0] - 91, c[1] - 91, c[0] + 91, c[1] + 91), (FX(0.085), TOP_Y), 36.0, mask=sd_circle(E.cv, *c, 91))
+    if PLATE_EMBLEMS == PLATE_EMBLEMS_OLD:
+        E = emblem_rec("army", BASE, LEGEND, None, LEGEND)
+        c = BADGE_C
+        P.emblem(E, (c[0] - 91, c[1] - 91, c[0] + 91, c[1] + 91), (FX(0.085), TOP_Y), 36.0, mask=sd_circle(E.cv, *c, 91))
+    else:
+        _plate_star(P)
     x = FX(0.895)
     P.put(np.abs(sd_box(cv, x - 27, TOP_Y - 11, x + 27, TOP_Y + 11, 1.5)) - 1.0, LEGEND, 1.0, "print")
     P.legend("W-7713", x, TOP_Y, 11.0, stroke=2.0, fit=46, max_condense=0.5)
@@ -2117,15 +2879,18 @@ def draw_plate_designs(opts):
         info[d["key"]] = dict(cell=[c, r], index=d["index"], name=d["name"], legend=d["legend"], own_back=d["own_back"],
                               own_ink=d["own_ink"], own_text=d["own_text"], parts=share,
                               finish=PLATE_DESIGN[d["key"]]["finish"], accent=PLATE_DESIGN[d["key"]]["accent"])
+        if P.emblem_spec is not None:                              # since 2026-11-16a (--plate-emblems)
+            info[d["key"]]["emblem"] = P.emblem_spec
     return U, PART, HT, S, info
 
 
 # --- main ---------------------------------------------------------------------------------------------------
 
 
-def write_badges(out, look_options):
-    """--badges: the atlas PNGs and badges.json (look_badges.py makes the DDS and the materials from them)."""
-    opts = json.loads(Path(look_options).read_text())
+def write_badges(out, look_options, through=None):
+    """--badges: the atlas PNGs and badges.json (look_badges.py makes the DDS and the materials from them); `through` a
+    build: the table as that build had it (--through 2026-11-08a: 2026-11-15b's 13 badges, its atlas byte for byte)."""
+    opts = look_through(json.loads(Path(look_options).read_text()), through)
     out.mkdir(parents=True, exist_ok=True)
     d, n, s, meta = draw_badge_atlas(opts)
     write_png(out / "badges_d.png", d)
@@ -2168,11 +2933,19 @@ def write_plates(out, look_options):
             "height": {"designs": {"zero": PLATE_H_ZERO, "span": PLATE_H_SPAN}, "texts": {"zero": 0.0, "span": PLATE_TEXT_H_SPAN}},
             "face": {"px": [FACE_X0, FACE_Y0, FACE_W, FACE_H], "corner_px": FACE_R, "px_a_unit": round(FACE_PX, 4),
                      "edge_shade": EDGE_SHADE},
-            "font": {"cap_px": PLATE_CAP, "stroke_px": PLATE_STROKE, "glyph_px": PLATE_GLYPH_W, "pitch_px": PLATE_PITCH,
-                     "fit_px": PLATE_FIT, "max_condense": PLATE_CONDENSE, "space": PLATE_SPACE, "narrow": PLATE_NARROW,
-                     "bevel_px": PLATE_BEVEL_PX, "bevel_units": PLATE_BEVEL_UNITS, "light": list(PLATE_LIGHT),
-                     "lit": PLATE_LIT, "dark": PLATE_DARK, "chars": PLATE_TEXT_CHARS, "legend_extra": PLATE_LEGEND_EXTRA,
-                     "glyphs": len([c for c in PLATE_GLYPHS if c not in PLATE_LEGEND_EXTRA])},
+            "font": ({"cap_px": PLATE_CAP, "stroke_px": PLATE_STROKE, "glyph_px": PLATE_GLYPH_W, "pitch_px": PLATE_PITCH,
+                      "fit_px": PLATE_FIT, "max_condense": PLATE_CONDENSE, "space": PLATE_SPACE, "narrow": PLATE_NARROW,
+                      "bevel_px": PLATE_BEVEL_PX, "bevel_units": PLATE_BEVEL_UNITS, "light": list(PLATE_LIGHT),
+                      "lit": PLATE_LIT, "dark": PLATE_DARK, "chars": PLATE_TEXT_CHARS, "legend_extra": PLATE_LEGEND_EXTRA,
+                      "glyphs": len([c for c in PLATE_GLYPHS if c not in PLATE_LEGEND_EXTRA])}
+                     if PLATE_FONT == PLATE_FONT_OLD else
+                     {"build": PLATE_FONT, "style": "die-pressed: narrow, square bowls, flat-cut ends, mechanical dies",
+                      "cap_px": PLATE_CAP, "stroke_px": round(DIE_S_REF, 3), "weight": DIE_WEIGHT,
+                      "glyph_px": DIE_GLYPHS["H"][0], "pitch_px": DIE_PITCH, "fit_px": PLATE_FIT,
+                      "max_condense": PLATE_CONDENSE, "space": PLATE_SPACE, "narrow": DIE_NARROW,
+                      "bevel_px": PLATE_BEVEL_PX, "bevel_units": PLATE_BEVEL_UNITS, "light": list(PLATE_LIGHT),
+                      "lit": PLATE_LIT, "dark": PLATE_DARK, "chars": PLATE_TEXT_CHARS, "legend_extra": PLATE_LEGEND_EXTRA,
+                      "glyphs": len([c for c in DIE_GLYPHS if c not in PLATE_LEGEND_EXTRA])}),
             "designs": dinfo, "texts": tinfo}
     (out / "plates.json").write_text(json.dumps(meta, indent=1) + "\n")
     print(f"wrote plates_d/_part/_h/_s.png {U.shape[1]}x{U.shape[0]} ({len(dinfo)} designs), plate_text_d/_h/_s.png "
@@ -2199,13 +2972,25 @@ def main():
     ap.add_argument("--look-options", type=Path,
                     default=Path(__file__).resolve().parent.parent / "esp-generator" / "look_options.json",
                     help="the option table (its atlas and badges; its plates) for --badges and --plates")
+    ap.add_argument("--through", metavar="BUILD",
+                    help="(since 2026-11-16a) --badges from the table as build BUILD had it: its entries with a later "
+                         "\"since\" left out (2026-11-08a: 2026-11-15b's 13 badges, the shipped atlas byte for byte)")
     ap.add_argument("--plates", action="store_true",
                     help="(since 2026-11-08a) write only the licence plate's atlases into --out: plates_d/_part/_h/_s.png "
                          "(2048 x 1024, the 12 designs), plate_text_d/_h/_s.png (2048, the 60 texts) and plates.json, "
                          "from --look-options; nothing else")
+    ap.add_argument("--plate-font", choices=(PLATE_FONT_NEW, PLATE_FONT_OLD), default=PLATE_FONT_NEW,
+                    help="(--plates, since 2026-11-16a) the plate font: 2026-11-16a the die-pressed one (the default), "
+                         "2026-11-08a the stroked one before it")
+    ap.add_argument("--plate-emblems", choices=(PLATE_EMBLEMS_NEW, PLATE_EMBLEMS_OLD), default=PLATE_EMBLEMS_NEW,
+                    help="(--plates, since 2026-11-16a) the designs' emblems: 2026-11-16a every one drawn at the plate's "
+                         "own scale (the default), 2026-11-09a the badges' drawers scaled down but Vault-Tec's cog. "
+                         "--plate-font 2026-11-08a --plate-emblems 2026-11-09a: the shipped plate textures byte for byte")
     args = ap.parse_args()
+    global PLATE_FONT, PLATE_EMBLEMS
+    PLATE_FONT, PLATE_EMBLEMS = args.plate_font, args.plate_emblems
     if args.badges:
-        return write_badges(args.out, args.look_options)
+        return write_badges(args.out, args.look_options, args.through)
     if args.plates:
         return write_plates(args.out, args.look_options)
     if args.stage_manifest and args.stage_manifest.exists():

@@ -17,6 +17,139 @@ The log goes to `Documents\My Games\Fallout4\Logs\Script\Papyrus.0.log`. Every m
 
 Without F4SE you'll see one or two harmless errors about the `F4SE` / `CMB_HotkeyF4SE` scripts not being found. That's the mod checking whether they're there. When something breaks, send the log, plus a screenshot or a short clip if it's visual.
 
+## The 2026-11-16a build: the 3D helmets, the Gunners skull, the plates, the seat's colour, the lists (test 56)
+
+This is the third customisation build, the first of two art builds: two 3D helmet badges (an Enclave and a Brotherhood
+helmet, each a cast emblem standing on an enamel plate on the tank, centred on it and angled with it), the Gunners
+skull on the tank and the rear fender, every licence plate's emblem redrawn to read at riding distance with a new
+die-pressed plate font, the seat's colour (a twelfth slot), and the MCM's and the kit's lists in alphabetical order. The
+plugin and `CMB_Slope.ini` are 2026-11-15b's, byte for byte: nothing of riding changes. Test 56 can run before test 55
+(the two sections below), after it, or in the same round: the steps don't depend on each other. Do this section's steps
+in one game session if you can, and say which session each step was in.
+
+Before you start:
+- install as a Replace over 2026-11-15b (or over 2026-11-14a: this package holds 2026-11-15a and 2026-11-15b too, so
+  test 55's steps work on it as well); no INI change is needed;
+- load your usual save. The MCM's Look section should have 22 controls, with "Seat" after "Tyres". If it has 21 or no
+  "Seat", an older ESP or MCM folder is loaded: stop and say so;
+- the first time you get on after the update the look's mods go on afresh once (the look's key has the seat now):
+  `Papyrus.0.log` says so; a second getting on is as quick as before;
+- if you run test 55 in the same round, note your frame rate at a fixed spot first (step 14).
+
+**The lists** (steps 1-2; two probes: whether the armour menu orders a slot's choices by the recipes' priority, and
+whether MCM reads and sets a dropdown through the controller's properties)
+
+1. **The kit's order**: at the field kit open "Tank L" and look at the order of the choices. Is it alphabetical after
+   Stock and None (Atom Cats, Brotherhood helmet, Brotherhood helmet (3D), Brotherhood of Steel, Children of Atom,
+   Enclave, ...), alphabetical from the bottom up, or the old order (Stock, None, Brotherhood of Steel, Brotherhood
+   helmet, Enclave, Enclave helmet, Gunners, ...)? The same for "Seat" and "Paint". A screenshot of each helps. Nothing
+   else changes at the kit: the names are "Tank L: ...", "Seat: ...".
+2. **The MCM's dropdowns**: open the MCM's Look page. Every dropdown (both tank badges, the fender, Paint, Rims, Seat,
+   the plate's four, Faction set) should list its choices alphabetically after the pinned ones (the bike as it came,
+   None, "Same as the left" third on the right tank, "The plate's own"), Paint's "Palette test: colour index" last;
+   Mirrors and Tyres stay steppers. Each should show the choice you had before the update.
+   - `Papyrus.0.log`, once a session on opening the page: `Look: the MCM reads its dropdowns through the controller's
+     properties (the tank right's: TankR:sameleft (17) at rank 2)` (or another slot's).
+   - Choose "Seat: Saddle tan" and "Tank badge, right: Brotherhood helmet (3D)": one line each, `Look: the MCM's seat
+     dropdown (its property): rank 12 = Seat:tan (3)`. Press "Apply the look": the parked bike shows them by name. Close
+     and reopen the MCM: the dropdowns still show them.
+   - Then at the field kit choose another seat, leave the kit and reopen the MCM: the Seat dropdown shows the kit's
+     choice.
+   - If the first line never comes, a dropdown always shows its first choice, or a choice does nothing at Apply, the
+     property route doesn't work on your MCM: say so (the next build binds the dropdowns to globals of their own; the
+     scripts are ready for it). The kit still works either way.
+
+**The 3D helmets and the skull** (steps 3-8)
+
+3. **Fit them**: at the kit choose "Tank L: Enclave helmet (3D)" and "Tank R: Brotherhood helmet (3D)" (Steel 2, Screws
+   1, Adhesive 1 each). The tank's badge plates become plain enamel plates with the stock badge's chrome edge (black on
+   the left, steel grey on the right), each with its helmet standing on it. Look in the kit's preview, at the parked bike
+   close up, ridden in third person from the side and behind, and in first person looking down. Each helmet should sit
+   inside its enamel plate, none of it over the chrome edge or the paint, and read as a raised cast emblem, not a
+   sticker (try a low sun across it). Screenshots of each, please. Then the same with the Brotherhood helmet on the left
+   and the Enclave on the right.
+4. **The Enclave's eyes at night**: after dark, look at the Enclave helmet, parked and ridden, the headlamp on and off:
+   the eyes glow amber. Too bright, too dim, or plastic-looking? And in daylight: does the Enclave's dark gunmetal and
+   the Brotherhood's steel look like metal?
+5. **Your knees**: with both 3D helmets on, ride and lean hard both ways at speed, sprint-lean if your load order has
+   it, then stop with the left foot down and look from the side and the front in third person: no knee or leg should
+   pass through a helmet. Note the side and the moment if one does.
+6. **The bars**: fit the under-bar mirrors (egg, then D), and with the helmets on turn the bars to full lock both ways
+   at a crawl, in first person and from the side: no mirror passes through a helmet.
+7. **"Same as the left"**: set the right tank badge to "Same as the left" with a 3D left: both plates show the same
+   helmet (`Papyrus.0.log`: `Customise: the right tank badge follows the left: TankL:enclavehelm3d`). Then a 3D left with
+   a flat right (Tank R: Enclave helmet, the flat one): the right shows the flat badge and no 3D helmet. Then put both
+   back to Stock: no helmet is left on any of the three bikes (parked, ridden, first person), after a ride and after a
+   save and a load.
+8. **The Gunners skull**: choose "Gunners skull" on the left, the right (or "Same as the left") and the rear fender
+   (Adhesive 1, Cloth 1): a pale skull with a black cross on the brow and a stitched mouth, no plate round it, on any
+   paint you like.
+
+**The plates** (step 9)
+
+9. **Each design at riding distance**: choose each plate design in turn at the kit (with its own text, and with a text of
+   your own), then ride away and look back at it from the riding camera, about a bike's length behind and more. The
+   letters should look pressed into the plate, narrow and square, and read clearly; the small emblem in the top-left
+   corner should keep its shape and not run into the stripe, the legend or the edge. Which designs or characters are
+   hard to read? (B, 8, 6 and 9 have the smallest holes.) Optional A/B: the 2026-11-15b package's six plate textures
+   (`Data\Textures\CMB\Bike\plates_d.dds`, `plates_n.dds`, `plates_s.dds`, `plate_text_d.dds`, `plate_text_n.dds`,
+   `plate_text_s.dds`) in a small MO2 mod of their own, ticked below this one, give the old letters and emblems back.
+
+**The seat** (steps 10-13)
+
+10. **Each colour**: at the kit choose each "Seat: ..." in turn (Cloth 2, Adhesive 1; the stock one free). Look at it
+    parked, ridden in third person and in first person looking down. The colour should match its name, and the
+    leather's grain, shading and slightly lighter worn edges should still show. `Papyrus.0.log`: `Customise: seat =
+    Seat:tan (3)`, and the look's colour lines end `seat 0.15625` (the colour's row; `seat -1` for Dark brown, as it
+    came).
+11. **The dark seats in the game's light** (a probe: the renders' light isn't the game's): Black, Oxblood, Tobacco brown,
+    Navy and Dark brown (as it came), in daylight, in shade and at night, close and from a few steps away. Which look
+    alike? Black should look clearly darker than the original dark brown and still look like leather (a soft sheen, not
+    matte cloth). Pre-war turquoise is the light turquoise of 1950s two-tone upholstery: does it fit?
+12. **The piped seats**: on Black with red piping, Black with cream piping, Dark brown with cream piping and Oxblood with
+    black piping the welt along the seat's edge should show clearly in the second colour, close up (from riding
+    distance a piped seat looks like its plain colour: expected).
+13. **With the rest of the look**: Paint "Free colour" with a coloured seat, then move the hue: the seat doesn't change
+    colour and the paint doesn't take the seat's. While riding, change the seat in the MCM and press "Apply the look":
+    the first-person bike shows it at once, the ridden bike at the next getting on. Load a save from before the update:
+    the seat is "as it came", everything else as it was. Last, Seat back to "Dark brown (as it came)": exactly the seat
+    of before the update.
+
+**The cost** (step 14; a probe: every bike carries the four helmets hidden, about 14,000 triangles)
+
+14. **Frame time beside the parked bike**: stand 3-4 m from the parked bike at a fixed spot you can find again (for
+    example by the bike's side in Sanctuary, facing it), still for 20 s, and note your frame rate with your usual frame
+    counter: first on 2026-11-15b (test 55's install, if you test it first), then on this build at the same spot, with
+    the stock look and with both 3D helmets on. Any drop? If you only have this build, the stock look and both helmets at
+    the same spot.
+
+Nothing in this build has an INI switch: every new choice is opt-in (each slot starts as it came), and the old order
+of the lists and the old plates are A/B files, not keys (README's first table). Send `Papyrus.0.log` and `CMB_Slope.log`
+of each session, the screenshots of steps 1 and 3, and any of steps 5, 9 and 11 that show a problem.
+
+### Questions for you (test 56, the 2026-11-16a build)
+
+- **T56-1 (step 1).** The kit's lists: alphabetical from the top, from the bottom, or the old order?
+- **T56-2 (step 2).** The MCM's dropdowns alphabetical? Did the "reads its dropdowns through the controller's
+  properties" line come, and did a choice there apply as named and stay shown after the kit?
+- **T56-3 (step 3).** The 3D helmets: inside their plates, none over the chrome edge? Raised and cast-looking, or flat?
+  In the preview, parked, ridden and in first person? Their size and place on the plate right?
+- **T56-4 (step 4).** The Enclave's eyes at night: amber, too bright or too dim, plastic? The metals in daylight?
+- **T56-5 (step 5).** Any knee or leg through a helmet, leaning or with a foot down? Which side, when?
+- **T56-6 (step 6).** The under-bar mirrors at full lock: clear of the helmets?
+- **T56-7 (step 7).** "Same as the left" with a 3D left, a 3D left with a flat right, back to Stock: anything left over
+  on any bike, after a ride and a load?
+- **T56-8 (step 8).** The Gunners skull on the tank and the fender: how does it look?
+- **T56-9 (step 9).** The plates at riding distance: the new letters and emblems legible? Which designs or characters
+  aren't? Better or worse than the old ones (the A/B, if you tried it)?
+- **T56-10 (step 10).** Each seat colour as its name, grain and worn edges kept, parked, ridden and in first person?
+- **T56-11 (step 11).** Which dark seats look alike in the game's light? Black darker than the stock brown, still
+  leather? Pre-war turquoise?
+- **T56-12 (step 12).** The piped seats' welts clear close up?
+- **T56-13 (step 13).** The seat and Free colour apart? The MCM's Apply mid-ride? An old save's seat as it came?
+- **T56-14 (step 14).** The frame rate beside the parked bike: 2026-11-15b against this build, stock and with the
+  helmets?
+
 ## The 2026-11-15b build: test 53's and test 54's wishes, in this order
 
 This build adds what tests 53 and 54 asked for: A and D turning the bike in first person as the mouse does; the view
@@ -25,7 +158,7 @@ a handgun from the saddle, the left hand on the bar; your own body in first pers
 and other wide things, not only posts; the right-hand cables turning with the bars. You didn't test 2026-11-15a, so
 test 55 runs on this build and covers both: first the 2026-11-15a build's steps 1-10 (the next section), then steps
 11-24 here, with questions T55-1 to T55-10 there and T55-11 to T55-24 here. Every new behaviour has an off value that
-gives the 2026-11-15a build back (README's first key table), so each A/B is one key away. Four things only the game can
+gives the 2026-11-15a build back (README's table of the 2026-11-15b build's keys), so each A/B is one key away. Four things only the game can
 settle: whether the game builds its first-person camera the way the plugin turns it (step 12), whether it draws your
 body in first person at all (step 15), whether the game's own put-away works on the bike (step 18) and which pistols
 count as handguns (step 20).
@@ -292,8 +425,8 @@ bike's hotkey on B, Free colour in third person, the kit's names and its settlem
 the five gears' sound, the guard beside a downed NPC. Not in this build, coming in 2026-11-15b: A and D turning the bike
 in first person (with a slight lean), the rider's arms and body in first person, looking back when reversing, handguns
 on the bike, sidestepping big objects, the right-hand cables. Steps 1-10 in this order; each says what to look for and
-the log line that answers it. Every new behaviour has an off value that gives the 2026-11-14a build back (README's first
-key table), so each A/B is one key away. Five steps settle what only the game can: whether the kit's crash is gone (step
+the log line that answers it. Every new behaviour has an off value that gives the 2026-11-14a build back (README's table
+of the 2026-11-15a build's keys), so each A/B is one key away. Five steps settle what only the game can: whether the kit's crash is gone (step
 1), where the menu's camera really is (step 2), the space of the camera's answer in first person (step 3) and how the
 slower pull feels from a stop and at speed (steps 6 and 7).
 
@@ -1446,3 +1579,5 @@ Still seated after getting off? `player.caf` (ChangeAnimFlavor with no keyword) 
 7. Since 2026-11-15b: `CMB_RiderPose_report.txt` (next to `CMB_RiderPose.esp`, written when `make_rider_pose.bat` of
    this build's repository runs), screenshots of your body in first person, and a short video of a handgun drawn on
    the bike and of a rifle put away
+8. Since 2026-11-16a: screenshots of the field kit's "Tank L" list and of the 3D helmets (test 56's steps 1 and 3), and
+   the frame rates of step 14

@@ -1094,6 +1094,14 @@ whatever its hue); `--view-transform Standard` clips each channel, nearer the ga
 judging a light's colour. What it can't show: the game's tone mapping and eye
 adaptation, its ambient light and fog, the real vanilla cubes, screen-space reflections, mip and BC1 shimmer at a
 distance.
+Since the 2026-11-16a build `--overlay <Data>` (repeatable, the last winning) lays a build's packaging overlays over
+`--data`, as the package does; `--look-build 2026-11-08a` composes the table as 2026-11-15b's ESP has it (12 looks give
+the 2026-11-15b tool's `--compose` output byte for byte); `--swap` composes the seat's colour with its V, "Same as the left"
+through `TankRightOf` (`TankR:follow` names it) and the older tank options with their four helmet identities; the views
+`helm_l`, `helm_r`, `helm_l_graze` (a low sun across the relief), `helm_kit` (the parked bike from the kit's side),
+`helm_ride` (the third-person riding distance) and `night_helm_l` (the Enclave's eyes) make the set `c3` with the tank
+and seat views, and `--sheet Seat` renders every seat. In a still render a hidden helmet's transparent surface changes
+the renderer's sampling in its footprint, so the stock look differs from 2026-11-15b's tree there by noise alone.
 
 ### The tail lamp's light
 
@@ -2738,6 +2746,171 @@ line; Tune at distance 600 (pos 0,600,-20, scale 1) and 30 and 2500 (New's 400);
 fake's numbers and "yes", and a model with no parent ("its parents (0): none", "none found ... round the origin");
 `KitPreviewScene=0`: the 3D line alone; the mode's INI back: 10a's record put back). 14a's twelve kit checks (K0-K8) now
 ride DEF58's 14a values: the off values' own checks. On 353d8de's DLL 12 of the 13 fail (`KitPreviewScene=0`'s passes).
+
+## Customising the bike, the third build (2026-11-16a): the 3D helmets, the Gunners skull, the plates, the seat's colour, the lists
+
+The third customisation build (C3), the first of two art builds (the second, build B, brings the wear and weathered
+paint, the front fender's badge, the headlamp's colour and the Nuka-Cola and Red Rocket badges). Its items, as the
+author chose them: two 3D helmet badges (Enclave, Brotherhood of Steel) standing on an enamel plate, the Gunners
+skull, every plate's emblem redrawn at the plate's own scale with a new die-pressed plate font, the seat's colour as a
+twelfth slot, and the MCM's and the kit's lists in alphabetical order. Every item keeps the look's rules (save-stable
+records appended at the slots' ends, option 0 the bike as it came, a new shape invisible until a swap shows it, every new
+behaviour with an off value giving 2026-11-15b back). The plugin (`CMB_Slope.dll`, `CMB_Slope.ini`) doesn't change: it
+holds no table by slot, its colour writer keys on shape names that none of the new shapes ends with, and the new shapes
+take the fixed role by their `_static_` tag. No game file is copied; every texture is drawn by our own code from
+primitives or re-sampled from our own shipped textures; the author's reference pictures were looked at, never read by
+a tool, and are not in the repository.
+
+**The 3D helmets** (`tools/rider/look_emblems.py`, `emblem_pieces.py`, `emblem_art.py`). Swaps can't add geometry, so
+every bike nif carries four shapes more, last in its list: `static_helmEnclaveL`, `static_helmEnclaveR`,
+`static_helmBosL`, `static_helmBosR` (`CMB_Bike_...`, `CMB_BikeWorn_...`, `CMB_BikeWornRider_...`,
+`CMB_BikeWornRiderF_...`, `CMB_BikeView_...`): parked 51 shapes, worn and view 54, the plugin's `MAX_SKINS` 55 of 64.
+Each names its own materials file (`<shape>.bgsm` parked, `<shape>_worn.bgsm` the others), invisible as the rim
+styles' own files (alpha test 255, alpha 0, no shadow, `off_d/_n/_s`; byte for byte the shipped `wheelF_rimLaced.bgsm`),
+until a tank option swaps it to `helm_enclave.bgsm` or `helm_bos.bgsm`. Each tank option names all six of its side's
+sources (the plate's two, the side's four helmet files): "Enclave helmet (3D)" swaps the plate to its enamel ground
+(`badge_hg_enclave.bgsm`), the side's Enclave helmet to `helm_enclave.bgsm` and puts the Brotherhood helmet's identities;
+every older tank option gains the four identities (`sources_c3`), so choosing a flat badge or stock again puts the
+helmets back on their invisible files on every bike. The helmets are bas-reliefs of our own design from a written
+feature list (`emblem_pieces.enclave`, `bos`: 2D signed distances of circles, superellipses, almonds, polygons and
+strokes along curves, raised, embossed, carved, tubes with ribs; rivets and grooves only in the normal map), sampled on a
+0.025 lattice and cut to 3,500 triangles each by the simplifier (99th percentile 0.016-0.019 units from the lattice's
+surface, no folds), normals split at 50 degrees, UVs planar into the helmet's 512 cell. Each stands on its plate in
+the plate's own frame (`right` = up x n, so both sides read true from outside, not mirrored), cast along the plate's
+normal onto its triangles and lifted along the interpolated normal (1.6-1.8 proud at full depth), a skirt 0.15 under the plate's
+surface (real geometry, no decal). Its footprint is fitted inside the enamel field both plates show (the ground's: the
+plates' common hexagon inside the chrome bevel, recorded as `emblem_pieces.GROUND_FIELD_UV`, or `--ground-field
+<badges.json>`), inset 0.2, and kept 1.0 clear of the bar assembly swept through BarAngle (the under-bar mirrors pass
+1.3 over the right plate at full lock), one scale for both sides. The first placement stood each helmet upright (`up`
+the world's z on the plate's plane) where the field and the sweep left most room (the right one forward, about 8 cm
+tall where the design's nominal was 12); after the first renders the author asked for the helmets centred on the plates
+and angled to follow them, which `emblem_pieces.placement` does for the build's final nifs: each helmet centred on the field's middle line and turned with the field's own axis (square with the plate's slant: -12.5 degrees from upright on the left, +12.45 on the right, mirrored), one scale per helmet for both sides (Enclave 0.818, about 9.6 cm tall; Brotherhood 0.854, about 9.3 cm), every point 0.20-0.31 inside the field. Centred, the right side's helmets sit under the under-bar mirrors' full-lock sweep, so their relief is made shallower rather than moving them (Enclave x0.80, 1.29 proud; Brotherhood x0.70, 1.23 proud; the left side keeps full depth, 1.62 and 1.75): 0.35-0.36 clear of the mirrors by the build's 0.5-degree sweep (1.1-1.2 on the left), the check's limit 0.3; shrinking the right Brotherhood didn't help, the mirror passes over its middle. In 212 riding clips the leg bones stay at least 10.9 from a helmet (about 5.9 after an estimated 5 units of flesh). The patcher works
+as `bar_cables.py` did: per target nif a donor nif through PyNifly with the model converter's `add_shape` (so the
+vertex encoding, the half floats, the skin and the shader blocks are what the build writes; its shader, alpha and
+texture-set blocks checked equal to the target's own rim style's, the materials name aside), grafted with
+`bar_cables.py`'s byte-level reader: new blocks and strings after the last, the four shapes appended to the node that
+holds the plates, every other block byte for byte. The rigid transform from the parked frame is fitted per nif on the
+plates' 162 vertices (0 in full precision, at most 0.03125 in the half floats). Worn nifs: each shape its own
+`BSSkin::Instance` and one-bone `BoneData`, copies of its plate's (the same bone and union culling sphere, so
+`FrontMinY` doesn't move); parked and view unskinned at full precision. `--emblems 0` writes the five nifs as they are
+(2026-11-15b's bytes), a nif that already has the shapes is left as it is, and two runs are byte-identical. The parked
+bike draws 307,932 triangles (+13,998, +4.8 %), the worn and view bikes 302,125; the helmets ride hidden on every bike
+(four draw calls, the triangles drawn invisibly: the frame-time probe). Textures (`emblem_art.py`, from the same
+`field()` at each texel, so every colour region sits on its relief): `helms_d.dds` BC1 1024 x 512 (a 512 cell a
+helmet: the Enclave's dark gunmetal, the Brotherhood's brushed steel), `helms_n.dds` BC5 1024 x 512 (the fine detail
+only), `helms_s.dds` BC5 512 x 256, `helms_g.dds` BC1 512 x 256 (the Enclave's amber eyes). `helm_enclave.bgsm` is the
+glow shader over `helms_g` with no cube (the master's shader can't combine a glow map with an environment map; the
+gunmetal is dark anyway), emittance white x 1.5; `helm_bos.bgsm` the chrome cube
+`Shared\Cubemaps\MetalChrome01Cube_e.dds` by path at 0.8, as our badges. Both cast a shadow as the plates' and badges'
+files do; the own files cast none. Measured offline by `check_bike_meshes.py --look-c3 --knees`: every vertex inside
+its ground's field, the bar assembly at least 1.0 clear at full lock, and in all 212 riding clips (18,412 frames, male
+and female) the legs' bone lines kept off the helmets (the first placement: 13.8 at the least, 8.8 after an estimated 5
+of flesh, where the plates' rear ends come to 6.9-7.7): no body mesh and no power armour here, so the knees are a test
+step.
+
+**The Gunners skull and the enamel grounds** (`bike_art.py`, `look_badges.py`). `draw_gunskull` in cell (1, 3): a
+bone-white head (`e8e2d0`), long in the face, a thin dark outline (`0e0f12`), a cross on the brow, two angled eye
+sockets, a two-lobed nose hole, a mouth line with six stitches, no shield and no ground (the plate shows the paint round
+it, as the Raiders badge; `look_badges.py --check` takes a lone figure from 15 % coverage, the skull 19 %). In the tank
+slots and the rear fender (`badge_gunskull.bgsm`, decal on as the fender's badges). `draw_ground` in cells (2, 3) and
+(3, 3): the plates' common hexagon with the stock badge's 7-px chrome bevel and a plain enamel field, black `0e0f12`
+for the Enclave and, the author's pick after the first renders, **steel grey `545a64`** for the Brotherhood (the
+design's deep crimson vanished into the factory crimson paint; `545a64` is the grey with the largest least difference
+over all 44 paints that keeps 3:1 against the steel helmet). Both tank plates take the one ground material with the
+same, unmirrored UVs, so the bevel runs round the area both plates show, not each plate's own outline; `badges.json`
+records that field (`hg_*.field.outline_plate_uv`) for the helmets' fit. The 13 older cells keep their BC3 / BC5 blocks
+at mips 0-5 (`look_badges.py --check --base`), and `--through 2026-11-08a` draws 2026-11-15b's atlas byte for byte.
+`look_badges.py --plate-nif` takes the plates' outlines from the built parked nif (no stage needed).
+
+**The plates: the emblems at the plate's scale and the die-pressed font** (`bike_art.py --plates`, `look_plates.py`).
+Every design's emblem is drawn at the plate's own scale as the Vault-Tec cog was in 2026-11-09a (bold parts, features 4
+px or more, gaps 3-6 px, 6 px or more from the stripes, bead, welds and legends), replacing the tank badges' drawers
+scaled down: `_plate_atom` (standard), `_plate_bos` (a sword over a ring with three-step wings), `_plate_minuteman`
+(a tricorned head and musket in a ring of five stars), `_plate_institute`, `_plate_skull` (the Raider), `_plate_star`
+(the army); Nuka-Cola's cap (12 crimps, a white face with a red star), Red Rocket's rocket and RobCo's terminal tidied;
+Vault-Tec as 2026-11-09a. Each emblem's box, parts and neighbours go to `plates.json`, and `look_plates.py --check`
+holds every one to the Vault-Tec pair (never 8-adjacent to a neighbour's parts at mips 0-3, its area at mips 1-3
+within 0.7-1.6 of level 0's). The plate font is new (`PLATE_FONT`, `--plate-font 2026-11-16a|2026-11-08a`): the
+die-pressed look of 1950s plates, narrow (48 px inked of the 92-px cap, was 54), strokes 1.15x the stroked font's,
+square bowls, flat-cut ends, square outer corners, a flat-topped A and 3, a flagged 1; monospace texts in 62-px dies,
+proportional legends. Each glyph is built in its inked box from flat-ended bands, rounded-rectangle rings cut by boxes
+and fills, as exact signed distances, so the emboss ramp is the stroked font's and the joints overlap by more than the
+3-px bevel (no seam in the relief): no font file, no traced or sampled letter. `text_dds`' `flip_cells` keeps each
+text's alpha coverage within 5 % of level 0's to mip 4 (the narrow strokes needed it at mip 4). Only
+`plates_d/_n/_s.dds` and `plate_text_d/_n/_s.dds` change (same sizes); every plate and text material and both palettes
+are 2026-11-15b's byte for byte. `--plate-font 2026-11-08a --plate-emblems 2026-11-09a` gives the shipped six byte for
+byte.
+
+**The seat's colour** (`tools/rider/look_seat.py`, slot 11 "Seat"). The paint's and the cast rims' method from the
+shipped files alone: `static_seat_i_d.dds` (1024 BC1) is the shipped `static_seat_d.dds` re-sampled per texel into a
+palette index map, its shade over the leather `231b16` in three U bands, the wear (from the shipped `_s` smoothness:
+13,114 texels along the rolled edges) 0-47, the leather 56-127, the welt 136-207 (the parked nif's 576-triangle piping
+piece rasterised in UV: exactly its 20,463 texels), the bands running as a V so a sample across a border passes through
+like shades; the shade denoised by an edge-keeping filter within each part (`--denoise 0`: the plain re-sample); mips
+per part, the welt kept to mip 3. `seat_p.dds` (256 x 16, A8R8G8B8, one mip) holds a row per colour: rows 0-13 the
+options, 14 the stock leather (the proof: through the index map it gives the shipped diffuse back at 46 dB), 15 spare.
+The colours, made more distinct after the author's first look (`seat_palette.rows`, set in OKLCh inside sRGB): Black
+`080808`, Tobacco brown `764924`, Saddle tan `bf7028`, Oxblood `681119`, Olive drab `546d32`, Cream `f2e3bf`, Slate
+grey `738292`, Red `d02c2a`, Navy `162f72`, **Pre-war turquoise** `49b6ab` (key `turquoise`: the light turquoise of
+1950s two-tone upholstery, in the place of the contract's Pre-war white), and four with a contrasting welt: Black with
+red piping, Black with cream piping, Dark brown with cream piping (the stock leather with a cream welt), Oxblood with
+black piping. A contrasting welt is lifted 2x in its band (it sits in the bake's shadow), so it shows its swatch's
+lightness. The materials `static_seat_<key>(_worn).bgsm` (28) are the shipped seat's values pointed at the index map and
+`seat_p.dds` at V = (row + 0.5) / 16; the three black-bodied seats' have **half the shipped specular** (0.5): under the
+leather's sheen Black otherwise rendered as the stock brown (OKLab 0.011 apart parked in the renders; 0.096 now).
+Option 0 is the identity (the shipped files). `--check` holds every two options at least 0.08 apart in OKLab as the
+shader colours the seat (the closest, Black and the stock seat, 0.091), every contrasting welt at its swatch's lightness
+and 0.15 or more from its seat. The swaps carry V as CNAM in both entries, which the game applies while it builds the
+worn bike (the palette test's proof, test 54); `CMB_LookF4SE` composes the seat with `SeatV` (coloured entries and their
+echoes) for the parked and first-person bikes, and its WornIndex pass writes the same V (put back = V, never "no
+index"; the seat is never MountQuick's probe). The seat is no colour of the plugin's (`..._static_seat` ends with no
+tag): a seat-only look runs no WornIndex pass at getting on. Faction sets leave the seat.
+
+**The scripts.** Slot 11 in both scripts (`LookSlots` 12, `SlotGlobal(11)` = `CMB_Look_Seat`); `CMB_LookSwapLists` stays
+index = slot through the two empty placeholders at 9 and 10 (the colour slots have no swaps), which Compose skips.
+`LookState()` and `KeptKey()` count the seat only when its global is there, so an older ESP gives 2026-11-15b's strings
+exactly; with this ESP each grows by one value, so the first getting on after the update attaches the look's mods once
+afresh (logged). "Same as the left" resolves through `TankRightOf` (per left option the right's index with the same key:
+the left's 17-19 are the right's 18-20; the right's swap list skips its 17, so its entries 17-19 are options 18-20),
+the old rule (the left's index) with an older ESP. The MCM's dropdowns are bound to the controller's full properties
+`Ui<slot>`: Get returns the option's display rank (`UiRank[UiStart[g] + index]`), Set writes the option at a rank
+(`UiOrder[UiStart[g] + rank]`) into the slot's global, 13 groups (the 12 slots, then the faction sets) from `UiStart`;
+the globals keep the option's index, so saves don't change. Get says once a session "Look: the MCM reads its dropdowns
+through the controller's properties (...)" and Set "Look: the MCM's <slot> dropdown (its property): rank r = <key>
+(i)": whether MCM calls a full property's get and set (about 70 % sure) is test 56's question. If it doesn't, fallback
+(b) is wired and idle: eleven globals `CMB_LookUi_<slot>` (group `Look_C3_UiFallback`, IDs 0xC50-0xC5A kept free, not in
+look_ids.txt) that a later ESP fills and binds the dropdowns to; `LookUiPull` takes the MCM's moves at LookSync, the
+MCM's Apply and the top of ApplyLook, `LookUiPush` writes the look's ranks at ApplyLook and at a new game's OnInit
+(each returns at once while no global is filled). The kit's order: each look recipe's created-object priority is its
+option's rank (0 = the top, if the armour menu sorts ascending; whether it sorts by it at all is the other probe; the
+other direction is one line in the generator).
+
+**The records** ([BUILD_GUIDE.md](BUILD_GUIDE.md) has the list): 72 from 0xC08 to 0xC4F, a third block after the
+weapons' forms, in the generator's order (the Seat's global and attach point, the new options of the earlier slots in
+slot order, the Seat's 15, its option list, the two placeholders, its swap list); in place the 34 tank swaps (2 -> 6
+entries), 252 recipes' priorities, 8 form lists, the three armours' attach points, the template's 12th include and the
+quest's VMAD. New kinds in the table: `emblem` (a 3D helmet: `badge` the plate's ground cell, `emblem` a key of
+`emblems.items`) and `seat` (`row` of `seat_palette`, `cnam` its V). `ui_order` holds the pin rule; the generator's
+`UiGroups` computes the order (names compared lower-case, ties by index), `check_plugin.py` mirrors it, and holds every
+MCM control bound to a script's property to an int that script declares.
+
+**Off values.** In game every new thing is opt-in (each slot starts as it came; the helmets stay on their invisible
+files with any other tank choice). The ESP: `--look-build 2026-11-08a` writes 2026-11-15b's ESP and MCM byte for byte;
+`--kit-order table` gives the lists' order back (a presentation-only A/B, not in the package: a run-time switch can't
+reorder MCM's static lists or the recipes, as with `--kit-names 0`). The art: `look_emblems.py --emblems 0`
+(`EMBLEMS=0`), `bike_art.py --badges --through 2026-11-08a`, `--plates --plate-font 2026-11-08a --plate-emblems
+2026-11-09a` each give 2026-11-15b's files byte for byte; `look_seat.py` only adds files. An older ESP with the new nifs
+leaves the helmets invisible (no swap names them); this ESP with old nifs would show a 3D choice as its ground plate
+alone (the package's verifier and `check_bike_meshes.py --look-targets all` catch it before shipping).
+
+**Open, for the game:** whether the armour menu orders a slot's mods by the recipes' priority, and which way; whether
+MCM's `PropertyValueInt` calls a full property; the knees against the helmets in the lean and with a foot down (and in
+power armour); the glow shader's look on the gunmetal and the Enclave's eyes at night (if the glow's specular looks
+plastic, the eyes become shapes of their own: 2 more, 57 of 64); the Brotherhood's steel against the chrome cube; the
+frame time beside the parked bike (four hidden helmets, about 14,000 triangles); the seat's palette on its default shader
+(the plates prove the path, not on this material) and the dark seats in the game's light (Black, Oxblood, Tobacco
+brown and the stock brown are told apart by their hue and Black's half sheen; the renders' lighting isn't the game's);
+the die-pressed letters' legibility at riding distance (B, 8, 6 and 9 have small counters at mip 3).
 
 ## Knocking enemies over (F4SE plugin and `CMB_RamScript`)
 
@@ -4871,6 +5044,8 @@ caution, backing, hits, ram, wall and climb pass unchanged). No twin change: `en
 | Customisation records (the 2026-11-15a build) | `check_plugin.py` (GLOBALS_57, PREVIEW_57): `CMB_KitPrevSize` 400 and `CMB_KitPrevZoomIn` 3, the preview section's first slider "Preview distance" 100-2000 step 25 on 0xBF9; `--look-build 2026-11-07a` the 2026-11-07a build's ESP, `config.json` and `keybinds.json` byte for byte; `--kit-names 0` "plugin and scripts agree"; espcmp against 2026-11-14a's: `TES4: same`, added 0, removed 0, changed 2 (the two globals' FLTV); look_ids.txt 838, unchanged | ok |
 | Plugin records (the 2026-11-15b build) | `check_plugin.py` (FIXED_59, GLOBALS_59, MCM_59 and the weapons' FIXED_59W, GLOBALS_59W, HANDGUN_LIST_59, VANILLA_59, WEAPONS_MCM_59): the nine forms at 0xBFF-0xC07 with their values (`CMB_ViewBack` 1, `CMB_ViewBackNow` 0, `CMB_ViewRoll` 4, `CMB_LookKey` 44, `CMB_RideWeapons` 1, the FLST `CMB_HandgunKeywords` holding WeaponTypePistol, `CMB_RiderGun`, `CMB_WeaponAway` and `CMB_RiderGunPose` 0), `CMB_AllowCombat` still 0x802 = 0, the controller's `Fixes_59` filled (WeaponTypeRifle and ActionSheath among them; 203 properties), the MCM's stepper "Weapons while riding" in the switch's place and no "Allow combat while riding", Riding's "Looking back while reversing (first person)" and "View leans in turns (first person, deg)", Hotkeys' "Look key (scan code)"; `--look-build 2026-11-07a` the 2026-11-07a build's ESP, `config.json` and `keybinds.json` byte for byte; espcmp against 2026-11-15a's: `HEDR records 1053 -> 1062, next ID 0xBFF -> 0xC08`, added 9 (000BFF-000C07: 8 GLOB, 1 FLST), removed 0, changed 1 (the controller quest's VMAD); look_ids.txt 847 | ok |
 | Bike look (the 2026-11-15b build) | `bar_cables.py --data <the 2026-11-10a package's Data> --out <overlay>/Meshes/CMB --pynifly <PyNifly>`: per nif every block but `static_black`'s shape and its parent node byte for byte, the string table one longer, `static_black`'s vertex records, bound and refs unchanged and its triangles the kept ones in order, the new shape's corners the moved triangles' vertex records byte for byte with its own shader property, texture set, skin instance and bone data; PyNifly reads back 50 shapes, `<stem>_front_cables` last; `--bar-cables 0` writes the four nifs byte for byte, two runs give the same four sha256s; `check_bike_meshes.py --look-c2` over the asset base with the overlay (the new "cables" checks: no piece of a fixed shape hangs from the bars, `front_cables` the bar assembly by name and by sphere, its 2046 vertices all `static_black`'s under `static_black_worn.bgsm`, the cut's 67 shared vertices 6.5-9.2 from the axis, the tank 0.47 clear at -20; the checker no longer needs `CMB_BikeFit.json` at c2, which a package's tree hasn't); `look_render.py --views cables` before and after (from the eye and the front right at bars -16, 0 and +16, the cut at -20 and +20) | 74 PASS, 0 FAIL (the 2026-11-10a tree: 1 FAIL, the new cables check naming its three pieces); 288127 triangles as before, 279906 vertices (2046 more); with the bars straight the renders the same (no pixel off by more than 2/255), at +-16 the cables on the housing where 2026-11-15a's hang in the air or pass through the turn signal |
+| Customisation records (the 2026-11-16a build) | `check_plugin.py`'s C3 checks against the table: the 72 records contiguous at 0xC08-0xC4F in the generator's order (`c3_ids`, next 0xC50), each 3D option's six entries (the plate to its ground cell, the side's helmet to its emblem's material, the other helmet's identities), the 34 older tank swaps' four helmet identities, each Seat option's row, V on both entries and files, the two empty placeholders and `CMB_LookSwapLists` index = slot (12), the 12th attach point on the look item and both riding armours, the template's Seat option 0, every look recipe's priority its display rank, each group's `UiOrder` a permutation and `UiRank` its inverse, the Look_C3 fills in both scripts (`TankRightOf`, `SeatV`), the MCM's 22 Look controls with the Seat after Tyres and the eleven dropdowns on `Ui<slot>` in display order, and (since the build's review) every MCM property control an int its script declares; D1's 21 mutations of the dump and the MCM each fail with its own problem; `--look-build 2026-11-08a` 2026-11-15b's ESP, `config.json` and `keybinds.json` and `--look-build 2026-11-07a` fdb5b3a's byte for byte; `--kit-order table` and `--kit-names 0` "plugin and scripts agree"; espcmp against 2026-11-15b's: added 72, changed 298; a desk model of the new Papyrus functions over the merged ESP's lists (D2's: every TankL option's follow in both scripts, all 297 ranks Set then Get, every index Get then Set, with and without the arrays) | "plugin and scripts agree" (208 and 36 properties); 0 problems in the desk model |
+| Bike look (the 2026-11-16a build) | over the whole tree (the 2026-11-10a package's Data, 2026-11-15b's four meshes, the three units' overlays): `check_bike_meshes.py --look-c3 --look-targets all --knees` (the four helmets last in every nif, own invisible files, the emblem materials, at most 6,000 vertices and 2,500-3,500 triangles each, -0.15..1.8 over their plates, inside the enamel field, nothing facing out within 0.25 of the paint, no other shape near, the bar assembly at least 1.0 clear at full lock, the legs in 212 riding clips against each helmet; 468 materials files, 129 DDS, 120.5 MB; seat_p.dds a palette); `look_badges.py --check` (the skull's and grounds' coverage, the 13 older cells' blocks at mips 0-5 against 2026-11-15b's tree, 20 badge materials and targets); `look_plates.py --check` (22: every emblem never next to a neighbour at mips 0-3, its area at mips 1-3 within 0.7-1.6, the texts' coverage at mips 1-4, the palette proof 46.6-55.7 dB, the brand and slogan scan); `look_seat.py --check` (the stock row's proof 46.1 dB, the mips per part, the piping mask exactly the piece's 20,463 texels, every two options 0.08 or more apart, the welts; the shipped seat's files the base's bytes); `emblem_art.py --check`; `look_emblems.py`'s own (every original block byte for byte, the helmets' vertices through the fitted transform, `--emblems 0` and a second run the input bytes); the off switches (`--emblems 0`, `--badges --through 2026-11-08a`, `--plate-font 2026-11-08a --plate-emblems 2026-11-09a`) 2026-11-15b's files byte for byte; all 61 new and changed files rebuilt from the merge's tools byte for byte; renders of every new choice parked, ridden and at night, and of the stock look against 2026-11-15b's tree | 80 PASS, 0 FAIL; all passed (15, 22, 17, 5); the stock look's difference only the renderer's noise in the hidden helmets' footprints (mean 0.000-0.213 of 255) |
 | Bike look (the 2026-11-07a build) | `check_bike_meshes.py` over the built tree with `--look-options` (and `--look-targets all` once the badges are in), the 2026-11-06a tree as the look reference: the 33 shapes and their names, PARKED_OFF, the invisible files, the fender patch at least 0.25 over the paint in the worn nif's half floats, the 592 swap sources and targets, the 196 names without a brand word, `CMB_BikeParts.ini` and `CMB_BikeFit.json` the reference's bytes, the split badges = 2026-11-06a's `static_badge` (243 vertices with UVs, 384 triangles, its culling sphere); `look_paint.py --check` (the palette proof; at every mip of the index maps no texel in a part its level-0 footprint lacks, the coachline kept at mips 1-3; the files' own checks); `look_badges.py --check` (the three DDS' formats, sizes, full mips, 8.4 MB, every cell inside its drawn area, the margins clear to mip 4, each emblem inside both plates, the 19 spare cells empty, the 17 materials read back, their transforms, every badge target there, no brand word, no game texture under the output); `--look-slots 0` against the 2026-11-06a tree; `look_render.py`'s render diff with every slot stock; the sheets of every option | 70 PASS, 0 FAIL (64 PASS, 6 FAIL on the 2026-11-06a tree); `look_paint.py --check` 11 PASS (8 FAIL on 2026-11-06a's; the two per-mip checks FAIL on the box-filtered maps: 2,207 texels astray at level 0 and 4,389 at mip 1, the coachline's area at mip 3 0.00 of level 0's), the patch 0.269 to 0.365 over the paint, the palette proof 39.1 / 39.7 dB (static_paint) and 42.3 / 43.1 (fork_paint), at mips 1-3 35.7 / 33.3 / 31.5 dB against 2026-11-06a's own mips (32.5 / 28.7 / 26.3 box-filtered); `look_badges.py --check` 14 ok (6 FAIL on 2026-11-06a's tree); `--look-slots 0`: the five nifs, `CMB_BikeParts.ini` and `CMB_BikeFit.json` `cmp`-equal to 2026-11-06a's; the render diff 0 in the four close views, the rest at most Cycles' speckle through the invisible patch (the parked view's black blob a renderer layer limit: `transparent_max_bounces` raised to 64); the bike's frame time 6 us for 34 shapes (2026-11-06a's 6 for 31); the merged tree 346 + 20 files: 100 DDS, 259 BGSM, 5 nifs |
 | Bike on COM | the skin read back and posed at the seated `COM` transform lands on the model (0.0000); posed through all walk/run/turn/idle clips of both sets next to the `AnimObjectA` bike | apart by at most the bounce: 0.35 units (5 mm, sprinting) |
 | Head-tracking default | `bAllowHeadTracking`'s initial value read from `MTBehavior.hkx`'s variable set | 1 (on) |
@@ -4945,4 +5120,11 @@ weapon out; whether the game draws the third-person body in first person once bi
 Body` rests on it: the entry's "body: first person: the player's 3D root ..." and "body: drawn? ..." lines settle it),
 the eye's offset from the head's joint (`BodyEye`; the probe gives it) and the collar at the near plane (A/B `Near=5`);
 the wide sidestep's numbers in the game's streets and how many parked cars are precombined (braked for only); and the
-cut cables' gap behind the headlamp at full lock, in the game's light.
+cut cables' gap behind the headlamp at full lock, in the game's light; since the 2026-11-16a build also whether the
+armour menu orders a slot's mods by the recipes' created-object priority (and which way up), whether MCM's
+`PropertyValueInt` calls a full property's get and set (about 70 % sure; the "reads its dropdowns through the
+controller's properties" line settles it), the helmets against the knees in the lean and with a foot down (bone lines
+only here: no body mesh, no power armour), the glow shader on the Enclave's gunmetal and its eyes at night, the
+Brotherhood's steel against the chrome cube, the frame time of the four hidden helmets beside the parked bike, the
+palette on the seat's default shader and the dark seats (Black, Oxblood, Tobacco brown, the stock brown) in the game's
+own light and tone mapping, and the die-pressed letters' legibility at the riding camera.

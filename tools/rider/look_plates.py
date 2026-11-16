@@ -3,6 +3,8 @@
 
     <dds python> -I look_plates.py --art <stage>/art_plates --out <Data-like tree> [--look-options <json>]
         [--old-stage <2026-11-07a's stage>] [--stage <this build's stage>]
+        (without --old-stage, since 2026-11-16a: static_plate_d/_n/_s.dds are left as --out holds them, and --check
+        holds them to their formats only; every other file is written and checked as with it)
     <dds python> -I look_plates.py --check --art <stage>/art_plates --out <tree> [--old-stage ...] [--stage ...]
     <dds python> -I look_plates.py --sheet <folder> --art <stage>/art_plates --out <tree>
 
@@ -41,7 +43,10 @@ Writes, under --out (a Data folder's layout; Textures\\CMB\\Bike, Materials\\CMB
 
 --check: formats, sizes, full mips; the per-part mips (no texel in a part its level-0 footprint lacks, R or G; the
 legends kept at mips 1-3); the Vault-Tec emblem (since the 2026-11-09a build) never next to its stripe at mips 0-3, its
-area at mips 1-3 within 0.7-1.6 of level 0's; alpha coverage per cell within 5 % of level 0's down to mip 4; the 8-px
+area at mips 1-3 within 0.7-1.6 of level 0's, and since the 2026-11-16a build the same pair for every design's emblem
+(plates.json names each one's box, parts and neighbours' parts: legends, stripes, welds) with 6 px or more between them
+at level 0; alpha coverage per cell within 5 % of level 0's down to mip 4 (since 2026-11-16a a cell still off it after
+the scaling has its missing or extra texels switched, flip_cells); the 8-px
 margins clear to mip 3 (the text's alpha 0, the designs' base); every text inside its drawn area and 480 px; the
 palettes' rows; the palette proof (the designs and the texts in their own colours through the DDS at 33 dB or more
 against the art's own colours); the stock re-sample within 2 levels mean of static_black's texels; every material read
@@ -50,7 +55,8 @@ text and name (the brand words, the US states, their plates' slogans); no game t
 
 --sheet <folder>: designs.png (every design with its own text and colours, lit, and at the riding view's mips 2 and 3),
 texts.png (every text on the standard plate), backgrounds.png (every design on every background: no legend vanishes),
-legibility.png (the 16 x 16 ink and background grid, pairs under 3:1 flagged).
+legibility.png (the 16 x 16 ink and background grid, pairs under 3:1 flagged), and since 2026-11-16a fonts.png (the
+plate font's whole set, the 2026-11-08a font over the die-pressed one, row by row, with the riding view's mips).
 
 Fallout 4 semantics (DESIGN.md): no diffuse tint for lit materials; the palette lookup is the one per-material colour.
 Nothing from the files read is executed.
@@ -84,6 +90,7 @@ CONTRAST = 3.0
 STOCK = (256, 128)
 EMBLEM_KEY, EMBLEM_BOX = "vaulttec", (0.17, 0.5)   # --check: the Vault-Tec emblem's part of its cell: left of the top
 EMBLEM_AREA = (0.7, 1.6)                           # legend's span (face u), the top half (face v); its area at mips 1-3
+EMBLEM_GAP = 6.0      # --check (since 2026-11-16a): px at level 0 between a design's emblem and its neighbours' parts
 # the real-plate scan (besides check_bike_meshes' brand words): the US states and slogans their plates carry
 STATES = ("alabama alaska arizona arkansas california colorado connecticut delaware florida georgia hawaii idaho "
           "illinois indiana iowa kansas kentucky louisiana maine maryland massachusetts michigan minnesota mississippi "
@@ -425,6 +432,35 @@ def scale_cells(cur, sw, sh, target, seed=128):
     return out
 
 
+def flip_cells(enc, gl, a8, dec, cur, share0, sw, sh, tries=8):
+    """(since 2026-11-16a) A level's cells still more than ALPHA_KEEP off level 0's share after text_dds's scaling (the
+    die-pressed font's narrow strokes at mip 4, 32 x 8 texels a cell): the missing texels switched on (the highest box-
+    filtered alpha among those off first) or the extra ones off (the lowest on first), well clear of the threshold, and
+    encoded again, a few times. A cell within ALPHA_KEEP is left as it is (so the 2026-11-08a font's bytes stay)."""
+    for _ in range(tries):
+        err = share0 - cell_shares(dec, sw, sh)
+        bad = np.abs(err) > ALPHA_KEEP * share0
+        if not bad.any():
+            break
+        for r, c in zip(*np.nonzero(bad)):
+            sl = (slice(r * sh, (r + 1) * sh), slice(c * sw, (c + 1) * sw))
+            on = (dec[sl] >= 128).ravel()
+            score = cur[sl].ravel()
+            need = int(round(err[r, c] * sw * sh))
+            blk = a8[sl].ravel().copy()
+            if need > 0:
+                idx = np.flatnonzero(~on)
+                idx = idx[np.argsort(-score[idx], kind="stable")][:need]
+                blk[idx] = np.maximum(blk[idx], 176)
+            elif need < 0:
+                idx = np.flatnonzero(on)
+                idx = idx[np.argsort(score[idx], kind="stable")][:-need]
+                blk[idx] = np.minimum(blk[idx], 80)
+            a8[sl] = blk.reshape(sh, sw)
+        b, n, dec = enc(gl, a8)
+    return enc(gl, a8)
+
+
 def text_dds(rgba, cell, seg):
     """The text atlas' DDS (BC3): the colour (one part, the ink) box-filtered; the alpha's mips coverage-preserving: each
     level the box filter of level 0, scaled per cell (while a cell is a texel or more) so that its share of texels at
@@ -467,6 +503,8 @@ def text_dds(rgba, cell, seg):
                 a8 = np.clip(np.rint(scale_cells(cur, sw, sh, target, 129 + it) * 255), 0, 255).astype(np.uint8)
                 b, n, dec = enc(gl, a8)
             b, n, dec = enc(gl, best)
+            if k <= 4:
+                b, n, dec = flip_cells(enc, gl, best, dec, cur, share0, sw, sh)
         body += b
         left.append(n)
     return W.header("bc3", g.shape[1], g.shape[0], len(glevels), False, False, False, True) + body, left
@@ -702,12 +740,15 @@ def write(args, opts):
     files["plate_text_s.dds"] = W.build([spec_rgba(load_png(Path(args.art, "plate_text_s.png")), 4)], "bc5")
     files["plate_p.dds"] = W.build([plate_palette(opts, meta)], "rgba8", mips=1)
     files["plate_text_p.dds"] = W.build([text_palette(opts)], "rgba8", mips=1)
-    sd, sn, ss, info = resample_stock(args.out, args.old_stage, args.stage)
-    files["static_plate_d.dds"] = W.build([sd], "bc1", gamma_mips=True)
-    files["static_plate_n.dds"] = W.build([sn], "bc5", normal=True)
-    files["static_plate_s.dds"] = W.build([ss], "bc5")
-    print(f"static_plate_d/_n/_s.dds {STOCK[0]}x{STOCK[1]}: re-sampled through {info['how']}; {info['inside']} of "
-          f"{info['texels']} texels inside the face's triangles (the rest on their plane)")
+    if args.old_stage:
+        sd, sn, ss, info = resample_stock(args.out, args.old_stage, args.stage)
+        files["static_plate_d.dds"] = W.build([sd], "bc1", gamma_mips=True)
+        files["static_plate_n.dds"] = W.build([sn], "bc5", normal=True)
+        files["static_plate_s.dds"] = W.build([ss], "bc5")
+        print(f"static_plate_d/_n/_s.dds {STOCK[0]}x{STOCK[1]}: re-sampled through {info['how']}; {info['inside']} of "
+              f"{info['texels']} texels inside the face's triangles (the rest on their plane)")
+    else:
+        print("static_plate_d/_n/_s.dds: left as they are under --out (the stock plate's re-sample needs --old-stage)")
     total = 0
     for name, data in files.items():
         (tex / name).write_bytes(data)
@@ -788,6 +829,73 @@ def emblem_check(rep, levels, segs, opts):
               f"of level 0's ({area[0]} texels)", ", ".join(f"{x:.2f}" for x in keep))
 
 
+def ring8(m):
+    """A boolean map's 8-neighbourhood (itself included)."""
+    out = m.copy()
+    for dy in (-1, 0, 1):
+        for dx in (-1, 0, 1):
+            out[max(0, dy):m.shape[0] + min(0, dy), max(0, dx):m.shape[1] + min(0, dx)] |= \
+                m[max(0, -dy):m.shape[0] + min(0, -dy), max(0, -dx):m.shape[1] + min(0, -dx)]
+    return out
+
+
+def emblem_checks(rep, levels, segs, opts, meta, part0):
+    """Every design's emblem (since the 2026-11-16a build: each drawn at the plate's own scale, bike_art's _Emblem, its
+    box, parts and neighbours' parts in plates.json): its texels (R or G in its parts, inside its box) never 8-adjacent
+    to a neighbour's (R or G in a neighbour part, outside the box, or inside it in a part not the emblem's) at mips 0-3;
+    its area (G) at mips 1-3 within EMBLEM_AREA of level 0's; at level 0 (the art's parts) EMBLEM_GAP px or more from
+    its neighbours. Art without the specs (--plate-emblems 2026-11-09a): the Vault-Tec pair as in 2026-11-09a."""
+    specs = {k: v["emblem"] for k, v in meta["designs"].items() if v.get("emblem")}
+    if not specs:
+        return emblem_check(rep, levels, segs, opts)
+    dat = opts["plate_atlas"]["designs"]
+    cw, ch = dat["cell"]
+    by_key = {d["key"]: d for d in opts["plates"]}
+    touch, area, gap, info = [], [], [], []
+    r_ = int(math.ceil(EMBLEM_GAP))
+    disc = [(dy, dx) for dy in range(-r_, r_ + 1) for dx in range(-r_, r_ + 1) if 0 < dy * dy + dx * dx < EMBLEM_GAP ** 2]
+    for key, sp in specs.items():
+        c, r = by_key[key]["cell"]
+        x0, y0, x1, y1 = sp["box"]
+        parts, near = set(sp["parts"]), set(sp["near"])
+        n_t, a = [], []
+        for k, lv in enumerate(levels[:4]):
+            s = 1 << k
+            cell = lv[r * ch // s:(r + 1) * ch // s, c * cw // s:(c + 1) * cw // s]
+            R, G = (seg_of(cell[..., i], segs) for i in (0, 1))
+            inb = np.zeros(R.shape, bool)
+            inb[y0 // s:-(-y1 // s), x0 // s:-(-x1 // s)] = True
+            isin = lambda q: np.isin(R, list(q)) | np.isin(G, list(q))
+            em = inb & isin(parts)
+            nb = (~inb & isin(near)) | (inb & isin(near - parts))
+            n_t.append(int((em & ring8(nb)).sum()))
+            a.append(int((inb & np.isin(G, list(parts))).sum()) * 4 ** k)
+        keep = [x / max(a[0], 1) for x in a[1:]]
+        cell0 = part0[r * ch:(r + 1) * ch, c * cw:(c + 1) * cw]
+        inb = np.zeros(cell0.shape, bool)
+        inb[y0:y1, x0:x1] = True
+        em = inb & np.isin(cell0, list(parts))
+        nb = (~inb & np.isin(cell0, list(near))) | (inb & np.isin(cell0, list(near - parts)))
+        H, Wd = nb.shape
+        grown = nb.copy()
+        for dy, dx in disc:
+            grown[max(0, dy):H + min(0, dy), max(0, dx):Wd + min(0, dx)] |= nb[max(0, -dy):H + min(0, -dy), max(0, -dx):Wd + min(0, -dx)]
+        close = int((em & grown).sum())
+        info.append(f"{key} {a[0]} texels, mips 1-3 x{'/'.join(f'{x:.2f}' for x in keep)}")
+        if max(n_t):
+            touch.append(f"{key} {n_t}")
+        if not (a[0] > 0 and EMBLEM_AREA[0] <= min(keep) and max(keep) <= EMBLEM_AREA[1]):
+            area.append(f"{key} {', '.join(f'{x:.2f}' for x in keep)}")
+        if close:
+            gap.append(f"{key} {close} texels")
+    print("INFO  the emblems (since 2026-11-16a, at the plate's scale): " + "; ".join(info))
+    rep.check(not touch, f"plates_d.dds: each of the {len(specs)} emblems' texels never 8-adjacent to its neighbours' parts "
+                         f"(legends, stripes, welds) at mips 0-3", "; ".join(touch))
+    rep.check(not area, f"plates_d.dds: each emblem's area at mips 1-3 within {EMBLEM_AREA[0]:g}-{EMBLEM_AREA[1]:g} of level "
+                        f"0's", "; ".join(area))
+    rep.check(not gap, f"the art: each emblem {EMBLEM_GAP:g} px or more from its neighbours' parts at level 0", "; ".join(gap))
+
+
 def check(args, opts):
     rep = Report()
     meta = json.loads(Path(args.art, "plates.json").read_text())
@@ -856,7 +964,7 @@ def check(args, opts):
                 if (seg_of(cell[ring], segs) != 0).any():
                     mb.append(f"{d['key']} mip {k}")
         rep.check(not mb, "plates_d.dds: each cell's margin and the rows below its face base colour, mips 0-3", "; ".join(mb))
-        emblem_check(rep, levels, segs, opts)
+        emblem_checks(rep, levels, segs, opts, meta, part)
     # the texts
     if "plate_text_d.dds" in dec:
         levels = dec["plate_text_d.dds"]
@@ -960,8 +1068,10 @@ def check(args, opts):
             lines.append(f"texts {'RG'[c_]} as U {db:.1f} dB")
         rep.check(good, f"the palette proof: every design in its own row and every text in each of the 16 inks, through "
                         f"the DDS (level 0) against the art's own index, {PROOF_DB:g} dB or more", "; ".join(lines))
-    # the stock re-sample
-    if all(k in dec for k in ("static_plate_d.dds", "static_plate_n.dds", "static_plate_s.dds")):
+    # the stock re-sample (needs 2026-11-07a's stage; without it the three files are only held to their formats above)
+    if not args.old_stage:
+        print("INFO  the stock re-sample not checked: no --old-stage (static_plate_d/_n/_s.dds as --out holds them)")
+    elif all(k in dec for k in ("static_plate_d.dds", "static_plate_n.dds", "static_plate_s.dds")):
         sd, sn, ss, info = resample_stock(args.out, args.old_stage, args.stage)
         P, uv_old, _ = face_tris(args.old_stage)
         uvo = info["uv_old"]
@@ -1264,7 +1374,62 @@ def sheet(args, opts):
     foot = np.full((24, img.shape[1], 3), 24, np.uint8)
     label(foot, names, 6, 6, 1)
     save(np.concatenate([img, foot], 0), out / "legibility.png")
+    # 5 (since 2026-11-16a): the plate font's whole set, the 2026-11-08a font above the die-pressed one, row by row
+    save(font_sheet(), out / "fonts.png")
     return 0
+
+
+FONT_ROWS = ("ABCDEFGHIJKLM", "NOPQRSTUVWXYZ", "0123456789-.?", "\u2665\u2605 AB 1234", "MC 4471", "C.I.T. GEN-3")
+FONT_LEGENDS = ("PREPARING FOR THE FUTURE!", "AT A MINUTE'S NOTICE", "U.S. ARMY - W-7713")
+
+
+def font_sheet():
+    """Every character of the plate texts and legends in the 2026-11-08a font and the die-pressed one (since
+    2026-11-16a), each row old over new: the texts' 92-px cap, stamped and lit as the plate (red on the standard's
+    cream), the legends at a 19-px cap; on the right the same at the riding view's mips 2 and 3 (box filtered, nearest)."""
+    import bike_art as BA
+    ink, bg = hexlin("b0201c") ** (1 / 2.2), hexlin("d6d0b8") ** (1 / 2.2)
+    keep = BA.PLATE_FONT
+
+    def row(font, text, cap, prop):
+        BA.PLATE_FONT = font
+        W_, H_ = 960, int(cap * 1.35) + 8
+        cv = BA.Canvas(W_, H_)
+        kw = dict(proportional=True, stroke=max(2.6, 0.17 * cap)) if prop else {}
+        sd = BA.plate_text_sd(cv, text, W_ / 2, H_ / 2, cap, **kw)[0]
+        a = BA.coverage(sd, 1.0)[..., None]
+        h, shade = BA.emboss(sd, BA.PLATE_BEVEL_PX if not prop else max(1.5, 0.3 * kw["stroke"]))
+        n = unpack_n(normals(h * BA.PLATE_BEVEL_UNITS, 24.8)).astype(np.float64)
+        img = lit(bg * (1 - a) + ink * np.clip(shade, 0, 2)[..., None] * a, n)
+        return img
+
+    def mips(img):
+        out = []
+        for f in (4, 8):
+            H_, W_ = img.shape[0] // f * f, img.shape[1] // f * f
+            m = img[:H_, :W_].reshape(H_ // f, f, W_ // f, f, 3).mean((1, 3))
+            out.append(np.repeat(np.repeat(m, f // 2, 0), f // 2, 1))
+        h = max(x.shape[0] for x in out)
+        return np.concatenate([np.pad(x, ((0, h - x.shape[0]), (0, 8), (0, 0)), constant_values=0.1) for x in out], 1)
+
+    tiles = []
+    try:
+        for text, cap, prop in [(t, 92.0, False) for t in FONT_ROWS] + [(t, 19.0, True) for t in FONT_LEGENDS]:
+            for font, tag in ((BA.PLATE_FONT_OLD, "2026-11-08A"), (BA.PLATE_FONT_NEW, "2026-11-16A")):
+                img = row(font, text, cap, prop)
+                m = mips(img)
+                t = np.full((max(img.shape[0], m.shape[0]) + 4, 150 + img.shape[1] + 12 + m.shape[1], 3), 0.1)
+                t[:img.shape[0], 150:150 + img.shape[1]] = img
+                t[:m.shape[0], 150 + img.shape[1] + 12:150 + img.shape[1] + 12 + m.shape[1]] = m
+                t8 = to8(t)
+                label(t8, tag, 6, max(4, img.shape[0] // 2 - 7), 2, (200, 200, 200) if tag.endswith("16A") else (140, 140, 140))
+                tiles.append(t8)
+    finally:
+        BA.PLATE_FONT = keep
+    w = max(t.shape[1] for t in tiles)
+    img = np.concatenate([np.pad(t, ((0, 0), (0, w - t.shape[1]), (0, 0)), constant_values=24) for t in tiles], 0)
+    return with_title(img, "THE PLATE FONT: EACH ROW THE 2026-11-08A FONT OVER THE DIE-PRESSED ONE (2026-11-16A); TEXTS AT "
+                           "THE 92-PX CAP, LEGENDS AT 19 PX; RIGHT: MIP 2 (X2) AND MIP 3 (X4)")
 
 
 def main():
@@ -1280,8 +1445,6 @@ def main():
     opts = json.loads(args.look_options.read_text())
     if args.sheet:
         return sheet(args, opts)
-    if not args.old_stage:
-        ap.error("--old-stage is needed (the stock re-sample)")
     if args.check:
         return check(args, opts)
     return write(args, opts)

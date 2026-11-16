@@ -27,6 +27,12 @@ from your own copy of the game and the downloaded model:
 | `Materials\CMB\Bike\rimF_<f>`, `rimR_<f>` (f chrome, satin, gloss, bronze, gunmetal, body, bodyhue), `castF_<f>`, `castR_<f>` (the same but chrome), `wheelF_tyre_ww`, `wheelR_tyre_ww`, `wheelF_tyre_rl`, `wheelR_tyre_rl`, `static_paint_hue`, `fork_paint_hue` (`.bgsm`, `_worn.bgsm`) | `look_wheels.py` | since the 2026-11-08a build: 64, the rims' finishes on 2026-11-07a's `wheel?_rim` files (palette rows, or chrome's own diffuse and cube), the tyres' on its tyre files, the free colour's on C1's paint materials. Since the 2026-11-10a build the front ones' `_worn` files cast a shadow as their templates: `rimF_<f>_worn` (7) and `castF_<f>_worn` (6) as `wheelF_rim_worn`, `wheelF_tyre_ww_worn`/`_rl_worn` as `wheelF_tyre_worn`, `fork_paint_hue_worn` as `fork_paint_rf00_worn` |
 | `Textures\CMB\Bike\plates_d.dds`, `plates_n.dds`, `plates_s.dds`, `plate_text_d.dds`, `plate_text_n.dds`, `plate_text_s.dds`, `plate_p.dds`, `plate_text_p.dds`; `static_plate_d.dds`, `static_plate_n.dds`, `static_plate_s.dds` | `bike_art.py --plates` (the drawings, PNG) and `look_plates.py` (the DDS) | since the 2026-11-08a build: our own licence plates: the 12 designs' atlas (BC1 2048 x 1024, BC5 1024 x 512 and 512 x 256), the 60 texts' atlas (BC3 2048 with the letters in its alpha, BC5 1024 and 512), their palettes (256 x 256 and 256 x 16, one mip) and the stock plate's own textures (256 x 128, 2026-11-07a's `static_black` texels re-sampled into the plate's new UVs): 11 files, 10,001,376 bytes. The plate font (41 glyphs and two for legends), a monoline script, the designs and their emblems drawn as strokes and shapes in `bike_art.py`: no font file, no image, no real plate, seal or slogan. Since the 2026-11-09a build the Vault-Tec design's emblem is a cog drawn at the plate's own scale (`bike_art.py`'s `_plate_gear`: 8 teeth, 40 px across the tips, one 14-px hub hole, clear of the pinstripe at every mip), our own like the rest; only `plates_d.dds`, `plates_n.dds` and `plates_s.dds` change (the same sizes), every other plate file is 2026-11-08a's byte for byte |
 | `Materials\CMB\Bike\plate_<key>.bgsm`, `text_<key>.bgsm` | `look_plates.py` | since the 2026-11-08a build: 12 designs (2026-11-07a's `static_black` material on the plate atlas's cell, palette on) and 60 texts (the badges' material, alpha test, decal, on the text atlas's cell, palette on); the build then has 123 DDS (124.3 MB: 2026-11-07a's 102.8 MB, 114.3 with the rims', tyres' and hue's 12, then the plates' 10.0) and 427 BGSM |
+| `Meshes\CMB\CMB_BikeParked.nif`, `CMB_BikeWorn.nif`, `CMB_BikeWornRider.nif`, `CMB_BikeWornRiderF.nif`, `CMB_BikeView.nif` (changed) | `look_emblems.py` (with `emblem_pieces.py`; `build_bike.sh`'s `emblems` stage) | since the 2026-11-16a build: the four 3D helmet shapes `static_helmEnclaveL`, `static_helmEnclaveR`, `static_helmBosL`, `static_helmBosR` added last to each nif (51 shapes parked, 54 worn and view), every other block byte for byte (the 2026-11-15b nifs patched in place, as `bar_cables.py` did): our own reliefs, 3,500 triangles each, standing on the tank plates (centred on each and angled with it), skinned in the worn nifs with copies of their plate's skin; invisible on their own materials files until a tank option swaps them on. `--emblems 0` gives 2026-11-15b's five nifs byte for byte |
+| `Textures\CMB\Bike\helms_d.dds`, `helms_n.dds`, `helms_s.dds`, `helms_g.dds` | `emblem_art.py` | since the 2026-11-16a build: the helmets' colour (BC1 1024 x 512, a 512 cell a helmet: the Enclave's gunmetal, the Brotherhood's steel), fine detail (BC5 1024 x 512: rivets, ribbing, seams, grille holes), specular and smoothness (BC5 512 x 256) and the Enclave's glowing eyes (BC1 512 x 256), about 1.2 MB, drawn from the same primitives as the geometry at each texel: no picture read, traced or sampled |
+| `Materials\CMB\Bike\helm_enclave.bgsm`, `helm_bos.bgsm`; `static_helmEnclaveL`, `static_helmEnclaveR`, `static_helmBosL`, `static_helmBosR` (`.bgsm`, `_worn.bgsm`) | `emblem_art.py` | since the 2026-11-16a build: 10, the two emblems' (the Enclave's the glow shader over `helms_g`, no cube; the Brotherhood's the chrome cube `Shared\Cubemaps\MetalChrome01Cube_e.dds` by path at 0.8, as our badges; one file each for the parked and worn bikes) and the shapes' 8 own invisible files (byte for byte the rim styles' own, `wheelF_rimLaced.bgsm`) |
+| `Textures\CMB\Bike\badges_d.dds`, `badges_n.dds`, `badges_s.dds` (changed); `Materials\CMB\Bike\badge_gunskull.bgsm`, `badge_hg_enclave.bgsm`, `badge_hg_bos.bgsm` | `bike_art.py --badges`, `look_badges.py` | since the 2026-11-16a build: the atlas holds 16 of ours, the Gunners skull in cell (1, 3) and the 3D helmets' two enamel grounds in (2, 3) and (3, 3) (black `0e0f12`, steel grey `545a64`, each with the stock badge's chrome bevel round the area both tank plates show); the 13 older cells' blocks are unchanged at mips 0-5 and the sizes are the same; 20 badge materials. `--through 2026-11-08a` gives 2026-11-15b's atlas byte for byte |
+| `Textures\CMB\Bike\plates_d.dds`, `plates_n.dds`, `plates_s.dds`, `plate_text_d.dds`, `plate_text_n.dds`, `plate_text_s.dds` (changed) | `bike_art.py --plates`, `look_plates.py` | since the 2026-11-16a build: every design's emblem drawn at the plate's own scale (as the Vault-Tec cog since 2026-11-09a) and a new die-pressed plate font of our own for the texts and legends (narrow, square bowls, flat-cut ends, heavier strokes, monospace dies: bands, rounded-rectangle rings and fills as signed distances; no font file, no copied outline); the same sizes; every plate and text material, the palettes and the stock plate's textures are 2026-11-15b's byte for byte. `--plate-font 2026-11-08a --plate-emblems 2026-11-09a` gives the shipped six byte for byte |
+| `Textures\CMB\Bike\static_seat_i_d.dds`, `seat_p.dds`; `Materials\CMB\Bike\static_seat_<key>.bgsm`, `static_seat_<key>_worn.bgsm` (key black, tobacco, tan, oxblood, olive, cream, slate, red, navy, turquoise, black_red, black_cream, brown_cream, oxblood_black) | `look_seat.py` | since the 2026-11-16a build: the seat's colour: the shipped `static_seat_d.dds` re-sampled into a palette index map (1024 BC1: the leather, the welt and the worn edges in their own bands, mips per part), the seat palette (256 x 16, A8R8G8B8, one mip: 14 colours and the stock leather's row, the proof), and 28 materials, the shipped seat's values pointed at them at the colour's row (the three black-bodied seats with half the shipped specular); the normal and specular maps are the shipped ones. Option 0 is the shipped files; the build then has 129 DDS (120.5 MB) and 468 BGSM |
 | `Meshes\Actors\Character\Animations\MT\CMB_Rider\*.hkx` and `...\CMB_Rider\Female\*.hkx` | `riding_anims.py` | seated riding versions of the holstered walk/run/turn/start/stop/idle clips (the arms' IK pole mostly down since test 39, (0.35, -0.3, -1.0) in the rig's root space, the left mirrored in x; before, (1, -0.6, -0.7), mostly sideways, which put the elbows out at shoulder height; the hand's frame from the forearm since test 40, its long axis along it seen along the grip, `HAND_PITCH` degrees above it, 0: before, a fixed frame, the wrists bent down 30 degrees in the cruise pose, test 39's "cat paw"), and of the jump/fall/land clips when those were extracted |
 | `...\CMB_Rider\CMB_RiderClips.json` (and `Female\`) | `riding_anims.py` | each clip's root motion and events, for the step below |
 | `...\CMB_Rider\CMB_RiderSeat.json` (and `Female\`) | `riding_anims.py` | where the seated rider's `COM` bone sits, for the bike that hangs off it |
@@ -146,7 +152,7 @@ SEAT=<repository>/Data/Meshes/Actors/Character/Animations/MT/CMB_Rider DATA=<rep
 STAGE=C:/CMBwork/bike_stage BLENDER_PY=<a Python with bpy> DDS_PY=<a Python with quicktex and etcpak> \
 REFERENCE=<a previous build's Meshes/CMB, optional> \
 PYTHON=<a Python with numpy and fast_simplification, default python3> \
-  bash tools/rider/build_bike.sh                       # = export art textures build cables check
+  bash tools/rider/build_bike.sh                       # = export art textures build cables emblems check
 ```
 
 `export` writes the finished shapes into the stage folder (`harley_meshes.py --stage export`, about a minute), `art`
@@ -157,7 +163,10 @@ in Blender, about 28 minutes from scratch on four cores, seconds to minutes afte
 build `CMB_BikeView.nif`), `CMB_BikeParts.ini` and `CMB_BikeFit.json` (`harley_meshes.py --stage build`, about a
 minute and a half; it refuses a stage made from different shapes), since the 2026-11-15b build `cables` the bars'
 cables cut out of the fixed `static_black` into `<stem>_front_cables`, which turns with the bars, in the worn and view
-nifs (`bar_cables.py` in place; a nif already cut is left as it is; `CABLES=0` skips it), `check` reads everything back
+nifs (`bar_cables.py` in place; a nif already cut is left as it is; `CABLES=0` skips it), since the 2026-11-16a build
+`emblems` the four 3D helmet shapes added to all five nifs and their textures and materials drawn (`look_emblems.py` in
+place, then `emblem_art.py` with `DDS_PY`; a nif that already has them is left as it is; `EMBLEMS=0` writes the nifs as
+the cables stage left them and no helmet art), `check` reads everything back
 (`check_bike_meshes.py`, about 15 s: exit 1 on any fault; with `REFERENCE` it also compares the parts file's keys and
 the fit; with the stage it also checks the volume guard's work, the discs' fit and the mirror glass's colour). Since
 the 2026-11-01a build `export` rewrites a shape's file only when the shape changed, so the texture stage's caches keep
@@ -227,6 +236,40 @@ counts the 8 `_bodyhue` twins (named by the table's `rim_body_targets`, by no sw
 palette the table names (C1's `paint_p`, `paint_hue_p`, `rim_p`, `plate_p`, `plate_text_p`) to the palette's rule:
 A8R8G8B8, exactly one mip. `look_render.py --sheet rims,tyres,plates,hue` renders them on the bikes, `--compose --swap
 Slot:key[,...]` prints a look's composed swap and colours without Blender.
+
+**The third customisation build's files (2026-11-16a).** No stage and no bake: every file comes from the shipped
+package's files, the built nifs and our own drawing code, so it builds on any machine with the package's Data (the
+2026-11-10a package with 2026-11-15b's four meshes over it). Four new tools: `look_emblems.py` (the nif patcher: the four
+helmet shapes added to the five built nifs, every other block byte for byte, as `bar_cables.py` does), `emblem_pieces.py`
+(the helmets' geometry, our own bas-reliefs from 2D primitives: the shapes `look_emblems.py` adds), `emblem_art.py` (the
+helmets' four textures and ten materials files, drawn from the same primitives at each texel) and `look_seat.py` (the
+seat's index map, palette and 28 materials, re-sampled from the shipped seat). Changed: `bike_art.py` (the Gunners skull,
+the two enamel grounds, the plate emblems at the plate's scale, the die-pressed plate font; `--through`, `--plate-font`,
+`--plate-emblems` give the earlier art byte for byte), `look_badges.py` (`--plate-nif`, `--base`, `--through`),
+`look_plates.py` (the per-design emblem checks, the texts' coverage at mip 4, without a stage), `check_bike_meshes.py`
+(`--look-c3`, `--ground-field`, `--knees`), `build_bike.sh` (the `emblems` stage) and `look_render.py` (`--overlay`, the
+seat and the follow in the compose, the `c3` views). From the repository's root, with the mesh Python and the DDS Python:
+
+```
+python3 -I tools/rider/bike_art.py --badges --out <art_b>               # the skull and the grounds; badges.json
+<DDS python> -I tools/rider/look_badges.py --art <art_b> --out <Data>    # then --check --plate-nif ... --base <15b's Data>
+python3 -I tools/rider/bike_art.py --plates --out <art_p>               # the emblems and the die-pressed font
+<DDS python> -I tools/rider/look_plates.py --art <art_p> --out <Data>    # then --check (22), --sheet <folder> (fonts.png)
+<mesh python> -I tools/rider/look_emblems.py --data <Data> --out <Data>/Meshes/CMB --pynifly <PyNifly> \
+    [--ground-field <art_b>/badges.json] [--emblems 0]                  # build_bike.sh's emblems stage
+<DDS python> -I tools/rider/emblem_art.py --data <Data>                  # then --check --reference <the package's Data>
+<DDS python> -I tools/rider/look_seat.py --data <Data> --base <2026-11-10a's Data> --base <2026-11-15b's meshes> \
+    --pynifly <PyNifly> [--denoise 1|0]                                 # then --check
+<mesh python> -I tools/rider/check_bike_meshes.py --pynifly <PyNifly> --data <Data> --look-c3 --look-targets all \
+    --knees <Data>/Meshes/Actors/Character/Animations/MT/CMB_Rider
+```
+
+Every tool writes the same bytes in two runs, and the 61 files the package adds or changes (47 new: the helmets' 4
+textures and 10 materials, the skull's and grounds' 3 materials, the seat's 2 textures and 28 materials; 14 changed: the
+five nifs, the three badge and six plate textures) rebuild byte for byte from the repository. `look_emblems.py`'s fit
+reads the grounds' enamel field from `badges.json` (`--ground-field`) or its own recorded copy
+(`emblem_pieces.GROUND_FIELD_UV`), so the helmets sit inside the chrome bevel the badge art draws.
+`look_render.py --overlay <Data>` (repeatable) lays such folders over the package's Data for a look before packaging.
 
 **The front end's shadow (2026-11-10a, test 52's wish).** The riding bike's front end (`harley_meshes.FRONT_ROLES`: the
 bar assembly, the lower fork, the front wheel) casts as the parked bike's: `load_shaders` sets each such shape's worn
@@ -590,6 +633,18 @@ words. The plugin reads four of the game's own preview transforms by FormID for 
 calls into the game (FirstPersonState's `GetTranslation` wrapped through its virtual table,
 `BSShaderUtil::ClearRenderPasses` by its Address Library ID for the opt-in `[Look] Repass`, the favourites' handler
 read for the self-test, the UI's menu stack and the ExamineMenu's 3D read in memory) ship nothing of it.
+
+**The third customisation build (2026-11-16a) borrows no new file.** Its art is all ours: the helmets' geometry and
+textures (our own reliefs, `emblem_pieces.py` and `emblem_art.py`, from a written feature list), the Gunners skull and
+the two enamel grounds, the plate emblems and the die-pressed plate font (`bike_art.py`: shapes, strokes, bands and rings
+as signed distances; no font file), and the seat's index map and palette (re-sampled from our own shipped seat). The
+author's reference pictures of the game's helmets and of the Gunners' logo were used as references only: looked at,
+never read, traced or sampled by any tool, and they are not in this repository or the package; the code's comments
+describe features, never pixels. By path the build names only what earlier builds did: the Brotherhood helmet's shine
+the game's `Shared\Cubemaps\MetalChrome01Cube_e.dds` (as our badges); by FormID the same components (`c_Steel`,
+`c_Screws`, `c_Adhesive`, `c_Cloth`). The helmets and the skull are named for the game's own factions (the Enclave, the
+Brotherhood of Steel, the Gunners) and drawn as our own art. No credit line is added: the credits stay
+as they are.
 
 ## Background: why custom clips
 
