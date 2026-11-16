@@ -9,10 +9,13 @@
 #   build     harley_meshes.py --stage build: the nifs with the stage's UVs and the materials named (the parked
 #             and the three worn ones, and since the 2026-11-01a build CMB_BikeView.nif, the bike in first person),
 #             CMB_BikeParts.ini and CMB_BikeFit.json
+#   cables    bar_cables.py (since 2026-11-15b): the cables that hang from the bars, cut out of the fixed shape into
+#             their own shape that turns with the bars (test 53: the right-hand ones floated), in the worn and view nifs
+#             in place; a nif already cut is left as it is; CABLES=0 skips it (2026-11-15a's nifs)
 #   check     check_bike_meshes.py over the Data tree (and against $REFERENCE if given)
 #   fallback  harley_meshes.py --uvs none instead of export..build: palette textures, no materials files
 #             (27c's way; the emergency build), then check it with "check"
-# usage: [VAR=value ...] tools/rider/build_bike.sh [stage ...]     (default: export art textures build check)
+# usage: [VAR=value ...] tools/rider/build_bike.sh [stage ...]     (default: export art textures build cables check)
 # Inputs, from the environment:
 #   PYNIFLY     PyNifly's io_scene_nifly folder                                     (every stage but art)
 #   GLTF        the model's scene.gltf                                              (export, textures, build, fallback)
@@ -29,7 +32,8 @@
 #   DISC_BORE   shared (the default since 2026-11-02a: the brake discs' bore where the art paints it) or bolts (the
 #               2026-11-01a build's, its nifs and disc art byte for byte): harley_meshes.py and bike_art.py --disc-bore;
 #               the export writes it into the stage manifest, and art and build refuse another
-#   PYTHON      the Python for export, art, build, fallback and check: 3.10+ with numpy and fast_simplification
+#   CABLES      1 (the default since 2026-11-15b) or 0 (the nifs as harley_meshes.py wrote them): the cables stage
+#   PYTHON      the Python for export, art, build, cables, fallback and check: 3.10+ with numpy and fast_simplification
 #               (default python3; on Windows' Git Bash, where a python.org install has no python3, e.g. PYTHON=python
 #               or PYTHON="py -3"). It runs with -I, which leaves out the user's site-packages (pip install --user):
 #               install the two into that Python itself
@@ -47,7 +51,7 @@ MATERIALS="${MATERIALS:-$HERE/bike_materials.json}"
 materials=()
 [ -f "$MATERIALS" ] && materials=(--materials "$MATERIALS")
 stages=("$@")
-[ ${#stages[@]} -eq 0 ] && stages=(export art textures build check)
+[ ${#stages[@]} -eq 0 ] && stages=(export art textures build cables check)
 
 need() { for v in "$@"; do [ -n "${!v:-}" ] || { echo "build_bike.sh: $v is required for this stage" >&2; exit 2; }; done; }
 
@@ -82,6 +86,9 @@ for stage in "${stages[@]}"; do
             meshes --stage build --stage-dir "$STAGE" "${materials[@]}" ;;
         fallback)
             meshes --uvs none "${materials[@]}" ;;
+        cables)
+            "${PY[@]}" -I "$HERE/bar_cables.py" --data "$DATA" --out "$DATA/Meshes/CMB" --bar-cables "${CABLES:-1}" \
+                ${PYNIFLY:+--pynifly "$PYNIFLY"} ;;
         check)
             need PYNIFLY
             ref=()
@@ -90,7 +97,7 @@ for stage in "${stages[@]}"; do
             [ -f "$STAGE/manifest.json" ] && stage_arg=(--stage-dir "$STAGE")
             "${PY[@]}" -I "$HERE/check_bike_meshes.py" --pynifly "$PYNIFLY" --data "$DATA" "${ref[@]}" "${stage_arg[@]}" ;;
         *)
-            echo "build_bike.sh: unknown stage $stage (export art textures build check fallback)" >&2
+            echo "build_bike.sh: unknown stage $stage (export art textures build cables check fallback)" >&2
             exit 2 ;;
     esac
     echo "== $stage done in $(( $(date +%s) - started )) s"

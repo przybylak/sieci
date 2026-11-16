@@ -622,6 +622,34 @@ Group Fixes_57
 	(2026-11-10a). The MCM's "Field kit only in your settlements".}
 EndGroup
 
+; 2026-11-15b, test 53's wish e (the fpcam unit): third person while backing in first person. None = 2026-11-15a (no switch).
+; 2026-11-15b, test 53's wish a (the weapons unit): what can be out on the bike. None = 2026-11-15a (CMB_AllowCombat's rule).
+Group Fixes_59
+	GlobalVariable Property CMB_ViewBack Auto Const
+	{0xBFF: the MCM's "Looking back while reversing (first person)": 0 off, 1 over the shoulder (CMB_Slope.dll turns the
+	first-person camera), 2 third person. Above 0 the ride looks at CMB_ViewBackNow (ViewBackTick).}
+	GlobalVariable Property CMB_ViewBackNow Auto Const
+	{0xC00: CMB_Slope.dll's 1 while third person while backing is asked ([View] LookBack 2, or 1 with a camera it can't turn):
+	the camera to third person, and back to first person once it is 0 again.}
+	GlobalVariable Property CMB_RideWeapons Auto Const
+	{0xC03: 0 None (2026-11-15a with CMB_AllowCombat 0), 1 Handguns only (the default), 2 Any weapon (2026-11-15a with
+	CMB_AllowCombat 1). The MCM's "Weapons while riding". None (an older ESP): CMB_AllowCombat as before.}
+	FormList Property CMB_HandgunKeywords Auto Const
+	{0xC04: a keyword of these on the equipped gun (its base form, worn, or its instance with F4SE) makes it a handgun.}
+	GlobalVariable Property CMB_RiderGun Auto Const
+	{0xC05, written here: 0 no weapon may be out, 1 a handgun equipped and allowed (Handguns only), 2 and drawn at the last
+	look. CMB_Slope.dll's gun pose ([Tilt] GunPose) reads it.}
+	GlobalVariable Property CMB_WeaponAway Auto Const
+	{0xC06, counted here 1-999: put the weapon away (CMB_Slope.dll's [Tilt] PutAway calls the game's own put-away).}
+	GlobalVariable Property CMB_RiderGunPose Auto Const
+	{0xC07, written by CMB_Slope.dll: -1 off, 0 no seat pose read yet, 1 ready, 2 posing (the rider on the seated pose with
+	the handgun out): the worn bike stays the seat's while it is 2 (WantedBikeArmor).}
+	Keyword Property WeaponTypeRifle Auto Const
+	{Fallout4.esm 0x04A0A1: a gun with it (worn or on its instance) is never a handgun.}
+	Action Property ActionSheath Auto Const
+	{Fallout4.esm 0x046BAF: the put-away's fallback (PlayIdleAction) when the plugin's call isn't there or didn't do it.}
+EndGroup
+
 ; ---------------------------------------------------------------------------
 ; Constants
 ; ---------------------------------------------------------------------------
@@ -1060,6 +1088,11 @@ EndEvent
 Function OnGameReloaded()
 	UpgradeSettings()
 	EnsureArrays()
+	ViewBackAfterLoad()   ; 2026-11-15b: no poll, no switch, the save's CMB_ViewBackNow put to 0
+	; 2026-11-15b's review (finding 5): a put-away in the save is over (its real-time stamp means nothing now); with awayStep
+	; left at 1 or 2 no weapon that isn't a handgun would be put away again (WeaponsRefresh asks only from 0).
+	CancelTimer(TimerWeaponAway)
+	awayStep = 0
 	; Test 41's two console switches, so every log says which rules it ran with.
 	Log("Switches: teleports decided " + Ternary(teleportsAtOnce, "at once, in the event (DecideTeleportsAtOnce 1)", "once they're over") + ", busy watch " + Ternary(busyWatchOff, "off (WatchBusy 0).", "on (" + BusyWatchTime + " s)."))
 	if busy
@@ -1990,7 +2023,13 @@ Function Mount()
 	busy = true
 	mounting = true   ; 2026-11-09a (test 51): to "Mounted." (ApplyLook's parked compose waits; no parked reload)
 	NoteBusy("getting on")
-	string blocker = GetMountBlocker()
+	; 2026-11-15b (test 53's wish a): every other blocker first; a weapon out is put away (Handguns only) or refused after
+	; them (MountWeaponBlocker), so a refusal for another reason never touches the weapon. 2026-11-15a: GetMountBlocker, the
+	; same answers but Handguns only's.
+	string blocker = MountBlockerOther()
+	if blocker == "" && PlayerRef.IsWeaponDrawn()
+		blocker = MountWeaponBlocker()
+	endif
 	if blocker != ""
 		busy = false
 		mounting = false
@@ -3701,6 +3740,10 @@ Event OnTimer(int aiTimerID)
 		LookFollowUp()   ; 2026-11-07a: the look on the first-person and worn bikes, outside busy
 	elseif aiTimerID == TimerParkGuard
 		ParkGuardTick()   ; 2026-11-09a: the parked bike kept hidden (ParkGuard), outside busy
+	elseif aiTimerID == TimerViewBack
+		ViewBackTick()   ; 2026-11-15b: third person while backing (CMB_ViewBackNow)
+	elseif aiTimerID == TimerWeaponAway
+		PutAwayTimer()   ; 2026-11-15b: a weapon being put away on the bike (Handguns only)
 	endif
 EndEvent
 
@@ -3933,6 +3976,7 @@ Function RideTick()
 	if busy || !riding
 		return
 	endif
+	ViewBackStart()   ; 2026-11-15b: CMB_ViewBackNow looked at while CMB_ViewBack is above 0 (the MCM's changes too)
 	if StopEngineAtDeath && (engineIdle > 0 || engineCruise > 0) && PlayerRef.IsDead()
 		; Test 44: the death camera, before the load that ends the ride (StopEngineAtDeath).
 		StopEngineLoops()
@@ -3988,10 +4032,10 @@ Function RideTick()
 		; Normally SetSwimming has done this already.
 		DismountIntoWater()
 		return
-	elseif CMB_AllowCombat.GetValue() == 0.0 && PlayerRef.IsWeaponDrawn()
-		; Weapons are off while riding, so this shouldn't happen; if something drew one
-		; anyway, holstering is blocked too. Get off rather than stay stuck like that.
-		AutoDismount("You can't ride with your weapon out.", true)
+	elseif WeaponsTick()
+		; 2026-11-15b (WeaponsTick): None (and an older ESP's CMB_AllowCombat 0) as 2026-11-15a: weapons are off while
+		; riding, so this shouldn't happen; if something drew one anyway, holstering is blocked too. Get off rather than
+		; stay stuck like that. Handguns only: anything but a handgun out is put away first. Any weapon: never.
 		return
 	endif
 	; Every call below lets other threads run, and one of them can end the ride
@@ -4075,7 +4119,9 @@ bool Function StillRiding()
 	return riding && !busy
 EndFunction
 
-string Function GetMountBlocker()
+; 2026-11-15b (test 53's wish a): 2026-11-15a's GetMountBlocker, its answers in its order (the weapon's before the fuel's)
+; for None and Any weapon; for Handguns only without the weapon's, which Mount asks after it (MountWeaponBlocker).
+string Function MountBlockerOther()
 	if PlayerRef.IsInPowerArmor()
 		return "You can't ride a motorbike in power armor."
 	elseif PlayerRef.IsInInterior() || InClosedWorld()
@@ -4084,7 +4130,7 @@ string Function GetMountBlocker()
 		return "You need to stand up first."
 	elseif swimming
 		return DeepWaterMessage
-	elseif PlayerRef.IsWeaponDrawn()
+	elseif PlayerRef.IsWeaponDrawn() && WeaponsMode() != 1
 		; Fighting controls are off while riding, so the weapon couldn't be put away:
 		; you'd ride standing with it out (the weapon animations have no seated version).
 		return "Put your weapon away first."
@@ -4140,6 +4186,7 @@ Function FinishRide()
 	; and the item, menu and stagger watches off.
 	FxEndRide()
 	RideWatchesOff()
+	WeaponsRideEnd()   ; 2026-11-15b: CMB_RiderGun 0, no put-away pending
 	UnregisterForHitEvent(PlayerRef)
 	UnregisterForAnimationEvent(PlayerRef, FootstepEvent)
 	footstepsWatched = false
@@ -4866,13 +4913,29 @@ Function ApplyControls()
 		rideLayer.Delete()
 	endif
 	rideLayer = InputEnableLayer.Create()
-	bool noCombat = CMB_AllowCombat.GetValue() == 0.0
+	; 2026-11-15b (test 53's wish a): CMB_RideWeapons' mode (WeaponsMode): None and Any weapon are 2026-11-15a with
+	; CMB_AllowCombat 0 and 1; Handguns only: fighting on only with a handgun equipped (or while a weapon is being put
+	; away), VATS off. An older ESP (no CMB_RideWeapons): CMB_AllowCombat's 0 / 1, as 2026-11-15a.
+	int mode = WeaponsMode()
+	weaponsModeSeen = mode
+	bool noCombat = mode == 0
+	bool noVats = mode != 2
+	bool handgun = false
+	if mode == 1
+		handgun = HandgunEquipped()
+		noCombat = !handgun && awayStep == 0
+	endif
+	fightOn = !noCombat
 	; Movement, looking, menus, activation and favorites stay enabled.
 	; Arguments: movement, fighting, camSwitch, looking, sneaking, menu,
 	; activate, journalTabs, VATS, favorites, running.
-	rideLayer.DisablePlayerControls(false, noCombat, false, false, true, false, false, false, noCombat, false, false)
+	rideLayer.DisablePlayerControls(false, noCombat, false, false, true, false, false, false, noVats, false, false)
 	rideLayer.EnableJumping(false)
 	rideLayer.EnableSprinting(false)
+	if CMB_RideWeapons
+		Log("Weapons while riding: " + WeaponsModeName(mode) + " (CMB_RideWeapons " + (CMB_RideWeapons.GetValue() as int) + "): fighting " + Ternary(noCombat, "off", "on") + ", VATS " + Ternary(noVats, "off", "on") + Ternary(mode == 1, Ternary(handgun, " (a handgun equipped)", " (no handgun equipped)"), "") + ".")
+		WeaponsRefresh("the controls set")
+	endif
 EndFunction
 
 Function ReleaseControls()
@@ -4941,7 +5004,8 @@ EndFunction
 ; CMB_BikeRiderArmorFrame stands on the ground (AnimObjectA): for riding without
 ; the seated pose, with a weapon drawn (standing poses), or by choice.
 Armor Function WantedBikeArmor()
-	if riderPoseApplied && CMB_BikeFollowsRider.GetValue() > 0.0 && !PlayerRef.IsWeaponDrawn()
+	; 2026-11-15b: or a handgun out while CMB_Slope.dll poses the rider on the seat (GunPosed: CMB_RiderGunPose 2).
+	if riderPoseApplied && CMB_BikeFollowsRider.GetValue() > 0.0 && (!PlayerRef.IsWeaponDrawn() || GunPosed())
 		return CMB_BikeRiderArmor
 	endif
 	return CMB_BikeRiderArmorFrame
@@ -7501,6 +7565,9 @@ EndFunction
 ; after a load into a ride, off at every way off (FinishRide).
 Function RideWatchesOn()
 	RegisterForRemoteEvent(PlayerRef, "OnItemEquipped")
+	if CMB_RideWeapons
+		RegisterForRemoteEvent(PlayerRef, "OnItemUnequipped")   ; 2026-11-15b: a weapon changed (WeaponsRefresh)
+	endif
 	RegisterForMenuOpenCloseEvent(PipboyMenuName)
 	RegisterForMenuOpenCloseEvent(FavoritesMenuName)
 	if CMB_ViewMenu   ; 2026-11-09a: no Pip-Boy open yet (getting on, a load into a ride); None = an older ESP
@@ -7528,6 +7595,9 @@ EndFunction
 
 Function RideWatchesOff()
 	UnregisterForRemoteEvent(PlayerRef, "OnItemEquipped")
+	if CMB_RideWeapons
+		UnregisterForRemoteEvent(PlayerRef, "OnItemUnequipped")
+	endif
 	UnregisterForMenuOpenCloseEvent(PipboyMenuName)
 	UnregisterForMenuOpenCloseEvent(FavoritesMenuName)
 	if CMB_ViewMenu   ; 2026-11-09a: off the bike in the Pip-Boy (its close isn't seen now)
@@ -7563,6 +7633,10 @@ EndFunction
 ; stims, chems, food and drink; the bike's own armour is equipped too), one line a second at most.
 ; It starts the reaction window as a hit does.
 Event Actor.OnItemEquipped(Actor akSender, Form akBaseObject, ObjectReference akReference)
+	if riding && CMB_RideWeapons && akBaseObject as Weapon
+		WeaponsRefresh("equipped " + akBaseObject)   ; 2026-11-15b: Handguns only's rule for the new weapon
+		return
+	endif
 	if !riding || !(akBaseObject as Potion)
 		return
 	endif
@@ -7743,6 +7817,65 @@ Function PipboyPoseCheck()
 	StartTimer(PoseRetryInterval, TimerPoseRetry)
 	poseRetries += 1
 	SwitchToRiderFlavor("the Pip-Boy closed and the clips are off the seat for " + Tenths(off) + " s: applying the rider pose again, try " + poseRetries)
+EndFunction
+
+; ---------------------------------------------------------------------------
+; 2026-11-15b (test 53's wish e; the fpcam unit): third person while backing in first person
+; ---------------------------------------------------------------------------
+
+int Property TimerViewBack = 59 AutoReadOnly
+{2026-11-15b: CMB_ViewBackNow looked at every ViewBackPoll s while riding with CMB_ViewBack above 0 (ViewBackTick).}
+float Property ViewBackPoll = 0.2 AutoReadOnly
+bool viewBackPolling = false   ; ViewBackTick's timer running
+bool viewBackThird = false     ; the camera put into third person by ViewBackTick (first person again when it ends)
+
+; RideTick's, every tick: the poll started once CMB_ViewBack is above 0 (an older ESP: None, nothing).
+Function ViewBackStart()
+	if viewBackPolling || !CMB_ViewBackNow || !CMB_ViewBack || CMB_ViewBack.GetValue() <= 0.0
+		return
+	endif
+	viewBackPolling = true
+	StartTimer(ViewBackPoll, TimerViewBack)
+EndFunction
+
+; CMB_Slope.dll writes CMB_ViewBackNow 1 when third person while backing is asked (backing 0.3 s in first person) and 0
+; when it is over (forward, or backing let go of 0.5 s). Nothing is switched while busy (getting on or off); off the bike
+; or with the MCM's option at 0 the poll ends, putting first person back if it had switched.
+Function ViewBackTick()
+	if busy
+		StartTimer(ViewBackPoll, TimerViewBack)
+		return
+	endif
+	if !riding || !CMB_ViewBackNow || !CMB_ViewBack || CMB_ViewBack.GetValue() <= 0.0
+		viewBackPolling = false
+		if viewBackThird
+			viewBackThird = false
+			Game.ForceFirstPerson()
+			Log("View: first person again (" + Ternary(riding, "CMB_ViewBack 0", "off the bike") + ").")
+		endif
+		return
+	endif
+	float asked = CMB_ViewBackNow.GetValue()
+	if asked >= 1.0 && !viewBackThird
+		viewBackThird = true
+		Game.ForceThirdPerson()
+		Log("View: third person while backing (CMB_ViewBackNow 1).")
+	elseif asked < 1.0 && viewBackThird
+		viewBackThird = false
+		Game.ForceFirstPerson()
+		Log("View: first person again after backing (CMB_ViewBackNow 0).")
+	endif
+	StartTimer(ViewBackPoll, TimerViewBack)
+EndFunction
+
+; OnGameReloaded's: a save's poll and switch are over; its CMB_ViewBackNow (the plugin's word when saved) put to 0.
+Function ViewBackAfterLoad()
+	CancelTimer(TimerViewBack)
+	viewBackPolling = false
+	viewBackThird = false
+	if CMB_ViewBackNow
+		CMB_ViewBackNow.SetValue(0.0)
+	endif
 EndFunction
 
 ; ---------------------------------------------------------------------------
@@ -7951,8 +8084,12 @@ Function CombatHint()
 		combatHinted = false
 	elseif !combatHinted
 		combatHinted = true
-		if CMB_AllowCombat.GetValue() == 0.0
+		; 2026-11-15b: by WeaponsMode (None: CMB_AllowCombat 0's hint, as 2026-11-15a; Any weapon: none).
+		int mode = WeaponsMode()
+		if mode == 0
 			Debug.Notification("You're in a fight! Use the Motorbike Keys (or your hotkey) to get off.")
+		elseif mode == 1 && !HandgunEquipped()
+			Debug.Notification("You're in a fight! Only a handgun can be used on the motorbike: equip one, or use the Motorbike Keys (or your hotkey) to get off.")
 		endif
 	endif
 EndFunction
@@ -7967,6 +8104,269 @@ Function SetRamCombat(bool abOn)
 		Log("Ram: the player " + Ternary(abOn, "in combat", "out of combat") + " (CMB_RamCombat " + (abOn as int) + ").")
 	endif
 EndFunction
+
+
+; ---------------------------------------------------------------------------
+; 2026-11-15b, test 53's wish a (the weapons unit): weapons on the bike
+; ---------------------------------------------------------------------------
+; "when on bike, only handgun can be used ... hold handlebar with at least one hand (preferably left) and shooting with
+; another (right)". CMB_RideWeapons (0xC03, the MCM's "Weapons while riding"): 0 None and 2 Any weapon are 2026-11-15a with
+; CMB_AllowCombat 0 and 1 to the letter (getting on with a weapon out refused in both, the standing weapon poses and the
+; ground-planted bike in Any weapon); 1 Handguns only: fighting on only with a handgun equipped, VATS off; anything else out
+; is put away (CMB_Slope.dll's call through CMB_WeaponAway, then the sheathe action, then 2026-11-15a's dismount); getting on
+; with a weapon out puts it away first; CMB_RiderGun tells the plugin a handgun may be out (its seated gun pose,
+; CMB_RiderGunPose 2, keeps the seat's worn bike: GunPosed).
+
+int Property TimerWeaponAway = 60 AutoReadOnly
+int weaponsModeSeen = -1     ; ApplyControls' mode (WeaponsTick sets the controls again when it changes)
+bool fightOn = false         ; fighting enabled on the ride's layer (Handguns only switches it)
+int awayStep = 0             ; a put-away on the bike: 0 none, 1 asked (the plugin's call), 2 the sheathe action played
+float awayAt = 0.0           ; its start (real time)
+Form handgunLoggedGun        ; the last gun HandgunEquipped logged
+
+; 0 None, 1 Handguns only, 2 Any weapon: CMB_RideWeapons clamped; without it (an older ESP) CMB_AllowCombat's 0 / 1 as None /
+; Any weapon (2026-11-15a). A save from before 2026-11-15b has no CMB_RideWeapons of its own: the ESP's 1, whatever its
+; CMB_AllowCombat (the wish's default; the MCM sets it).
+int Function WeaponsMode()
+	if CMB_RideWeapons
+		int m = CMB_RideWeapons.GetValue() as int
+		if m < 0
+			return 0
+		elseif m > 2
+			return 2
+		endif
+		return m
+	endif
+	if CMB_AllowCombat.GetValue() != 0.0
+		return 2
+	endif
+	return 0
+EndFunction
+
+string Function WeaponsModeName(int aiMode)
+	if aiMode == 1
+		return "Handguns only"
+	elseif aiMode == 2
+		return "Any weapon"
+	endif
+	return "None"
+EndFunction
+
+; The equipped gun is a handgun: one of CMB_HandgunKeywords on its base form, worn (WornHasKeyword) or on its instance (F4SE:
+; CMB_GearRestoreF4SE.GunKeywords; the pistol/rifle keywords of the modular guns come with their grips and stocks), and
+; WeaponTypeRifle neither worn nor on the instance. Permissive on purpose: a wrong yes lets a rifle be drawn (as Any weapon
+; does), a wrong no is None's rule for it. The three readings logged once per gun (test 55 says which one sees what).
+bool Function HandgunEquipped()
+	Weapon gun = PlayerRef.GetEquippedWeapon()
+	if !gun || !CMB_HandgunKeywords
+		return false
+	endif
+	bool base = false
+	bool worn = false
+	int n = CMB_HandgunKeywords.GetSize()
+	int i = 0
+	while i < n
+		Keyword k = CMB_HandgunKeywords.GetAt(i) as Keyword
+		if k
+			if gun.HasKeyword(k)
+				base = true
+			endif
+			if PlayerRef.WornHasKeyword(k)
+				worn = true
+			endif
+		endif
+		i += 1
+	endwhile
+	bool wornRifle = WeaponTypeRifle && PlayerRef.WornHasKeyword(WeaponTypeRifle)
+	int inst = -1
+	ScriptObject gear = CastAs("CMB_GearRestoreF4SE")
+	if gear
+		Var[] params = new Var[3]
+		params[0] = PlayerRef
+		params[1] = CMB_HandgunKeywords
+		params[2] = WeaponTypeRifle
+		inst = gear.CallFunction("GunKeywords", params) as int
+	endif
+	bool instYes = inst >= 0 && inst % 2 == 1
+	bool instRifle = inst >= 0 && (inst / 2) % 2 == 1
+	bool yes = (base || worn || instYes) && !instRifle && !wornRifle
+	if gun != handgunLoggedGun
+		handgunLoggedGun = gun
+		string instWords = "not read (no F4SE or no gun instance)"
+		if inst >= 0
+			instWords = "" + instYes + " (" + (inst / 4) + " keywords)"
+		endif
+		Log("Weapons: " + gun + " equipped: a handgun keyword on the base form " + base + ", worn " + worn + ", on the instance " + instWords + "; WeaponTypeRifle worn " + wornRifle + ", on the instance " + instRifle + ": " + Ternary(yes, "a handgun.", "not a handgun."))
+	endif
+	return yes
+EndFunction
+
+; CMB_RiderGun for CMB_Slope.dll: 0 no weapon may be out, 1 a handgun equipped and allowed, 2 and drawn. Written when it changes.
+Function SetRiderGun(int aiValue)
+	if CMB_RiderGun && (CMB_RiderGun.GetValue() as int) != aiValue
+		CMB_RiderGun.SetValue(aiValue as float)
+	endif
+EndFunction
+
+; The plugin poses the rider on the seat with the handgun out (CMB_RiderGunPose 2, not 1 = a seat pose ready) and the script's
+; own verdict is a handgun (CMB_RiderGun 1 or 2): the seat's worn bike stays on. Otherwise (a rifle in Any weapon, anything
+; before its put-away, no seat pose read yet, the pose off) the ground-planted one, as 2026-11-15a.
+bool Function GunPosed()
+	return CMB_RiderGunPose && CMB_RiderGun && WeaponsMode() == 1 && CMB_RiderGunPose.GetValue() >= 2.0 && CMB_RiderGun.GetValue() >= 1.0
+EndFunction
+
+; CMB_WeaponAway counted 1-999 (CMB_Slope.dll's [Tilt] PutAway calls the game's own put-away at each new value); its value.
+int Function AskWeaponAway()
+	if !CMB_WeaponAway
+		return 0
+	endif
+	int n = (CMB_WeaponAway.GetValue() as int) + 1
+	if n > 999 || n < 1
+		n = 1
+	endif
+	CMB_WeaponAway.SetValue(n as float)
+	return n
+EndFunction
+
+; Handguns only's rule after a change (a weapon equipped or unequipped, the controls set, a put-away over, the tick): fighting
+; on with a handgun equipped or while a weapon is being put away; anything but a handgun out is put away; CMB_RiderGun.
+; None and Any weapon: CMB_RiderGun 0, nothing else (2026-11-15a).
+Function WeaponsRefresh(string asWhy)
+	if !riding || !rideLayer
+		return
+	endif
+	if WeaponsMode() != 1
+		SetRiderGun(0)
+		return
+	endif
+	bool handgun = HandgunEquipped()
+	bool drawn = PlayerRef.IsWeaponDrawn()
+	if drawn && !handgun && awayStep == 0
+		PutAwayStart(asWhy)
+	endif
+	bool fight = handgun || awayStep > 0
+	if fight != fightOn
+		fightOn = fight
+		rideLayer.EnableFighting(fight)
+		Log("Weapons: fighting " + Ternary(fight, "on", "off") + " (" + asWhy + "; " + Ternary(handgun, "a handgun equipped", Ternary(awayStep > 0, "a weapon being put away", "no handgun equipped")) + ", Handguns only).")
+	endif
+	int gun = 0
+	if handgun
+		gun = 1
+		if drawn
+			gun = 2
+		endif
+	endif
+	SetRiderGun(gun)
+EndFunction
+
+; The ride tick's weapon rule (true: the ride was ended). The mode changed (the MCM): the controls set again. None: a weapon
+; out ends the ride (2026-11-15a's rule with CMB_AllowCombat 0). Any weapon: nothing. Handguns only: WeaponsRefresh.
+bool Function WeaponsTick()
+	int mode = WeaponsMode()
+	if mode != weaponsModeSeen
+		Log("Weapons while riding: " + WeaponsModeName(weaponsModeSeen) + " -> " + WeaponsModeName(mode) + ": the controls set again.")
+		ApplyControls()
+	endif
+	if mode == 0
+		if PlayerRef.IsWeaponDrawn()
+			AutoDismount("You can't ride with your weapon out.", true)
+			return true
+		endif
+	elseif mode == 1
+		WeaponsRefresh("the ride's tick")
+	endif
+	return false
+EndFunction
+
+; A weapon that isn't a handgun out on the bike (Handguns only): the plugin asked to put it away (CMB_WeaponAway), fighting
+; kept on meanwhile (with it off the game won't put a weapon away either), then every quarter second PutAwayTimer.
+Function PutAwayStart(string asWhy)
+	awayStep = 1
+	awayAt = Utility.GetCurrentRealTime()
+	int count = AskWeaponAway()
+	Debug.Notification("Only a handgun can be used on the motorbike.")
+	Log("Weapons: " + PlayerRef.GetEquippedWeapon() + " out, not a handgun (" + asWhy + "): put away asked (CMB_WeaponAway " + count + ").")
+	StartTimer(0.25, TimerWeaponAway)
+EndFunction
+
+; Away: the rule again (fighting off for a non-handgun). Still out after 1 s: the sheathe action; after 3 s: 2026-11-15a's
+; rule, the ride ended ("You can't ride with your weapon out.").
+Function PutAwayTimer()
+	if !riding || awayStep == 0
+		awayStep = 0
+		return
+	endif
+	float since = Utility.GetCurrentRealTime() - awayAt
+	if !PlayerRef.IsWeaponDrawn()
+		Log("Weapons: put away after " + Tenths(since) + " s (" + Ternary(awayStep == 1, "the plugin's put-away, or the game's own", "after the sheathe action") + ").")
+		awayStep = 0
+		WeaponsRefresh("the weapon put away")
+		return
+	endif
+	if awayStep == 1 && since >= 1.0
+		awayStep = 2
+		bool played = false
+		if ActionSheath
+			played = PlayerRef.PlayIdleAction(ActionSheath)
+		endif
+		Log("Weapons: still out " + Tenths(since) + " s after the ask: the sheathe action played (" + played + ").")
+	elseif since >= 3.0
+		awayStep = 0
+		Log("Weapons: still out " + Tenths(since) + " s after the ask: the ride ended (2026-11-15a's rule).")
+		AutoDismount("You can't ride with your weapon out.", true)
+		return
+	endif
+	StartTimer(0.25, TimerWeaponAway)
+EndFunction
+
+; Getting on with a weapon out, Handguns only, every other blocker passed (Mount): put away first (the plugin's call, polled
+; every 0.1 s for 1.5 s, then the sheathe action and 1.5 s more): away, "" (getting on goes ahead, holstered: the plugin reads
+; the seat pose in the ride's first seconds and the handgun is drawn on the bike); still out, 2026-11-15a's refusal. None
+; and Any weapon: the refusal at once (2026-11-15a).
+string Function MountWeaponBlocker()
+	string refusal = "Put your weapon away first."
+	if WeaponsMode() != 1
+		return refusal
+	endif
+	float t0 = Utility.GetCurrentRealTime()
+	string how = "the plugin's put-away (CMB_WeaponAway " + AskWeaponAway() + ")"
+	int i = 0
+	while i < 15 && PlayerRef.IsWeaponDrawn()
+		Utility.Wait(0.1)
+		i += 1
+	endwhile
+	if PlayerRef.IsWeaponDrawn() && ActionSheath
+		how = how + ", then the sheathe action (" + PlayerRef.PlayIdleAction(ActionSheath) + ")"
+		i = 0
+		while i < 15 && PlayerRef.IsWeaponDrawn()
+			Utility.Wait(0.1)
+			i += 1
+		endwhile
+	endif
+	float took = Utility.GetCurrentRealTime() - t0
+	if PlayerRef.IsWeaponDrawn()
+		Log("Getting on: the weapon still out " + Tenths(took) + " s after " + how + ": refused (Handguns only).")
+		return refusal
+	endif
+	Log("Getting on: the weapon put away first (" + Tenths(took) + " s; " + how + ").")
+	return ""
+EndFunction
+
+; Every way off (FinishRide): nothing pending, CMB_RiderGun 0.
+Function WeaponsRideEnd()
+	CancelTimer(TimerWeaponAway)
+	awayStep = 0
+	fightOn = false
+	weaponsModeSeen = -1
+	SetRiderGun(0)
+EndFunction
+
+Event Actor.OnItemUnequipped(Actor akSender, Form akBaseObject, ObjectReference akReference)
+	if riding && CMB_RideWeapons && akBaseObject as Weapon
+		WeaponsRefresh("unequipped " + akBaseObject)
+	endif
+EndEvent
 
 ; The seated pose is an animation flavour: the player keeps its own archetype
 ; (and so every other animation). CMB_RiderPose.esp adds subgraph entries that

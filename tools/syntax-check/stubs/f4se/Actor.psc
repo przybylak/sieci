@@ -29,3 +29,4 @@ EndStruct
 WornItem Function GetWornItem(int slotIndex, bool firstPerson = false) native
 ObjectMod[] Function GetWornItemMods(int slotIndex) native
 ObjectReference Function GetFurnitureReference() native
+InstanceData:Owner Function GetInstanceOwner(int slotIndex) native

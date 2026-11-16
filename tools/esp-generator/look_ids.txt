@@ -839,3 +839,12 @@ CMB_KitPrevTilt 000BFB
 CMB_KitPrevUp 000BFC
 CMB_KitPrevZoomOut 000BFD
 CMB_KitPrevZoomIn 000BFE
+CMB_ViewBack 000BFF
+CMB_ViewBackNow 000C00
+CMB_ViewRoll 000C01
+CMB_LookKey 000C02
+CMB_RideWeapons 000C03
+CMB_HandgunKeywords 000C04
+CMB_RiderGun 000C05
+CMB_WeaponAway 000C06
+CMB_RiderGunPose 000C07

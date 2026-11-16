@@ -38,3 +38,8 @@ int Function GetLevel() native
 bool Function SnapIntoInteraction(ObjectReference akTarget) native
 Event OnPlayerModArmorWeapon(Form akBaseObject, ObjectMod akModBaseObject)
 EndEvent
+Weapon Function GetEquippedWeapon(int aiEquipIndex = 0) native
+bool Function WornHasKeyword(Keyword akKeyword) native
+bool Function PlayIdleAction(Action aAction, ObjectReference aTarget = None) native
+Event OnItemUnequipped(Form akBaseObject, ObjectReference akReference)
+EndEvent

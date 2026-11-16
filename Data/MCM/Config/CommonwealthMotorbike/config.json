@@ -125,12 +125,17 @@
       }
     },
     {
-      "type": "switcher",
-      "text": "Allow combat while riding",
-      "help": "Weapons and VATS stay usable while riding. Takes effect the next time you get on.",
+      "type": "stepper",
+      "text": "Weapons while riding",
+      "help": "Handguns only: a pistol can be drawn and fired from the saddle, the left hand on the bar (the seated pose needs F4SE and CMB_Slope.dll); anything else is put away, and VATS stays off. None: no weapon can be out on the motorbike (a weapon out ends the ride), as before with \u0022Allow combat while riding\u0022 off. Any weapon: every weapon and VATS in the game\u0027s standing poses, as before with it on. Takes effect at once.",
       "valueOptions": {
+        "options": [
+          "None",
+          "Handguns only",
+          "Any weapon (standing poses)"
+        ],
         "sourceType": "GlobalValue",
-        "sourceForm": "CommonwealthMotorbike.esp|802"
+        "sourceForm": "CommonwealthMotorbike.esp|C03"
       }
     },
     {
@@ -152,6 +157,32 @@
         "step": 1,
         "sourceType": "GlobalValue",
         "sourceForm": "CommonwealthMotorbike.esp|8B0"
+      }
+    },
+    {
+      "type": "stepper",
+      "text": "Looking back while reversing (first person)",
+      "help": "Backing up in first person (S held a moment, moving or blocked). Over the shoulder: the view turns round over the shoulder the side key points to (D: right, the way the rear goes), the mouse turns only your head while the bike keeps its heading, and forward brings the view back to the front. Third person: the camera switches to third person while you back up and back to first person when you ride forward. Off: the view stays ahead, as before. Needs F4SE and CMB_Slope.dll.",
+      "valueOptions": {
+        "options": [
+          "Off",
+          "Over the shoulder",
+          "Third person"
+        ],
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|BFF"
+      }
+    },
+    {
+      "type": "slider",
+      "text": "View leans in turns (first person, deg)",
+      "help": "In first person the view leans into a turn with the bike, this far at the bike\u0027s whole lean. 0 = the view stays level, as before. Needs F4SE and CMB_Slope.dll. At once.",
+      "valueOptions": {
+        "min": 0,
+        "max": 10,
+        "step": 1,
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|C01"
       }
     },
     {
@@ -1176,6 +1207,18 @@
         "step": 1,
         "sourceType": "GlobalValue",
         "sourceForm": "CommonwealthMotorbike.esp|878"
+      }
+    },
+    {
+      "type": "slider",
+      "text": "Look key (scan code)",
+      "help": "Hold it in first person on the bike to look round: the mouse turns only your head and the bike keeps its line; let go and the view comes back to the front. A DirectInput scan code: 44 = Z, 45 = X, 46 = C, 56 = Left Alt, 0 = none; W, A, S, D and the brake key aren\u0027t taken. The log names the key it read. Takes effect the next time you get on.",
+      "valueOptions": {
+        "min": 0,
+        "max": 211,
+        "step": 1,
+        "sourceType": "GlobalValue",
+        "sourceForm": "CommonwealthMotorbike.esp|C02"
       }
     },
     {

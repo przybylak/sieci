@@ -95,9 +95,19 @@
 #define KIT_ITEM_FORMID       (0xFE000000u | (LIGHT_INDEX << 12) | 0x8CEu)   /* CMB_BikeLook */
 #define KIT_PREVIEW_FORMID    (0xFE000000u | (LIGHT_INDEX << 12) | 0xBF8u)   /* CMB_KitPreview (1), then 0xBF9-0xBFE */
 #define KIT_GAME_TRNS_FORMID  0x00248769u                                    /* Fallout4.esm's MiscMod01 */
+/* 2026-11-15b (the fpcam unit's): CMB_ViewBack, CMB_ViewBackNow, CMB_ViewRoll and CMB_LookKey at the fixed 0xBFF-0xC02, the
+ * ESP's values 1, 0, 4 and 44; hidden in mode 15. */
+#define VIEW_BACK_FORMID      (0xFE000000u | (LIGHT_INDEX << 12) | 0xBFFu)   /* CMB_ViewBack (1), then CMB_ViewBackNow (0), CMB_ViewRoll (4), CMB_LookKey (44) */
 /* 2026-11-14a: CMB_HotkeyCode (the ESP's 0x807, 48): the plugin's QuickProbe reads it (the hotkey's key, B or 0). */
 #define HOTKEY_CODE_FORMID    (0xFE000000u | (LIGHT_INDEX << 12) | 0x807u)   /* CMB_HotkeyCode (48) */
 #define MAX_TILT_FORMID       (0xFE000000u | (LIGHT_INDEX << 12) | 0x830u)   /* CMB_MaxTilt (the MCM's tilt: the ESP's 45; review B1's ride sets 0) */
+/* 2026-11-15b (the weapons unit): CMB_RideWeapons (0xC03, the ESP's 1), CMB_RiderGun, CMB_WeaponAway and CMB_RiderGunPose
+ * (0xC05-0xC07, 0): mode 13 only (every other mode an ESP without them: the weapons rules dormant); and (2026-11-15b's review)
+ * mode 20, for the look's and FirstKeysArmed's checks of a weapon drawn (ViewTests59: the plugin's weapon state is read only
+ * with them; run.sh's DEF59 keeps every weapons key off there, so nothing else of theirs acts). */
+#define WEAPONS59_FORMID      (0xFE000000u | (LIGHT_INDEX << 12) | 0xC03u)
+#define RIDER_GUN59_FORMID    (0xFE000000u | (LIGHT_INDEX << 12) | 0xC05u)
+#define GUN_POSE59_FORMID     (0xFE000000u | (LIGHT_INDEX << 12) | 0xC07u)
 #define TAIL_REF_FORMID_A     0xFF001236u   /* the tail light reference "the script placed", and the fresh one of a handover */
 #define TAIL_REF_FORMID_B     0xFF001237u
 #define VIEW_REF_FORMID_A     0xFF001240u   /* the first-person bike's reference, and the fresh one of a handover */
@@ -391,6 +401,15 @@ static void Q57MoveCode(FakeEvent *e)   /* forward's ButtonEvent as the game giv
 }
 static int g_handlerStyle, g_honour, g_outputCalls;
 static float g_keyX, g_keyY, g_lastKeyX, g_lastKeyY, g_camYaw, g_fakeVel[4];
+/* 2026-11-15b (the fpcam unit's): the game's first-person movement (g_fpMove59, mode 20's rides of ViewTests59): with the
+ * camera first person (g_fpFirst59, the ride's) the controls' target angle is the player's own heading and the move
+ * vector's x strafes (the movement goes atan2(x, y) off the heading); g_v59StrafeMax the most it went off while g_v59Rec. */
+static bool g_fpMove59, g_fpFirst59, g_v59Rec;
+static float g_v59StrafeMax;
+/* 2026-11-15b's review (finding 4): the game's third-person movement with a weapon drawn (g_fpArmed59, the ride's: third person and
+ * the weapon state at the player's +0x134 not 0): the body faces the camera (the controls' target the camera's yaw, not turned toward
+ * the keys) and x strafes, as test 53's A/D slides 27-44 deg off the heading. */
+static bool g_fpArmed59;
 static void FakeOnButton(uint8_t *self, const FakeEvent *e)
 {
 	float *move = *(float **)(self + 0x10);
@@ -422,6 +441,10 @@ static void FakeGetControllerOutput(uint8_t *self, uint32_t id, float *out)
 	memset(out, 0, 64);
 	out[8] = 2.0f * (mag > 1.0f ? 1.0f : mag);
 	out[14] = mag > 0.01f ? g_camYaw + atan2f(move[0], move[1]) : *(const float *)(g_playerForOutput + 0xC8);
+	if (g_fpMove59 && g_fpFirst59)
+		out[14] = *(const float *)(g_playerForOutput + 0xC8);   /* 2026-11-15b: first person: no turn toward the keys (they strafe) */
+	else if (g_fpMove59 && g_fpArmed59)
+		out[14] = g_camYaw;   /* 2026-11-15b's review: a weapon drawn in third person: the body faces the camera (the keys strafe) */
 	g_outputCalls++;
 }
 static float *PlayerPosition(void);
@@ -646,6 +669,10 @@ static bool g_new56Hidden;              /* mode 15: test 42's ESP, without the 2
 static uint8_t *g_kitTrnsFake, *g_kitTrnsOther, *g_kitItemFake, *g_kitGameTrns;   /* 2026-11-14a (the kit unit's): the TRNS, a global in its place, the item, MiscMod01 */
 static uint8_t *g_kitGlobalsFake[7];    /* CMB_KitPreview, CMB_KitPrevSize .. CMB_KitPrevZoomIn */
 static bool g_new57Hidden;              /* mode 15 (and KitTests57's older ESP): without the 2026-11-14a build's seven (0xBF8-0xBFE) */
+static uint8_t *g_fp59Fake[4];          /* 2026-11-15b: CMB_ViewBack, CMB_ViewBackNow, CMB_ViewRoll, CMB_LookKey */
+static bool g_new59Hidden;              /* mode 15: without the 2026-11-15b build's four (0xBFF-0xC02) */
+static bool g_gun59Hidden = true;       /* 2026-11-15b: the weapons unit's four globals, modes 13 and 20 only */
+static uint8_t *g_gun59Fake[5];         /* CMB_RideWeapons, (0xC04 the list: none), CMB_RiderGun, CMB_WeaponAway, CMB_RiderGunPose */
 static int g_kitTrnsAs;                 /* KitTests57: 0x8CC as the TRNS (0), a form of another type (1), none (2) */
 static const float g_kitTrns10a[9] = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 135.0f, 0.45f, 0.5f, 1.5f };   /* the ESP's CMB_BikeLookPreview */
 static float FakeQuickUse(void) { return *(float *)(g_quickUseFake + 0x30); }     /* CMB_RiderQuickUse's value (the quick unit's checks) */
@@ -1458,10 +1485,14 @@ static uintptr_t FakeLookupFormByID(uint32_t id)
 		return g_new52Hidden ? 0 : (uintptr_t)g_kitItemFake;
 	if (id >= KIT_PREVIEW_FORMID && id < KIT_PREVIEW_FORMID + 7)
 		return g_new57Hidden ? 0 : (uintptr_t)g_kitGlobalsFake[id - KIT_PREVIEW_FORMID];
+	if (id >= VIEW_BACK_FORMID && id < VIEW_BACK_FORMID + 4)
+		return g_new59Hidden ? 0 : (uintptr_t)g_fp59Fake[id - VIEW_BACK_FORMID];
 	if (id == KIT_GAME_TRNS_FORMID)
 		return (uintptr_t)g_kitGameTrns;
 	if (id == HOTKEY_CODE_FORMID)
 		return (uintptr_t)g_hotkeyCodeFake;
+	if (id >= WEAPONS59_FORMID && id <= GUN_POSE59_FORMID && id != WEAPONS59_FORMID + 1u)
+		return g_gun59Hidden ? 0 : (uintptr_t)g_gun59Fake[id - WEAPONS59_FORMID];
 	return id == SLOPE_GLOBAL_FORMID ? (uintptr_t)g_global : id == CAMERA_GLOBAL_FORMID ? (uintptr_t)g_cameraGlobal
 	     : id == TILT_GLOBAL_FORMID ? (uintptr_t)g_tiltGlobal : 0;
 }
@@ -1658,6 +1689,13 @@ static void BuildGame(void)
 	g_lookOptionsFake = NewGlobal(LOOK_OPTIONS_FORMID, "CMB_LookOptions");   /* the 2026-11-09a fixes' one: 0 until the plugin writes it */
 	g_quickUseFake = NewGlobal(QUICK_USE_FORMID, "CMB_RiderQuickUse");       /* the 2026-11-10a build's two, 0 (the ESP's) */
 	g_rideReadyFake = NewGlobal(RIDE_READY_FORMID, "CMB_RideReady");
+	{   /* 2026-11-15b (the weapons unit's): the four globals at the ESP's values */
+		static const char *names59[5] = { "CMB_RideWeapons", NULL, "CMB_RiderGun", "CMB_WeaponAway", "CMB_RiderGunPose" };
+		for (int i = 0; i < 5; i++)
+			if (names59[i])
+				g_gun59Fake[i] = NewGlobal(WEAPONS59_FORMID + (uint32_t)i, names59[i]);
+		*(float *)(g_gun59Fake[0] + 0x30) = 1.0f;
+	}
 	{   /* 2026-11-14a (the kit unit's): the preview's record, its seven globals at the ESP's values, the item, MiscMod01 */
 		static const char *trns[] = { ".?AVBGSTransform@@", ".?AVTESForm@@" };
 		static const char *kitNames[7] = { "CMB_KitPreview", "CMB_KitPrevSize", "CMB_KitPrevTurn", "CMB_KitPrevTilt", "CMB_KitPrevUp", "CMB_KitPrevZoomOut",
@@ -1679,6 +1717,14 @@ static void BuildGame(void)
 		for (int i = 0; i < 7; i++) {
 			g_kitGlobalsFake[i] = NewGlobal(KIT_PREVIEW_FORMID + (uint32_t)i, kitNames[i]);
 			*(float *)(g_kitGlobalsFake[i] + 0x30) = kitValues[i];
+		}
+	}
+	{   /* 2026-11-15b (the fpcam unit's): the four at the ESP's values */
+		static const char *names59[4] = { "CMB_ViewBack", "CMB_ViewBackNow", "CMB_ViewRoll", "CMB_LookKey" };
+		static const float values59[4] = { 1.0f, 0.0f, 4.0f, 44.0f };
+		for (int i = 0; i < 4; i++) {
+			g_fp59Fake[i] = NewGlobal(VIEW_BACK_FORMID + (uint32_t)i, names59[i]);
+			*(float *)(g_fp59Fake[i] + 0x30) = values59[i];
 		}
 	}
 	g_maxTiltFake = NewGlobal(MAX_TILT_FORMID, "CMB_MaxTilt");   /* review B1: the MCM's tilt, the ESP's 45 */
@@ -2262,6 +2308,13 @@ static void SetWorld(uint8_t *node, const float rot[9], const float pos[3], floa
 /* 2026-11-14a (mode 20, [View] EyeAxes): the COM bone turned this far (rad, about its up; + left) from the heading, as the
  * graph's root twist would; 0 in every other ride. */
 static float g_comTwist57;
+static void Gun59FakePose(void);   /* 2026-11-15b (GunTests59): the right arm, the weapon clip and the drift, at the end */
+/* 2026-11-15b (mode 20, [View] Body): the third-person skeleton standing (as the game's in first person, test 48): the arm
+ * hanging, the head and the pelvis up a little, while set; and the camera's look turned this far (rad) off the heading
+ * (fpcam's look-back) in FakeCameraTurn. Both 0 in every other ride. */
+static bool g_b59Standing;
+static float g_b59LookYaw;
+static void (*g_b59Place)(void);   /* run at SyncFakeWorld's end while set (mode 20's body rides: the skeleton put upright on the bike) */
 /* The player's 3D follows the player: the root at the player, turned by the heading; the
  * bones at offsets of it (the spine leant back, the Pip-Boy's bone turned and scaled). */
 static void SyncFakeWorld(void)
@@ -2289,7 +2342,7 @@ static void SyncFakeWorld(void)
 	}
 	Apply3(heading, pelvOff, off);
 	for (int i = 0; i < 3; i++)
-		pos[i] = pp[i] + off[i];
+		pos[i] = pp[i] + off[i] + (g_b59Standing ? (i == 2 ? 8.0f : 0.0f) : 0.0f);
 	SetWorld(g_bodyNodes[0], heading, pos, 1.0f);
 	MulM3(heading, leanBack, rot);
 	Apply3(heading, spineOff, off);
@@ -2346,6 +2399,13 @@ static void SyncFakeWorld(void)
 		for (int i = 0; i < 3; i++)
 			hand[i] = elbowOff[i] + L2 * (c * u[i] + sn * v[i] / lv);
 	}
+	if (g_b59Standing) {   /* 2026-11-15b: the arm hanging down at the side */
+		hand[0] -= 2.0f;
+		hand[1] -= 65.0f;
+		hand[2] -= 40.0f;
+		elbow[1] -= 55.0f;
+		elbow[2] -= 23.0f;
+	}
 	if (g_armRight) {
 		hand[2] = 120.0f - hand[2];
 		upper[2] = 120.0f - upper[2];
@@ -2387,7 +2447,7 @@ static void SyncFakeWorld(void)
 	static const float headOff[3] = { 0, -2, 160 }, jawOff[3] = { 0, 3, 152 };   /* the head's joint and a face bone under it */
 	Apply3(heading, headOff, off);
 	for (int i = 0; i < 3; i++)
-		pos[i] = pp[i] + off[i];
+		pos[i] = pp[i] + off[i] + (g_b59Standing ? (i == 2 ? 2.0f : 0.0f) : 0.0f);
 	SetWorld(g_bodyNodes[8], heading, pos, 1.0f);
 	if (g_hatXf[1]) {
 		/* The hat's node-less bones (test 41): Head_skin at HEAD's place, HEAD's world as its
@@ -2400,7 +2460,7 @@ static void SyncFakeWorld(void)
 	}
 	Apply3(heading, jawOff, off);
 	for (int i = 0; i < 3; i++)
-		pos[i] = pp[i] + off[i];
+		pos[i] = pp[i] + off[i] + (g_b59Standing ? (i == 2 ? 2.0f : 0.0f) : 0.0f);
 	SetWorld(g_bodyNodes[9], heading, pos, 1.0f);
 	static const float bellyOff[3] = { 0, 12, 92 }, thighOff[3] = { 8, 5, 60 };   /* the skin helpers: the belly ahead of and below the spine's joint, the thigh under the pelvis (test 38's pose study) */
 	Apply3(heading, bellyOff, off);
@@ -2417,6 +2477,9 @@ static void SyncFakeWorld(void)
 	for (int i = 0; i < 3; i++)
 		pos[i] = pp[i] + off[i];
 	SetWorld(g_pipboyBone, rot, pos, 0.9f);
+	Gun59FakePose();
+	if (g_b59Place)
+		g_b59Place();   /* 2026-11-15b: mode 20's body rides only */
 }
 
 static void SetLayouts(bool skinTransposed, bool rootTransposed)
@@ -3393,8 +3456,15 @@ static void FakeGameFrame(float dt)
 	((void (*)(uint8_t *, uint32_t, float *))(*(void ***)imove)[1])(imove, 0, out);
 	float *head = (float *)(g_player + 0xC8);
 	float d = remainderf(out[14] - *head, 6.2831853f), step = 6.2831853f * dt;
-	*head += d > step ? step : d < -step ? -step : d;
+	if (!(g_fpMove59 && g_fpFirst59))   /* 2026-11-15b: in first person the heading is the look's alone (the mouse's), not turned toward the target */
+		*head += d > step ? step : d < -step ? -step : d;
 	float dir = *head + ((g_honour & 8) ? out[2] : 0.0f), speed = out[8];
+	if (g_fpMove59 && (g_fpFirst59 || g_fpArmed59) && hypotf(move[0], move[1]) > 0.01f) {   /* 2026-11-15b: first person (the review: or a weapon drawn): x strafes */
+		float off = atan2f(move[0], move[1]);
+		dir += off;
+		if (g_v59Rec && speed > 0.0f && fabsf(off) * DEG > g_v59StrafeMax)
+			g_v59StrafeMax = fabsf(off) * DEG;
+	}
 	if ((speed < 0.0f && !(g_honour & 16)) || g_frozen)
 		speed = 0.0f;
 	if (speed > 0.0f)
@@ -13513,6 +13583,7 @@ static void LowObstacleTests50(void)
 	g_camYaw = PlayerHeading();
 }
 
+static void SidestepTests59(void);   /* 2026-11-15b: the wide sidestep, SidestepSteady, SidestepMouseSide (the sidestep unit's; after CautionTests56) */
 static void WallTests49(void)
 {
 	float *head = (float *)(g_player + 0xC8);
@@ -13545,6 +13616,7 @@ static void WallTests49(void)
 	LowObstacleTests50();
 	WallNarrowTests49();   /* 2026-11-06a: test 49's mailbox (WallNarrowSame), the checker's finding 3 (WallNarrowHigh) */
 	SidestepTests49();     /* ... and the sidestep */
+	SidestepTests59();     /* 2026-11-15b: the wide sidestep, SidestepSteady, SidestepMouseSide (the sidestep unit's) */
 	SetLive(0.0f);
 	SetCamera(0.0f);
 	SetTilt(0.0f);
@@ -14428,6 +14500,385 @@ static void CautionTests56(void)
 	          NthLogLineHas("sidestep: let go after ", LogLines("sidestep: let go after ") - 1, "(the mouse)") && g_c56LetAfter < 0.2f,
 	      "SidestepMouse=3 (the off value: 2026-11-09a): \"sidestep: let go after %.2f s: the game's own target moved 3.x deg (the mouse)\" (%d; under 0.2 s)", g_c56LetAfter, g_c56Lets);
 
+	SetLive(0.0f);
+	SetCamera(0.0f);
+	SetTilt(0.0f);
+	RunFrames(400);
+	g_onFrame = NULL;
+	g_capsuleOn = false;
+}
+
+/* ---- 2026-11-15b (test 53's wish g, the sidestep unit's): the wide sidestep (SidestepWide and its seven), SidestepSteady and
+ * SidestepMouseSide. Mode 19's world (its sidestep rides' SsWatch), each ride's keys put first in [Steer] (Keys54) and taken
+ * out after, so the rest is run.sh's DEF59 (every 2026-11-15b key at its off value: 2026-11-15a). A car is one face (the fake's
+ * planes are one-sided, the capsule passes through them: SsWatch measures the clearance), facing the bike, a reference of its
+ * own, layer 29, 100 high. W1's car: 800 past the front wheel at 900, its middle 130 right of the line, 160 each side: its end
+ * 30 left of the line (the left side ray 40 out passes, the right meets it: wide), its edge found within 40 to the left (20 out
+ * met, 40 passes), 80 across (the edge and SidestepWideClear 40), 374 needed at 900 (SidestepOffer's run at 120 deg/s, 25 deg). */
+static int g_r59s0, g_r59w0, g_r59n0, g_r59o0, g_r59l0, g_r59h0, g_r59k0, g_r59st0, g_r59none0, g_r59c0;
+static int g_r59Wide, g_r59Narrow, g_r59Over, g_r59Let, g_r59Hand, g_r59Kept, g_r59Steer, g_r59None, g_r59Lines;
+static float g_r59T, g_r59StepAt = -1.0f, g_r59StepDeg, g_r59StartT, g_r59SweepAmp, g_r59SweepHz, g_r59H, g_r59EndV;
+static bool g_r59Started, g_r59StepDone;
+static const char g_r59Wword[] = ") wide ", g_r59Nword[] = ") narrow ";
+static void Ride59Frame(float dt)   /* SsFrame's watch, and the camera: swept (amp deg at hz) or stepped (deg, at s after the heading left the line) */
+{
+	g_r59T += dt;
+	if (g_r59SweepAmp > 0.0f)
+		g_camYaw = g_r59H + g_r59SweepAmp / DEG * sinf(6.2831853f * g_r59SweepHz * g_r59T);
+	SsFrame(dt);
+	if (g_r59StepAt >= 0.0f && !g_r59StepDone) {
+		if (!g_r59Started && g_ssMostOff > 0.2f) {
+			g_r59Started = true;
+			g_r59StartT = g_r59T;
+		}
+		if (g_r59Started && g_r59T - g_r59StartT >= g_r59StepAt) {
+			g_camYaw += g_r59StepDeg / DEG;
+			g_r59StepDone = true;
+		}
+	}
+}
+static void Ride59On(const char *keys)
+{
+	Keys54(keys, NULL, true);
+	UpToSpeed(0.0f);
+	g_r59s0 = LogLines("sidestep: ");
+	g_r59w0 = LogLines(g_r59Wword);
+	g_r59n0 = LogLines(g_r59Nword);
+	g_r59o0 = LogLines("sidestep: over after ");
+	g_r59l0 = LogLines("sidestep: let go after ");
+	g_r59h0 = LogLines("sidestep: handed to the rider after ");
+	g_r59k0 = LogLines("toward the open side: kept (SidestepMouseSide)");
+	g_r59st0 = LogLines("the rider is steering (the target angle moving ");
+	g_r59none0 = LogLines("sidestep: none for ");
+	g_r59c0 = LogLines("sidestep: this ride ");
+	g_r59T = 0.0f;
+	g_r59StepAt = -1.0f;
+	g_r59SweepAmp = 0.0f;
+	g_r59Started = g_r59StepDone = false;
+	g_r59H = g_camYaw;
+}
+static void Ride59Watch(float along, float across, float half, int ms)
+{
+	SsWatch(along, across, half);
+	g_onFrame = Ride59Frame;
+	RunFrames(ms);
+	g_ssWatchOn = false;
+	g_r59EndV = g_fakeSpeedNow;
+	g_r59SweepAmp = 0.0f;
+	g_r59Wide = LogLines(g_r59Wword) - g_r59w0;
+	g_r59Narrow = LogLines(g_r59Nword) - g_r59n0;
+	g_r59Over = LogLines("sidestep: over after ") - g_r59o0;
+	g_r59Let = LogLines("sidestep: let go after ") - g_r59l0;
+	g_r59Hand = LogLines("sidestep: handed to the rider after ") - g_r59h0;
+	g_r59Kept = LogLines("toward the open side: kept (SidestepMouseSide)") - g_r59k0;
+	g_r59Steer = LogLines("the rider is steering (the target angle moving ") - g_r59st0;
+	g_r59None = LogLines("sidestep: none for ") - g_r59none0;
+	g_r59Lines = LogLines("sidestep: ") - g_r59s0;
+	printf("  (%d \"sidestep:\" line(s): %d wide and %d narrow start(s), %d over, %d let go, %d handed, %d kept, %d not started (steering), %d none; the heading %.1f deg off the line at "
+	       "the most, %.0f deg/s; past it %.0f across (%s), %.0f clear of its edge; the input %.2f at the least, the speed %.0f at the end)\n",
+	       g_r59Lines, g_r59Wide, g_r59Narrow, g_r59Over, g_r59Let, g_r59Hand, g_r59Kept, g_r59Steer, g_r59None, g_ssMostOff, g_ssMostRate, g_ssLatAtPost, g_ssPassed ? "passed" : "not passed",
+	       g_ssGapLeast, g_ssInLeast, g_r59EndV);
+}
+static void Ride59Off(const char *keys)
+{
+	g_onFrame = GlimpseFrame;
+	DoneRiding();
+	Keys54(keys, NULL, false);
+}
+static float WideRun59f(float v, float S)   /* the plugin's WideRun59 at SidestepWideRate 120, SidestepWideMost 25 */
+{
+	float om = 120.0f / DEG, most = 25.0f / DEG, ramp = v * (1.0f - cosf(most)) / om;
+	if (2.0f * ramp >= S)
+		return 2.0f * v * acosf(1.0f - om * S / (2.0f * v)) / om;
+	return 2.0f * v * most / om + (S - 2.0f * ramp) / tanf(most);
+}
+static FakePlane *Car59(int i, float ahead, float across, float half, float top, uint32_t layer, uint8_t *what)
+{
+	FakePlane *w = Thing49(i, ahead, across, half, 0.0f, top, what);
+	w->layer = layer;
+	return w;
+}
+static void SidestepFirst59(bool on);   /* the review's first-person sidestep: the camera and the game's first-person movement (with the camera's states, below) */
+static void SidestepTests59(void)
+{
+	static const char wideKeys[] = "Sidestep=40\nSidestepWide=1\n";
+	float edge = 99.6f + 29.9f, a = edge + 800.0f;
+	uint8_t *sedan = RefThing(1, "Sedan02_Postwar");
+	printf("sidestep (2026-11-15b, test 53's wish g): the settings line at run.sh's DEF59 (the off values):\n");
+	CHECK(LogLines("  sidestep (2026-11-15b, test 53's wish g): SidestepWide=0: a wide thing WallStop's brake only (2026-11-15a); SidestepSteady=0: started whatever the mouse does "
+	               "(2026-11-15a); SidestepMouseSide=0: SidestepMouse either way lets it go (2026-11-15a)") >= 1,
+	      "\"  sidestep (2026-11-15b, test 53's wish g): SidestepWide=0: ...; SidestepSteady=0: ...; SidestepMouseSide=0: ... (2026-11-15a)\"");
+
+	/* W1 */
+	printf("sidestep W1: SidestepWide=1, a car (its own reference, layer 29) 800 past the front wheel at 900, its end 30 left of the line, W held: stepped round to the left, 80 across:\n");
+	Ride59On(wideKeys);
+	CHECK(LogLines("  sidestep (2026-11-15b, test 53's wish g): SidestepWide=1: a wide thing ahead (a placed car, barrel, fence piece or debris, not taller than 180) with its edge within 120 of "
+	               "the path to a side stepped round toward it at 120 deg/s up to 25 deg, its edge and 40 across, the lane clear 300 past it with ground under it, WallStop's throttle throughout; ") >= 1,
+	      "the settings line read again on getting on: \"SidestepWide=1: a wide thing ahead (...) with its edge within 120 of the path ... at 120 deg/s up to 25 deg, its edge and 40 across, the "
+	      "lane clear 300 past it with ground under it, WallStop's throttle throughout\"");
+	int wall0 = LogLines("rays: a wall ahead (");
+	Car59(0, a, 130.0f, 160.0f, 100.0f, 29, sedan);
+	Ride59Watch(a, 130.0f, 160.0f, 2200);
+	float need = NthLogNumberAfter(g_r59Wword, g_r59w0, "across; "), to = NthLogNumberAfter(g_r59Wword, g_r59w0, " needed, "), least = NthLogNumberAfter("sidestep: over after ", g_r59o0, "(the least speed ");
+	float vAt = NthLogNumberAfter(g_r59Wword, g_r59w0, " past the front wheel at "), runAt = WideRun59f(vAt, 80.0f);
+	CHECK(g_r59Wide == 1 && NthLogLineHas(g_r59Wword, g_r59w0, "sidestep: Sedan02_Postwar (layer 29) wide ") &&
+	          NthLogLineHas(g_r59Wword, g_r59w0, ", its edge within 40 to the left (the rays 20, 40 out: met, pass): to the left, the one side it ends near, up to 25 deg at 120 deg/s for 80 across; ") &&
+	          fabsf(need - runAt) < 3.0f && to >= need && LogLines("rays: a wall ahead (") > wall0 && NthLogLineHas("rays: a wall ahead (", wall0, "(wide: the ray 40 to the right meets it "),
+	      "W1: one \"sidestep: Sedan02_Postwar (layer 29) wide .. past the front wheel at %.0f, its edge within 40 to the left (the rays 20, 40 out: met, pass): to the left, the one side it ends "
+	      "near, up to 25 deg at 120 deg/s for 80 across; %.0f needed (the run at that speed %.0f), %.0f to it (SidestepWide)\" (%d), after WallStop's wide line for it (1bc3f8a: none, the brake only)",
+	      vAt, need, runAt, to, g_r59Wide);
+	CHECK(g_r59Over == 1 && NthLogLineHas("sidestep: over after ", g_r59o0, " s (wide): the heading back on its line, the capsule ") && g_r59Let == 0 && g_ssPassed && g_ssLatAtPost <= -70.0f &&
+	          g_ssLatAtPost >= -100.0f && g_ssGapLeast >= 18.0f + 5.0f && g_ssMostOff >= 20.0f && g_ssMostOff <= 26.0f,
+	      "W1: \"sidestep: over after .. s (wide): ...\" (%d), no let-go (%d); past the car %.0f left of the old line (70-100), %.0f clear of its end (the capsule's 18 and 5 or more); the heading %.1f deg "
+	      "off the line at the most (20-26)", g_r59Over, g_r59Let, -g_ssLatAtPost, g_ssGapLeast, g_ssMostOff);
+	CHECK(least >= 300.0f && g_r59EndV >= 600.0f, "W1: the least speed %.0f on the way round (300 or more: WallStop's brake, then free past the edge), %.0f at the ride's end (600 or more: "
+	                                               "1bc3f8a stops at the car)", least, g_r59EndV);
+	Ride59Off(wideKeys);
+
+	/* W8: the same with SidestepWide=0 (DEF59's): 2026-11-15a */
+	printf("sidestep W8: the same car, SidestepWide=0 (the off value): 2026-11-15a's brake, no sidestep:\n");
+	Ride59On("Sidestep=40\n");
+	wall0 = LogLines("rays: a wall ahead (");
+	Car59(0, a, 130.0f, 160.0f, 100.0f, 29, sedan);
+	g_stopW = &g_planes[0];
+	g_stopLeast = 1e9f;
+	Ride59Watch(a, 130.0f, 160.0f, 2200);
+	CHECK(g_r59Lines == 0 && NthLogLineHas("rays: a wall ahead (", wall0, "(wide: the ray 40 to the right meets it ") && g_r59EndV < 100.0f && g_stopLeast > 0.0f,
+	      "W8: no \"sidestep:\" line (%d), WallStop's wide line, stopped short of the car (the speed %.0f at the end, the front wheel %.0f short at the closest)", g_r59Lines, g_r59EndV, g_stopLeast);
+	g_stopW = NULL;
+	Ride59Off("Sidestep=40\n");
+
+	/* W2: a car dead ahead, 110 each side: both edges at 120, 160 across, the right */
+	printf("sidestep W2: a car dead ahead, 110 each side: its edges within 120 both sides (40, 80 met, 120 passes, 100 met): to the right (both alike, a square face), 160 across, clear:\n");
+	Ride59On(wideKeys);
+	Car59(0, a, 0.0f, 110.0f, 100.0f, 29, sedan);
+	Ride59Watch(a, 0.0f, 110.0f, 2400);
+	need = NthLogNumberAfter(g_r59Wword, g_r59w0, "across; ");
+	vAt = NthLogNumberAfter(g_r59Wword, g_r59w0, " past the front wheel at ");
+	runAt = WideRun59f(vAt, 160.0f);
+	CHECK(g_r59Wide == 1 && NthLogLineHas(g_r59Wword, g_r59w0, ", its edge within 120 to the right (the rays 40, 80, 100, 120 out: met, met, met, pass): to the right, both alike: the right, "
+	                                        "up to 25 deg at 120 deg/s for 160 across; ") && fabsf(need - runAt) < 3.0f && g_r59Over == 1 && g_r59Let == 0 && g_ssPassed && g_ssLatAtPost >= 140.0f &&
+	          g_ssGapLeast >= 18.0f + 5.0f,
+	      "W2: \"... wide .. past the front wheel at %.0f, its edge within 120 to the right (the rays 40, 80, 100, 120 out: met, met, met, pass): to the right, both alike: the right, up to 25 deg at "
+	      "120 deg/s for 160 across; %.0f needed (the run at that speed %.0f) ...\" (%d), over (%d), no let-go (%d), past it %.0f right (140 or more), %.0f clear of its edge", vAt, need, runAt,
+	      g_r59Wide, g_r59Over, g_r59Let, g_ssLatAtPost, g_ssGapLeast);
+	Ride59Off(wideKeys);
+
+	/* W3: a long low barrier: no edge within 120 */
+	printf("sidestep W3: a long barrier (its own reference, 100 high) across the path: no edge within 120, WallStop's brake as before:\n");
+	Ride59On(wideKeys);
+	Car59(0, a, 0.0f, 1000.0f, 100.0f, 1, RefThing(6, "JerseyBarrier01"));
+	Ride59Watch(a, 0.0f, 1000.0f, 2200);
+	CHECK(g_r59Wide == 0 && g_r59None >= 1 &&
+	          NthLogLineHas("sidestep: none for ", g_r59none0, "sidestep: none for JerseyBarrier01 (layer 1): wide, no edge within 120 to either side (the right: the rays 40, 80, 120 out: met, met, met; "
+	                                                            "the left: the rays 40, 80, 120 out: met, met, met) (SidestepWide)") &&
+	          g_r59EndV < 100.0f,
+	      "W3: \"sidestep: none for JerseyBarrier01 (layer 1): wide, no edge within 120 to either side (the right: the rays 40, 80, 120 out: met, met, met; the left: ...) (SidestepWide)\" (%d), no start, "
+	      "stopped (%.0f at the end)", g_r59None, g_r59EndV);
+	Ride59Off(wideKeys);
+
+	/* W4: W1 with a second car in the left lane 200 past the first */
+	printf("sidestep W4: W1's car and a second one (StationWagon02) 200 past it covering the left lane: \"the left lane (80 across) is taken\", no sidestep:\n");
+	Ride59On(wideKeys);
+	Car59(0, a, 130.0f, 160.0f, 100.0f, 29, sedan);
+	Car59(1, a + 200.0f, -150.0f, 120.0f, 100.0f, 29, RefThing(5, "StationWagon02"));
+	Ride59Watch(a, 130.0f, 160.0f, 2200);
+	CHECK(g_r59Wide == 0 && NthLogLineHas("sidestep: none for ", g_r59none0, "sidestep: none for Sedan02_Postwar (layer 29): wide, the left lane (80 across) is taken: the lane's middle (80 across) met StationWagon02 ") &&
+	          g_r59EndV < 100.0f,
+	      "W4: \"sidestep: none for Sedan02_Postwar (layer 29): wide, the left lane (80 across) is taken: the lane's middle (80 across) met StationWagon02 .. along (SidestepWide)\", no start (%d), "
+	      "stopped (%.0f)", g_r59Wide, g_r59EndV);
+	Ride59Off(wideKeys);
+
+	/* W5: W1 over a drop: no ground 50 left of the line on */
+	printf("sidestep W5: W1's car, no ground from 50 left of the line on (a quay's edge): \"the left lane (80 across) drops away\", no sidestep:\n");
+	Ride59On(wideKeys);
+	{
+		float h = PlayerHeading(), l[2] = { -cosf(h), sinf(h) };
+		g_dropPoint[0] = PlayerPos()[0] + l[0] * 50.0f;
+		g_dropPoint[1] = PlayerPos()[1] + l[1] * 50.0f;
+		g_dropDir[0] = l[0];
+		g_dropDir[1] = l[1];
+		g_dropDepth = 0.0f;
+		g_dropOn = true;
+	}
+	Car59(0, a, 130.0f, 160.0f, 100.0f, 29, sedan);
+	Ride59Watch(a, 130.0f, 160.0f, 2200);
+	g_dropOn = false;
+	CHECK(g_r59Wide == 0 && NthLogLineHas("sidestep: none for ", g_r59none0, "sidestep: none for Sedan02_Postwar (layer 29): wide, the left lane (80 across) drops away: no ground within 90 under it ") &&
+	          g_r59EndV < 100.0f,
+	      "W5: \"sidestep: none for Sedan02_Postwar (layer 29): wide, the left lane (80 across) drops away: no ground within 90 under it .. along (SidestepWide)\", no start (%d), stopped (%.0f)", g_r59Wide,
+	      g_r59EndV);
+	Ride59Off(wideKeys);
+
+	/* W6: on the terrain's layer, and with no reference: never, no line; the ride's count */
+	for (int k = 0; k < 2; k++) {
+		printf("sidestep W6: W1's car %s: no sidestep, no \"sidestep:\" line; the ride's count at its end:\n", k ? "with no reference of its own (precombined geometry)" : "on layer 13 (terrain)");
+		Ride59On(wideKeys);
+		Car59(0, a, 130.0f, 160.0f, 100.0f, k ? 1 : 13, k ? NULL : sedan);
+		Ride59Watch(a, 130.0f, 160.0f, 2200);
+		CHECK(g_r59Lines == 0 && g_r59EndV < 100.0f, "W6%c: no \"sidestep:\" line (%d), stopped (%.0f)", 'a' + k, g_r59Lines, g_r59EndV);
+		Ride59Off(wideKeys);
+		GetOffAndOn(45.0f);
+		const char *cl = LastLogLine("sidestep: this ride ");
+		CHECK(LogLines("sidestep: this ride ") == g_r59c0 + 1 && cl && strstr(cl, "sidestep: this ride 0 narrow and 0 wide started: 0 over, 0 let go, 0 handed to the rider; 0 not started while steering "
+		                                                                     "(SidestepSteady); wide ones not stepped round: 1 not a placed thing of their kind, 0 too tall, no edge near 0, no room 0, the lane taken 0, no ground 0 (SidestepWide)"),
+		      "W6%c: the ride's end: \"sidestep: this ride 0 narrow and 0 wide started: ...: 1 not a placed thing of their kind, ...\" (%d): %s", 'a' + k, LogLines("sidestep: this ride ") - g_r59c0,
+		      cl ? cl : "(none)\n");
+	}
+
+	/* Tall: W1's car 400 high (a building's corner) */
+	printf("sidestep: W1's car 400 high (a wall, a building's corner): \"wide and tall\", no sidestep:\n");
+	Ride59On(wideKeys);
+	Car59(0, a, 130.0f, 160.0f, 400.0f, 29, sedan);
+	Ride59Watch(a, 130.0f, 160.0f, 2200);
+	CHECK(g_r59Wide == 0 && NthLogLineHas("sidestep: none for ", g_r59none0, "sidestep: none for Sedan02_Postwar (layer 29): wide and tall: the ray 180 up met Sedan02_Postwar ") &&
+	          NthLogLineHas("sidestep: none for ", g_r59none0, " its face: a wall, a building or a cliff, not stepped round (SidestepWideTall)") && g_r59EndV < 100.0f,
+	      "tall: \"sidestep: none for Sedan02_Postwar (layer 29): wide and tall: the ray 180 up met Sedan02_Postwar .. its face: a wall, a building or a cliff, not stepped round (SidestepWideTall)\", no "
+	      "start (%d), stopped (%.0f)", g_r59Wide, g_r59EndV);
+	Ride59Off(wideKeys);
+
+	/* W7: W2's car popped 350 past the front wheel: no room; the closest as SidestepWide=0's */
+	float closest[2];
+	for (int k = 0; k < 2; k++) {
+		printf("sidestep W7: W2's car popped 350 past the front wheel at 900, SidestepWide=%d: %s\n", k ? 0 : 1, k ? "2026-11-15a's stop" : "\"160 across needs .. at .., .. to it\", no start, the same stop");
+		Ride59On(k ? "Sidestep=40\n" : wideKeys);
+		Car59(0, edge + 350.0f, 0.0f, 110.0f, 100.0f, 29, sedan);
+		g_stopW = &g_planes[0];
+		g_stopLeast = 1e9f;
+		Ride59Watch(edge + 350.0f, 0.0f, 110.0f, 2000);
+		closest[k] = g_stopLeast;
+		if (!k)
+			CHECK(g_r59Wide == 0 && NthLogLineHas("sidestep: none for ", g_r59none0, "sidestep: none for Sedan02_Postwar (layer 29): wide, its edge within 120 to the right (the rays 40, 80, 100, 120 out: "
+			                                                                       "met, met, met, pass): 160 across needs "),
+			      "W7: \"sidestep: none for Sedan02_Postwar (layer 29): wide, its edge within 120 to the right (...): 160 across needs .. at .., .. to it (SidestepWide)\", no start (%d)", g_r59Wide);
+		g_stopW = NULL;
+		Ride59Off(k ? "Sidestep=40\n" : wideKeys);
+	}
+	CHECK(closest[0] > 0.0f && fabsf(closest[0] - closest[1]) < 10.0f, "W7: the front wheel %.0f short of it at the closest, SidestepWide=0's %.0f (within 10: WallStop's brake unchanged)", closest[0], closest[1]);
+
+	/* W9: SidestepSteady: the camera swept +-3 deg at 6 Hz (113 deg/s at its fastest) as PostA comes into reach; FaceArc=0 and WallStopArc=0
+	 * (the rays along the heading: the bike's heading follows the sweep, and FaceArc's arc leaves the post to one path) */
+	for (int k = 0; k < 2; k++) {
+		printf("sidestep W9: PostA dead ahead, the camera swept 3 deg either way of the heading at 6 Hz, FaceArc=0, WallStopArc=0: SidestepSteady=%s\n",
+		       k ? "0 (2026-11-15a): started (test 53's false starts)" : "30 (the default): \"not started ...: the rider is steering\", no start, no let-go");
+		const char *keys = k ? "Sidestep=40\nFaceArc=0\nWallStopArc=0\n" : "Sidestep=40\nSidestepSteady=30\nFaceArc=0\nWallStopArc=0\n";
+		Ride59On(keys);
+		Thing49(0, a, 0.0f, 10.0f, 0.0f, 60.0f, RefThing(2, "PostA"));
+		g_r59SweepAmp = 3.0f;
+		g_r59SweepHz = 6.0f;
+		Ride59Watch(a, 0.0f, 10.0f, 1800);
+		g_camYaw = g_r59H;
+		if (!k)
+			CHECK(g_r59Narrow == 0 && g_r59Let == 0 && g_r59Steer >= 1 && NthLogLineHas("the rider is steering (the target angle moving ", g_r59st0, "sidestep: not started for PostA: the rider is steering (the target angle moving "),
+			      "W9: \"sidestep: not started for PostA: the rider is steering (the target angle moving N deg/s; SidestepSteady)\" (%d), no start (%d), no let-go (%d) (1bc3f8a: starts and let-gos)",
+			      g_r59Steer, g_r59Narrow, g_r59Let);
+		else
+			CHECK(g_r59Narrow >= 1 && g_r59Steer == 0, "W9: SidestepSteady=0 (the off value): %d start(s) (%d let go), no steering line (%d)", g_r59Narrow, g_r59Let, g_r59Steer);
+		Ride59Off(keys);
+		g_camYaw = PlayerHeading();
+	}
+
+	/* W10: SidestepMouseSide: PostA's sidestep (to the right), the camera 0.1 s in: 8 deg right (toward it), 8 left, 30 right; 8 right at SidestepMouseSide=0 */
+	static const float steps[4] = { 8.0f, -8.0f, 30.0f, 8.0f };
+	for (int k = 0; k < 4; k++) {
+		const char *keys = k == 3 ? "Sidestep=40\n" : "Sidestep=40\nSidestepMouseSide=1\n";
+		printf("sidestep W10: PostA's sidestep to the right, the camera %+.0f deg 0.1 s in%s:\n", steps[k], k == 3 ? ", SidestepMouseSide=0 (the off value: 2026-11-15a)" : "");
+		Ride59On(keys);
+		Thing49(0, a, 0.0f, 10.0f, 0.0f, 60.0f, RefThing(2, "PostA"));
+		g_r59StepAt = 0.1f;
+		g_r59StepDeg = steps[k];
+		Ride59Watch(a, 0.0f, 10.0f, 1800);
+		if (k == 0)
+			CHECK(g_r59Narrow == 1 && g_r59Kept == 1 && NthLogLineHas("toward the open side: kept (SidestepMouseSide)", g_r59k0, "sidestep: the mouse 8.0 deg toward the open side: kept (SidestepMouseSide)") &&
+			          g_r59Let == 0 && g_r59Over == 1 && g_ssPassed && g_ssGapLeast >= 18.0f,
+			      "W10: 8 deg toward the open side: \"sidestep: the mouse 8.0 deg toward the open side: kept (SidestepMouseSide)\" (%d), no let-go (%d), over (%d), past the post %.0f clear (1bc3f8a: "
+			      "let go by the mouse)", g_r59Kept, g_r59Let, g_r59Over, g_ssGapLeast);
+		else if (k == 1)
+			CHECK(g_r59Narrow == 1 && g_r59Let == 1 && NthLogLineHas("sidestep: let go after ", g_r59l0, ": the game's own target moved 8.0 deg (the mouse)") && g_r59Kept == 0,
+			      "W10: 8 deg away from it: \"sidestep: let go after .. s: the game's own target moved 8.0 deg (the mouse)\" (%d), no kept line (%d)", g_r59Let, g_r59Kept);
+		else if (k == 2)
+			CHECK(g_r59Narrow == 1 && g_r59Hand == 1 && NthLogLineHas("sidestep: handed to the rider after ", g_r59h0, ": steering 30.0 deg the same way (the capsule ") && g_r59Let == 0 && g_r59Over == 0,
+			      "W10: 30 deg toward it: \"sidestep: handed to the rider after .. s: steering 30.0 deg the same way (the capsule .. across) (SidestepMouseSide)\" (%d), no let-go (%d), no over (%d)",
+			      g_r59Hand, g_r59Let, g_r59Over);
+		else
+			CHECK(g_r59Narrow == 1 && g_r59Let == 1 && NthLogLineHas("sidestep: let go after ", g_r59l0, ": the game's own target moved 8.0 deg (the mouse)") && g_r59Kept == 0 && g_r59Hand == 0,
+			      "W10: SidestepMouseSide=0, 8 deg toward it: let go by the mouse as 2026-11-15a (%d), no kept or handed line (%d, %d)", g_r59Let, g_r59Kept, g_r59Hand);
+		Ride59Off(keys);
+		g_camYaw = PlayerHeading();
+	}
+
+	/* PullTime (2026-11-15a's slower pull) on: W1 again */
+	printf("sidestep: W1 with [Steer] PullTime=5.5 (2026-11-15a's slower pull, its default): stepped round as with it off:\n");
+	Ride59On("Sidestep=40\nSidestepWide=1\nPullTime=5.5\n");
+	Car59(0, a, 130.0f, 160.0f, 100.0f, 29, sedan);
+	Ride59Watch(a, 130.0f, 160.0f, 2600);
+	CHECK(g_r59Wide == 1 && g_r59Narrow == 0 && g_r59Over == 1 && g_r59Let == 0 && g_ssPassed && g_ssGapLeast >= 18.0f + 5.0f,
+	      "PullTime=5.5: one wide start (%d), no narrow one for the car after it (%d: its thing kept from a new offer 1.5 s), over (%d), no let-go (%d), past the car %.0f clear of its end",
+	      g_r59Wide, g_r59Narrow, g_r59Over, g_r59Let, g_ssGapLeast);
+	Ride59Off("Sidestep=40\nSidestepWide=1\nPullTime=5.5\n");
+
+	/* 2026-11-15b's review (finding 3): W10's post in first person, the mouse still. The game's first-person movement (the fpcam
+	 * unit's g_fpMove59: the controls' target the player's heading), so the target moves with the sidestep's own turn of the heading.
+	 * SidestepMouseSide=1: its own turn out of the target's move: over, no "kept" line (44c9fc2: "the mouse .. deg toward the open
+	 * side: kept" at SidestepMouse, DEF56's 3); 0 (2026-11-15a): let go "by the mouse" within 0.2 s, test 53's and 54's first-person
+	 * let-gos at 5.0-5.3 deg (SidestepMouse 5 there). */
+	for (int k = 0; k < 2; k++) {
+		const char *keys = k ? "Sidestep=40\n" : "Sidestep=40\nSidestepMouseSide=1\n";
+		printf("sidestep (the review, finding 3): PostA's sidestep in first person (the game's target the heading), the mouse still, SidestepMouseSide=%d%s:\n", k ? 0 : 1,
+		       k ? " (the off value: 2026-11-15a)" : "");
+		Ride59On(keys);
+		SidestepFirst59(true);
+		RunFrames(300);
+		Thing49(0, a, 0.0f, 10.0f, 0.0f, 60.0f, RefThing(2, "PostA"));
+		Ride59Watch(a, 0.0f, 10.0f, 1800);
+		SidestepFirst59(false);
+		if (!k)
+			CHECK(g_r59Narrow == 1 && g_r59Over == 1 && g_r59Kept == 0 && g_r59Let == 0 && g_r59Hand == 0 && g_ssPassed && g_ssGapLeast >= 18.0f,
+			      "first person, SidestepMouseSide=1: over (%d), no \"kept\" line (%d; 44c9fc2: its own turn read as the mouse toward the open side), no let-go (%d), not handed (%d), "
+			      "past the post %.0f clear", g_r59Over, g_r59Kept, g_r59Let, g_r59Hand, g_ssGapLeast);
+		else
+			CHECK(g_r59Narrow == 1 && g_r59Let == 1 && NthLogLineHas("sidestep: let go after ", g_r59l0, ": the game's own target moved 3.") &&
+			          NthLogLineHas("sidestep: let go after ", g_r59l0, "(the mouse)") && NthLogNumber("sidestep: let go after ", g_r59l0) < 0.2f && g_r59Kept == 0,
+			      "first person, SidestepMouseSide=0 (the off value): let go by its own turn as 2026-11-15a: \"the game's own target moved 3.x deg (the mouse)\" (%d) after %.2f s, no kept line (%d)",
+			      g_r59Let, NthLogNumber("sidestep: let go after ", g_r59l0), g_r59Kept);
+		Ride59Off(keys);
+		g_camYaw = PlayerHeading();
+	}
+	g_onFrame = GlimpseFrame;
+}
+
+/* 2026-11-15b, mode 25 (caution) after CautionTests56: Caution 50 with SidestepCaution 60, W1's car: found wide by Caution 60's
+ * reach (FaceFind56) and stepped round there, the found line after the start. */
+static void CautionWide59(void)
+{
+	static const char keys[] = "Caution=50\nSidestep=40\nSidestepCaution=60\nSidestepWide=1\n";
+	float *head = (float *)(g_player + 0xC8), edge = 99.6f + 29.9f, a = edge + 800.0f;
+	SetNormal(0.0f, 0.0f, 1.0f);
+	SetState(0);
+	FlatGround();
+	g_camYaw = *head;
+	g_handlerStyle = 2;
+	g_honour = 4;
+	g_capsuleOn = true;
+	Keys(0.0f, 0.0f);
+	g_onFrame = ClimbFrame;
+	SetLive(45.0f);
+	SetCamera(300.0f);
+	SetTilt(30.0f);
+	RunFrames(1000);
+	printf("caution (2026-11-15b): Caution=50, SidestepCaution=60, SidestepWide=1: W1's car (mode 19's) 800 past the front wheel at 900: found wide by Caution 60's reach and stepped round to the "
+	       "left there:\n");
+	Ride59On(keys);
+	int found0 = LogLines("sidestep: Sedan02_Postwar at ");
+	Car59(0, a, 130.0f, 160.0f, 100.0f, 29, RefThing(1, "Sedan02_Postwar"));
+	Ride59Watch(a, 130.0f, 160.0f, 2200);
+	float at = NthLogNumberAfter(g_r59Wword, g_r59w0, ") wide ");
+	CHECK(g_r59Wide == 1 && NthLogLineHas(g_r59Wword, g_r59w0, "its edge within 40 to the left (the rays 20, 40 out: met, pass): to the left, ") && LogLines("sidestep: Sedan02_Postwar at ") == found0 + 1 &&
+	          NthLogLineHas("sidestep: Sedan02_Postwar at ", found0, " (found by Caution 60's reach, SidestepCaution; the throttle Caution 50's): ") && at > 533.0f && g_r59Over == 1 && g_r59Let == 0 &&
+	          g_ssPassed && g_ssGapLeast >= 18.0f + 5.0f,
+	      "the wide start %.0f past the front wheel (past Caution 50's own 533), \"sidestep: Sedan02_Postwar at .. (found by Caution 60's reach, SidestepCaution; the throttle Caution 50's): ...\" (%d), "
+	      "over (%d), no let-go (%d), past it %.0f clear of its end (1bc3f8a: none)", at, LogLines("sidestep: Sedan02_Postwar at ") - found0, g_r59Over, g_r59Let, g_ssGapLeast);
+	Ride59Off(keys);
 	SetLive(0.0f);
 	SetCamera(0.0f);
 	SetTilt(0.0f);
@@ -18484,6 +18935,16 @@ static void OldEsp56Ids(void)
 	      "one \"no CMB_RiderQuickUse or CMB_RideReady (0xBF5-0xBF6, an older ESP)\" line (%d), no \"2 found\" line", LogLines(none));
 }
 
+/* 2026-11-15b, test 54 (the fpcam unit's): mode 15 (roomold), test 42's ESP: no CMB_ViewBack .. CMB_LookKey (0xBFF-0xC02):
+ * one line says so. On 1bc3f8a's DLL: no line. */
+static void OldEsp59Ids(void)
+{
+	printf("the 2026-11-15b build's four globals with an ESP without them:\n");
+	const char *none = "globals: the 2026-11-15b build's 0 of 4 found (0xBFF-0xC02, an older ESP): none used, LookBack, Roll and LookKey at -1 read as 1, 4 and 44, no third person while backing";
+	CHECK(LogLines(none) == 1 && LogLines("globals: the 2026-11-15b build's 4 found") == 0,
+	      "one \"the 2026-11-15b build's 0 of 4 found (0xBFF-0xC02, an older ESP)\" line (%d), no \"4 found\" line", LogLines(none));
+}
+
 /* 2026-11-14a, test 53 (the kit unit's): mode 15 (roomold), test 42's ESP, whose INI names [Look] KitPreview=1 and
  * KitPreviewLog=1: without CMB_KitPreview (0xBF8) and CMB_BikeLookPreview nothing is looked up, written or logged but the
  * settings line (2026-11-10a's behaviour). On c716330's DLL: no settings line. */
@@ -21064,6 +21525,7 @@ static void GearTests55(void)
  *   lines, a "(clutch in)" gear line in the menu's 2 s, no held or resumed line.
  * Then run.sh's DEF54 and DEF56 values back. */
 static void SndWorldStill56(float dt) { (void)dt; }   /* a pausing menu: no game frame (no input event, no movement update, nobody moves) */
+static void SndWorldSlow59(float dt) { (void)dt; Sleep(50); }   /* 2026-11-15b: the same, each frame 55 ms (with RunFrames' own 5) */
 static float g_sndBackT56;
 static void SndWorldBack56(float dt)   /* the world on again: the game's frame, the bike back to its top (g_topCap, else 900) over 0.25 s and kept there */
 {
@@ -21187,6 +21649,13 @@ static void SoundTests56(void)
 	SndGetOff();
 	Ini54Set("Diag", "Paused", "1");
 	Ini54Set("Sound", "MenuHold", "1");
+	/* 2026-11-15b ([Diag] PausedFrames=1, the default; run.sh's DEF59 gives the off value 0 to every mode): the paused watch's frames
+	 * and calls on counts of their own. At 0 (1bc3f8a) a tick that came in the frame right after the time line's quarter-second
+	 * reset of the frame count saw one frame, took the world for running and cut the pause in two: the longer piece logged, the
+	 * shorter under PAUSED56_MIN (t58's 58merge, 58sound and merge5 logs: "2.0 s", the line's one decimal, the cut 2.1 s into the
+	 * pause, its close 5 ms (a frame) after a "time:" line with "the movement update 0 times"; t59's rerun on 1bc3f8a: cut 1.0 s
+	 * in, "1.9 s"). Whether a tick lands in that frame depends on the frames' wall times: the flake. */
+	Ini54Set("Diag", "PausedFrames", "1");
 	int paused0 = LogLines("game: the world paused "), stall0 = LogLines("game: the frame task didn't run for "), late0 = LogLines("s of it paused or out of focus");
 	Keys(0.0f, 0.0f);
 	SndGetOn();
@@ -21256,6 +21725,45 @@ static void SoundTests56(void)
 	      SndDriven(), h.held, h.resumed, h.gearLines, h.clutchLines);
 	g_topCap = 0.0f;
 	SndGetOff();
+
+	/* P2 (2026-11-15b, [Diag] PausedFrames): the world paused 3 s while the game draws about 18 frames a second (a pausing menu on a
+	 * slow machine: each frame 55 ms, the task once a frame). The ticks fall every 2nd frame (110 ms), the time line's reset every
+	 * 5th (0.25 s of frames): every other reset has a tick in the next frame. PausedFrames=1: one line, 2.5-3.2 s. 1bc3f8a (its
+	 * g_queryFrames): a tick after the reset sees one frame and the pause is cut every 0.55 s, pieces under PAUSED56_MIN: no line. */
+	printf("sound (2026-11-15b): [Diag] Paused=1, PausedFrames=1: got on, the world paused 3 s while the game draws 18 frames a second (each frame 55 ms), then 1 s on: one "
+	       "\"game: the world paused ...\" line, 2.5-3.2 s (1bc3f8a: cut into pieces under a second at the time line's resets, no line):\n");
+	Ini54Set("Diag", "Paused", "1");
+	Ini54Set("Diag", "PausedFrames", "1");
+	int p2Lines0 = LogLines("game: the world paused ");
+	SndGetOn();
+	g_onFrame = SndWorldSlow59;
+	RunFrames(3000);
+	g_onFrame = FakeGameFrame;
+	RunFrames(1000);
+	float p2For = NAN;
+	int p2Calls = -1;
+	{
+		static char line[4096];
+		FILE *f = OpenLog();
+		while (f && fgets(line, sizeof(line), f)) {
+			const char *at = strstr(line, "game: the world paused ");
+			if (at && (at = strstr(at, " (")) && sscanf(at, " (%f s: the movement update %d time", &p2For, &p2Calls) != 2)
+				p2For = NAN;
+		}
+		if (f)
+			fclose(f);
+	}
+	int p2Lines = LogLines("game: the world paused ") - p2Lines0;
+	CHECK(p2Lines == 1 && p2For >= 2.5f && p2For <= 3.2f && p2Calls >= 0 && p2Calls < 20,
+	      "P2: %d \"game: the world paused\" line (1): %.2f s (2.5-3.2), the movement update %d times (under 20) (1bc3f8a: none, the pause cut at the time line's resets)", p2Lines,
+	      p2Lines ? p2For : 0.0f, p2Calls);
+	CHECK(LogLines("  frame (2026-11-15b): [Lamp] FrameLead=0 (the lamps' Lead by the task's own interval, as 2026-11-15a) [Diag] FpsFrames=0 (the frame-rate line counts the plugin's tasks, as "
+	               "2026-11-15a) PausedFrames=1 (the paused watch's frames on its own count) (read again on getting on)") >= 1,
+	      "P2: the settings line \"  frame (2026-11-15b): [Lamp] FrameLead=0 (...) [Diag] FpsFrames=0 (...) PausedFrames=1 (the paused watch's frames on its own count) (read again on getting on)\" "
+	      "(DEF59's two others)");
+	SndGetOff();
+	Ini54Set("Diag", "Paused", "0");
+	Ini54Set("Diag", "PausedFrames", "0");
 	Ini54Set("Sound", "HeardRiseGears", "1,1,1,1");
 	Ini54Set("Sound", "ShiftGapGears", "");
 }
@@ -22646,6 +23154,15 @@ static uint8_t g_recPrevWorld[3][0x40];
 static void SetTailRef(uint32_t id) { *(float *)(g_tailRefGlobalsFake[0] + 0x30) = (float)(id >> 16); *(float *)(g_tailRefGlobalsFake[1] + 0x30) = (float)(id & 0xFFFFu); }
 static void SetViewRef(uint32_t id) { *(float *)(g_viewRefGlobalsFake[0] + 0x30) = (float)(id >> 16); *(float *)(g_viewRefGlobalsFake[1] + 0x30) = (float)(id & 0xFFFFu); }
 static void SetCameraFirst(bool first) { *(uint8_t **)(g_playerCam + 0x28) = first ? g_firstState : g_thirdState; }
+static void SidestepFirst59(bool on)   /* 2026-11-15b's review (mode 19): first person (a FirstPersonState made if the mode has none), the fpcam unit's movement */
+{
+	if (!g_firstState) {
+		static const char *firstNames[] = { ".?AVFirstPersonState@@", ".?AVTESCameraState@@" };
+		g_firstState = (uint8_t *)NewObject(MakeClass(firstNames, 2), 0x200);
+	}
+	SetCameraFirst(on);
+	g_fpMove59 = g_fpFirst59 = on;
+}
 static float *TailColour(int i) { return (float *)(g_tailLightObj[i] + 0x12C); }
 static float *TailDimmer(int i) { return (float *)(g_tailLightObj[i] + 0x144); }
 static void TailBase(int i) { memcpy(TailColour(i), g_tailBase, 12); *TailDimmer(i) = 0.75f; }
@@ -22716,7 +23233,7 @@ static bool g_fakePitchLocked, g_fakeLookX;
 static float FakePitch(void) { return g_fakePitchLocked ? g_fakePitchOwn : -g_fakePitchSign * *(const float *)(g_player + 0xC0) * DEG; }
 static void FakeCameraTurn(void)
 {
-	float h = *(const float *)(g_player + 0xC8), p = FakePitch() / DEG, c = cosf(h), sn = sinf(h), cp = cosf(p), sp = sinf(p);
+	float h = *(const float *)(g_player + 0xC8) + g_b59LookYaw, p = FakePitch() / DEG, c = cosf(h), sn = sinf(h), cp = cosf(p), sp = sinf(p);   /* 2026-11-15b: + the look-back's yaw (0 elsewhere) */
 	const float H[9] = { c, sn, 0, -sn, c, 0, 0, 0, 1 }, X[9] = { 1, 0, 0, 0, cp, -sp, 0, sp, cp }, B[9] = { 0, -1, 0, 1, 0, 0, 0, 0, 1 };
 	float HX[9], E[9];
 	MulM3(H, X, HX);
@@ -26410,6 +26927,655 @@ static void ViewTests58(void)
 	RunFrames(300);
 }
 
+/* ---- 2026-11-15b (test 54's "can turning with A and D be the same as when turning with mouse", test 53's lean in first
+ * person and its looking back while reversing; the fpcam unit's): [View] CameraTurn, Roll, LookBack, LookKey, [Steer]
+ * FirstKeys, [Diag] TurnEachRide -----------------------------------------------------------------------------------------
+ * Run inside ViewTests56 after ViewTests58. The fake game's FirstPersonState::GetRotation (vtable slot 0x0C, in its image)
+ * answers the camera's turn from the player's heading and pitch (FakeCameraTurn's matrix as a quaternion, w x y z), and the
+ * camera update after each task (g_v59Rot, first person) asks the current state's slot and puts the camera root's world
+ * rotation at the answer's matrix (g_v59Conv 1), at its transpose (2: the answer made for that), or keeps FakeCameraTurn's
+ * own (3: the update turns the camera another way). The rides go through the game's input and movement (FakeGameFrame): in
+ * first person the move vector's x strafes and the mouse (g_v59Mouse, rad/s) turns the player's heading before the
+ * movement, as the game's own look does. The camera's look is read off the root: its +y column (FakeCameraTurn's look axis)
+ * against the player's heading, its +z (up) leaning across the bike. */
+static bool g_v59Rot;
+static int g_v59Conv = 1;
+static float g_v59Mouse, g_v59MouseSum, g_v59YawAbsMin;
+static int g_v59Calls;
+static char g_v59Ini[16384];
+typedef void (*V59GetR)(uint8_t *state, float *q);
+static void V59Mat3ToQuat(const float R[9], float q[4])
+{
+	float tr = R[0] + R[4] + R[8], s;
+	if (tr > 0.0f) {
+		s = sqrtf(tr + 1.0f) * 2.0f;
+		q[0] = 0.25f * s; q[1] = (R[7] - R[5]) / s; q[2] = (R[2] - R[6]) / s; q[3] = (R[3] - R[1]) / s;
+	} else if (R[0] > R[4] && R[0] > R[8]) {
+		s = sqrtf(1.0f + R[0] - R[4] - R[8]) * 2.0f;
+		q[0] = (R[7] - R[5]) / s; q[1] = 0.25f * s; q[2] = (R[1] + R[3]) / s; q[3] = (R[2] + R[6]) / s;
+	} else if (R[4] > R[8]) {
+		s = sqrtf(1.0f + R[4] - R[0] - R[8]) * 2.0f;
+		q[0] = (R[2] - R[6]) / s; q[1] = (R[1] + R[3]) / s; q[2] = 0.25f * s; q[3] = (R[5] + R[7]) / s;
+	} else {
+		s = sqrtf(1.0f + R[8] - R[0] - R[4]) * 2.0f;
+		q[0] = (R[3] - R[1]) / s; q[1] = (R[2] + R[6]) / s; q[2] = (R[5] + R[7]) / s; q[3] = 0.25f * s;
+	}
+}
+static void V59QuatToMat3(const float q0[4], float R[9])   /* the engine's (Hamilton's) matrix of a unit quaternion, x' = R x */
+{
+	float n = sqrtf(q0[0] * q0[0] + q0[1] * q0[1] + q0[2] * q0[2] + q0[3] * q0[3]);
+	float w = q0[0] / n, x = q0[1] / n, y = q0[2] / n, z = q0[3] / n;
+	R[0] = 1.0f - 2.0f * (y * y + z * z); R[1] = 2.0f * (x * y - w * z);        R[2] = 2.0f * (x * z + w * y);
+	R[3] = 2.0f * (x * y + w * z);        R[4] = 1.0f - 2.0f * (x * x + z * z); R[5] = 2.0f * (y * z - w * x);
+	R[6] = 2.0f * (x * z - w * y);        R[7] = 2.0f * (y * z + w * x);        R[8] = 1.0f - 2.0f * (x * x + y * y);
+}
+static void V59T(const float a[9], float t[9])
+{
+	for (int i = 0; i < 3; i++)
+		for (int j = 0; j < 3; j++)
+			t[i * 3 + j] = a[j * 3 + i];
+}
+static void V59CameraE(float E[9])   /* FakeCameraTurn's: the heading's turn, then the pitch's */
+{
+	float h = *(const float *)(g_player + 0xC8), p = FakePitch() / DEG, c = cosf(h), sn = sinf(h), cp = cosf(p), sp = sinf(p);
+	const float H[9] = { c, sn, 0, -sn, c, 0, 0, 0, 1 }, X[9] = { 1, 0, 0, 0, cp, -sp, 0, sp, cp };
+	MulM3(H, X, E);
+}
+static void FakeFirstGetR59(uint8_t *state, float *q)   /* the fake game's FirstPersonState::GetRotation */
+{
+	float E[9], Et[9];
+	(void)state;
+	V59CameraE(E);
+	if (g_v59Conv == 2) {
+		V59T(E, Et);
+		V59Mat3ToQuat(Et, q);
+	} else {
+		V59Mat3ToQuat(E, q);
+	}
+	g_v59Calls++;
+}
+static V59GetR V59Slot(void) { return (V59GetR)(*(void ***)g_firstState)[0x0C]; }
+static void V59Cam(float *yaw, float *roll, float *pitch)   /* the camera root's look (deg, + right of the heading), its up's lean across the bike (+ right), its pitch (+ up) */
+{
+	float R[9];
+	LoadRotation((const float *)(g_eyeNode + 0x70), R, g_rootTransposed);
+	float h = *(const float *)(g_player + 0xC8), lx = R[1], ly = R[4], lz = R[7], ux = R[2], uy = R[5], uz = R[8];
+	if (yaw)
+		*yaw = remainderf(atan2f(lx, ly) - h, 6.2831853f) * DEG;
+	if (pitch)
+		*pitch = atan2f(lz, sqrtf(lx * lx + ly * ly)) * DEG;
+	if (roll)
+		*roll = atan2f(ux * cosf(h) - uy * sinf(h), uz) * DEG;
+}
+static void V59Ride(float dt)
+{
+	float *head = (float *)(g_player + 0xC8);
+	g_fpFirst59 = *(uint8_t **)(g_playerCam + 0x28) == g_firstState;
+	g_fpArmed59 = !g_fpFirst59 && ((*(const uint32_t *)(g_player + 0x134) >> 1) & 7u) != 0;   /* 2026-11-15b's review: a weapon drawn in third person */
+	if (g_fpFirst59)
+		*head = fmodf(*head + g_v59Mouse * dt + 6.2831853f, 6.2831853f);   /* the game's own look: the mouse turns the player */
+	else
+		g_camYaw += g_v59Mouse * dt;
+	g_v59MouseSum += g_v59Mouse * dt * DEG;
+	FakeGameFrame(dt);
+	if (g_eyeLive && g_staleFrames <= 0) {   /* the eye on the bone before the task, as EyeRide */
+		float eye[3];
+		SyncFakeWorld();
+		WorldOfBone(g_comNode, g_bonesOriginal, g_eyeBike, eye);
+		memcpy(g_eyeNode + 0xA0, eye, 12);
+	}
+	if (!g_v59Rot)
+		FakeCameraTurn();
+}
+static void V59After(float dt)
+{
+	V56After(dt);   /* the eye after the frame and FakeCameraTurn (ViewAfter), the tip's and the renderer's watches */
+	if (!g_v59Rot || *(uint8_t **)(g_playerCam + 0x28) != g_firstState)
+		return;
+	float q[4], R[9], Rt[9];
+	V59Slot()(g_firstState, q);
+	if (g_v59Conv == 3)
+		return;   /* the camera turned its own way: FakeCameraTurn's stays */
+	V59QuatToMat3(q, R);
+	if (g_v59Conv == 2) {
+		V59T(R, Rt);
+		memcpy(R, Rt, sizeof(R));
+	}
+	StoreRotation((float *)(g_eyeNode + 0x70), R, g_rootTransposed);
+	if (g_v59Rec) {
+		float y;
+		V59Cam(&y, NULL, NULL);
+		if (fabsf(y) < g_v59YawAbsMin)
+			g_v59YawAbsMin = fabsf(y);
+	}
+}
+static void V59On(void)   /* off the bike (the keys read again on getting on), on in third person 0.3 s, into first person until the view bike shows */
+{
+	Keys(0.0f, 0.0f);
+	g_v59Mouse = 0.0f;
+	LookGetOff();
+	LookGetOn(1000);
+	SetCameraFirst(false);
+	RunFrames(300);
+	SetCameraFirst(true);
+	for (int i = 0; i < 40 && !ViewShows(0); i++)
+		RunFrames(10);
+	RunFrames(300);
+}
+static float V59Back(void) { return *(const float *)(g_fp59Fake[1] + 0x30); }   /* CMB_ViewBackNow */
+static void ViewTests59(void)
+{
+	float *head = (float *)(g_player + 0xC8), *ax = (float *)(g_player + 0xC0), *tipG = (float *)(g_viewTipFake + 0x30), *menuG = (float *)(g_viewMenuFake + 0x30);
+	float p0[3], h0 = *head, yaw, pitch;
+	memcpy(p0, PlayerPos(), 12);
+	FILE *f = fopen("CMB_Slope.ini", "rb");
+	size_t n = f ? fread(g_v59Ini, 1, sizeof(g_v59Ini) - 1, f) : 0;
+	g_v59Ini[n] = 0;
+	if (f)
+		fclose(f);
+	(*(void ***)g_firstState)[0x0C] = (void *)FakeFirstGetR59;   /* the fake game's own, in its image */
+	void (*onFrame)(float) = g_onFrame, (*afterTask)(float) = g_afterTask;
+	g_onFrame = V59Ride;
+	g_afterTask = V59After;
+	g_v59Rot = g_fpMove59 = true;
+	g_v59Conv = 1;
+	g_lookSpeed = g_lookTurn = g_lookDecel = 0.0f;
+	g_lookKeys = false;
+	g_camYaw = *head;
+	g_handlerStyle = 2;
+	g_honour = 4;
+	*ax = 0.0f;
+	*tipG = 0.0f;
+	SetCameraFirst(false);
+	LookGetOff();
+	*head = 1.0f;   /* a heading whose matrix isn't its own transpose: the probe settles at its first look */
+	g_camYaw = *head;
+
+	printf("view (2026-11-15b, test 54): the round's keys at their defaults (none in the INI), the four globals:\n");
+	Ini56Unset("View", "CameraTurn");
+	Ini56Unset("View", "Roll");
+	Ini56Unset("View", "LookBack");
+	Ini56Unset("View", "LookKey");
+	Ini56Unset("Steer", "FirstKeys");
+	Ini56Unset("Steer", "FirstKeysArmed");   /* 2026-11-15b's review: its default (1) too; it acts only with a weapon drawn (none before the review's checks) */
+	const char *keysT = "  view (2026-11-15b, test 54): CameraTurn=1 (FirstPersonState's GetRotation wrapped: the look and the view's lean) Roll=-1 (the MCM's CMB_ViewRoll, 4 in a "
+	                    "new save) LookBack=-1 (the MCM's CMB_ViewBack, 1 in a new save) LookBackAngle=150 LookBackHead=60 LookBackSide=1 LookBackAfter=0.3 LookBackIn=0.35 "
+	                    "LookBackOut=0.3 LookBackLinger=0.5 LookBackSwing=0.4 LookMax=150 LookSnap=0.15; [Steer] FirstKeys=1 (the side keys turn the bike in first person, as in "
+	                    "third person); [Diag] TurnEachRide=0 (read again on getting on)";
+	int keys0 = LogLines(keysT), wrap0 = LogLines("): GetRotation (slot 0xC, +0x"), probe0 = LogLines("camera: GetRotation's answer (");
+	V59On();
+	const char *keyLine = LastLogLine("  view: LookKey=-1: the MCM's CMB_LookKey 44");
+	CHECK(LogLines(keysT) == keys0 + 1 && keyLine && strstr(keyLine, "(read again on getting on)") &&
+	          LogLines("globals: the 2026-11-15b build's 4 found, CMB_ViewBack to CMB_LookKey (FE005BFF-FE005C02)") == 1,
+	      "on getting on one line of the round's keys at their defaults (CameraTurn 1, Roll -1, LookBack -1 and its eight, LookMax 150, LookSnap 0.15, FirstKeys 1, TurnEachRide 0), "
+	      "the look key's line from the MCM's 44 (%s), and at the start \"globals: the 2026-11-15b build's 4 found\"", keyLine ? keyLine : "(none)\n");
+	const char *probe = LastLogLine("camera: GetRotation's answer (");
+	CHECK(LogLines("): GetRotation (slot 0xC, +0x") == wrap0 + 1 && LogLines("camera: FirstPersonState (vtable +0x") >= 1 && V59Slot() != FakeFirstGetR59 &&
+	          LogLines("camera: GetRotation's answer (") == probe0 + 1 && probe && strstr(probe, ": the root's rotation is the answer's matrix (") && g_v59Calls > 0,
+	      "the first riding frame in first person: FirstPersonState's GetRotation (slot 0xC) wrapped once (the slot ours), the game's still asked (%d calls), and once the probe: %s",
+	      g_v59Calls, probe ? probe : "(none)\n");
+
+	printf("view: [View] Roll=-1 (the MCM's CMB_ViewRoll 4), first person at speed turning by D (FirstKeys), then by A, 3 s each:\n");
+	Keys(0.0f, 1.0f);
+	RunFrames(2000);
+	Keys(1.0f, 1.0f);
+	RunFrames(3000);
+	float rollR;
+	V59Cam(&yaw, &rollR, NULL);
+	const char *eyeR = LastLogLine("view: first person: the eye at ");
+	float leaned = NAN, lean = NAN;
+	const char *lp = eyeR ? strstr(eyeR, " (the look key), leaned ") : NULL;
+	if (!lp && eyeR)
+		lp = strstr(eyeR, " (ahead), leaned ");
+	if (lp)
+		sscanf(strstr(lp, "leaned ") + 7, "%f deg (the bike's lean %f)", &leaned, &lean);
+	const char *followT = "camera: the turn followed (10 frames within 0.01 of the turned answer): the camera's look ";
+	const char *follow = LastLogLine(followT);
+	float seenR = NAN, askedR = NAN;
+	const char *fl = follow ? strstr(follow, "the view leaned ") : NULL;
+	if (fl)
+		sscanf(fl, "the view leaned %f deg (%f asked", &seenR, &askedR);
+	CHECK(fabsf(rollR - 4.0f * lean / 14.0f) < 0.3f && lean > 10.0f && fabsf(leaned - 4.0f * lean / 14.0f) < 0.1f && fabsf(yaw) < 0.5f && LogLines(followT) == 1 &&
+	          fabsf(seenR - askedR) < 0.05f && askedR > 0.0f,
+	      "turning right: the camera leaned %.2f deg right (4 x the bike's lean %.1f / MaxLean 14 = %.2f; 2026-11-15a: 0), looking %.2f deg off the heading, the eye line's \"leaned %.1f\"; "
+	      "the followed line once: %s", rollR, lean, 4.0f * lean / 14.0f, yaw, leaned, follow ? follow : "(none)\n");
+	Keys(-1.0f, 1.0f);
+	RunFrames(3000);
+	float rollL;
+	V59Cam(&yaw, &rollL, NULL);
+	CHECK(rollL < -3.0f && rollL > -4.3f, "turning left: the camera leaned %.2f deg (left; -4 at the bike's whole lean)", rollL);
+	Keys(0.0f, 0.0f);
+	RunFrames(500);
+
+	printf("view: [Steer] FirstKeys=1, first person, W to speed, then W + D 1 s (the game's first-person movement strafes on x):\n");
+	const char *fkT = "steer: first person: the side keys turn the bike (FirstKeys 1 of the clamp";
+	V59On();
+	int fk0 = LogLines(fkT);
+	Keys(0.0f, 1.0f);
+	RunFrames(2500);
+	float from = *head;
+	g_v59StrafeMax = 0.0f;
+	g_v59Rec = true;
+	Keys(1.0f, 1.0f);
+	RunFrames(1000);
+	g_v59Rec = false;
+	float turned = Turned(from), sideX = MoveInput()[0];
+	CHECK(turned > 45.0f && g_v59StrafeMax < 1.0f && sideX == 0.0f && LogLines(fkT) == fk0 + 1,
+	      "W + D: the bike turned %.0f deg right in 1 s (2026-11-15a: none, the game strafing), the movement %.2f deg off the heading at most (no strafe), the game's x %.2f, the "
+	      "FirstKeys line once (%d)", turned, g_v59StrafeMax, sideX, LogLines(fkT) - fk0);
+	Keys(0.0f, 1.0f);
+	RunFrames(500);
+	SetCameraFirst(false);
+	RunFrames(300);
+	g_camYaw = *head;
+	g_v59StrafeMax = 0.0f;
+	g_v59Rec = true;
+	Keys(1.0f, 1.0f);
+	RunFrames(500);
+	g_v59Rec = false;
+	sideX = MoveInput()[0];
+	CHECK(sideX > 0.1f && g_v59StrafeMax == 0.0f, "third person, FirstKeys=1: W + D as 2026-11-15a: the game gets the side key (x %.2f), the game's turn toward it (no strafe)", sideX);
+	SetCameraFirst(true);
+	Keys(0.0f, 0.0f);
+	RunFrames(800);
+
+	printf("view: [View] LookBack=-1 (the MCM's CMB_ViewBack 1: over the shoulder), first person, back held from a stop, the camera 20 deg down:\n");
+	V59On();
+	*tipG = 20.0f;   /* the eye line's pitch part (the tip doesn't run: no entry into first person) */
+	*ax = 20.0f / DEG;
+	RunFrames(300);
+	const char *lookT = "view: looking back over the right shoulder (backing ", *frontT = "view: back to the front after ";
+	int look0 = LogLines(lookT), front0 = LogLines(frontT);
+	from = *head;
+	Keys(0.0f, -1.0f);
+	RunFrames(950);
+	float yaw1;
+	V59Cam(&yaw1, NULL, &pitch);
+	g_v59MouseSum = 0.0f;
+	g_v59Mouse = 60.0f / DEG;
+	RunFrames(500);
+	g_v59Mouse = 0.0f;
+	float mouse = g_v59MouseSum;
+	RunFrames(2300);
+	float yaw2, turnedBack = Turned(from);
+	V59Cam(&yaw2, NULL, NULL);
+	const char *eyeB = LastLogLine("view: first person: the eye at ");
+	CHECK(fabsf(yaw1 - 150.0f) < 1.5f && fabsf(remainderf(yaw2 - 150.0f - mouse, 360.0f)) < 1.0f && fabsf(turnedBack) < 0.5f && LogLines(lookT) == look0 + 1,
+	      "backing: 0.95 s in the camera %.1f deg right of the heading (150; 2026-11-15a: 0), the mouse's %.1f deg more turned only the head (%.1f; the heading moved %.2f deg), one "
+	      "\"looking back over the right shoulder\" line", yaw1, mouse, yaw2, turnedBack);
+	CHECK(eyeB && strstr(eyeB, "; looking 20 deg down (the camera)") && strstr(eyeB, " of the bike (backing), leaned "),
+	      "looking back (%.0f deg), the camera 20 deg down: CameraPitch reads it there (the camera's own yaw, not the heading's): %s", yaw2, eyeB ? eyeB : "(none)\n");
+	Keys(0.0f, 1.0f);
+	RunFrames(450);
+	float yaw3;
+	V59Cam(&yaw3, NULL, NULL);
+	CHECK(fabsf(yaw3) < 1.0f && LogLines(frontT) == front0 + 1, "forward: the camera back to the front within 0.45 s (%.2f deg off the heading), one \"back to the front\" line", yaw3);
+	*tipG = 0.0f;
+	*ax = 0.0f;
+	Keys(0.0f, 0.0f);
+	RunFrames(1500);
+
+	printf("view: back with A held from a stop (the left shoulder), then D held (through the back to the right), then blocked from behind:\n");
+	Keys(-1.0f, -1.0f);
+	RunFrames(950);
+	float yawL;
+	V59Cam(&yawL, NULL, NULL);
+	g_v59YawAbsMin = 1000.0f;
+	g_v59Rec = true;
+	Keys(1.0f, -1.0f);
+	RunFrames(1000);
+	g_v59Rec = false;
+	float yawS;
+	V59Cam(&yawS, NULL, NULL);
+	CHECK(fabsf(yawL + 150.0f) < 1.5f && fabsf(remainderf(yawS + 210.0f, 360.0f)) < 1.5f && g_v59YawAbsMin > 145.0f,
+	      "A: the camera %.1f deg (-150: over the left shoulder); D held 1 s: %.1f (-210 through the back), never nearer the front than %.1f deg", yawL, yawS, g_v59YawAbsMin);
+	Keys(0.0f, 1.0f);
+	RunFrames(500);
+	Keys(0.0f, 0.0f);
+	RunFrames(1500);
+	g_honour = 0;   /* the bike can't be moved: blocked from behind */
+	Keys(0.0f, -1.0f);
+	RunFrames(950);
+	float yawB;
+	V59Cam(&yawB, NULL, NULL);
+	g_honour = 4;
+	Keys(0.0f, 1.0f);
+	RunFrames(500);
+	CHECK(fabsf(yawB - 150.0f) < 1.5f, "blocked from behind (the push not honoured), back held: the camera %.1f deg right of the heading all the same", yawB);
+	Keys(0.0f, 0.0f);
+	RunFrames(1500);
+
+	printf("view: the Pip-Boy (CMB_ViewMenu 1) while looking back, then closed:\n");
+	Keys(0.0f, -1.0f);
+	RunFrames(950);
+	float yawM0, yawM1, rollM1, yawM2;
+	V59Cam(&yawM0, NULL, NULL);
+	*menuG = 1.0f;
+	RunFrames(100);
+	V59Cam(&yawM1, &rollM1, NULL);
+	*menuG = 0.0f;
+	RunFrames(700);
+	V59Cam(&yawM2, NULL, NULL);
+	Keys(0.0f, 1.0f);
+	RunFrames(500);
+	CHECK(fabsf(yawM0 - 150.0f) < 1.5f && fabsf(yawM1) < 0.5f && fabsf(rollM1) < 0.5f && fabsf(yawM2 - 150.0f) < 1.5f,
+	      "looking back (%.1f), the menu open: the camera on the heading within 0.1 s (%.2f, leaned %.2f), closed: back over the shoulder (%.1f)", yawM0, yawM1, rollM1, yawM2);
+	Keys(0.0f, 0.0f);
+	RunFrames(500);
+
+	printf("view: [View] LookKey=56 (Left Alt), first person at speed, held with the mouse at 90 deg/s for 1 s, then let go:\n");
+	Ini54Set("View", "LookKey", "56");
+	V59On();
+	Keys(0.0f, 1.0f);
+	RunFrames(2000);
+	const char *heldT = "view: the look key (Left Alt) held at ", *letT = "view: the look key let go after ";
+	int held0 = LogLines(heldT), let0 = LogLines(letT);
+	g_testVk = 0xA4;
+	g_testKeyHeld = true;
+	RunFrames(150);
+	from = *head;
+	g_v59MouseSum = 0.0f;
+	g_v59Mouse = 90.0f / DEG;
+	RunFrames(1000);
+	g_v59Mouse = 0.0f;
+	mouse = g_v59MouseSum;
+	RunFrames(100);
+	float yawK, movedK = Turned(from);
+	V59Cam(&yawK, NULL, NULL);
+	g_testKeyHeld = false;
+	RunFrames(250);
+	float yawK2;
+	V59Cam(&yawK2, NULL, NULL);
+	CHECK(fabsf(yawK - mouse) < 1.0f && fabsf(movedK) < 0.5f && LogLines(heldT) == held0 + 1,
+	      "held: the mouse's %.1f deg turned the camera %.1f deg off the heading (2026-11-15a: the bike), the heading %.2f deg; one \"held\" line", mouse, yawK, movedK);
+	CHECK(fabsf(yawK2) < 1.0f && LogLines(letT) == let0 + 1, "let go: the camera on the heading within 0.25 s (%.2f deg), one \"let go\" line", yawK2);
+	g_testVk = 0;
+	Keys(0.0f, 0.0f);
+	RunFrames(800);
+
+	printf("view: [View] LookBack=2 (third person while backing), first person, back held, the script's switch to third person, then forward:\n");
+	Ini54Set("View", "LookBack", "2");
+	V59On();
+	const char *askT = "view: third person while backing asked (CMB_ViewBackNow 1; LookBack 2)", *overT = "view: third person while backing over after ";
+	int ask0 = LogLines(askT), over0 = LogLines(overT);
+	Keys(0.0f, -1.0f);
+	RunFrames(250);
+	float before = V59Back();
+	RunFrames(400);
+	float asked = V59Back();
+	float yaw2a;
+	V59Cam(&yaw2a, NULL, NULL);
+	SetCameraFirst(false);
+	RunFrames(500);
+	float kept = V59Back();
+	Keys(0.0f, 1.0f);
+	RunFrames(200);
+	float over = V59Back();
+	SetCameraFirst(true);
+	CHECK(before == 0.0f && asked == 1.0f && kept == 1.0f && over == 0.0f && fabsf(yaw2a) < 0.5f && LogLines(askT) == ask0 + 1 && LogLines(overT) == over0 + 1,
+	      "CMB_ViewBackNow %g at 0.25 s, %g at 0.65 s (the camera not turned: %.2f), %g through the switch to third person, %g after forward; one \"asked\" line, one \"over\" line",
+	      before, asked, yaw2a, kept, over);
+	Ini54Set("View", "LookBack", "1");
+	Keys(0.0f, 0.0f);
+	RunFrames(500);
+
+	printf("view: [Diag] TurnEachRide=1, a camera update that makes the root's rotation the answer's transpose:\n");
+	Ini54Set("Diag", "TurnEachRide", "1");
+	g_v59Conv = 2;
+	probe0 = LogLines("camera: GetRotation's answer (");
+	*head = 1.0f;   /* a heading whose matrix isn't its own transpose: the probe settles at once */
+	g_camYaw = *head;
+	V59On();
+	probe = LastLogLine("camera: GetRotation's answer (");
+	char probeT[1024];
+	snprintf(probeT, sizeof(probeT), "%s", probe ? probe : "(none)\n");
+	Keys(0.0f, -1.0f);
+	RunFrames(950);
+	float yawT;
+	V59Cam(&yawT, NULL, NULL);
+	Keys(0.0f, 1.0f);
+	RunFrames(500);
+	CHECK(LogLines("camera: GetRotation's answer (") == probe0 + 1 && strstr(probeT, ": the root's rotation is its transpose (") && fabsf(yawT - 150.0f) < 1.5f,
+	      "the probe again on getting on: %.*s; backing: the camera %.1f deg right of the heading (150)", (int)strcspn(probeT, "\n"), probeT, yawT);
+	Keys(0.0f, 0.0f);
+	RunFrames(500);
+
+	printf("view: a camera update that turns the camera its own way (the answer the root's, a turn not taken), backing:\n");
+	g_v59Conv = 3;
+	V59On();
+	const char *notT = "camera: the turn not followed: the camera root ", *fbT = "view: LookBack 1 (over the shoulder) without a camera to turn (the camera's turn off this session)";
+	const char *askFbT = "view: third person while backing asked (CMB_ViewBackNow 1; LookBack 1, the camera not turnable)";
+	int not0 = LogLines(notT), fb0 = LogLines(fbT), askFb0 = LogLines(askFbT);
+	Keys(0.0f, -1.0f);
+	RunFrames(1300);
+	float fbBack = V59Back(), yawI;
+	V59Cam(&yawI, NULL, NULL);
+	Keys(0.0f, 1.0f);
+	RunFrames(300);
+	float fbOver = V59Back();
+	CHECK(LogLines(notT) == not0 + 1 && LogLines(fbT) == fb0 + 1 && LogLines(askFbT) == askFb0 + 1 && fbBack == 1.0f && fbOver == 0.0f && fabsf(yawI) < 0.5f,
+	      "one \"the turn not followed\" line, one fallback line, CMB_ViewBackNow %g backing and %g after forward, the camera %.2f deg off the heading (its own): %s", fbBack, fbOver,
+	      yawI, LastLogLine(notT) ? LastLogLine(notT) : "(none)\n");
+	g_v59Conv = 1;
+	Keys(0.0f, 0.0f);
+	V59On();
+
+	printf("view: third person on the bike: GetRotation's answer through the wrapper bit for bit:\n");
+	SetCameraFirst(false);
+	RunFrames(300);
+	float qa[4], qb[4];
+	V59Slot()(g_firstState, qa);
+	FakeFirstGetR59(g_firstState, qb);
+	CHECK(V59Slot() != FakeFirstGetR59 && memcmp(qa, qb, sizeof(qa)) == 0, "the slot ours, its answer in third person the game's own bit for bit (%.4f %.4f %.4f %.4f)", qa[0], qa[1], qa[2], qa[3]);
+
+	/* ---- 2026-11-15b's review (findings 1 and 4): a weapon drawn (the player's weapon state, ActorState +0x134 bits 1-3, 3 = drawn;
+	 * the weapons unit's globals are there in mode 20 for these, every weapons key off): no look back while backing (LookBack 1), no
+	 * third person (LookBack 2: the worn bike's swaps with a handgun posed in third person), the look key within 60 deg, the view's
+	 * lean as unarmed; FirstKeysArmed: in third person the side keys turn the bike and the game gets no strafe (the fake's movement
+	 * with a weapon drawn: the body facing the camera, x strafing), 0 = the strafe (as merged). */
+	uint32_t *ws = (uint32_t *)(g_player + 0x134);
+	const char *armedLookT = "view: backing with a weapon drawn (the weapon state 3): no look back over the shoulder (LookBack 1); the look key turns the head 60 deg at most";
+	printf("view (2026-11-15b's review, finding 1): LookBack 1, a weapon drawn: first person at speed turning by D 3 s (the lean), then back held from a stop, then the weapon away and back again:\n");
+	*head = 1.0f;   /* a heading whose matrix isn't its own transpose: TurnEachRide's probe settles at once, kept for the rides below */
+	g_camYaw = *head;
+	V59On();
+	Ini54Set("Diag", "TurnEachRide", "0");
+	*ws = 3u << 1;
+	Keys(0.0f, 1.0f);
+	RunFrames(2000);
+	Keys(1.0f, 1.0f);
+	RunFrames(3000);
+	float rollW;
+	V59Cam(NULL, &rollW, NULL);
+	const char *eyeW = LastLogLine("view: first person: the eye at ");
+	float leanW = NAN;
+	const char *lw = eyeW ? strstr(eyeW, " (the bike's lean ") : NULL;
+	if (lw)
+		sscanf(lw, " (the bike's lean %f", &leanW);
+	Keys(0.0f, 0.0f);
+	RunFrames(3000);   /* the throttle's run-down after 5 s at speed: stopped before back (it reverses only then) */
+	int lookW0 = LogLines(lookT), armedW0 = LogLines(armedLookT);
+	Keys(0.0f, -1.0f);
+	RunFrames(950);
+	float yawW;
+	V59Cam(&yawW, NULL, NULL);
+	int lookW = LogLines(lookT) - lookW0;
+	Keys(0.0f, 1.0f);
+	RunFrames(500);
+	Keys(0.0f, 0.0f);
+	*ws = 0;
+	RunFrames(1500);
+	Keys(0.0f, -1.0f);
+	RunFrames(950);
+	float yawU;
+	V59Cam(&yawU, NULL, NULL);
+	Keys(0.0f, 1.0f);
+	RunFrames(500);
+	Keys(0.0f, 0.0f);
+	RunFrames(800);
+	CHECK(fabsf(rollW - 4.0f * leanW / 14.0f) < 0.3f && leanW > 10.0f && fabsf(yawW) < 0.5f && lookW == 0 && LogLines(armedLookT) == armedW0 + 1 && fabsf(yawU - 150.0f) < 1.5f &&
+	          LogLines(lookT) == lookW0 + 1,
+	      "a weapon drawn: turning, the camera leaned %.2f deg (4 x the bike's lean %.1f / 14, as unarmed); backing 0.95 s the camera %.2f deg off the heading (44c9fc2: 150), no \"looking "
+	      "back\" line (%d), one \"backing with a weapon drawn ... no look back over the shoulder (LookBack 1) ...\" line; the weapon away: backing %.1f deg (150), its \"looking back\" line",
+	      rollW, leanW, yawW, lookW, yawU);
+
+	printf("view (the review, finding 1): LookBack 2, a weapon drawn: back held 0.65 s; the weapon away: back held, then drawn while third person is asked:\n");
+	Ini54Set("View", "LookBack", "2");
+	V59On();
+	*ws = 3u << 1;
+	RunFrames(200);
+	const char *noThirdT = "view: backing with a weapon drawn (the weapon state 3): no third person (LookBack 2)";
+	int askW0 = LogLines(askT), noThird0 = LogLines(noThirdT);
+	Keys(0.0f, -1.0f);
+	RunFrames(650);
+	float backW = V59Back(), yawW2;
+	V59Cam(&yawW2, NULL, NULL);
+	int askW = LogLines(askT) - askW0, noThirdW = LogLines(noThirdT) - noThird0;
+	Keys(0.0f, 1.0f);
+	RunFrames(300);
+	Keys(0.0f, 0.0f);
+	*ws = 0;
+	RunFrames(800);
+	Keys(0.0f, -1.0f);
+	RunFrames(650);
+	float backU = V59Back();
+	*ws = 3u << 1;
+	RunFrames(100);
+	float backD = V59Back();
+	const char *overW = LastLogLine(overT);
+	bool overWhy = overW && strstr(overW, "(a weapon drawn): CMB_ViewBackNow 0");
+	Keys(0.0f, 1.0f);
+	RunFrames(300);
+	Keys(0.0f, 0.0f);
+	*ws = 0;
+	RunFrames(800);
+	Ini54Set("View", "LookBack", "1");
+	CHECK(backW == 0.0f && askW == 0 && noThirdW == 1 && fabsf(yawW2) < 0.5f && backU == 1.0f && backD == 0.0f && overWhy,
+	      "a weapon drawn: CMB_ViewBackNow %g backing 0.65 s (44c9fc2: 1), no \"asked\" line (%d), one \"... no third person (LookBack 2)\" line, the camera %.2f deg off; the weapon away: %g, "
+	      "then drawn: %g within 0.1 s, \"... over after .. s (a weapon drawn): CMB_ViewBackNow 0\" (%s)", backW, askW, yawW2, backU, backD, overWhy ? "yes" : "no");
+
+	printf("view (the review, finding 1): LookKey=56 held at speed with a weapon drawn, the mouse at 90 deg/s for 1 s: the head 60 deg at most:\n");
+	V59On();
+	*ws = 3u << 1;
+	Keys(0.0f, 1.0f);
+	RunFrames(2000);
+	g_testVk = 0xA4;
+	g_testKeyHeld = true;
+	RunFrames(150);
+	from = *head;
+	g_v59MouseSum = 0.0f;
+	g_v59Mouse = 90.0f / DEG;
+	RunFrames(1000);
+	g_v59Mouse = 0.0f;
+	mouse = g_v59MouseSum;
+	RunFrames(100);
+	float yawKW, movedKW = Turned(from);
+	V59Cam(&yawKW, NULL, NULL);
+	g_testKeyHeld = false;
+	RunFrames(250);
+	float yawKW2;
+	V59Cam(&yawKW2, NULL, NULL);
+	g_testVk = 0;
+	*ws = 0;
+	Keys(0.0f, 0.0f);
+	RunFrames(800);
+	CHECK(fabsf(yawKW - 60.0f) < 1.0f && mouse > 80.0f && fabsf(movedKW) < 0.5f && fabsf(yawKW2) < 1.0f,
+	      "held, a weapon drawn: the mouse's %.1f deg turned the camera %.1f deg off the heading (60 at most; 44c9fc2: all of it), the heading %.2f deg; let go: %.2f deg", mouse, yawKW,
+	      movedKW, yawKW2);
+
+	printf("view (the review, finding 4): [Steer] FirstKeysArmed=1 (the default), a weapon drawn in third person at speed, W + D 0.5 s (the game: the body facing the camera, x strafing):\n");
+	const char *faT = "steer: a weapon drawn in third person (the weapon state 3): the side keys turn the bike (FirstKeys 1 of the clamp, ";
+	const char *faKeysT = "  steer (2026-11-15b, the review): FirstKeysArmed=1 (a weapon drawn in third person: the side keys turn the bike as FirstKeys does in first person, the game "
+	                      "gets no strafe) (read again on getting on)";
+	float armedX[2], armedStrafe[2];
+	int faLines[2];
+	for (int k = 0; k < 2; k++) {
+		if (k) {
+			printf("view (the review, finding 4): FirstKeysArmed=0 (the off value: first person only, as merged), the same ride:\n");
+			Ini54Set("Steer", "FirstKeysArmed", "0");
+		}
+		V59On();
+		Keys(0.0f, 1.0f);
+		RunFrames(1500);
+		g_camYaw = *head;
+		SetCameraFirst(false);
+		*ws = 3u << 1;
+		RunFrames(300);
+		int fa0 = LogLines(faT);
+		g_v59StrafeMax = 0.0f;
+		g_v59Rec = true;
+		Keys(1.0f, 1.0f);
+		RunFrames(500);
+		g_v59Rec = false;
+		armedX[k] = MoveInput()[0];
+		armedStrafe[k] = g_v59StrafeMax;
+		faLines[k] = LogLines(faT) - fa0;
+		Keys(0.0f, 1.0f);
+		RunFrames(300);
+		Keys(0.0f, 0.0f);
+		*ws = 0;
+		SetCameraFirst(true);
+		RunFrames(800);
+	}
+	Ini56Unset("Steer", "FirstKeysArmed");
+	CHECK(armedX[0] == 0.0f && armedStrafe[0] < 1.0f && faLines[0] == 1 && LogLines(faKeysT) >= 1,
+	      "FirstKeysArmed=1: the game's x %.2f (44c9fc2: the side key, 0.71), the movement %.2f deg off the heading at most (no strafe), the line once (%d); the settings line at its default",
+	      armedX[0], armedStrafe[0], faLines[0]);
+	CHECK(armedX[1] > 0.1f && armedStrafe[1] > 20.0f && faLines[1] == 0,
+	      "FirstKeysArmed=0 (the off value): the game gets the side key (x %.2f), the bike strafing %.0f deg off its heading as merged (test 53's slide), no line (%d)", armedX[1], armedStrafe[1],
+	      faLines[1]);
+
+	printf("view: the round's keys at their off values (CameraTurn=0, Roll=0, LookBack=0, LookKey=0, FirstKeys=0: 2026-11-15a), first person:\n");
+	Ini54Set("View", "CameraTurn", "0");
+	Ini54Set("View", "Roll", "0");
+	Ini54Set("View", "LookBack", "0");
+	Ini54Set("View", "LookKey", "0");
+	Ini54Set("Steer", "FirstKeys", "0");
+	Ini54Set("Diag", "TurnEachRide", "0");
+	V59On();
+	Keys(0.0f, 1.0f);
+	RunFrames(2000);
+	from = *head;
+	g_v59StrafeMax = 0.0f;
+	g_v59Rec = true;
+	Keys(1.0f, 1.0f);
+	RunFrames(800);
+	g_v59Rec = false;
+	float turnedOff = Turned(from), rollOff;
+	sideX = MoveInput()[0];
+	V59Cam(NULL, &rollOff, NULL);
+	Keys(0.0f, 0.0f);
+	RunFrames(800);
+	Keys(0.0f, -1.0f);
+	RunFrames(950);
+	float yawOff;
+	V59Cam(&yawOff, NULL, NULL);
+	Keys(0.0f, 0.0f);
+	RunFrames(300);
+	CHECK(fabsf(turnedOff) < 2.0f && g_v59StrafeMax > 20.0f && sideX > 0.1f && fabsf(rollOff) < 0.01f && fabsf(yawOff) < 0.01f,
+	      "W + D strafes as 2026-11-15a (turned %.1f deg, the movement %.0f deg off the heading, the game's x %.2f), the camera not leaned (%.3f), backing the camera on the heading (%.3f)",
+	      turnedOff, g_v59StrafeMax, sideX, rollOff, yawOff);
+
+	SetCameraFirst(false);
+	LookGetOff();
+	f = fopen("CMB_Slope.ini", "wb");
+	if (f) {
+		fwrite(g_v59Ini, 1, strlen(g_v59Ini), f);
+		fclose(f);
+	}
+	g_v59Rot = g_fpMove59 = g_fpFirst59 = g_fpArmed59 = false;
+	g_v59Mouse = 0.0f;
+	*ax = 0.0f;
+	*tipG = 0.0f;
+	*menuG = 0.0f;
+	memcpy(PlayerPos(), p0, 12);
+	*head = h0;
+	g_camYaw = h0;
+	g_onFrame = onFrame;
+	g_afterTask = afterTask;
+	RunFrames(300);
+}
+
 static void ViewTests56(void)
 {
 	static const char *camera[] = { ".?AVNiCamera@@", ".?AVNiAVObject@@", ".?AVNiObject@@" };
@@ -26461,6 +27627,7 @@ static void ViewTests56(void)
 	ViewThirdTests56();
 	ViewTests57();   /* 2026-11-14a: before ViewUpdateTests56 (it turns Update off for the session) */
 	ViewTests58();   /* 2026-11-15a: LookWait, the round's keys */
+	ViewTests59();   /* 2026-11-15b: the camera's turn, the look back, the look key, FirstKeys (the fpcam unit's) */
 	ViewUpdateTests56();
 	ViewParentTests56();
 	ViewFovCandTests56();   /* last: the 2026-11-09a build overran a buffer here */
@@ -26473,6 +27640,566 @@ static void ViewTests56(void)
 	memcpy(g_eyeBike, fakeEye, 12);
 	g_onFrame = ViewRide;
 	g_afterTask = ViewAfter;
+}
+
+/* 2026-11-15b (the sidestep unit's; the view unit's open item of 2026-11-15a: the plugin's task runs twice a game frame, test 54):
+ * [Lamp] FrameLead and [Diag] FpsFrames. In ViewTests at the tail lamp's checks (the light reference A carried, Glow=1), at 600
+ * straight, [Lamp] Lead=1, the task twice a frame (g_taskTwice: the second right after the first, as test 54's game): the light's
+ * lead along the heading after both runs (where the renderer finds it) about 600 u/s x the fake's frame with FrameLead=1, about
+ * 0 with 0 (2026-11-15a: the second run's own interval); the frame-rate line the fake's own frames a second with FpsFrames=1, its
+ * tasks 2.0 a frame (2026-11-15a: twice the frames). The light's offset from its point is TailOff's (exact at Lead=0). */
+static void (*g_v59After)(float);
+static void ViewAfter59(float dt)
+{
+	if (g_v59After)
+		g_v59After(dt);
+	if (g_fpsRec)
+		QueryPerformanceCounter(&g_fpsAt[g_fpsCount++ % 8192]);
+}
+static float V59Lead(int ms)   /* the tail light's lead (TailOff) every 50 ms for ms, the median */
+{
+	static float v[400];
+	int n = 0;
+	float beamOff, localOff;
+	for (int t = 0; t < ms && n < 400; t += 50) {
+		RunFrames(50);
+		v[n++] = TailOff(0, &beamOff, &localOff);
+	}
+	for (int i = 1; i < n; i++)
+		for (int j = i; j > 0 && v[j] < v[j - 1]; j--) {
+			float q = v[j];
+			v[j] = v[j - 1];
+			v[j - 1] = q;
+		}
+	return n ? v[n / 2] : NAN;
+}
+static void ViewLamp59(void)
+{
+	printf("view (2026-11-15b): [Lamp] Lead=1, the tail lamp's light at 600 straight with the task twice a frame (test 54's game): FrameLead=1 and [Diag] FpsFrames=1 for 11 s, then "
+	       "FrameLead=0 (2026-11-15a):\n");
+	g_v59After = g_afterTask;
+	g_afterTask = ViewAfter59;
+	Ini54Set("Lamp", "Lead", "1");
+	Ini54Set("Lamp", "FrameLead", "1");
+	Ini54Set("Diag", "FpsFrames", "1");
+	g_taskTwice = true;
+	int fps0 = LogLines("time: the last 10 s: ");
+	LookAgain(NULL, NULL);
+	g_lookSpeed = 600.0f;
+	RunFrames(500);
+	g_fpsCount = 0;
+	g_fpsRec = true;
+	float lead1 = V59Lead(10500);
+	g_fpsRec = false;
+	float fake = FakeFps(), want = 600.0f / fake, rate = NAN, per = NAN;
+	const char *fl = LastLogLine("time: the last 10 s: ");
+	if (fl) {
+		const char *t = strstr(fl, "time: the last 10 s: "), *p = strstr(fl, "; the game's frames, the plugin's task ");
+		if (t)
+			sscanf(t, "time: the last 10 s: %f frames a second (median of the", &rate);
+		if (p)
+			sscanf(p, "; the game's frames, the plugin's task %f times a frame (FpsFrames)", &per);
+	}
+	CHECK(lead1 > 0.65f * want && lead1 < 1.5f * want && LogLines("  frame (2026-11-15b): [Lamp] FrameLead=1 (the lamps' Lead by the game's frame) [Diag] FpsFrames=1 (the frame-rate line counts "
+	                                                               "the game's frames) ") >= 1,
+	      "FrameLead=1, twice a frame: the light %.2f along the heading from its point after both runs (median; 600 u/s x the fake's frame, %.0f a second: %.2f; 0.65-1.5 of it; 1bc3f8a: "
+	      "about 0, the second run's own interval), the settings line \"  frame (2026-11-15b): [Lamp] FrameLead=1 (...) [Diag] FpsFrames=1 (...) ...\"", lead1, fake, want);
+	CHECK(LogLines("time: the last 10 s: ") > fps0 && fabsf(rate - fake) < 0.1f * fake && fabsf(per - 2.0f) < 0.1f,
+	      "FpsFrames=1, twice a frame: \"time: the last 10 s: %.0f frames a second (...)...; the game's frames, the plugin's task %.1f times a frame (FpsFrames)\" (the fake's %.0f within 10%%, 2.0 "
+	      "tasks; 1bc3f8a: twice the fake's, no such words): %s", rate, per, fake, fl ? fl : "(none)\n");
+	Ini54Set("Lamp", "FrameLead", "0");
+	Ini54Set("Diag", "FpsFrames", "0");
+	LookAgain(NULL, NULL);
+	g_lookSpeed = 600.0f;
+	RunFrames(500);
+	float lead0 = V59Lead(1500);
+	CHECK(lead0 < 0.3f * want, "FrameLead=0 (the off value: 2026-11-15a), twice a frame: the light %.2f from its point (median; under 0.3 of %.2f: the second run's own interval)", lead0, want);
+	g_taskTwice = false;
+	Ini54Set("Lamp", "Lead", "0");
+	g_afterTask = g_v59After;
+	LookAgain(NULL, NULL);
+	g_lookSpeed = 600.0f;
+	RunFrames(500);
+}
+
+/* ---- 2026-11-15b (test 54's wish c; the fpbody unit's): [View] Body, the rider's own body in first person -------------
+ * Run last in ViewTests. The fake game hides its player's 3D root in first person (bit 0: g_b59Hide 1 sets it on entering
+ * first person and clears it in third, 2 sets it every first-person frame), its third-person skeleton stands there
+ * (g_b59Standing: the arm hanging, the head and the pelvis up), and its culler visits the root and marks the rider's three
+ * skinned shapes (bit 43) whenever the root isn't hidden. The knees (mode 18's, under the root) sit at 64 in third person
+ * and stand at 38 in first, so the plugin takes the riding pose in third person only. A first-person 3D at
+ * PlayerCharacter+0xB78: a node with a LArm_Hand node and one shape. Expected places are the view bike's own: a bike-space
+ * point through a static view shape's world (the tilt and the eye's offset with it) or the bars' (front_black, turned). */
+static int g_b59Hide;
+static bool g_b59WasFirst;
+static char g_b59Ini[16384];
+static bool B59First(void) { return *(uint8_t **)(g_playerCam + 0x28) == g_firstState; }
+/* The fake's bike lies on its side in the world (its COM is the heading alone, its bind the nif's): for the body rides the
+ * whole skeleton is moved rigidly so that its frame (x right, y forward, z up, about the player) is the bike's own, 20
+ * lower: x -> F(H^T (x - p) - (0, 0, 20)), F the bike's space to the world through the COM and the bind. */
+static void B59Move(uint8_t *xf)   /* a world transform (rows, +0x30 the place) */
+{
+	static const float z0[3] = { 0, 0, 0 }, e[3][3] = { { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 } };
+	float h = *(const float *)(g_player + 0xC8), c = cosf(h), sn = sinf(h);
+	const float H[9] = { c, sn, 0, -sn, c, 0, 0, 0, 1 };
+	float R[9], x[3], d[3], rel[3], o[3], a[3], Fr[9], Ht[9], T[9], R2[9], w[3];
+	LoadRotation((const float *)xf, R, g_rootTransposed);
+	memcpy(x, xf + 0x30, 12);
+	for (int i = 0; i < 3; i++)
+		d[i] = x[i] - PlayerPos()[i];
+	for (int j = 0; j < 3; j++)
+		rel[j] = H[j] * d[0] + H[3 + j] * d[1] + H[6 + j] * d[2];
+	rel[2] -= 20.0f;
+	WorldOfBone(g_comNode, g_bonesOriginal, rel, w);
+	WorldOfBone(g_comNode, g_bonesOriginal, z0, o);
+	for (int j = 0; j < 3; j++) {
+		WorldOfBone(g_comNode, g_bonesOriginal, e[j], a);
+		for (int i = 0; i < 3; i++)
+			Fr[i * 3 + j] = a[i] - o[i];
+	}
+	for (int i = 0; i < 3; i++)
+		for (int j = 0; j < 3; j++)
+			Ht[i * 3 + j] = H[j * 3 + i];
+	MulM3(Fr, Ht, T);
+	MulM3(T, R, R2);
+	StoreRotation((float *)xf, R2, g_rootTransposed);
+	memcpy(xf + 0x30, w, 12);
+}
+static void B59Upright(void)
+{
+	for (int i = 0; i < 12; i++)
+		B59Move(g_bodyNodes[i] + 0x70);
+	B59Move(g_pipboyBone + 0x70);
+	for (int i = 0; i < 5; i++)
+		if (i != 3 && g_handsXf[i])
+			B59Move(g_handsXf[i]);
+	for (int i = 1; i < 3; i++)
+		if (g_hatXf[i])
+			B59Move(g_hatXf[i]);
+}
+static void B59Ride(float dt)
+{
+	EyeRide(dt);
+	bool first = B59First();
+	g_b59Standing = first;
+	if (first)
+		DcKneesStanding();
+	else
+		DcKneesSeated();
+	DcKneesPlace();
+	uint64_t *f = (uint64_t *)(g_root + 0x108);
+	if (first && (g_b59Hide == 2 || (g_b59Hide == 1 && !g_b59WasFirst)))
+		*f |= 1u;
+	else if (!first && g_b59Hide)
+		*f &= ~(uint64_t)1;
+	g_b59WasFirst = first;
+}
+static void B59After(float dt)
+{
+	ViewAfter(dt);
+	bool visited = !(*(const uint64_t *)(g_root + 0x108) & 1);
+	if (visited)
+		(*(int32_t *)(g_root + 0x1B0))++;
+	uint8_t *shapes[3] = { g_bodyShape, g_handsShape, g_hatShape };
+	for (int k = 0; k < 3; k++) {
+		uint64_t *f = (uint64_t *)(shapes[k] + 0x108);
+		*f = visited ? *f | (1ull << 43) : *f & ~(1ull << 43);
+	}
+}
+static void B59ToBike(const float w[3], float x[3])   /* a world point in the worn bike's space (the COM and the bind, rigid) */
+{
+	static const float z[3] = { 0, 0, 0 }, e[3][3] = { { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 } };
+	float o[3], a[3], R[9], d[3];
+	WorldOfBone(g_comNode, g_bonesOriginal, z, o);
+	for (int j = 0; j < 3; j++) {
+		WorldOfBone(g_comNode, g_bonesOriginal, e[j], a);
+		for (int i = 0; i < 3; i++)
+			R[i * 3 + j] = a[i] - o[i];
+	}
+	for (int i = 0; i < 3; i++)
+		d[i] = w[i] - o[i];
+	for (int j = 0; j < 3; j++)
+		x[j] = R[j] * d[0] + R[3 + j] * d[1] + R[6 + j] * d[2];
+}
+static uint8_t *B59Live(uint8_t *skin, int b) { return *(uint8_t **)(*(uint8_t **)(skin + 0x40) + 0x10) + (size_t)b * 0x50; }
+static void B59Point(const uint8_t *node, const uint8_t *orig, const uint8_t *live, const float off[3], float out[3])   /* the point off from the bone's joint (skin space), as live puts it */
+{
+	float A[9], v[3], p[3];
+	LoadRotation((const float *)(orig + 0x10), A, g_skinTransposed);
+	memcpy(p, orig + 0x40, 12);
+	for (int j = 0; j < 3; j++)
+		v[j] = -(A[j] * p[0] + A[3 + j] * p[1] + A[6 + j] * p[2]) + off[j];
+	WorldOfBone(node, live, v, out);
+}
+static void B59Joint(const uint8_t *node, const uint8_t *orig, const uint8_t *live, float out[3])
+{
+	static const float z[3] = { 0, 0, 0 };
+	B59Point(node, orig, live, z, out);
+}
+static float B59Spread(const uint8_t *node, const uint8_t *orig, const uint8_t *live)   /* how far apart live puts two points 10 apart at the joint */
+{
+	static const float z[3] = { 0, 0, 0 }, ten[3] = { 10, 0, 0 };
+	float a[3], b[3];
+	B59Point(node, orig, live, z, a);
+	B59Point(node, orig, live, ten, b);
+	return Dist3(a, b);
+}
+static bool B59WornAll(bool hidden)   /* every worn look shape's bit 0 set (hidden) */
+{
+	for (int i = 0; i < LOOK_NEW; i++)
+		if (((*(const uint64_t *)(g_lookShape[i] + 0x108) & 1) != 0) != hidden)
+			return false;
+	return true;
+}
+static void B59ToFirst(void)   /* into first person until the view bike shows, then two frames */
+{
+	SetCameraFirst(true);
+	for (int i = 0; i < 40 && !ViewShows(0); i++)
+		RunFrames(10);
+	ViewStep();
+	ViewStep();
+}
+static bool B59Three(const char *line, const char *after, float v[3])
+{
+	return ThreeAfter(line, after, v);
+}
+
+static void BodyTests59(void)
+{
+	static const float fakeEye[3] = { 0.0f, 3.0f, 121.0f }, pipQ[3] = { 1.0f, 2.0f, 3.0f };
+	const int iSeat = LookAt("static_seat", false), iFront = LookAt("front_black", false);
+	uint8_t *bodyOrig[12], *bodyLive[12];
+	FILE *f = fopen("CMB_Slope.ini", "rb");
+	size_t n = f ? fread(g_b59Ini, 1, sizeof(g_b59Ini) - 1, f) : 0;
+	g_b59Ini[n] = 0;
+	if (f)
+		fclose(f);
+	g_lookSpeed = g_lookTurn = g_lookDecel = 0.0f;
+	g_lookKeys = false;
+	Keys(0.0f, 0.0f);
+	SetCameraFirst(false);
+	LookGetOff();
+	float p0[3];   /* the rides near the world's origin (after mode 20's rides the player is tens of thousands out, where a float's step is 0.01): put back at the end */
+	memcpy(p0, PlayerPos(), 12);
+	printf("  (the player at (%.0f, %.0f, %.0f) before: these rides from (0, 0, %.0f))\n", p0[0], p0[1], p0[2], p0[2]);
+	PlayerPos()[0] = PlayerPos()[1] = 0.0f;
+	RunFrames(300);
+	SetViewRef(VIEW_REF_FORMID_A);
+	DcHolder();   /* the knees (ViewSeatTests50 made them and took them out of the root again): under the root */
+	if (!*(uint8_t **)(g_dcHolder + 0x28)) {
+		AddChild(g_root, g_dcHolder);
+		*(uint8_t **)(g_dcHolder + 0x28) = g_root;
+	}
+	DcKneesSeated();
+	memcpy(g_eyeBike, fakeEye, 12);
+	g_eyeLive = true;
+	g_onFrame = B59Ride;
+	g_afterTask = B59After;
+	g_b59Place = B59Upright;
+	g_b59Hide = 1;
+	g_b59WasFirst = false;
+	*(uint64_t *)(g_root + 0x108) &= ~(uint64_t)1;
+	/* The first-person 3D: a skeleton node, its left hand and one shape. */
+	uint8_t *fp = NewNode(*(void ***)g_npcRoot, "1stPersonSkeleton", 4), *fpHand = NewNode(*(void ***)g_npcRoot, "LArm_Hand", 0), *fpArms = NewNode(*(void ***)g_bodyShape, "FirstPersonArms:0", 0);
+	AddChild(fp, fpHand);
+	AddChild(fp, fpArms);
+	*(uint8_t **)(fpHand + 0x28) = fp;
+	*(uint8_t **)(fpArms + 0x28) = fp;
+	{
+		static const float I9[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
+		float hp[3];
+		WorldOfBone(g_comNode, g_bonesOriginal, (const float[3]){ -20.0f, 10.0f, 90.0f }, hp);
+		SetWorld(fpHand, I9, hp, 1.0f);
+	}
+	*(uint8_t **)(g_player + 0xB78) = fp;
+	Ini54Set("View", "Eye", "1");
+	Ini54Set("View", "EyeLock", "1");
+	Ini56Unset("View", "Body");
+	Ini56Unset("Diag", "BodyProbe");
+	for (int b = 0; b < 12; b++)
+		bodyOrig[b] = g_bodyBones + (size_t)b * 0x50;
+
+	printf("view (2026-11-15b, test 54's wish c): [View] Body and [Diag] BodyProbe at their defaults (none in the INI):\n");
+	const char *keysT = "  view (2026-11-15b, test 54): Body=1 (the rider's own body shown in first person, in the riding pose taken in third person) BodyEye=(0, 7, 7) BodyLeanMax=35 "
+	                    "BodyShiftMax=15 BodyBack=100 BodyFade=1; [Diag] BodyProbe=1 BodyProbeEvery=10 (read again on getting on)";
+	int keys0 = LogLines(keysT);
+	printf("view: B1, on the bike 1 s in third person (under the 1.5 s a pose waits for), then first person (the fake game hides its 3D root there): no pose taken yet this session:\n");
+	const char *noPoseT = "body: first person: the rider's body not shown: no riding pose taken yet this session (it is taken in third person: ride there seated, the bars straight, for a moment)";
+	int noPose0 = LogLines(noPoseT), entry0 = LogLines("body: first person: the player's 3D root BSFadeNode 'skeleton.nif' flags 0x"), taken0 = LogLines("body: the riding pose taken in third person (");
+	LookGetOn(1000);
+	uint64_t worn1[LOOK_NEW];
+	for (int i = 0; i < LOOK_NEW; i++)
+		worn1[i] = *(const uint64_t *)(g_lookShape[i] + 0x108);
+	SetCameraFirst(true);
+	for (int i = 0; i < 40 && !ViewShows(0); i++)
+		RunFrames(10);
+	RunFrames(300);
+	bool wornSame1 = true;
+	for (int i = 0; i < LOOK_NEW; i++)
+		wornSame1 = wornSame1 && (*(const uint64_t *)(g_lookShape[i] + 0x108) & 1) == (worn1[i] & 1);
+	static char entryB[1024], fpB[1024], skelB[1024];   /* LastLogLine's buffer is its own: each line copied */
+	const char *entry = LastLogLine("body: first person: the player's 3D root BSFadeNode 'skeleton.nif' flags 0x");
+	snprintf(entryB, sizeof(entryB), "%s", entry ? entry : "");
+	const char *fpLine = LastLogLine("body: the first-person 3D (PlayerCharacter+0xB78): ");
+	snprintf(fpB, sizeof(fpB), "%s", fpLine ? fpLine : "");
+	const char *skelLine = LastLogLine("body: the third-person skeleton in first person (the game's own pose) in the bike's space at ");
+	snprintf(skelB, sizeof(skelB), "%s", skelLine ? skelLine : "");
+	entry = entry ? entryB : NULL;
+	fpLine = fpLine ? fpB : NULL;
+	skelLine = skelLine ? skelB : NULL;
+	CHECK(LogLines(keysT) == keys0 + 1 && ViewShows(0) && LogLines(noPoseT) == noPose0 + 1 && (*(const uint64_t *)(g_root + 0x108) & 1) && LogLines("body: the riding pose taken in third person (") == taken0 &&
+	          wornSame1,
+	      "B1: the keys' line at getting on; in first person (the view bike shown) one \"not shown: no riding pose taken yet this session\" line, the root's bit 0 left as the game set it, the worn "
+	      "bike's shapes not hidden by it, nothing taken in first person");
+	CHECK(LogLines("body: first person: the player's 3D root BSFadeNode 'skeleton.nif' flags 0x") == entry0 + 1 && entry && strstr(entry, " [hidden") &&
+	          strstr(entry, "hidden (bit 0): BSFadeNode 'skeleton.nif' (the root)") && strstr(entry, "; in third person this ride flags 0x") && strstr(entry, "the weapon's state 0") &&
+	          fpLine && strstr(fpLine, "NiNode '1stPersonSkeleton'") && strstr(fpLine, "2 node(s) and 1 shape(s) under it (FirstPersonArms:0)") && strstr(fpLine, "the left (-20.0, 10.0, 90.0), the right not found") &&
+	          skelLine && strstr(skelLine, "HEAD ("),
+	      "B1: the entry's probe lines once: the root BSFadeNode 'skeleton.nif' [hidden], the root named hidden (bit 0), in third person its flags, the weapon away; the first-person 3D "
+	      "(its node, LArm_Hand and the shape, the hand at the bike's (-20, 10, 90)); the third-person skeleton's own pose: %s%s%s", entry ? entry : "(none)\n", fpLine ? fpLine : "(none)\n",
+	      skelLine ? skelLine : "(none)\n");
+	SetCameraFirst(false);
+	LookGetOff();
+
+	printf("view: B2, 2 s at 600 in third person, seated: the riding pose taken; then BodyEye=0,0,0 and EyeAt at the taken head, into first person (the skeleton standing there):\n");
+	g_lookSpeed = 600.0f;
+	LookGetOn(1000);
+	RunFrames(2000);
+	const char *takenLine = LastLogLine("body: the riding pose taken in third person (");
+	float handB[3], headB[3], pelvB[3], elbowB[3], upperB[3], pipB[3], fingerB[3], pipW[3];
+	B59ToBike((const float *)(g_bodyNodes[5] + 0xA0), handB);
+	B59ToBike((const float *)(g_bodyNodes[8] + 0xA0), headB);
+	B59ToBike((const float *)(g_bodyNodes[0] + 0xA0), pelvB);
+	B59ToBike((const float *)(g_bodyNodes[7] + 0xA0), elbowB);
+	B59ToBike((const float *)(g_bodyNodes[6] + 0xA0), upperB);
+	B59ToBike((const float *)(g_handsXf[0] + 0x30), fingerB);
+	WorldOfLocal(g_pipboyBone, g_pipboyShape + 0x30, pipQ, pipW);
+	B59ToBike(pipW, pipB);
+	uint64_t worn3[LOOK_NEW];
+	for (int i = 0; i < LOOK_NEW; i++)
+		worn3[i] = *(const uint64_t *)(g_lookShape[i] + 0x108);
+	CHECK(takenLine && LogLines("body: the riding pose taken in third person (") == taken0 + 1 && strstr(takenLine, " bone node(s), at ") && atoi(strstr(takenLine, " bone node(s), at ") + 18) >= 550 && strstr(takenLine, " u/s, the bars 0.0 deg;"),
+	      "B2: one \"the riding pose taken\" line, at speed with the bars straight: %s", takenLine ? takenLine : "(none)\n");
+	LookGetOff();
+	char eyeAt[96];
+	snprintf(eyeAt, sizeof(eyeAt), "%.4f,%.4f,%.4f", headB[0], headB[1], headB[2]);
+	Ini54Set("View", "EyeAt", eyeAt);
+	Ini54Set("View", "BodyEye", "0,0,0");
+	printf("  (the taken head at the bike's (%.2f, %.2f, %.2f), the hand (%.2f, %.2f, %.2f), the pelvis (%.2f, %.2f, %.2f))\n", headB[0], headB[1], headB[2], handB[0], handB[1], handB[2], pelvB[0],
+	       pelvB[1], pelvB[2]);
+	LookGetOn(1000);
+	RunFrames(500);
+	int shown0 = LogLines("body: first person: the rider's body shown (");
+	B59ToFirst();
+	for (int b = 0; b < 12; b++)
+		bodyLive[b] = B59Live(g_bodySkin, b);
+	float head[3], hand[3], pelv[3], finger[3], pip[3], want[3];
+	B59Joint(g_bodyNodes[8], bodyOrig[8], bodyLive[8], head);
+	B59Joint(g_bodyNodes[5], bodyOrig[5], bodyLive[5], hand);
+	B59Joint(g_bodyNodes[0], bodyOrig[0], bodyLive[0], pelv);
+	B59Joint(g_handsXf[0] - 0x70, g_handsBones, B59Live(g_handsSkin, 0), finger);
+	WorldOfLocal(g_pipboyBone, g_pipboyShape + 0x30, pipQ, pip);
+	float headOff, handOff, pelvOff, pipOff;
+	ObjectWorld(g_viewShape[0][iSeat], headB, want);
+	headOff = Dist3(head, want);
+	ObjectWorld(g_viewShape[0][iFront], handB, want);   /* on the grip as the bars are (the steering's own wobble at speed) */
+	handOff = Dist3(hand, want);
+	ObjectWorld(g_viewShape[0][iSeat], pelvB, want);
+	pelvOff = Dist3(pelv, want);
+	ObjectWorld(g_viewShape[0][iSeat], pipB, want);
+	pipOff = Dist3(pip, want);
+	float fingerHand = Dist3(finger, hand), fingerHandB = Dist3(fingerB, handB);
+	float headSpread = B59Spread(g_bodyNodes[8], bodyOrig[8], bodyLive[8]), jawSpread = B59Spread(g_bodyNodes[9], bodyOrig[9], bodyLive[9]);
+	float hatSpread = B59Spread(g_hatXf[1] - 0x70, g_hatBones + 0x50, B59Live(g_hatSkin, 1)), pelvSpread = B59Spread(g_bodyNodes[0], bodyOrig[0], bodyLive[0]);
+	const char *shownLine = LastLogLine("body: first person: the rider's body shown (");
+	CHECK(ViewShows(0) && LogLines("body: first person: the rider's body shown (") == shown0 + 1 && !(*(const uint64_t *)(g_root + 0x108) & 1) && B59WornAll(true),
+	      "B3: the body shown with the view bike (one line), the root's bit 0 (set by the game on entering) cleared, every worn bike shape hidden (bit 0): %s", shownLine ? shownLine : "(none)\n");
+	CHECK(headOff < 0.05f && handOff < 0.05f && pelvOff < 0.05f && pipOff < 0.05f,
+	      "B3: on the view bike's frame where they were taken, though the skeleton stands: the head's joint at EyeAt %.4f off, the hand %.4f, the pelvis %.4f, the Pip-Boy's point (a plain "
+	      "shape by its parent) %.4f (under 0.05 each)", headOff, handOff, pelvOff, pipOff);
+	float r3[3] = { 9, 9, 9 };
+	const char *pitched3 = shownLine ? strstr(shownLine, ", moving): the upper body pitched ") : NULL;
+	float pitch3 = pitched3 ? strtof(pitched3 + strlen(", moving): the upper body pitched "), NULL) : 9.0f;
+	bool moved3 = B59Three(shownLine, " about the spine's joint and the body moved (", r3) && fabsf(r3[0]) < 0.1f && fabsf(r3[1]) < 0.1f && fabsf(r3[2]) < 0.1f;
+	CHECK(fabsf(fingerHand - fingerHandB) < 0.05f && headSpread < 0.05f && jawSpread < 0.05f && hatSpread < 0.05f && fabsf(pelvSpread - 10.0f) < 0.01f && shownLine &&
+	          pitch3 < 0.3f && moved3 && strstr(shownLine, "bit 0 cleared on 1 node(s); the worn bike's "),
+	      "B3: a node-less finger bone with its hand (%.3f apart, %.3f taken); the head's bones shrunk to a speck (two points 10 apart: HEAD %.4f, the jaw under it %.4f, the hat's node-less "
+	      "Head_skin %.4f), the pelvis whole (%.4f); the line, moving: no pitch (%.1f deg), no move ((%.1f, %.1f, %.1f): EyeAt is the taken head to the floats), 1 node cleared",
+	      fingerHand, fingerHandB, headSpread, jawSpread, hatSpread, pelvSpread, pitch3, r3[0], r3[1], r3[2]);
+
+	printf("view: B4, 0.6 s on: the drawn? line (the fake's culler visits the root once its bit 0 is clear):\n");
+	int drawn0 = LogLines("body: drawn? the player's 3D root's frameCounter +");
+	RunFrames(600);
+	const char *drawnLine = LastLogLine("body: drawn? the player's 3D root's frameCounter +");
+	CHECK(LogLines("body: drawn? the player's 3D root's frameCounter +") == drawn0 + 1 && drawnLine && strstr(drawnLine, ": the game visits it") &&
+	          strstr(drawnLine, "of the rider's 3 skinned shape(s) 3 had AlreadyTraversed (43) at this frame's start; bit 0 cleared on 1 node(s), set again by the game 0 time(s)"),
+	      "B4: one drawn? line 0.5 s into the showing: visited, the 3 skinned shapes traversed, nothing set again: %s", drawnLine ? drawnLine : "(none)\n");
+
+	printf("view: B5, turning at 300 and 30 deg a second in first person (the left grip toward the left shoulder: in reach): the hand with the turned grip, the arm's lengths kept:\n");
+	g_lookSpeed = 300.0f;
+	g_lookTurn = -30.0f / DEG;
+	RunFrames(1500);
+	float bars = LookBars(), elbow[3], upper[3];
+	B59Joint(g_bodyNodes[5], bodyOrig[5], bodyLive[5], hand);
+	B59Joint(g_bodyNodes[7], bodyOrig[7], bodyLive[7], elbow);
+	B59Joint(g_bodyNodes[6], bodyOrig[6], bodyLive[6], upper);
+	ObjectWorld(g_viewShape[0][iFront], handB, want);
+	float turnOff = Dist3(hand, want), L1 = Dist3(upperB, elbowB), L2 = Dist3(elbowB, handB);
+	CHECK(fabsf(bars) > 5.0f && turnOff < 0.1f && fabsf(Dist3(upper, elbow) - L1) < 0.05f && fabsf(Dist3(elbow, hand) - L2) < 0.05f && ViewShows(0),
+	      "B5: the bars %.1f deg: the hand %.4f from the taken grip turned with the bars (the view bike's bars' own map), the upper arm %.3f (%.3f taken), the forearm %.3f (%.3f)", bars, turnOff,
+	      Dist3(upper, elbow), L1, Dist3(elbow, hand), L2);
+	g_lookTurn = 0.0f;
+	RunFrames(1500);
+
+	printf("view: B6-B8, the Pip-Boy (CMB_ViewMenu 1), a weapon out (weaponState 3), looking back (the camera 180 deg off): hidden, and shown again:\n");
+	float *menu = (float *)(g_viewMenuFake + 0x30);
+	uint32_t *ws = (uint32_t *)(g_player + 0x134);
+	const char *pipT = "body: first person: the rider's body not shown: the Pip-Boy open", *gunT = "body: first person: the rider's body not shown: a weapon out";
+	const char *backT = "body: first person: the rider's body not shown: looking back (the camera 180 deg off your heading, more than BodyBack 100)";
+	int pip0 = LogLines(pipT), gun0 = LogLines(gunT), back0 = LogLines(backT), shownB = LogLines("body: first person: the rider's body shown (");
+	*menu = 1.0f;
+	ViewStep();
+	ViewStep();
+	bool pipHidden = (*(const uint64_t *)(g_root + 0x108) & 1) && fabsf(B59Spread(g_bodyNodes[8], bodyOrig[8], bodyLive[8]) - 10.0f) < 0.01f;
+	bool pipWorn = true;
+	for (int i = 0; i < LOOK_NEW; i++)
+		pipWorn = pipWorn && (*(const uint64_t *)(g_lookShape[i] + 0x108) & 1) == (worn3[i] & 1);
+	*menu = 0.0f;
+	ViewStep();
+	ViewStep();
+	bool pipBack = !(*(const uint64_t *)(g_root + 0x108) & 1) && B59Spread(g_bodyNodes[8], bodyOrig[8], bodyLive[8]) < 0.05f;
+	*ws = 3u << 1;
+	ViewStep();
+	ViewStep();
+	bool gunHidden = (*(const uint64_t *)(g_root + 0x108) & 1) && fabsf(B59Spread(g_bodyNodes[8], bodyOrig[8], bodyLive[8]) - 10.0f) < 0.01f;
+	*ws = 0;
+	ViewStep();
+	ViewStep();
+	bool gunBack = !(*(const uint64_t *)(g_root + 0x108) & 1);
+	g_b59LookYaw = 3.14159265f;
+	ViewStep();
+	ViewStep();
+	bool backHidden = (*(const uint64_t *)(g_root + 0x108) & 1) && fabsf(B59Spread(g_bodyNodes[8], bodyOrig[8], bodyLive[8]) - 10.0f) < 0.01f;
+	g_b59LookYaw = 0.0f;
+	ViewStep();
+	ViewStep();
+	bool backBack = !(*(const uint64_t *)(g_root + 0x108) & 1) && B59Spread(g_bodyNodes[8], bodyOrig[8], bodyLive[8]) < 0.05f;
+	CHECK(pipHidden && pipWorn && pipBack && LogLines(pipT) == pip0 + 1,
+	      "B6: the Pip-Boy: within 2 frames the root's bit 0 back as the game had it, the head the rider's own (not shrunk), the worn bike's bits as in third person; shown again within 2 "
+	      "frames of its closing; one line");
+	CHECK(gunHidden && gunBack && LogLines(gunT) == gun0 + 1, "B7: a weapon out: hidden within 2 frames, shown again once it's away; one line");
+	CHECK(backHidden && backBack && LogLines(backT) == back0 + 1 && LogLines("body: first person: the rider's body shown (") == shownB + 3,
+	      "B8: looking back: hidden within 2 frames, \"looking back (the camera 180 deg off your heading, ...)\", shown again looking ahead; each showing's line (3 more)");
+
+	printf("view: B9, EyeAt 4 ahead and 3 under the taken head: the upper body pitched and the body moved, the head's joint at EyeAt, the hand on the grip:\n");
+	g_lookSpeed = 600.0f;
+	SetCameraFirst(false);
+	LookGetOff();
+	float eye9[3] = { headB[0], headB[1] + 4.0f, headB[2] - 3.0f };
+	snprintf(eyeAt, sizeof(eyeAt), "%.4f,%.4f,%.4f", eye9[0], eye9[1], eye9[2]);
+	Ini54Set("View", "EyeAt", eyeAt);
+	LookGetOn(1000);
+	RunFrames(500);
+	B59ToFirst();
+	B59Joint(g_bodyNodes[8], bodyOrig[8], bodyLive[8], head);
+	B59Joint(g_bodyNodes[5], bodyOrig[5], bodyLive[5], hand);
+	B59Joint(g_bodyNodes[0], bodyOrig[0], bodyLive[0], pelv);
+	B59Joint(g_bodyNodes[7], bodyOrig[7], bodyLive[7], elbow);
+	shownLine = LastLogLine("body: first person: the rider's body shown (");
+	float r9[3] = { 0, 0, 0 }, pelv9[3];
+	bool parsed = B59Three(shownLine, " about the spine's joint and the body moved (", r9);
+	for (int k = 0; k < 3; k++)
+		pelv9[k] = pelvB[k] + r9[k];
+	ObjectWorld(g_viewShape[0][iSeat], eye9, want);
+	headOff = Dist3(head, want);
+	ObjectWorld(g_viewShape[0][iFront], handB, want);   /* on the grip as the bars are (the steering's own wobble at speed) */
+	handOff = Dist3(hand, want);
+	ObjectWorld(g_viewShape[0][iSeat], pelv9, want);
+	pelvOff = Dist3(pelv, want);
+	float pitch9 = shownLine && strstr(shownLine, "the upper body pitched ") ? strtof(strstr(shownLine, "the upper body pitched ") + 23, NULL) : 0.0f;
+	CHECK(parsed && headOff < 0.05f && handOff < 0.05f && pelvOff < 0.15f && pitch9 > 1.0f && fabsf(Dist3(elbow, hand) - L2) < 0.05f,
+	      "B9: the head's joint %.4f from EyeAt, the hand %.4f from the grip, the pelvis %.4f from where it was taken moved by the line's (%.2f, %.2f, %.2f); pitched %.1f deg; the forearm %.3f (%.3f): %s",
+	      headOff, handOff, pelvOff, r9[0], r9[1], r9[2], pitch9, Dist3(elbow, hand), L2, shownLine ? shownLine : "(none)\n");
+
+	printf("view: B10, the game setting the root's bit 0 every first-person frame: still shown, the drawn? line counts it:\n");
+	g_b59Hide = 2;
+	int drawn10 = LogLines("body: drawn? the player's 3D root's frameCounter +");
+	SetCameraFirst(false);
+	RunFrames(300);
+	SetCameraFirst(true);
+	RunFrames(900);
+	drawnLine = LastLogLine("body: drawn? the player's 3D root's frameCounter +");
+	const char *setAgain = drawnLine ? strstr(drawnLine, ", set again by the game ") : NULL;
+	int again = setAgain ? atoi(setAgain + strlen(", set again by the game ")) : -1;
+	CHECK(ViewShows(0) && !(*(const uint64_t *)(g_root + 0x108) & 1) && LogLines("body: drawn? the player's 3D root's frameCounter +") > drawn10 && again > 10,
+	      "B10: shown, the bit clear after every frame of ours, the drawn? line: set again %d time(s) (over 10): %s", again, drawnLine ? drawnLine : "(none)\n");
+	g_b59Hide = 1;
+
+	printf("view: B11, third person: the worn bike as before, the head the rider's own again:\n");
+	SetCameraFirst(false);
+	ViewStep();
+	ViewStep();
+	bool wornBack = true;
+	for (int i = 0; i < LOOK_NEW; i++)
+		wornBack = wornBack && *(const uint64_t *)(g_lookShape[i] + 0x108) == worn3[i];
+	CHECK(wornBack && !(*(const uint64_t *)(g_root + 0x108) & 1) && fabsf(B59Spread(g_bodyNodes[8], bodyOrig[8], bodyLive[8]) - 10.0f) < 0.01f,
+	      "B11: within 2 frames every worn shape's flags as in third person before, the root shown (the game's), the head not shrunk");
+
+	printf("view: B12, a load's PreLoadGame in first person, then getting off in first person:\n");
+	B59ToFirst();
+	int shown12 = LogLines("body: first person: the rider's body shown (");
+	Send(2, 0);   /* PreLoadGame */
+	bool preBit = (*(const uint64_t *)(g_root + 0x108) & 1) != 0;
+	ViewStep();
+	ViewStep();
+	bool again12 = !(*(const uint64_t *)(g_root + 0x108) & 1) && LogLines("body: first person: the rider's body shown (") == shown12 + 1;
+	const char *rideT = "body: the rider's body shown in first person ";
+	int ride0 = LogLines(rideT);
+	LookGetOff();
+	const char *rideLine = LastLogLine(rideT);
+	CHECK(preBit && again12 && (*(const uint64_t *)(g_root + 0x108) & 1) && LogLines(rideT) >= ride0 + 1 && rideLine && strstr(rideLine, "(got off)"),
+	      "B12: PreLoadGame: the root's bit 0 put back at once (the game's own in first person); shown again by the nodes' names 2 frames later; getting off in first person: the bit back, "
+	      "the ride's line: %s", rideLine ? rideLine : "(none)\n");
+
+	printf("view: B13, Body=0 and BodyProbe=0 (2026-11-15a): nothing taken, nothing written, no line:\n");
+	Ini54Set("View", "Body", "0");
+	Ini54Set("Diag", "BodyProbe", "0");
+	int lines13 = LogLines("body: ");
+	SetCameraFirst(false);
+	LookGetOn(1000);
+	RunFrames(1500);
+	B59ToFirst();
+	RunFrames(700);
+	bool worn13 = true;
+	for (int i = 0; i < LOOK_NEW; i++)
+		worn13 = worn13 && (*(const uint64_t *)(g_lookShape[i] + 0x108) & 1) == (worn3[i] & 1);
+	CHECK(ViewShows(0) && (*(const uint64_t *)(g_root + 0x108) & 1) && worn13 && fabsf(B59Spread(g_bodyNodes[8], bodyOrig[8], bodyLive[8]) - 10.0f) < 0.01f && LogLines("body: ") == lines13,
+	      "B13: in first person the root's bit 0 left as the game set it, the worn bike's bits as in third person, the head the rider's own, no \"body:\" line (%d new)", LogLines("body: ") - lines13);
+	SetCameraFirst(false);
+	LookGetOff();
+
+	f = fopen("CMB_Slope.ini", "wb");
+	if (f) {
+		fwrite(g_b59Ini, 1, strlen(g_b59Ini), f);
+		fclose(f);
+	}
+	g_b59Hide = 0;
+	g_b59Place = NULL;
+	g_b59Standing = false;
+	g_b59LookYaw = 0.0f;
+	*(uint64_t *)(g_root + 0x108) &= ~(uint64_t)1;
+	uint8_t *shapes[3] = { g_bodyShape, g_handsShape, g_hatShape };
+	for (int k = 0; k < 3; k++)
+		*(uint64_t *)(shapes[k] + 0x108) &= ~(1ull << 43);
+	*(uint8_t **)(g_player + 0xB78) = NULL;
+	RemoveChild(g_root, g_dcHolder);
+	*(uint8_t **)(g_dcHolder + 0x28) = NULL;
+	g_eyeLive = false;
+	g_lookSpeed = 0.0f;
+	g_onFrame = ViewRide;
+	g_afterTask = ViewAfter;
+	memcpy(PlayerPos(), p0, 12);
+	RunFrames(300);
 }
 
 static void ViewTests(void)
@@ -26548,6 +28275,7 @@ static void ViewTests(void)
 			mismatch++;
 	}
 	CHECK(shellOut && base && mismatch <= 1, "let go: back to the base colour in the frame the brake shell goes out (%d frame(s) apart, %d frames after the key)", mismatch, frames);
+	ViewLamp59();   /* 2026-11-15b: [Lamp] FrameLead and [Diag] FpsFrames with the task twice a frame (the sidestep unit's) */
 
 	printf("view: the tail lamp's light, each key:\n");
 	g_lookSpeed = 0.0f;
@@ -27000,6 +28728,7 @@ static void ViewTests(void)
 	ViewTests54();       /* 2026-11-09a: the view unit's */
 	ViewTests55();       /* 2026-11-09a, test 51: the skins unit's */
 	ViewTests56();       /* 2026-11-10a, test 52: the view unit's */
+	BodyTests59();       /* 2026-11-15b, test 54's wish c: the rider's body in first person (the fpbody unit's) */
 	(void)bad;
 	g_onFrame = NULL;
 	g_afterTask = NULL;
@@ -28829,6 +30558,529 @@ static void CustomTests58(void)
 	LookGetOff();
 }
 
+/* ---- Mode 13 (2026-11-15b, test 53's wish a: the weapons unit): a handgun on the bike, G0-G14 ------------------------
+ * The controller's Handguns only (CMB_RideWeapons 1, the fake's from the start in this mode) is played by the harness: the
+ * weapon state at the player's +0x134 (ActorState's second word: weaponState bits 1-3), CMB_RiderGun (2 drawn, 1 a handgun
+ * holstered) and CMB_WeaponAway's count. The player's vtable is swapped for a longer copy (0xD0 slots) whose 0xC7 is the
+ * heading's getter's nine bytes (or not: G4) and whose 0xC9 counts its calls (FakeDrawWeapon59; with g_gun59Sheathes it
+ * starts the put-away: 4, 5, then 0 a few frames apart). A right arm of its own (GunArmR59:0, skinned to RArm_UpperArm,
+ * RArm_ForeArm1 and RArm_Hand, the left arm's places with x mirrored) and a pistol (Pistol59:0, plain, under WEAPON under
+ * the hand). The "weapon clip" (g_gun59Clip): every rider node 24 up and 6 forward (the left hand 12 more off the grip),
+ * the right arm raised to aim, its hand turned 30 deg; g_gun59Drift moves every rider node up after the plugin's frame by
+ * a step a frame (G9: the game animates after the task). Each check is made at a standstill on the flat (the tilt the
+ * identity, TorsoLean 8 leaning the upper body), the drawn places read through the written entries (MapBone). */
+static float g_gun59Clip, g_gun59Drift, g_gun59DriftStep;
+static uint8_t *g_gun59Arm[3], *g_gun59Weapon, *g_gun59Pistol, *g_gun59ArmShape, *g_gun59ArmSkin, *g_gun59ArmData, *g_gun59ArmBones;
+static uint8_t g_gun59ArmOrig[3 * 0x50];
+static int g_gun59Draws, g_gun59DrawArg = -1, g_gun59SheatheIn = -1, g_gun59Frames;
+static bool g_gun59Sheathes, g_gun59Ride;
+static const uint8_t g_gun59Getter[9] = { 0xF3, 0x0F, 0x10, 0x81, 0xC8, 0x00, 0x00, 0x00, 0xC3 };      /* movss xmm0, [rcx+0xC8]; ret */
+static const uint8_t g_gun59NotGetter[9] = { 0xF3, 0x0F, 0x10, 0x81, 0xCC, 0x00, 0x00, 0x00, 0xC3 };   /* another field's */
+
+static void Gun59State(int weapon) { *(uint32_t *)(g_player + 0x134) = ((uint32_t)weapon & 7u) << 1 | (weapon == 3 ? 1u << 14 : 0u); }
+static int Gun59StateNow(void) { return (int)((*(uint32_t *)(g_player + 0x134) >> 1) & 7u); }
+static void Gun59Set(int which, float v) { *(float *)(g_gun59Fake[which] + 0x30) = v; }
+static float Gun59Get(int which) { return *(float *)(g_gun59Fake[which] + 0x30); }
+
+static void FakeDrawWeapon59(void *self, bool draw)
+{
+	(void)self;
+	g_gun59Draws++;
+	g_gun59DrawArg = draw ? 1 : 0;
+	if (!draw && g_gun59Sheathes && g_gun59SheatheIn < 0)
+		g_gun59SheatheIn = 0;
+}
+static void FakeAvoidance59(void *self, bool on) { (void)self; (void)on; }
+
+/* The player's vtable: a copy of 0xD0 slots (the COL kept), 0xC7 the getter's bytes or not, 0xC8 a stub, 0xC9 the count. */
+static void Gun59Vtable(bool getter)
+{
+	void **old = *(void ***)g_player;
+	void **vt = (void **)RttiAlloc(8 * 0xD2);   /* in the fake's image, as the game's vtables are (IsA reads it there) */
+	vt[0] = old[-1];
+	memcpy(vt + 1, old, 8 * 0x51);
+	vt[1 + 0xC7] = (void *)(getter ? g_gun59Getter : g_gun59NotGetter);
+	vt[1 + 0xC8] = (void *)FakeAvoidance59;
+	vt[1 + 0xC9] = (void *)FakeDrawWeapon59;
+	*(void ***)g_player = vt + 1;
+}
+
+/* The game's frame before the plugin's: the ride, the knees, the put-away's states. */
+static void Gun59FakeFrame(float dt)
+{
+	if (g_gun59Ride)
+		RideAlong(dt);
+	DcKneesPlace();
+	g_gun59Frames++;
+	if (g_gun59SheatheIn >= 0) {
+		int k = g_gun59SheatheIn++;
+		Gun59State(k < 2 ? 4 : k < 5 ? 5 : 0);
+		if (k >= 5)
+			g_gun59SheatheIn = -1;
+	}
+}
+
+/* After the plugin's frame (G9): the bones moved on a step, as the game's animation does after the task. */
+static void Gun59AfterTask(float dt)
+{
+	(void)dt;
+	g_gun59Drift += g_gun59DriftStep;
+	SyncFakeWorld();
+}
+
+/* At the end of SyncFakeWorld: the right arm (seated or aiming), the weapon's node, and the clip's and the drift's moves of
+ * every rider node. */
+static void Gun59FakePose(void)
+{
+	if (!g_gun59Arm[0])
+		return;
+	float h = *(float *)(g_player + 0xC8), c = cosf(h), sn = sinf(h);
+	const float heading[9] = { c, sn, 0, -sn, c, 0, 0, 0, 1 };
+	const float *pp = PlayerPos();
+	static const float seat[3][3] = { { 18, 42, 148 }, { 22.5f, 57.5f, 133 }, { 20, 75, 120 } }, aim[3][3] = { { 16, 46, 168 }, { 14, 66, 165 }, { 10, 86, 166 } };
+	static const float rx30[9] = { 1, 0, 0, 0, 0.86603f, -0.5f, 0, 0.5f, 0.86603f };
+	float rot[9], off[3], pos[3];
+	for (int k = 0; k < 3; k++) {
+		const float *at = g_gun59Clip > 0.0f ? aim[k] : seat[k];
+		Apply3(heading, at, off);
+		for (int i = 0; i < 3; i++)
+			pos[i] = pp[i] + off[i];
+		if (k == 2 && g_gun59Clip > 0.0f)
+			MulM3(heading, rx30, rot);
+		else
+			memcpy(rot, heading, sizeof(rot));
+		SetWorld(g_gun59Arm[k], rot, pos, 1.0f);
+	}
+	{   /* WEAPON: 6 ahead of the hand along its own forward, its rotation */
+		float R[9], fwd[3] = { 0.0f, 6.0f, 2.0f }, f[3];
+		LoadRotation((const float *)(g_gun59Arm[2] + 0x70), R, g_rootTransposed);
+		Apply3(R, fwd, f);
+		float wp[3];
+		for (int i = 0; i < 3; i++)
+			wp[i] = ((const float *)(g_gun59Arm[2] + 0xA0))[i] + f[i];
+		SetWorld(g_gun59Weapon, R, wp, 1.0f);
+	}
+	if (g_gun59Clip <= 0.0f && g_gun59Drift == 0.0f)
+		return;
+	float T[3], up[3] = { 0.0f, 6.0f * g_gun59Clip, 24.0f * g_gun59Clip + g_gun59Drift }, lh[3] = { -8.0f, -12.0f, 6.0f }, L[3];
+	Apply3(heading, up, T);
+	Apply3(heading, lh, L);
+	uint8_t *nodes[16] = { g_comNode, g_pipboyBone };
+	int n = 2;
+	for (int i = 0; i < 12; i++)
+		nodes[n++] = g_bodyNodes[i];
+	for (int i = 0; i < n; i++)
+		for (int k = 0; k < 3; k++)
+			((float *)(nodes[i] + 0xA0))[k] += T[k] + (nodes[i] == g_bodyNodes[5] && g_gun59Clip > 0.0f ? L[k] : 0.0f);
+	for (int i = 0; i < 5; i++)
+		if (g_handsXf[i] && i != 3)
+			for (int k = 0; k < 3; k++)
+				((float *)(g_handsXf[i] + 0x30))[k] += T[k] + (g_gun59Clip > 0.0f ? L[k] : 0.0f);
+	for (int i = 1; i < 3; i++)
+		if (g_hatXf[i])
+			for (int k = 0; k < 3; k++)
+				((float *)(g_hatXf[i] + 0x30))[k] += T[k];
+	if (g_gun59Drift != 0.0f) {   /* the right arm and the weapon drift with the rest */
+		float D[3] = { 0.0f, 0.0f, g_gun59Drift };
+		for (int k = 0; k < 3; k++)
+			for (int i = 0; i < 3; i++)
+				((float *)(g_gun59Arm[k] + 0xA0))[i] += D[i];
+		for (int i = 0; i < 3; i++)
+			((float *)(g_gun59Weapon + 0xA0))[i] += D[i];
+	}
+}
+
+/* The right arm's skin and the pistol, added to the rider's 3D (the plugin holds them at its next sync). */
+static void Gun59BuildArm(void)
+{
+	void **vtNode = *(void ***)g_npcRoot, **vtTri = *(void ***)g_pipboyShape;
+	static const char *names[3] = { "RArm_UpperArm [RUar]", "RArm_ForeArm1 [RLar]", "RArm_Hand [RHnd]" };
+	DcHolder();   /* the test shapes' holder under the 3D root (the NPC root's 16 children are taken) */
+	for (int k = 0; k < 3; k++) {
+		g_gun59Arm[k] = NewNode(vtNode, names[k], k == 2 ? 2 : 0);
+		AddChild(g_dcHolder, g_gun59Arm[k]);
+		*(uint8_t **)(g_gun59Arm[k] + 0x28) = g_dcHolder;
+	}
+	g_gun59Weapon = NewNode(vtNode, "WEAPON", 2);
+	AddChild(g_gun59Arm[2], g_gun59Weapon);
+	*(uint8_t **)(g_gun59Weapon + 0x28) = g_gun59Arm[2];
+	g_gun59Pistol = NewNode(vtTri, "Pistol59:0", 0);
+	{
+		float *lr = (float *)(g_gun59Pistol + 0x30);
+		lr[0] = lr[5] = lr[10] = 1.0f;
+		*(float *)(g_gun59Pistol + 0x6C) = 1.0f;
+	}
+	AddChild(g_gun59Weapon, g_gun59Pistol);
+	*(uint8_t **)(g_gun59Pistol + 0x28) = g_gun59Weapon;
+	g_gun59ArmShape = NewNode(vtTri, "GunArmR59:0", 0);
+	AddChild(g_dcHolder, g_gun59ArmShape);
+	*(uint8_t **)(g_gun59ArmShape + 0x28) = g_dcHolder;
+	g_gun59ArmSkin = (uint8_t *)NewObject(g_vtSkin, 0x100);
+	*(int32_t *)(g_gun59ArmSkin + 0x08) = 1;
+	*(uint8_t **)(g_gun59ArmShape + 0x140) = g_gun59ArmSkin;
+	g_gun59ArmData = (uint8_t *)NewObject(*(void ***)g_bodyData, 0x100);
+	*(int32_t *)(g_gun59ArmData + 0x08) = 2;
+	*(uint8_t **)(g_gun59ArmSkin + 0x40) = g_gun59ArmData;
+	g_gun59ArmBones = (uint8_t *)VirtualAlloc(NULL, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+	*(uint8_t **)(g_gun59ArmData + 0x10) = g_gun59ArmBones;
+	*(uint32_t *)(g_gun59ArmData + 0x18) = 3;
+	*(uint32_t *)(g_gun59ArmData + 0x20) = 3;
+	static const float eye[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, bind[3][3] = { { -18, -42, -148 }, { -22.5f, -57.5f, -133 }, { -20, -75, -120 } };
+	for (int k = 0; k < 3; k++) {
+		float *bb = (float *)(g_gun59ArmBones + k * 0x50);
+		bb[0] = bb[1] = bb[2] = 0.0f;
+		bb[3] = 12.0f;
+		StoreRotation(bb + 4, eye, g_skinTransposed);
+		bb[16] = bind[k][0];
+		bb[17] = bind[k][1];
+		bb[18] = bind[k][2];
+		bb[19] = 1.0f;
+	}
+	memcpy(g_gun59ArmOrig, g_gun59ArmBones, sizeof(g_gun59ArmOrig));
+	uint8_t **list = (uint8_t **)VirtualAlloc(NULL, 0x100, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+	for (int k = 0; k < 3; k++)
+		list[k] = g_gun59Arm[k];
+	*(uint8_t ***)(g_gun59ArmSkin + 0x28) = list;
+	*(uint32_t *)(g_gun59ArmSkin + 0x30) = 3;
+	*(uint32_t *)(g_gun59ArmSkin + 0x38) = 3;
+}
+
+/* Where the rider is drawn: the body's bones (but the hidden neck), the right arm's three, the pistol's origin, the bike's
+ * point 50 ahead and 10 above its bone; each through the written entry of the point at the bone's place + (3, 2, 1) in the
+ * pose as it now stands. */
+typedef struct { float body[12][3], arm[3][3], hand10[3], pistol[3], bike[3], clipHand[3], clipPistol[3], clipHand10[3]; } Gun59Drawn;
+
+static void Gun59Read(Gun59Drawn *d)
+{
+	static const float off[3] = { 3.0f, 2.0f, 1.0f };
+	const uint8_t *body = *(const uint8_t **)(*(uint8_t **)(g_bodySkin + 0x40) + 0x10);
+	const uint8_t *arm = *(const uint8_t **)(*(uint8_t **)(g_gun59ArmSkin + 0x40) + 0x10);
+	for (int i = 0; i < 12; i++) {
+		float X[3];
+		for (int k = 0; k < 3; k++)
+			X[k] = ((const float *)(g_bodyNodes[i] + 0xA0))[k] + off[k];
+		MapBone(g_bodyNodes[i], g_bodyBonesOriginal + i * 0x50, body + i * 0x50, X, d->body[i]);
+	}
+	for (int j = 0; j < 3; j++)
+		MapBone(g_gun59Arm[j], g_gun59ArmOrig + j * 0x50, arm + j * 0x50, (const float *)(g_gun59Arm[j] + 0xA0), d->arm[j]);
+	float R[9], x10[3] = { 10.0f, 0.0f, 0.0f }, X10[3], h10[3];
+	LoadRotation((const float *)(g_gun59Arm[2] + 0x70), R, g_rootTransposed);
+	Apply3(R, x10, X10);
+	for (int k = 0; k < 3; k++)
+		h10[k] = ((const float *)(g_gun59Arm[2] + 0xA0))[k] + X10[k];
+	MapBone(g_gun59Arm[2], g_gun59ArmOrig + 2 * 0x50, arm + 2 * 0x50, h10, d->hand10);
+	memcpy(d->clipHand, g_gun59Arm[2] + 0xA0, 12);
+	memcpy(d->clipHand10, h10, 12);
+	float W[9], lp[3], Wp[3];
+	LoadRotation((const float *)(g_gun59Weapon + 0x70), W, g_rootTransposed);
+	memcpy(lp, g_gun59Pistol + 0x60, 12);
+	Apply3(W, lp, Wp);
+	for (int k = 0; k < 3; k++) {
+		d->pistol[k] = ((const float *)(g_gun59Weapon + 0xA0))[k] + Wp[k];
+		d->clipPistol[k] = ((const float *)(g_gun59Weapon + 0xA0))[k];
+	}
+	float C[9], b50[3] = { 0.0f, 50.0f, 10.0f }, B[3], Xb[3];
+	LoadRotation((const float *)(g_comNode + 0x70), C, g_rootTransposed);
+	Apply3(C, b50, B);
+	for (int k = 0; k < 3; k++)
+		Xb[k] = ((const float *)(g_comNode + 0xA0))[k] + B[k];
+	MapBone(g_comNode, g_bonesOriginal, g_bones, Xb, d->bike);
+}
+
+/* The worst of the body's bones (the neck hidden; with or without the left arm's three) against another reading. */
+static float Gun59BodyOff(const Gun59Drawn *a, const Gun59Drawn *b, bool arm, int *which)
+{
+	float worst = 0.0f;
+	*which = -1;
+	for (int i = 0; i < 12; i++) {
+		if (i == 3 || (!arm && i >= 5 && i <= 7))
+			continue;
+		float d = Dist3(a->body[i], b->body[i]);
+		if (d > worst) {
+			worst = d;
+			*which = i;
+		}
+	}
+	return worst;
+}
+
+static void Gun59Mount(int ms)
+{
+	ArmsGetOff(300);
+	ArmsGetOn(ms);
+}
+
+static void GunTests59(void)
+{
+	printf("weapons (2026-11-15b, test 53's wish a): a handgun on the bike (Handguns only, the fake's CMB_RideWeapons 1):\n");
+	SetNormal(0.0f, 0.0f, 1.0f);
+	SetState(0);
+	FlatGround();
+	float radius0 = *(float *)(g_turnRadius + 0x30), stand0 = *(float *)(g_turnStand + 0x30);
+	*(float *)(g_turnRadius + 0x30) = 300.0f;   /* steering on for the whole run: the plugin measures the speed (0 standing, 300 riding) */
+	*(float *)(g_turnStand + 0x30) = 20.0f;
+	g_rideSpeed = 0.0f;
+	g_onFrame = Gun59FakeFrame;
+	Gun59BuildArm();
+	SyncFakeWorld();
+	ArmsGetOn(1500);
+	/* G0: run.sh's DEF59 (every key off): the settings line, CMB_RiderGunPose -1 (GunPose=0), an ask with nothing called. */
+	CHECK(LogLines("  weapons (2026-11-15b, test 53's wish a): PutAway=0 GunPose=0 GunStandBack=0 GunPredict=0 ") >= 1 &&
+	      LogLines("globals: the 2026-11-15b weapons globals found, CMB_RideWeapons 1") == 1 && Gun59Get(4) == -1.0f,
+	      "G0: DEF59's settings line, the four globals found, CMB_RiderGunPose -1 with GunPose=0 (%g)", Gun59Get(4));
+	Gun59Vtable(true);
+	Gun59State(3);
+	int lines0 = LogLines("gun: put away asked (CMB_WeaponAway 1): nothing called (PutAway=0)");
+	Gun59Set(3, 1.0f);
+	RunFrames(800);
+	CHECK(g_gun59Draws == 0 && LogLines("gun: put away asked (CMB_WeaponAway 1): nothing called (PutAway=0)") == lines0 + 1,
+	      "G0: PutAway=0: an ask with the weapon out calls nothing (%d calls), one line", g_gun59Draws);
+	Gun59State(0);
+	static const char *const on[6][2] = { { "PutAway=0", "PutAway=1" }, { "GunPose=0", "GunPose=1" }, { "GunStandBack=0", "GunStandBack=1" }, { "GunPredict=0", "GunPredict=1" },
+	                                      { "GunTrace=0", "GunTrace=1" }, { "GunListen=0", "GunListen=1" } };
+	for (int i = 0; i < 6; i++)
+		RewriteIni(on[i][0], on[i][1]);
+
+	/* G4: slot 0xC7 not the getter: nothing called, the bytes in the line. */
+	Gun59Vtable(false);
+	Gun59Mount(1500);
+	Gun59State(3);
+	Gun59Set(3, 2.0f);
+	RunFrames(600);
+	CHECK(g_gun59Draws == 0 && LogLines("gun: the player's slot 0xC7 reads F3 0F 10 81 CC 00 00 00 C3, 0xC8 ") == 1 && LogLines("not the layout expected, nothing called (PutAway)") == 1,
+	      "G4: slot 0xC7 another field's getter: no call (%d), the line with its bytes", g_gun59Draws);
+	/* G1: the getter there (a new vtable: probed again): called that frame, again every 0.5 s while the state stays 3, six at most. */
+	Gun59Vtable(true);
+	Gun59Set(3, 3.0f);
+	RunFrames(60);
+	int first = g_gun59Draws;
+	RunFrames(4300);
+	CHECK(first == 1 && g_gun59DrawArg == 0 && g_gun59Draws == 6 && LogLines("gun: the player's slot 0xC7 is the heading's getter (+0x") == 1 &&
+	      LogLines("gun: put away asked (CMB_WeaponAway 3): DrawWeaponMagicHands(false) called, the weapon state 3") == 1 && LogLines("gun: the weapon state 3: not away ") == 1,
+	      "G1: the probe passed: DrawWeaponMagicHands(false) at the ask's frame (%d), six calls while the state stayed 3 (%d), the lines", first, g_gun59Draws);
+	/* G2: the game puts it away (4, 5, 0): one call, the state's run in the line. */
+	g_gun59Draws = 0;
+	g_gun59Sheathes = true;
+	Gun59State(3);
+	Gun59Set(3, 4.0f);
+	RunFrames(900);
+	CHECK(g_gun59Draws == 1 && Gun59StateNow() == 0 && LogLines("gun: the weapon state 3 > 4 > 5 > 0: away ") == 1,
+	      "G2: the weapon put away after one call (%d): 'the weapon state 3 > 4 > 5 > 0: away'", g_gun59Draws);
+	/* G3: a menu pausing the game (CMB_ViewMenu 1): no call; the menu shut: called. */
+	g_gun59Draws = 0;
+	g_gun59Sheathes = false;
+	*(float *)(g_viewMenuFake + 0x30) = 1.0f;
+	Gun59State(3);
+	Gun59Set(3, 5.0f);
+	RunFrames(700);
+	int paused = g_gun59Draws;
+	*(float *)(g_viewMenuFake + 0x30) = 0.0f;
+	RunFrames(200);
+	CHECK(paused == 0 && g_gun59Draws == 1, "G3: no call while a menu pauses the game (%d), one once it's shut (%d)", paused, g_gun59Draws);
+	Gun59State(0);
+	RunFrames(4200);   /* the ask's 4 s run out */
+
+	/* G5: the stand-back: drawing with the knees standing: CMB_RiderPoseOff -1, no "off the seat"; 1.5 s after the state's 0 the
+	 * seat watch measures again (the knees still standing: its line). */
+	int offs0 = LogLines("rider: the clips off the seat (the knees up to ");
+	float poseMax = -10.0f;
+	DcKneesStanding();
+	Gun59Set(2, 1.0f);
+	Gun59State(2);
+	for (int i = 0; i < 10; i++) {
+		RunFrames(100);
+		if (PoseOffFake() > poseMax)
+			poseMax = PoseOffFake();
+	}
+	int offsOut = LogLines("rider: the clips off the seat (the knees up to ") - offs0;
+	Gun59State(0);
+	RunFrames(1000);
+	int offsTail = LogLines("rider: the clips off the seat (the knees up to ") - offs0;
+	RunFrames(1500);
+	int offsAfter = LogLines("rider: the clips off the seat (the knees up to ") - offs0;
+	CHECK(offsOut == 0 && poseMax == -1.0f && offsTail == 0 && offsAfter == 1 && PoseOffFake() > 0.0f,
+	      "G5: a weapon being drawn: CMB_RiderPoseOff -1 (at most %g), no knees line (%d), none in the 1.5 s after (%d); then measured again: its line (%d), %g",
+	      poseMax, offsOut, offsTail, offsAfter, PoseOffFake());
+	DcKneesSeated();
+	RunFrames(1500);
+
+	/* G6: the seat poses: still (read already, standing here holstered and seated), CMB_RiderGunPose 1. */
+	CHECK(LogLines("gun: the seat pose read (still, ") >= 1 && Gun59Get(4) == 1.0f, "G6: the still seat pose read, CMB_RiderGunPose 1 (%g)", Gun59Get(4));
+	/* G15: at speed with only the still pose: drawn at once: not posed, its line; then holstered a second and more at speed:
+	 * the riding pose read. */
+	g_rideSpeed = 300.0f;
+	g_gun59Ride = true;
+	RunFrames(700);
+	Gun59Set(2, 2.0f);
+	Gun59State(3);
+	RunFrames(400);
+	float atSpeed = Gun59Get(4);
+	Gun59State(0);
+	Gun59Set(2, 1.0f);
+	RunFrames(2600);
+	CHECK(atSpeed == 1.0f && LogLines("with no riding seat pose yet (ride a second or two holstered first)") == 1 && LogLines("gun: the seat pose read (riding, ") >= 1,
+	      "G15: drawn at %.0f u/s with only the still pose: not posed (CMB_RiderGunPose %g), its line; holstered at speed: the riding pose read", g_rideSpeed, atSpeed);
+	g_gun59Ride = false;
+	g_rideSpeed = 0.0f;
+	RunFrames(2500);
+
+	/* G7: at a standstill: the holstered ride's drawn places; then the weapon clip with a handgun drawn. */
+	Gun59Drawn held, posed, raw;
+	Gun59Read(&held);
+	g_gun59Clip = 1.0f;
+	Gun59Set(2, 2.0f);
+	Gun59State(3);
+	RunFrames(80);
+	Gun59Read(&raw);   /* the first frame: the weight just begun */
+	RunFrames(700);
+	Gun59Read(&posed);
+	int worstBone;
+	float bodyOff = Gun59BodyOff(&posed, &held, true, &worstBone), rawOff = Gun59BodyOff(&raw, &held, true, &worstBone);
+	CHECK(Gun59Get(4) == 2.0f && LogLines("gun: a handgun out (the weapon state 3, the gun state ") == 1 && bodyOff < 0.05f,
+	      "G7: a handgun out: CMB_RiderGunPose 2, its line; every body bone but the right arm's drawn where the holstered ride drew it (worst %.3f, bone %d; %.1f at the clip's first frame)",
+	      bodyOff, worstBone, rawOff);
+	float shoulder = Dist3(posed.arm[0], held.arm[0]);
+	CHECK(shoulder < 0.1f, "G7: the right shoulder drawn where the holstered ride's solve drew it (%.3f off)", shoulder);
+	float dh[3], dc[3], turn = 0.0f, carryHand[3], carryPistol[3];
+	for (int k = 0; k < 3; k++) {
+		dh[k] = posed.hand10[k] - posed.arm[2][k];
+		dc[k] = posed.clipHand10[k] - posed.clipHand[k];
+		carryHand[k] = posed.arm[2][k] - posed.clipHand[k];
+		carryPistol[k] = posed.pistol[k] - posed.clipPistol[k];
+	}
+	turn = Dist3(dh, dc);
+	float pistolOff = Dist3(carryHand, carryPistol), carry = sqrtf(carryHand[0] * carryHand[0] + carryHand[1] * carryHand[1] + carryHand[2] * carryHand[2]);
+	CHECK(turn < 0.05f && pistolOff < 0.05f && carry > 5.0f,
+	      "G7: the right hand keeps the clip's orientation (%.3f off over 10), carried %.1f to the seat's shoulder, the pistol with it (%.3f off the hand's carry)", turn, carry, pistolOff);
+	float bike = Dist3(posed.bike, held.bike);
+	CHECK(bike < 0.1f, "G7: the worn bike on the seat's COM, not the clip's (%.3f off the holstered ride's; the clip's COM 24.7 above)", bike);
+
+	/* G9: the bones moving up 0.8 a frame relative to the root, moved by the game after the plugin's frame: drawn within 0.1
+	 * of the seat pose with GunPredict=1; GunPredict=0: about the step behind. */
+	g_gun59DriftStep = 0.8f;
+	g_afterTask = Gun59AfterTask;
+	RunFrames(500);
+	Gun59Read(&posed);
+	int worstP, worstU;
+	float predicted = Gun59BodyOff(&posed, &held, false, &worstP);
+	g_afterTask = NULL;
+	g_gun59DriftStep = 0.0f;
+	g_gun59Drift = 0.0f;
+	RewriteIni("GunPredict=1", "GunPredict=0");
+	Gun59Mount(1200);
+	g_gun59DriftStep = 0.8f;
+	g_afterTask = Gun59AfterTask;
+	RunFrames(500);
+	Gun59Read(&posed);
+	float unpredicted = Gun59BodyOff(&posed, &held, false, &worstU);
+	g_afterTask = NULL;
+	g_gun59DriftStep = 0.0f;
+	g_gun59Drift = 0.0f;
+	RewriteIni("GunPredict=0", "GunPredict=1");
+	CHECK(predicted < 0.1f && unpredicted > 0.5f && unpredicted < 1.2f, "G9: the bones 0.8 a frame on after the plugin's frame: %.3f off with GunPredict=1 (bone %d), %.3f with 0 (bone %d)",
+	      predicted, worstP, unpredicted, worstU);
+	Gun59Mount(1200);
+
+	/* G10: put away (3, 4, 5, 0), the clip over: the holstered ride's places again, CMB_RiderGunPose 1, the posing's line. */
+	g_gun59Sheathes = true;
+	Gun59Set(3, 6.0f);
+	RunFrames(150);
+	g_gun59Clip = 0.0f;
+	Gun59Set(2, 1.0f);
+	RunFrames(800);
+	Gun59Read(&posed);
+	bodyOff = Gun59BodyOff(&posed, &held, true, &worstBone);
+	CHECK(Gun59StateNow() == 0 && Gun59Get(4) == 1.0f && LogLines("the clips' own again (the weapon away or the pose's rule)") >= 1 && bodyOff < 0.05f,
+	      "G10: put away: CMB_RiderGunPose 1, the posing's line, the holstered ride's places again (worst %.3f)", bodyOff);
+	g_gun59Sheathes = false;
+
+	/* G11: GunPose=0: a handgun out in the clip's standing pose: CMB_RiderGunPose -1, the body where the clip has it. */
+	RewriteIni("GunPose=1", "GunPose=0");
+	Gun59Mount(1000);
+	g_gun59Clip = 1.0f;
+	Gun59Set(2, 2.0f);
+	Gun59State(3);
+	RunFrames(700);
+	Gun59Read(&posed);
+	bodyOff = Gun59BodyOff(&posed, &held, false, &worstBone);
+	CHECK(Gun59Get(4) == -1.0f && bodyOff > 20.0f, "G11: GunPose=0: CMB_RiderGunPose -1, the body the clip's (%.1f off the seat's)", bodyOff);
+	RewriteIni("GunPose=0", "GunPose=1");
+	Gun59Mount(1200);
+
+	/* G13: first person: not posed (the third-person skeleton isn't drawn); third person again: posed. */
+	if (!g_firstState) {
+		static const char *firstNames[] = { ".?AVFirstPersonState@@", ".?AVTESCameraState@@" };
+		g_firstState = (uint8_t *)NewObject(MakeClass(firstNames, 2), 0x200);
+	}
+	SetCameraFirst(true);
+	RunFrames(600);
+	float inFirst = Gun59Get(4);
+	SetCameraFirst(false);
+	RunFrames(600);
+	CHECK(inFirst == 1.0f && Gun59Get(4) == 2.0f, "G13: first person: not posed (CMB_RiderGunPose %g); third person: posed (%g)", inFirst, Gun59Get(4));
+
+	/* G14: Any weapon (CMB_RideWeapons 2, 2026-11-15a with CMB_AllowCombat 1): drawing with the knees standing: the knees'
+	 * line as 2026-11-15a, not posed (CMB_RiderGunPose 1, written by the plugin). */
+	Gun59State(0);
+	g_gun59Clip = 0.0f;
+	Gun59Set(2, 0.0f);
+	RunFrames(2000);
+	Gun59Set(0, 2.0f);
+	offs0 = LogLines("rider: the clips off the seat (the knees up to ");
+	DcKneesStanding();
+	Gun59State(2);
+	RunFrames(1000);
+	int offsAny = LogLines("rider: the clips off the seat (the knees up to ") - offs0;
+	float anyPose = Gun59Get(4);
+	Gun59State(0);
+	DcKneesSeated();
+	RunFrames(1000);
+	Gun59Set(0, 1.0f);
+	CHECK(offsAny == 1 && anyPose == 1.0f, "G14: Any weapon: the knees' line while drawing (%d, as 2026-11-15a), not posed (CMB_RiderGunPose %g)", offsAny, anyPose);
+
+	/* G16 (2026-11-15b's review, findings 2 and 6): a save loaded (PreLoadGame, PostLoadGame) on the bike, its own CMB_WeaponAway
+	 * lower than the session's (2 against 6), a rifle drawn in it (CMB_RiderGun 0) and its CMB_RiderGunPose 2 (saved while posing):
+	 * no put-away called (44c9fc2: the count's change read as an ask); then the script's next ask (7): called, put away. And
+	 * CMB_RiderGunPose written afresh: 1 (the seat poses read, not posing; 44c9fc2: the save's 2 stood, the plugin's last word 1). */
+	printf("weapons (the review, findings 2 and 6): a save loaded with a lower CMB_WeaponAway (2), a rifle drawn and CMB_RiderGunPose 2 in it; then an ask (7):\n");
+	Gun59Set(2, 0.0f);
+	Gun59State(0);
+	RunFrames(600);
+	float poseBefore = Gun59Get(4);
+	int draws0 = g_gun59Draws, asks0 = LogLines("gun: put away asked (CMB_WeaponAway "), loads0 = LogLines("load: a save loaded (PostLoadGame)");
+	Send(2, 0);   /* PreLoadGame */
+	Gun59Set(3, 2.0f);   /* the save's own count */
+	Gun59Set(4, 2.0f);   /* the save's CMB_RiderGunPose */
+	Gun59State(3);       /* its weapon, drawn */
+	Send(3, 1);   /* PostLoadGame, riding */
+	RunFrames(1500);
+	int drawsLoad = g_gun59Draws - draws0, asksLoad = LogLines("gun: put away asked (CMB_WeaponAway ") - asks0;
+	float poseAfter = Gun59Get(4);
+	g_gun59Sheathes = true;
+	Gun59Set(3, 7.0f);
+	RunFrames(900);
+	int drawsAsk = g_gun59Draws - draws0 - drawsLoad;
+	CHECK(LogLines("load: a save loaded (PostLoadGame)") == loads0 + 1 && drawsLoad == 0 && asksLoad == 0 && drawsAsk == 1 &&
+	          LogLines("gun: put away asked (CMB_WeaponAway 7): DrawWeaponMagicHands(false) called, the weapon state 3") == 1 && Gun59StateNow() == 0,
+	      "G16: a save loaded with CMB_WeaponAway 2 (the session's 6) and a weapon drawn: no put-away called (%d call(s), %d \"put away asked\" line(s); 44c9fc2: called), then the "
+	      "script's ask 7: called once (%d), put away (the state %d)", drawsLoad, asksLoad, drawsAsk, Gun59StateNow());
+	CHECK(poseBefore == 1.0f && poseAfter == 1.0f, "G16: CMB_RiderGunPose written afresh after the load: %g (the save's 2; 44c9fc2: 2 stood, the plugin's last word %g the same as now)", poseAfter,
+	      poseBefore);
+	g_gun59Sheathes = false;
+	Gun59Mount(1200);
+
+	/* G12 (last: it switches the rules off for the session): the script says drawn (CMB_RiderGun 2) while the state reads 0. */
+	Gun59Set(2, 2.0f);
+	RunFrames(6600);
+	CHECK(LogLines("gun: the weapon state at Actor+0x134 reads 0 (the word ") == 1 && LogLines("while the script says drawn (CMB_RiderGun 2) for 6.") == 1 && Gun59Get(4) == -1.0f,
+	      "G12: the script says drawn, the state reads 0 for 6 s: off for the session, its line, CMB_RiderGunPose -1 (%g)", Gun59Get(4));
+	Gun59Set(2, 0.0f);
+	ArmsGetOff(300);
+	g_onFrame = NULL;
+	*(float *)(g_turnRadius + 0x30) = radius0;
+	*(float *)(g_turnStand + 0x30) = stand0;
+}
+
 int main(int argc, char **argv)
 {
 	const char *dllPath = argc > 1 ? argv[1] : "CMB_Slope.dll";
@@ -28861,6 +31113,8 @@ int main(int argc, char **argv)
 	g_new55Hidden = mode == 15;        /* ... and without the 2026-11-09a fixes' CMB_LookOptions (0xBF4) */
 	g_new56Hidden = mode == 15;        /* ... and without the 2026-11-10a build's two (0xBF5-0xBF6) */
 	g_new57Hidden = mode == 15;        /* ... and without the 2026-11-14a build's seven (0xBF8-0xBFE) */
+	g_new59Hidden = mode == 15;        /* ... and without the 2026-11-15b build's four (0xBFF-0xC02) */
+	g_gun59Hidden = mode != 13 && mode != 20;   /* 2026-11-15b: the weapons unit's four in mode 13 (GunTests59) and, the review's, 20 (ViewTests59's weapon drawn) */
 	g_robotsHidden = mode != 11 && mode != 22;   /* CMB_RamRobots (test 42) in modes 11 and 22 only: mode 14 checks the one "isn't there" line */
 	HMODULE dll = LoadLibraryA(dllPath);
 	if (!dll) { printf("can't load %s\n", dllPath); return 2; }
@@ -28943,6 +31197,7 @@ int main(int argc, char **argv)
 		      LogLines("globals: the 2026-11-09a build's 2 found"));
 		DriveTests54();
 		CautionTests56();   /* 2026-11-10a, test 52: Caution 50's sidestep (the drive unit's) */
+		CautionWide59();    /* 2026-11-15b: the wide sidestep found by SidestepCaution's reach (the sidestep unit's) */
 		printf("%s\n", g_failures ? "FAILED" : "all ok");
 		return g_failures ? 1 : 0;
 	}
@@ -28970,6 +31225,7 @@ int main(int argc, char **argv)
 		UseStopTests54();   /* 2026-11-09a: the item-use block (the rider unit's) */
 		QuickTests56();     /* 2026-11-10a, test 52: items by hotkey at speed, UseStop's cue (the quick unit's) */
 		QuickTests57();     /* 2026-11-14a, test 53: the number keys' codes, the self-test, an unapplied clip at speed (the quick unit's) */
+		GunTests59();       /* 2026-11-15b, test 53's wish a: a handgun on the bike (the weapons unit's) */
 		printf("%s\n", g_failures ? "FAILED" : "all ok");
 		return g_failures ? 1 : 0;
 	}
@@ -28997,6 +31253,8 @@ int main(int argc, char **argv)
 			OldEsp56Ids();   /* 2026-11-10a, test 52: the build's two globals: none with that ESP (step 0's) */
 		if (mode == 15)
 			OldEsp57Kit();   /* 2026-11-14a, test 53: the preview's writer and lines: none with that ESP (the kit unit's) */
+		if (mode == 15)
+			OldEsp59Ids();   /* 2026-11-15b, test 54: the four globals: none with that ESP (the fpcam unit's) */
 		printf("%s\n", g_failures ? "FAILED" : "all ok");
 		return g_failures ? 1 : 0;
 	}

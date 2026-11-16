@@ -149,6 +149,9 @@ public static class Vanilla
         : FxLandSounds.Contains(key) || FxLandSoundsAlt.Contains(key) || FxWaterLoops.Contains(key) ? "SoundDescriptor"
         : key == SOMMono02000 ? "SoundOutputModel"
         : key == CurrentCompanionFaction ? "Faction"
+        // 2026-11-15b (the weapons unit): the controller's WeaponTypeRifle and ActionSheath (Fixes_59).
+        : key == new FormKey(ModKey.FromFileName("Fallout4.esm"), 0x04A0A1) ? "Keyword"
+        : key == new FormKey(ModKey.FromFileName("Fallout4.esm"), 0x046BAF) ? "ActionRecord"
         : "unknown";
 }
 
@@ -535,10 +538,27 @@ public static class Program
                     "CMB_Caution", 50, 100, 5) : null!,
                 Slider("Bike tilts with the ground (max degrees)", "While riding, the bike and the rider pitch with the ground by at most this much (needs F4SE and the CMB_Slope.dll plugin; 45 follows any slope you can climb). Takes effect the next time you get on.",
                     "CMB_MaxTilt", 0, 50, 1),
-                Switcher("Allow combat while riding", "Weapons and VATS stay usable while riding. Takes effect the next time you get on.", "CMB_AllowCombat"),
+                // 2026-11-15b (test 53's wish a, the weapons unit): with C2's block the stepper on CMB_RideWeapons (0xC03) in its
+                // place; `--look-build 2026-11-07a` keeps the switch (2026-11-07a's MCM).
+                c2 ? new
+                {
+                    type = "stepper", text = "Weapons while riding",
+                    help = "Handguns only: a pistol can be drawn and fired from the saddle, the left hand on the bar (the seated pose needs F4SE and CMB_Slope.dll); anything else is put away, and VATS stays off. None: no weapon can be out on the motorbike (a weapon out ends the ride), as before with \"Allow combat while riding\" off. Any weapon: every weapon and VATS in the game's standing poses, as before with it on. Takes effect at once.",
+                    valueOptions = new { options = new[] { "None", "Handguns only", "Any weapon (standing poses)" }, sourceType = "GlobalValue", sourceForm = Form(Rec("CMB_RideWeapons")) },
+                } : Switcher("Allow combat while riding", "Weapons and VATS stay usable while riding. Takes effect the next time you get on.", "CMB_AllowCombat"),
                 Switcher("Bike in first person", "Shows the bike under you in first person (needs F4SE and CMB_Slope.dll). Takes effect the next time you get on.", "CMB_FirstPersonBike"),
                 Slider("Look down on getting into first person (deg)", "Each time you go into first person on the bike, the view eases down this far so the dial and bars are in sight; look up whenever you like. 0 = the view left as it is (as before). Needs F4SE and CMB_Slope.dll.",
                     "CMB_ViewTip", 0, 45, 1),
+                // 2026-11-15b (test 53, wish e: "no way to turn just the camera" backing; test 53's lean in first person): looking
+                // back while reversing and the view's lean, only with C2's block (the ESP's 0xBFF and 0xC01).
+                c2 ? new
+                {
+                    type = "stepper", text = "Looking back while reversing (first person)",
+                    help = "Backing up in first person (S held a moment, moving or blocked). Over the shoulder: the view turns round over the shoulder the side key points to (D: right, the way the rear goes), the mouse turns only your head while the bike keeps its heading, and forward brings the view back to the front. Third person: the camera switches to third person while you back up and back to first person when you ride forward. Off: the view stays ahead, as before. Needs F4SE and CMB_Slope.dll.",
+                    valueOptions = new { options = new[] { "Off", "Over the shoulder", "Third person" }, sourceType = "GlobalValue", sourceForm = Form(Rec("CMB_ViewBack")) },
+                } : null!,
+                c2 ? Slider("View leans in turns (first person, deg)", "In first person the view leans into a turn with the bike, this far at the bike's whole lean. 0 = the view stays level, as before. Needs F4SE and CMB_Slope.dll. At once.",
+                    "CMB_ViewRoll", 0, 10, 1) : null!,
                 // 2026-11-14a (test 53, wish j: the game writes its own 80 back): no FOV slider with C2's block (the global CMB_ViewFov
                 // stays at 0x8B1, 0 = your own: the plugin finds it by ID); `--look-build 2026-11-07a` keeps it (2026-11-07a's MCM).
                 c2 ? null! : Slider("Field of view riding in first person", "The game's field of view while you ride in first person (more shows more of the bike, and widens the world too); back to yours as you get off or leave first person. 0 = your own, as before. Needs F4SE and CMB_Slope.dll.",
@@ -621,6 +641,9 @@ public static class Program
                     "CMB_HotkeyCode", 0, 211, 1),
                 Slider("Brake key (scan code)", "Brakes while riding, as S does, and holds the bike still once stopped (S still backs up). A DirectInput scan code: 57 = Space, 42 = Left Shift, 29 = Left Ctrl, 56 = Left Alt, 45 = X, 46 = C, 0 = none (only S brakes). The log names the key it read. Takes effect the next time you get on.",
                     "CMB_BrakeKey", 0, 211, 1),
+                // 2026-11-15b (test 53, wish e): the look key, only with C2's block (the ESP's 0xC02).
+                c2 ? Slider("Look key (scan code)", "Hold it in first person on the bike to look round: the mouse turns only your head and the bike keeps its line; let go and the view comes back to the front. A DirectInput scan code: 44 = Z, 45 = X, 46 = C, 56 = Left Alt, 0 = none; W, A, S, D and the brake key aren't taken. The log names the key it read. Takes effect the next time you get on.",
+                    "CMB_LookKey", 0, 211, 1) : null!,
                 Button("Apply built-in hotkey", "Re-registers the built-in hotkey after changing it.", "RefreshHotkey"),
                 Section("Troubleshooting"),
                 Button("Give me the keys", "For alternative starts that skip the Pip-Boy: hands over the Motorbike Keys now.", "ForceGiveKeys"),
@@ -1387,6 +1410,59 @@ public static class Program
                     throw new InvalidOperationException($"2026-11-14a's kit globals must be 0xBF7-0xBFE (CMB_Slope.dll finds the preview's seven by ID), got {string.Join(", ", kit57.Select(r => $"{r.EditorID} {r.FormKey.ID:X}"))}");
         }
 
+        // --- 2026-11-15b, test 54's answer (the fpcam unit): the round's four forms, 0xBFF-0xC02, right after the kit's 0xBFE (only
+        // with C2's block: `--look-build 2026-11-07a` makes none). CMB_ViewBack, the MCM's "Looking back while reversing (first
+        // person)": 0 off, 1 over the shoulder (CMB_Slope.dll turns the first-person camera), 2 third person (the controller
+        // switches the camera while CMB_ViewBackNow, the plugin's word, is 1); CMB_ViewRoll, "View leans in turns (first person,
+        // deg)", 4; CMB_LookKey, "Look key (scan code)", 44 (Z). The plugin finds the four by ID (its VIEW_BACK_ID .. and the
+        // harness's VIEW_BACK_FORMID .. use these numbers: renumber them together).
+        GlobalFloat? gViewBack = null, gViewBackNow = null;
+        if (look.HasC2)
+        {
+            if (mod.ModHeader.Stats.NextFormID != 0xBFF)
+                throw new InvalidOperationException($"2026-11-15b's view forms start at 0xBFF, after 2026-11-14a's 0xBFE; the next ID is 0x{mod.ModHeader.Stats.NextFormID:X}");
+            gViewBack = Global(mod, "CMB_ViewBack", 1);
+            gViewBackNow = Global(mod, "CMB_ViewBackNow", 0);
+            var fp59 = new IMajorRecordGetter[]
+            {
+                gViewBack,
+                gViewBackNow,
+                Global(mod, "CMB_ViewRoll", 4),
+                Global(mod, "CMB_LookKey", 44),
+            };
+            for (int i = 0; i < fp59.Length; i++)
+                if (fp59[i].FormKey.ID != 0xBFF + i)
+                    throw new InvalidOperationException($"2026-11-15b's view globals must be 0xBFF-0xC02 (CMB_Slope.dll finds the four by ID), got {string.Join(", ", fp59.Select(r => $"{r.EditorID} {r.FormKey.ID:X}"))}");
+        }
+
+        // --- 2026-11-15b, test 53's wish a (the weapons unit): the round's five forms, 0xC03-0xC07, after the fpcam unit's
+        // 0xBFF-0xC02 (only with C2's block: `--look-build 2026-11-07a` makes none). Right after them (2026-11-15b's merge).
+        // CMB_RideWeapons: what can be out on the bike, 0 None (2026-11-15a with CMB_AllowCombat 0), 1 Handguns only (the
+        // left hand on the bar; the default), 2 Any weapon (2026-11-15a with CMB_AllowCombat 1); the MCM's "Weapons while
+        // riding" stepper. A new form: a save made before has none, so it starts at 1 (CMB_AllowCombat is read only
+        // without this global, an older ESP). CMB_HandgunKeywords: what makes the equipped gun a handgun (WeaponTypePistol;
+        // more can be added in xEdit, as CMB_FuelItems). CMB_RiderGun (the controller writes: 0 none allowed, 1 a handgun
+        // equipped and allowed, 2 and drawn), CMB_WeaponAway (the controller counts 1-999: put the weapon away) and
+        // CMB_RiderGunPose (CMB_Slope.dll writes: -1 off, 0 no seat pose read yet, 1 ready, 2 posing): CMB_Slope.dll finds
+        // the four globals by ID (its WEAPONS59_ID .. and the harness's WEAPONS59_FORMID .. use these numbers: renumber them together).
+        GlobalFloat? gRideWeapons59 = null, gRiderGun59 = null, gWeaponAway59 = null, gRiderGunPose59 = null;
+        FormList? handgunKeywords59 = null;
+        if (look.HasC2)
+        {
+            if (mod.ModHeader.Stats.NextFormID != 0xC03)
+                throw new InvalidOperationException($"2026-11-15b's weapons forms start at 0xC03, after the fpcam unit's 0xBFF-0xC02; the next ID is 0x{mod.ModHeader.Stats.NextFormID:X}");
+            gRideWeapons59 = Global(mod, "CMB_RideWeapons", 1);
+            handgunKeywords59 = mod.FormLists.AddNew("CMB_HandgunKeywords");
+            handgunKeywords59.Items.Add(new FormLink<IFallout4MajorRecordGetter>(new FormKey(ModKey.FromFileName("Fallout4.esm"), 0x04A0A0)));   // WeaponTypePistol
+            gRiderGun59 = Global(mod, "CMB_RiderGun", 0);
+            gWeaponAway59 = Global(mod, "CMB_WeaponAway", 0);
+            gRiderGunPose59 = Global(mod, "CMB_RiderGunPose", 0);
+            var weapons59 = new IMajorRecordGetter[] { gRideWeapons59, handgunKeywords59, gRiderGun59, gWeaponAway59, gRiderGunPose59 };
+            for (int i = 0; i < weapons59.Length; i++)
+                if (weapons59[i].FormKey.ID != 0xC03 + i)
+                    throw new InvalidOperationException($"2026-11-15b's weapons forms must be 0xC03-0xC07 (CMB_Slope.dll finds four by ID), got {string.Join(", ", weapons59.Select(r => $"{r.EditorID} {r.FormKey.ID:X}"))}");
+        }
+
         // --- Controller quest ---
         quest.Name = "Commonwealth Motorbike";
         quest.Data = new QuestData
@@ -1690,7 +1766,28 @@ public static class Program
             {
                 Obj("CMB_KitWhere", gKitWhere!),
             });
+            // 2026-11-15b, test 54: the controller's Fixes_59 group, 2, after CMB_KitWhere: third person while backing (0xBFF,
+            // 0xC00). Not with `--look-build 2026-11-07a` (None: no switch, 2026-11-15a's).
+            controller.Properties.InsertRange(controller.Properties.FindIndex(p => p.Name == "CMB_KitWhere") + 1, new ScriptProperty[]
+            {
+                Obj("CMB_ViewBack", gViewBack!),
+                Obj("CMB_ViewBackNow", gViewBackNow!),
+            });
         }
+        // 2026-11-15b (test 53's wish a, the weapons unit): the controller's Fixes_59 group, 7, after CMB_KitWhere: the
+        // four globals and the list (0xC03-0xC07), WeaponTypeRifle (Fallout4.esm 0x04A0A1: never a handgun) and ActionSheath
+        // (0x046BAF: the put-away's fallback). Not with `--look-build 2026-11-07a` (None: 2026-11-15a's CMB_AllowCombat rule).
+        if (gRideWeapons59 != null)
+            controller.Properties.InsertRange(controller.Properties.FindIndex(p => p.Name == "CMB_KitWhere") + 1, new ScriptProperty[]
+            {
+                Obj("CMB_RideWeapons", gRideWeapons59),
+                Obj("CMB_HandgunKeywords", handgunKeywords59!),
+                Obj("CMB_RiderGun", gRiderGun59!),
+                Obj("CMB_WeaponAway", gWeaponAway59!),
+                Obj("CMB_RiderGunPose", gRiderGunPose59!),
+                Obj("WeaponTypeRifle", new FormKey(ModKey.FromFileName("Fallout4.esm"), 0x04A0A1)),
+                Obj("ActionSheath", new FormKey(ModKey.FromFileName("Fallout4.esm"), 0x046BAF)),
+            });
 
         quest.VirtualMachineAdapter = new QuestAdapter
         {

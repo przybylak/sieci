@@ -48,6 +48,17 @@ Reads the generator's --dump output on stdin and the .psc files, and fails if:
     the bare names, checked with check_plugin.py --kit-names 0), the MCM's Look section hasn't "Field kit only in your
     settlements" after "Field kit", its "Field kit preview" section isn't the stepper and the six sliders on those
     globals, or the MCM still has the "Field of view riding in first person" slider (wish j: CMB_ViewFov stays at 0x8B1).
+  - (2026-11-15b, test 54's answer: the fpcam unit) the four globals CMB_Slope.dll finds by ID aren't at 0xBFF-0xC02 with
+    their values (CMB_ViewBack 1, CMB_ViewBackNow 0, CMB_ViewRoll 4, CMB_LookKey 44), the controller's Fixes_59 (CMB_ViewBack,
+    CMB_ViewBackNow) isn't filled with them, or the MCM hasn't the stepper "Looking back while reversing (first person)"
+    (Off, Over the shoulder, Third person) and the slider "View leans in turns (first person, deg)" (0-10 step 1) after "Look
+    down on getting into first person (deg)", or the slider "Look key (scan code)" (0-211 step 1) after "Brake key (scan code)".
+  - (2026-11-15b, test 53's wish a: the weapons unit) CMB_RideWeapons, CMB_RiderGun, CMB_WeaponAway and CMB_RiderGunPose
+    (CMB_Slope.dll finds them by ID) aren't globals at 0xC03, 0xC05-0xC07 with 1, 0, 0, 0, CMB_HandgunKeywords isn't the
+    list at 0xC04 holding WeaponTypePistol (Fallout4.esm 0x04A0A0), CMB_AllowCombat isn't still 0x802 with 0, the
+    controller's Fixes_59 (the five, WeaponTypeRifle 0x04A0A1, ActionSheath 0x046BAF) isn't filled with them, or the MCM
+    hasn't the stepper "Weapons while riding" (None / Handguns only / Any weapon (standing poses)) on CMB_RideWeapons
+    where "Allow combat while riding" was (after "Bike tilts with the ground (max degrees)"), or still has that switch.
 
   dotnet run -c Release -- --dump CommonwealthMotorbike.esp | python3 check_plugin.py <Scripts/Source/User> [--kit-names 0]
 """
@@ -84,6 +95,7 @@ COMPATIBLE = {
     "bool": {"Bool"},
     "float": {"Float"},
     "float[]": {"FloatList"},   # 2026-11-09a: CMB_LookF4SE's RimFinishV
+    "action": {"ActionRecord"},   # 2026-11-15b: the controller's ActionSheath (Fallout4.esm 0x046BAF)
 }
 
 # The engine's output model (Program.cs, EngineOutputModel): SOMMono02000 exactly (since test 47: the reverb send 5, the
@@ -155,6 +167,25 @@ FIXED_57 = {"CMB_KitWhere": "000BF7", "CMB_KitPreview": "000BF8", "CMB_KitPrevSi
             "CMB_KitPrevTilt": "000BFB", "CMB_KitPrevUp": "000BFC", "CMB_KitPrevZoomOut": "000BFD", "CMB_KitPrevZoomIn": "000BFE"}
 GLOBALS_57 = {"CMB_KitWhere": "1", "CMB_KitPreview": "1", "CMB_KitPrevSize": "400", "CMB_KitPrevTurn": "7", "CMB_KitPrevTilt": "0",
               "CMB_KitPrevUp": "0", "CMB_KitPrevZoomOut": "-1", "CMB_KitPrevZoomIn": "3"}   # 2026-11-15a: 400 and 3 (14a: 30, 1)
+# 2026-11-15b, test 54's answer (the fpcam unit): the four CMB_Slope.dll finds by ID, their IDs and values; the MCM's controls.
+FIXED_59 = {"CMB_ViewBack": "000BFF", "CMB_ViewBackNow": "000C00", "CMB_ViewRoll": "000C01", "CMB_LookKey": "000C02"}
+GLOBALS_59 = {"CMB_ViewBack": "1", "CMB_ViewBackNow": "0", "CMB_ViewRoll": "4", "CMB_LookKey": "44"}
+MCM_59 = [("Look down on getting into first person (deg)", "stepper", "Looking back while reversing (first person)", "CMB_ViewBack",
+           ["Off", "Over the shoulder", "Third person"]),
+          ("Looking back while reversing (first person)", "slider", "View leans in turns (first person, deg)", "CMB_ViewRoll", (0, 10, 1)),
+          ("Brake key (scan code)", "slider", "Look key (scan code)", "CMB_LookKey", (0, 211, 1))]
+# 2026-11-15b, test 53's wish a (the weapons unit): the four globals (CMB_Slope.dll finds them by ID) and the handgun list,
+# their IDs and values; the vanilla forms the controller's Fixes_59 adds; the MCM's stepper in the old switch's place.
+FIXED_59W = {"CMB_RideWeapons": "000C03", "CMB_HandgunKeywords": "000C04", "CMB_RiderGun": "000C05", "CMB_WeaponAway": "000C06",
+             "CMB_RiderGunPose": "000C07"}
+GLOBALS_59W = {"CMB_RideWeapons": "1", "CMB_RiderGun": "0", "CMB_WeaponAway": "0", "CMB_RiderGunPose": "0", "CMB_AllowCombat": "0"}
+HANDGUN_LIST_59 = ["04A0A0:Fallout4.esm"]   # WeaponTypePistol
+VANILLA_59 = {"WeaponTypeRifle": "04A0A1:Fallout4.esm", "ActionSheath": "046BAF:Fallout4.esm"}
+WEAPONS_MCM_59 = ("stepper", "Weapons while riding", ["None", "Handguns only", "Any weapon (standing poses)"])
+WEAPONS_MCM_AFTER_59, ALLOW_COMBAT_SWITCH = "Bike tilts with the ground (max degrees)", "Allow combat while riding"
+# Both units' forms together (the by-ID and the value checks), the weapons unit's own for its controller properties.
+FIXED_59 = {**FIXED_59, **FIXED_59W}
+GLOBALS_59 = {**GLOBALS_59, **GLOBALS_59W}
 # ... the look item's template name and the look mods' names: on (the shipped ESP) or `--kit-names 0` (2026-11-10a's).
 KIT_NAMES = True
 # ... the MCM's preview section: (type, text, global, options or (min, max, step)).
@@ -334,6 +365,19 @@ def check_fx(recs, engine_model):
         r = by_edid.get(name)
         if r is None or r["type"] != "GlobalFloat" or r.get("value") != want_value:
             problems.append(f"{name}: {None if r is None else (r['type'], r.get('value'))}, expected a GlobalFloat of {want_value}")
+    for name, want_id in FIXED_59.items():
+        got = (by_edid.get(name) or {}).get("id")
+        if got != want_id:
+            problems.append(f"{name}: at {got}, expected {want_id} (CMB_Slope.dll finds the globals by ID; look_ids.txt)")
+    if (by_edid.get("CMB_AllowCombat") or {}).get("id") != "000802":
+        problems.append(f"CMB_AllowCombat: at {(by_edid.get('CMB_AllowCombat') or {}).get('id')}, expected 000802 (an older save's value is read there)")
+    for name, want_value in GLOBALS_59.items():
+        r = by_edid.get(name)
+        if r is None or r["type"] != "GlobalFloat" or r.get("value") != want_value:
+            problems.append(f"{name}: {None if r is None else (r['type'], r.get('value'))}, expected a GlobalFloat of {want_value}")
+    items = (lists.get("CMB_HandgunKeywords") or {}).get("items")
+    if items != HANDGUN_LIST_59:
+        problems.append(f"CMB_HandgunKeywords: {items}, expected {HANDGUN_LIST_59} (WeaponTypePistol)")
     r = by_edid.get(SOUND_54[0])
     if r is None or r["type"] != "SoundDescriptor" or r["id"] != SOUND_54[1]:
         problems.append(f"{SOUND_54[0]}: {None if r is None else (r['type'], r['id'])}, expected a SoundDescriptor at {SOUND_54[1]} (look_ids.txt)")
@@ -415,6 +459,29 @@ def check_mcm(scripts_folder: Path):
                 or not c.get("help"):
             problems.append(f"MCM Field kit preview: {c.get('type')} {c.get('text')!r} on {vo.get('sourceForm')} {got}; expected {ctype} {text!r} on "
                             f"{want_form} {options}, with a help text")
+    # 2026-11-15b (the fpcam unit): the looking back stepper and the view's lean after the tip's slider, the look key after the
+    # brake key's, each on its global (by ID).
+    for after, ctype, text, glob, options in MCM_59:
+        i = texts.index(after) if after in texts else -1
+        c = content[i + 1] if 0 <= i < len(content) - 1 else {}
+        vo = c.get("valueOptions", {})
+        got = (vo.get("min"), vo.get("max"), vo.get("step")) if ctype == "slider" else vo.get("options")
+        want_form = f"CommonwealthMotorbike.esp|{int(FIXED_59[glob], 16):X}"
+        if (c.get("type"), c.get("text"), vo.get("sourceForm"), got) != (ctype, text, want_form, options) or not c.get("help"):
+            problems.append(f"MCM: after \"{after}\" {c.get('type')} {c.get('text')!r} on {vo.get('sourceForm')} {got}; expected {ctype} {text!r} on {want_form} "
+                            f"{options}, with a help text")
+    # 2026-11-15b (the weapons unit): "Weapons while riding" (three options on CMB_RideWeapons) where "Allow combat while
+    # riding" was, and that switch gone.
+    ctype, text, options59 = WEAPONS_MCM_59
+    i = texts.index(WEAPONS_MCM_AFTER_59) if WEAPONS_MCM_AFTER_59 in texts else -1
+    c = content[i + 1] if 0 <= i < len(content) - 1 else {}
+    vo = c.get("valueOptions", {})
+    want_form = f"CommonwealthMotorbike.esp|{int(FIXED_59['CMB_RideWeapons'], 16):X}"
+    if (c.get("type"), c.get("text"), vo.get("options"), vo.get("sourceForm")) != (ctype, text, options59, want_form) or not c.get("help"):
+        problems.append(f"MCM: after \"{WEAPONS_MCM_AFTER_59}\" {c.get('type')} {c.get('text')!r} {vo.get('options')} on {vo.get('sourceForm')}; "
+                        f"expected the {ctype} \"{text}\" {options59} on {want_form}, with a help text")
+    if ALLOW_COMBAT_SWITCH in texts:
+        problems.append(f"MCM: \"{ALLOW_COMBAT_SWITCH}\" is still in the menu (2026-11-15b: \"{text}\" in its place)")
     water = next((c for c in content if c.get("text") == "Water sound loop"), {})
     options = (water.get("valueOptions") or {}).get("options")
     want = ["As the 2026-11-02a build (spray)", "Churning water", "Wet road (the mod's own)", "Wet road, gentle"]
@@ -811,12 +878,18 @@ def check_look(lines, scripts_folder: Path):
                                      ("CMB_ControllerScript", ctl, "CMB_RiderQuickUse", f"{fk('CMB_RiderQuickUse')} "),
                                      ("CMB_ControllerScript", ctl, "CMB_RideReady", f"{fk('CMB_RideReady')} "),
                                      # 2026-11-14a (test 53): the controller's Fixes_57
-                                     ("CMB_ControllerScript", ctl, "CMB_KitWhere", f"{fk('CMB_KitWhere')} ")):
+                                     ("CMB_ControllerScript", ctl, "CMB_KitWhere", f"{fk('CMB_KitWhere')} "),
+                                     # 2026-11-15b (test 54): the controller's Fixes_59
+                                     ("CMB_ControllerScript", ctl, "CMB_ViewBack", f"{fk('CMB_ViewBack')} "),
+                                     ("CMB_ControllerScript", ctl, "CMB_ViewBackNow", f"{fk('CMB_ViewBackNow')} "),
+                                     # 2026-11-15b (test 53's wish a, the weapons unit): the controller's Fixes_59
+                                     *[("CMB_ControllerScript", ctl, n, f"{fk(n)} ") for n in FIXED_59W],
+                                     *[("CMB_ControllerScript", ctl, n, f"{v} ") for n, v in VANILLA_59.items()]):
         if not (have.get(name) or "").startswith(want):
             problems.append(f"{script}.{name}: {have.get(name) or 'none'}, expected {want.strip()}")
     for script, group, have in (("CMB_ControllerScript", "Look_C1", ctl), ("CMB_ControllerScript", "Look_C2", ctl),
                                 ("CMB_ControllerScript", "Fixes_55", ctl), ("CMB_ControllerScript", "Fixes_56", ctl),
-                                ("CMB_ControllerScript", "Fixes_57", ctl),
+                                ("CMB_ControllerScript", "Fixes_57", ctl), ("CMB_ControllerScript", "Fixes_59", ctl),
                                 ("CMB_LookF4SE", None, f4se)):
         declared = look_group(scripts_folder, script, group)
         missing = [p for p in declared if p not in have]

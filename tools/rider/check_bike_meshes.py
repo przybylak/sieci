@@ -83,6 +83,14 @@ What it checks (FAIL lines make the exit status 1; INFO lines are numbers for th
              where the art paints it, and the disc _d's face ring just outside the bore the carrier's colour (within
              10 sRGB of DISC_CARRIER; the 2026-11-01a build's art had the bore's wall colour there on the front disc)
   clamp      the lower triple clamp's box: its vertices in front_black now, in the fixed shapes in the reference
+  cables     (2026-11-15b, bar_cables.py, test 53's wish (c): the right-hand cables floated) no piece of a fixed shape hangs
+             from the bars (bar_cables.find_bar_cables on the view nif's full-precision positions, else the worn nif's:
+             a long thin piece with a bar end 0.5 or nearer to the bar assembly and 12 or more from the steering axis);
+             with the split's shape front_cables (in the worn and view nifs, not the parked: the plugin never turns the
+             parked bike's bars): the plugin's bar assembly by its name and by its culling sphere, static_black's
+             materials file, every corner one of static_black's vertices (position, UV and normal: its UVs on
+             static_black's atlas), the cut where it meets static_black's kept triangles at most CUT_R from the steering
+             axis (the gap a turn opens there), and the tank clear of it with the bars within BarAngle
 """
 
 import argparse
@@ -97,6 +105,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import harley_meshes as H  # noqa: E402
+import bar_cables as BC  # noqa: E402
 from build_bike_meshes import _block_offsets  # noqa: E402
 from nearest import TriangleGrid  # noqa: E402
 
@@ -283,7 +292,7 @@ def look_checks(rep, args, opts, labels, materials, textures, worn_geo, worn_nam
         if (worn_names.get(label) or "").lower() != mat(label + "_worn"):
             bad.append(f"{label} worn {worn_names.get(label)!r}")
     c2_rims, c2_plate = H.RIM_STYLE_LABELS[0][0] in labels, H.PLATE_TEXT in labels
-    rep.check(not bad and len(labels) == len(H.look_labels(c2_rims, c2_plate)),
+    rep.check(not bad and len([x for x in labels if x not in RIDDEN_ONLY]) == len(H.look_labels(c2_rims, c2_plate)),
               f"custom: {len(labels)} shapes; {', '.join(new)} in the worn, parked and view nifs (the view's names the worn's), "
               f"each its own materials file and the plugin's fixed role by name; the parked nif's under-bar mirrors "
               f"({', '.join(H.PARKED_OFF)}) not hidden, naming <label>_off.bgsm", "; ".join(bad))
@@ -385,9 +394,11 @@ def c2_checks(rep, args, labels, materials, worn_geo, worn_names, parked_geo, pa
     import bike_pieces as BP
     meshes = args.data / "Meshes" / "CMB"
     want = [lb for lb, _ in H.look_labels(True, True)]
-    rep.check(labels == want, f"c2: {len(labels)} shapes in the worn and view nifs, {len([x for x in labels if x not in H.WORN_ONLY])} "
-                              f"in the parked (49 and 46: 2026-11-07a's 33 and 30, the plate's two, the 14 rim styles)",
-              "" if labels == want else f"missing {sorted(set(want) - set(labels))}, extra {sorted(set(labels) - set(want))}")
+    built = [x for x in labels if x not in RIDDEN_ONLY]   # 2026-11-15b's front_cables (bar_cables.py) aside
+    rep.check(built == want, f"c2: {len(built)} shapes in the worn and view nifs, {len([x for x in built if x not in H.WORN_ONLY])} "
+                             f"in the parked (49 and 46: 2026-11-07a's 33 and 30, the plate's two, the 14 rim styles)"
+                             + (f"; and {', '.join(x for x in labels if x in RIDDEN_ONLY)} (bar_cables.py)" if built != labels else ""),
+              "" if built == want else f"missing {sorted(set(want) - set(built))}, extra {sorted(set(built) - set(want))}")
     mat = lambda name: f"materials\\cmb\\bike\\{name}.bgsm".lower()   # noqa: E731
     # the new shapes' own materials files: named, the invisible ones invisible, static_plate's over its own textures
     bad = []
@@ -430,7 +441,8 @@ def c2_checks(rep, args, labels, materials, worn_geo, worn_names, parked_geo, pa
             rep.check(False, "c2: static_black and static_plate together 2026-11-07a's static_black", "no static_black")
         else:
             bv, bf, _ = worn_geo["static_black"]
-            ours = np.vstack([tri_rows(bv, bf), tri_rows(pv, pf)])
+            ours = np.vstack([tri_rows(bv, bf), tri_rows(pv, pf)]
+                             + [tri_rows(*worn_geo[x][:2]) for x in RIDDEN_ONLY if x in worn_geo])   # 2026-11-15b's cut cables
             ours = ours[np.lexsort(ours.T[::-1])]
             theirs = tri_rows(rs.verts, rs.tris)
             data = (meshes / "CMB_BikeWorn.nif").read_bytes()
@@ -487,7 +499,11 @@ def c2_checks(rep, args, labels, materials, worn_geo, worn_names, parked_geo, pa
         if "=" in line:
             k, v = line.split("=", 1)
             parts[k.strip()] = v.strip()
-    seat_at = json.loads((meshes / "CMB_BikeFit.json").read_text())["seat_at"]
+    if (meshes / "CMB_BikeFit.json").exists():
+        seat_at = json.loads((meshes / "CMB_BikeFit.json").read_text())["seat_at"]
+    else:   # a package's tree (the fit file is a build file, never shipped): the parked nif's turn, from the paint
+        seat_at = float(np.median(worn_geo["static_paint"][0][:, 1] + parked_geo["static_paint"][:, 1]))
+        rep.info("c2", f"no CMB_BikeFit.json: seat_at {seat_at:.4f} from the paint's vertices, worn against parked")
     data = (meshes / "CMB_BikeWorn.nif").read_bytes()
     bone = [off for off, nm in _block_offsets(data) if nm == "BSSkin::BoneData"]
     pulley = None
@@ -532,6 +548,102 @@ def c2_checks(rep, args, labels, materials, worn_geo, worn_names, parked_geo, pa
 
 
 SHADOW_OFF56 = H.WORN_ONLY + (H.PLATE_TEXT, H.FENDER_BADGE)   # the lit overlays and the decals: no shadow when ridden
+# 2026-11-15b (bar_cables.py): the bars' cables cut out of static_black into front_cables, in the worn and view nifs only
+RIDDEN_ONLY = (BC.LABEL,)
+SPLIT_FROM = {BC.LABEL: BC.SOURCE}
+CUT_R = 10.0         # the cut at most this far from the steering axis: it opens 2 r sin(angle / 2) in a turn (3.5 at 20)
+TANK_CLEAR = 0.3     # the moved cables at least this clear of the tank with the bars anywhere within BarAngle
+
+
+def cable_checks(rep, meshes, labels, worn_geo, parts, tank):
+    """2026-11-15b (bar_cables.py; test 53's wish (c), the right-hand cables floating in first person): no fixed piece
+    hangs from the bars; the split's front_cables turns with them, on static_black's own texels."""
+    sp = np.array([float(x) for x in parts.get("SteerPoint", "0,0,0").split(",")])
+    ax = H.unit(np.array([float(x) for x in parts.get("SteerAxis", "0,0,1").split(",")]))
+    bar = float(parts.get("BarAngle", "20"))
+    # the pieces: on the view nif's full-precision positions (the worn nif's half floats otherwise)
+    view = meshes / f"{VIEW}.nif"
+    if view.exists():
+        nif = BC.Nif(view.read_bytes())
+        geo = {nif.name_of(k)[len(VIEW) + 1:]: BC.TriShape(nif.blocks[k]) for k in nif.shapes()}
+        geo = {label: (g.positions(), g.tris) for label, g in geo.items()}
+        where = f"{VIEW}.nif"
+    else:
+        geo = {label: (g[0], g[1]) for label, g in worn_geo.items()}
+        where = "CMB_BikeWorn.nif"
+    bar_tris = np.vstack([v[f] for label, (v, f) in geo.items() if label.startswith("front_")])
+    found = []
+    for label, (v, f) in geo.items():
+        if label.startswith(("static_", "rear_")):
+            found += [(label, c) for c in BC.find_bar_cables(v, f, bar_tris, sp, ax, bar, verbose=False, name=label)]
+    rep.check(not found, f"cables: no piece of a fixed shape hangs from the bars ({where}: a long thin piece with a bar end "
+                         f"{BC.ATTACH:g} or nearer to the bar assembly, {BC.R_END:g} or more from the steering axis)",
+              "" if not found else f"{len(found)}: " + "; ".join(f"{label} piece {c['piece']} ({len(c['tris'])} triangles, its bar end on the bike's "
+                                            f"{'right' if c['seed_x'] > 0 else 'left'} {c['seed_r'][1]:.1f} from the axis: "
+                                            f"it leaves the bars by {c['bar_gap']:.1f} at BarAngle {bar:g})" for label, c in found))
+    if BC.LABEL not in labels:
+        rep.info("cables", f"no {BC.LABEL} (bar_cables.py not run on these nifs)")
+        return
+    # the plugin's role by name (CMB_Slope.c g_roleTags: the first tag that fits) and by its sphere (RolesByName=0)
+    tags = (("_front_needle", True, "needle"), ("_front_glow", True, "glow"), ("_front_dialglow", True, "glow"),
+            ("_rear_tail", True, "tail"), ("_rear_brake", True, "brake"), ("_fork", False, "fork"), ("_wheelF", False, "wheel"),
+            ("_wheelR", False, "wheel"), ("_front_mirrorStock", True, "front"), ("_front_mirrorUnderEgg", True, "front"),
+            ("_front_mirrorUnderD", True, "front"), ("_front_", False, "front"), ("_static_", False, "fixed"))
+    name = f"CMB_BikeWorn_{BC.LABEL}".lower()
+    by_name = next((role for tag, end, role in tags if (name.endswith(tag.lower()) if end else tag.lower() in name)), None)
+    data = (meshes / "CMB_BikeWorn.nif").read_bytes()
+    bone = [off for off, nm in _block_offsets(data) if nm == "BSSkin::BoneData"]
+    c = np.array(struct.unpack_from("<4f", data, bone[labels.index(BC.LABEL)] + 4))
+    lamp = np.array([float(x) for x in parts.get("LampPoint", "0,0,0").split(",")])
+    front_min_y = float(parts.get("FrontMinY", "0"))
+    by_sphere = c[1] > front_min_y and not (c[3] < 12.0 and np.linalg.norm(c[:3] - lamp) < 20.0)
+    v, f, uv = worn_geo[BC.LABEL]
+    held = np.linalg.norm(v - c[:3], axis=1).max() <= c[3]
+    rep.check(by_name == "front" and by_sphere and held and len(bone) == len(labels),
+              f"cables: {BC.LABEL} the plugin's bar assembly by its name (RolesByName=1) and by its culling sphere "
+              f"(RolesByName=0: ahead of FrontMinY {front_min_y:g}, not the lamp's), the sphere round its vertices",
+              f"by its name {by_name}; its sphere ({c[0]:.1f}, {c[1]:.1f}, {c[2]:.1f}) r {c[3]:.1f}")
+    # static_black's own vertices (position, UV, normal) and materials file: its texels on static_black's atlas
+    files_ok = True
+    detail = []
+    for stem in ("CMB_BikeWorn", VIEW):
+        path = meshes / f"{stem}.nif"
+        if not path.exists():
+            continue
+        nif = BC.Nif(path.read_bytes())
+        ks, kn = nif.shape_named(f"{stem}_{BC.SOURCE}"), nif.shape_named(f"{stem}_{BC.LABEL}")
+        if ks is None or kn is None:
+            files_ok = False
+            detail.append(f"{stem}: the shapes missing")
+            continue
+        src, new = BC.TriShape(nif.blocks[ks]), BC.TriShape(nif.blocks[kn])
+        mat_s = nif.strings[struct.unpack_from("<i", nif.blocks[src.shader], 4)[0]]
+        mat_n = nif.strings[struct.unpack_from("<i", nif.blocks[new.shader], 4)[0]]
+        uvo, no = ((src.desc >> 8) & 0xF) * 4, ((src.desc >> 16) & 0xF) * 4
+        rec = lambda g: np.ascontiguousarray(np.concatenate([g.records[:, :uvo + 4], g.records[:, no:no + 3]], axis=1))  # noqa: E731
+        have = {r.tobytes() for r in rec(src)}
+        missing = sum(r.tobytes() not in have for r in rec(new))
+        if mat_s != mat_n or missing or new.desc != src.desc:
+            files_ok = False
+        detail.append(f"{stem}: {len(new.records)} vertices, {missing} not one of {BC.SOURCE}'s; materials file "
+                      f"{mat_n.decode()}{'' if mat_s == mat_n else ' (' + BC.SOURCE + ': ' + mat_s.decode() + ')'}")
+    rep.check(files_ok, f"cables: every {BC.LABEL} vertex one of {BC.SOURCE}'s (position, UV and normal: its texels on "
+                         f"{BC.SOURCE}'s atlas), under {BC.SOURCE}'s materials file", "; ".join(detail))
+    # the cut: where it meets static_black's triangles, at most CUT_R from the axis
+    if BC.LABEL not in geo:
+        rep.check(False, f"cables: {BC.LABEL} in {where}")
+        return
+    (sv, sf), (nv, nf) = geo[BC.SOURCE], geo[BC.LABEL]
+    q = lambda a: {tuple(x) for x in np.round(np.asarray(a) * 1024.0).astype(np.int64)}  # noqa: E731
+    shared = np.array(sorted(q(nv[np.unique(nf)]) & q(sv[np.unique(sf)])), np.float64) / 1024.0   # the kept triangles'
+    r = BC.axis_distance(shared, sp, ax) if len(shared) else np.zeros(1)
+    rep.check(len(shared) > 0 and r.max() <= CUT_R,
+              f"cables: the cut where {BC.LABEL} meets {BC.SOURCE} at most {CUT_R:g} from the steering axis",
+              f"{len(shared)} shared vertices, {r.min():.1f}-{r.max():.1f} from it: it opens {BC.kink(r.max(), 16):.1f} at 16 "
+              f"degrees, {BC.kink(r.max(), bar):.1f} at BarAngle {bar:g}")
+    gap, at = H.turning_clearance(v, tank, sp, ax, bar)
+    rep.check(gap >= TANK_CLEAR, f"cables: {BC.LABEL} at least {TANK_CLEAR:g} clear of the tank with the bars within {bar:g} "
+                                 f"degrees", f"{gap:.2f} (at {at:+.0f})")
 
 
 def shadow_checks56(rep, shadow_of, roles, parked_names, materials, bgsmaterial):
@@ -560,8 +672,9 @@ def shadow_checks56(rep, shadow_of, roles, parked_names, materials, bgsmaterial)
                 want, why = False, "a lit overlay or decal"
             elif parked_names.get(label, "").lower().endswith("_off.bgsm"):
                 want, why = file_casts(f"cmb\\bike\\{label.lower()}.bgsm"), f"its parked file {label}.bgsm"
-            elif label in parked:
-                want, why = parked[label], "the parked nif's"
+            elif SPLIT_FROM.get(label, label) in parked:
+                twin = SPLIT_FROM.get(label, label)
+                want, why = parked[twin], "the parked nif's" + (f" {twin} (it was cut from it)" if twin != label else "")
             else:
                 bad.append(f"{label}: not in the parked nif")
                 continue
@@ -643,7 +756,9 @@ def main() -> int:
         look0 = f"CMB_BikeWorn_{H.FENDER_BADGE}".encode() in wb
         rims0, plate0 = f"CMB_BikeWorn_{H.RIM_STYLE_LABELS[0][0]}".encode() in wb, f"CMB_BikeWorn_{H.PLATE_TEXT}".encode() in wb
         labels = [label for label, _ in (H.look_labels(rims0, plate0) if look0 else H.LABELS)]
-    roles = dict(H.LABELS + H.LOOK_LABELS + H.C2_LABELS)
+        if f"CMB_BikeWorn_{BC.LABEL}".encode() in wb:   # 2026-11-15b: bar_cables.py's split, after the build's shapes
+            labels.append(BC.LABEL)
+    roles = dict(H.LABELS + H.LOOK_LABELS + H.C2_LABELS + ((BC.LABEL, "front"),))
     look = H.FENDER_BADGE in labels   # the customisation build's nifs (2026-11-07a, --look-slots 1)
     look_path = args.look_options or (LOOK_OPTIONS if look and LOOK_OPTIONS.exists() else None)
     look_opts = json.loads(look_path.read_text()) if look_path else None
@@ -696,7 +811,7 @@ def main() -> int:
             want = [f"{stem}_{label}" for label in labels]
             got = [s.name for s in shapes]
         else:
-            want = ["Motorcycle:0"] + [f"CMB_Bike_{label}" for label in labels if label not in H.WORN_ONLY]
+            want = ["Motorcycle:0"] + [f"CMB_Bike_{label}" for label in labels if label not in H.WORN_ONLY + RIDDEN_ONLY]
             got = [s.name for s in shapes]
         rep.check(got == want, f"{stem}: {len(got)} shapes named and ordered as LABELS",
                   "" if got == want else f"missing {sorted(set(want) - set(got))}, extra {sorted(set(got) - set(want))}")
@@ -1119,6 +1234,7 @@ def main() -> int:
             ok &= best >= H.MIRROR_CLEARANCE
             lines.append(f"{label} {best:.2f}")
         rep.check(ok, f"mirrors at least {H.MIRROR_CLEARANCE} clear of the tank with the bars within {bar:g} degrees", "; ".join(lines))
+        cable_checks(rep, meshes, labels, worn_geo, parts, tank)
 
     # --- totals ---------------------------------------------------------------------------------------------------
     if complete:

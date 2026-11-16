@@ -135,6 +135,16 @@ SETS["t49disc"] = ["t49_disc_r", "t49_discF_l", "t49_discR_close", "t49_discF_cl
 SETS["t49mirror"] = ["t49_mirror_eye", "t49_mirror_egg", "t49_mirror_out", "t49_night_mirror", "t49_night_mirror_out"]
 SETS["t49"] = [v for k in ("t49tank", "t49seat", "t49disc", "t49mirror") for v in SETS[k]]
 SETS["c2"] = ["wheel_l", "wheel_r", "plate_rear", "plate_kit", "plate_45"]
+# since 2026-11-15b (bar_cables.py, test 53's wish (c): the right-hand cables floated): the right bar's cables from the
+# rider's eye and from the front right with the bars at -16, 0 and +16 degrees (test 53's first person: 16.2 at most), and
+# where they are cut, in front of the steering head, at full lock (BarAngle); "bar" is in BarAngles, as fulllock_*
+for _deg in (-16, 0, 16):
+    _tag = f"{'n' if _deg < 0 else 'p' if _deg > 0 else ''}{abs(_deg)}"
+    VIEWS[f"cables_eye_{_tag}"] = dict(cam=EYE, at=(12, 55, 86), lens=32, bar=_deg / 20.0)
+    VIEWS[f"cables_r_{_tag}"] = dict(cam=(85, 100, 112), at=(10, 58, 80), lens=45, bar=_deg / 20.0)
+VIEWS["cables_cut_n20"] = dict(cam=(60, 68, 80), at=(6, 67, 72), lens=45, bar=-1)
+VIEWS["cables_cut_p20"] = dict(cam=(60, 68, 80), at=(6, 67, 72), lens=45, bar=+1)
+SETS["cables"] = [f"cables_{w}_{t}" for w in ("eye", "r") for t in ("n16", "0", "p16")] + ["cables_cut_n20", "cables_cut_p20"]
 SHEETS = {"closeups": SETS["close"]}
 # the look sheets (--sheet all, since 2026-11-07a): every option of a slot on the parked bike, the worn one and the
 # bench's preview. The plates' centres and outward normals from the shipped static_badge (worn frame: the left plate

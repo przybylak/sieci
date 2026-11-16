@@ -285,6 +285,58 @@ engine model doesn't change either (the slower pull is the plugin's throttle, `[
 (`tools/f4se-slope/test/run.sh`, 26 modes) expects 1878 checks: custom 101, view 187, launch 17, sound 128, load 45,
 wrongversion 5, the rest as 2026-11-14a's; `DEF58` rides every older mode at this build's off values.
 
+Since 2026-11-15b (test 53's and test 54's wishes) the generator makes nine records more, right after the field kit's
+0xBFE and only with the look: first person's `CMB_ViewBack` 0xBFF (1, the MCM's "Looking back while reversing (first
+person)"), `CMB_ViewBackNow` 0xC00 (0, the plugin's word to the controller, no control), `CMB_ViewRoll` 0xC01 (4) and
+`CMB_LookKey` 0xC02 (44, Z), then the weapons' `CMB_RideWeapons` 0xC03 (1, Handguns only), `CMB_HandgunKeywords` 0xC04
+(a FLST holding Fallout4.esm's WeaponTypePistol 04A0A0; more keywords can be added with a plugin editor), `CMB_RiderGun` 0xC05,
+`CMB_WeaponAway` 0xC06 and `CMB_RiderGunPose` 0xC07 (0 each): 8 float globals and 1 form list, each block throwing
+unless they land there (`CMB_Slope.dll` finds the four view globals and the weapons' four by ID, and the harness's fake
+uses the same numbers: renumber them together). The controller's group `Fixes_59` gets nine properties after
+`CMB_KitWhere`: `CMB_ViewBack`, `CMB_ViewBackNow`, the five weapons forms, and Fallout4.esm's `WeaponTypeRifle` (04A0A1,
+a keyword: never a handgun) and `ActionSheath` (046BAF, an action: the put-away's fallback). `CMB_AllowCombat` (0x802,
+0) stays, read only by a controller without `CMB_RideWeapons`. `--look-ids` appends the nine (look_ids.txt **847** IDs;
+the file is append-only: never renumber or remove a line). In `config.json` Riding's switch "Allow combat while riding"
+gives its place to the stepper "Weapons while riding" (None, Handguns only, Any weapon (standing poses), on 0xC03), the
+stepper "Looking back while reversing (first person)" (Off, Over the shoulder, Third person, on 0xBFF) and the slider
+"View leans in turns (first person, deg)" (0-10, step 1, on 0xC01) come after "Look down on getting into first person
+(deg)", and Hotkeys gets the slider "Look key (scan code)" (0-211, step 1, on 0xC02) after "Brake key (scan code)";
+`keybinds.json` doesn't change. `tools/build.sh` prints `checked cmb_controllerscript: 203 properties` and "plugin and
+scripts agree"; the ESP holds **1062** in its header's count (no new group: the form list joins the fuel list's), its
+next ID **0xC08** (760 IDs left under the 0xF00 guard). A record-by-record comparison with 2026-11-15a's plugin: `TES4:
+HEDR records 1053 -> 1062, next ID 0xBFF -> 0xC08`, `added 9 (000BFF-000C07): 8 GLOB, 1 FLST`, `removed 0`, `changed 1`
+(the controller quest's VMAD). `--look-build 2026-11-07a` still writes the 2026-11-07a build's ESP, `config.json` and
+`keybinds.json` byte for byte (none of the nine; the switch kept). Two scripts change, `CMB_ControllerScript.psc` (the
+weapons' rules; third person while backing, its poll on timer 59 and the put-away's on 60) and `CMB_GearRestoreF4SE.psc`
+(`GunKeywords`, a gun instance's keywords through F4SE), and since the review the controller's OnGameReloaded cancels a
+put-away caught in a save; `check.sh`: 12 .pex, no warning. The stubs gain the vanilla
+`Actor.GetEquippedWeapon`, `WornHasKeyword`, `PlayIdleAction` and the `OnItemUnequipped` event,
+`InputEnableLayer.EnableFighting`, `Weapon.psc` and `Action.psc`, and F4SE's `Actor.GetInstanceOwner` and
+`InstanceData.psc` (`Owner`, `GetKeywords`), as the real sources have them (`audit_stubs.py`: 0 problems).
+`tools/rider/make_rider_plugin.py` now also writes `CMB_RiderPose_report.txt` beside the plugin it makes (every subgraph
+entry of the human race and its additive races, and the pistol entries' clips by name, for a later build's seated pistol
+clips; `--no-report` leaves it out; the plugin is the same either way). The engine model doesn't change. The harness
+(`tools/f4se-slope/test/run.sh`, 26 modes) expects 1972 checks: wall 101, caution 25, sound 130, view 230, roomold 61,
+arms 89, the rest as 2026-11-15a's (1963 before the review's fixes: wall 99, view 225, arms 87); `DEF59` rides every older
+mode at this build's off values, the review's `[Steer] FirstKeysArmed=0` among them.
+
+Test 53's wish (c), the right-hand cables, changes the four nifs whose bars the plugin turns: `tools/rider/bar_cables.py`
+cuts the pieces of `static_black` that hang from the bars into a new shape `<stem>_front_cables` (DESIGN.md, *Spinning
+wheels and turning bars*), on the built nifs, every other block byte for byte. From the repository, on the 2026-11-10a
+package's Data (the asset base; its nifs are 2026-11-15a's):
+```
+python3 -I tools/rider/bar_cables.py --data <2026-11-10a's Data> --out <overlay>/Data/Meshes/CMB --pynifly <PyNifly>
+#   -> the three worn nifs and CMB_BikeView.nif (3 cables cut: 2239 triangles, 2046 vertices into front_cables);
+#      CMB_BikeParked.nif and CMB_BikeParts.ini untouched; --bar-cables 0 writes the four as they were, byte for byte
+python3 -I tools/rider/check_bike_meshes.py --pynifly <PyNifly> --data <the asset base with the overlay laid over it> \
+    --look-c2                                                     # 74 PASS, 0 FAIL (2026-11-10a's tree: 1 FAIL, "cables")
+```
+`build_bike.sh` runs it as its `cables` stage after `build` (in the default list; `CABLES=0` skips it, and a nif already
+cut is left as it is), and `look_render.py --views cables` renders the bars at -16, 0 and +16 degrees and the cut at
+full lock. The four nifs' sha256: `CMB_BikeView.nif` 1a5faffc..., `CMB_BikeWorn.nif` 38795a24..., `CMB_BikeWornRider.nif`
+9c621c21..., `CMB_BikeWornRiderF.nif` 99bd4135... (the package manifest has them in full); two runs give the same. The
+package lays them over the asset base with `OVERLAY=<overlay>/Data` (a Data-like folder: `Meshes/CMB/...` at its top).
+
 The vanilla form IDs the plugins use (PlayerRef, XMarker, HumanRace, HumanRaceSubGraphData, SpeedMult, CarryWeight, FallingDamageMod, Health, Pip-Boy, AnimArchetypePlayer) were checked against Mutagen's FormKey list generated from the real `Fallout4.esm`. The record layouts were also compared field by field with xEdit's Fallout 4 definitions.
 
 ## For developers: packaging a build

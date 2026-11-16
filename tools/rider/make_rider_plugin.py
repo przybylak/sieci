@@ -26,6 +26,15 @@ They go to Meshes\\AnimTextData next to the plugin.
 Run it again after adding, removing or updating a mod that adds animation
 entries for the player (the Unofficial Patch, for example).
 
+It also writes CMB_RiderPose_report.txt next to the plugin (--no-report: not):
+every subgraph entry of the human race and its additive races (role,
+perspective, actor and target keywords by editor ID, the graph, the folders,
+copied or not), and for the entries whose target keywords are a pistol's the
+clip files each folder holds (names only, from the BA2 archives and the loose
+files). A later build can give the pistol entries seated clips of their own
+from it (2026-11-15b, test 53's wish a: handguns on the bike). The plugin it
+writes is the same with or without it.
+
 Mod Organizer 2 (reads the profile's load order and finds files in mods\\):
   python make_rider_plugin.py --mo2 "C:\\Modding\\MO2" --profile Default \\
       --data "C:\\Steam\\steamapps\\common\\Fallout 4\\Data" --out "C:\\Modding\\MO2\\mods\\Commonwealth Motorbike\\CMB_RiderPose.esp"
@@ -333,6 +342,83 @@ def collect(setup: Setup):
     return target, entries
 
 
+def collect_all(setup: Setup):
+    """2026-11-15b (the report): every subgraph entry of the human race and its additive races, as collect() walks them,
+    each with its role, perspective, actor and target keywords, graph, folders and whether collect() copies it."""
+    races = winning(setup.plugins, b"RACE")
+    if HUMAN_RACE not in races:
+        return []
+    _, _, human = races[HUMAN_RACE]
+    hp = races[HUMAN_RACE][0]
+    srac = next((u32(d) for t, d in subrecords(human) if t == b"SRAC"), None)
+    target = hp.resolve(srac) if srac else HUMAN_RACE
+    out = []
+    for key, (p, h, d) in races.items():
+        subs = subrecords(d)
+        sadd = next((p.resolve(u32(v)) for t, v in subs if t == b"SADD"), None)
+        if key != target and sadd != target:
+            continue
+        edid = next((cstr(v) for t, v in subs if t == b"EDID"), f"{key[1]:06X}")
+        for a, b in entry_ranges(subs):
+            raw = subs[a:b]
+            role, persp = struct.unpack_from("<HH", next(d for t, d in raw if t == b"SRAF"))
+            kws = [p.resolve(u32(d)) for t, d in raw if t == b"SAKD"]
+            targets = [p.resolve(u32(d)) for t, d in raw if t == b"STKD"]
+            out.append(dict(race=edid, plugin=p.name, role=role, persp=persp, keywords=kws, targets=targets,
+                            graph=next((cstr(d) for t, d in raw if t == b"SGNM"), ""),
+                            paths=[cstr(d) for t, d in raw if t == b"SAPT"],
+                            copied=role == 0 and persp == 0 and ANIM_ARCHETYPE_PLAYER in kws))
+    return out
+
+
+PISTOL_TARGETS = ("pistol", "anims44", "animsdeliverer", "animsalienblaster", "animsflaregun")
+
+
+def write_report(setup: Setup, path: Path):
+    """2026-11-15b: CMB_RiderPose_report.txt (see the module's text). Names only: nothing is copied out of the game."""
+    entries = collect_all(setup)
+    kw = keyword_info(setup, {k for e in entries for k in e["keywords"] + e["targets"]})
+    name = lambda k: kw.get(k, (f"{k[0]}:{k[1]:06X}", 0))[0]
+    archives = []
+    for a in setup.archives():
+        try:
+            archives.append((a.name, T.BA2(a)))
+        except (ValueError, OSError, struct.error):
+            pass
+    lines = [f"Commonwealth Motorbike: the human race's subgraph entries ({len(entries)}), {len(setup.plugins)} active plugins, "
+             f"{len(archives)} BA2 archives",
+             "role 0 MT (holstered), 1 weapon; perspective 0 third person, 1 first person; copied = CMB_RiderPose.esp copies it", ""]
+    pistols = 0
+    for i, e in enumerate(entries):
+        targets = [name(k) for k in e["targets"]]
+        pistol = any(any(w in t.lower() for w in PISTOL_TARGETS) for t in targets)
+        pistols += pistol
+        lines.append(f"[{i}] {e['race']} ({e['plugin']}): role {e['role']} perspective {e['persp']}{'  copied' if e['copied'] else ''}"
+                     f"{'  PISTOL' if pistol else ''}")
+        lines.append(f"    actor keywords: {', '.join(name(k) for k in e['keywords']) or '-'}")
+        lines.append(f"    target keywords: {', '.join(targets) or '-'}")
+        lines.append(f"    graph: {e['graph'] or '-'}")
+        for folder in e["paths"]:
+            lines.append(f"    folder: {folder}")
+            if not pistol:
+                continue
+            prefix = ("meshes\\" + folder.replace("/", "\\").strip("\\") + "\\").lower()
+            names = set()
+            for aname, ba2 in archives:
+                names.update(f"{n[len(prefix):]} ({aname})" for n in ba2.files if n.startswith(prefix) and n.endswith(".hkx"))
+            loose = setup.find("Meshes\\" + folder)
+            if loose and loose.is_dir():
+                names.update(f"{n} (loose)" for n in listing(loose) if n.endswith(".hkx"))
+            for n in sorted(names):
+                lines.append(f"      {n}")
+            if not names:
+                lines.append("      (no clips found under it)")
+        lines.append("")
+    lines.insert(2, f"{pistols} of them for pistols (a target keyword naming one), their clips listed")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return len(entries), pistols
+
+
 def keyword_info(setup: Setup, keys):
     """{(owner, id): (editor id, type)} for the given keywords (winning versions)."""
     want, out = set(keys), {}
@@ -514,6 +600,8 @@ def main() -> int:
     ap.add_argument("--animtextdata", type=Path, nargs="*", default=[],
                     help="folders with extracted vanilla AnimTextData (otherwise read from the BA2 archives)")
     ap.add_argument("--template", type=Path, default=Path(__file__).resolve().parent / "template" / PLUGIN_NAME)
+    ap.add_argument("--no-report", action="store_true",
+                    help="don't write CMB_RiderPose_report.txt (the human race's subgraph entries, the pistol ones' clips)")
     args = ap.parse_args()
     if args.out.name.lower() != PLUGIN_NAME.lower():
         raise SystemExit(f"the plugin must be called {PLUGIN_NAME} (the controller script looks for that name)")
@@ -532,6 +620,10 @@ def main() -> int:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_bytes(patch)
     print(f"wrote {args.out}  (masters: {', '.join(masters)})")
+    if not args.no_report:
+        report_path = args.out.parent / "CMB_RiderPose_report.txt"
+        n, pistols = write_report(setup, report_path)
+        print(f"wrote {report_path}  ({n} subgraph entries, {pistols} for pistols: please send it with the test's logs)")
     for r in report:
         e = r["entry"]
         names = ", ".join(kw.get(k, (f"{k[0]}:{k[1]:06X}", 0))[0] for k in e["keywords"])

@@ -72,7 +72,29 @@
 # first slider as the distance and the menu's scene and camera lines (custom, + 7); GetTranslation's answer as the camera
 # root's world, the Lead by the game's frame, the first-person bike hidden until its look is on, EyeAt 0,-5,125 (view, + 11);
 # the slower pull above PullFrom (launch + 4, sound + 3) and three earlier logs kept (load + 2, wrongversion + 1): expected
-# custom 101, view 187, launch 17, sound 128, load 45, wrongversion 5, the rest as 2026-11-14a's: 1878 checks.
+# custom 101, view 187, launch 17, sound 128, load 45, wrongversion 5, the rest as 2026-11-14a's: 1878 checks. The 2026-11-15b
+# build (test 53's and 54's wishes) adds, from the sidestep unit: the wide sidestep (a car, a barrier, a second car in the lane,
+# a quay, terrain, precombined, a tall one, popped late), SidestepSteady (the camera swept), SidestepMouseSide (kept, let go,
+# handed), with PullTime (wall, 75 + 24); found by SidestepCaution's reach (caution, 24 + 1); the paused watch's own counts, P1
+# made deterministic and P2 at 18 frames a second (sound, 128 + 2); the lamps' lead and the frame-rate line by the game's frame
+# with the task twice a frame (view + 3). From the fpcam unit: FirstPersonState's GetRotation wrapped and its convention probed,
+# the view's lean into turns, A/D turning the bike in first person, looking back while reversing (over the shoulder, through
+# the back, blocked, the Pip-Boy, third person while backing, the fallback when the camera can't be turned), the look key and
+# CameraPitch on a turned camera (view + 19); the four globals missing with an older ESP (roomold, 60 + 1). From the weapons
+# unit: a handgun on the bike, the game's own put-away called at the script's ask after its probe, the seat watch standing back
+# while a weapon is drawn, the seat poses read and a handgun out drawn on them (the right arm the game's, carried to the seat's
+# shoulder; the worn bike on the seat's COM; a game frame predicted), the pose off in first person, with GunPose=0, in Any
+# weapon and after the state's cross-check (arms, 68 + 19). From the fpbody unit: the rider's own body in first person ([View]
+# Body: the riding pose taken in third person and put on the view bike, the head shrunk, the root's bit 0 cleared, the worn
+# bike hidden, the bars' turn, the Pip-Boy, a weapon and looking back, the game re-hiding it, PreLoadGame and getting off, the
+# entry's probe lines and drawn?) (view + 16). DEF59 rides every older mode at the new keys' off values: expected wall 99,
+# caution 25, sound 130, view 225, roomold 61, arms 87: 1963 checks. The review of 2026-11-15b adds: a weapon drawn (the weapons
+# unit's globals now in mode 20 too): no look back over the shoulder while backing (the lean kept), no third person while backing
+# (and dropped when one is drawn), the look key 60 deg at most; [Steer] FirstKeysArmed: no strafe with a weapon drawn in third
+# person, 0 the strafe (view + 5); a save loaded with a lower CMB_WeaponAway and a weapon drawn: no put-away, the next ask called;
+# CMB_RiderGunPose written afresh over the save's (arms + 2); a sidestep in first person: SidestepMouseSide=1 over with no "kept",
+# 0 let go by its own turn as 2026-11-15a (wall + 2): expected wall 101, caution 25, sound 130, view 230, roomold 61, arms 89, the
+# rest as 2026-11-15a's: 1972 checks.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 WORK="$(mktemp -d)"
@@ -119,6 +141,20 @@ DEF57='Look/KitPreview=0 Look/KitPreviewLog=0 View/EyeLock=0 View/EyeAxes=0 View
 # PullTime=0 (not PullFrom: it acts only with PullTime on) and KeepLogs=1 (mode 9 takes it out before its load for the code's
 # 3; mode 2 keeps 1).
 DEF58='Look/KitDefer=0 Look/MountQuick=0 Look/KitPreviewPos=0,0,0 Look/KitPreviewTurn=0,0.02,44.764 Look/KitPreviewScale=0.3 Look/KitPreviewZoom=-1,1 Look/KitTuneDistance=0 Look/KitPreviewScene=0 View/CameraWorld=0 View/LeadFrame=0 View/LookWait=0 Steer/PullTime=0 Diag/KeepLogs=1'
+# 2026-11-15b, the sidestep unit's keys at their off values (2026-11-15a, 1bc3f8a), the same way (after DEF54's to DEF58's): the wide
+# sidestep (SidestepWide; not its seven numbers, which act only with it on), SidestepSteady, SidestepMouseSide, [Lamp] FrameLead (not
+# LeadFrame: the loop's "already named" test is section-blind and DEF58 names [View] LeadFrame), [Diag] FpsFrames and PausedFrames
+# (sound's P1 and P2 ride PausedFrames=1, the default).
+# 2026-11-15b, test 54's: the fpcam unit's (not LookBackAngle .. LookBackSwing, LookMax, LookSnap: they act only with LookBack or LookKey on)
+# 2026-11-15b, the weapons unit (test 53's wish a): its keys at their off values (2026-11-15a, 1bc3f8a), the same way (after
+# DEF54's to DEF58's): PutAway, GunPose, GunStandBack, GunPredict (it acts only with GunPose), GunTrace and GunListen (not
+# GunBlend and GunSeatEvery: they act only with GunPose). Mode 13's GunTests59 rewrites each to 1.
+# 2026-11-15b, test 54's wishes: the round's new keys at their off values (2026-11-15a, 1bc3f8a), the same way (after DEF54's
+# to DEF58's). The fpbody unit's: [View] Body=0 and [Diag] BodyProbe=0 (not BodyEye, BodyLeanMax, BodyShiftMax, BodyBack,
+# BodyFade, BodyProbeEvery: they act only with Body or BodyProbe on).
+# 2026-11-15b, the review's fixes: [Steer] FirstKeysArmed=0 (FirstKeys in first person only, as merged; the name clashes with no
+# key any mode's INI or DEF line names: the loop's "already named" test is section-blind).
+DEF59='Steer/SidestepWide=0 Steer/SidestepSteady=0 Steer/SidestepMouseSide=0 Lamp/FrameLead=0 Diag/FpsFrames=0 Diag/PausedFrames=0 View/CameraTurn=0 View/Roll=0 View/LookBack=0 View/LookKey=0 Steer/FirstKeys=0 Steer/FirstKeysArmed=0 Tilt/PutAway=0 Tilt/GunPose=0 Tilt/GunStandBack=0 Tilt/GunPredict=0 Diag/GunTrace=0 Diag/GunListen=0 View/Body=0 Diag/BodyProbe=0'
 run() { # <name> <mode> <ini body>
   if [ -n "$ONLY" ] && [ "$ONLY" != "$1" ]; then return; fi
   mkdir -p "$WORK/$1"
@@ -133,7 +169,7 @@ run() { # <name> <mode> <ini body>
     esac
   done
   local sec key pre rest
-  for kv in $DEF54 $DEF55 $DEF56 $DEF57 $DEF58; do
+  for kv in $DEF54 $DEF55 $DEF56 $DEF57 $DEF58 $DEF59; do
     sec="[${kv%%/*}]\n" kv="${kv#*/}" key="${kv%%=*}"
     case "$ini" in "$key="*|*"\n$key="*) continue;; esac
     case "$ini" in *'\n') ;; *) ini="$ini\n";; esac

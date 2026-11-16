@@ -17,6 +17,268 @@ The log goes to `Documents\My Games\Fallout4\Logs\Script\Papyrus.0.log`. Every m
 
 Without F4SE you'll see one or two harmless errors about the `F4SE` / `CMB_HotkeyF4SE` scripts not being found. That's the mod checking whether they're there. When something breaks, send the log, plus a screenshot or a short clip if it's visual.
 
+## The 2026-11-15b build: test 53's and test 54's wishes, in this order
+
+This build adds what tests 53 and 54 asked for: A and D turning the bike in first person as the mouse does; the view
+leaning a little into turns; looking back over your shoulder when you reverse in first person, and a key to look round;
+a handgun from the saddle, the left hand on the bar; your own body in first person; the bike stepping round parked cars
+and other wide things, not only posts; the right-hand cables turning with the bars. You didn't test 2026-11-15a, so
+test 55 runs on this build and covers both: first the 2026-11-15a build's steps 1-10 (the next section), then steps
+11-24 here, with questions T55-1 to T55-10 there and T55-11 to T55-24 here. Every new behaviour has an off value that
+gives the 2026-11-15a build back (README's first key table), so each A/B is one key away. Four things only the game can
+settle: whether the game builds its first-person camera the way the plugin turns it (step 12), whether it draws your
+body in first person at all (step 15), whether the game's own put-away works on the bike (step 18) and which pistols
+count as handguns (step 20).
+
+Before you start:
+- **in the MCM set "Eye forward on the bike" and "Eye height on the bike" back to 0 first** (your save keeps test 54's
+  -6 and -3; the new default already holds them: step 3 of the next section);
+- install as a Replace over 2026-11-14a (this build holds all of 2026-11-15a); F4SE and `CMB_Slope.dll` as before. If
+  you edited `CMB_Slope.ini`, put your values into the new one: `[Tilt]`, `[Steer]`, `[Lamp]`, `[View]` and `[Diag]`
+  have new keys (and 2026-11-15a's own: the next section);
+- the MCM's Riding "Weapons while riding" should read "Handguns only": it is new, so your old "Allow combat while
+  riding" (on in test 53) isn't carried over, on purpose. Leave it on "Handguns only" for steps 1-10 too;
+- the A/B switches are in `CMB_Slope.ini`: for example `[View] Body=0` (no body in first person), `[View]
+  CameraTurn=0` (nothing turns the view), `[Steer] FirstKeys=0` (A and D as before), `[Tilt] GunPose=0` (the old
+  standing gun poses), `[Steer] SidestepWide=0` (wide things only braked for). Change one, save the file, get off and on
+  (no restart), and put it back after;
+- optional, for a later build's seated pistol clips: if you run `make_rider_pose.bat` from the repository, update it to
+  this build's commit (the package's README names it) and run it once as before: it now also writes
+  `CMB_RiderPose_report.txt` next to `CMB_RiderPose.esp`. Send that file. The plugin it makes is the same, so skip this
+  if it's a bother.
+
+The log's first lines: `CMB_Slope.log` has seven settings lines more: `  steer (2026-11-15b, the review):
+FirstKeysArmed=1 (...)`, `  view (2026-11-15b, test 54): CameraTurn=1
+(FirstPersonState's GetRotation wrapped: the look and the view's lean) Roll=-1 (...) LookBack=-1 (...) ...; [Steer]
+FirstKeys=1 (...); [Diag] TurnEachRide=0`, `  view: LookKey=-1: the MCM's CMB_LookKey 44, Z (VK 0x5A): held in first
+person on the bike, ...`, `  view (2026-11-15b, test 54): Body=1 (...) BodyEye=(0, 7, 7) ...; [Diag] BodyProbe=1
+BodyProbeEvery=10`, `  weapons (2026-11-15b, test 53's wish a): PutAway=1 GunPose=1 GunStandBack=1 GunPredict=1 ...`,
+`  sidestep (2026-11-15b, test 53's wish g): SidestepWide=1: ...` and `  frame (2026-11-15b): [Lamp] FrameLead=1 ...
+[Diag] FpsFrames=1 ... PausedFrames=1 ...`, and two globals lines, `globals: the 2026-11-15b build's 4 found, CMB_ViewBack
+to CMB_LookKey (...)` and `globals: the 2026-11-15b weapons globals found, CMB_RideWeapons 1, ...`. `Papyrus.0.log` at
+every getting on: `Weapons while riding: Handguns only (CMB_RideWeapons 1): fighting on, VATS off (a handgun
+equipped).` (or `fighting off ... (no handgun equipped)`). A globals line saying `0 of 4 found` or `no CMB_RideWeapons`,
+or the MCM still showing "Allow combat while riding", means an older ESP or MCM folder is loaded: stop and say so.
+
+**First person** (steps 11-15; test 53: the bike leaning but the view level, "no way to turn just the camera" when
+backing; test 54: A and D sliding the bike sideways, no arms and torso)
+
+11. **A and D turn the bike**: ride in first person and steer with A and D only (W held). The bike should turn as with
+    the mouse (the bars over, the bike leaning), not slide sideways. Then steer with the mouse: it should feel exactly
+    as before.
+    - `CMB_Slope.log`, once a ride: `steer: first person: the side keys turn the bike (FirstKeys 1 of the clamp, N deg/s
+      now): the game gets no strafe`.
+    - A/B: `[Steer] FirstKeys=0` (A and D slide as before).
+12. **The view leans**: in those turns the view now leans a little with the bike (4 degrees at the most). Try the
+    MCM's Riding "View leans in turns (first person, deg)" from 0 (level, as before) to 10: which do you like?
+    - `CMB_Slope.log`, the first ride in first person: `camera: FirstPersonState (...): GetRotation (slot 0xC, ...)
+      wrapped ...`, then `camera: GetRotation's answer (w, x, y, z) and the camera root's world rotation at the next
+      task: ...: the root's rotation is the answer's matrix (1 frame(s))` (or `its transpose`, or `... times a constant
+      local rotation`: send it, it says how the game builds its camera), and at the first turn `camera: the turn
+      followed (10 frames within 0.01 of the turned answer): ..., the view leaned 0.7 deg (0.7 asked; + right)`.
+    - Bad: a `camera: ... off this session`, `camera: GetRotation not called ...`, `camera: the camera root never
+      matched ...` or `camera: the turn not followed ...` line, then `view: LookBack 1 (over the shoulder) without a
+      camera to turn (...)`: the view can't be turned on your game, so the lean and the look key do nothing and backing
+      switches to third person (step 13). Say so; nothing else breaks.
+    - A/B: `[View] Roll=0`.
+13. **Looking back while reversing**: in first person, from a stop, hold S a moment: the view turns over your right
+    shoulder (hold D while backing: still right; hold A: over the left one). While it is turned the mouse turns only
+    your head and the bike keeps going straight back. Hold the other side key a moment: the view swings round the back
+    to the other shoulder. Press W: the view comes back to the front at once. Try it with something right behind you
+    too. Open the Pip-Boy while looking back: the view should face forward for it.
+    - `CMB_Slope.log`: `view: looking back over the right shoulder (backing 0.3 s; LookBackAngle 150, the mouse +/-60)`,
+      `view: the look swung through the back to the left shoulder (...)`, `view: back to the front after 2.4 s
+      (forward)`; the eye line every 2 s ends `; the view turned 148.0 deg right of the bike (backing), leaned ...`.
+    - Then set the MCM's Riding "Looking back while reversing (first person)" to "Third person" and back up: the game
+      should switch to third person while you back and back to first person when you ride forward (`Papyrus.0.log`:
+      `View: third person while backing (CMB_ViewBackNow 1).`, then `View: first person again after backing
+      (CMB_ViewBackNow 0).`). Which do you prefer? "Off" = as before. Put it back to "Over the shoulder". (`[View]
+      LookBack=2` in the INI does the same, but only while this MCM setting isn't "Off".) With a weapon drawn neither
+      happens: step 17.
+    - A/B: `[View] LookBack=0` (the view stays ahead), `[View] CameraTurn=0` (nothing turns the view: over the
+      shoulder becomes third person).
+14. **The look key**: hold Z while riding in first person and move the mouse: only your head turns, the bike keeps its
+    line; let go and the view comes back. Does Z clash with one of your keys? If it does, the MCM's Hotkeys "Look key
+    (scan code)" takes another (44 = Z, 45 = X, 46 = C, 56 = Left Alt; 0 = none): say which you took. (With a weapon
+    drawn it turns your head 60 degrees at most: step 17.)
+    - `CMB_Slope.log`: on getting on `  view: LookKey=-1: the MCM's CMB_LookKey 44, Z (VK 0x5A): ...`; held `view: the
+      look key (Z) held at 612 u/s: the mouse turns the head only (the bike keeps its line)`, then `view: the look key
+      let go after 1.8 s (...)`.
+    - A/B: `[View] LookKey=0`.
+15. **Your own body**: get on in third person and ride a few seconds at speed, going straight (the plugin remembers how
+    you sit). Switch to first person while riding. Look down: do you see your arms with the hands on the grips, your
+    chest and legs, in your outfit? Turn with the mouse and with A and D: do the hands stay on the grips as the bars
+    turn? Any piece of your head or hair in front of the camera? Anything flickering? A second bike? Open the Pip-Boy,
+    and draw your pistol: the body should go and come back. Looking back (step 13) it should go too, and come back
+    looking ahead. Get off and on again in first person straight away: it should show at once (the pose is kept for the
+    game session). A screenshot or two help.
+    - `CMB_Slope.log`: once a session `body: the riding pose taken in third person (N bone node(s), ...)`. At each first
+      person, first `body: first person: the player's 3D root BSFadeNode 'skeleton.nif' flags 0x... [...]; ... hidden
+      (bit 0): ...` (it says what hides your body in first person: send it whatever it says), `body: first person: the
+      root's fade ...`, `body: the first-person 3D (...)` and `body: the third-person skeleton in first person ...`;
+      then `body: first person: the rider's body shown (...)`, and 0.5 s later `body: drawn? ... the game visits it ...`
+      (the game draws it: you should see it) or `... not visited ...` (the game hides it some other way: nothing new
+      shows, and that is the answer). Hidden for a reason: `body: first person: the rider's body not shown: <why>`. At
+      getting off: `body: the rider's body shown in first person N time(s) this ride, ...`.
+    - If it looks wrong (a body standing through the bike, your arms out of place, the inside of a head): a screenshot,
+      then `[View] Body=0` turns it off. If the collar or the shoulders look cut off near the camera, A/B `[View]
+      Near=5`.
+
+**A handgun on the bike** (steps 16-20; test 53: "only handgun can be used ... hold handlebar with at least one hand
+(preferably left) and shooting with another (right)"; the MCM's "Weapons while riding" on "Handguns only")
+
+16. **Draw, aim, fire**: with a 10mm pistol equipped, get on and ride straight for two or three seconds with the gun
+    away. Then draw it (R, or fire) in third person while riding: are you seated, the left hand on the bar, the bike
+    under you (not swapped, no flicker)? Aim, fire, reload, put it away (R). Steer both ways with it out: does the left
+    hand follow the bar? Stop with it out, then ride off again: any jump between the standing and the riding seat? Draw
+    while standing still, then ride off. Once, draw straight after getting on, before riding: you should see the old
+    standing pose for that one draw (fine; just say how it looked).
+    - `CMB_Slope.log`: while you ride holstered `gun: the seat pose read (still, ...)` and `(riding, ...)`; at the draw
+      `gun: the weapon state 0 > 1 > 2 > 3 in 0.55 s (...)` and `gun: a handgun out (...) at 640 u/s: the rider on the
+      riding seat pose read 12.3 s ago, the right arm the game's, carried to the seat's shoulder (GunPose)`; every 10 s
+      `gun: posed 12.4 s, ...: the bones' own move a game frame at most X relative to the root, the prediction off by at
+      most Y (GunPredict=1); ...`; at the ride's end `gun: a handgun out on the seat pose 2 time(s) this ride, 14.6 s in
+      all (GunPose)`. The draw before riding: `gun: a handgun out at 640 u/s with no riding seat pose yet (...)`.
+      `Papyrus.0.log`: no `Rider pose applied (standing footsteps while riding ...)` during the draws, and the Slot 57
+      lines no longer switching between `CMB_BikeWorn.nif` and `CMB_BikeWornRiderF.nif` at each draw.
+    - A/Bs: `[Tilt] GunPose=0` (the old standing poses), `GunPredict=0` (does the body wobble more at speed with the gun
+      out?).
+17. **A weapon drawn: looking back, the look key, A and D**: with a weapon out the view no longer looks back, and A and D
+    turn the bike in third person too.
+    - Draw the pistol in first person, then reverse (hold S from a stop): the view should stay looking ahead (no turn
+      over your shoulder while a weapon is out), and the view still leans in turns. Put the pistol away and reverse
+      again: the view turns over your shoulder as in step 13.
+    - Set the MCM's "Looking back while reversing (first person)" to "Third person", draw the pistol in first person and
+      reverse: the game should stay in first person, and the bike shouldn't flicker or swap. Then put the pistol away,
+      reverse (third person), and draw it while reversing: back to first person at once. Put the MCM back to "Over the
+      shoulder".
+    - With the pistol drawn, hold Z and move the mouse far to one side: your head turns about 60 degrees at most.
+    - In third person with a weapon drawn, riding, press A and D. Before, the bike slid sideways; now it shouldn't slide.
+      Does it turn, or does the body snap back to where the camera looks?
+    - `CMB_Slope.log`: once a backing `view: backing with a weapon drawn (the weapon state 3): no look back over the
+      shoulder (LookBack 1); the look key turns the head 60 deg at most` (or `no third person (LookBack 2)`); drawn while
+      already in third person from backing: `view: third person while backing over after N s (a weapon drawn):
+      CMB_ViewBackNow 0`; with "Third person" and the pistol out, no `View: third person while backing` in
+      `Papyrus.0.log` and no Slot 57 swap. A and D with a weapon drawn in third person, once a ride: `steer: a weapon
+      drawn in third person (the weapon state 3): the side keys turn the bike (FirstKeys 1 of the clamp, N deg/s now;
+      FirstKeysArmed): the game gets no strafe`, and no `slide:` lines 27-44 deg off the heading.
+    - A/B: `[Steer] FirstKeysArmed=0` (the slide in third person back).
+18. **Not a handgun**: with the pistol out, press a rifle's favourites key. You should see "Only a handgun can be used
+    on the motorbike.", the rifle put away within a second, and you stay on the bike and can't draw it. Then switch
+    back to the pistol and draw it.
+    - `Papyrus.0.log`: `Weapons: [Weapon < (...)>] out, not a handgun (...): put away asked (CMB_WeaponAway 3).`, then
+      `Weapons: put away after 0.6 s (...)` (or `still out 1.0 s after the ask: the sheathe action played ...`, or `still
+      out 3.0 s after the ask: the ride ended (2026-11-15a's rule).`). `CMB_Slope.log`, once a session: `gun: the
+      player's slot 0xC7 is the heading's getter (...): slot 0xC9 (...) taken as DrawWeaponMagicHands (PutAway)` (or
+      `... not the layout expected, nothing called ...`); then `gun: put away asked (CMB_WeaponAway 3):
+      DrawWeaponMagicHands(false) called, the weapon state 3` and `gun: the weapon state 3 > 4 > 5 > 0: away 0.62 s
+      after the ask (...)` (or `... not away 4.00 s after the ask (..., 6 calls)`: the game's put-away does nothing
+      there).
+    - A/B: `[Tilt] PutAway=0` (the script's sheathe action, then the ride ends after 3 s).
+19. **Getting on with a weapon out**: get on with a rifle out, then with the pistol out: both should be put away and you
+    get on, holstered (`Papyrus.0.log`: `Getting on: the weapon put away first (0.8 s; ...)`).
+20. **Which guns count, and a save**: try a pipe pistol, a .44 revolver, a laser pistol, a plasma pistol and a flare gun:
+    which can you draw on the bike? (`Papyrus.0.log`, once a gun: `Weapons: [Weapon <...>] equipped: a handgun keyword on
+    the base form True, worn True, on the instance True (17 keywords); WeaponTypeRifle worn False, on the instance False:
+    a handgun.`: send them, they say which test found each.) First person with the pistol out keeps the game's own
+    two-handed arms (not changed yet). Then the MCM's "None" and "Any weapon (standing poses)" once each (the 2026-11-15a
+    build with "Allow combat while riding" off and on), and back to "Handguns only". Last, the saves:
+    - save on the bike with the pistol drawn, ride on a bit, then load that save: the pistol should stay out, not put
+      away by itself (no `gun: put away asked` line in `CMB_Slope.log` until the script asks);
+    - switch to a rifle by its favourites key on the bike (it starts being put away), save at once and load: the rifle
+      should still be put away, or the ride end as in step 18, not stay out for good.
+
+**Sidesteps round wide things** (step 21; test 53: "does it work only for mailboxes/lampposts?")
+
+21. **Wide things**: Caution as you like it (50 is fine). Ride straight at a parked car, a barrel group, a short fence
+    piece or a heap of debris where one side is open (the thing ends within about a bike's width of your line),
+    forward held, no A or D, the mouse still. The bike should swerve round it on the open side (a quick lane change,
+    braking a little as it does) and carry on. Try 5-10 of them, and once a car right across the road (no open side: it
+    should brake as before). How does the swerve feel: too sharp, too late, too close to the thing's corner? Then ride at
+    a house's wall, a cliff, a long fence or a building's corner: it should only brake, as before. Then the mouse: as a
+    sidestep (narrow or wide) starts, move the mouse a little the way it goes: it should carry on; a lot that way: you
+    take over smoothly; the other way: it lets go as before. Sweep the mouse fast past a post ahead: no start-and-stop
+    jerk any more. Last, a few sidesteps in first person (posts, mailboxes, cars) with the mouse still: they should run
+    to the end, not stop after a tenth of a second.
+    - `CMB_Slope.log`: `sidestep: Sedan02_Postwar (layer 29) wide 560 past the front wheel at 905, its edge within 40
+      to the left (...): to the left, ... (SidestepWide)`, then `sidestep: over after 0.4x s (wide): ...`; a wall: `...
+      wide and tall: ...` or `... no edge within 120 ...`; the mouse: `sidestep: the mouse 7.2 deg toward the open side:
+      kept (SidestepMouseSide)`, `sidestep: handed to the rider after 0.31 s: ...`, `sidestep: not started for c_Post02:
+      the rider is steering (...; SidestepSteady)`; in first person with the mouse still, `sidestep: over after ...` with
+      no `kept` line and no `let go ... (the mouse)` a tenth of a second in. At each ride's end `sidestep: this ride 3
+      narrow and 2 wide started: ...; wide ones not stepped round: 12 not a placed thing of their kind, 3 too tall, no
+      edge near 4, ...`: send them, they say which rule refused most.
+    - A/Bs, a ride each: `[Steer] SidestepWide=0` (wide things only braked for), `SidestepSteady=0`,
+      `SidestepMouseSide=0`. If the swerve is too sharp: `SidestepWideRate=90` and `SidestepWideMost=20`.
+
+**The cables** (step 22; test 53: "cables that should be attached to handlebar on the right side ... just floating")
+
+22. **The right-hand cables**: ride in first person, slow down or stop, and swing the bars left and right (the mouse, or
+    A and D): the two thin cables coming out under the right switch block and the thin wire from the right side of the
+    bar should stay attached and swing with the bar (before, their ends hung in the air one way and went into the switch
+    block the other). With the bars straight nothing should look different. Then the same in third person, from the
+    right side, while turning. If anything near the steering head, behind the headlamp, looks broken at full lock, say
+    where.
+    - `CMB_Slope.log`, on getting on: `tilt: CMB_BikeWornRiderF_front_cables is the bar assembly [front, by its name]
+      (...)` (`CMB_BikeWornRider_front_cables` for a male rider); in first person `view: the reference ...'s 3D
+      ('CMB_BikeView', ...): 50 shape(s) under 'CMB_BikeView', 50 matched by label to the worn bike's 50 held skin(s)`
+      (test 54: 49).
+
+**The lamps and the frame-rate line** (step 23; test 54: the plugin's task runs twice a frame)
+
+23. **Nothing to do but look**: the `time: the last 10 s ...` line's number should now be about your real frame rate
+    (about half test 54's), ending `; the game's frames, the plugin's task 2.0 times a frame (FpsFrames)`; a long pause
+    (the Pip-Boy open a while at a stop) is one `game: the world paused ...` line, not two. The headlamp's beam and the
+    tail lamp's light should keep up at speed. A/B: `[Lamp] FrameLead=0`.
+
+**The A/Bs** (step 24)
+
+24. **The A/Bs**: if you haven't already in the steps above, one at a time, each for a ride or two, then put it back:
+    `[Steer] FirstKeys=0` (step 11), `[View] Roll=0` (step 12), `LookBack=0` and `CameraTurn=0` (step 13), `LookKey=0`
+    (step 14), `Body=0` and `Near=5` (step 15), `[Tilt] GunPose=0` and `GunPredict=0` (step 16), `[Steer]
+    FirstKeysArmed=0` (step 17), `[Tilt] PutAway=0` (step 18), `[Steer] SidestepWide=0`, `SidestepSteady=0` and
+    `SidestepMouseSide=0` (step 21). Anything better or worse?
+
+The off values, each giving 2026-11-15a: `[Steer] FirstKeys=0`, `FirstKeysArmed=0`, `SidestepWide=0`,
+`SidestepSteady=0`, `SidestepMouseSide=0`; `[View] CameraTurn=0`, `Roll=0`, `LookBack=0`, `LookKey=0`, `Body=0`;
+`[Tilt] PutAway=0`, `GunPose=0`, `GunStandBack=0`; `[Lamp] FrameLead=0`; `[Diag] FpsFrames=0`, `PausedFrames=0`,
+`BodyProbe=0`, `GunTrace=0`, `GunListen=0`; in the MCM "Weapons while riding" on "None" or "Any weapon (standing poses)"
+(the old switch off or on), "Looking back while reversing (first person)" on "Off", "View leans in turns (first person,
+deg)" at 0 and "Look key (scan code)" at 0. The cables have no switch (2026-11-15a's four bike nifs copied back give the
+old ones). The 2026-11-15a build's own switches back to 2026-11-14a's are all still there (the next section).
+
+Send all the logs of each session (`CMB_Slope.log` and its three `_prev` logs, `Papyrus.0.log`), any crash log,
+`CMB_RiderPose_report.txt` if you made it, the screenshots of steps 2 and 15, and a short video of steps 16 and 18 if
+you can.
+
+### Questions for you (test 55, the 2026-11-15b build)
+
+- **T55-11 (step 11).** A and D in first person: the bike turns as with the mouse, no sliding sideways? The mouse as
+  before?
+- **T55-12 (step 12).** The view's lean in turns: how much do you like (0-10)? Did the log say "the root's rotation is
+  the answer's matrix" (or "its transpose") and "the turn followed", or a "camera: ... off this session" line?
+- **T55-13 (step 13).** Looking back while reversing: over the shoulder, the head with the mouse, the swing round the
+  back, W back to the front, the Pip-Boy? Or do you prefer "Third person"?
+- **T55-14 (step 14).** The look key: does it work? Is Z free in your bindings, or which key did you take?
+- **T55-15 (step 15).** Your body in first person: seen at all? The hands on the grips while turning? Any head, hair,
+  flicker or second bike? What did "body: drawn?" say? Was `Near=5` better at the collar?
+- **T55-16 (step 16).** A handgun drawn while riding: seated, the left hand on the bar, the bike under you? Steering with
+  it out, stopping and riding off? `GunPredict=0` better or worse?
+- **T55-17 (step 17).** With a weapon drawn: the view stayed ahead while reversing, and the game stayed in first person
+  with "Third person"? The look key about 60 degrees? A and D in third person: does the bike turn, or does the body snap
+  back to the camera?
+- **T55-18 (step 18).** A rifle by its favourites key: put away within a second, and you stayed on? What did the `gun:
+  the weapon state 3 > ...` line say?
+- **T55-19 (step 19).** Getting on with a rifle out and with the pistol out: both put away and on?
+- **T55-20 (step 20).** Which pistols could you draw (pipe, .44, laser, plasma, flare gun)? "None" and "Any weapon" as
+  the old switch off and on? After loading the save, did the pistol stay out, and was the rifle still put away?
+- **T55-21 (step 21).** Wide things stepped round: how did the swerve feel? Walls and buildings only braked for? The
+  mouse keeping, handing over or letting go as described? First-person sidesteps running to the end?
+- **T55-22 (step 22).** The right-hand cables attached when the bars turn? Anything broken behind the headlamp at full
+  lock?
+- **T55-23 (step 23).** The frame-rate line about your real frame rate, "2.0 times a frame"? One line for a long pause?
+- **T55-24 (step 24).** Anything an A/B made better or worse?
+
 ## The 2026-11-15a build: test 54's fixes, in this order
 
 This is the fixes build for test 54 (run on 2026-11-14a: two crashes at the field kit, both just after "Plate
@@ -41,7 +303,8 @@ Before you start:
   `[View] EyeAt` and the field kit preview's four New values have new defaults;
 - **in the MCM set "Eye forward on the bike" and "Eye height on the bike" back to 0 first** (your save keeps test 54's
   -6 and -3; the new default already holds them, so leaving them would put your eye 6 further back and 3 lower again);
-- keep Global Stash by SKK installed; play with `CMB_AllowCombat` as you usually do;
+- keep Global Stash by SKK installed; play with `CMB_AllowCombat` as you usually do (on 2026-11-15b: leave the
+  MCM's "Weapons while riding" on "Handguns only", the section above);
 - the plugin now keeps the logs of the three sessions before (step 8), so a crash and two restarts no longer lose one;
   still say which session each step was in;
 - a change to `CMB_Slope.ini` is read when you get on: save the file, get off and on (no restart), unless a step says
@@ -1050,7 +1313,7 @@ and, if you have one, a bag or other gear that sits in an unusual slot.
 | 12 | *(opt-in, outside companion quests)* `set CMB_CompanionMode to 1`, ride, get off | companion disappears while riding and steps out behind you afterwards |
 | 13a | Put all your Flamer Fuel in the side bag, ride | fuel is taken from the bag first |
 | 13b | Ride until the fuel runs out | "Your motorbike ran out of fuel." and the bike is parked next to you; getting back on is refused until you have fuel |
-| 14 | Try riding in power armor; get on, then get into a power armor frame (if the game lets you activate it while seated); then draw a weapon and try to get on | refused with "You can't ride a motorbike in power armor."; in the frame within a second you're off with "You can't ride in power armor. The motorbike is parked nearby."; the weapon refused with "Put your weapon away first." (calling the bike in power armor is allowed: it's only the riding) |
+| 14 | Try riding in power armor; get on, then get into a power armor frame (if the game lets you activate it while seated); then draw a weapon and try to get on | refused with "You can't ride a motorbike in power armor."; in the frame within a second you're off with "You can't ride in power armor. The motorbike is parked nearby."; the weapon refused with "Put your weapon away first." (since 2026-11-15b with "Weapons while riding" on None or Any weapon; on Handguns only, the default, it is put away and you get on: the 2026-11-15b build's step 19) (calling the bike in power armor is allowed: it's only the riding) |
 | 15 | Get on, sit still, then ride off and stop | engine start, idle while standing, louder/higher while moving, run-down when you get off (silent = see the engine-sound note in DESIGN.md; with F4SE and its Address Library the plugin drives the engine since test 44's build: row 17q) |
 | 16 | *(F4SE)* wear something in slot 57, ride, get off | it comes off while riding and goes back on afterwards |
 | 17 | *(MCM)* Mod Config → Commonwealth Motorbike | every setting there; change the speed, get on: the new speed applies |
@@ -1089,7 +1352,8 @@ and, if you have one, a bag or other gear that sits in an unusual slot.
 | `set CMB_CompanionMode to 0` / `1` | companions run alongside (default) / ride along hidden (riskier during companion quests and scenes) |
 | `set CMB_UseFuel to 0` | free riding, no fuel |
 | `set CMB_FuelDistance to 10500` | twice as thirsty (default 21000 = one Flamer Fuel per ~300 m) |
-| `set CMB_AllowCombat to 1` | shooting while riding (takes effect next time you get on) |
+| `set CMB_RideWeapons to 2` | every weapon and VATS while riding, in the game's standing poses (MCM Riding "Weapons while riding" Any weapon, since 2026-11-15b; default 1 Handguns only: a handgun drawn seated with the left hand on the bar, anything else put away; 0 None: no weapon out on the bike; at once) |
+| `set CMB_AllowCombat to 1` | shooting while riding (takes effect next time you get on; since 2026-11-15b read only by an older ESP without `CMB_RideWeapons`: use "Weapons while riding") |
 | `set CMB_ForceThirdPerson to 0` | stay in your current camera |
 | `set CMB_UseRiderPose to 0` | no seated animations (run in place over the bike); `1` to turn them back on, next time you get on |
 | `set CMB_HotkeyCode to 34` | F4SE hotkey (DirectX scan code, 34 = G, 0 = off); save and reload afterwards |
@@ -1115,9 +1379,12 @@ and, if you have one, a bag or other gear that sits in an unusual slot.
 | `set CMB_ViewTip to 15` | the view eases 15 degrees down on getting into first person on the bike (MCM "Look down on getting into first person (deg)", since 2026-11-06a; 0-45, default 20; 0 = left as it is, as 2026-11-02a) |
 | `set CMB_ViewFov to 90` | the world field of view while riding in first person (since 2026-11-06a, the MCM's slider till 2026-11-10a; 60-120, default 0: your own); since 2026-11-14a used only with `[View] Fov=1` in `CMB_Slope.ini` |
 | `set CMB_ViewEyeUp to -8`, `set CMB_ViewEyeForward to -6` | your eye on the bike lower (the bike higher into view) and back (MCM "Eye height on the bike", -30..20, and "Eye forward on the bike", -30..30, since 2026-11-06a; default 0: `[View] EyeAt` as it is; at once; since 2026-11-15a `EyeAt` already holds test 54's -6 and -3, so a save from an earlier build should set both back to 0) |
+| `set CMB_ViewBack to 2` | backing up in first person switches to third person while you back (MCM Riding "Looking back while reversing (first person)" Third person, since 2026-11-15b; default 1, over the shoulder; 0 off, as 2026-11-15a; needs CMB_Slope.dll) |
+| `set CMB_ViewRoll to 8` | the view leans 8 degrees at the bike's whole lean in first person (MCM Riding "View leans in turns (first person, deg)", since 2026-11-15b; 0-10, default 4; 0 = level, as 2026-11-15a; at once) |
 | `set CMB_TailLightMode to 0` | no tail lamp light, the lens only glows (default 1; next time you get on) |
 | `set CMB_FirstPersonBike to 0` | no bike in first person (default 1; next time you get on) |
 | `set CMB_BrakeKey to 42` | the brake key on Left Shift (a DirectInput scan code: 57 Space, the default, 42 Left Shift, 29 Left Ctrl, 56 Left Alt, 45 X, 46 C, 0 none; the log names the key it read) |
+| `set CMB_LookKey to 45` | the look key on X (MCM Hotkeys "Look key (scan code)", since 2026-11-15b: held in first person on the bike the mouse turns only your head; default 44, Z; 0 none; 256-260 the mouse buttons; next time you get on) |
 | `set CMB_FxVolume to 50` | quieter landing and water sounds (0–100, default 90; 0 = none) |
 | `set CMB_FxOwnSounds to 0` | the landings and the water through the game's own records, as in 2026-11-01a (since 2026-11-02a; default 1: the mod's own records over the game's files; the water next time you get on). Since 2026-11-06a off is the game's own records for the landings only with "Landing sounds without metal" off, and for the water only with "Water sound loop" on its first choice ("As the 2026-11-02a build (spray)"): for test 48's A/B turn all three to their 2026-11-02a values |
 | `set CMB_FxLandRange to 18` | the softest landing 18 dB under the hardest, as in 2026-11-01a (since 2026-11-02a; 0–30, default 10; smaller makes small drops louder) |
@@ -1176,3 +1443,6 @@ Still seated after getting off? `player.caf` (ChangeAnimFlavor with no keyword) 
 4. Any Creation Kit compile errors, full text
 5. Your mod list if it might be a conflict (anything touching player animations, companions or movement speed)
 6. For animation problems: the text `make_rider_pose.bat` printed
+7. Since 2026-11-15b: `CMB_RiderPose_report.txt` (next to `CMB_RiderPose.esp`, written when `make_rider_pose.bat` of
+   this build's repository runs), screenshots of your body in first person, and a short video of a handgun drawn on
+   the bike and of a rifle put away

@@ -1,0 +1,58 @@
+{
+  "_about": "Build 2026-11-15b (test 53's and test 54's wishes), packaged on 2026-11-10a's package as the asset base (2026-11-14a and 2026-11-15a changed no asset) with an overlay of the four meshes this build changes, built by tools/rider/bar_cables.py into /opt/cmb/assets15b/Data (OVERLAY=/opt/cmb/assets15b/Data: a Data-like folder, Meshes/CMB/... at its top). Keys starting with _ are comments. The textures, materials, sounds, clips, CMB_BikeParked.nif and CMB_BikeParts.ini are 2026-11-10a's. The commit's own files that change (checked against the commit, not listed below): Data/CommonwealthMotorbike.esp, Data/F4SE/Plugins/CMB_Slope.dll, Data/F4SE/Plugins/CMB_Slope.ini, Data/MCM/Config/CommonwealthMotorbike/config.json and the sources CMB_ControllerScript.psc and CMB_GearRestoreF4SE.psc (git diff --stat 1bc3f8a <the build's commit> -- Data).",
+
+  "build": "2026-11-15b",
+
+  "_previous": "The 2026-11-15a package: the verifier's --previous. Its Data holds the same assets as 2026-11-10a's, either can be the asset base (ASSETS=<it>/Data), with this build's OVERLAY over it.",
+  "previous": "2026-11-15a",
+
+  "esp": {
+    "_records": "espcmp.py 1bc3f8a's ESP against this one: 'TES4: HEDR records 1053 -> 1062, next ID 0xBFF -> 0xC08', 'added 9 (000BFF-000C07): 8 GLOB, 1 FLST', 'removed 0', 'changed 1' (00080D QUST CMB_ControllerQuest: VMAD). No new group: the FLST joins the existing FLST group.",
+    "records": 1062,
+    "next_object_id": "0xC08",
+    "_edids": "This build's nine new forms first (first person's four at 000BFF-000C02, the weapons' five at 000C03-000C07, CMB_HandgunKeywords the FLST), then 2026-11-15a's list: the eight globals of 2026-11-14a (000BF7-000BFE), the look item, the controller quest and 2026-11-10a's two globals.",
+    "edids": [
+      "GLOB:CMB_ViewBack",
+      "GLOB:CMB_ViewBackNow",
+      "GLOB:CMB_ViewRoll",
+      "GLOB:CMB_LookKey",
+      "GLOB:CMB_RideWeapons",
+      "FLST:CMB_HandgunKeywords",
+      "GLOB:CMB_RiderGun",
+      "GLOB:CMB_WeaponAway",
+      "GLOB:CMB_RiderGunPose",
+      "GLOB:CMB_KitWhere",
+      "GLOB:CMB_KitPreview",
+      "GLOB:CMB_KitPrevSize",
+      "GLOB:CMB_KitPrevTurn",
+      "GLOB:CMB_KitPrevTilt",
+      "GLOB:CMB_KitPrevUp",
+      "GLOB:CMB_KitPrevZoomOut",
+      "GLOB:CMB_KitPrevZoomIn",
+      "ARMO:CMB_BikeLook",
+      "QUST:CMB_ControllerQuest",
+      "GLOB:CMB_RiderQuickUse",
+      "GLOB:CMB_RideReady"
+    ]
+  },
+
+  "_counts": "As 2026-11-15a's: no file added or removed. The four meshes change in place; make_rider_plugin.py's new CMB_RiderPose_report.txt is written on the player's PC beside CMB_RiderPose.esp and is never in a package (tools/rider is not packaged, and the packager takes only the commit's tracked Data files, the compiled scripts and the asset roots).",
+  "counts": {
+    "bgsm": 427, "hkx": 212, "dds": 123, "wav": 15, "psc": 12, "pex": 12,
+    "json": 6, "nif": 5, "ini": 2, "esp": 1, "dll": 1, "txt": 1
+  },
+
+  "_vs_previous": "The assets and the compiled scripts compared with the previous package: the four nifs of the overlay (the three worn ones and the first-person one, the right-hand cables cut into <stem>_front_cables; sha256 as bar_cables.py wrote them, the same in two runs), and the two scripts whose sources changed (git diff --stat 1bc3f8a <the build's commit> -- Data/Scripts: CMB_ControllerScript.psc, CMB_GearRestoreF4SE.psc), which compile to new code. null accepts any content; verify_zips.py --list-changes prints each one's sha256 to paste in after the first package (step 3 of tools/package/README.md).",
+  "vs_previous": {
+    "changed": {
+      "Data/Meshes/CMB/CMB_BikeView.nif": "1a5faffc6c4346115cb2717f3da8fccc9e167e6546705d5ca5650947e47e4f19",
+      "Data/Meshes/CMB/CMB_BikeWorn.nif": "38795a241e94dccd45c0a50068c3b1bac81e06bb710270896d9178b975ee980e",
+      "Data/Meshes/CMB/CMB_BikeWornRider.nif": "9c621c211503ddaa8b3c14758c54447aaab548a17cee6f9bb785871019df6f1f",
+      "Data/Meshes/CMB/CMB_BikeWornRiderF.nif": "99bd41352def2a2a549da3d133b3f7346c687ec607f2d1e2e267ef7d35d5fa41",
+      "Data/Scripts/CMB_ControllerScript.pex": null,
+      "Data/Scripts/CMB_GearRestoreF4SE.pex": null
+    },
+    "added": {},
+    "removed": []
+  }
+}

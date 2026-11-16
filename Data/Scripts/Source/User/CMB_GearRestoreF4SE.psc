@@ -80,3 +80,39 @@ EndFunction
 Function WatchBusy(int aiOn)
 	Controller.WatchBusy(aiOn)
 EndFunction
+
+; 2026-11-15b (test 53's wish a, the weapons unit): the equipped gun's instance keywords (the biped's slot 41, BIPOBJECT
+; kWeaponGun in F4SE's GameFormComponents.h; InstanceData.GetKeywords reads the instance's own list): -1 no instance there,
+; else 1 if one of akYes's keywords is on it, + 2 if akNo is, + 4 x the count. The pistol and rifle keywords of the modular
+; guns come with their grips and stocks, so the base form doesn't carry them (the controller's HandgunEquipped).
+int Function GunKeywords(Actor akActor, FormList akYes, Keyword akNo)
+	if !akActor
+		return -1
+	endif
+	Keyword[] kws = InstanceData.GetKeywords(akActor.GetInstanceOwner(41))
+	if !kws
+		return -1
+	endif
+	bool yes = false
+	bool no = false
+	int i = 0
+	while i < kws.Length
+		if kws[i]
+			if akYes && akYes.HasForm(kws[i])
+				yes = true
+			endif
+			if akNo && kws[i] == akNo
+				no = true
+			endif
+		endif
+		i += 1
+	endwhile
+	int code = 4 * kws.Length
+	if yes
+		code += 1
+	endif
+	if no
+		code += 2
+	endif
+	return code
+EndFunction

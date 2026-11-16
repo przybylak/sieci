@@ -146,7 +146,7 @@ SEAT=<repository>/Data/Meshes/Actors/Character/Animations/MT/CMB_Rider DATA=<rep
 STAGE=C:/CMBwork/bike_stage BLENDER_PY=<a Python with bpy> DDS_PY=<a Python with quicktex and etcpak> \
 REFERENCE=<a previous build's Meshes/CMB, optional> \
 PYTHON=<a Python with numpy and fast_simplification, default python3> \
-  bash tools/rider/build_bike.sh                       # = export art textures build check
+  bash tools/rider/build_bike.sh                       # = export art textures build cables check
 ```
 
 `export` writes the finished shapes into the stage folder (`harley_meshes.py --stage export`, about a minute), `art`
@@ -155,7 +155,9 @@ shape's UV atlas, the bakes from the full model, the DDS files and both material
 in Blender, about 28 minutes from scratch on four cores, seconds to minutes after a change; a per-label cache keeps what's done, and `ONLY=static_paint,static_chrome` does just those),
 `build` the nifs with those UVs and the materials named (the parked and three worn ones, and since the 2026-11-01a
 build `CMB_BikeView.nif`), `CMB_BikeParts.ini` and `CMB_BikeFit.json` (`harley_meshes.py --stage build`, about a
-minute and a half; it refuses a stage made from different shapes), `check` reads everything back
+minute and a half; it refuses a stage made from different shapes), since the 2026-11-15b build `cables` the bars'
+cables cut out of the fixed `static_black` into `<stem>_front_cables`, which turns with the bars, in the worn and view
+nifs (`bar_cables.py` in place; a nif already cut is left as it is; `CABLES=0` skips it), `check` reads everything back
 (`check_bike_meshes.py`, about 15 s: exit 1 on any fault; with `REFERENCE` it also compares the parts file's keys and
 the fit; with the stage it also checks the volume guard's work, the discs' fit and the mirror glass's colour). Since
 the 2026-11-01a build `export` rewrites a shape's file only when the shape changed, so the texture stage's caches keep
