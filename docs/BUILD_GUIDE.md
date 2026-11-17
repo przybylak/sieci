@@ -429,6 +429,31 @@ The package lays the four overlays over the asset base in order, `OVERLAY=<2026-
 A>:<overlay B>:<overlay C>` (a colon-separated list, the later winning): 47 files new and 14 changed against
 2026-11-15b's package (the five nifs, the three badge textures and the six plate textures).
 
+Since 2026-11-16b (test 55's fixes) the generator makes no new record: the ESP keeps **1134** in its header's count and
+its next ID **0xC50**, look_ids.txt its 919 IDs. Three globals' values change, only with the look's C3 block: Tune's
+`CMB_KitPrevSize` 0xBF9 400 -> **1050**, `CMB_KitPrevTilt` 0xBFB 0 -> **-2** and `CMB_KitPrevUp` 0xBFC 0 -> **-45** (Tune
+starts at New's record), and in `config.json` the helps of the "Field kit preview" stepper and of "Preview distance",
+"Preview tilt" and "Preview up / down" (New placed in the menu's view by the plugin; New's 1050, -2, -45); `keybinds.json`
+doesn't change, and `check_plugin.py`'s GLOBALS_57 holds the new values. A record-by-record comparison with 2026-11-16a's
+plugin: `TES4: same`, `added 0`, `removed 0`, `changed 3` (`000BF9 GLOB CMB_KitPrevSize: FLTV 0000c843 -> 00408344`,
+`000BFB GLOB CMB_KitPrevTilt: FLTV 00000000 -> 000000c0`, `000BFC GLOB CMB_KitPrevUp: FLTV 00000000 -> 000034c2`).
+`--look-build 2026-11-08a` still writes 2026-11-15b's ESP, `config.json` and `keybinds.json` byte for byte, and
+`--look-build 2026-11-07a` fdb5b3a's; no flag writes 2026-11-16a's three values (its ESP is the 2026-11-16a package's).
+One script changes, `CMB_ControllerScript.psc`: the put-away's 1 s sheathe and 3 s dismount count only the time the game
+ran when the plugin sets `CMB_RoomOptions` bit 1024 (`[Tilt] PutAwayUnpaused`), with two script variables, `awayRun` and
+`awayTick`, and no property; `tools/build.sh` prints `checked cmb_controllerscript: 208 properties` and "plugin and
+scripts agree" as before, and `check.sh` 12 .pex with no warning and no new native in the stubs. `CMB_Slope.dll` and
+`CMB_Slope.ini` change (the two INI copies identical); build the plugin with `bash tools/f4se-slope/build.sh`
+(`-Werror`). No asset changes: the meshes, textures, materials, sounds and clips are 2026-11-16a's, so the package lays
+2026-11-16a's four overlays over the asset base as before and differs from 2026-11-16a's package in no asset file. The
+engine model and its twin (`tools/sound/engine_model.py`) don't change: `[Sound] SpeedMap` is the plugin's input to the
+model, as its speed measure is. The harness (`tools/f4se-slope/test/run.sh`, 26 modes) expects **2046** checks: view 267,
+arms 100, custom 114, launch 21, sound 137, climb 127, the rest as 2026-11-15b's (2038 before the build's review fixes:
+view 263, custom 110); `DEF60` rides every older mode at this build's off values, the changed defaults' old ones among
+them (`[Steer] PullFrom=0.6`, `LaunchFrom=0.25`, `[View] BodyEye=0,7,7`), and the review's `[View] BodyFollowCamera=0`;
+PullTime's 5.5 is written by the checks that ride 2026-11-16a's pull, `DEF58`'s `PullTime=0` riding the rest, and `DEF59`
+pins `FirstKeys=0`.
+
 The vanilla form IDs the plugins use (PlayerRef, XMarker, HumanRace, HumanRaceSubGraphData, SpeedMult, CarryWeight, FallingDamageMod, Health, Pip-Boy, AnimArchetypePlayer) were checked against Mutagen's FormKey list generated from the real `Fallout4.esm`. The record layouts were also compared field by field with xEdit's Fallout 4 definitions.
 
 ## For developers: packaging a build

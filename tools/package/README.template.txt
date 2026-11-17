@@ -1,39 +1,52 @@
-COMMONWEALTH MOTORBIKE - READY-TO-INSTALL FILES (2026-11-16a, repository commit @COMMIT@)
+COMMONWEALTH MOTORBIKE - READY-TO-INSTALL FILES (2026-11-16b, repository commit @COMMIT@)
 
 The Data folder is the whole mod except the rider-pose plugin, which has to be built from
 your own load order:
 
-  Data\CommonwealthMotorbike.esp      the plugin (72 new records since 2026-11-15b: the seat's slot and
-                                      its 15 choices, the two 3D helmet badges and the Gunners skull on
-                                      both tanks and the skull on the rear fender, and their lists; the
-                                      look's recipes carry their place in the alphabetical order)
+  Data\CommonwealthMotorbike.esp      the plugin (no new record since 2026-11-16a: three of the
+                                      field kit preview's Tune values change, to New's 1050, -2 and
+                                      -45; 2026-11-16a's 72 new records: the seat's slot and its 15
+                                      choices, the two 3D helmet badges and the Gunners skull on
+                                      both tanks and the skull on the rear fender, and their lists;
+                                      the look's recipes carry their place in the alphabetical
+                                      order)
   Data\Scripts\*.pex                  compiled scripts (Caprica, Fallout 4 format; no Creation Kit
-                                      needed), twelve, as before: CMB_HotkeyF4SE, CMB_GearRestoreF4SE
-                                      and CMB_LookF4SE (the customised look on the parked, ridden and
-                                      first-person bikes and its colours) need F4SE. Two change: the
-                                      controller (the seat's slot, the MCM's dropdowns, "Same as the
-                                      left" for the new choices) and CMB_LookF4SE (the seat's colour)
+                                      needed), twelve, as before: CMB_HotkeyF4SE,
+                                      CMB_GearRestoreF4SE and CMB_LookF4SE (the customised look on
+                                      the parked, ridden and first-person bikes and its colours)
+                                      need F4SE. One changes in this build: the controller (a
+                                      weapon's put-away counts only the time the game runs); in
+                                      2026-11-16a the controller and CMB_LookF4SE (the seat's slot
+                                      and colour, the MCM's dropdowns)
   Data\Scripts\Source\User\*.psc      their sources
-  Data\MCM\                           Mod Configuration Menu page and hotkeys (since this build Look has
-                                      a "Seat" dropdown after "Tyres", and its dropdowns list their
-                                      choices alphabetically)
-  Data\F4SE\Plugins\CMB_Slope.dll     F4SE plugin: steeper slopes, farther camera, bike tilt, steering,
-                                      the speedometer, the lights and the mirrors, the bike in first
-                                      person, the landing and water sounds, the sidestep, the launch,
-                                      items at speed, the look you fit at the bike, the parked bike kept
-                                      out of people, Caution, the wheels, the gears, items by hotkey at
-                                      speed, the bike's ready signal at getting on, the parked bike's
-                                      guard, the engine through a menu, the number keys at speed, Free
-                                      colour in third person, the first-person bike held under your eye,
-                                      the field kit's preview, the engine quiet in menus, five gears, the
-                                      camera's place in first person read right, the first-person bike
-                                      hidden until it is coloured, the slower pull, three earlier logs
-                                      kept, A and D turning the bike in first person, the view's lean,
-                                      looking back and the look key, a handgun drawn seated and the
-                                      put-away, your own body in first person, the wide sidestep, and the
-                                      lamps and the frame-rate line by the game's frame (Fallout 4
+  Data\MCM\                           Mod Configuration Menu page and hotkeys (since 2026-11-16a
+                                      Look has a "Seat" dropdown after "Tyres", and its dropdowns
+                                      list their choices alphabetically; since this build the "Field
+                                      kit preview" helps describe New's new place)
+  Data\F4SE\Plugins\CMB_Slope.dll     F4SE plugin: steeper slopes, farther camera, bike tilt,
+                                      steering, the speedometer, the lights and the mirrors, the
+                                      bike in first person, the landing and water sounds, the
+                                      sidestep, the launch, items at speed, the look you fit at the
+                                      bike, the parked bike kept out of people, Caution, the wheels,
+                                      the gears, items by hotkey at speed, the bike's ready signal
+                                      at getting on, the parked bike's guard, the engine through a
+                                      menu, the number keys at speed, Free colour in third person,
+                                      the first-person bike held under your eye, the field kit's
+                                      preview, the engine quiet in menus, five gears, the camera's
+                                      place in first person, the first-person bike hidden until it
+                                      is coloured, the pull, three earlier logs kept, A and D
+                                      turning the bike in first person, the view's lean, looking
+                                      back and the look key, a handgun drawn seated and the
+                                      put-away, your own body in first person, the wide sidestep,
+                                      the lamps and the frame-rate line by the game's frame, and
+                                      since this build test 55's fixes: the first-person camera's
+                                      place, the bike while zooming in, the cell moves, the view's
+                                      lean by the turning rate, the look back's pitch, what comes
+                                      with your body, the put-away on the player, the handgun seated
+                                      with both hands on the bars, the field kit's preview placed,
+                                      the even climb and the gears at the matching speeds (Fallout 4
                                       1.11.240 + F4SE 0.7.9 only); its settings are in CMB_Slope.ini
-                                      beside it. Both are 2026-11-15b's, unchanged
+                                      beside it. Both change in this build
   Data\Sound\FX\CMB\                  engine sounds: the idle, start and stop and ten riding loops, built
                                       from a real V-twin's recording, and the mod's own two wet-road water
                                       loops, CMB_FxWaterRoadLP.wav and the gentler
@@ -48,15 +61,25 @@ your own load order:
                                       axis, lens and speedometer needle are. Since this build all five
                                       nifs carry the two 3D helmets on each tank plate, invisible until
                                       you choose one; CMB_BikeParts.ini is 2026-11-10a's, unchanged
-  Data\Textures\CMB\Bike\             its textures, 129 DDS: since this build the helmets' four and the
-                                      seat's two are new, and the badge atlas (the skull and the
-                                      helmets' enamel plates) and the six plate textures (the emblems
-                                      and the new plate font) change
-  Data\Materials\CMB\Bike\            its material files, 468 (41 new since 2026-11-15b: the helmets'
-                                      ten, the skull's and the two enamel plates' three, the seat's 28):
-                                      one per surface for the riding bike, *_worn.bgsm, and one per
-                                      surface for the parked bike. The meshes need them: a missing
-                                      material file shows the bike magenta.
+  Data\Meshes\CMB\                    the bike (Nieve5677's cruiser, see the credits at the end):
+                                      parked, and worn three ways: hanging off the seated rider
+                                      (CMB_BikeWornRider.nif, ...RiderF.nif for the female/CBBE seat
+                                      height) and planted on the ground (CMB_BikeWorn.nif);
+                                      CMB_BikeView.nif, the bike you see under you in first person;
+                                      CMB_BikeParts.ini tells the plugin where its wheels, steering
+                                      axis, lens and speedometer needle are. Since 2026-11-16a all
+                                      five nifs carry the two 3D helmets on each tank plate,
+                                      invisible until you choose one: 2026-11-16a's, unchanged;
+                                      CMB_BikeParts.ini is 2026-11-10a's, unchanged
+  Data\Textures\CMB\Bike\             its textures, 129 DDS, 2026-11-16a's, unchanged (in
+                                      2026-11-16a the helmets' four and the seat's two were new, and
+                                      the badge atlas and the six plate textures changed)
+  Data\Materials\CMB\Bike\            its material files, 468, 2026-11-16a's, unchanged (41 new in
+                                      2026-11-16a: the helmets' ten, the skull's and the two enamel
+                                      plates' three, the seat's 28): one per surface for the riding
+                                      bike, *_worn.bgsm, and one per surface for the parked bike.
+                                      The meshes need them: a missing material file shows the bike
+                                      magenta.
   Data\Meshes\Actors\Character\Animations\MT\CMB_Rider\          106 riding clips + CMB_RiderClips.json
                                                                  + CMB_RiderSeat.json
   Data\Meshes\Actors\Character\Animations\MT\CMB_Rider\Female\   106 female clips (CBBE seat height), same files
@@ -64,27 +87,167 @@ your own load order:
 No optional folder, as 2026-11-14a. If the 2026-11-06a package's "Commonwealth Motorbike - 2026-11-02a look
 (A-B)" is still in MO2, keep it unticked (or remove it): it has the old badge and none of the new shapes.
 
-WHAT'S NEW IN 2026-11-16a
+WHAT'S NEW IN 2026-11-16b
+  Test 55's fixes, on top of 2026-11-16a, the art build, which you haven't tried yet: this package
+  holds both, and test 56 covers both (2026-11-16a's part is below). What test 55 liked is as it was.
+  Changed since 2026-11-16a: CMB_Slope.dll, CMB_Slope.ini, the ESP (three Tune values), the controller
+  script and four MCM helps; the meshes, textures, materials, sounds and riding clips are
+  2026-11-16a's.
+
+  WHAT TEST 56 SHOULD TRY (WHAT TO TEST below has the steps, 56-1 to 56-37):
+  - steps 1-14, 2026-11-16a's art: the kit's lists and the MCM's dropdowns in alphabetical order, the
+    two 3D helmets, the Gunners skull, the plates, the seat's colours, the frame rate beside the
+    parked bike;
+  - steps 15-20, first person: still shaking? zooming in with the wheel; a stutter across cells (with
+    an A/B); the view's lean; the mouse while looking back; A and D at 0.45;
+  - steps 21-24, your body in first person: one bike, no gun on the grip, nothing of your outfit in
+    front of your eye (and nothing gone that you want to see), where the body sits;
+  - steps 25-29, a handgun on the bike: drawn right after getting on, seated with both hands on the
+    bars and the gun in hand; a rifle put away at once, a save right after it; the rifle's bike swap;
+  - steps 30-32, the field kit's preview: the whole bike, zoom and turn;
+  - steps 33-36, the pull and the gears: a full pull, steady speeds, picking up again, a log; step 37,
+    the A/Bs.
+
+  TEST 55'S FIXES:
+  - The first-person shake ("EyeAtCamera off this session" again): the game's answer for the camera's
+    place is your eye's offset from your own place, which the camera reads at its own moment; the
+    plugin now finds which way your game uses it and the first-person bike follows the camera's own
+    place ([View] CameraPlace).
+  - No bike for about half a second when zooming into first person with the wheel (the game fades you
+    and the worn bike before it switches): the first-person bike now shows in the riding bike's place
+    meanwhile, the worn bike hidden ([View] NearThird).
+  - The first-person stutter: the first-person bike was moved between the cells' scene nodes at every
+    cell crossed (196 moves); now only near a cell's edge, straight from cell to cell, and a log line
+    on getting off says whether a move costs a frame ([View] ParentKeep, [Diag] ParentTime).
+  - "didn't see any difference" with the view's lean: the MCM's "View leans in turns" is now the lean
+    in degrees in an ordinary turn at speed, more in a sharp one, less in a gentle one ([View]
+    RollTurn). Looking back while reversing, the mouse now tilts the view up and down, up to 45
+    degrees ([View] LookPitch). A and D in first person turn at 0.45 of the old rate, your pick
+    ([Steer] FirstKeys).
+  - With your body in first person: the second set of bars and speedometer (the worn bike, which the
+    game drew though it was flagged hidden) is shrunk away ([View] BodyWorn); the holstered gun on the
+    right grip is hidden ([View] BodyWeapon); outfit pieces near your eye with no sleeve or glove in
+    them, like the rusty cage, are shrunk away ([View] BodyNear); the game's first-person arms are
+    hidden while you look back ([View] BodyArmsBack), and stay hidden through VATS or getting off
+    until the next first-person frame; your body follows the camera's own place with the first-person
+    bike, so your hands stay on the grips ([View] BodyFollowCamera); your eye is where the game's own
+    is, so the body sits on the seat ([View] BodyEye=0,2,-0.5, was 0,7,7). The "body: drawn?" line,
+    which couldn't tell, is gone ([Diag] BodyDrawn).
+  - The put-away never called the game ("0 calls", the rifle could still fire): your game's player has
+    its own form of the call the plugin checks, and it is taken now, so a rifle is put away at once
+    ([Tilt] PutAwayProbe). A save right after the put-away began ended the ride: its seconds now count
+    only while the game runs ([Tilt] PutAwayUnpaused).
+  - A handgun in third person ("the right arm swings out"): seated with both hands on the bars, the
+    pistol carried into your right hand on the grip, the pose read against the right frame and no jump
+    carried on at a draw ([Tilt] GunBothBars, GunCarry, GunRootFrame, GunPredictMax); drawn right
+    after getting on, the seat pose taken at getting on serves, so the bike isn't swapped ([Tilt]
+    GunStillRide).
+  - The field kit's preview ("half of the bike was in view"): the plugin now places the whole bike in
+    the menu's view, in its upper half, turned three-quarters and seen a little from above; the zoom
+    and the turning still work ([Look] KitFit, KitFind). New's record is 0,1050,-45, a little from
+    above, and Tune starts there in a new save.
+  - The gears ("1st gear shoots bike up to 30 almost instantly ... 1st should be short, up to 10, then
+    gradually change"): the bike now gains speed evenly from the press, 1st to about 10-12 on the
+    dial, 2nd to about 24, 3rd to about 42, 4th to about 50, the top about when 5th comes in (about 8
+    s), the engine sounding as in test 55 at these speeds ([Steer] PullTime, PullFrom, LaunchFrom,
+    PullClimb; [Sound] SpeedMap).
+
+  NEXT:
+  - The fixes test 56 asks for. Then build B, the second art build: wear and weathered paint
+    (Weathered, Dusty, Muddy, Rusty, Bloody, two combinations, muddy tyres), a badge on the front
+    fender, the headlamp's colour (the lens and the beam) and two more badges, Nuka-Cola and Red
+    Rocket; later, from the open ends, seated clips for a drawn pistol, the right forearm aimed along
+    the camera with a handgun out, the left hand to the pistol while reloading, first person's own
+    pistol, an MCM switch for your body in first person, the riding bike kept through a rifle's
+    put-away.
+
+  MCM:
+    No new control. "Field kit preview": its help says New is placed by the plugin; Tune's "Preview
+    distance", "Preview tilt" and "Preview up / down" start at New's 1050, -2 and -45 in a new save
+    (your save keeps 400, 0, 0: set them by hand if you use Tune). From 2026-11-16a: Look's "Seat"
+    (below).
+
+  CMB_SLOPE.INI (every new key at its default in the file, with its comment):
+    This build: [View] CameraPlace=1, NearThird=60 (with NearFade=0.99), ParentKeep=1 (with
+    ParentMargin=256), RollTurn=40, LookPitch=45, BodyWorn=1, BodyWeapon=1 (with
+    BodyWeaponNodes=WEAPON), BodyNear=20, BodyArmsBack=90, BodyFollowCamera=1; [Diag] ParentTime=1,
+    BodyDrawn=1; [Tilt] PutAwayProbe=1, PutAwayUnpaused=1, GunRootFrame=1, GunBothBars=1, GunCarry=1,
+    GunStillRide=1, GunPredictMax=15; [Look] KitFind=1, KitFit=1 (with KitFitView=40,
+    KitFitBox=0.07,0.50); [Steer] PullClimb=1; [Sound] SpeedMap=225:480,430:700,680:910,935:935.
+    Changed defaults: [Steer] FirstKeys=0.45 (was 1), PullTime=8 (5.5), PullFrom=0.1 (0.6),
+    LaunchFrom=0.1 (0.25); [View] BodyEye=0,2,-0.5 (0,7,7); [Look] KitPreviewPos=0,1050,-45 (0,400,0),
+    KitPreviewTurn=-0.223219,0,0.785398 (0,0,0.785398), the two commented out at their defaults.
+    2026-11-16a added no key.
+
+  EVERY NEW THING HAS A SWITCH whose off value is 2026-11-16a:
+    [View] CameraPlace=0, NearThird=0, ParentKeep=0, RollTurn=0, LookPitch=0, BodyWorn=0,
+    BodyWeapon=0, BodyNear=0, BodyArmsBack=0, BodyEye=0,7,7, BodyFollowCamera=0; [Diag] ParentTime=0,
+    BodyDrawn=0; [Tilt] PutAwayProbe=0, PutAwayUnpaused=0, GunRootFrame=0, GunBothBars=0, GunCarry=0,
+    GunStillRide=0, GunPredictMax=0; [Look] KitFind=0, KitFit=0, KitPreviewPos=0,400,0,
+    KitPreviewTurn=0,0,0.785398; [Steer] FirstKeys=1, PullTime=5.5, PullFrom=0.6, LaunchFrom=0.25,
+    PullClimb=0; [Sound] SpeedMap= (empty); the MCM's Tune sliders at 400, 0 and 0. Each is read on
+    getting on. The earlier builds' switches are all still there.
+
+  KNOWN, LEFT FOR NOW:
+  - First person: which way your game uses the camera's answer is settled by one log line ("camera:
+    the camera root at ..."); if none fits, the plugin turns that part off as before and the line says
+    why. Whether a cell move costs a frame is the ParentTime line's and the ParentKeep=0 A/B's to say.
+    Your body following the camera rests on the order test 55's log shows (your 3D updated before the
+    camera); if your game updates it after the camera, the hands run a frame ahead of the grips (the
+    lock line's BodyFollowCamera part says so; A/B [View] BodyFollowCamera=0).
+  - Your body: the outfit pieces near your eye are judged by coarse bounds, so a chest piece, a
+    backpack, a collar, a scarf or a sleeveless top near your neck may vanish from your view (A/B
+    [View] BodyNear=10 or 0). A rifle drawn still swaps the bike under you for the planted one for 2-4
+    s, as in test 55; a pistol drawn soon after can show the standing pose once.
+  - Handguns: no one-handed aiming pose yet (the right hand stays on the grip with the gun in it,
+    reloading too); a draw or a put-away can show one frame of the game's standing clip; where the
+    game hangs the drawn gun, and whether the shots and the muzzle flash leave from the gun in your
+    hand, is test 56's to say (one log line a draw).
+  - The field kit's preview: the menu's view was measured from test 55's screenshot; if the bike looks
+    bigger or smaller than planned, [Look] KitFitBox sizes it; if the menu puts its own place back
+    every frame, what shows depends on the game (the log's close line and your screenshot say).
+  - The pull: the take-off is gentler than before (0.3 of the top after about 2 s; 0.4 s in test 55)
+    and slow speeds pick up more slowly; the engine's top is squeezed (a steady 38-52 on the dial all
+    sounds about the same, and in a full pull 4th settles while the needle still climbs from about 42
+    to 50); a lower MCM speed makes the pull slower too.
+  - From 2026-11-15b: that your game builds its camera the way the plugin turns it is checked once a
+    session (one log line); if not, the lean and the look key do nothing and backing uses third
+    person. In first person a slow mouse move neither keeps nor lets go of a running sidestep (it ends
+    by itself within 2 s). Your body in first person needs a moment of third-person riding once a game
+    session; the collar may look cut near the camera ([View] Near=5 is an A/B); no MCM switch ([View]
+    Body=0).
+  - The wide sidestep's numbers are a first, reasoned set; parked cars that are part of the scenery's
+    combined meshes are still only braked for.
+  - The cables: at full lock the cut opens 2-3 units behind the headlamp (not seen from your eye).
+  - From 2026-11-15a: with an item animation mod, an item used at speed is used at once, but the start
+    of that mod's decoration clip still shows for a moment; the kit's plate colours show on the parked
+    bike when the menu closes, not while it is open.
+  - From 2026-11-14a: an option you didn't choose keeps the last colour written into it until you
+    choose it again (only the armour menu's preview shows that); the first getting on after a real
+    change of parts (not just a colour) is about 1.2 s slower.
+  - From 2026-11-10a: Caution 50 is only a new save's default; with [Lamp] Ahead set under about 10 and
+    MCM "Headlamp casts shadows" on, the front end can shadow its own beam (the default 28 keeps it
+    clear); when getting on, a follower is stowed and the headlamp lit up to about a second after the
+    screen is back.
+  - From 2026-11-09a: a bike kept hidden by the guard when you go through a door or fast travel stays
+    hidden where it waits until you call it; the parked bike blinks once when its look is put on outside a
+    ride; the riding armours kept between rides stay in your inventory, hidden: before uninstalling, get
+    off and run cqf CMB_ControllerQuest EmergencyReset, which takes them out too.
+  - From 2026-11-08a: after you take a new plate design at the kit the preview shows the old design's
+    own text until you leave the kit; the rim styles you didn't fit are still drawn, invisible, on the
+    parked bike; a rim style changed in the MCM while riding (or a load mid-ride with "Customise at the
+    bike" off, on a rim style) puts the ridden bike on again within about a second; without F4SE the
+    parked and first-person bikes stay stock and the ridden bike's colours stay their defaults.
+
+2026-11-16a (IN THIS PACKAGE TOO: TEST 56, STEPS 1-14)
   The third customisation build, the first of two art builds (the author's picks): 3D helmet badges,
   the Gunners skull, the plates redrawn with a new plate font, the seat's colour, and the lists in
-  alphabetical order. Nothing of riding changes: CMB_Slope.dll and CMB_Slope.ini are 2026-11-15b's.
-  You haven't tried 2026-11-15a and 2026-11-15b yet: this package holds both, and test 55 (below)
-  can run before test 56, after it or in the same round. Changed since 2026-11-15b: the ESP (72 new
-  records), two scripts (the controller and CMB_LookF4SE), the MCM page, the five bike meshes, the
-  badge atlas and the plate textures; new: the helmets' and the seat's textures and materials.
+  alphabetical order. Its plugin was 2026-11-15b's; its art is this package's. Changed in 2026-11-16a
+  since 2026-11-15b: the ESP (72 new records), two scripts (the controller and CMB_LookF4SE), the MCM
+  page, the five bike meshes, the badge atlas and the plate textures; new: the helmets' and the seat's
+  textures and materials.
 
-  WHAT TEST 56 SHOULD TRY (WHAT TO TEST below has the steps, 56-1 to 56-14):
-  - the kit's lists and the MCM's dropdowns in alphabetical order, and a choice in the MCM applied
-    as named (two probes: the log lines answer them);
-  - the two 3D helmets: on their enamel plates, in the preview, parked, ridden and in first person;
-    the Enclave's eyes at night; your knees in hard leans; the under-bar mirrors at full lock;
-    "Same as the left"; nothing left over after going back to Stock; the Gunners skull;
-  - each plate design at riding distance;
-  - each seat colour, the dark ones in the game's light, the piped ones close up, the seat with Free
-    colour and an MCM Apply mid-ride, an old save;
-  - the frame rate beside the parked bike.
-
-  NEW IN THIS BUILD:
+  NEW IN 2026-11-16a:
   - Tank badges "Enclave helmet (3D)" and "Brotherhood helmet (3D)" (Steel 2, Screws 1, Adhesive 1):
     the tank's badge plate becomes a plain enamel plate with the stock badge's chrome edge (black for
     the Enclave, steel grey for the Brotherhood) and a cast helmet emblem of our own stands on it,
@@ -110,25 +273,15 @@ WHAT'S NEW IN 2026-11-16a
     recipes' priority (test 56 tells). Your saved choices don't change, only the order shown.
   - The first getting on after the update puts the look's mods on afresh once (logged).
 
-  NEXT:
-  - The fixes tests 55 and 56 ask for. Then build B, the second art build: wear and weathered paint
-    (Weathered, Dusty, Muddy, Rusty, Bloody, two combinations, muddy tyres), a badge on the front
-    fender, the headlamp's colour (the lens and the beam) and two more badges, Nuka-Cola and Red
-    Rocket; later, from 2026-11-15b's open ends, seated clips for a drawn pistol, the left hand to
-    the pistol while reloading, first person's own pistol, an MCM switch for your body in first
-    person.
-
   MCM:
     Look: "Seat" after "Tyres" (22 controls; "Dark brown (as it came)" in every save); the eleven
     dropdowns alphabetical, read and set through the controller's properties (the globals keep the
     option's number, so saves don't change). If a dropdown always shows its first choice or a choice
     there does nothing, say so: the next build binds them to globals of their own.
 
-  CMB_SLOPE.INI: no new key; the file is 2026-11-15b's (below).
-
   EVERY NEW THING IS OPT-IN: each slot starts as it came, and the helmets stay invisible until
-    chosen. The old order of the lists and the old plates are files, not keys (README.md's first
-    table): the 2026-11-15b package's six plate textures (Data\Textures\CMB\Bike\plates_d/_n/_s.dds
+    chosen. The old order of the lists and the old plates are files, not keys (README.md's table of
+    the 2026-11-16a build's switches): the 2026-11-15b package's six plate textures (Data\Textures\CMB\Bike\plates_d/_n/_s.dds
     and plate_text_d/_n/_s.dds) in an MO2 mod of their own ticked below this one give the old
     letters and emblems back.
 
@@ -141,172 +294,6 @@ WHAT'S NEW IN 2026-11-16a
   - A piped seat looks like its plain colour from riding distance (the welt is under a pixel there).
     The steel grey plate on the Brotherhood paint is the weakest contrast of all the paints (it reads
     by its chrome edge and gloss).
-  - The 2026-11-15b build's known issues (below) still hold.
-
-2026-11-15b AND 2026-11-15a (IN THIS PACKAGE TOO: TEST 55)
-  2026-11-15b is the wishes build for tests 53 and 54, on top of 2026-11-15a (test 54's fixes), which
-  you haven't tried yet: this package holds both, and test 55 covers both. What test 54 liked is as it
-  was. Changed in 2026-11-15b since 2026-11-15a: the ESP (nine new records), two scripts (the
-  controller and CMB_GearRestoreF4SE), the MCM page, CMB_Slope.dll, CMB_Slope.ini and four bike meshes
-  (the right-hand cables); its textures, materials, sounds and riding clips were 2026-11-10a's.
-
-  WHAT TEST 55 SHOULD TRY (WHAT TO TEST below has the steps, 1 to 24):
-  - FIRST set the MCM's "Eye forward on the bike" and "Eye height on the bike" back to 0 (your save
-    keeps them), and check that Riding's "Weapons while riding" says "Handguns only";
-  - steps 1-10, 2026-11-15a's: the field kit's plate colours with no crash and its preview; first
-    person steady with your eye in the right place, and no red tank right after getting on; getting
-    on quick again; the slower pull from a stop and at speed; three earlier logs kept; the field kit
-    refused outside a settlement;
-  - steps 11-15, first person: A and D turning the bike; the view's lean in turns; looking back
-    while reversing (over the shoulder, or third person); the look key (Z); your own body on the bike;
-  - steps 16-20, a handgun on the bike: drawn seated with the left hand on the bar, no look back while
-    a weapon is out and A/D turning the bike with it, a rifle put away, getting on with a weapon out,
-    which pistols count, a save with a weapon out;
-  - step 21, the bike stepping round parked cars and other wide things, never walls;
-  - step 22, the right-hand cables turning with the bars; step 23, the frame-rate line; step 24, the
-    A/Bs.
-
-  TEST 53'S AND 54'S WISHES (2026-11-15b):
-  - A and D in first person ("can turning with A and D be the same as when turning with mouse?"): they
-    now turn the bike as the mouse does, with the lean and the bars, instead of moving you sideways
-    ([Steer] FirstKeys).
-  - The view leans into turns in first person with the bike, 4 degrees at the bike's whole lean by
-    default: the MCM's "View leans in turns (first person, deg)", 0-10 ([View] Roll).
-  - Looking back while reversing in first person ("there is no way to turn just the camera"): hold S a
-    moment and the view turns over your shoulder (D right, A left), the mouse turns only your head
-    while the bike keeps its heading, the other side key swings the view round the back, and W brings
-    it to the front; or the MCM's "Third person" switches the camera to third person while you back
-    ([View] LookBack). Hold Z to look round while riding in first person, the bike keeping its line:
-    the MCM's Hotkeys "Look key (scan code)", 0 = none ([View] LookKey). The plugin first checks that
-    your game's camera takes the turn; if it doesn't, the log says so, the lean and the look key do
-    nothing and backing uses third person ([View] CameraTurn). With a weapon drawn there is no look
-    back and no third person while backing, and the look key turns your head 60 degrees at most; the
-    lean stays.
-  - Handguns on the bike ("only handgun can be used ... hold handlebar with at least one hand
-    (preferably left) and shooting with another (right)"): the MCM's "Weapons while riding" replaces
-    "Allow combat while riding". "Handguns only", the default in every save, lets you draw and fire a
-    handgun from the saddle: in third person you stay seated, the left hand on the bar, the right arm
-    and the gun the game's own, the bike under you ([Tilt] GunPose). Anything else you draw is put
-    away ("Only a handgun can be used on the motorbike."), getting on with a weapon out puts it away
-    first ([Tilt] PutAway), and VATS stays off. "None" and "Any weapon (standing poses)" are the old
-    switch off and on. Your old switch isn't carried over (it was on): that's on purpose. With a
-    weapon drawn in third person A and D turn the bike too, instead of sliding it ([Steer]
-    FirstKeysArmed), and loading a save no longer puts a drawn weapon away by itself.
-  - Your own body in first person ("for 1st person it would be nice if character model was visible"):
-    your arms with the hands on the grips, your chest and legs, in your outfit, in the pose you ride
-    in third person (ride a moment in third person first, once a game session); the head and the worn
-    bike hidden. Not with the Pip-Boy, a weapon out, an item's use or looking back ([View] Body). The
-    open question is whether the game draws it at all: the log's "body:" lines answer it.
-  - Sidestepping big things ("does it work only for mailboxes/lampposts?"): a parked car, a barrel
-    group, a fence piece or debris that ends near your line on one side is now steered round on that
-    side, braking a little meanwhile; never walls, buildings, cliffs or the ground, nor while you turn
-    ([Steer] SidestepWide). The camera sweeping past a post no longer starts and drops a sidestep
-    (SidestepSteady), and moving the mouse the way a sidestep goes keeps it, or hands it to you
-    (SidestepMouseSide).
-  - The right-hand cables: the two thin cables under the right switch block and the wire from the right
-    of the bar now turn with the bars instead of floating in the air (the meshes).
-  - The lamps' lead and the frame-rate line now count the game's own frames (the plugin runs twice a
-    frame): the frame-rate line says about half what test 54's did, and a long pause is one line
-    ([Lamp] FrameLead, [Diag] FpsFrames, PausedFrames).
-
-  TEST 54'S FIXES (2026-11-15a, in this package too):
-  - The two crashes at the field kit (both right after "Plate background: The plate's own"): the plate
-    colours you choose there now go on the parked bike when you leave the menu, with the rest of the
-    look, as the MCM's Apply does ([Look] KitDefer).
-  - First person still shook: the fix that makes the first-person bike follow the game's own camera
-    read the camera's place in the wrong space and switched itself off; it reads it as the world place
-    it is now ([View] CameraWorld), and the bike's lead uses the game's own frame ([View] LeadFrame).
-  - No preview in the kit's menu: New now puts the whole bike 400 ahead of the menu's camera, turned
-    three-quarters; in Tune the first slider is "Preview distance" (less is a bigger bike).
-  - The stock red tank for a moment in first person right after getting on: the first-person bike
-    stays hidden until its colours are on, 3 s at most ([View] LookWait).
-  - Getting on about 0.85 s slower than 2026-11-10a: with the look unchanged the colour work is now
-    skipped ([Look] MountQuick).
-  - The plugin keeps the three sessions before as CMB_Slope_prev.log, CMB_Slope_prev2.log and
-    CMB_Slope_prev3.log ([Diag] KeepLogs).
-  - Your eye: the default holds the "eye forward" -6 and "eye up" -3 you used ([View] EyeAt=0,-5,125);
-    the MCM's two eye sliders still add to it, so set them back to 0.
-  - The speed and the gears ("bike reaches 50 just on gear 2"): above 0.6 of its top speed the bike
-    takes 5.5 s more to reach it, so the speed climbs with the gears and the top comes about when 3rd
-    ends; the engine's gears and their sound are untouched ([Steer] PullTime, PullFrom).
-
-  MCM:
-    Riding: "Weapons while riding" (None, Handguns only, Any weapon (standing poses)) where "Allow combat
-    while riding" was; after "Look down on getting into first person (deg)" two new controls, "Looking
-    back while reversing (first person)" (Off, Over the shoulder, Third person) and "View leans in turns
-    (first person, deg)" (0-10, 4). Hotkeys: "Look key (scan code)" after "Brake key (scan code)" (44 =
-    Z, 0 = none). From 2026-11-15a: in "Field kit preview" "Preview size (%)" is "Preview distance"
-    (100-2000, 400 = New; a save from 2026-11-14a first shows 30, which means New's 400 until you move
-    it), and "Preview zoom in" starts at 3; Riding's "Eye forward on the bike" and "Eye height on the
-    bike" are as before, but set both to 0 now (above).
-
-  CMB_SLOPE.INI (every new key at its default in the file, with its comment):
-    This build: [Steer] FirstKeys=1, FirstKeysArmed=1, SidestepWide=1 (with SidestepWideShift=160,
-    SidestepWideRate=120, SidestepWideMost=25, SidestepWideLong=300, SidestepWideDrop=60,
-    SidestepWideClear=40, SidestepWideTall=180), SidestepSteady=30, SidestepMouseSide=1; [Tilt]
-    PutAway=1, GunPose=1, GunStandBack=1, GunPredict=1, GunBlend=0.25, GunSeatEvery=5; [Lamp]
-    FrameLead=1; [View] CameraTurn=1, Roll=-1, LookBack=-1 (with LookBackAngle=150, LookBackHead=60,
-    LookBackSide=1, LookBackAfter=0.3, LookBackIn=0.35, LookBackOut=0.3, LookBackLinger=0.5,
-    LookBackSwing=0.4), LookKey=-1 (with LookMax=150, LookSnap=0.15), Body=1 (with BodyEye=0,7,7,
-    BodyLeanMax=35, BodyShiftMax=15, BodyBack=100, BodyFade=1); [Diag] BodyProbe=1, BodyProbeEvery=10,
-    FpsFrames=1, TurnEachRide=0, PausedFrames=1, GunTrace=1, GunListen=1. (-1 = the MCM's value;
-    LookBack=2 acts only while the MCM's "Looking back while reversing" isn't Off.)
-    2026-11-15a's: [Steer] PullTime=5.5, PullFrom=0.6; [Look] KitDefer=1, MountQuick=1,
-    KitTuneDistance=1, KitPreviewScene=1; [View] CameraWorld=1, LeadFrame=1, LookWait=3; [Diag]
-    KeepLogs=3. Its changed defaults: [View] EyeAt=0,-5,125 (was 0,1,128); [Look] KitPreviewPos=0,400,0
-    (0,0,0), KitPreviewTurn=0,0,0.785398 (0,0.02,44.764), KitPreviewScale=1 (0.3), KitPreviewZoom=-1,3
-    (-1,1), the four commented out at their defaults.
-
-  EVERY NEW THING HAS A SWITCH whose off value is 2026-11-15a:
-    [Steer] FirstKeys=0, FirstKeysArmed=0, SidestepWide=0, SidestepSteady=0, SidestepMouseSide=0; [View]
-    CameraTurn=0, Roll=0, LookBack=0, LookKey=0, Body=0; [Tilt] PutAway=0, GunPose=0, GunStandBack=0;
-    [Lamp] FrameLead=0; [Diag] FpsFrames=0, PausedFrames=0, BodyProbe=0, GunTrace=0, GunListen=0; the
-    MCM's "Weapons while riding" None or Any weapon (the old switch off or on). The one exception is the
-    cables, which are in the meshes (the 2026-11-10a package's four nifs copied back give the old ones).
-    2026-11-15a's switches back to 2026-11-14a: [Look] KitDefer=0 (save first: it may crash at the kit
-    again), MountQuick=0, KitTuneDistance=0, KitPreviewScene=0, and KitPreviewPos=0,0,0,
-    KitPreviewTurn=0,0.02,44.764, KitPreviewScale=0.3, KitPreviewZoom=-1,1; [View] EyeAt=0,1,128,
-    CameraWorld=0, LeadFrame=0, LookWait=0; [Steer] PullTime=0; [Diag] KeepLogs=1 (read at the game's
-    start). The earlier builds' switches are all still there.
-
-  KNOWN, LEFT FOR NOW:
-  - First person: that your game builds its camera the way the plugin turns it is checked once a
-    session (one log line); if not, the lean and the look key do nothing and backing uses third person.
-    In first person a slow mouse move neither keeps nor lets go of a running sidestep (it ends by
-    itself within 2 s). With a weapon drawn in third person, whether the bike turns on A and D or the
-    body snaps back to the camera is test 55's to say.
-  - Handguns: the shots and the muzzle flash leave from where the game's standing clip holds the gun
-    (up to about 20-30 units off the drawn pistol); first person keeps the game's own two-handed
-    pistol; reloading keeps the left hand on the bar; drawn at speed before a second or two of
-    holstered riding it shows the standing pose once; which pistols count is test 55's to say.
-  - Your body in first person: if the game hides it in a way the plugin can't undo, nothing new shows
-    and the log says so; it needs a moment of third-person riding once a game session; the collar may
-    look cut near the camera ([View] Near=5 is an A/B); no MCM switch ([View] Body=0).
-  - The wide sidestep's numbers are a first, reasoned set; parked cars that are part of the scenery's
-    combined meshes are still only braked for.
-  - The cables: at full lock the cut opens 2-3 units behind the headlamp (not seen from your eye).
-  - From 2026-11-15a: with IAF / Chem Reanimations, an item used at speed is used at once, but the start
-    of that mod's decoration clip still shows for a moment; the kit's plate colours show on the parked
-    bike when the menu closes, not while it is open; the preview's 400 is worked out from test 54's
-    numbers (the bike may look small); that the camera's place is a world place is inferred (one log
-    line a session settles it); the slower pull leaves little margin to the engine's own climb late in
-    3rd, and a lower MCM speed makes it slower too.
-  - From 2026-11-14a: an option you didn't choose keeps the last colour written into it until you
-    choose it again (only the armour menu's preview shows that); the first getting on after a real
-    change of parts (not just a colour) is about 1.2 s slower.
-  - From 2026-11-10a: Caution 50 is only a new save's default; with [Lamp] Ahead set under about 10 and
-    MCM "Headlamp casts shadows" on, the front end can shadow its own beam (the default 28 keeps it
-    clear); when getting on, a follower is stowed and the headlamp lit up to about a second after the
-    screen is back.
-  - From 2026-11-09a: a bike kept hidden by the guard when you go through a door or fast travel stays
-    hidden where it waits until you call it; the parked bike blinks once when its look is put on outside a
-    ride; the riding armours kept between rides stay in your inventory, hidden: before uninstalling, get
-    off and run cqf CMB_ControllerQuest EmergencyReset, which takes them out too.
-  - From 2026-11-08a: after you take a new plate design at the kit the preview shows the old design's
-    own text until you leave the kit; the rim styles you didn't fit are still drawn, invisible, on the
-    parked bike; a rim style changed in the MCM while riding (or a load mid-ride with "Customise at the
-    bike" off, on a rim style) puts the ridden bike on again within about a second; without F4SE the
-    parked and first-person bikes stay stock and the ridden bike's colours stay their defaults.
 
 BORROWED BY PATH (the game's own files, resolved in its archives; none is in this package; nothing new)
   the field kit's toolbox     SetDressing\Toolbox\Toolbox_Large.nif
@@ -330,25 +317,22 @@ BORROWED BY PATH (the game's own files, resolved in its archives; none is in thi
 
 INSTALL / UPDATE (Mod Organizer 2)
   1. Get off the bike, save, quit. If you edited CMB_Slope.ini, keep a copy of it.
-  2. Install this zip's Data under the old mod's name and choose Replace (not Merge), or remove the old
-     mod in MO2 and install this one fresh (over 2026-11-15b, or over 2026-11-14a: this package holds
-     2026-11-15a and 2026-11-15b too). By hand without MO2: copy Data over and let everything
-     overwrite. The separate "Commonwealth Motorbike - Rider Pose" mod from make_rider_pose.bat stays
-     as it is: no need to rerun it. (If you run make_rider_pose.bat from the repository at this
-     build's commit, it also writes CMB_RiderPose_report.txt next to CMB_RiderPose.esp: please send
-     it; the plugin it makes is the same.)
-  3. If you had edited CMB_Slope.ini: from 2026-11-15b nothing changed in it; from 2026-11-14a put your
-     values into the new one: [Tilt], [Steer], [Lamp], [Look], [View] and [Diag] have new keys, and
-     [View] EyeAt and the four KitPreview values new defaults (README.md's key tables list them).
-  4. Load your save. In the MCM's Look section check "Seat" after "Tyres". Coming from 2026-11-14a:
-     set "Eye forward on the bike" and "Eye height on the bike" back to 0 first, and check that
-     "Weapons while riding" says "Handguns only". Keep Global Stash by SKK installed. The plugin keeps
-     the logs of the three sessions before; say which session each step was in. Then WHAT TO TEST
-     below.
+  2. Install this zip's Data under the old mod's name and choose Replace (not Merge), or remove the
+     old mod in MO2 and install this one fresh (over 2026-11-15b: this package holds 2026-11-16a too).
+     By hand without MO2: copy Data over and let everything overwrite. The separate "Commonwealth
+     Motorbike - Rider Pose" mod from make_rider_pose.bat stays as it is: no need to rerun it.
+  3. If you had edited CMB_Slope.ini: put your values into the new one: [Tilt], [Steer], [Look],
+     [View], [Sound] and [Diag] have new keys, and [Steer] FirstKeys, PullTime, PullFrom, LaunchFrom,
+     [View] BodyEye and the two commented KitPreview values new defaults (README.md's key tables list
+     them).
+  4. Load your save. In the MCM's Look section check "Seat" after "Tyres", and that Riding's "Weapons
+     while riding" says "Handguns only". If you use the field kit preview's Tune, set its sliders to
+     1050, -2 and -45 first. The plugin keeps the logs of the three sessions before; say which session
+     each step was in. Then WHAT TO TEST below.
   Updating mid-ride: get off first, save, then update.
 
-WHAT TO TEST, TEST 56 (docs\TESTING.md, "The 2026-11-16a build", has the details and the log lines;
-the numbers are its steps)
+WHAT TO TEST, TEST 56 (docs\TESTING.md, "Test 56", has the details and the log lines; the numbers
+are its steps: 1-14 2026-11-16a's art, 15-37 this build's fixes)
   56-1. The field kit's "Tank L", "Seat" and "Paint" lists: alphabetical from the top, from the
         bottom, or the old order? Screenshots.
   56-2. The MCM's Look dropdowns alphabetical, each showing your choice from before? Papyrus.0.log:
@@ -378,86 +362,66 @@ the numbers are its steps)
          the MCM with Apply while riding: the first-person bike at once, the ridden one at the next
          getting on? A save from before the update: the seat as it came? Back to Dark brown: as before?
   56-14. Your frame rate 3-4 m from the parked bike at a fixed spot, still for 20 s: on 2026-11-15b
-         (if you run test 55 first) and on this build, stock and with both helmets on.
-  Send Papyrus.0.log and CMB_Slope.log of each session and the screenshots of 56-1 and 56-3.
-
-WHAT TO TEST, TEST 55 (if you haven't run it yet; docs\TESTING.md, "The 2026-11-15a build" for steps
-1-10 and "The 2026-11-15b build" for steps 11-24, has the details and the log lines)
-  1. Field kit in Sanctuary (save first): in one visit take a new plate design, then "Plate background:
-     The plate's own", then a "Plate letters" colour and two or three more plate colours. No crash? Leave
-     the menu: your plate colours on the parked bike now? Two or three times.
-  2. The preview: a screenshot as the menu opens. The whole bike, turned three-quarters? Zoom all the
-     way out and all the way in (a second at each end, screenshots). Only if it is too near or too far:
-     "Field kit preview" Tune, "Preview distance" (less = bigger); which value looked right?
-  3. First person, with the eye sliders at 0: a flat road at full speed, rough ground, turns, standing
-     still. Still shaking? Your eye in the right place, standing and at speed (if you move the sliders,
-     to what)? A/B one ride each: [View] CameraWorld=0, LeadFrame=0. Send the "camera:" and "view:
-     lock:" lines.
-  4. Get on and switch to first person straight away, several times: no bike for about a second, then
-     your colours, never the red one? Ride on past a few cell changes: no red flicker? A/B: [View]
-     LookWait=0.
-  5. Get on and off five times with the look unchanged: about 2.5 s to the screen back? Free colour
-     right from the first moment? Then a hue change in the MCM, and once after a restart and a load.
-     A/B: [Look] MountQuick=0.
-  6. From a stop, forward held to the top speed on a long flat road: the take-off as before, then the
-     speed climbing through 2nd and 3rd, the top about when 3rd ends (about 6 s)? The gears sounding as
-     in test 54? Too slow or too quick?
-  7. At speed let go for half a second and press again; pull away again from half speed after a turn;
-     a hit or a kerb at speed: sluggish? The note while it gains? A/Bs in [Steer], one or two rides
-     each: PullFrom=0.8, PullTime=6, PullTime=7 (and PullTime=4.5 if 5.5 feels too slow); PullTime=0
-     is the old pull.
-  8. After three starts: CMB_Slope_prev.log, CMB_Slope_prev2.log and CMB_Slope_prev3.log beside
-     CMB_Slope.log, and its first line saying so?
-  9. Customise on a road outside a settlement: refused with a message, nothing out of the side bag?
-     With "Field kit only in your settlements" off, the same spot: the kit opens?
-  10. Any of 2026-11-15a's A/Bs you haven't tried yet, one at a time (KitDefer=0 only on a save you can
-      lose). Anything better or worse?
-  11. First person, W held, steer with A and D only: the bike turns as with the mouse, no sliding
-      sideways? The mouse as before? A/B: [Steer] FirstKeys=0.
-  12. In those turns the view leans a little: try "View leans in turns (first person, deg)" from 0 to
-      10. The log's "camera: GetRotation's answer ..." and "camera: the turn followed ..." lines (or a
-      "camera: ... off this session" line): send them. A/B: [View] Roll=0.
-  13. First person, from a stop hold S a moment: the view over your right shoulder (A: the left one),
-      the mouse turning only your head, the other side key swinging the view round the back, W back to
-      the front; with something right behind you too; the Pip-Boy while looking back. Then "Looking
-      back while reversing" on "Third person": third person while you back? Which do you prefer?
-  14. Hold Z in first person and move the mouse: only your head turns, the bike keeps its line? Does Z
-      clash with one of your keys ("Look key (scan code)" takes another)?
-  15. Ride a few seconds in third person, straight, then first person: your arms with the hands on the
-      grips (following the bars), chest and legs in your outfit? No head or hair in view, no second
-      bike, no flicker? The Pip-Boy, a drawn pistol, looking back: the body goes and comes back?
-      Screenshots. Send the "body:" lines. If it looks wrong: [View] Body=0; the collar cut: [View]
-      Near=5.
-  16. A 10mm pistol: ride two or three seconds holstered, then draw it in third person: seated, the left
-      hand on the bar, the bike under you? Aim, fire, reload, put it away; steer both ways; stop and
-      ride off with it out; one draw straight after getting on (the old standing pose, once). A/Bs: [Tilt]
-      GunPose=0, GunPredict=0.
-  17. A weapon drawn: reverse in first person: the view stays ahead (the lean stays)? Put it away:
-      over the shoulder again? With "Third person" in the MCM: stays in first person, no flicker or swap;
-      drawn while backing in third person: back to first person at once? Z with it drawn: about 60
-      degrees at most? Third person with it drawn, A and D: no sliding; does the bike turn, or the body
-      snap back to the camera? A/B: [Steer] FirstKeysArmed=0.
-  18. With the pistol out, a rifle's favourites key: "Only a handgun can be used on the motorbike.", the
-      rifle put away within a second, you stay on? A/B: [Tilt] PutAway=0.
-  19. Get on with a rifle out, then with the pistol out: both put away and you get on?
-  20. A pipe pistol, a .44 revolver, a laser pistol, a plasma pistol, a flare gun: which can you draw?
-      First person with the pistol out (the game's own arms, not changed yet). The MCM's "None" and "Any
-      weapon (standing poses)" once each, then back to "Handguns only". A save made with the pistol out
-      on the bike, loaded: the pistol still out, not put away by itself? A rifle switched to by its
-      favourites key (being put away), saved at once and loaded: still put away, or the ride ended?
-  21. Ride straight at parked cars, barrels, a short fence piece or debris with one side open (5-10 of
-      them): a swerve round on the open side? Too sharp, too late, too close? A car right across the
-      road, a wall, a cliff, a building's corner: only braking, as before? The mouse moved a little or a
-      lot the way a sidestep goes, and the other way. A few sidesteps in first person with the mouse
-      still: they run to the end? A/Bs: [Steer] SidestepWide=0, SidestepSteady=0, SidestepMouseSide=0.
-  22. First person, slow or stopped, swing the bars: the cables under the right switch block and the
-      wire from the right of the bar stay attached? The same in third person from the right. Anything
-      broken behind the headlamp at full lock?
-  23. Just look: the "time: the last 10 s" line about your real frame rate, ending "the plugin's task
-      2.0 times a frame"? A/B: [Lamp] FrameLead=0.
-  24. Any of 2026-11-15b's A/Bs you haven't tried yet, one at a time. Anything better or worse?
-  Send CMB_Slope.log and its three _prev logs, Papyrus.0.log, any crash log, CMB_RiderPose_report.txt
-  if you made it, the screenshots of steps 2 and 15, and a video of steps 16 and 18 if you can.
+         (before you install this package) and on this build, stock and with both helmets on.
+  56-15. First person, two or three minutes: full speed, rough ground, turns, standing still. Still
+         shaking? Send the "camera: the camera root at ..." line; no "EyeAtCamera off" line? A/B:
+         [View] CameraPlace=0.
+  56-16. In third person zoom into first person with the mouse wheel, slowly, a few times, and back
+         out: one bike all the way, never none, never two? A/B: [View] NearThird=0.
+  56-17. A long straight run across a few cells in first person: any stutter? The same run with [View]
+         ParentKeep=0: which stutters more? Send the "view: Parent: this ride ..." lines of both.
+  56-18. "View leans in turns (first person, deg)" at 2, 5 and 10 in ordinary turns at speed: a clear
+         difference now? Which do you like? A/B: [View] RollTurn=0.
+  56-19. Back up in first person until the view is over your shoulder, move the mouse up and down: the
+         view tilts (45 degrees at most) and comes back level when you ride on? The first-person arms
+         gone while you look back (and with Z, looking far round)? Still looking back, open VATS, and
+         another time get off: afterwards, in first person, your first-person arms and weapon there?
+         A/Bs: [View] LookPitch=0, BodyArmsBack=0.
+  56-20. A and D in first person at 0.45: right, too much, too little? A/B: [Steer] FirstKeys=1.
+  56-21. Ride a few seconds in third person, then first person at speed: one set of bars and one
+         speedometer? Stop and go again. Screenshots. A/B: [View] BodyWorn=0.
+  56-22. A weapon holstered (two or three from the quick menu): no gun on the right grip in first
+         person? A/B: [View] BodyWeapon=0.
+  56-23. Look down: hands, sleeves and Pip-Boy there, the rusty cage gone, nothing else of your outfit
+         in front of your eye? Anything gone that you want to see (a sleeveless top, a vest, a
+         backpack)? What do you wear? Screenshot. A/Bs: [View] BodyNear=10, BodyNear=0.
+  56-24. The body shown more often, in the first ride too? Sitting right, not sunk into the seat? Over
+         bumps and at a hitch the hands on the grips, not a frame ahead or behind? Send the lock
+         lines' "BodyFollowCamera: ..." part. A/Bs: [View] BodyEye=0,7,7, BodyFollowCamera=0.
+  56-25. Get on with a 10mm pistol and ride off; within two seconds draw it in third person: seated,
+         both hands on the bars, the pistol in your right hand, no bike swap? Ride, turn, stop, ride
+         on; fire a few shots: where do the shots and the muzzle flash come from? A short video.
+  56-26. Put it away and draw it again a few times, stopped and riding: a jerk (one frame is
+         expected), anything flying off? A/Bs: [Tilt] GunBothBars=0, GunCarry=0, GunRootFrame=0,
+         GunPredictMax=0, GunStillRide=0.
+  56-27. With the pistol out, a rifle's favourites key: put away at once, no sheathe pause, you stay
+         on? A/B: [Tilt] PutAwayProbe=0.
+  56-28. The rifle key and a save at once: still on the bike after the save, the rifle away? A/B:
+         [Tilt] PutAwayUnpaused=0.
+  56-29. Get on with a rifle out: put away first, quickly? Riding, a rifle by its key, then the pistol
+         within a few seconds: seated at once? A hitch in first person with the rifle's swap? First
+         person with the pistol out: as before?
+  56-30. Customise, the Motorbike: the whole bike in the upper half, three-quarters, a little from
+         above? Screenshots at once and while browsing mods.
+  56-31. Zoom with the wheel and turn it with the mouse: as before? A plate colour, then leave: on the
+         parked bike at the close?
+  56-32. Only if the bike is still cut or badly placed: the same as test 55, or another fault? [Look]
+         KitFitBox (0.12,0.45 is smaller), or Tune from 1050, -2, -45: which values looked right?
+         A/Bs: [Look] KitFit=0; "As before" and back to New.
+  56-33. From a stop hold forward to the top on a flat road, watching the needle and listening: 1st to
+         about 10-12, 2nd to 24, 3rd to 42, 4th to 50, the top as 5th comes in (about 8 s)? The sound
+         as in test 55? The take-off too slow?
+  56-34. Steady at about 10, 20, 30, 40 and 50 on the dial: the right gear, no hopping? From about 38
+         up the engine sounds about the same: does that bother you?
+  56-35. Pull away from half speed after a turn; tap off the throttle at speed: sluggish? The note
+         steady?
+  56-36. Ride slowly into a log or a kerb, forward held: climbed as before? A/Bs, a ride each: [Steer]
+         PullTime=7, PullTime=9, [Sound] SpeedMap= (empty), 2026-11-16a's PullTime=5.5 PullFrom=0.6
+         LaunchFrom=0.25 with SpeedMap=, [Steer] PullClimb=0 at a log.
+  56-37. Any of this build's A/Bs you haven't tried yet, one at a time (CMB_SLOPE.INI's switches
+         above). Anything better or worse?
+  Send CMB_Slope.log and its _prev logs and Papyrus.0.log of each session, any crash log, the
+  screenshots of 56-1, 56-3, 56-21, 56-23 and 56-30, and a short video of 56-25 to 56-28 if you can.
 
 QUESTIONS FOR YOU (docs\TESTING.md has them in full)
   T56-1. The kit's lists: alphabetical from the top, from the bottom, or the old order?
@@ -475,38 +439,34 @@ QUESTIONS FOR YOU (docs\TESTING.md has them in full)
   T56-12. The piped seats' welts clear close up?
   T56-13. The seat apart from Free colour? The MCM's Apply mid-ride? An old save's seat?
   T56-14. The frame rate beside the parked bike, before and after, stock and with the helmets?
-  (test 55)
-  T55-1. Plate colours at the field kit, "The plate's own" after a new design among them: no crash? The
-         colours on the parked bike once you left the menu?
-  T55-2. The preview: the whole bike? Zoomed fully out and in? If you moved "Preview distance", to what?
-  T55-3. First person with the eye sliders at 0: steady on rough ground? Your eye's place right,
-         standing and at speed?
-  T55-4. First person right after getting on: no red tank? Any red flicker at a hand-over?
-  T55-5. Getting on as quick as in test 53 (about 2.5 s to the screen back)? Free colour still right?
-  T55-6. From a stop: does the speed climb with the gears now, the top as 3rd ends? Too slow or too
-         quick? The gears' sound as good as in test 54?
-  T55-7. Speeding up again after a lift, a turn or a hit: sluggish? Which A/B felt best?
-  T55-8. Three earlier logs there after three starts?
-  T55-9. Refused on the road, allowed anywhere with the switch off?
-  T55-10. Anything a 2026-11-15a A/B made better or worse?
-  T55-11. A and D in first person: the bike turns as with the mouse?
-  T55-12. The view's lean: how much do you like? "Answer's matrix" or "transpose", and "the turn
-          followed"?
-  T55-13. Looking back while reversing: over the shoulder or third person, which do you prefer?
-  T55-14. The look key: works? Z free in your bindings, or which key did you take?
-  T55-15. Your body in first person: seen at all? Hands on the grips? What did "body: drawn?" say?
-  T55-16. A handgun drawn while riding: seated, left hand on the bar, the bike under you? GunPredict=0?
-  T55-17. A weapon drawn: the view ahead while reversing, first person kept, Z at about 60 degrees?
-          A and D in third person: the bike turning, or the body snapping back?
-  T55-18. A rifle by its favourites key: put away within a second, and you stayed on?
-  T55-19. Getting on with a weapon out: put away and on?
-  T55-20. Which pistols could you draw? "None" and "Any weapon" as the old switch? The saves loaded
-          with a weapon out: the pistol still out, the rifle still put away?
-  T55-21. Wide things stepped round: how did the swerve feel? Walls only braked for? First-person
-          sidesteps running to the end?
-  T55-22. The right-hand cables attached when the bars turn?
-  T55-23. The frame-rate line about your real frame rate?
-  T55-24. Anything a 2026-11-15b A/B made better or worse?
+  T56-15. First person still shaking? The "camera: the camera root at ..." line, and no "EyeAtCamera
+          off"?
+  T56-16. Zooming in with the wheel: one bike all the way?
+  T56-17. The stutter across cells, with ParentKeep 1 and 0? The ParentTime lines?
+  T56-18. The view's lean visible now? Which value?
+  T56-19. The mouse tilting the look back, level again on riding on? The arms gone looking back, and
+          back after VATS or getting off?
+  T56-20. A and D at 0.45: right?
+  T56-21. One set of bars and one speedometer with your body shown?
+  T56-22. No gun on the right grip?
+  T56-23. Nothing in front of your eye? Anything gone that you want to see? What do you wear?
+  T56-24. The body more often, sitting right? The hands on the grips at a hitch? BodyFollowCamera=0
+          better or worse?
+  T56-25. A pistol drawn right after getting on: seated, both hands on the bars, the gun in hand, no
+          swap? Where did the shots and the flash come from?
+  T56-26. A jerk at a draw or a put-away? Any gun A/B better?
+  T56-27. A rifle by its key put away at once, and you stayed on?
+  T56-28. A save right after the rifle key: still on the bike?
+  T56-29. Getting on with a rifle out? A pistol soon after a rifle: seated at once? A hitch with the
+          swap?
+  T56-30. The kit's preview: the whole bike, in the upper half, three-quarters?
+  T56-31. Zoom and turn as before? The plate colours at the close?
+  T56-32. If still off: what, and which values looked right?
+  T56-33. A full pull: the speed matching the gears? The take-off too slow? The sound as in test 55?
+  T56-34. Steady speeds: the right gear, no hopping? The squeezed top: a bother?
+  T56-35. Picking up again: sluggish? The note steady?
+  T56-36. A log or a kerb as before? Which pull A/B felt best?
+  T56-37. Anything a 2026-11-16b A/B made better or worse?
 
 TIMING STAND-INS (optional, as before)
   38 clips use a stand-in vanilla clip for their timing because these weren't extracted:

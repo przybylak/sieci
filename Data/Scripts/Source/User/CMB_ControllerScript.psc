@@ -8500,6 +8500,8 @@ int weaponsModeSeen = -1     ; ApplyControls' mode (WeaponsTick sets the control
 bool fightOn = false         ; fighting enabled on the ride's layer (Handguns only switches it)
 int awayStep = 0             ; a put-away on the bike: 0 none, 1 asked (the plugin's call), 2 the sheathe action played
 float awayAt = 0.0           ; its start (real time)
+float awayRun = 0.0          ; 2026-11-16b: its seconds while the game ran (the plugin's PutAwayUnpaused, CMB_RoomOptions bit 1024)
+float awayTick = 0.0         ; ... and the last tick's real time
 Form handgunLoggedGun        ; the last gun HandgunEquipped logged
 
 ; 0 None, 1 Handguns only, 2 Any weapon: CMB_RideWeapons clamped; without it (an older ESP) CMB_AllowCombat's 0 / 1 as None /
@@ -8662,6 +8664,8 @@ EndFunction
 Function PutAwayStart(string asWhy)
 	awayStep = 1
 	awayAt = Utility.GetCurrentRealTime()
+	awayRun = 0.0
+	awayTick = awayAt
 	int count = AskWeaponAway()
 	Debug.Notification("Only a handgun can be used on the motorbike.")
 	Log("Weapons: " + PlayerRef.GetEquippedWeapon() + " out, not a handgun (" + asWhy + "): put away asked (CMB_WeaponAway " + count + ").")
@@ -8670,14 +8674,38 @@ EndFunction
 
 ; Away: the rule again (fighting off for a non-handgun). Still out after 1 s: the sheathe action; after 3 s: 2026-11-15a's
 ; rule, the ride ended ("You can't ride with your weapon out.").
+; 2026-11-16b (the plugin's [Tilt] PutAwayUnpaused, CMB_RoomOptions bit 1024; test 55's E2: the rifle drawn and the put-away
+; asked at 16:26:46.9, the tester saved at once, the world paused 16:26:47.5-52.3, and the first tick after it read "still
+; out 5.2 s": the sheathe action, then 0.25 s later "5.5 s: the ride ended"): the 1 s and the 3 s count only the time the game
+; ran: a tick in menu mode adds nothing, any other its real time since the last tick, 0.5 s at most (the timer's quarter
+; second; anything longer was a pause the VM sat out, a save's, or a hitch). Without the bit (the key 0, no plugin): real time,
+; as 2026-11-16a.
 Function PutAwayTimer()
 	if !riding || awayStep == 0
 		awayStep = 0
 		return
 	endif
-	float since = Utility.GetCurrentRealTime() - awayAt
+	float now = Utility.GetCurrentRealTime()
+	float since = now - awayAt
+	string paused = ""
+	if RoomOption(1024)
+		float stepT = now - awayTick
+		if stepT > 0.5
+			stepT = 0.5
+		elseif stepT < 0.0
+			stepT = 0.0
+		endif
+		if !Utility.IsInMenuMode()
+			awayRun += stepT
+		endif
+		awayTick = now
+		if since - awayRun >= 0.1
+			paused = "; " + Tenths(since - awayRun) + " s more with the game paused, not counted"
+		endif
+		since = awayRun
+	endif
 	if !PlayerRef.IsWeaponDrawn()
-		Log("Weapons: put away after " + Tenths(since) + " s (" + Ternary(awayStep == 1, "the plugin's put-away, or the game's own", "after the sheathe action") + ").")
+		Log("Weapons: put away after " + Tenths(since) + " s (" + Ternary(awayStep == 1, "the plugin's put-away, or the game's own", "after the sheathe action") + paused + ").")
 		awayStep = 0
 		WeaponsRefresh("the weapon put away")
 		return
@@ -8688,10 +8716,10 @@ Function PutAwayTimer()
 		if ActionSheath
 			played = PlayerRef.PlayIdleAction(ActionSheath)
 		endif
-		Log("Weapons: still out " + Tenths(since) + " s after the ask: the sheathe action played (" + played + ").")
+		Log("Weapons: still out " + Tenths(since) + " s after the ask" + paused + ": the sheathe action played (" + played + ").")
 	elseif since >= 3.0
 		awayStep = 0
-		Log("Weapons: still out " + Tenths(since) + " s after the ask: the ride ended (2026-11-15a's rule).")
+		Log("Weapons: still out " + Tenths(since) + " s after the ask" + paused + ": the ride ended (2026-11-15a's rule).")
 		AutoDismount("You can't ride with your weapon out.", true)
 		return
 	endif

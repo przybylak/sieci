@@ -94,7 +94,39 @@
 # person, 0 the strafe (view + 5); a save loaded with a lower CMB_WeaponAway and a weapon drawn: no put-away, the next ask called;
 # CMB_RiderGunPose written afresh over the save's (arms + 2); a sidestep in first person: SidestepMouseSide=1 over with no "kept",
 # 0 let go by its own turn as 2026-11-15a (wall + 2): expected wall 101, caution 25, sound 130, view 230, roomold 61, arms 89, the
-# rest as 2026-11-15a's: 1972 checks.
+# rest as 2026-11-15a's: 1972 checks. The 2026-11-16b build (test 55's fixes) adds, from the view unit: GetTranslation's answer read
+# as the camera root takes it (the player's place + it, as test 55's game gives it, one call a frame and three, the root from the
+# first or the last; the world answer settled at once), the view bike in the worn bike's place while the third-person camera is at
+# your eye or you are faded (and the end into first person, NearThird=0), the view's lean by the turning rate (and RollTurn=0), the
+# look back's own pitch (the game moving the player's pitch, the game holding it, the 45-deg limit, LookPitch=0), FirstKeys' default
+# 0.45 and the round's keys line, Parent left in its cell's box and moved straight from cell to cell with its ParentTime line (and
+# ParentKeep=0) (view, 230 + 19; ViewTests59's FirstKeys rides pinned at 1). DEF60 rides every older mode at the new keys' off
+# values: expected view 249 from this unit.
+# The kit unit adds: the field kit menu's bike
+# found by its 3D ([Look] KitFind), placed in the menu's view by the plugin ([Look] KitFit: the fit, the menu's own place put
+# back, its small moves kept, the summary, Tune and KitFit=0 untouched, a parent refused) and New's 16b defaults (custom,
+# 101 + 9).
+# The drive unit adds: the even climb from the
+# throttle's floor (the code's PullTime 8, PullFrom 0.1, LaunchFrom 0.1: Q0-Q3; LaunchTests58's P1-P3 now write 16a's PullTime 5.5)
+# (launch, 17 + 4); [Sound] SpeedMap with the even climb: the gear lines at 12/23/40/49 on the dial, the engine's gears as 16a's,
+# the lines' "(SpeedMap)", SpeedMap= flat, a steady 300 u/s in 3rd, a lift (M0-M6; SoundTests58's S5a-c write PullTime 5.5) (sound,
+# 130 + 7); PullClimb at a log held with the boost on (C1, C2) (climb, 125 + 2). DEF60 rides every older mode at the new keys' off
+# values: expected launch 21, sound 137, climb 127, the rest as 2026-11-15b's: 1985 checks with this unit alone.
+# The weapons unit adds: the put-away's probe
+# taking PlayerCharacter's own slot 0xC7 (its call to the getter, 0xC8 the stub; not another field's getter, not without the stub),
+# the put-away's seconds counted while the game runs (a menu 5 s after the ask, CMB_RoomOptions bit 1024), both hands on the bars
+# with a handgun out, the drawn weapon's 3D (off the 3D root) carried to the posed right hand and given back, a clips' jump not
+# extrapolated, the root a frame ahead of the bones (the game's order: the pose read at 300 u/s, drawn at 900) and its self-check
+# both ways, the still seat pose standing in at speed (arms, 89 + 11 = 100). DEF60 rides every older mode at the new keys' off
+# values: expected arms 100, the rest as 2026-11-16a's (1972 + 11 = 1983 with this unit alone).
+# The body unit adds: what comes with the
+# rider's body in first person (the worn bike specked and its nodes hidden, the weapon's 3D under WEAPON and in the gun slot
+# hidden, outfit pieces near the eye shrunk whole, the first-person 3D hidden looking back, BodyEye 0,2,-0.5, the lines without
+# a "drawn?" verdict; each key off as 2026-11-16a) (view, 230 + 14): view 244, 1986 checks with the rest as 2026-11-15b's.
+# The merged 2026-11-16b with its review's fixes (the first-person 3D given back after a camera neither first nor third person and
+# after getting off in one, NearThird's speck with BodyWorn, CameraPlace settled on a later call in frames with fewer calls: view
+# + 4; [View] BodyFollowCamera with CameraPlace in the fake's order and test 55's, KitFit past unreadable children and an unwritable
+# shape: custom + 4) expects view 267, arms 100, custom 114, launch 21, sound 137, climb 127, the rest as 5b04dbf's: 2046 checks.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 WORK="$(mktemp -d)"
@@ -155,6 +187,25 @@ DEF58='Look/KitDefer=0 Look/MountQuick=0 Look/KitPreviewPos=0,0,0 Look/KitPrevie
 # 2026-11-15b, the review's fixes: [Steer] FirstKeysArmed=0 (FirstKeys in first person only, as merged; the name clashes with no
 # key any mode's INI or DEF line names: the loop's "already named" test is section-blind).
 DEF59='Steer/SidestepWide=0 Steer/SidestepSteady=0 Steer/SidestepMouseSide=0 Lamp/FrameLead=0 Diag/FpsFrames=0 Diag/PausedFrames=0 View/CameraTurn=0 View/Roll=0 View/LookBack=0 View/LookKey=0 Steer/FirstKeys=0 Steer/FirstKeysArmed=0 Tilt/PutAway=0 Tilt/GunPose=0 Tilt/GunStandBack=0 Tilt/GunPredict=0 Diag/GunTrace=0 Diag/GunListen=0 View/Body=0 Diag/BodyProbe=0'
+# 2026-11-16b, test 55's first person (the view unit's): the round's new keys at their off values (2026-11-16a, 5b04dbf), the same
+# way (after DEF54's to DEF59's): CameraPlace, NearThird, ParentKeep, RollTurn, LookPitch, [Diag] ParentTime (not NearFade and
+# ParentMargin: they act only with NearThird or ParentKeep on). FirstKeys' new default (0.45) needs nothing: DEF59 pins it at 0.
+# 2026-11-16b, test 55's fixes: the round's new keys at their off values (2026-11-16a, 5b04dbf), the same way (after DEF54's
+# to DEF59's). The kit unit's: KitFind and KitFit (not KitFitView and KitFitBox: they act only with KitFit; New's changed
+# defaults need nothing: DEF58 already gives every mode 14a's four values).
+# 2026-11-16b, test 55's fixes, the drive unit's keys at their off values (2026-11-16a, 5b04dbf), the same way (after DEF54's to DEF59's): the
+# even climb's changed defaults PullFrom (0.1, 16a 0.6) and LaunchFrom (0.1, 16a 0.25; mode 23 names its own 0.25), PullClimb=0 and [Sound]
+# SpeedMap= (the bike's own speed into the engine). PullTime's 16a value (5.5; the code's 8 now) needs no entry: DEF58's PullTime=0 (14a's)
+# already rides every older mode, and the checks that want 16a's pull write PullTime=5.5 (LaunchTests58, SoundTests58, SoundTests60).
+# 2026-11-16b, test 55's fixes (the weapons unit's: points D, E and E2): PutAwayProbe, PutAwayUnpaused (also CMB_RoomOptions bit
+# 1024 for the controller), GunRootFrame, GunBothBars, GunCarry, GunStillRide and GunPredictMax at their off values (2026-11-16a,
+# 5b04dbf), the same way (after DEF54's to DEF59's). Mode 13's GunStill61 and GunTests61 rewrite each to its default.
+# 2026-11-16b, the body unit (test 55's point C): its keys at their off values (2026-11-16a, 5b04dbf), the same way (after DEF54's
+# to DEF59's): [View] BodyWorn, BodyWeapon, BodyNear, BodyArmsBack, [Diag] BodyDrawn, and BodyEye at 16a's 0,7,7 (its default is
+# 0,2,-0.5 now). Not BodyWeaponNodes: it acts only with BodyWeapon on.
+# 2026-11-16b, the review's fixes: [View] BodyFollowCamera=0 (the body by the task alone, 2026-11-16a; it acts only with CameraPlace and
+# Body on, both pinned off above for every older mode; the name clashes with no key any mode's INI or DEF line names).
+DEF60='View/CameraPlace=0 View/NearThird=0 View/ParentKeep=0 View/RollTurn=0 View/LookPitch=0 Diag/ParentTime=0 Look/KitFind=0 Look/KitFit=0 Steer/PullFrom=0.6 Steer/LaunchFrom=0.25 Steer/PullClimb=0 Sound/SpeedMap= Tilt/PutAwayProbe=0 Tilt/PutAwayUnpaused=0 Tilt/GunRootFrame=0 Tilt/GunBothBars=0 Tilt/GunCarry=0 Tilt/GunStillRide=0 Tilt/GunPredictMax=0 View/BodyWorn=0 View/BodyWeapon=0 View/BodyNear=0 View/BodyArmsBack=0 View/BodyEye=0,7,7 Diag/BodyDrawn=0 View/BodyFollowCamera=0'
 run() { # <name> <mode> <ini body>
   if [ -n "$ONLY" ] && [ "$ONLY" != "$1" ]; then return; fi
   mkdir -p "$WORK/$1"
@@ -169,7 +220,7 @@ run() { # <name> <mode> <ini body>
     esac
   done
   local sec key pre rest
-  for kv in $DEF54 $DEF55 $DEF56 $DEF57 $DEF58 $DEF59; do
+  for kv in $DEF54 $DEF55 $DEF56 $DEF57 $DEF58 $DEF59 $DEF60; do
     sec="[${kv%%/*}]\n" kv="${kv#*/}" key="${kv%%=*}"
     case "$ini" in "$key="*|*"\n$key="*) continue;; esac
     case "$ini" in *'\n') ;; *) ini="$ini\n";; esac

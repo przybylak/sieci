@@ -538,20 +538,27 @@ public static class Program
         // ESP's values are New's). Only with C2's block (`--look-build 2026-11-07a`: none). 2026-11-15a (test 54: the menu's
         // camera inside the bike; the menu doesn't use the scale): the first slider is the distance (CMB_KitPrevSize as the
         // record's pos y, 100-2000, New 400; [Look] KitTuneDistance), the zoom in's New 3, the stepper's help New's.
+        // 2026-11-16b (test 55: half the bike in view, too high and too close; the kit unit): New is placed in the menu's view by the
+        // plugin ([Look] KitFit) and its record is 0,1050,-45 with the bike's top tipped 2 steps towards the camera; the helps say
+        // so and Tune's New values (`--look-build 2026-11-08a`: 2026-11-15b's texts).
         var previewSection = new List<object>();
         if (c2)
             previewSection.AddRange(new[]
             {
                 Section("Field kit preview"),
-                Look("stepper", "Field kit preview", "How the field kit's armour menu shows the bike (needs F4SE and CMB_Slope.dll). New: the whole bike, turned three-quarters, 400 ahead of the menu's camera (zoom in with the mouse wheel). As before: the 2026-11-10a build's view (a tyre filled the screen). Tune: the sliders below set it. Takes effect at the next Customise.",
+                Look("stepper", "Field kit preview", c3 ? "How the field kit's armour menu shows the bike (needs F4SE and CMB_Slope.dll). New: the whole bike in the upper half of the screen, turned three-quarters and seen a little from above; the plugin places it in the menu's view (zoom and turn it with the mouse). As before: the 2026-11-10a build's view (a tyre filled the screen). Tune: the sliders below set it. Takes effect at the next Customise."
+                                                           : "How the field kit's armour menu shows the bike (needs F4SE and CMB_Slope.dll). New: the whole bike, turned three-quarters, 400 ahead of the menu's camera (zoom in with the mouse wheel). As before: the 2026-11-10a build's view (a tyre filled the screen). Tune: the sliders below set it. Takes effect at the next Customise.",
                     "CMB_KitPreview", new[] { "As before", "New", "Tune (the sliders below)" }),
-                Slider("Preview distance", "Tune only: how far ahead of the menu's camera the bike sits in the field kit's preview, in game units (New: 400; more: smaller, less: bigger). Change it, leave the menu and press Customise again.",
+                Slider("Preview distance", c3 ? "Tune only: how far ahead of the menu's camera the bike sits in the field kit's preview, in game units (New: 1050; more: smaller, less: bigger). Change it, leave the menu and press Customise again."
+                                              : "Tune only: how far ahead of the menu's camera the bike sits in the field kit's preview, in game units (New: 400; more: smaller, less: bigger). Change it, leave the menu and press Customise again.",
                     "CMB_KitPrevSize", 100, 2000, 25),
                 Slider("Preview turn", "Tune only: turns the bike round in the preview, in steps of 6.4 degrees (New: 7, about 45 degrees).",
                     "CMB_KitPrevTurn", -28, 28, 1),
-                Slider("Preview tilt", "Tune only: tips the bike in the preview, in steps of 6.4 degrees (New: 0).",
+                Slider("Preview tilt", c3 ? "Tune only: tips the bike in the preview, in steps of 6.4 degrees (New: -2, its top towards you)."
+                                          : "Tune only: tips the bike in the preview, in steps of 6.4 degrees (New: 0).",
                     "CMB_KitPrevTilt", -14, 14, 1),
-                Slider("Preview up / down", "Tune only: moves the bike up (+) or down (-) in the preview, in game units (New: 0).",
+                Slider("Preview up / down", c3 ? "Tune only: moves the bike up (+) or down (-) in the preview, in game units (New: -45)."
+                                               : "Tune only: moves the bike up (+) or down (-) in the preview, in game units (New: 0).",
                     "CMB_KitPrevUp", -150, 150, 5),
                 Slider("Preview zoom out", "Tune only: the preview's zoom limit outwards (New: -1).",
                     "CMB_KitPrevZoomOut", -3, 1, 0.25f),
@@ -1447,10 +1454,10 @@ public static class Program
             {
                 gKitWhere,
                 Global(mod, "CMB_KitPreview", 1),
-                Global(mod, "CMB_KitPrevSize", 400),
+                Global(mod, "CMB_KitPrevSize", look.HasC3 ? 1050 : 400),   // 2026-11-16b: Tune starts at New's 1050, -2, -45 (15b: 400, 0, 0)
                 Global(mod, "CMB_KitPrevTurn", 7),
-                Global(mod, "CMB_KitPrevTilt", 0),
-                Global(mod, "CMB_KitPrevUp", 0),
+                Global(mod, "CMB_KitPrevTilt", look.HasC3 ? -2 : 0),
+                Global(mod, "CMB_KitPrevUp", look.HasC3 ? -45 : 0),
                 Global(mod, "CMB_KitPrevZoomOut", -1),
                 Global(mod, "CMB_KitPrevZoomIn", 3),
             };

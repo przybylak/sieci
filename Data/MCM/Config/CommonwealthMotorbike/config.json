@@ -1148,7 +1148,7 @@
     {
       "type": "stepper",
       "text": "Field kit preview",
-      "help": "How the field kit\u0027s armour menu shows the bike (needs F4SE and CMB_Slope.dll). New: the whole bike, turned three-quarters, 400 ahead of the menu\u0027s camera (zoom in with the mouse wheel). As before: the 2026-11-10a build\u0027s view (a tyre filled the screen). Tune: the sliders below set it. Takes effect at the next Customise.",
+      "help": "How the field kit\u0027s armour menu shows the bike (needs F4SE and CMB_Slope.dll). New: the whole bike in the upper half of the screen, turned three-quarters and seen a little from above; the plugin places it in the menu\u0027s view (zoom and turn it with the mouse). As before: the 2026-11-10a build\u0027s view (a tyre filled the screen). Tune: the sliders below set it. Takes effect at the next Customise.",
       "valueOptions": {
         "options": [
           "As before",
@@ -1162,7 +1162,7 @@
     {
       "type": "slider",
       "text": "Preview distance",
-      "help": "Tune only: how far ahead of the menu\u0027s camera the bike sits in the field kit\u0027s preview, in game units (New: 400; more: smaller, less: bigger). Change it, leave the menu and press Customise again.",
+      "help": "Tune only: how far ahead of the menu\u0027s camera the bike sits in the field kit\u0027s preview, in game units (New: 1050; more: smaller, less: bigger). Change it, leave the menu and press Customise again.",
       "valueOptions": {
         "min": 100,
         "max": 2000,
@@ -1186,7 +1186,7 @@
     {
       "type": "slider",
       "text": "Preview tilt",
-      "help": "Tune only: tips the bike in the preview, in steps of 6.4 degrees (New: 0).",
+      "help": "Tune only: tips the bike in the preview, in steps of 6.4 degrees (New: -2, its top towards you).",
       "valueOptions": {
         "min": -14,
         "max": 14,
@@ -1198,7 +1198,7 @@
     {
       "type": "slider",
       "text": "Preview up / down",
-      "help": "Tune only: moves the bike up (\u002B) or down (-) in the preview, in game units (New: 0).",
+      "help": "Tune only: moves the bike up (\u002B) or down (-) in the preview, in game units (New: -45).",
       "valueOptions": {
         "min": -150,
         "max": 150,

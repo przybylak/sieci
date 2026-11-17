@@ -17,24 +17,60 @@ The log goes to `Documents\My Games\Fallout4\Logs\Script\Papyrus.0.log`. Every m
 
 Without F4SE you'll see one or two harmless errors about the `F4SE` / `CMB_HotkeyF4SE` scripts not being found. That's the mod checking whether they're there. When something breaks, send the log, plus a screenshot or a short clip if it's visual.
 
-## The 2026-11-16a build: the 3D helmets, the Gunners skull, the plates, the seat's colour, the lists (test 56)
+## Test 56: the 2026-11-16b build (test 55's fixes) and the 2026-11-16a build's art
 
-This is the third customisation build, the first of two art builds: two 3D helmet badges (an Enclave and a Brotherhood
-helmet, each a cast emblem standing on an enamel plate on the tank, centred on it and angled with it), the Gunners
-skull on the tank and the rear fender, every licence plate's emblem redrawn to read at riding distance with a new
-die-pressed plate font, the seat's colour (a twelfth slot), and the MCM's and the kit's lists in alphabetical order. The
-plugin and `CMB_Slope.ini` are 2026-11-15b's, byte for byte: nothing of riding changes. Test 56 can run before test 55
-(the two sections below), after it, or in the same round: the steps don't depend on each other. Do this section's steps
-in one game session if you can, and say which session each step was in.
+The 2026-11-16b build answers test 55 (run on 2026-11-15b) on top of the 2026-11-16a build, the art build, which you
+haven't tried yet: this package holds both, and test 56 covers both in this section: steps 1-14 the art (2026-11-16a's,
+as written for it), steps 15-37 the fixes, with the questions T56-1 to T56-37 at the end. What test 55 liked is as it
+was.
+
+- **The fixes (2026-11-16b):** the first-person shake (the camera's place now found the way your game makes it), the
+  half second with no bike when you zoom in with the wheel, the first-person bike's moves between cells (a candidate for
+  the stutter), the view's lean by how fast you turn, the mouse tilting the view while you look back, A and D at 0.45
+  (your pick); with your body in first person no second set of bars and speedometer, no gun on the right grip, no
+  outfit piece in front of your eye, no first-person arms hanging in view when looking back, and the body sitting where
+  the game's eye is; the game's own put-away called on you and a save right after it not counted; a handgun drawn seated
+  with both hands on the bars and the gun in your right hand, also right after getting on; the field kit's preview
+  placed by the plugin; a short 1st and an even climb, the engine's gears sounding as before at the speeds that match.
+- **The art (2026-11-16a):** two 3D helmet badges (an Enclave and a Brotherhood helmet, each a cast emblem standing on an
+  enamel plate on the tank, centred on it and angled with it), the Gunners skull on the tank and the rear fender, every
+  licence plate's emblem redrawn to read at riding distance with a new die-pressed plate font, the seat's colour (a
+  twelfth slot), and the MCM's and the kit's lists in alphabetical order.
+
+The two halves don't depend on each other: do them in any order, but do steps 15-16 (the camera) before your body's
+steps 21-24. Do this section's steps in one game session if you can, and say which session each step was in. Every new
+behaviour of 2026-11-16b has a key whose off value gives the 2026-11-16a build back (README's table of this build's
+keys), so each A/B is one key away; the art's A/Bs are files (step 9's), and every new look choice is opt-in. Things
+only the game can settle: which reading of the camera's place fits your game (step 15), whether a cell move costs a
+frame (step 17), whether your 3D is updated before the camera (step 24's lock-line part), where the game hangs a drawn pistol (step 25), how the armour menu maps the preview's record (step 30),
+the armour menu's order (step 1) and whether MCM reads the dropdowns through the controller's properties (step 2).
 
 Before you start:
-- install as a Replace over 2026-11-15b (or over 2026-11-14a: this package holds 2026-11-15a and 2026-11-15b too, so
-  test 55's steps work on it as well); no INI change is needed;
+- install as a Replace over 2026-11-15b (this package holds 2026-11-16a too). If you edited `CMB_Slope.ini`, put your
+  values into the new one: `[Tilt]`, `[Steer]`, `[Look]`, `[View]`, `[Sound]` and `[Diag]` have new keys, and `[Steer]
+  FirstKeys`, `PullTime`, `PullFrom`, `LaunchFrom`, `[View] BodyEye` and the commented `[Look] KitPreviewPos` and
+  `KitPreviewTurn` new defaults (README's table). Otherwise use the shipped file as it is;
 - load your usual save. The MCM's Look section should have 22 controls, with "Seat" after "Tyres". If it has 21 or no
-  "Seat", an older ESP or MCM folder is loaded: stop and say so;
+  "Seat", an older ESP or MCM folder is loaded: stop and say so. Riding's "Weapons while riding" on "Handguns only";
 - the first time you get on after the update the look's mods go on afresh once (the look's key has the seat now):
   `Papyrus.0.log` says so; a second getting on is as quick as before;
-- if you run test 55 in the same round, note your frame rate at a fixed spot first (step 14).
+- note your frame rate at a fixed spot on 2026-11-15b before you install, if you can (step 14);
+- each A/B below: change one key in `CMB_Slope.ini`, save the file, get off and on (no restart), and put it back after.
+
+The log's first lines: `CMB_Slope.log` has seven settings lines more: `  view (2026-11-16b, test 55): CameraPlace=1 (...)
+NearThird=60 NearFade=0.99 (...) ParentKeep=1 ParentMargin=256 (...) RollTurn=40 (...) LookPitch=45 (...); [Diag]
+ParentTime=1`, `  view (2026-11-16b, test 55): BodyWorn=1 (...) BodyWeapon=1 (...) BodyWeaponNodes=WEAPON BodyNear=20
+(...) BodyArmsBack=90 (...); [Diag] BodyDrawn=1`, `  view (2026-11-16b, the review): BodyFollowCamera=1 (...)`, `
+weapons (2026-11-16b, test 55): PutAwayProbe=1 PutAwayUnpaused=1
+GunRootFrame=1 GunBothBars=1 GunCarry=1 GunStillRide=1 GunPredictMax=15 (...)`, `  kit (2026-11-16b): [Look] KitFind=1
+(...) KitFit=1 (...) KitFitView=40 KitFitBox=0.07,0.5`, `  steer (2026-11-16b, test 55): from rest the throttle climbs
+evenly from its floor (0.1), 0.112 of the top a second, the top 8.0 s after the press (...); PullClimb=1: ...` and `
+sound (2026-11-16b, test 55): SpeedMap=225:480,430:700,680:910,935:935: the bike's speed goes into the engine through
+these points (...)`; the older lines now say `FirstKeys=0.45` and `BodyEye=(0, 2, -0.5)`. No 2026-11-16b lines, or
+`CameraPlace=0 (... as 2026-11-16a)` and `SpeedMap=: the engine hears the bike's own speed` with an INI you didn't
+change, mean an older `CMB_Slope.dll` or `CMB_Slope.ini` is loaded: stop and say so.
+
+### The art (2026-11-16a): steps 1-14
 
 **The lists** (steps 1-2; two probes: whether the armour menu orders a slot's choices by the recipes' priority, and
 whether MCM reads and sets a dropdown through the controller's properties)
@@ -119,15 +155,228 @@ whether MCM reads and sets a dropdown through the controller's properties)
 
 14. **Frame time beside the parked bike**: stand 3-4 m from the parked bike at a fixed spot you can find again (for
     example by the bike's side in Sanctuary, facing it), still for 20 s, and note your frame rate with your usual frame
-    counter: first on 2026-11-15b (test 55's install, if you test it first), then on this build at the same spot, with
-    the stock look and with both 3D helmets on. Any drop? If you only have this build, the stock look and both helmets at
-    the same spot.
+    counter: first on 2026-11-15b (test 55's install, before you install this package), then on this build at the same
+    spot, with the stock look and with both 3D helmets on. Any drop? If you only have this build, the stock look and both
+    helmets at the same spot.
 
-Nothing in this build has an INI switch: every new choice is opt-in (each slot starts as it came), and the old order
-of the lists and the old plates are A/B files, not keys (README's first table). Send `Papyrus.0.log` and `CMB_Slope.log`
-of each session, the screenshots of steps 1 and 3, and any of steps 5, 9 and 11 that show a problem.
+The art has no INI switch: every new choice is opt-in (each slot starts as it came), and the old order of the lists and
+the old plates are A/B files, not keys (README's table of the 2026-11-16a build's switches). Send the screenshots of
+steps 1 and 3, and any of steps 5, 9 and 11 that show a problem.
 
-### Questions for you (test 56, the 2026-11-16a build)
+### Test 55's fixes (2026-11-16b): steps 15-37
+
+**First person: the camera and the view** (steps 15-20; test 55: the shake back, its camera check off at the first
+frame; about half a second with no bike when zooming in; a stutter; "didn't see any difference" with the lean's slider;
+the mouse's vertical doing nothing while looking back; A and D)
+
+15. **The shake**: in first person ride two or three minutes: straight at full speed, over rough ground, through turns,
+    and standing still. Does the bike still shake against your view? (The plugin now finds the camera's place each
+    frame the way your game makes it: your own place plus the game's answer.)
+    - `CMB_Slope.log`, once, at the first riding frame in first person: `camera: the camera root at GetTranslation's
+      answer read as the player's place + the answer (call 1 of 3 since the task; 0.00 from it; the player's place + it
+      0.00, ...) ([View] CameraPlace): the view bike follows the camera's own place at that call` (another reading or
+      call is fine: send the line), then the first check's line ending `; [View] CameraPlace: the player's place + the
+      answer 0.00, ...`.
+    - Good: no `camera: EyeAtCamera off this session` line; the `view: lock:` lines say `EyeAtCamera` without "off",
+      `the camera root 0.00 at most from that place at the next task`, and end `; CameraPlace: the player's place + the
+      answer at call 1, 0 switch(es)` (a few switches are fine). Their "the Lead's guess off it by" figures stay: they are
+      the task's guess, which the plugin now corrects at the camera's own update.
+    - Bad: the off line (it now gives every reading's distance) or many switches: send the log.
+    - A/B: `[View] CameraPlace=0` (2026-11-16a's reading: the check turns itself off as in test 55).
+16. **Zooming in with the wheel**: on the bike in third person zoom into first person with the mouse wheel, slowly, a
+    few times, and back out, stopped and riding. One bike all the way in: no moment with no bike, and never two (two
+    sets of bars or two speedometers)?
+    - `view: third person with the camera 35 from your eye (the player's fade 0.40): the view bike ... shown at its own
+      place, the worn bike hidden ([View] NearThird 60, NearFade 0.99)`, then `view: the view bike near the camera in
+      third person over after 0.45 s (first person)`, and no `third person: the view bike hidden` line in between. On
+      getting off: `view: the view bike stood in for the worn bike near the camera in third person N time(s) this ride,
+      ... s in all`. While it stands in, the worn bike is shrunk away as it is with your body (`[View] BodyWorn`).
+    - A/B: `[View] NearThird=0` (2026-11-16a: no bike for about half a second).
+17. **Across cells**: ride in first person across a few cells (a long straight run of a minute or two) and note any
+    stutter or hitch, as in test 55. Then the same run with `[View] ParentKeep=0` (the old moves): which stutters more?
+    - Far fewer `view: Parent:` lines than test 55's 196: `view: Parent: the view bike left under its own cell while its
+      sphere is 9xx inside that cell's box (...)` once a ride, `view: Parent: the view bike's 3D moved straight from the
+      player's last cell ... to the player's cell ...`, and hardly any `put back under its own cell (the player's cell is
+      another now)`.
+    - On getting off: `view: Parent: this ride N move(s) (K straight from cell to cell), P put back, ...; the calls X us
+      (median) / Y (most); first person: H frame(s) over 25 ms within 0.6 s after a move or put-back (in T s), G
+      elsewhere (in U s) ([Diag] ParentTime; ...)`. Send it from both runs: H in T seconds against G in U says whether a
+      move costs a frame.
+18. **The view's lean**: try the MCM's Riding "View leans in turns (first person, deg)" at 2, 5 and 10 in ordinary turns
+    at speed. The number is now the lean in degrees in an ordinary turn at speed (40 degrees a second of turning), more
+    in a sharp one (up to one and a half times), less in a gentle one, none slow or backing: 10 should lean clearly more
+    than 2. Which do you like? The eye lines' `leaned N deg (the bike's lean M)` now vary with the turn. A/B: `[View]
+    RollTurn=0` (test 55's lean, by the bike's lean: 0 or the whole slider).
+19. **Looking back**: back up in first person until the view turns over your shoulder, then move the mouse up and down:
+    the view tilts up and down (45 degrees at most) and comes back level with the front when you ride forward again.
+    While you look back (and holding Z, looking far round) the game's first-person arms that hung in view in test 55
+    should be gone, back when you look ahead. Then, still looking back, open VATS, and another time get off: afterwards,
+    in first person on the bike or on foot, your first-person arms and weapon must be there.
+    - At the look's end: `view: the look back's pitch: the mouse moved it N deg at most over T s, ... (the game moved the
+      player's pitch: ... | the game held the player's pitch: ...)`; the eye line while looking back ends `, pitched N
+      deg up by the look's own (LookPitch)`.
+    - `body: looking back 150 deg off your heading (more than BodyArmsBack 90): the first-person 3D hidden (bit 0 on
+      PlayerCharacter+0xB78's BSFadeNode 'skeleton.nif')`, and ahead again `body: the first-person 3D given back (looking
+      ahead again: the look 12 deg off your heading; ...)`. Through VATS or getting off: `body: the first-person 3D kept
+      hidden in another camera (...): bit 0 cleared at the next first-person frame, ...`, and later `body: the first-person
+      3D given back (...; bit 0 cleared ...)`.
+    - A/Bs: `[View] LookPitch=0` (the game's own pitch), `[View] BodyArmsBack=0` (the arms left to the game).
+20. **A and D**: in first person A and D now turn the bike at 0.45 of the turning limit (your pick after test 55). Is it
+    right? `steer: first person: the side keys turn the bike (FirstKeys 0.45 of the clamp, N deg/s now): the game gets
+    no strafe`, once a ride. A/B: `[Steer] FirstKeys=1` (2026-11-16a's).
+
+**Your body in first person** (steps 21-24; test 55: a second set of bars and a speedometer riding ahead of the first,
+a gun on the right grip, a rusty piece of your outfit in front of your eye, the body shown in only some rides)
+
+21. **One bike**: ride a few seconds in third person, straight, at speed (the plugin takes your riding pose then), then
+    switch to first person and keep riding fast. Look at the bars and the speedometer: only ONE set of bars and ONE
+    speedometer now? Stop and ride off again: still one? Screenshots.
+    - At each showing, after `body: first person: the rider's body shown (...)`: `body: hidden with the body: the worn
+      bike's 54 shape(s) shrunk to a speck, 1 node(s) of it hidden (bit 0: '...'); the weapon's N shape(s) shrunk, ...;
+      near the eye N shape(s) shrunk whole (...: <their names>); the pose: HEAD (x, y, z), the spine's joint (x, y, z) in
+      the bike's space, the eye BodyEye (0, 2, -0.5) from HEAD, the pitch wanted W deg (BodyLeanMax 35)`. 0.5 s in and
+      every 10 s: `body: shown 0.5 s: ... held hidden with it: ...` (there is no "drawn?" verdict any more: the numbers in
+      it don't tell whether the game draws your body). A large "set again by us" count says the game un-hides those nodes
+      every frame (the speck still hides the shapes).
+    - A/B: `[View] BodyWorn=0` (2026-11-16a: the second bike again).
+22. **No gun on the grip**: with a pistol (or any weapon) holstered, look at the right grip in first person: no gun
+    lying on it? Pick another weapon from the quick menu (holstered) and look again. The "hidden with the body" line
+    counts the weapon's shapes (0 when nothing hangs in the hand). A/B: `[View] BodyWeapon=0` (the gun on the grip). If
+    you use a holster mod and its gun shows, its node can be added: `BodyWeaponNodes=WEAPON,<its node>`.
+23. **Nothing in front of your eye**: look down in first person: your hands on the grips, your sleeves and the Pip-Boy
+    as in test 55, and the rusty piece of your outfit (the cage) in front of your eye gone. Anything else of your outfit
+    in front of your eye? And the other way: is anything gone that you want to see? A chest piece, a backpack, a collar
+    or a scarf with no sleeve in it near your neck is shrunk away whole (the plugin judges by the outfit's coarse
+    bounds), so a sleeveless top or vest may vanish from your view too. Say what you wear and what you miss, with a
+    screenshot; the "hidden with the body" line names the pieces. A/Bs: `[View] BodyNear=10` (only what is nearer your
+    eye), `BodyNear=0` (the head alone, 2026-11-16a).
+24. **When and where it sits**: does the body show more often than in test 55, in the first ride too (it should, unless
+    you look back, have the Pip-Boy open or a weapon out)? Does it sit right: hands on the grips, not sunk into the seat,
+    not leaning back oddly? Over bumps and through any hitch, do the hands stay on the grips, or run ahead of them or
+    lag behind for a frame? (Your body now follows the camera's own place with the bike, `[View] BodyFollowCamera`.)
+    - The `view: lock:` lines end `; BodyFollowCamera: N move(s) of your body X (median) / Y (most), its skeleton's own
+      since the task A of the camera's B (medians)`: send them. A about B: the game's skeleton carries your body and the
+      key does little; A about 0 while riding: the key does the work, and if then the hands run ahead of the grips, the
+      game updates your 3D after the camera (say so). A/B: `[View] BodyFollowCamera=0` (your body placed once a frame,
+      2026-11-16a).
+    - "the pitch wanted" in the "hidden with the body" line under 35 now (35 every time in test 55), the "body moved
+      (...)" in the shown line small (test 55: 6-10 down, now about 1-5), and `not shown: the head's eye X from EyeAt`
+      lines rare (27 in test 55).
+    - A/B: `[View] BodyEye=0,7,7` (where the body sat in test 55).
+
+**Handguns on the bike** (steps 25-29; test 55: the right arm swinging out of the seated body, the pistol never in the
+posed hand, the standing pose when drawn right after getting on, the put-away never calling the game, a save right
+after the ask ending the ride). The MCM's "Weapons while riding" on "Handguns only".
+
+25. **Drawn right after getting on**: get on with a 10mm pistol equipped and ride off at once; within two seconds draw it
+    (R) in third person while riding. You should be seated, both hands on the bars, the pistol in your right hand on the
+    grip, and the bike shouldn't vanish and come back. Ride a while with it out, turn both ways, stop, ride off again.
+    Aim and fire a few shots: where do the shots and the muzzle flash come from, the gun in your hand or beside you? A
+    short video helps.
+    - `gun: a handgun out at N u/s with no riding seat pose yet: the still one (read N s ago) stands in until one is read
+      (GunStillRide)`; no `... (ride a second or two holstered first) ...` and no `tilt: CMB_BikeWornRiderF_* back level
+      and let go (no longer worn ...)` at that draw (the bike not swapped).
+    - `gun: a handgun out (the weapon state 2, ...) at N u/s: the rider on the riding seat pose read N s ago, both hands
+      on the bars (GunBothBars) (GunPose)`, then once a draw `gun: the drawn weapon's 3D (the biped's object 41, '<name>'
+      ...) hangs off '<parent>' ...: carried from the game's right hand to the posed one (GunCarry)` (or `gun: no drawn
+      weapon's 3D at the biped's object 41 ...` or `... has shapes held on the rider ...`): send it either way, it says
+      where your game hangs the drawn gun.
+26. **Drawing and putting away**: put it away (R) and draw it again a few times, stopped and riding: any jerk at the
+    moment of drawing or putting away (one frame is expected), anything flying off?
+    - Every 10 s posed and at the end: `gun: posed N s ...: the bones' own move a game frame at most X relative to the
+      root the bones were animated with (Y against the task's root, GunRootFrame), ...; the drawn weapon carried N
+      frame(s) (GunCarry)`: X a few units at speed, Y like test 55's 10-30. Once a session: `gun: the bones moved A a frame
+      on average against the root they were animated with and B against the task's own (...): the root a frame ahead of
+      the bones, as GunRootFrame takes it (GunRootFrame)`. If it says `... the game's update isn't in the order
+      GunRootFrame takes: the task's root for the session ...` instead, say so.
+    - A/Bs: `[Tilt] GunBothBars=0` (the game's right arm carried to the seat's shoulder, 2026-11-16a), `GunCarry=0` (the
+      gun where the game's clip holds it), `GunRootFrame=0`, `GunPredictMax=0`, `GunStillRide=0`.
+27. **A rifle by its key**: with the pistol out press a rifle's favourites key: "Only a handgun can be used on the
+    motorbike.", the rifle away at once (under a second), no sheathe pause, and you stay on.
+    - Once a session: `gun: the player's slot 0xC7 (+0xD62DA0) is PlayerCharacter's heading: it calls the heading's
+      getter (+0xC5A8D0) first; 0xC8 the ret-0 stub (+0xC5CF40): slot 0xC9 (+0xDA13D0) taken as DrawWeaponMagicHands
+      (PutAway, PutAwayProbe)`; then `gun: put away asked (CMB_WeaponAway N): DrawWeaponMagicHands(false) called, the
+      weapon state 3` and `gun: the weapon state 3 > 4 > 5 > 0: away 0.xx s after the ask (CMB_WeaponAway N, 1 call)`;
+      `Papyrus.0.log`: `Weapons: put away after 0.x s (the plugin's put-away, or the game's own).`
+    - Bad: `... not the layout expected, nothing called (PutAway): ... (PutAwayProbe: its call's target ... reads ...;
+      0xC8 ...)`: send it.
+28. **A save right after**: press the rifle key and save at once (quicksave or the menu). After the save you should
+    still be on the bike, the rifle away. `Papyrus.0.log`: `Weapons: still out 1.0 s after the ask; 4.3 s more with the
+    game paused, not counted: the sheathe action played (True).` or `Weapons: put away after ... (...; N s more with the
+    game paused, not counted).`, and no `the ride ended`. A/Bs: `[Tilt] PutAwayProbe=0` (nothing called on you: the
+    sheathe after 1 s), `PutAwayUnpaused=0` (real time: a save right after the ask can end the ride again).
+29. **Getting on with a rifle out, and the rifle's swap**: get on with a rifle out: it is put away first, quickly, and
+    you get on. Then, riding with nothing drawn, draw a rifle by its key, let it be put away and draw the pistol within a
+    few seconds: seated at once, or the standing pose first (`gun: a handgun out ... with no riding seat pose yet ...`)?
+    A rifle drawn still swaps the bike under you for the planted one for 2-4 s, as in test 55, and the seat poses are
+    read again after it. In first person, does a hitch come with that swap? Then first person with the pistol out: as
+    before (the game's own arms).
+
+**The field kit's preview** (steps 30-32; test 55: "half of the bike was in view", too high, too close, side-on)
+
+30. **The whole bike**: in a settlement, at the parked bike choose Customise and pick the Motorbike: a screenshot as soon
+    as it shows and another while browsing a slot's mods. Expected: the whole bike in the upper half of the screen, in
+    the middle, turned three-quarters with its front towards you on the left, seen a little from above, the menu's list
+    below it (the plugin now places it in the menu's view itself).
+    - Within a second of the bike showing, at each Customise: `kit: fit (2026-11-16b): the menu's bike (item XXXXXXXX)
+      moved from (mx, my, mz) to (~0.8, ~701, ~10) (N object(s)): ...; the bike 0.07 to 0.50 of the screen's height, 0.35
+      to 0.65 across, in a view 40.00 deg across ...` ("moved from" is where the menu put the new record: it settles how
+      the menu maps it); at the close `kit: fit: the menu's bike (item ...): the menu closed after N frame(s): our place
+      kept K, written again A (the menu's own place back), the menu's small moves of it kept T`. The `kit: the menu's 3D`,
+      scene and camera lines now come at the menu's opening too.
+    - Bad: `kit: fit: ... not moved (...)`: send the log.
+31. **Zoom and turn**: roll the mouse wheel out and in and drag the bike round with the mouse: it zooms and turns as
+    before? A screenshot. Pick a plate colour (as in test 55) and leave the menu: the colours on the parked bike when the
+    menu closes (KitDefer, as before).
+32. **Only if the bike is still cut or badly placed**: first, is it the same as test 55 (the top half off)? Then the
+    plugin's placing didn't show: say so and send the log. To size it in New: `[Look] KitFitBox` (0.07,0.50: the bike's
+    top and bottom on the screen, as fractions of its height from the top; 0.12,0.45 makes it smaller; get off and on the
+    bike to read it again). To tune by hand: "Field kit preview" "Tune (the sliders below)": "Preview distance" bigger =
+    smaller bike (start at 1050; 1300 if still too big), "Preview up / down" more negative = lower (start at -45, steps of
+    25), "Preview tilt" 0 if it looks tipped oddly; leave the MCM, Customise again, and say which values looked right.
+    Your save shows 400, 0, 0 from before: set 1050, -2 and -45 first. A/Bs: `[Look] KitFit=0` (the menu places it from
+    the new record alone), "Field kit preview" As before and back to New.
+
+**The pull and the gears** (steps 33-36; test 55: "1st gear shoots bike up to 30 almost instantly, then next 20 is
+divided for 4 gears - 1st should be short, up to 10, then gradually change")
+
+33. **A full pull**: from a stop on a long flat road hold forward to the top speed, watching the speedometer and
+    listening. The engine should sound as in test 55 (the same five gears, the same lengths); the needle: 1st up to about
+    10-12, then an even climb, 2nd to about 24, 3rd to about 42, 4th to about 50, the top about when 5th comes in (about
+    8 s). Does the speed match the gears now? Is the take-off too slow (0.3 of the top after about 2 s now; 0.4 s in
+    test 55), the climb too slow or too quick?
+    - `sound: gear 2 at ~220 u/s, ~3250 rpm, heard ~404 u/s; the engine's speed ~470 (SpeedMap)` (test 55: 568 u/s),
+      `gear 3 at ~430 ...`, `gear 4 at ~750 ...`, `gear 5 at ~900 ...`, about 1.4, 3.4, 6.4 and 7.9 s after the press as
+      before; `launch: from rest: 0.3 of the top after ~1.9 s, half after ~3.7 s, 0.9 after ~7.1 s, the top (0.97) after
+      ~7.7 s (...); ...; above 0.1 of the top at most 0.112 a second (PullTime)` (test 55: 0.42 / 0.82 / 4.8 / 5.7 s).
+34. **Steady speeds**: ride steadily at about 10, 20, 30, 40 and 50 on the dial for a few seconds each: does the gear you
+    hear sound right for the speed, and does it ever hop between two gears? The top of the sound is squeezed to keep the
+    pull's sound: from about 38 to 52 on the dial the engine sounds about the same (5th, about 2,000 rpm), and in a full
+    pull 4th settles while the needle still climbs from about 42 to 50. Does that bother you?
+35. **Picking up again**: pull away from about half speed after a turn, and tap off the throttle for a moment at speed:
+    the note shouldn't drop or blip. Sluggish? At low speed the throttle climbs at the pull's rate too (0.1 to 0.3 of the
+    top in about 1.8 s; 0.6 s in test 55).
+36. **A log or a kerb**: ride slowly into a fallen log or a kerb and keep forward held: it climbs as before (`[Steer]
+    PullClimb`: the push at a low thing builds as quickly as in test 55)?
+    - A/Bs, a ride each: `[Steer] PullTime=7` (quicker: 1st to about 13, the top as 4th comes in), `PullTime=9` (slower:
+      1st to about 11, the top in 5th); `[Sound] SpeedMap=` (the engine hears the bike's own speed: 1st waits for the
+      bike and 2nd and 3rd go flat, which is why the map is there); 2026-11-16a's pull and sound, `[Steer] PullTime=5.5`,
+      `PullFrom=0.6`, `LaunchFrom=0.25` with `[Sound] SpeedMap=`; test 55's A/B, `PullFrom=0.2`, `PullTime=9`,
+      `LaunchFrom=0.25` with `SpeedMap=` (1st to about 19 on the dial, 2nd and 3rd flat); `[Steer] PullClimb=0` at a log.
+
+**The A/Bs** (step 37)
+
+37. Any of this build's A/Bs you haven't tried yet, one at a time, a ride or two each (README's table of this build's
+    keys): `[View] CameraPlace=0`, `NearThird=0`, `ParentKeep=0`, `RollTurn=0`, `LookPitch=0`, `BodyWorn=0`,
+    `BodyWeapon=0`, `BodyNear=0`, `BodyArmsBack=0`, `BodyEye=0,7,7`, `BodyFollowCamera=0`; `[Steer] FirstKeys=1`; `[Tilt] PutAwayProbe=0`,
+    `PutAwayUnpaused=0`, `GunRootFrame=0`, `GunBothBars=0`, `GunCarry=0`, `GunStillRide=0`, `GunPredictMax=0`; `[Look]
+    KitFind=0`, `KitFit=0`; the pull's (step 36). `[Diag] ParentTime=0` and `BodyDrawn=0` change only log lines. Anything
+    better or worse?
+
+Send `CMB_Slope.log` and its `_prev` logs and `Papyrus.0.log` of each session, any crash log, the screenshots of steps
+21, 23 and 30, and a short video of steps 25-28 if you can.
+
+### Questions for you (test 56)
 
 - **T56-1 (step 1).** The kit's lists: alphabetical from the top, from the bottom, or the old order?
 - **T56-2 (step 2).** The MCM's dropdowns alphabetical? Did the "reads its dropdowns through the controller's
@@ -149,6 +398,43 @@ of each session, the screenshots of steps 1 and 3, and any of steps 5, 9 and 11 
 - **T56-13 (step 13).** The seat and Free colour apart? The MCM's Apply mid-ride? An old save's seat as it came?
 - **T56-14 (step 14).** The frame rate beside the parked bike: 2026-11-15b against this build, stock and with the
   helmets?
+- **T56-15 (step 15).** First person: still shaking? Which reading did the "camera: the camera root at ..." line name,
+  and did an "EyeAtCamera off" line come?
+- **T56-16 (step 16).** Zooming in with the wheel: one bike all the way, never none, never two?
+- **T56-17 (step 17).** The stutter across cells: better, worse or the same, and with `ParentKeep=0`? The ParentTime
+  lines of both runs?
+- **T56-18 (step 18).** The view's lean: visible now? Which value of the slider do you like?
+- **T56-19 (step 19).** Looking back: the mouse tilts the view, and it comes back level? The first-person arms gone
+  while you look back, back when you look ahead, and after VATS or getting off while looking back? Did the end line say
+  the game moved or held your pitch?
+- **T56-20 (step 20).** A and D at 0.45: right, too much, too little?
+- **T56-21 (step 21).** One set of bars and one speedometer with your body shown?
+- **T56-22 (step 22).** No gun on the right grip, whatever the quick menu put in hand?
+- **T56-23 (step 23).** Nothing of your outfit in front of your eye? Anything gone that you want to see (a sleeveless
+  top, a vest, a backpack)? What do you wear? `BodyNear=10` or 0 better?
+- **T56-24 (step 24).** The body more often, in the first ride too? Sitting right? The hands on the grips over bumps
+  and at a hitch, or a frame ahead or behind? The lock line's BodyFollowCamera part (A against B)?
+  `BodyFollowCamera=0` better or worse?
+- **T56-25 (step 25).** Drawn right after getting on: seated, both hands on the bars, the pistol in your hand, no swap?
+  Where did the shots and the muzzle flash come from? What did the GunCarry line say?
+- **T56-26 (step 26).** A jerk at a draw or a put-away, more than a frame? The GunRootFrame line: "the root a frame ahead
+  of the bones", or "isn't in the order"? Any A/B better?
+- **T56-27 (step 27).** A rifle by its key: away within a second, no sheathe pause, still on the bike? The "is
+  PlayerCharacter's heading" line?
+- **T56-28 (step 28).** A save right after the rifle key: still on the bike? The "not counted" line?
+- **T56-29 (step 29).** Getting on with a rifle out? A pistol drawn soon after a rifle's put-away: seated at once? A
+  hitch in first person with the rifle's swap?
+- **T56-30 (step 30).** The kit's preview: the whole bike in the upper half, three-quarters, a little from above? What
+  did "moved from" say?
+- **T56-31 (step 31).** Zoom and turn as before? The plate colours on the parked bike at the close?
+- **T56-32 (step 32).** If still off: the same as test 55, or another fault? Which `KitFitBox` or Tune values looked
+  right?
+- **T56-33 (step 33).** A full pull: the speed matching the gears now? The take-off too slow? The sound as in test 55?
+- **T56-34 (step 34).** Steady speeds: the right gear, no hopping? The squeezed top band (38-52 on the dial all one
+  note, 4th settling while the needle climbs): does it bother you?
+- **T56-35 (step 35).** Picking up again after a turn or a tap off: sluggish? The note steady?
+- **T56-36 (step 36).** A log or a kerb climbed as before? Which pull A/B felt best?
+- **T56-37 (step 37).** Anything a 2026-11-16b A/B made better or worse?
 
 ## The 2026-11-15b build: test 53's and test 54's wishes, in this order
 
@@ -1581,3 +1867,6 @@ Still seated after getting off? `player.caf` (ChangeAnimFlavor with no keyword) 
    the bike and of a rifle put away
 8. Since 2026-11-16a: screenshots of the field kit's "Tank L" list and of the 3D helmets (test 56's steps 1 and 3), and
    the frame rates of step 14
+9. Since 2026-11-16b: screenshots of the bars with your body shown and of the view looking down (test 56's steps 21 and
+   23) and of the field kit's preview (step 30), and a short video of a handgun drawn right after getting on and of a
+   rifle put away (steps 25-28)
