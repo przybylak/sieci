@@ -26,7 +26,9 @@ Writes, under --out (a Data folder's layout; Textures\\CMB\\Bike, Materials\\CMB
   plate_text_n.dds    BC5 1024: the characters' 3-px cosine bevel, 0.12 units high
   plate_text_s.dds    BC5 512
   plate_p.dds         RGBA8 256 x 256, one mip: row (design - 1) x 16 + background (192 used, 192-255 row 191's): U 0-47
-                      the fixed colours (the same in every row), 56-159 the background x 0.4-1.4, 168-215 the design's
+                      the fixed colours (the same in every row; since 2026-11-17a plates.json's "fixed_top" 55: a
+                      seventh, gold, at 49 in the guard), 56-159 the background x 0.4-1.4 (a design's "own_base" in its
+                      own row instead of the table's own background: Red Rocket's sign yellow), 168-215 the design's
                       legend colour x 0.6-1.3 (swapped for the letters' colour, then black or white, where it would fall
                       under 3:1 against the background), 224-255 the accent x 0.6-1.3; the guards between blend
   plate_text_p.dds    RGBA8 256 x 16, one mip: row = ink: U 0-63 the ink x 0.5-0.85, 72-255 x 0.6-1.2
@@ -45,7 +47,8 @@ Writes, under --out (a Data folder's layout; Textures\\CMB\\Bike, Materials\\CMB
 legends kept at mips 1-3); the Vault-Tec emblem (since the 2026-11-09a build) never next to its stripe at mips 0-3, its
 area at mips 1-3 within 0.7-1.6 of level 0's, and since the 2026-11-16a build the same pair for every design's emblem
 (plates.json names each one's box, parts and neighbours' parts: legends, stripes, welds) with 6 px or more between them
-at level 0; alpha coverage per cell within 5 % of level 0's down to mip 4 (since 2026-11-16a a cell still off it after
+at level 0 (since 2026-11-17a an emblem of fine strokes may name its own area bound: the Minutemen's bolt, Nuka-Cola's
+script); alpha coverage per cell within 5 % of level 0's down to mip 4 (since 2026-11-16a a cell still off it after
 the scaling has its missing or extra texels switched, flip_cells); the 8-px
 margins clear to mip 3 (the text's alpha 0, the designs' base); every text inside its drawn area and 480 px; the
 palettes' rows; the palette proof (the designs and the texts in their own colours through the DDS at 33 dB or more
@@ -144,8 +147,19 @@ def swapped(want, bg, own, cols):
     return black if contrast(cols[black], cols[bg]) >= contrast(cols[white], cols[bg]) else white
 
 
+def row_colours(d, bg, meta, cols):
+    """The table's colours as design d's palette row for background bg sees them: since 2026-11-17a a design may name
+    its own row's base colour in plates.json ("own_base": Red Rocket's sign yellow over the table's own_back cream),
+    which then stands in for that background in the row (its base, its legend's and accent's contrast)."""
+    ob = meta["designs"].get(d["key"], {}).get("own_base")
+    if ob is None or bg != d["own_back"]:
+        return cols
+    return {**cols, bg: ob}
+
+
 def design_colours(d, bg, meta, cols):
     """(legend sRGB, accent linear RGB) of design d on background bg."""
+    cols = row_colours(d, bg, meta, cols)
     legend = d["legend"] if d["legend"] is not None else d["own_ink"]
     lg = swapped(legend, bg, d["own_ink"], cols)
     acc = meta["designs"][d["key"]]["accent"]
@@ -174,12 +188,13 @@ def _guards(row, segs):
 
 
 def fixed_segments(meta):
-    """Each fixed colour's U range: from halfway to its neighbours (the first from 0, the last to the fixed top)."""
+    """Each fixed colour's U range: from halfway to its neighbours (the first from 0, the last to the fixed top: 47, or
+    plates.json's "fixed_top" since 2026-11-17a)."""
     us = [f[1] for f in meta["fixed"]]
     out = []
     for i, u in enumerate(us):
         lo = 0 if i == 0 else (us[i - 1] + u) // 2 + 1
-        hi = 47 if i == len(us) - 1 else (u + us[i + 1]) // 2
+        hi = meta.get("fixed_top", 47) if i == len(us) - 1 else (u + us[i + 1]) // 2
         out.append((lo, hi))
     return out
 
@@ -190,10 +205,11 @@ def plate_row(d, bg, meta, pal, cols):
         row[lo:hi + 1] = hexlin(h)
     lg, ac = design_colours(d, bg, meta, cols)
     u = pal["u"]
-    _ramp(row, u["base"], hexlin(cols[bg]), *pal["base_shade"])
+    _ramp(row, u["base"], hexlin(row_colours(d, bg, meta, cols)[bg]), *pal["base_shade"])
     _ramp(row, u["legend"], hexlin(lg), *pal["legend_shade"])
     _ramp(row, u["accent"], ac, *pal["legend_shade"])
-    _guards(row, [tuple(u["fixed"]), tuple(u["base"]), tuple(u["legend"]), tuple(u["accent"])])
+    fx = (u["fixed"][0], meta.get("fixed_top", u["fixed"][1]))
+    _guards(row, [fx, tuple(u["base"]), tuple(u["legend"]), tuple(u["accent"])])
     return row
 
 
@@ -881,18 +897,21 @@ def emblem_checks(rep, levels, segs, opts, meta, part0):
         for dy, dx in disc:
             grown[max(0, dy):H + min(0, dy), max(0, dx):Wd + min(0, dx)] |= nb[max(0, -dy):H + min(0, -dy), max(0, -dx):Wd + min(0, -dx)]
         close = int((em & grown).sum())
-        info.append(f"{key} {a[0]} texels, mips 1-3 x{'/'.join(f'{x:.2f}' for x in keep)}")
+        info.append(f"{key} {a[0]} texels, mips 1-3 x{'/'.join(f'{x:.2f}' for x in keep)}"
+                    + (f" (its bound {sp['area'][0]:g}-{sp['area'][1]:g})" if "area" in sp else ""))
         if max(n_t):
             touch.append(f"{key} {n_t}")
-        if not (a[0] > 0 and EMBLEM_AREA[0] <= min(keep) and max(keep) <= EMBLEM_AREA[1]):
+        lo, hi = sp.get("area", EMBLEM_AREA)          # since 2026-11-17a an emblem of fine strokes names its own bound
+        if not (a[0] > 0 and lo <= min(keep) and max(keep) <= hi):
             area.append(f"{key} {', '.join(f'{x:.2f}' for x in keep)}")
         if close:
             gap.append(f"{key} {close} texels")
     print("INFO  the emblems (since 2026-11-16a, at the plate's scale): " + "; ".join(info))
     rep.check(not touch, f"plates_d.dds: each of the {len(specs)} emblems' texels never 8-adjacent to its neighbours' parts "
                          f"(legends, stripes, welds) at mips 0-3", "; ".join(touch))
+    fine = sorted(k for k, v in specs.items() if "area" in v)
     rep.check(not area, f"plates_d.dds: each emblem's area at mips 1-3 within {EMBLEM_AREA[0]:g}-{EMBLEM_AREA[1]:g} of level "
-                        f"0's", "; ".join(area))
+                        f"0's" + (f" (its own bound for {', '.join(fine)}: fine strokes)" if fine else ""), "; ".join(area))
     rep.check(not gap, f"the art: each emblem {EMBLEM_GAP:g} px or more from its neighbours' parts at level 0", "; ".join(gap))
 
 
@@ -1026,11 +1045,13 @@ def check(args, opts):
                 continue
             for bg in range(16):
                 lg, _ = design_colours(d, bg, meta, cols)
-                if contrast(lg, cols[bg]) < CONTRAST:
+                if contrast(lg, row_colours(d, bg, meta, cols)[bg]) < CONTRAST:
                     vanish.append(f"{d['key']}/{cols[bg]}")
         rep.check(not vanish, f"every legend at {CONTRAST:g}:1 or more on every background (192 rows)", "; ".join(vanish))
-        own = {d["key"]: contrast(cols[d["own_ink"]], cols[d["own_back"]]) for d in opts["plates"] if d["cell"] is not None}
-        print("INFO  the designs' own letters on their own backgrounds (the table's colours): "
+        own = {d["key"]: contrast(cols[d["own_ink"]], row_colours(d, d["own_back"], meta, cols)[d["own_back"]])
+               for d in opts["plates"] if d["cell"] is not None}
+        print("INFO  the designs' own letters on their own backgrounds (the table's colours; a design's own_base on its "
+              "own row): "
               + ", ".join(f"{k} {v:.1f}" for k, v in own.items()))
         sw = [f"{d['key']} {cols[d['legend']]} -> {design_colours(d, d['own_back'], meta, cols)[0]}" for d in opts["plates"]
               if d["cell"] is not None and d["legend"] is not None and design_colours(d, d["own_back"], meta, cols)[0] != cols[d["legend"]]]

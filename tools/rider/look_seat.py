@@ -67,7 +67,10 @@ overwritten (option 0 is the shipped seat, byte for byte).
 
     <python with numpy, Pillow, quicktex, texture2ddecoder> -I tools/rider/look_seat.py --data <out Data> \\
         --base <2026-11-10a's Data> [--base <2026-11-15b's Data> ...] --pynifly <io_scene_nifly> \\
-        [--options look_options.json] [--materials bike_materials.json] [--denoise 1|0] [--check]
+        [--options look_options.json] [--materials bike_materials.json] [--denoise 1|0] [--seat-colours <build>] [--check]
+
+--seat-colours 2026-11-17a|2026-11-16a (since 2026-11-17a): the rows' colours by build; 2026-11-17a (the default) has
+Saddle tan browner (SEAT_ROWS_17A: only seat_p.dds's row 2 changes), 2026-11-16a the table's (2026-11-16a's seat_p.dds).
 
 --base: the asset base, read only; later folders over earlier ones (the package's Data, then a build's meshes over it).
 Fallout 4 semantics as look_paint.py's: no diffuse tint for lit materials; grayscale_to_palette_color with the greyscale
@@ -115,6 +118,13 @@ DARK_SPEC = 0.5                        # a seat darker than the stock leather: i
                                        # (the shipped sheen lifts a black seat to the stock's lightness in the renders:
                                        # Black / stock 0.011 apart in OKLab at 1, 0.096 at 0.5; the grain's sheen stays)
 PARTS = ("body", "wear", "piping")     # index_levels' parts 0, 1, 2 (look_paint's keys tank, fenders, coachline)
+# --seat-colours (since 2026-11-17a): the rows' colours by build. 2026-11-17a (test 56: "saddle tan too yellow"): Saddle
+# tan warmer, browner and less saturated, toward a real saddle leather's tan: OKLCh (0.565, 0.105, 50.0) for
+# 2026-11-16a's bf7028 (0.621, 0.130, 58.4); still 0.12 from Tobacco brown, 0.11 from Red and 0.36 from Cream
+# (swatches, OKLab). Tried in the renders against a86847 (0.580, 0.095, 47.5), which the sheen turned pinkish.
+# look_options.json keeps 2026-11-16a's colours; --seat-colours 2026-11-16a draws them (seat_p.dds byte for byte).
+SEAT_COLOURS_OLD, SEAT_COLOURS_NEW = "2026-11-16a", "2026-11-17a"
+SEAT_ROWS_17A = {"tan": {"body": "a76239", "piping": "a76239"}}
 NIFS = ("CMB_BikeParked", "CMB_BikeWorn", "CMB_BikeWornRider", "CMB_BikeWornRiderF", "CMB_BikeView")
 
 
@@ -162,6 +172,16 @@ def worn_tone(body, leather, wear):
 
 
 # --- the table ---------------------------------------------------------------------------------------------------
+
+def seat_colours(opts, version):
+    """The table with the seat rows' colours of build `version` (--seat-colours): 2026-11-16a's are the table's own."""
+    if version == SEAT_COLOURS_OLD:
+        return opts
+    opts = json.loads(json.dumps(opts))
+    for r in opts["seat_palette"]["rows"]:
+        r.update(SEAT_ROWS_17A.get(r["key"], {}))
+    return opts
+
 
 def seat_table(opts):
     """(seat_palette, its rows by row, the Seat slot); the rows 0.. in order, at most ROWS."""
@@ -712,6 +732,10 @@ def check(args, opts, mats):
         + (f", by the welt {welt_p_[0][1]} / {welt_p_[0][2]} {welt_p_[0][0]:.3f}" if welt_p_ else "")
         + "".join(f"; {k1} / {k2} {d_:.3f} ({w_})" for d_, k1, k2, w_ in pairs if d_ < DE_MIN))
     print("INFO  the closest pairs: " + "; ".join(f"{k1} / {k2} {d_:.3f} ({w_})" for d_, k1, k2, w_ in pairs[:6]))
+    for key in (SEAT_ROWS_17A if args.seat_colours == SEAT_COLOURS_NEW else {}):      # the rows --seat-colours moved
+        near = sorted((d_, k2 if k1 == key else k1) for d_, k1, k2, w_ in pairs if key in (k1, k2))[:6]
+        print(f"INFO  {key}, as --seat-colours {args.seat_colours} has it, nearest: "
+              + ", ".join(f"{k} {d_:.3f}" for d_, k in near))
     # the contrasting welts: shown at their swatch's lightness, apart from their seat
     bad = [f"{k}: welt median L {ml:.3f} for its swatch's {oklab(LP.hexlin(r['piping']))[0]:.3f}, {de_:.3f} from its seat"
            for k, r, ml, de_ in piped if abs(ml - oklab(LP.hexlin(r["piping"]))[0]) > PIPE_DL or de_ < PIPE_DE]
@@ -777,8 +801,12 @@ def main():
     ap.add_argument("--denoise", type=int, default=1, choices=(0, 1),
                     help="1: the shade smoothed within each part (BC1's steps out); 0: the per-texel re-sample as it is")
     ap.add_argument("--check", action="store_true", help="check a built tree (and nothing written)")
+    ap.add_argument("--seat-colours", choices=(SEAT_COLOURS_NEW, SEAT_COLOURS_OLD), default=SEAT_COLOURS_NEW,
+                    help="(since 2026-11-17a) the rows' colours: 2026-11-17a a browner Saddle tan (SEAT_ROWS_17A, the "
+                         "default), 2026-11-16a the table's own (seat_p.dds as 2026-11-16a's, byte for byte); --check "
+                         "holds the tree to the same")
     args = ap.parse_args()
-    opts = json.loads(args.options.read_text())
+    opts = seat_colours(json.loads(args.options.read_text()), args.seat_colours)
     mats = json.loads(args.materials.read_text())
     if any(args.data.resolve() == b.resolve() for b in args.base):
         ap.error("--data must not be a --base (the base is read only)")

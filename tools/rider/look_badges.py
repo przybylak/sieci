@@ -26,10 +26,13 @@ Writes, under --out (a Data folder's layout):
 
 --check (no writing): the atlas' sizes and formats; every cell's alpha inside its drawn 512 x 213; the 16-pixel
 margin's alpha 0 at every mip it is a texel or more wide; each badge's coverage 25-82 % of the plate's rectangle (a lone
-figure with no ground, the paint round it, from 15 %: the Gunners skull, since 2026-11-16a); with --plate-npz (a stage's
+figure with no ground, the paint round it, from 15 %: 2026-11-16a's Gunners skull, 2026-11-17a's Brotherhood of Steel
+colour emblem); with --plate-npz (a stage's
 static_badge) or --plate-nif (the built parked nif's two tank plates, since 2026-11-16a: no stage needed), the share of
 each emblem outside what both tank plates show; with --base (an older tree's atlas), every cell that tree's badges use
-the same BC3 / BC5 blocks at mips 0-5 in all three textures (a new cell changes no old one); the materials read back
+the same BC3 / BC5 blocks at mips 0-5 in all three textures (a new cell changes no old one; --base-build names the
+older tree's build, 2026-11-08a by default, and since 2026-11-17a the cells redrawn after it are left out: badges.json's
+"art"; a redrawn badge's "ground" there also sets the coverage rule); the materials read back
 (bgsm.py) and hold the transform, the textures and the flags above; the brand words (check_bike_meshes.py's) in
 no badge's name, motif or key; and the guard: no game texture path is a file under --out (nothing of the game copied).
 
@@ -280,10 +283,15 @@ def dds_levels(path):
     return info, out
 
 
-def old_cells(rep, args, at, opts):
-    """--base: every cell the older tree's atlas has a badge of ours in (look_options.json's badges with no later
-    "since") keeps its BC blocks at mips 0-5, in _d, _n and _s: a new cell changes no old one's texels."""
-    old = [b for b in opts["badges"] if b["art"] == "ours" and not (b.get("since") and b["since"] > "2026-11-08a")]
+def old_cells(rep, args, at, opts, meta=None):
+    """--base: every cell the older tree's atlas (build --base-build's) has a badge of ours in (look_options.json's
+    badges with no later "since") keeps its BC blocks at mips 0-5, in _d, _n and _s: a new cell changes no old one's
+    texels. Since 2026-11-17a a cell bike_art.py redrew after that build (badges.json's "art" later than it, as the
+    flag patch, the colour emblem and the chrome ground of 2026-11-17a) is left out and named: it is meant to change."""
+    built = args.base_build
+    redrawn = sorted(k for k, v in ((meta or {}).get("badges") or {}).items() if str(v.get("art", "")) > built)
+    old = [b for b in opts["badges"] if b["art"] == "ours" and not (b.get("since") and b["since"] > built)
+           and b["key"] not in redrawn]
     (W, H), (cw, ch) = at["size"], at["cell"]
     bad, n = [], 0
     for k in ("diffuse", "normal", "smoothspec"):
@@ -306,7 +314,8 @@ def old_cells(rep, args, at, opts):
                 if not np.array_equal(la[lv][sl], lb[lv][sl]):
                     bad.append(f"{a.name} mip {lv} {bd['key']}")
     rep.check(not bad, f"--base: the {len(old)} older badges' cells keep their blocks at mips 0-5 in the three textures "
-                       f"({n} cell levels, against {args.base})", "; ".join(bad[:8]))
+                       f"({n} cell levels, against {args.base}, build {built}"
+                       + (f"; redrawn since, left out: {', '.join(redrawn)}" if redrawn else "") + ")", "; ".join(bad[:8]))
 
 
 class Report:
@@ -357,7 +366,10 @@ def check(args, opts):
                 outside.append(f"{b['key']} {int((cell[ring] > 0).sum())} texels")
             cov = float((cell[y0:y1] >= 128).mean())
             covs[b["key"]] = cov
-            if not (0.15 if b["colours"].get("ground") is None else 0.25) <= cov <= 0.82:
+            lone = b["colours"].get("ground") is None
+            if meta is not None and "ground" in meta["badges"].get(b["key"], {}):
+                lone = not meta["badges"][b["key"]]["ground"]   # a redrawn badge's own (2026-11-17a's colour emblem)
+            if not (0.15 if lone else 0.25) <= cov <= 0.82:
                 cov_bad.append(f"{b['key']} {cov:.2f}")
             for lv, img in enumerate(levels):
                 m = margin >> lv
@@ -379,7 +391,7 @@ def check(args, opts):
         rep.check(not margin_bad, f"the {margin}-pixel margin's alpha 0 at every mip it is a texel or more wide (mips 0-"
                                   f"{int(np.log2(margin))})", "; ".join(margin_bad))
         rep.check(not cov_bad, "each badge covers 25-82 % of the plate's rectangle (a lone figure without a ground "
-                               "from 15 %)",
+                               "from 15 %: the table's ground none, or badges.json's \"ground\" false)",
                   "; ".join(cov_bad) or ", ".join(f"{k} {v:.2f}" for k, v in covs.items()))
         if both is not None:
             rep.check(not plate_bad, "each emblem inside what both tank plates show (0.5 % or less outside)",
@@ -393,7 +405,7 @@ def check(args, opts):
         rep.check(keys == sorted(b["key"] for b in ours) and all(meta["badges"][b["key"]]["cell"] == b["cell"] for b in ours),
                   f"badges.json: our {len(ours)} in look_options.json's cells", ", ".join(keys))
     if args.base:
-        old_cells(rep, args, at, opts)
+        old_cells(rep, args, at, opts, meta)
     # the materials
     template = template_path(args.out)
     tmpl = bgsm.loads(template.read_bytes()) if template.exists() else None
@@ -567,6 +579,10 @@ def main():
     ap.add_argument("--pynifly", type=Path, help="PyNifly's io_scene_nifly folder (needed with --plate-nif)")
     ap.add_argument("--base", type=Path, help="(--check, since 2026-11-16a) an older tree: its badges' cells must keep "
                                               "their blocks at mips 0-5")
+    ap.add_argument("--base-build", metavar="BUILD", default="2026-11-08a",
+                    help="(--check --base, since 2026-11-17a) the build --base's atlas is (default 2026-11-08a: "
+                         "2026-11-15b's): the cells of its badges are compared, but those bike_art.py redrew after it "
+                         "(badges.json's \"art\", read through --art)")
     ap.add_argument("--through", metavar="BUILD", help="(since 2026-11-16a) the table as build BUILD had it (its entries "
                                                        "with a later \"since\" left out)")
     ap.add_argument("--sheet", type=Path, help="write a flat contact sheet of every badge on every slot here")

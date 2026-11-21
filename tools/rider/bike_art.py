@@ -42,11 +42,24 @@ font is a die-pressed one of our own (narrow, square bowls, flat-cut ends, heavi
 2026-11-08a: the stroked font before it) and every design's emblem is drawn at the plate's own scale, as the Vault-Tec
 cog was in 2026-11-09a (--plate-emblems 2026-11-09a: the badge drawers scaled down but that cog); plates.json records
 each emblem's box and neighbours for look_plates.py --check. --plate-font 2026-11-08a --plate-emblems 2026-11-09a: the
-2026-11-09a art, its textures byte for byte.
+2026-11-09a art, its textures byte for byte. Since the 2026-11-17a build (--plate-emblems 2026-11-17a, the default; test
+56) four designs are redrawn in their factions' own colours: the Brotherhood's emblem (white disc, black cogs, sword, gold
+guard and pommel, blue wings), the Minutemen flag's device (musket, lightning bolt, three stars), Nuka-Cola's bottle cap
+with its script and swoosh in a brush script of our own, and Red Rocket as its round sign (red frame, yellow field, the
+RR-and-rocket roundel, the ring's words); a seventh fixed colour, gold, at U 49 (plates.json "fixed_top" 55), and Red
+Rocket's own row's base the sign's yellow ("own_base"). --plate-emblems 2026-11-16a: 2026-11-16a's art and textures byte
+for byte.
 
 --badges (since the 2026-11-07a build) writes only the faction badges' atlas (look_badges.py makes the DDS and the
 materials); since 2026-11-16a it has the Gunners skull and the 3D helmets' two enamel grounds too (cells (1, 3), (2, 3),
 (3, 3)), and --through 2026-11-08a reads the table as 2026-11-15b had it (its 13 badges, its atlas byte for byte).
+Since 2026-11-17a (test 56) three cells are redrawn, each behind its own flag: --gunskull-art (the skull on a green flag
+patch; 2026-11-16a: the skull alone), --bos-art (the Brotherhood of Steel's colour emblem: a white disc with three
+black gears, a steel sword with a gold guard and pommel, blue wings, a black outline; 2026-11-07a: the gold winged
+sword over a cog) and --enclave-ground (the 3D Enclave helmet's ground in polished chrome; 2026-11-16a: black enamel).
+Unset, each follows --through: a build before 2026-11-17a draws the old art, so --through 2026-11-16a gives
+2026-11-16a's atlas byte for byte and --through 2026-11-08a still 2026-11-15b's. badges.json names a redrawn cell's
+"art" and "drawn" (and "ground": whether it has a plate ground, look_badges.py's coverage rule).
 
 Normal maps are tangent space in Fallout 4's (Direct3D) convention: red along +u, green along +v
 (down the image), blue out of the surface; written as they are (no green flip). Colours are 8-bit
@@ -1094,6 +1107,12 @@ def draw_ground(B, col):
     colour inside the stock badge's chrome bevel, no emblem. Returns the enamel field's outline for badges.json."""
     plate = plaque_sd(B.cv, GROUND_INSET, GROUND_R)
     B.rimmed(plate, hexrgb(col["ground"]), GROUND_RIM)
+    return _ground_field()
+
+
+def _ground_field():
+    """The grounds' enamel field, for badges.json (one outline for every ground and art version: unit A's helmets are
+    fitted inside it, look_emblems.py --ground-field)."""
     return dict(field=dict(safe_inset_px=GROUND_INSET + GROUND_RIM, corner_px=max(0.0, GROUND_R - GROUND_RIM),
                            bevel_px=GROUND_RIM,
                            outline=[[round(x, 2), round(y, 2)] for x, y in offset_convex(BADGE_SAFE, GROUND_INSET + GROUND_RIM)],
@@ -1106,6 +1125,163 @@ BADGE_DRAW = {"bos": draw_bos, "boshelm": draw_boshelm, "enclave": draw_enclave,
               "institute": draw_institute, "vaulttec": draw_vaulttec, "atomcats": draw_atomcats,
               "raiders": draw_raiders, "atom": draw_atom, "army": draw_army,
               "gunskull": draw_gunskull, "hg_enclave": draw_ground, "hg_bos": draw_ground}
+
+
+# --- since the 2026-11-17a build (test 56's art corrections): the Gunners skull on a green flag patch, the
+# Brotherhood of Steel badge as the colour emblem, the Enclave helmet's ground in chrome ----------------------------------
+# Each is an art version of its badge's cell (BADGE_ART, set by --gunskull-art, --bos-art and --enclave-ground; with
+# none given, --through a build before 2026-11-17a draws the old ones). An old version draws its cell exactly as before,
+# so the three old versions give 2026-11-16a's atlas byte for byte (and with --through 2026-11-08a 2026-11-15b's).
+# Our own drawings from written feature lists (the author's pictures are looked at, never read by any tool); the
+# colours below are this art's own (the table's colours serve the older drawings; look_options.json is not changed).
+ART_17A = "2026-11-17a"
+BADGE_ART_OLD = {"gunskull": "2026-11-16a", "bos": "2026-11-07a", "hg_enclave": "2026-11-16a"}
+BADGE_ART = dict.fromkeys(BADGE_ART_OLD, ART_17A)      # each redrawn badge's art version (main() sets it)
+FINISH.update({
+    "flag": (0.16, 0.50, 0.30),        # a painted flag patch: satin, the cube barely shows
+    "flagprint": (0.18, 0.52, 0.40),   # the white print on it, a coat over the patch
+    "outline": (0.30, 0.78, 0.50),     # an emblem's black outline (and its gears): enamel, raised over the fields
+    "polished": (0.92, 0.92, 0.45),    # polished chrome as a plate's ground: the bevel's finish, below its top
+})
+
+# The Gunners skull on a flag patch (test 56, the author's pick): a deep green rectangle with slightly rounded corners,
+# the white skull centred on it with rough, ragged edges; its features are holes the green shows through: an X on the
+# forehead, two angled eye holes, a nose hole, stitched teeth (vertical bars over a horizontal line). The patch fills
+# the plates' common hexagon as the skull did (it stays inside BADGE_SAFE inset 4), about 5:3.
+GUNFLAG_GREEN, GUNFLAG_WHITE = "17482d", "efeee8"
+GUNFLAG_BOX = (124.0, 46.0, 388.0, 205.0)     # the patch (cell px: x0, y0, x1, y1): 264 x 159
+GUNFLAG_R = 10.0                               # its corners' radius (slightly rounded)
+GUNFLAG_SKULL = (256.0, 64.0, 122.0)          # the skull's middle x, crown y, height (px)
+# the skull's right half, crown to chin (u from its middle, v from its crown; px at 124 tall): a round crown, the
+# temples, a ragged bulge at the cheekbones, then the narrower jaw and a rounded chin
+GUNFLAG_HALF = [(0, 0), (14, 1), (27, 6), (37, 15), (44, 27), (47, 39), (50, 47), (55, 54), (56, 62), (53, 70), (47, 76),
+                (46, 86), (42, 98), (35, 108), (25, 117), (13, 122), (0, 124)]
+
+
+def _flag_rough(cv, seed, fine, coarse):
+    """A ragged edge: two scales of value noise (px) to add to a signed distance."""
+    return hash_noise(cv, 3.0, seed) * fine + hash_noise(cv, 8.5, seed + 1) * coarse
+
+
+def draw_gunflag(B, col):
+    cv = B.cv
+    green, white = hexrgb(GUNFLAG_GREEN), hexrgb(GUNFLAG_WHITE)
+    x0, y0, x1, y1 = GUNFLAG_BOX
+    B.fill(sd_box(cv, x0, y0, x1, y1, GUNFLAG_R), green, "flag")
+    cx, top, h = GUNFLAG_SKULL
+    k = h / 124.0
+
+    def P(pts):
+        return [(cx + u * k, top + v * k) for u, v in pts]
+    half = GUNFLAG_HALF
+    head = sd_poly(cv, smooth_closed(P(half + [(-u, v) for u, v in half[-2:0:-1]]), 6)) + _flag_rough(cv, 41, 1.7, 2.4)
+    B.fill(head, white, "flagprint", aa=1.0)
+    feats = [sd_poly(cv, _tapered(*P([(-14, 17), (13, 42)]), 8.0 * k, 5.5 * k)),       # the X: two brush strokes
+             sd_poly(cv, _tapered(*P([(14, 16), (-12, 43)]), 7.5 * k, 5.5 * k))]
+    feats.append(sd_poly(cv, smooth_closed(P([(-7, 57), (-12, 50), (-25, 47), (-39, 51), (-40, 60), (-31, 68),
+                                                 (-18, 66)]), 3)))                     # the eye holes: angled, the
+    feats.append(sd_poly(cv, smooth_closed(P([(8, 58), (13, 50), (26, 47), (39, 50), (41, 59), (32, 68),
+                                                 (19, 66)]), 3)))                      # inner ends low, toward the nose
+    feats.append(sd_poly(cv, P([(0, 68), (4, 77), (6, 86), (2, 85), (0, 81), (-2, 85), (-6, 86), (-4, 77)])))   # nose
+    feats.append(sd_stroke(cv, P([(-25, 101), (-8, 100), (9, 101), (25, 99)]), 4.6 * k))   # the teeth: the line
+    for u, lean in ((-15, -1.0), (-5, 0.8), (5, -0.6), (15, 1.0)):                          # and four bars over it
+        feats.append(sd_stroke(cv, P([(u - lean, 91), (u + lean, 111)]), 4.6 * k))
+    feat = np.minimum.reduce(feats) + _flag_rough(cv, 43, 0.8, 0.6)
+    B.fill(np.maximum(feat, head + 2.0), green, "flag", aa=1.0)
+    return {"art": ART_17A, "ground": True,
+            "drawn": "a deep green flag patch with slightly rounded corners; the white skull centred on it, rough-edged, "
+                     "with an X on the forehead, two eye holes, a nose hole and stitched teeth (the green through them)"}
+
+
+# The Brotherhood of Steel badge as the colour emblem (test 56): a white disc with three black gears (a large one high
+# on the left, two small ones on the right and below it, each with a round hole), a vertical sword, point up above the
+# disc, its steel blade over the disc, a gold crossguard with round ends under the disc and a gold oval pommel, blue
+# wings sweeping up both sides from under the disc (five feathers each, their points rising outward), a black outline
+# round every part. Sizes in R, the disc's radius; the sword spans the plates' hexagon from point to pommel.
+BOS17 = dict(disc="f1f0ea", gear="121214", line="0f1012", blade="a8adb3", gold="c9a227", wing="3a6c9c")
+BOS17_TIP, BOS17_FOOT = 26.0, 215.0     # the sword's point and the pommel's foot (cell px)
+BOS17_LINE = 3.2                         # px: the black outline round every part
+BOS17_TIPS = [(0.93, -0.62), (1.36, 0.14), (1.37, 0.66), (1.19, 1.10), (0.92, 1.44)]   # a wing's feather points (R)
+BOS17_NOTCH = [(1.12, 0.48), (1.02, 0.90), (0.80, 1.18), (0.55, 1.37)]                 # its notches between them
+BOS17_GEARS = [(-0.25, -0.17, 0.45, 0.58, 9, 0.26), (0.62, 0.00, 0.23, 0.30, 8, 0.13),
+               (0.29, 0.55, 0.24, 0.31, 8, 0.13)]                 # (x, y, root, tip, teeth, hole), R
+
+
+def _bos17_wing(cx, cy, R, s):
+    """A wing's outline (s +1 the right, -1 the left): each feather's outer edge a convex curve from its point down to
+    the next notch, then up and out to the next point; the last feather's lower edge sweeps in under the disc to the
+    blade; the inner edge runs back up just inside the disc's edge to the top point."""
+    T, N = BOS17_TIPS, BOS17_NOTCH
+    pts = []
+    outer = [((0.20, 0.25), (0.10, -0.30)), ((0.04, 0.22), (0.17, -0.12)), ((-0.02, 0.22), (0.22, -0.04)),
+             ((-0.06, 0.18), (0.22, 0.02))]
+    for i in range(4):
+        (tx, ty), (nx, ny) = T[i], N[i]
+        (a1, b1), (a2, b2) = outer[i]
+        pts += bezier((tx, ty), (tx + a1, ty + b1), (nx + a2, ny + b2), (nx, ny), 12)[:-1]
+        pts += [(nx, ny)]
+    tx, ty = T[4]
+    pts += bezier((tx, ty), (tx - 0.10, ty + 0.22), (0.36, 1.82), (0.06, 1.80), 12)
+    pts += [(0.06, 1.0)]
+    top = math.degrees(math.atan2(T[0][0], T[0][1]))
+    pts += [(0.96 * math.sin(math.radians(a)), 0.96 * math.cos(math.radians(a))) for a in np.linspace(4.0, top - 2.0, 24)]
+    return [(cx + s * x * R, cy + y * R) for x, y in pts]
+
+
+def draw_bos17(B, col):
+    cv = B.cv
+    c = {k: hexrgb(v) for k, v in BOS17.items()}
+    R = (BOS17_FOOT - BOS17_TIP) / 3.20
+    cx, cy = BADGE_C[0], BOS17_TIP + 1.13 * R
+    o = BOS17_LINE
+
+    def outlined(sd, colour, finish):
+        B.fill(sd - o, c["line"], "outline")
+        B.fill(sd, colour, finish)
+    for s in (-1, 1):
+        outlined(sd_poly(cv, _bos17_wing(cx, cy, R, s)), c["wing"], "enamel")
+    disc = sd_circle(cv, cx, cy, R)
+    outlined(disc, c["disc"], "enamel")
+    for gx, gy, root, tip, teeth, hole in BOS17_GEARS:
+        g = sd_poly(cv, gear_pts(cx + gx * R, cy + gy * R, root * R, tip * R, teeth, duty=0.42, rot=-90.0 + 180.0 / teeth))
+        B.fill(np.maximum(g, disc), c["gear"], "outline")
+        B.fill(sd_circle(cv, cx + gx * R, cy + gy * R, hole * R), c["disc"], "enamel")
+    w = 0.095 * R
+    blade = sd_poly(cv, [(cx, cy - 1.13 * R), (cx + w, cy - 0.98 * R), (cx + w, cy + 1.45 * R), (cx - w, cy + 1.45 * R),
+                         (cx - w, cy - 0.98 * R)])
+    outlined(blade, metal(BOS17["blade"]), "metal")
+    outlined(sd_box(cv, cx - 0.075 * R, cy + 1.40 * R, cx + 0.075 * R, cy + 1.95 * R), metal(BOS17["blade"]), "metal")
+    guard = np.minimum.reduce([sd_box(cv, cx - 0.21 * R, cy + 1.385 * R, cx + 0.21 * R, cy + 1.445 * R),
+                               sd_ellipse(cv, cx - 0.225 * R, cy + 1.415 * R, 0.065 * R, 0.08 * R),
+                               sd_ellipse(cv, cx + 0.225 * R, cy + 1.415 * R, 0.065 * R, 0.08 * R)])
+    outlined(guard, metal(BOS17["gold"]), "metal")
+    outlined(sd_ellipse(cv, cx, cy + 1.985 * R, 0.115 * R, 0.085 * R), metal(BOS17["gold"]), "metal")
+    return {"art": ART_17A, "ground": False,
+            "drawn": "a white disc with three black gears; a vertical sword, point up, a steel blade, a gold crossguard "
+                     "and pommel; blue wings sweeping up both sides; a black outline round every part (no plate ground)"}
+
+
+# The Enclave helmet's ground in chrome (test 56: "chrome would be nice"; the black one hid the dark helmet): the same
+# plate, bevel and field as draw_ground's, the field polished chrome (the chrome's finish, below the bevel's top) a hair
+# lighter than the bevel, so it reads behind the gunmetal helmet by its diffuse too where the cube's reflection is dim
+# (at night); a thin dark step round the field's edge keeps the raised bevel reading where both are chrome (inside the
+# field's outline, so unit A's helmets, 0.2 units and more inside it, stand clear of it).
+GROUND_POLISH = (0.44, 0.44, 0.46)
+GROUND_STEP = 2.5                       # px: the dark step between the bevel and the polished field
+
+
+def draw_ground_chrome(B, col):
+    plate = plaque_sd(B.cv, GROUND_INSET, GROUND_R)
+    B.rimmed(plate, GROUND_POLISH, GROUND_RIM, finish="polished")
+    field = plate + GROUND_RIM
+    B.fill(np.maximum(field, -(field + GROUND_STEP)), ENAMEL, "enamel")
+    return dict(_ground_field(), art=ART_17A,
+                drawn="the plate's hexagon in polished chrome inside the stock badge's raised chrome bevel, a thin dark "
+                      "step between them, no emblem")
+
+
+BADGE_DRAW_17A = {"gunskull": draw_gunflag, "bos": draw_bos17, "hg_enclave": draw_ground_chrome}
+BADGE_BLEED_17A = {"gunskull": hexrgb(GUNFLAG_GREEN), "bos": hexrgb(BOS17["line"]), "hg_enclave": CHROME}
 
 
 def look_through(node, through):
@@ -1137,9 +1313,13 @@ def draw_badge_atlas(opts):
             continue
         c, r = b["cell"]
         col = b["colours"]
-        bleed = hexrgb(col["emblem"][0]) if col.get("ground") is None else CHROME
-        B = BadgeArt(cw, ch, bleed)
-        extra = BADGE_DRAW[b["key"]](B, col)
+        if BADGE_ART.get(b["key"]) == ART_17A:              # a redrawn badge (since 2026-11-17a)
+            B = BadgeArt(cw, ch, BADGE_BLEED_17A[b["key"]])
+            extra = BADGE_DRAW_17A[b["key"]](B, col)
+        else:
+            bleed = hexrgb(col["emblem"][0]) if col.get("ground") is None else CHROME
+            B = BadgeArt(cw, ch, bleed)
+            extra = BADGE_DRAW[b["key"]](B, col)
         # the margin: nothing within it, whatever a drawing did
         edge = np.minimum(np.minimum(B.cv.x - margin, cw - margin - B.cv.x), np.minimum(B.cv.y - margin, ch - margin - B.cv.y))
         B.alpha *= edge >= 0
@@ -1499,7 +1679,8 @@ PLATE_GLYPHS = _plate_glyphs()
 PLATE_FONT_OLD, PLATE_FONT_NEW = "2026-11-08a", "2026-11-16a"
 PLATE_FONT = PLATE_FONT_NEW
 PLATE_EMBLEMS_OLD, PLATE_EMBLEMS_NEW = "2026-11-09a", "2026-11-16a"    # the designs' emblems (--plate-emblems)
-PLATE_EMBLEMS = PLATE_EMBLEMS_NEW
+PLATE_EMBLEMS_COLOUR = "2026-11-17a"    # since 2026-11-17a: four factions' emblems in their own colours (test 56)
+PLATE_EMBLEMS = PLATE_EMBLEMS_COLOUR
 DIE_WEIGHT = 1.15                   # every stroke a caller asks for, x this (the texts' 13 px -> 14.95)
 DIE_S_REF = PLATE_STROKE * DIE_WEIGHT
 DIE_PITCH = 62.0                    # px at the 92-px cap: the texts' die (48 inked + a stroke's gap)
@@ -2107,8 +2288,25 @@ def draw_plate_texts(opts):
 PLATE_FIXED = (("hole", 0, "0b0b0c"), ("white", 8, "ece9df"), ("orange", 16, "d8641c"), ("red", 24, "b0201c"),
                ("steel", 33, "8f9296"), ("rust", 41, "5a2a18"))
 BASE, LEGEND, ACCENT = 0, 1, 2
-FIXED = {k: 3 + i for i, (k, _, _) in enumerate(PLATE_FIXED)}
+# Since 2026-11-17a (--plate-emblems 2026-11-17a) a seventh fixed colour, gold, for the Brotherhood's guard and pommel
+# and Red Rocket's yellow: BC1's 5-bit red has only the six greys above in 0-47, so it takes U 49 in the table's guard
+# 48-55 (red 49, green 48 decoded: both in its segment 46-55; the base still starts at 56). plates.json then says the
+# fixed colours end at 55 ("fixed_top"); look_plates.py follows it. The older flags keep the six and the guard.
+PLATE_FIXED_GOLD = ("gold", 49, "e8c534")
+PLATE_FIXED_TOP_GOLD = 55
+FIXED = {k: 3 + i for i, (k, _, _) in enumerate(PLATE_FIXED + (PLATE_FIXED_GOLD,))}
 PLATE_PART_NAMES = ["base", "legend", "accent"] + [f"fixed {k}" for k, _, _ in PLATE_FIXED]
+
+
+def plate_fixed():
+    """The fixed colours the current --plate-emblems draws with (2026-11-17a: the six and gold)."""
+    return PLATE_FIXED + ((PLATE_FIXED_GOLD,) if PLATE_EMBLEMS == PLATE_EMBLEMS_COLOUR else ())
+
+
+def plate_part_names():
+    return ["base", "legend", "accent"] + [f"fixed {k}" for k, _, _ in plate_fixed()]
+
+
 FACE_X0, FACE_Y0, FACE_W, FACE_H, FACE_R = 8.0, 8.0, 496.0, 226.0, 33.3   # px in a design cell; corner r 1.45 units
 FACE_PX = FACE_W / 21.62                       # px a unit (22.9)
 EDGE_SHADE = 0.85                              # the rows below the face (the edges and the front face's strip)
@@ -2132,6 +2330,22 @@ PLATE_DESIGN = {
     "raider": dict(finish="paint", accent=None),
     "army": dict(finish="flat", accent=None),
 }
+# Since 2026-11-17a (--plate-emblems 2026-11-17a): the Brotherhood's accent is its wings' blue on every background;
+# Red Rocket's the white of the sign's words, and its own row's base the sign's yellow ("own_base": the table keeps
+# own_back cream for the scripts and the ESP; look_plates.py puts this colour in that one palette row, any other
+# background the player picks shows as itself)
+PLATE_DESIGN_COLOUR = {
+    "bos": dict(accent=("tint", "4b7796", 1.0)),
+    "redrocket": dict(accent=("tint", "f2efe6", 1.0), own_base=PLATE_FIXED_GOLD[2]),
+}
+
+
+def plate_design(key):
+    """A design's finish and accent (and own_base) as the current --plate-emblems draws it."""
+    d = dict(PLATE_DESIGN[key])
+    if PLATE_EMBLEMS == PLATE_EMBLEMS_COLOUR:
+        d.update(PLATE_DESIGN_COLOUR.get(key, {}))
+    return d
 
 
 def FX(u):
@@ -2489,17 +2703,21 @@ EMBLEM_RELIEF = 0.03            # units: an emblem's print, raised as the 2026-1
 class _Emblem:
     """Collects an emblem's texels as it is put on a PlateArt, then its spec (box, parts, neighbours) for plates.json."""
 
-    def __init__(self, P, near, what):
+    def __init__(self, P, near, what, area=None):
         self.P, self.near, self.what = P, near, what
         self.mask = np.zeros(P.part.shape, bool)
         self.parts = []
+        self.area = area                 # since 2026-11-17a: the emblem's own bound on its mips' area (EMBLEM_AREA_FINE)
 
-    def put(self, sd, part, finish="print", relief=EMBLEM_RELIEF):
-        on = self.P.put(sd, part, 1.0, finish)
+    def put(self, sd, part, finish="print", relief=EMBLEM_RELIEF, shade=1.0, count=True):
+        """`shade` and `count` since 2026-11-17a: a part's shade (a number or a map), and whether the texels are the
+        emblem's own (False: the plate's base drawn as an outline or a blade, not the emblem's part for the check)."""
+        on = self.P.put(sd, part, shade, finish)
         self.P.raise_(relief * on)
-        self.mask |= on
-        if part not in self.parts:
-            self.parts.append(part)
+        if count:
+            self.mask |= on
+            if part not in self.parts:
+                self.parts.append(part)
         return on
 
     def done(self):
@@ -2508,6 +2726,8 @@ class _Emblem:
         self.P.emblem_spec = dict(box=[int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1],
                                   parts=[int(p) for p in sorted(self.parts)], near=[int(p) for p in self.near],
                                   what=self.what)
+        if self.area is not None:
+            self.P.emblem_spec["area"] = list(self.area)
 
 
 def _plate_atom(P):
@@ -2637,6 +2857,322 @@ def _plate_terminal(P):
     E.done()
 
 
+# The four factions' emblems in their own colours (since the 2026-11-17a build, --plate-emblems 2026-11-17a; test 56:
+# "BoS logo on plate wrong, minuteman logo on plate wrong, nuka cola plate logo wrong, red rocket plate - whole design").
+# Our own drawings from primitives (discs, cogs, polygons, splines, our own script), looked at in the tester's pictures,
+# never traced or sampled. Each as large as the plate allows clear of the texts' letters: the widest texts' first letter
+# starts at x 61.8, y 78.5 of the cell, so an emblem fills the top-left corner (about x 11-79, y 11-78, round shapes
+# kept 3 px or more from that corner) and only a narrow foot goes lower, down the margin left of x 58 (the sword). Colours by palette part (an index can't blend):
+# - the parts that must last to the riding view's mips 2-3 are the legend or the accent (a mip keeps them from a quarter
+#   of the footprint); fixed colours and the base go by majority;
+# - BC1 keeps four evenly spaced greys a 4 x 4 block, so hole black (U 0) or white (8) can't share a block with a far
+#   part (base 56-159, accent 224-255): outlines against the plate are the base at a dark shade (EMB_DARK), black lines
+#   only between fixed colours (cogs on the white disc).
+EMB_DARK = 0.42                 # the base's shade for an emblem's outline (the plate's own colour, near black)
+EMB_LINE = 1.5                  # px: that outline's width
+# look_plates.py --check holds an emblem's area at mips 1-3 within 0.7-1.6 of level 0's (16a's rule for bold
+# silhouettes, features 4 px or more). Two of these are fine by nature: the Minutemen's tapering bolt and thin barrel,
+# Nuka-Cola's script (1.3-2.5 px strokes). In the legend's colour a mip keeps their texels from a quarter of the
+# footprint, so at mips 2-3 they stay a white mark (x1.4-2.0 their level-0 area) instead of vanishing into the plate;
+# their spec says so (still never next to a neighbour at mips 0-3: that check is unchanged).
+EMBLEM_AREA_FINE = (0.7, 2.2)
+
+
+def _spline_runs(runs, n=6):
+    """A closed outline from runs of points (each run's first and last a sharp corner; the points between them
+    smoothed by an open Catmull-Rom spline through them)."""
+    out = []
+    for run in runs:
+        p = np.asarray(run, np.float64)
+        q = np.concatenate([[2 * p[0] - p[1]], p, [2 * p[-1] - p[-2]]])
+        for i in range(1, len(q) - 2):
+            a, b, c, d = q[i - 1], q[i], q[i + 1], q[i + 2]
+            for t in np.linspace(0, 1, n, endpoint=False):
+                out.append(tuple(0.5 * ((2 * b) + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t * t
+                                        + (-a + 3 * b - 3 * c + d) * t ** 3)))
+    return out
+
+
+# The Brotherhood's emblem in units of its disc's radius (x right, y down, the disc's centre at 0): the left wing's
+# outline from its top tip round its four feathers (tips out and up, notches between) to the sword; the right wing its
+# mirror. The sword point up through the disc, its bone-shaped guard and oval pommel below the wings.
+BOS_WING = [[(-0.889, -0.545), (-1.051, -0.364), (-1.192, -0.101), (-1.232, 0.141), (-1.180, 0.364), (-1.110, 0.480)],
+            [(-1.110, 0.480), (-1.250, 0.330), (-1.364, 0.172)],
+            [(-1.364, 0.172), (-1.384, 0.343), (-1.354, 0.525), (-1.283, 0.667), (-1.172, 0.788), (-1.030, 0.900)],
+            [(-1.030, 0.900), (-1.220, 0.800), (-1.380, 0.697)],
+            [(-1.380, 0.697), (-1.364, 0.848), (-1.313, 0.970), (-1.192, 1.071), (-1.030, 1.131), (-0.800, 1.172)],
+            [(-0.800, 1.172), (-1.000, 1.172), (-1.200, 1.137)],
+            [(-1.200, 1.137), (-1.091, 1.273), (-0.929, 1.374), (-0.707, 1.434), (-0.470, 1.470)],
+            [(-0.470, 1.470), (-0.700, 1.486), (-0.915, 1.485)],
+            [(-0.915, 1.485), (-0.707, 1.636), (-0.465, 1.758), (-0.222, 1.808), (0.0, 1.830)]]
+BOS_C = dict(centre=(46.5, 38.0), r=22.5)       # px in the cell: the point at y 12, the pommel to 86, wings x 15-78
+# the cogs on the disc, px from its centre at a disc of 21.5 px (scaled with it): (offset), tip, root, hole radius,
+# teeth, phase (degrees). Laid out for the plate's scale: each hole clear of the sword (the cogs stop 1.5 px short of
+# its edge, as if behind it), teeth 2-3 px
+BOS_COGS = (((-11.5, -3.0), 8.5, 6.4, 3.2, 8, 0.0), ((12.0, -2.5), 5.8, 4.2, 2.0, 7, 12.0),
+            ((9.5, 10.5), 5.8, 4.2, 2.0, 7, 0.0))
+
+
+def _plate_bos_colour(P):
+    """The Brotherhood of Steel's emblem in its colours (2026-11-17a): a white disc with three black cogs, a sword point
+    up through it (the plate's own steel grey, edged dark, a lighter blade), a gold guard and pommel, blue wings of four
+    feathers sweeping up both sides, the whole outlined dark in the plate's colour. 74 px tall (16a's: 46)."""
+    cv = P.cv
+    (cx, cy), R = BOS_C["centre"], BOS_C["r"]
+    E = _Emblem(P, [LEGEND], "the Brotherhood's emblem in colour: a white disc, three cogs, a sword, gold guard and "
+                             "pommel, blue wings")
+
+    def T(pts, s=1):
+        return [(cx + s * x * R, cy + y * R) for x, y in pts]
+
+    left = _spline_runs([T(r) for r in BOS_WING])
+    inner = [(cx + R * math.cos(math.radians(a)), cy + R * math.sin(math.radians(a))) for a in np.linspace(90, 207, 14)]
+    wing_l = left + [(cx, cy + 1.83 * R), (cx, cy + R)] + inner
+    wings = np.minimum(sd_poly(cv, wing_l), sd_poly(cv, [(2 * cx - x, y) for x, y in wing_l]))
+    disc = sd_circle(cv, cx, cy, R)
+    hw = 0.13 * R                                                   # the blade's half width (2.8 px: it lasts to mip 2)
+    blade = sd_poly(cv, [(cx, cy - 1.16 * R), (cx + hw, cy - 0.97 * R), (cx + hw, cy + 1.42 * R),
+                         (cx - hw, cy + 1.42 * R), (cx - hw, cy - 0.97 * R)])
+    gy = cy + 1.41 * R                                              # the guard: a bar with a round lobe at each end
+    guard = np.minimum.reduce([sd_box(cv, cx - 0.24 * R, gy - 1.5, cx + 0.24 * R, gy + 1.5),
+                               sd_circle(cv, cx - 0.25 * R, gy, 2.5), sd_circle(cv, cx + 0.25 * R, gy, 2.5)])
+    grip = sd_box(cv, cx - 1.7, gy, cx + 1.7, cy + 1.98 * R)
+    pommel = sd_ellipse(cv, cx, cy + 2.03 * R, 3.5, 2.7)
+    sword = np.minimum(blade, grip)
+    whole = np.minimum.reduce([wings, disc, sword, guard, pommel])
+    E.put(whole - EMB_LINE, BASE, "print", shade=EMB_DARK, count=False)       # the outline, in the plate's own dark
+    E.put(wings, ACCENT, "enamel")
+    E.put(disc, FIXED["white"], "enamel")
+    near_sword = hw + EMB_LINE + 1.5                                # the cogs stop short of the sword (white between)
+    clear = near_sword - np.abs(cv.x - cx) + np.zeros((cv.h, cv.w))
+    for (gx, gy_), tip, root, hole, n, ph in BOS_COGS:              # the big cog top left, two small ones right
+        f = R / 21.5
+        (gx, gy_), tip, root, hole = (gx * f, gy_ * f), tip * f, root * f, hole * f
+        x0, y0 = cx + gx, cy + gy_
+        span = (2 * 0.15 + 0.45 * (1 - 2 * 0.15)) * 360.0 / n
+        body = sd_poly(cv, gear_pts(x0, y0, root, tip, n, duty=0.45, rot=-90.0 + ph - span / 2, flank=0.15))
+        cog = np.maximum.reduce([body, -sd_circle(cv, x0, y0, hole), clear, disc + 1.5])
+        E.put(cog, FIXED["hole"], "enamel")
+    E.put(sword, BASE, "steel", shade=EMB_DARK, count=False)       # the sword: a dark edge, a lighter blade
+    E.put(sword + 1.1, BASE, "steel", shade=1.32, count=False, relief=0.05)
+    E.put(np.minimum(guard, pommel), FIXED["gold"], "metal", relief=0.05)
+    E.done()
+
+
+# The Minutemen flag's device in units of its half size (x right, y down, its middle at 0): a lightning bolt from the
+# upper left to the lower right, its two wedges offset at the middle; a musket from the lower left to the upper right,
+# its stock and its barrel either side of the bolt; three five-point stars, top, left and right.
+MM_BOLT = [(-0.824, -0.859), (-0.050, -0.090), (0.012, -0.320), (0.844, 0.932), (0.040, 0.090), (0.006, 0.338)]
+MM_STARS = ((0.0, -0.82), (-0.875, -0.01), (0.875, -0.01))
+MM_C = dict(centre=(44.0, 42.7), s=31.0)        # px in the cell: x 11-77, y 12-72 (the bolt's tip 7 px above the letters)
+
+
+def _plate_minutemen_flag(P):
+    """The Minutemen's device as on their flag (2026-11-17a), in the legend's colour (cream on the blue plate): the
+    musket crossed by the lightning bolt, three stars. 66 x 60 px (16a's minuteman in a ring: 46)."""
+    cv = P.cv
+    (cx, cy), S = MM_C["centre"], MM_C["s"]
+    E = _Emblem(P, [LEGEND], "the Minutemen flag's device: a musket crossed by a lightning bolt, three stars",
+                EMBLEM_AREA_FINE)
+
+    def T(pts):
+        return [(cx + x * S, cy + y * S) for x, y in pts]
+
+    def along(a, b, w0, w1):
+        """A quad from a to b (units), w0 wide at a and w1 at b (units)."""
+        (ax, ay), (bx, by) = a, b
+        L_ = math.hypot(bx - ax, by - ay)
+        nx, ny = -(by - ay) / L_, (bx - ax) / L_
+        return T([(ax + nx * w0 / 2, ay + ny * w0 / 2), (bx + nx * w1 / 2, by + ny * w1 / 2),
+                  (bx - nx * w1 / 2, by - ny * w1 / 2), (ax - nx * w0 / 2, ay - ny * w0 / 2)])
+
+    bolt = sd_poly(cv, T(MM_BOLT))
+    gap = 1.8                                                       # px of the plate between the bolt and the musket
+    butt, wrist = (-0.80, 0.86), (-0.27, 0.22)
+    stock = np.minimum.reduce([sd_poly(cv, along(butt, wrist, 0.25, 0.15)),
+                               sd_circle(cv, *T([butt])[0], 0.115 * S),           # the butt's rounded end
+                               sd_poly(cv, along((-0.40, 0.26), (-0.36, 0.12), 0.07, 0.05)),   # the hammer
+                               np.abs(sd_circle(cv, *T([(-0.36, 0.40)])[0], 0.07 * S)) - 0.9])  # the trigger guard
+    barrel = np.minimum(sd_poly(cv, along((0.13, -0.22), (0.86, -0.93), 0.14, 0.13)),
+                        sd_poly(cv, along((0.20, -0.20), (0.40, -0.40), 0.10, 0.10)))       # the fore-end under it
+    musket = np.maximum(np.minimum(stock, barrel), -(bolt - gap))
+    stars = np.minimum.reduce([sd_poly(cv, star_pts(*T([c])[0], 0.19 * S, 0.19 * S * 0.44)) for c in MM_STARS])
+    E.put(np.minimum.reduce([bolt, musket, stars]), LEGEND)
+    E.done()
+
+
+# Nuka-Cola's bottle cap: a crimped skirt and a dome in the plate's own colour (its red), shaded and raised, with the
+# brand's two words in a brush script of our own and the swoosh between them, in the legend's colour (white on the red;
+# the legend's contrast swap keeps them readable on any background, as the cap takes the background's colour).
+# The script: each word a few brush strokes (x, y, width) in x-heights, y up from the baseline, before the slant; a
+# stroke's width runs from its hairlines (about 0.45) to its full downstrokes (1.0). Our own letterforms after the
+# game's style (a slanted, bouncy brush script; a tall N with an entry swing, a looped k and l, a big open C).
+NUKA_WORD = [
+    [(-0.15, 1.30, 0.45), (0.05, 1.85, 0.50), (0.38, 2.12, 0.58), (0.52, 1.80, 0.85), (0.42, 1.00, 1.0),
+     (0.25, 0.20, 1.0), (0.12, -0.02, 0.75)],                                         # N: the swing, the left stem
+    [(0.52, 1.95, 0.75), (0.80, 1.00, 1.0), (1.10, 0.05, 0.95)],                         # N: the diagonal
+    [(1.10, 0.05, 0.50), (1.30, 1.05, 0.48), (1.52, 2.00, 0.48), (1.72, 2.18, 0.45)],    # N: the right stem, up
+    [(1.92, 0.95, 0.50), (1.97, 0.50, 1.0), (2.03, 0.08, 0.95), (2.22, -0.02, 0.55), (2.47, 0.40, 0.50),
+     (2.58, 1.00, 0.52)],                                                              # u: the first stroke
+    [(2.58, 1.00, 0.85), (2.54, 0.40, 1.0), (2.60, 0.02, 0.75), (2.80, 0.12, 0.50)],    # u: the second, its exit
+    [(2.80, 0.12, 0.50), (3.05, 0.90, 0.48), (3.30, 1.75, 0.48), (3.42, 2.16, 0.52), (3.24, 2.15, 0.62),
+     (3.15, 1.50, 1.0), (3.05, 0.50, 1.0), (3.00, -0.02, 0.85)],                       # k: the loop, the stem
+    [(3.08, 0.45, 0.50), (3.42, 1.00, 0.52), (3.62, 0.85, 0.70), (3.32, 0.55, 0.90), (3.58, 0.25, 1.0),
+     (3.75, -0.02, 0.80), (3.98, 0.15, 0.50)],                                         # k: the arm and leg
+    [(4.68, 0.80, 0.52), (4.40, 1.00, 0.52), (4.10, 0.78, 0.90), (4.02, 0.30, 1.0), (4.20, -0.02, 0.70),
+     (4.47, 0.20, 0.52), (4.70, 0.80, 0.50)],                                          # a: the bowl
+    [(4.73, 1.00, 0.85), (4.65, 0.40, 1.0), (4.71, 0.02, 0.80), (5.00, 0.18, 0.50)],    # a: the stem and exit
+]
+COLA_WORD = [
+    [(1.12, 1.55, 0.55), (1.00, 1.92, 0.50), (0.62, 2.05, 0.60), (0.25, 1.65, 0.90), (0.08, 0.95, 1.0),
+     (0.18, 0.25, 1.0), (0.48, -0.02, 0.75), (0.85, 0.15, 0.50), (1.10, 0.55, 0.42)],  # C: the open curve
+    [(1.58, 1.00, 0.50), (1.25, 0.78, 0.90), (1.18, 0.25, 1.0), (1.42, -0.02, 0.70), (1.75, 0.30, 0.55),
+     (1.78, 0.80, 0.55), (1.58, 1.00, 0.50), (1.80, 0.98, 0.42), (2.02, 1.10, 0.40)],  # o, its exit at the top
+    [(2.02, 1.10, 0.40), (2.32, 1.70, 0.42), (2.48, 2.14, 0.48), (2.30, 2.15, 0.60), (2.18, 1.50, 1.0),
+     (2.08, 0.50, 1.0), (2.18, 0.02, 0.75), (2.42, 0.12, 0.45), (2.62, 0.55, 0.42)],  # l: the loop
+    [(3.18, 0.80, 0.50), (2.92, 1.00, 0.50), (2.64, 0.78, 0.90), (2.56, 0.30, 1.0), (2.72, -0.02, 0.70),
+     (2.98, 0.20, 0.50), (3.20, 0.80, 0.45)],                                          # a: the bowl
+    [(3.22, 1.00, 0.85), (3.15, 0.40, 1.0), (3.22, 0.02, 0.80), (3.50, 0.18, 0.40)],    # a: the stem and exit
+]
+NUKA_SWOOSH = [(-0.72, 0.17, 0.25), (-0.45, 0.13, 0.70), (-0.08, 0.085, 1.15), (0.30, 0.04, 1.5), (0.58, -0.01, 1.65),
+               (0.74, -0.07, 1.4)]                                   # cap radii; widths x the script's thick stroke
+NUKA_C = dict(centre=(44.5, 44.5), r=33.0, crimps=18)   # px in the cell: x 11-78, y 11-78 (5 px from the letters)
+NUKA_TOP = "ZAP THAT THIRST!"                            # the top legend beside the cap (the game's slogan)
+
+
+def _brush_sd(cv, pts, n=8):
+    """A brush stroke's signed distance: a Catmull-Rom spline through (x, y, width) points, its width (px, full)
+    interpolated along it; each piece a tapered capsule."""
+    p = np.asarray(pts, np.float64)
+    q = np.concatenate([[2 * p[0] - p[1]], p, [2 * p[-1] - p[-2]]])
+    sp = []
+    for i in range(1, len(q) - 2):
+        a, b, c, d = q[i - 1], q[i], q[i + 1], q[i + 2]
+        for t in np.linspace(0, 1, n, endpoint=False):
+            sp.append(0.5 * ((2 * b) + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t * t + (-a + 3 * b - 3 * c + d) * t ** 3))
+    sp.append(p[-1])
+    sp = np.asarray(sp)
+    lo, hi = sp[:, :2].min(0) - sp[:, 2].max() - 3, sp[:, :2].max(0) + sp[:, 2].max() + 3
+    sl, x, y = cv.window(lo[0], lo[1], hi[0], hi[1])
+    d = np.full((sl[0].stop - sl[0].start, sl[1].stop - sl[1].start), np.inf)
+    for (ax, ay, aw), (bx, by, bw) in zip(sp[:-1], sp[1:]):
+        dx, dy = bx - ax, by - ay
+        t = np.clip(((x - ax) * dx + (y - ay) * dy) / max(dx * dx + dy * dy, 1e-12), 0.0, 1.0)
+        d = np.minimum(d, np.hypot(x - ax - t * dx, y - ay - t * dy) - (aw + t * (bw - aw)) / 2)
+    full = np.full((cv.h, cv.w), 1e3)
+    full[sl] = d
+    return full
+
+
+def _script_word_sd(cv, word, x0, baseline, xh, thick, slant=0.30):
+    """A NUKA_WORD-like word: its strokes from x0 (px, the word's left at the baseline), x-height xh px, full width
+    `thick` px, slanted right `slant` (x per y)."""
+    out = np.full((cv.h, cv.w), 1e3)
+    for st in word:
+        out = np.minimum(out, _brush_sd(cv, [(x0 + (x + slant * y) * xh, baseline - y * xh, w * thick) for x, y, w in st]))
+    return out
+
+
+def _plate_nuka_cap(P):
+    """Nuka-Cola's bottle cap logo (2026-11-17a): 66 px across, 18 crimps, the dome and skirt in the plate's own colour
+    shaded and raised, "Nuka" over the swoosh over "Cola" in our brush script, in the legend's colour."""
+    cv = P.cv
+    (cx, cy), R, n = NUKA_C["centre"], NUKA_C["r"], NUKA_C["crimps"]
+    E = _Emblem(P, [LEGEND, ACCENT], "Nuka-Cola's bottle cap: crimps, the brand's script and swoosh", EMBLEM_AREA_FINE)
+    dx, dy = cv.x - cx, cv.y - cy
+    r = np.hypot(dx, dy) + np.zeros((cv.h, cv.w))
+    th = np.arctan2(dy, dx)
+    wave = 0.5 - 0.5 * np.cos(n * th)                               # 0 at a crimp's crest, 1 in the crease between
+    edge = R - 2.4 * wave ** 1.5                                     # the crimped outline
+    cap = r - edge
+    face_r = 0.80 * R
+    light = np.cos(th - math.radians(-125.0))                        # the light from the upper left
+    skirt_shade = 1.00 + 0.34 * np.cos(n * th) * (0.55 + 0.45 * light) + 0.10 * light
+    E.put(cap - 2.2, BASE, "enamel", shade=EMB_DARK, count=False, relief=0.0)       # the dark outline (2.2 px)
+    E.put(cap, BASE, "enamel", shade=skirt_shade, count=False, relief=0.0)
+    E.put(r - (face_r + 1.2), BASE, "enamel", shade=0.72, count=False, relief=0.0)   # the skirt's inner step
+    dome = 1.27 + 0.10 * np.clip(-(dx * 0.57 + dy * 0.82) / face_r, -1, 1)          # lighter toward the light
+    E.put(r - face_r, BASE, "enamel", shade=dome, count=False, relief=0.0)
+    t = np.clip(r / R, 0, 1)                                         # the relief: a dome, the skirt's ridges
+    P.raise_(np.where(cap <= 0, 0.05 + 0.03 * np.clip(1 - (r / face_r) ** 2, 0, 1)
+                      + np.where(r > face_r, 0.015 * (1 - wave) * t, 0.0), 0.0))
+    xh, thick = 0.200 * R, 0.068 * R
+    nuka = _script_word_sd(cv, NUKA_WORD, cx - 0.64 * R, cy - 0.02 * R, xh, thick)
+    cola = _script_word_sd(cv, COLA_WORD, cx - 0.40 * R, cy + 0.50 * R, xh, thick)
+    swoosh = _brush_sd(cv, [(cx + x * R, cy + y * R, w * thick) for x, y, w in NUKA_SWOOSH])
+    E.put(np.minimum.reduce([nuka, cola, swoosh]), LEGEND, "print", relief=0.07)
+    E.done()
+
+
+# The Red Rocket sign plate: the round sign's colours over the whole plate (a black rim, the red ring as a frame wide at
+# the top and the bottom, the yellow centre as the field behind the text: red letters on yellow 4.1:1), the round sign
+# itself in the top-left corner, the ring's words on the frame where they fit. The sign's yellow is the gold fixed
+# colour in the roundel and the plate's own row's base in the field (plate_design's own_base), so the field still takes
+# any background the player picks. Two R's back to back in units of the group (x right, y down): their boxes, the
+# stroke; the rocket between them (its body, a fin and a pod each side, a keel fin).
+RR_R = dict(x0=0.20, x1=0.86, y0=-0.50, y1=0.36, s=0.155)
+RR_ROCKET = [(0.0, -0.80), (0.055, -0.58), (0.10, -0.25), (0.105, 0.30), (0.06, 0.44), (-0.06, 0.44), (-0.105, 0.30),
+             (-0.10, -0.25), (-0.055, -0.58)]
+RR_FIN = [(0.08, 0.05), (0.32, 0.36), (0.32, 0.47), (0.08, 0.36)]
+RR_POD = ((0.33, 0.34), (0.33, 0.70), 0.06)
+RR_C = dict(centre=(47.0, 46.5), r=32.0, ring=7.0, rim=2.5, group=20.5)   # px; the group's unit (the centre r 22.5)
+RR_FIELD = (FY(0.27), FY(0.73), 16.0, 14.0)    # the yellow field's top and bottom (px), its side margin, corner radius
+RR_RIM = 5.0                                    # px of black round the face
+
+
+def _rr_letter(cv, ox, oy, k, mirror):
+    """A geometric R in the group's units (RR_R), drawn at (ox, oy) px with unit k px; `mirror`: its back to the
+    right (the left R of the pair)."""
+    x0, x1, y0, y1, st = RR_R["x0"], RR_R["x1"], RR_R["y0"], RR_R["y1"], RR_R["s"]
+    sgn = -1.0 if mirror else 1.0
+    X = lambda u: ox + sgn * u * k
+    Y = lambda v: oy + v * k
+    ym = y0 + 0.52 * (y1 - y0)                       # the bowl's foot
+    stem = sd_box(cv, min(X(x0), X(x0 + st)), Y(y0), max(X(x0), X(x0 + st)), Y(y1))
+    bh = (ym - y0) * k                              # the bowl: a rounded box's ring, open at the stem
+    bx0, bx1 = sorted((X(x0 + st * 0.5), X(x1 - 0.02)))
+    outer = sd_box(cv, bx0, Y(y0), bx1, Y(ym) + st * k / 2, bh * 0.5)
+    bowl = np.maximum(outer, -(outer + st * k))
+    leg_a, leg_b = (X(x0 + 0.42 * (x1 - x0)), Y(ym)), (X(x1 + 0.01), Y(y1))
+    leg = sd_stroke(cv, [leg_a, leg_b], st * k * 1.05)
+    leg = np.maximum(leg, cv.y - Y(y1))              # its foot cut level with the baseline
+    return np.minimum.reduce([stem, bowl, leg])
+
+
+def _plate_redrocket_sign(P):
+    """Red Rocket's plate as its round sign (2026-11-17a): a black rim, a red frame, a yellow field, the round sign
+    64 px across in the corner (black rim, red ring, yellow centre, two black R's back to back with a red rocket between
+    them), RED ROCKET on the top band and GASOLINE - DIESEL - FUSION on the bottom band in white."""
+    cv = P.cv
+    (cx, cy), R, k = RR_C["centre"], RR_C["r"], RR_C["group"]
+    face = P.face
+    P.put(face + RR_RIM, FIXED["red"], 1.0, "enamel")                # the frame: the sign's red ring
+    P.put(-(face + RR_RIM), FIXED["hole"], 1.0, "enamel")            # the black rim round it
+    sign = sd_circle(cv, cx, cy, R)
+    top, bot, side, rad = RR_FIELD
+    field = sd_box(cv, FX(0.0) + side, top, FX(1.0) - side, bot, rad)
+    P.put(np.maximum(field, -(sign - 4.0)), BASE, 1.0, "enamel")     # the yellow field, clear of the sign by 4 px of red
+    P.bead()
+    c = _legend_cap("RED ROCKET", FX(0.90) - FX(0.20), 26.0)
+    P.legend("RED ROCKET", (FX(0.20) + FX(0.90)) / 2, TOP_Y + 1.0, c, part=ACCENT, fit=FX(0.90) - FX(0.20), finish="print")
+    words = "GASOLINE - DIESEL - FUSION"
+    c = _legend_cap(words, FX(0.92) - FX(0.08), 21.0)
+    P.legend(words, FX(0.5), BOT_Y + 2.0, c, part=ACCENT, fit=FX(0.92) - FX(0.08), finish="print")
+    E = _Emblem(P, [ACCENT], "the Red Rocket round sign: rim, ring, yellow centre, two R's back to back, a rocket")
+    E.put(sign, FIXED["hole"], "enamel", relief=0.04)
+    E.put(sign + RR_C["rim"], FIXED["red"], "enamel", relief=0.04)
+    E.put(sign + RR_C["rim"] + RR_C["ring"], FIXED["gold"], "enamel", relief=0.04)
+    gy = cy + 0.06 * k                                               # the group a little low: the nose fills the top
+    E.put(np.minimum(_rr_letter(cv, cx, gy, k, True), _rr_letter(cv, cx, gy, k, False)), FIXED["hole"], "print", 0.05)
+    T = lambda pts, sx=1.0: [(cx + sx * x * k, gy + y * k) for x, y in pts]
+    a, b, w = RR_POD
+    rocket = np.minimum.reduce([sd_poly(cv, T(RR_ROCKET)), sd_poly(cv, T(RR_FIN)), sd_poly(cv, T(RR_FIN, -1.0)),
+                                sd_stroke(cv, T([a, b]), 2 * w * k), sd_stroke(cv, T([a, b], -1.0), 2 * w * k),
+                                sd_poly(cv, T([(0.0, 0.30), (0.05, 0.56), (-0.05, 0.56)]))])
+    E.put(rocket, FIXED["red"], "print", 0.06)
+    E.done()
+
+
 def plate_vaulttec(P):
     cv = P.cv
     P.bead()
@@ -2675,6 +3211,10 @@ def plate_nuka(P):
     P.bead()
     c = _legend_cap("ENJOY NUKA-COLA!", FX(0.86) - FX(0.14), 19.0)
     P.legend("ENJOY NUKA-COLA!", FX(0.5), BOT_Y + 2, c, part=BASE, fit=FX(0.86) - FX(0.14), finish="print")
+    if PLATE_EMBLEMS == PLATE_EMBLEMS_COLOUR:                    # the bottle cap replaces the script line
+        _std_legends(P, NUKA_TOP, None, top_span=(FX(0.17), FX(0.94)))
+        _plate_nuka_cap(P)
+        return
     sd, w = script_sd(cv, "Nuka-Cola", FX(0.5), TOP_Y + 11.5, 15.5, 3.5)
     P.put(sd, LEGEND, 1.0, "print")
     if PLATE_EMBLEMS == PLATE_EMBLEMS_OLD:
@@ -2691,6 +3231,8 @@ def plate_nuka(P):
 
 def plate_redrocket(P):
     cv = P.cv
+    if PLATE_EMBLEMS == PLATE_EMBLEMS_COLOUR:
+        return _plate_redrocket_sign(P)
     end = [(FX(0.915), FY(-0.1)), (FX(1.05), FY(-0.1)), (FX(1.05), FY(1.1)), (FX(0.985), FY(1.1))]
     P.put(sd_poly(cv, end), ACCENT, 1.0, "print")                # the red end stripe, clear of the text's reach
     thin = [(FX(0.885), FY(-0.1)), (FX(0.897), FY(-0.1)), (FX(0.935), FY(0.24)), (FX(0.923), FY(0.24))]
@@ -2729,6 +3271,8 @@ def plate_bos(P):
         E = emblem_rec("bos", BASE, LEGEND, None, LEGEND)
         c = BADGE_C
         P.emblem(E, (c[0] - 218, 28, c[0] + 218, 206), (FX(0.12), TOP_Y), 34.0)
+    elif PLATE_EMBLEMS == PLATE_EMBLEMS_COLOUR:
+        _plate_bos_colour(P)
     else:
         _plate_bos(P)
 
@@ -2740,6 +3284,8 @@ def plate_minutemen(P):
         E = emblem_rec("minutemen", BASE, LEGEND, None, LEGEND)
         c = BADGE_C
         P.emblem(E, (c[0] - 93, c[1] - 93, c[0] + 93, c[1] + 93), (FX(0.085), TOP_Y), 36.0, mask=sd_circle(E.cv, *c, 93))
+    elif PLATE_EMBLEMS == PLATE_EMBLEMS_COLOUR:
+        _plate_minutemen_flag(P)
     else:
         _plate_minuteman(P)
 
@@ -2845,7 +3391,7 @@ def plate_index(P, pal):
                                 (ACCENT, "accent", pal["legend_shade"])):
         m = P.part == part
         u[m] = plate_u(seg[key], P.shade[m], s0, s1)
-    for k, (_, fu, _) in enumerate(PLATE_FIXED):
+    for k, (_, fu, _) in enumerate(plate_fixed()):
         u[P.part == 3 + k] = fu
     return np.clip(np.rint(u), 0, 255).astype(np.uint8)
 
@@ -2869,16 +3415,20 @@ def draw_plate_designs(opts):
         if d["cell"] is None:
             continue
         c, r = d["cell"]
-        P = PlateArt(PLATE_DESIGN[d["key"]]["finish"])
+        des = plate_design(d["key"])
+        P = PlateArt(des["finish"])
         PLATE_DRAW[d["key"]](P)
         sl = (slice(r * ch, (r + 1) * ch), slice(c * cw, (c + 1) * cw))
         U[sl], PART[sl], HT[sl] = plate_index(P, pal), P.part, P.height
         S[sl] = np.dstack([to8(P.fin[..., 0]), to8(P.fin[..., 1]), np.zeros(P.part.shape, np.uint8)])
         face = P.face <= 0
-        share = {PLATE_PART_NAMES[k]: round(float((P.part[face] == k).mean()), 4) for k in np.unique(P.part[face])}
+        names = plate_part_names()
+        share = {names[k]: round(float((P.part[face] == k).mean()), 4) for k in np.unique(P.part[face])}
         info[d["key"]] = dict(cell=[c, r], index=d["index"], name=d["name"], legend=d["legend"], own_back=d["own_back"],
                               own_ink=d["own_ink"], own_text=d["own_text"], parts=share,
-                              finish=PLATE_DESIGN[d["key"]]["finish"], accent=PLATE_DESIGN[d["key"]]["accent"])
+                              finish=des["finish"], accent=des["accent"])
+        if "own_base" in des:                                      # since 2026-11-17a: the own row's base colour
+            info[d["key"]]["own_base"] = des["own_base"]
         if P.emblem_spec is not None:                              # since 2026-11-16a (--plate-emblems)
             info[d["key"]]["emblem"] = P.emblem_spec
     return U, PART, HT, S, info
@@ -2929,7 +3479,7 @@ def write_plates(out, look_options):
                      "plate_text_d.png": "RGB grey: the U of the ink's row (plate_text_p.dds); A the characters (alpha test 128)",
                      "plate_text_h.png": "the stamped characters' relief (units = level x span / 255)",
                      "plate_text_s.png": "R specular, G smoothness, B unused (linear)"},
-            "parts": PLATE_PART_NAMES, "fixed": [list(f) for f in PLATE_FIXED],
+            "parts": plate_part_names(), "fixed": [list(f) for f in plate_fixed()],
             "height": {"designs": {"zero": PLATE_H_ZERO, "span": PLATE_H_SPAN}, "texts": {"zero": 0.0, "span": PLATE_TEXT_H_SPAN}},
             "face": {"px": [FACE_X0, FACE_Y0, FACE_W, FACE_H], "corner_px": FACE_R, "px_a_unit": round(FACE_PX, 4),
                      "edge_shade": EDGE_SHADE},
@@ -2947,6 +3497,8 @@ def write_plates(out, look_options):
                       "lit": PLATE_LIT, "dark": PLATE_DARK, "chars": PLATE_TEXT_CHARS, "legend_extra": PLATE_LEGEND_EXTRA,
                       "glyphs": len([c for c in DIE_GLYPHS if c not in PLATE_LEGEND_EXTRA])}),
             "designs": dinfo, "texts": tinfo}
+    if PLATE_FIXED_GOLD in plate_fixed():                          # since 2026-11-17a: gold in the table's guard
+        meta["fixed_top"] = PLATE_FIXED_TOP_GOLD
     (out / "plates.json").write_text(json.dumps(meta, indent=1) + "\n")
     print(f"wrote plates_d/_part/_h/_s.png {U.shape[1]}x{U.shape[0]} ({len(dinfo)} designs), plate_text_d/_h/_s.png "
           f"{TU.shape[1]}x{TU.shape[0]} ({len(tinfo)} texts) and plates.json to {out}")
@@ -2982,13 +3534,29 @@ def main():
     ap.add_argument("--plate-font", choices=(PLATE_FONT_NEW, PLATE_FONT_OLD), default=PLATE_FONT_NEW,
                     help="(--plates, since 2026-11-16a) the plate font: 2026-11-16a the die-pressed one (the default), "
                          "2026-11-08a the stroked one before it")
-    ap.add_argument("--plate-emblems", choices=(PLATE_EMBLEMS_NEW, PLATE_EMBLEMS_OLD), default=PLATE_EMBLEMS_NEW,
-                    help="(--plates, since 2026-11-16a) the designs' emblems: 2026-11-16a every one drawn at the plate's "
-                         "own scale (the default), 2026-11-09a the badges' drawers scaled down but Vault-Tec's cog. "
-                         "--plate-font 2026-11-08a --plate-emblems 2026-11-09a: the shipped plate textures byte for byte")
+    ap.add_argument("--plate-emblems", choices=(PLATE_EMBLEMS_COLOUR, PLATE_EMBLEMS_NEW, PLATE_EMBLEMS_OLD),
+                    default=PLATE_EMBLEMS_COLOUR,
+                    help="(--plates, since 2026-11-16a) the designs' emblems: 2026-11-17a (the default) the Brotherhood's, "
+                         "the Minutemen's, Nuka-Cola's bottle cap and the Red Rocket sign plate in their own colours, the "
+                         "other eight as 2026-11-16a; 2026-11-16a every one drawn at the plate's own scale in one colour "
+                         "(2026-11-16a's plate textures byte for byte); 2026-11-09a the badges' drawers scaled down but "
+                         "Vault-Tec's cog. --plate-font 2026-11-08a --plate-emblems 2026-11-09a: 2026-11-15b's plate "
+                         "textures byte for byte")
+    ap.add_argument("--gunskull-art", choices=(ART_17A, BADGE_ART_OLD["gunskull"]),
+                    help="(--badges, since 2026-11-17a) the Gunners skull: 2026-11-17a on a green flag patch, 2026-11-16a "
+                         "the skull alone on the paint (default: 2026-11-17a, or 2026-11-16a with --through before it)")
+    ap.add_argument("--bos-art", choices=(ART_17A, BADGE_ART_OLD["bos"]),
+                    help="(--badges, since 2026-11-17a) the Brotherhood of Steel badge: 2026-11-17a the colour emblem, "
+                         "2026-11-07a the gold winged sword over a cog (default as --gunskull-art's)")
+    ap.add_argument("--enclave-ground", choices=(ART_17A, BADGE_ART_OLD["hg_enclave"]),
+                    help="(--badges, since 2026-11-17a) the 3D Enclave helmet's ground: 2026-11-17a polished chrome, "
+                         "2026-11-16a black enamel (default as --gunskull-art's). The three old values (or --through "
+                         "2026-11-16a): 2026-11-16a's atlas byte for byte")
     args = ap.parse_args()
     global PLATE_FONT, PLATE_EMBLEMS
     PLATE_FONT, PLATE_EMBLEMS = args.plate_font, args.plate_emblems
+    for key, flag in (("gunskull", args.gunskull_art), ("bos", args.bos_art), ("hg_enclave", args.enclave_ground)):
+        BADGE_ART[key] = flag or (BADGE_ART_OLD[key] if args.through and args.through < ART_17A else ART_17A)
     if args.badges:
         return write_badges(args.out, args.look_options, args.through)
     if args.plates:

@@ -454,6 +454,55 @@ them (`[Steer] PullFrom=0.6`, `LaunchFrom=0.25`, `[View] BodyEye=0,7,7`), and th
 PullTime's 5.5 is written by the checks that ride 2026-11-16a's pull, `DEF58`'s `PullTime=0` riding the rest, and `DEF59`
 pins `FirstKeys=0`.
 
+Since 2026-11-17a (test 56's fixes and art corrections) the generator's output doesn't change at all: the ESP, its 1134
+records and next ID 0xC50, `config.json` and `keybinds.json` are 2026-11-16b's byte for byte (`tools/build.sh`
+regenerates them unchanged; `--look-build 2026-11-08a` and `2026-11-07a` still give 2026-11-15b's and fdb5b3a's), and
+look_ids.txt keeps its 919 IDs. `tools/esp-generator/look_options.json` changes only four plate descriptions, which no
+built file reads. One script changes, `CMB_ControllerScript.psc`, each part behind a bit the plugin writes:
+`CMB_RoomOptions` bit 4096 (`[Tilt] GunJudgeWait`: `WeaponsRefresh`'s second look 0.3 s later on controller timer 63,
+`WeaponJudgeAgain`, cancelled by `WeaponsRideEnd` and `OnGameReloaded`), bit 2048 (`[Tilt] DrawHandgunOnly`:
+`HandgunHolsteredNote` at a rifle's equip, `PutAwayStart`'s message not twice within 2 s) and `CMB_LookOptions` 131072
+(`[Look] KitRoom`: `PlaceKit` asks about the field kit's spot, `RoomAt(..., 4)`, or with the armour bench its own place,
+`RoomAt(..., 5)`, and shifts the kit to where you stand when it has no room); no property is added: `tools/build.sh` prints `checked cmb_controllerscript: 208 properties` and
+"plugin and scripts agree", and `check.sh` 12 .pex with no warning. `CMB_Slope.dll` and `CMB_Slope.ini`
+change (the two INI copies identical); build the plugin with `bash tools/f4se-slope/build.sh` (`-Werror`) and commit the
+DLL before packaging. Eight textures change, built into two overlays laid after 2026-11-16a's four ([ASSETS.md](ASSETS.md),
+*The art corrections' files*):
+```
+python3 -I tools/rider/bike_art.py --plates --out <art_p>                     # the four designs (--plate-emblems 2026-11-17a)
+<DDS python> -I tools/rider/look_plates.py --art <art_p> --out <overlay P>     # plates_d/_n/_s.dds, plate_p.dds
+python3 -I tools/rider/bike_art.py --badges --out <art_b>                     # the skull's patch, the BoS emblem, the chrome ground
+<DDS python> -I tools/rider/look_badges.py --art <art_b> --out <overlay B>     # badges_d/_n/_s.dds
+<DDS python> -I tools/rider/look_seat.py --data <overlay B> --base <2026-11-10a's Data> \
+    --base <2026-11-15b's meshes> --pynifly <PyNifly>                          # seat_p.dds (Saddle tan)
+```
+with their checks (`look_plates.py --check`: 22, all passed; `look_badges.py --check ... --base <2026-11-16a's tree>
+--base-build 2026-11-16a`: all passed; `look_seat.py --check`: all passed; `check_bike_meshes.py --look-c3 --look-targets
+all` over the whole tree: 80 PASS with the plates' overlay and `--knees`, 79 with the badges'). Each off flag gives
+2026-11-16a's files byte for byte: `--plate-emblems 2026-11-16a` (`plates_d/_n/_s.dds` e0ada581..., 66f04302...,
+a766f903..., `plate_p.dds` 245eff31...), `--badges --through 2026-11-16a` or `--gunskull-art 2026-11-16a --bos-art
+2026-11-07a --enclave-ground 2026-11-16a` (558821439c..., c8d04936dd..., caf559c35b...), `look_seat.py --seat-colours
+2026-11-16a` (a0612f9959...). Of the copies, only `badges_d/_n/_s.dds` and `seat_p.dds` go into the badges' overlay and
+`plates_d/_n/_s.dds` and `plate_p.dds` into the plates' (the materials are unchanged, so neither overlay holds one).
+The package lays six overlays over the asset base in order (the later winning), 2026-11-15b's meshes, 2026-11-16a's
+three and this build's two:
+```
+OVERLAY=<2026-11-15b's meshes>:<overlay A>:<overlay B>:<overlay C>:<17a's badges overlay>:<17a's plates overlay>
+```
+no file added, eight changed against 2026-11-16b's package (`tools/package/builds/2026-11-17a.json` lists them with
+their sha256), and the compiled controller. The engine model and
+its twin (`tools/sound/engine_model.py`) don't change: `[Sound] DownBands` is the plugin's input to the model, as
+`SpeedMap` is, and `HeardStop` 900 and `HeardBrake` 1500 are the plugin's defaults for a missing key (the twin's and
+`EngineDefaults`' stay 300 and 600). The harness (`tools/f4se-slope/test/run.sh`, 26 modes) expects **2110** checks: view
+283, custom 128, arms 116, room 157, sound 146, launch 22, the rest as 2026-11-16b's; `DEF61` rides every older mode at
+this build's off values (`[Sound] DownBands=`, `HeardStop=300`, `HeardBrake=600`, `[Tilt] GunCheckUnpaused=0`,
+`GunCheckRecover=0`, `DrawHandgunOnly=0`, `QuickHolsterFirst=0`, `GunJudgeWait=0`, `NodelessOnce=0`, `SkinArraysCheck=0`,
+`[Diag] HeldWhere=0`, `[View] BodyNodes=1`, `BodyArmsLook=0`, `[Diag] BodyWornLine=0`, `[View] BodyLeanMax=35`, `[Look]
+KitHold=0`, `KitSlotView=0`, `KitRoom=0`, `[View] CameraEase=0`, `NearHandover=0`); `LaunchFrom`'s 0.1 and `BodyEye`'s
+0,2,-0.5 need no entry (`DEF60` pins 2026-11-16a's 0.25 and 0,7,7 for the older modes, and the 2026-11-16b checks that took
+the code's default now write 0.1 and 0,2,-0.5 themselves). The off values together with `LaunchFrom=0.1` and
+`BodyEye=0,2,-0.5` are 2026-11-16b's plugin.
+
 The vanilla form IDs the plugins use (PlayerRef, XMarker, HumanRace, HumanRaceSubGraphData, SpeedMult, CarryWeight, FallingDamageMod, Health, Pip-Boy, AnimArchetypePlayer) were checked against Mutagen's FormKey list generated from the real `Fallout4.esm`. The record layouts were also compared field by field with xEdit's Fallout 4 definitions.
 
 ## For developers: packaging a build

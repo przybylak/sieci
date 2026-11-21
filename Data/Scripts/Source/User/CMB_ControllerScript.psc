@@ -1238,6 +1238,11 @@ Function OnGameReloaded()
 	; left at 1 or 2 no weapon that isn't a handgun would be put away again (WeaponsRefresh asks only from 0).
 	CancelTimer(TimerWeaponAway)
 	awayStep = 0
+	CancelTimer(TimerWeaponJudge)   ; 2026-11-17a: a second look of the save's is over too
+	judgeWaiting = false
+	; The review of 2026-11-17a (finding 5): the save's stamp is of another launch's GetCurrentRealTime (it starts at 0 each
+	; launch), so a reload could hold the "Only a handgun" message back for as long as that session had run.
+	handgunNoteAt = -100.0
 	; Test 41's two console switches, so every log says which rules it ran with.
 	Log("Switches: teleports decided " + Ternary(teleportsAtOnce, "at once, in the event (DecideTeleportsAtOnce 1)", "once they're over") + ", busy watch " + Ternary(busyWatchOff, "off (WatchBusy 0).", "on (" + BusyWatchTime + " s)."))
 	if busy
@@ -3572,6 +3577,9 @@ int Function RoomAt(float afX, float afY, float afZ, int aiSpot, float afAngle, 
 				Log(try + "none (no ground within reach of the spot).")
 			elseif clear < 0.0
 				Log(try + "none (the ground " + Whole(-clear) + " above the spot).")
+			elseif aiKind == 4 || aiKind == 5
+				; 2026-11-17a (the plugin's [Look] KitRoom): the field kit's spot (5: its bench's place), something that near it.
+				Log(try + "none (something " + Whole(clear) + " from it).")
 			else
 				Log(try + "none (the nearest hit " + Whole(clear) + " along a ray, on the bike's 110, or the ground " + Whole(clear) + " off" + tilt + ").")
 			endif
@@ -3889,6 +3897,8 @@ Event OnTimer(int aiTimerID)
 		ViewBackTick()   ; 2026-11-15b: third person while backing (CMB_ViewBackNow)
 	elseif aiTimerID == TimerWeaponAway
 		PutAwayTimer()   ; 2026-11-15b: a weapon being put away on the bike (Handguns only)
+	elseif aiTimerID == TimerWeaponJudge
+		WeaponJudgeAgain()   ; 2026-11-17a: a drawn weapon judged again (none was equipped at the first look)
 	endif
 EndEvent
 
@@ -6377,6 +6387,35 @@ bool Function PlaceKit(int aiMode)
 		x = standX - OffsetX(facing, KitMarkerForward, KitMarkerRight)
 		y = standY - OffsetY(facing, KitMarkerForward, KitMarkerRight)
 	endif
+	; 2026-11-17a (test 56: "field kit pushes me through the wall if there is not enough space"; the plugin's [Look] KitRoom,
+	; CMB_LookOptions bit 131072): the player's spot (KitSpotSide out, where the game puts them) asked about first
+	; (CMB_RoomAskKind 4: its ground, a clear line from the player, room round it at chest and head height). With no room, or
+	; no verdict, the whole kit is moved so that its spot is where the player stands: the player isn't moved. Off (or an
+	; older plugin): 2026-11-16b's spot, unasked. The review of 2026-11-17a: modes 3 and 4 put the player at the armour bench's
+	; own place (its marker is its middle: in test 56's 18 mode-3 visits the player stood within 1 of the bench's place, 110
+	; out), so that place is asked about (CMB_RoomAskKind 5, its room the bench's) and without room the bench itself goes to
+	; where the player stands; modes 1 and 2 the toolbox's spot as before (kind 4).
+	string kitSpotNote = ""
+	if LookOption(131072)
+		float kitStandX = bikeX + OffsetX(heading, 0.0, side * KitSpotSide)
+		float kitStandY = bikeY + OffsetY(heading, 0.0, side * KitSpotSide)
+		int kitKind = 4
+		string kitWhat = "The field kit's spot"
+		if aiMode >= 3
+			kitStandX = x
+			kitStandY = y
+			kitKind = 5
+			kitWhat = "The field kit's bench"
+		endif
+		int kitRoom = RoomAt(kitStandX, kitStandY, z, 0, facing, ": the player's own spot taken.", kitWhat, kitKind)
+		if kitRoom != 1
+			float shiftX = PlayerRef.GetPositionX() - kitStandX
+			float shiftY = PlayerRef.GetPositionY() - kitStandY
+			x += shiftX
+			y += shiftY
+			kitSpotNote = " (moved " + Whole(Math.Sqrt(shiftX * shiftX + shiftY * shiftY)) + " to where you stand: " + Ternary(kitRoom == -1, "no room at its spot", "its spot not checked") + ")"
+		endif
+	endif
 	ObjectReference kit = PlaceKitPart(form, x, y, z, facing)
 	if !kit
 		Log("Customise: field kit mode " + aiMode + " (" + KitModeText(aiMode) + ") could not be placed.")
@@ -6394,7 +6433,7 @@ bool Function PlaceKit(int aiMode)
 			DRScToolboxBOpen.Play(toolbox)
 		endif
 	endif
-	Log("Customise: field kit mode " + aiMode + " (" + KitModeText(aiMode) + ") at " + Whole(x) + ", " + Whole(y) + ", " + Ternary(side > 0.0, "right", "left") + " of the bike")
+	Log("Customise: field kit mode " + aiMode + " (" + KitModeText(aiMode) + ") at " + Whole(x) + ", " + Whole(y) + ", " + Ternary(side > 0.0, "right", "left") + " of the bike" + kitSpotNote)
 	return true
 EndFunction
 
@@ -8013,6 +8052,9 @@ EndFunction
 Event Actor.OnItemEquipped(Actor akSender, Form akBaseObject, ObjectReference akReference)
 	if riding && CMB_RideWeapons && akBaseObject as Weapon
 		WeaponsRefresh("equipped " + akBaseObject)   ; 2026-11-15b: Handguns only's rule for the new weapon
+		if riding
+			HandgunHolsteredNote(akBaseObject)   ; 2026-11-17a: a rifle equipped and kept holstered (the plugin's DrawHandgunOnly)
+		endif
 		return
 	endif
 	if !riding || !(akBaseObject as Potion)
@@ -8503,6 +8545,9 @@ float awayAt = 0.0           ; its start (real time)
 float awayRun = 0.0          ; 2026-11-16b: its seconds while the game ran (the plugin's PutAwayUnpaused, CMB_RoomOptions bit 1024)
 float awayTick = 0.0         ; ... and the last tick's real time
 Form handgunLoggedGun        ; the last gun HandgunEquipped logged
+int Property TimerWeaponJudge = 63 AutoReadOnly
+bool judgeWaiting = false    ; 2026-11-17a: a drawn weapon to be judged again (none equipped at the first look; GunJudgeWait, bit 4096)
+float handgunNoteAt = -100.0 ; 2026-11-17a: the last "Only a handgun can be used on the motorbike." (the equip's or the put-away's)
 
 ; 0 None, 1 Handguns only, 2 Any weapon: CMB_RideWeapons clamped; without it (an older ESP) CMB_AllowCombat's 0 / 1 as None /
 ; Any weapon (2026-11-15a). A save from before 2026-11-15b has no CMB_RideWeapons of its own: the ESP's 1, whatever its
@@ -8611,7 +8656,12 @@ EndFunction
 ; Handguns only's rule after a change (a weapon equipped or unequipped, the controls set, a put-away over, the tick): fighting
 ; on with a handgun equipped or while a weapon is being put away; anything but a handgun out is put away; CMB_RiderGun.
 ; None and Any weapon: CMB_RiderGun 0, nothing else (2026-11-15a).
-Function WeaponsRefresh(string asWhy)
+; 2026-11-17a (the plugin's [Tilt] GunJudgeWait, CMB_RoomOptions bit 4096; test 56, 12:51:32: the 10mm's unequip event, handled
+; between the 10mm's going and the .44's coming by a number key, read no weapon equipped: "[Weapon <44>] out, not a handgun
+; (unequipped [Weapon <10mm>])", and the .44 was put away): a weapon drawn with none equipped at this moment is judged again
+; 0.3 s later (abJudged), by the weapon equipped then; still none (fists): put away as before. Meanwhile fighting and
+; CMB_RiderGun stay as they were. Without the bit: judged at once, as 2026-11-16b.
+Function WeaponsRefresh(string asWhy, bool abJudged = false)
 	if !riding || !rideLayer
 		return
 	endif
@@ -8622,6 +8672,14 @@ Function WeaponsRefresh(string asWhy)
 	bool handgun = HandgunEquipped()
 	bool drawn = PlayerRef.IsWeaponDrawn()
 	if drawn && !handgun && awayStep == 0
+		if !abJudged && RoomOption(4096) && !PlayerRef.GetEquippedWeapon()
+			if !judgeWaiting
+				judgeWaiting = true
+				Log("Weapons: a weapon drawn and none equipped at this moment (" + asWhy + "): judged again in 0.3 s (the plugin's GunJudgeWait).")
+				StartTimer(0.3, TimerWeaponJudge)
+			endif
+			return
+		endif
 		PutAwayStart(asWhy)
 	endif
 	bool fight = handgun || awayStep > 0
@@ -8667,9 +8725,36 @@ Function PutAwayStart(string asWhy)
 	awayRun = 0.0
 	awayTick = awayAt
 	int count = AskWeaponAway()
-	Debug.Notification("Only a handgun can be used on the motorbike.")
+	; 2026-11-17a (DrawHandgunOnly, bit 2048): not again within 2 s of the equip's own (HandgunHolsteredNote); without the bit
+	; every time, as 2026-11-16b.
+	if !RoomOption(2048) || awayAt - handgunNoteAt >= 2.0
+		Debug.Notification("Only a handgun can be used on the motorbike.")
+		handgunNoteAt = awayAt
+	endif
 	Log("Weapons: " + PlayerRef.GetEquippedWeapon() + " out, not a handgun (" + asWhy + "): put away asked (CMB_WeaponAway " + count + ").")
 	StartTimer(0.25, TimerWeaponAway)
+EndFunction
+
+; 2026-11-17a (GunJudgeWait): the second look, 0.3 s after a weapon drawn with none equipped (WeaponsRefresh).
+Function WeaponJudgeAgain()
+	judgeWaiting = false
+	WeaponsRefresh("judged again 0.3 s later", true)
+EndFunction
+
+; 2026-11-17a (the plugin's [Tilt] DrawHandgunOnly, CMB_RoomOptions bit 2048: the game's draw of a weapon that isn't a handgun
+; is refused while riding, so no put-away comes to say why): a weapon equipped while riding in Handguns only that isn't a
+; handgun and stays holstered gets the put-away's message, at most once in 2 s. Without the bit: nothing (2026-11-16b).
+Function HandgunHolsteredNote(Form akWeapon)
+	if !RoomOption(2048) || WeaponsMode() != 1 || PlayerRef.IsWeaponDrawn() || HandgunEquipped()
+		return
+	endif
+	float now = Utility.GetCurrentRealTime()
+	if now - handgunNoteAt < 2.0
+		return
+	endif
+	handgunNoteAt = now
+	Debug.Notification("Only a handgun can be used on the motorbike.")
+	Log("Weapons: " + akWeapon + " equipped, not a handgun: it stays holstered while riding (the plugin's DrawHandgunOnly).")
 EndFunction
 
 ; Away: the rule again (fighting off for a non-handgun). Still out after 1 s: the sheathe action; after 3 s: 2026-11-15a's
@@ -8763,6 +8848,8 @@ EndFunction
 Function WeaponsRideEnd()
 	CancelTimer(TimerWeaponAway)
 	awayStep = 0
+	CancelTimer(TimerWeaponJudge)   ; 2026-11-17a (GunJudgeWait)
+	judgeWaiting = false
 	fightOn = false
 	weaponsModeSeen = -1
 	SetRiderGun(0)

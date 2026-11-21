@@ -33,6 +33,8 @@ from your own copy of the game and the downloaded model:
 | `Textures\CMB\Bike\badges_d.dds`, `badges_n.dds`, `badges_s.dds` (changed); `Materials\CMB\Bike\badge_gunskull.bgsm`, `badge_hg_enclave.bgsm`, `badge_hg_bos.bgsm` | `bike_art.py --badges`, `look_badges.py` | since the 2026-11-16a build: the atlas holds 16 of ours, the Gunners skull in cell (1, 3) and the 3D helmets' two enamel grounds in (2, 3) and (3, 3) (black `0e0f12`, steel grey `545a64`, each with the stock badge's chrome bevel round the area both tank plates show); the 13 older cells' blocks are unchanged at mips 0-5 and the sizes are the same; 20 badge materials. `--through 2026-11-08a` gives 2026-11-15b's atlas byte for byte |
 | `Textures\CMB\Bike\plates_d.dds`, `plates_n.dds`, `plates_s.dds`, `plate_text_d.dds`, `plate_text_n.dds`, `plate_text_s.dds` (changed) | `bike_art.py --plates`, `look_plates.py` | since the 2026-11-16a build: every design's emblem drawn at the plate's own scale (as the Vault-Tec cog since 2026-11-09a) and a new die-pressed plate font of our own for the texts and legends (narrow, square bowls, flat-cut ends, heavier strokes, monospace dies: bands, rounded-rectangle rings and fills as signed distances; no font file, no copied outline); the same sizes; every plate and text material, the palettes and the stock plate's textures are 2026-11-15b's byte for byte. `--plate-font 2026-11-08a --plate-emblems 2026-11-09a` gives the shipped six byte for byte |
 | `Textures\CMB\Bike\static_seat_i_d.dds`, `seat_p.dds`; `Materials\CMB\Bike\static_seat_<key>.bgsm`, `static_seat_<key>_worn.bgsm` (key black, tobacco, tan, oxblood, olive, cream, slate, red, navy, turquoise, black_red, black_cream, brown_cream, oxblood_black) | `look_seat.py` | since the 2026-11-16a build: the seat's colour: the shipped `static_seat_d.dds` re-sampled into a palette index map (1024 BC1: the leather, the welt and the worn edges in their own bands, mips per part), the seat palette (256 x 16, A8R8G8B8, one mip: 14 colours and the stock leather's row, the proof), and 28 materials, the shipped seat's values pointed at them at the colour's row (the three black-bodied seats with half the shipped specular); the normal and specular maps are the shipped ones. Option 0 is the shipped files; the build then has 129 DDS (120.5 MB) and 468 BGSM |
+| `Textures\CMB\Bike\plates_d.dds`, `plates_n.dds`, `plates_s.dds`, `plate_p.dds` (changed) | `bike_art.py --plates`, `look_plates.py` | since the 2026-11-17a build: four designs redrawn in their factions' colours (`--plate-emblems 2026-11-17a`; our own drawings from discs, cogs, polygons and splines; the Nuka-Cola script is our own brush script, no font file): the Brotherhood of Steel's emblem in colour, the Minutemen flag's device, Nuka-Cola's bottle cap with its script and swoosh, Red Rocket's whole plate as its round sign; the other eight designs and the letters 2026-11-16a's. A seventh fixed palette colour, gold, at U 49 (`plate_p.dds`), and Red Rocket's own palette row has the sign's yellow as its base. The same sizes; the text atlas, its palette and the 72 plate and text materials are 2026-11-16a's byte for byte. `--plate-emblems 2026-11-16a` gives 2026-11-16a's four files byte for byte (e0ada581..., 66f04302..., a766f903..., 245eff31...) |
+| `Textures\CMB\Bike\badges_d.dds`, `badges_n.dds`, `badges_s.dds` (changed); `seat_p.dds` (changed) | `bike_art.py --badges`, `look_badges.py`; `look_seat.py` | since the 2026-11-17a build: three atlas cells redrawn, the Gunners skull on a deep green flag patch (cell (1, 3)), the Brotherhood of Steel badge as the colour emblem (0, 0) and the 3D Enclave helmet's ground in polished chrome (2, 3), our own drawings from written feature lists; the other 13 cells' blocks are unchanged at mips 0-5, the sizes the same, the 20 badge materials (and their chrome cube) 2026-11-16a's. `--through 2026-11-16a` (or one at a time `--gunskull-art 2026-11-16a`, `--bos-art 2026-11-07a`, `--enclave-ground 2026-11-16a`) gives 2026-11-16a's atlas byte for byte (558821439c..., c8d04936dd..., caf559c35b...), `--through 2026-11-08a` 2026-11-15b's. `seat_p.dds` row 2, Saddle tan, is a76239 (was bf7028; `look_seat.py --seat-colours 2026-11-16a` gives 2026-11-16a's a0612f9959... and all 30 seat files byte for byte); the seat's index map and materials are unchanged |
 | `Meshes\Actors\Character\Animations\MT\CMB_Rider\*.hkx` and `...\CMB_Rider\Female\*.hkx` | `riding_anims.py` | seated riding versions of the holstered walk/run/turn/start/stop/idle clips (the arms' IK pole mostly down since test 39, (0.35, -0.3, -1.0) in the rig's root space, the left mirrored in x; before, (1, -0.6, -0.7), mostly sideways, which put the elbows out at shoulder height; the hand's frame from the forearm since test 40, its long axis along it seen along the grip, `HAND_PITCH` degrees above it, 0: before, a fixed frame, the wrists bent down 30 degrees in the cruise pose, test 39's "cat paw"), and of the jump/fall/land clips when those were extracted |
 | `...\CMB_Rider\CMB_RiderClips.json` (and `Female\`) | `riding_anims.py` | each clip's root motion and events, for the step below |
 | `...\CMB_Rider\CMB_RiderSeat.json` (and `Female\`) | `riding_anims.py` | where the seated rider's `COM` bone sits, for the bike that hangs off it |
@@ -270,6 +272,34 @@ five nifs, the three badge and six plate textures) rebuild byte for byte from th
 reads the grounds' enamel field from `badges.json` (`--ground-field`) or its own recorded copy
 (`emblem_pieces.GROUND_FIELD_UV`), so the helmets sit inside the chrome bevel the badge art draws.
 `look_render.py --overlay <Data>` (repeatable) lays such folders over the package's Data for a look before packaging.
+
+**The art corrections' files (2026-11-17a).** Test 56's corrections, from the same tools and the same base (the
+2026-11-10a package's Data with 2026-11-15b's meshes and 2026-11-16a's three overlays over it), no stage and no bake,
+into one overlay a unit; eight files change, the same sizes as 2026-11-16a's, and nothing is added. Changed:
+`bike_art.py` (the plates' `--plate-emblems 2026-11-17a`, its new default: `_plate_bos_colour`, `_plate_minutemen_flag`,
+`_plate_nuka_cap`, `_plate_redrocket_sign`, gold as a seventh fixed colour, a design's own row base; the badges'
+`--gunskull-art`, `--bos-art`, `--enclave-ground`, each 2026-11-17a by default: `draw_gunflag`, `draw_bos17`,
+`draw_ground_chrome`; `--through <build>` before 2026-11-17a draws the old art of all three), `look_plates.py` (the
+fixed colours' top and a design's own base from plates.json, an emblem's own area bound), `look_badges.py` (`--check`:
+a redrawn badge's ground from badges.json, `--base-build`), `look_seat.py` (`--seat-colours`). From the repository's
+root:
+
+```
+python3 -I tools/rider/bike_art.py --plates --out <art_p>                # [--plate-emblems 2026-11-16a]: 16a's plates
+<DDS python> -I tools/rider/look_plates.py --art <art_p> --out <overlay P>  # plates_d/_n/_s.dds, plate_p.dds; --check (22)
+python3 -I tools/rider/bike_art.py --badges --out <art_b>                # [--gunskull-art 2026-11-16a] [--bos-art 2026-11-07a]
+                                                                         # [--enclave-ground 2026-11-16a] [--through <build>]
+<DDS python> -I tools/rider/look_badges.py --art <art_b> --out <overlay B>  # badges_d/_n/_s.dds (the 20 materials as before)
+<DDS python> -I tools/rider/look_badges.py --check --art <art_b> --out <tree> --plate-nif <parked nif> --pynifly <PyNifly> \
+    --base <2026-11-16a's tree> --base-build 2026-11-16a
+<DDS python> -I tools/rider/look_seat.py --data <overlay B> --base <2026-11-10a's Data> --base <2026-11-15b's meshes> \
+    --pynifly <PyNifly> [--seat-colours 2026-11-16a] [--check]           # seat_p.dds (row 2, Saddle tan)
+```
+
+Only the four badge files (`badges_d/_n/_s.dds`, `seat_p.dds`) and the four plate files (`plates_d/_n/_s.dds`,
+`plate_p.dds`) are copied into the two overlays; badges.json keeps `hg_enclave`'s field as 2026-11-16a's, so
+`look_emblems.py --ground-field` and `check_bike_meshes.py --ground-field` read the same outline. Two runs give the same
+bytes, and the merged tools rebuild both overlays byte for byte.
 
 **The front end's shadow (2026-11-10a, test 52's wish).** The riding bike's front end (`harley_meshes.FRONT_ROLES`: the
 bar assembly, the lower fork, the front wheel) casts as the parked bike's: `load_shaders` sets each such shape's worn
@@ -645,6 +675,18 @@ the game's `Shared\Cubemaps\MetalChrome01Cube_e.dds` (as our badges); by FormID 
 `c_Screws`, `c_Adhesive`, `c_Cloth`). The helmets and the skull are named for the game's own factions (the Enclave, the
 Brotherhood of Steel, the Gunners) and drawn as our own art. No credit line is added: the credits stay
 as they are.
+
+**The 2026-11-17a build borrows no new file either.** The four plates (the Brotherhood of Steel's emblem, the Minutemen
+flag's device, Nuka-Cola's bottle cap and its script, Red Rocket's round sign) and the three badges (the Gunners skull's
+flag patch, the Brotherhood of Steel colour emblem, the Enclave helmet's chrome ground) are drawn by our own code from
+discs, cogs, polygons, splines and noise (`bike_art.py`; the Nuka-Cola script's letterforms are drawn there, no font
+file), and Saddle tan is a colour of our own. The tester's reference pictures of the game's art (the Nuka-Cola bottle
+cap, the Gunners skull on green, the Red Rocket round sign, the Brotherhood of Steel emblem in colour, the Minutemen
+flag) were looked at only: no pixel of any went into code, art or a check, and they are not in this repository or the
+package (twice a tool touched one, to read a picture's size and to convert two pictures to view them; those copies were
+deleted at once). The words on the plates are the game's own names and slogans ("ZAP THAT THIRST!" and "ENJOY
+NUKA-COLA!" Nuka-Cola's) or ours ("GASOLINE - DIESEL - FUSION"). Nothing new by path or FormID: the Enclave helmet's chrome is the stock
+badge's cube already named (`Shared\Cubemaps\MetalChrome01Cube_e.dds`). The credits stay as they are.
 
 ## Background: why custom clips
 
