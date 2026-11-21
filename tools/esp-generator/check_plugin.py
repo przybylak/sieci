@@ -71,6 +71,18 @@ Reads the generator's --dump output on stdin and the .psc files, and fails if:
     Seat after Tyres (22 controls) or a dropdown of ui_order's isn't bound to its Ui<slot> on CMB_ControllerScript
     (PropertyValueInt on the quest) with its choices in display order (on the globals in table order with --kit-order table),
     or any PropertyValueInt control of the MCM names a property its scriptName doesn't declare as an int.
+  - (2026-11-21a, C4, art build B: wear, the front fender badge, the headlamp's colour, Nuka-Cola and Red Rocket, the muddy
+    tyres) the fourth block isn't c4_ids' 151 (0xC50-0xCE6) at the table's IDs; a C4 option's entries aren't the table's
+    (a C4 tank option names its six sources itself: sources_c3 only for the options before C3); the three slots' globals
+    (0) and attach points ("Wear", "Front fender badge", "Headlamp") aren't at their IDs, CMB_LookCategories and
+    CMB_LookSwapLists aren't 15 lists, index = slot, or the look item and the riding armours lack their attach points or
+    the template their option 0s; a beam (CMB_HeadlampLight_<key>, CMB_HeadlampLightShadow_<key>) isn't its shipped
+    twin's copy in every field but the colour, or its colour isn't the option's beam.rgb; CMB_HeadlampLights or
+    CMB_HeadlampLightsShadow isn't the FormList of the Headlamp options' lights, index = option; the controller's Look_C4
+    (the three globals, the two light lists) or CMB_LookF4SE's three globals aren't filled; a recipe's priority isn't its
+    rank over the 16 groups (the three slots before FactionSet: ui_order.c4); or the MCM's Look section hasn't "Front
+    fender badge" after "Rear fender badge", "Wear" after "Paint shade" and "Headlamp" after "Mirrors" (25 controls),
+    each bound to its Ui<slot> with its choices in display order.
 
   dotnet run -c Release -- --dump CommonwealthMotorbike.esp | python3 check_plugin.py <Scripts/Source/User>
       [--kit-names 0] [--kit-order table] [--mcm <the Data folder an A/B plugin's MCM was written to>]
@@ -548,6 +560,7 @@ LOOK_PATTERNS = {
     "button": re.compile(r"button (\d+) conditions (\d+) text (.*)$"),
     "item": re.compile(r"item (\S+) (\S+)$"),
     "global": re.compile(r"global value (\S+)$"),
+    "light": re.compile(r"(light colour .*)$"),   # 2026-11-21a: a light's fields (C4's beams against their shipped twins)
 }
 
 
@@ -621,8 +634,8 @@ def slope_defines():
 # (LookRecords.Until): every array element and object member that is an object whose `since` is a later build is dropped.
 # look_ids.txt's lines in a dropped block's range (a `*_ids` section with a later `since`) whose ID the plugin doesn't hold
 # are that build's, not checked yet; a record the plugin does hold at such an ID is checked as every other.
-C2_BUILD, C3_BUILD = "2026-11-08a", "2026-11-16a"
-LOOK_THROUGH = C3_BUILD
+C2_BUILD, C3_BUILD, C4_BUILD = "2026-11-08a", "2026-11-16a", "2026-11-21a"
+LOOK_THROUGH = C4_BUILD
 # 2026-11-16a: `--kit-order table` (an A/B ESP): the recipes' priority 0, the MCM on the globals in table order, the Ui
 # arrays the identity; with `--mcm <Data>` the MCM files checked are that folder's (default: the scripts' Data).
 KIT_ORDER_ALPHA = True
@@ -646,14 +659,34 @@ def look_table():
     table = look_until(raw)
     # 2026-11-16a: a slot's sources_c3 appends its sources, and every option of an earlier build with a swap names their
     # identities after its own entries (the generator's LookRecords.ReadSlot): the 34 older tank swaps' helmet identities.
+    # 2026-11-21a: "an earlier build" is one before C3 (C1's, C2's), as look_render.py's option_swap: a C4 tank option names
+    # all six itself.
     for s in table["slots"]:
         add = (s.get("sources_c3") or {}).get("add")
         if add:
             s["sources"] = s["sources"] + add
             for o in s["options"]:
-                if o["swap"] is not None and o.get("since") != C3_BUILD:
+                if o["swap"] is not None and o.get("since") in (None, C2_BUILD):
                     o["swap"] = o["swap"] + [[x, x] for x in add]
     return table, later
+
+
+def ui_group_keys(table):
+    """2026-11-16a: ui_order's groups; 2026-11-21a: with ui_order.c4's (Wear, FrontFender, Headlamp) before its `before`
+    (FactionSet), as LookRecords.UiGroupKeys."""
+    ui = table["ui_order"]
+    keys = list(ui["groups"])
+    c4 = ui.get("c4")
+    if c4:
+        at = keys.index(c4["before"])
+        keys[at:at] = c4["groups"]
+    return keys
+
+
+def ui_dropdowns(table):
+    """ui_order's dropdowns, and (2026-11-21a) ui_order.c4's, as LookRecords.UiDropdowns."""
+    ui = table["ui_order"]
+    return dict(ui["dropdowns"], **((ui.get("c4") or {}).get("dropdowns") or {}))
 
 
 def ui_groups(table, alpha=None):
@@ -664,7 +697,7 @@ def ui_groups(table, alpha=None):
     alpha = KIT_ORDER_ALPHA if alpha is None else alpha
     ui = table["ui_order"]
     out = []
-    for g in ui["groups"]:
+    for g in ui_group_keys(table):
         if g == "FactionSet":
             items = [(x["index"], x["key"], x["name"], x["index"] == 0) for x in table["sets"]]
         else:
@@ -768,6 +801,7 @@ def check_look(lines, scripts_folder: Path):
     # 2026-11-16a: the display order (ui_order) and each recipe's priority, its option's rank (0 through 2026-11-08a and with
     # --kit-order table).
     has_c3 = "ui_order" in table
+    has_c4 = "c4_ids" in table   # 2026-11-21a (C4, art build B)
     groups = ui_groups(table) if has_c3 else []
     ui_order, ui_rank, ui_start = ui_arrays(groups)
     priority = {}
@@ -1025,6 +1059,7 @@ def check_look(lines, scripts_folder: Path):
             problems.append(f"{script}.{name}: {have.get(name) or 'none'}, expected {want.strip()}")
     for script, group, have in (("CMB_ControllerScript", "Look_C1", ctl), ("CMB_ControllerScript", "Look_C2", ctl),
                                 *((("CMB_ControllerScript", "Look_C3", ctl),) if has_c3 else ()),
+                                *((("CMB_ControllerScript", "Look_C4", ctl),) if has_c4 else ()),
                                 ("CMB_ControllerScript", "Fixes_55", ctl), ("CMB_ControllerScript", "Fixes_56", ctl),
                                 ("CMB_ControllerScript", "Fixes_57", ctl), ("CMB_ControllerScript", "Fixes_59", ctl),
                                 ("CMB_LookF4SE", None, f4se)):
@@ -1058,7 +1093,8 @@ def check_look(lines, scripts_folder: Path):
     c2_slots = [s for s in table["slots"] if s.get("since") == C2_BUILD]
     c2_table = {g["id"] for g in c2_globals} | {s[k] for s in c2_slots for k in ("global_id", "ap_id", "list_id")} \
         | {s["swaps_id"] for s in c2_slots if s["swaps_id"]} \
-        | {i for s in table["slots"] for o in s["options"] if o.get("since") == C2_BUILD or s.get("since") == C2_BUILD for i in o["ids"] if i}
+        | {i for s in table["slots"] for o in s["options"] if o.get("since") == C2_BUILD or (s.get("since") == C2_BUILD and o.get("since") in (None, C2_BUILD))
+           for i in o["ids"] if i}
     c2_plugin = {r["id"] for r in recs if first <= int(r["id"], 16) <= last}
     if c2_plugin != c2_table or len(c2_table) != c2["count"] or last - first + 1 != c2["count"]:
         problems.append(f"C2's block: {len(c2_plugin)} records in {c2['first']}-{c2['last']}, the table's {len(c2_table)} IDs "
@@ -1083,6 +1119,57 @@ def check_look(lines, scripts_folder: Path):
         changed = sum(1 for v in priority.values() if v)
         c3_line = (f"; C3 {c3['first']}-{c3['last']} ({len(c3_plugin)}), the lists {'alphabetical' if KIT_ORDER_ALPHA else 'in table order (--kit-order table)'}: "
                    f"{changed} recipes with a priority")
+    # 2026-11-21a (C4, art build B): the fourth block, exactly c4_ids' 151 (0xC50-0xCE6): the three slots' globals (0) and
+    # attach points, the tank, fender and tyre options, the three slots' options and lists, the beams and their two lists.
+    # Each beam a copy of its shipped twin (CMB_HeadlampLight or CMB_HeadlampLightShadow: every field the same) in the
+    # option's colour; the light lists index = option (0 the shipped two); a C4 tank option's six entries its own (no
+    # sources_c3 appended twice); the three slots' lists at 12-14 of CMB_LookCategories and CMB_LookSwapLists (index = slot,
+    # checked above with every slot's).
+    if has_c4:
+        c4 = table["c4_ids"]
+        f4, l4 = int(c4["first"], 16), int(c4["last"], 16)
+        c4_slots = [s for s in table["slots"] if s.get("since") == C4_BUILD]
+        lamp = next((s for s in c4_slots if s["key"] == "Headlamp"), None)
+        beams = [o for o in (lamp or {}).get("options", [])[1:]]
+        lights = (lamp or {}).get("lights") or {}
+        c4_table = {s[k] for s in c4_slots for k in ("global_id", "ap_id", "list_id", "swaps_id") if s.get(k)} \
+            | {i for s in table["slots"] for o in s["options"] if o.get("since") == C4_BUILD for i in o["ids"] if i} \
+            | {i for o in beams for i in (o.get("beam") or {}).get("ids") or []} \
+            | {lights.get("list_id"), lights.get("shadow_list_id")}
+        c4_plugin = {r["id"] for r in recs if f4 <= int(r["id"], 16) <= l4}
+        if c4_plugin != c4_table or len(c4_table) != c4["count"] or l4 - f4 + 1 != c4["count"] or f4 != 0xC50:
+            problems.append(f"C4's block: {len(c4_plugin)} records in {c4['first']}-{c4['last']}, the table's {len(c4_table)} IDs "
+                            f"(c4_ids {c4['count']}, from 000C50); not in the plugin {sorted(x for x in c4_table - c4_plugin if x)[:3]}, not in the table {sorted(c4_plugin - c4_table)[:3]}")
+        for s in c4_slots:
+            at(s["global"], s["global_id"], "the slot's global_id")
+            at(s["ap"], s["ap_id"], "the slot's ap_id")
+        twin = {False: rec("CMB_HeadlampLight", "Light"), True: rec("CMB_HeadlampLightShadow", "Light")}
+        fields = lambda r: ((r or {}).get("light") or [[None]])[0][0] if r else None
+        light_re = re.compile(r"light colour ([0-9a-f]{6}) (.*)$")
+        def light_of(r):
+            m = light_re.match(fields(r) or "")
+            return (m.group(1), m.group(2)) if m else (None, None)
+        if light_of(twin[False]) != ("fff1e0", light_of(twin[False])[1]) or lamp and (lamp["options"][0].get("beam") or {}).get("rgb") != "fff1e0":
+            problems.append(f"CMB_HeadlampLight: {light_of(twin[False])}, expected the warm fff1e0 the Headlamp's option 0 names")
+        want_lists = {False: [fk("CMB_HeadlampLight")], True: [fk("CMB_HeadlampLightShadow")]}
+        for o in beams:
+            b = o.get("beam") or {}
+            for shadow, edid, lid in ((False, f"CMB_HeadlampLight_{o['key']}", (b.get("ids") or [None, None])[0]),
+                                      (True, f"CMB_HeadlampLightShadow_{o['key']}", (b.get("ids") or [None, None])[1])):
+                r = rec(edid, "Light")
+                if r is None:
+                    continue
+                at(edid, lid, "the option's beam.ids")
+                want_lists[shadow].append(fk(edid))
+                colour, rest = light_of(r)
+                if colour != b.get("rgb") or rest != light_of(twin[shadow])[1]:
+                    problems.append(f"{edid}: colour {colour} [{rest}], expected {b.get('rgb')} and every other field "
+                                    f"{'CMB_HeadlampLightShadow' if shadow else 'CMB_HeadlampLight'}'s [{light_of(twin[shadow])[1]}]")
+        for shadow, name, lid in ((False, lights.get("list"), lights.get("list_id")), (True, lights.get("shadow_list"), lights.get("shadow_list_id"))):
+            r = by_id.get(lid or "")
+            if not r or r["edid"] != name or r["type"] != "FormList" or r.get("item", []) != [(x, "Light") for x in want_lists[shadow]]:
+                problems.append(f"{name} at {lid}: {None if not r else (r['edid'], r.get('item'))}, expected the FormList {want_lists[shadow]} (index = Headlamp option)")
+        c3_line += f"; C4 {c4['first']}-{c4['last']} ({len(c4_plugin)}): {len(c4_slots)} slots, {2 * len(beams)} beams"
 
     n_options = sum(len(s["options"]) for s in table["slots"])
     line = (f"checked {n_options} look options in {len(table['slots'])} slots: {swaps_total} swaps, {recipes} look recipes, no BNAM (as the game's armour mod recipes), "
@@ -1118,13 +1205,17 @@ def check_mcm_look(scripts_folder: Path, lines):
     # 2026-11-16a (C3): the Seat after Tyres; with the alphabetical lists each of ui_order's dropdowns lists its choices in
     # display order and is bound to its full property on the controller (PropertyValueInt, CMB_ControllerScript, the quest).
     has_c3 = "ui_order" in table
+    # 2026-11-21a (C4): "Front fender badge" after "Rear fender badge", "Wear" after "Paint shade", "Headlamp" after
+    # "Mirrors", each a dropdown bound to its Ui<slot> (25 controls)
+    has_c4 = "c4_ids" in table
     bound = {}   # the global -> (its property, the names in display order)
     if has_c3 and KIT_ORDER_ALPHA:
         glob_of = {s["key"]: s["global"] for s in table["slots"]} | {"FactionSet": "CMB_LookFactionSet"}
+        drops = ui_dropdowns(table)
         for g, order in ui_groups(table):
-            if g in table["ui_order"]["dropdowns"]:
+            if g in drops:
                 all_names = sets if g == "FactionSet" else names[glob_of[g]]
-                bound[glob_of[g]] = (table["ui_order"]["dropdowns"][g], [all_names[i] for i in order])
+                bound[glob_of[g]] = (drops[g], [all_names[i] for i in order])
     want = [("switcher", "Customise at the bike", "CMB_LookOn", None, None),
             ("stepper", "Field kit", "CMB_KitMode", ["Automatic", "Toolbox (a test: it can't be sat in)", "Toolbox, bench keyword (a test)", "Armour bench",
                                                      "The game's armour bench"], None),
@@ -1135,10 +1226,13 @@ def check_mcm_look(scripts_folder: Path, lines):
             in_group("dropdown", "Tank badge, left", "CMB_Look_TankL"),
             in_group("dropdown", "Tank badge, right", "CMB_Look_TankR"),
             in_group("dropdown", "Rear fender badge", "CMB_Look_Fender"),
+            *((in_group("dropdown", "Front fender badge", "CMB_Look_FrontFender"),) if has_c4 else ()),
             in_group("dropdown", "Paint", "CMB_Look_Paint"),
             ("slider", "Paint hue", "CMB_LookHue", (0, 359, 1), "condition"),
             ("stepper", "Paint shade", "CMB_LookShade", shades, "condition"),
+            *((in_group("dropdown", "Wear", "CMB_Look_Wear"),) if has_c4 else ()),
             in_group("stepper", "Mirrors", "CMB_Look_Mirrors"),
+            *((in_group("dropdown", "Headlamp", "CMB_Look_Headlamp"),) if has_c4 else ()),
             in_group("dropdown", "Rims", "CMB_Look_Rims"),
             in_group("stepper", "Tyres", "CMB_Look_Tyres"),
             *((in_group("dropdown", "Seat", "CMB_Look_Seat"),) if has_c3 else ()),

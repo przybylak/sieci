@@ -116,3 +116,18 @@ int Function GunKeywords(Actor akActor, FormList akYes, Keyword akNo)
 	endif
 	return code
 EndFunction
+
+; 2026-11-21a (test 57, the weapons unit; the plugin's [Tilt] GunNoteSure, CMB_RoomOptions bit 8192): the weapon the biped holds
+; in slot 41 (BIPOBJECT kWeaponGun), whose instance GunKeywords and WornHasKeyword read: None when the slot is empty. Test 57,
+; 14:21:02: GetEquippedWeapon() said the flare gun while this slot still held the hunting rifle (its keywords read for the flare
+; gun's judge), so the controller's note checks the two agree.
+Form Function WornGun(Actor akActor)
+	if !akActor
+		return None
+	endif
+	Actor:WornItem worn = akActor.GetWornItem(41)
+	if !worn
+		return None
+	endif
+	return worn.item
+EndFunction

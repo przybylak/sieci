@@ -1284,6 +1284,238 @@ BADGE_DRAW_17A = {"gunskull": draw_gunflag, "bos": draw_bos17, "hg_enclave": dra
 BADGE_BLEED_17A = {"gunskull": hexrgb(GUNFLAG_GREEN), "bos": hexrgb(BOS17["line"]), "hg_enclave": CHROME}
 
 
+# --- since the 2026-11-21a build (test 57's wishes, art build B): the 3D helmets' grounds as the Enclave's flag and as
+# the Brotherhood's steel plate with a cog each side of the helmet, and two new badges, Nuka-Cola and Red Rocket -------
+# The grounds are art versions of their cells (--enclave-ground, --bos-ground; BADGE_ART_VERSIONS): an older version
+# draws its cell exactly as 2026-11-17a did. The two badges are new cells (BADGES_21A, "since" 2026-11-21a, so --through
+# before it leaves them out: 2026-11-17a's atlas byte for byte). Our own drawings from written feature lists (the
+# tester's pictures are looked at, never read by a tool); Nuka-Cola's cap and script and Red Rocket's round sign follow
+# the plates' 2026-11-17a emblems (NUKA_*, RR_*), drawn at a tank badge's size as lone figures (no plate ground).
+# Where the 3D helmets stand in their cells (each helmet vertex cast onto its plate, its UV into the cell; the parked
+# nif of 2026-11-16a): the Enclave's x 186-326, y 46-201, the Brotherhood's x 183-329, y 47-198, on both plates. The
+# grounds' field (badges.json "field") is x 28-484, y 34-207: the art frames the helmet on both flanks.
+ART_21A = "2026-11-21a"
+BADGE_ART_VERSIONS = {"gunskull": ("2026-11-16a", ART_17A), "bos": ("2026-11-07a", ART_17A),
+                      "hg_enclave": ("2026-11-16a", ART_17A, ART_21A), "hg_bos": (ART_17A, ART_21A),
+                      "nukacola": (ART_21A,), "redrocket": (ART_21A,)}     # hg_bos 2026-11-17a: the plain ground
+BADGE_ART.update({k: v[-1] for k, v in BADGE_ART_VERSIONS.items()})
+FINISH.update({"inlay": (0.30, 0.78, 0.50)})    # an enamel inlaid a step over its field (the flag's stars, a cog)
+
+
+def art_version(key, flag, through):
+    """A badge's art version: the flag's, else the latest one drawn by `through` (None: the latest; a build before
+    them all: the oldest, as 2026-11-17a's --through did)."""
+    if flag:
+        return flag
+    vs = BADGE_ART_VERSIONS[key]
+    ok = [v for v in vs if through is None or v <= through]
+    return ok[-1] if ok else vs[0]
+
+
+def _paint_map(B, cov, rgb, finish):
+    """BadgeArt.paint with a colour per texel (rgb: h x w x 3)."""
+    before = B.rgb.copy()
+    B.paint(cov, (0.0, 0.0, 0.0), finish)
+    B.rgb = before * (1 - cov[..., None]) + np.clip(rgb, 0, 1) * cov[..., None]
+
+
+def _field_box():
+    """The grounds' enamel field's box (cell px): x0, y0 (its top peak), x1, y1 (its bottom peak)."""
+    f = np.asarray(offset_convex(BADGE_SAFE, GROUND_INSET + GROUND_RIM))
+    return float(f[:, 0].min()), float(f[:, 1].min()), float(f[:, 0].max()), float(f[:, 1].max())
+
+
+# The Enclave's flag behind the 3D Enclave helmet (test 57: "enclave US flag behind 3d helmet badge"): the stars and
+# stripes the Enclave flies, 13 stripes (red at the top and the bottom) and a blue canton with 13 white stars in a ring,
+# their points outward, filling the ground's enamel field inside the stock badge's chrome bevel (the field's outline as
+# before: the helmet's fit reads it). The stripes span the field from its top peak to its bottom one (13.3 px each);
+# the canton the upper 7 stripes and 0.41 of the field's length, so its edge lies under the helmet; the ring where the
+# canton shows left of the helmet, at least 6 px inside the field's slanted top and the canton's foot. Both tank plates
+# show the one texture unmirrored, so both read as the flag from outside (the canton toward the front on the left plate,
+# toward the rear on the right one).
+FLAG21 = dict(red="b22234", white="f0eee6", blue="3c3b6e")
+FLAG21_CANTON = 0.41
+FLAG21_RING = (116.0, 93.5, 23.3, 4.7)          # the ring's middle (cell px), its radius, a star's outer radius
+
+
+def draw_ground_flag(B, col):
+    cv = B.cv
+    c = {k: hexrgb(v) for k, v in FLAG21.items()}
+    plate = plaque_sd(cv, GROUND_INSET, GROUND_R)
+    B.rimmed(plate, c["white"], GROUND_RIM)
+    field = plate + GROUND_RIM
+    x0, y0, x1, y1 = _field_box()
+    h = (y1 - y0) / 13.0
+    red = np.minimum.reduce([np.abs(cv.y - (y0 + (k + 0.5) * h)) - h / 2 + 0 * cv.x for k in range(0, 13, 2)])
+    B.fill(np.maximum(red, field), c["red"], "enamel")
+    canton = sd_box(cv, x0 - 20.0, y0 - 20.0, x0 + FLAG21_CANTON * (x1 - x0), y0 + 7 * h)
+    B.fill(np.maximum(canton, field), c["blue"], "enamel")
+    cx, cy, rr, rs = FLAG21_RING
+    stars = []
+    for i in range(13):
+        a = -90.0 + 360.0 * i / 13
+        sx, sy = cx + rr * math.cos(math.radians(a)), cy + rr * math.sin(math.radians(a))
+        stars.append(sd_poly(cv, star_pts(sx, sy, rs, rot=a)))
+    B.fill(np.maximum(np.minimum.reduce(stars), field), c["white"], "inlay")
+    return dict(_ground_field(), art=ART_21A,
+                drawn="the Enclave's flag in enamel filling the plate's field inside the stock badge's chrome bevel: 13 red "
+                      "and white stripes, a blue canton with 13 white stars in a ring")
+
+
+# The Brotherhood helmet's ground (test 57: "for BoS 3d helmet - cogs from logo on both sides"): the steel grey enamel
+# field as before (the table's ground colour) with the emblem's big gear (BOS17_GEARS' first: 9 teeth, root 0.45, tip
+# 0.58, a round hole 0.26) in black enamel inlaid each side of the helmet, mirror images, its hole the plate's grey; each
+# about 11 px inside the field's edges and 19 px clear of the helmet.
+BOSCOG21_AT = (108.0, 127.0)        # the left cog's middle (cell px); the right one mirrored about x 256
+BOSCOG21_TIP = 56.0                 # its teeth's tips' radius (px)
+
+
+def draw_ground_cogs(B, col):
+    cv = B.cv
+    ground = hexrgb(col["ground"])
+    plate = plaque_sd(cv, GROUND_INSET, GROUND_R)
+    B.rimmed(plate, ground, GROUND_RIM)
+    _, _, root, tip, teeth, hole = BOS17_GEARS[0]
+    k = BOSCOG21_TIP / tip
+    cx, cy = BOSCOG21_AT
+    pts = gear_pts(cx, cy, root * k, tip * k, teeth, duty=0.42, rot=-90.0 + 180.0 / teeth)
+    B.fill(np.minimum(sd_poly(cv, pts), sd_poly(cv, [(512.0 - x, y) for x, y in pts])), hexrgb(BOS17["gear"]), "inlay")
+    B.fill(np.minimum(sd_circle(cv, cx, cy, hole * k), sd_circle(cv, 512.0 - cx, cy, hole * k)), ground, "enamel")
+    return dict(_ground_field(), art=ART_21A,
+                drawn="the plain steel grey enamel field inside the stock badge's chrome bevel with a black cog (the "
+                      "Brotherhood emblem's big gear, 9 teeth, a round hole) inlaid each side of the helmet")
+
+
+# Nuka-Cola's bottle cap as a tank badge (the plate's 2026-11-17a cap, _plate_nuka_cap, at 90 px): 18 crimps, the
+# skirt shaded crest to crease and the dome lighter toward the light, a dark edge round it, "Nuka" over the swoosh over
+# "Cola" in our brush script (NUKA_WORD, COLA_WORD, NUKA_SWOOSH) in white; the cap domed and its crimps ridged in the
+# relief, the script raised over it. Red a little brighter than the factory paint so it stands off it.
+NUKA21 = dict(red="c41e22", edge="2a0a0b", white="f2efe6")
+NUKA21_C = (256.0, 120.0, 90.0, 18)         # the middle (cell px), the radius, the crimps
+NUKA21_EDGE = 3.0                           # px: the dark edge
+
+
+def draw_nukacola(B, col):
+    cv = B.cv
+    cx, cy, R, n = NUKA21_C
+    red, edge_c, white = (np.array(hexrgb(NUKA21[k])) for k in ("red", "edge", "white"))
+    dx, dy = cv.x - cx, cv.y - cy
+    r = np.hypot(dx, dy) + np.zeros((cv.h, cv.w))
+    th = np.arctan2(dy, dx)
+    wave = 0.5 - 0.5 * np.cos(n * th)                              # 0 at a crimp's crest, 1 in the crease between
+    cap = r - (R - 0.073 * R * wave ** 1.5)                       # the crimped outline (the plate's 2.4 at 33)
+    face_r = 0.80 * R
+    light = np.cos(th - math.radians(-125.0))                     # the light from the upper left
+    B.fill(cap, tuple(edge_c), "outline")
+    skirt = 1.00 + 0.30 * np.cos(n * th) * (0.55 + 0.45 * light) + 0.10 * light
+    _paint_map(B, coverage(cap + NUKA21_EDGE), red * skirt[..., None], "enamel")
+    _paint_map(B, coverage(r - (face_r + 0.03 * R)), np.broadcast_to(red * 0.72, (cv.h, cv.w, 3)), "enamel")
+    dome = 1.10 + 0.10 * np.clip(-(dx * 0.57 + dy * 0.82) / face_r, -1, 1)
+    _paint_map(B, coverage(r - face_r), red * dome[..., None], "enamel")
+    xh, thick = 0.200 * R, 0.068 * R
+    script = np.minimum.reduce([_script_word_sd(cv, NUKA_WORD, cx - 0.64 * R, cy - 0.02 * R, xh, thick),
+                                _script_word_sd(cv, COLA_WORD, cx - 0.40 * R, cy + 0.50 * R, xh, thick),
+                                _brush_sd(cv, [(cx + x * R, cy + y * R, w * thick) for x, y, w in NUKA_SWOOSH])])
+    on = B.fill(script, tuple(white), "enamel")
+    t = np.clip(r / R, 0, 1)
+    rel = np.where(r <= face_r, 0.55 + 0.22 * np.clip(1 - (r / face_r) ** 2, 0, 1),
+                   0.45 + 0.12 * (1 - wave) * t)
+    B.relief = np.where(cap <= 0, rel + 0.22 * on, B.relief)
+    return {"art": ART_21A, "ground": False,
+            "drawn": "Nuka-Cola's bottle cap: 18 crimps, a red skirt and dome with a dark edge, Nuka / the swoosh / Cola "
+                     "in a white brush script of our own; domed and ridged in the relief (no plate ground)"}
+
+
+# Red Rocket's round sign as a tank badge (the plate's 2026-11-17a roundel, _plate_redrocket_sign, at 90 px): a black
+# rim, the red ring, the yellow centre with the two black R's back to back and the red rocket between them (RR_R,
+# RR_ROCKET, RR_FIN, RR_POD at the roundel's proportions), and RED ROCKET in white along the ring's upper arc (the
+# plate's top band carries it there; here the ring is wide enough).
+RR21 = dict(black="111112", red="b0201c", yellow="e8c534", white="f2efe6")   # the plate's fixed red and gold
+RR21_C = (256.0, 120.0, 90.0)
+RR21_WORDS = ("RED ROCKET", 11.5, 2.6, 4.0)    # the ring's words, their cap and stroke (px), the gap between letters
+
+
+def _arc_text_sd(cv, text, cx, cy, r, cap, stroke, gap):
+    """A text's signed distance bent round a circle: its middle at the top, its letters' feet toward the centre, the
+    middle line on radius r (the straight text's x along the arc, its y along the radius)."""
+    tmp = Canvas(cv.w * 2, int(cap + 8))
+    y_mid = cap / 2 + 4.0
+    sd, _, _ = plate_text_sd(tmp, text, float(cv.w), y_mid, cap, stroke, proportional=True, gap=gap)
+    dx, dy = cv.x - cx, cv.y - cy
+    rho = np.hypot(dx, dy) + 0 * dx
+    phi = np.arctan2(dx, -dy) + 0 * dy                             # 0 at the top, clockwise on the screen
+    sx = cv.w + r * phi - 0.5
+    sy = y_mid - (rho - r) - 0.5
+    h, w = sd.shape
+    x0, y0 = np.clip(np.floor(sx).astype(int), 0, w - 2), np.clip(np.floor(sy).astype(int), 0, h - 2)
+    fx, fy = np.clip(sx - x0, 0, 1), np.clip(sy - y0, 0, 1)
+    out = (sd[y0, x0] * (1 - fx) + sd[y0, x0 + 1] * fx) * (1 - fy) + (sd[y0 + 1, x0] * (1 - fx) + sd[y0 + 1, x0 + 1] * fx) * fy
+    inside = (sx >= 0) & (sx <= w - 1) & (sy >= 0) & (sy <= h - 1)
+    return np.where(inside, out, 1e3)
+
+
+def draw_redrocket(B, col):
+    cv = B.cv
+    cx, cy, R = RR21_C
+    s = R / RR_C["r"]
+    k = RR_C["group"] * s
+    c = {key: hexrgb(v) for key, v in RR21.items()}
+    sign = sd_circle(cv, cx, cy, R)
+    B.fill(sign, c["black"], "outline")
+    B.fill(sign + RR_C["rim"] * s, c["red"], "enamel")
+    B.fill(sign + (RR_C["rim"] + RR_C["ring"]) * s, c["yellow"], "enamel")
+    gy = cy + 0.06 * k                                             # the group a little low: the nose fills the top
+    B.fill(np.minimum(_rr_letter(cv, cx, gy, k, True), _rr_letter(cv, cx, gy, k, False)), c["black"], "inlay")
+    T = lambda pts, sx=1.0: [(cx + sx * x * k, gy + y * k) for x, y in pts]
+    a, b, w = RR_POD
+    rocket = np.minimum.reduce([sd_poly(cv, T(RR_ROCKET)), sd_poly(cv, T(RR_FIN)), sd_poly(cv, T(RR_FIN, -1.0)),
+                                sd_stroke(cv, T([a, b]), 2 * w * k), sd_stroke(cv, T([a, b], -1.0), 2 * w * k),
+                                sd_poly(cv, T([(0.0, 0.30), (0.05, 0.56), (-0.05, 0.56)]))])
+    B.fill(rocket, c["red"], "inlay")
+    text, cap, stroke, gap = RR21_WORDS
+    mid = R - (RR_C["rim"] + RR_C["ring"] / 2) * s
+    B.fill(_arc_text_sd(cv, text, cx, cy, mid, cap, stroke, gap), c["white"], "inlay")
+    return {"art": ART_21A, "ground": False,
+            "drawn": "Red Rocket's round sign: a black rim, the red ring with RED ROCKET in white along its top, the yellow "
+                     "centre with two black R's back to back and the red rocket between them (no plate ground)"}
+
+
+BADGE_DRAW_21A = {"hg_enclave": draw_ground_flag, "hg_bos": draw_ground_cogs, "nukacola": draw_nukacola,
+                  "redrocket": draw_redrocket}
+BADGE_BLEED_21A = {"hg_enclave": CHROME, "hg_bos": CHROME, "nukacola": hexrgb(NUKA21["edge"]),
+                   "redrocket": hexrgb(RR21["black"])}
+# The two new badges' table entries (look_options.json's form) for the table unit's file: the tools use the table's
+# own entry of a key when it has one, these otherwise (with_badges_21a; look_badges.py the same).
+BADGES_21A = [
+    {"key": "nukacola", "name": "Nuka-Cola", "art": "ours", "cell": [0, 4],
+     "motif": "Nuka-Cola's bottle cap: red, crimped, a dark edge, the two words in a white brush script with the swoosh "
+              "between them (no plate ground)",
+     "colours": {"ground": None, "emblem": [NUKA21["red"], NUKA21["white"]]}, "textures": None,
+     "material": "CMB\\Bike\\badge_nukacola.bgsm", "slots": ["TankL", "TankR", "Fender"], "since": ART_21A},
+    {"key": "redrocket", "name": "Red Rocket", "art": "ours", "cell": [1, 4],
+     "motif": "the Red Rocket round sign: a black rim, the red ring with the name in white, the yellow centre with two "
+              "black R's back to back and a red rocket between them (no plate ground)",
+     "colours": {"ground": None, "emblem": [RR21["yellow"], RR21["red"], RR21["black"]]}, "textures": None,
+     "material": "CMB\\Bike\\badge_redrocket.bgsm", "slots": ["TankL", "TankR", "Fender"], "since": ART_21A},
+]
+
+
+def with_badges_21a(opts):
+    """The table with BADGES_21A appended where it has no entry of their key (since 2026-11-21a)."""
+    have = {b["key"] for b in opts["badges"]}
+    return dict(opts, badges=list(opts["badges"]) + [dict(b) for b in BADGES_21A if b["key"] not in have])
+
+
+def badge_drawer(key, col):
+    """(draw function, bleed colour) of a badge's cell at its art version (BADGE_ART)."""
+    ver = BADGE_ART.get(key)
+    if ver == ART_21A and key in BADGE_DRAW_21A:
+        return BADGE_DRAW_21A[key], BADGE_BLEED_21A[key]
+    if ver == ART_17A and key in BADGE_DRAW_17A:
+        return BADGE_DRAW_17A[key], BADGE_BLEED_17A[key]
+    return BADGE_DRAW[key], (hexrgb(col["emblem"][0]) if col.get("ground") is None else CHROME)
+
+
 def look_through(node, through):
     """The table as the build `through` had it: every object whose "since" is later dropped (check_plugin.py's
     look_until); through None: the table as it is."""
@@ -1313,13 +1545,9 @@ def draw_badge_atlas(opts):
             continue
         c, r = b["cell"]
         col = b["colours"]
-        if BADGE_ART.get(b["key"]) == ART_17A:              # a redrawn badge (since 2026-11-17a)
-            B = BadgeArt(cw, ch, BADGE_BLEED_17A[b["key"]])
-            extra = BADGE_DRAW_17A[b["key"]](B, col)
-        else:
-            bleed = hexrgb(col["emblem"][0]) if col.get("ground") is None else CHROME
-            B = BadgeArt(cw, ch, bleed)
-            extra = BADGE_DRAW[b["key"]](B, col)
+        draw, bleed = badge_drawer(b["key"], col)          # its art version's (redrawn since 2026-11-17a, -21a)
+        B = BadgeArt(cw, ch, bleed)
+        extra = draw(B, col)
         # the margin: nothing within it, whatever a drawing did
         edge = np.minimum(np.minimum(B.cv.x - margin, cw - margin - B.cv.x), np.minimum(B.cv.y - margin, ch - margin - B.cv.y))
         B.alpha *= edge >= 0
@@ -1681,6 +1909,8 @@ PLATE_FONT = PLATE_FONT_NEW
 PLATE_EMBLEMS_OLD, PLATE_EMBLEMS_NEW = "2026-11-09a", "2026-11-16a"    # the designs' emblems (--plate-emblems)
 PLATE_EMBLEMS_COLOUR = "2026-11-17a"    # since 2026-11-17a: four factions' emblems in their own colours (test 56)
 PLATE_EMBLEMS = PLATE_EMBLEMS_COLOUR
+PLATE_TOP_OLD, PLATE_TOP_CENTRED = "2026-11-17a", "2026-11-21a"   # the colour designs' top line (--plate-top)
+PLATE_TOP = PLATE_TOP_CENTRED
 DIE_WEIGHT = 1.15                   # every stroke a caller asks for, x this (the texts' 13 px -> 14.95)
 DIE_S_REF = PLATE_STROKE * DIE_WEIGHT
 DIE_PITCH = 62.0                    # px at the 92-px cap: the texts' die (48 inked + a stroke's gap)
@@ -2609,6 +2839,24 @@ def _std_legends(P, top, bottom, top_span=(FX(0.15), FX(0.85)), bot_span=(FX(0.0
             P.legend(text, (a + b) / 2, y, c, fit=b - a, emboss_units=emboss_units)
 
 
+# Since 2026-11-21a (test 57: "brotherhood of steel plate top text needs to be centered"; --plate-top) the top line of the
+# four designs with a corner emblem in its own colours (--plate-emblems 2026-11-17a: Brotherhood of Steel, Minutemen,
+# Nuka-Cola, Red Rocket) is centred on the plate as the plate's text and its bottom line are, and fitted (smaller, then
+# condensed, as every legend) in a span symmetric about the middle that keeps 16 px clear of the corner emblems (their
+# boxes end at x 77-79): x 94-418. 2026-11-17a's lines started right of the emblem (the Brotherhood's 154-445, its
+# end under the tail lamp's housing in a low view from behind). The other designs' top lines are centred already (the
+# Raider's spray-painted one is askew on purpose); those of older emblem versions are as they were.
+PLATE_TOP_HALF = 162.0
+
+
+def _top_span(span):
+    """A top line's span (x0, x1): `span` as 2026-11-17a had it, or the centred one (PLATE_TOP_HALF either side of the
+    plate's middle) for a colour-emblem design since 2026-11-21a."""
+    if PLATE_TOP == PLATE_TOP_OLD or PLATE_EMBLEMS != PLATE_EMBLEMS_COLOUR:
+        return span
+    return (FX(0.5) - PLATE_TOP_HALF, FX(0.5) + PLATE_TOP_HALF)
+
+
 def _sticker(P, cx, cy, w, h, ground, text, ink, cap=14.0, hole=False):
     cv = P.cv
     P.put(sd_box(cv, cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2, 3.0), ground, 1.0, "print")
@@ -3153,8 +3401,9 @@ def _plate_redrocket_sign(P):
     field = sd_box(cv, FX(0.0) + side, top, FX(1.0) - side, bot, rad)
     P.put(np.maximum(field, -(sign - 4.0)), BASE, 1.0, "enamel")     # the yellow field, clear of the sign by 4 px of red
     P.bead()
-    c = _legend_cap("RED ROCKET", FX(0.90) - FX(0.20), 26.0)
-    P.legend("RED ROCKET", (FX(0.20) + FX(0.90)) / 2, TOP_Y + 1.0, c, part=ACCENT, fit=FX(0.90) - FX(0.20), finish="print")
+    a, b = _top_span((FX(0.20), FX(0.90)))
+    c = _legend_cap("RED ROCKET", b - a, 26.0)
+    P.legend("RED ROCKET", (a + b) / 2, TOP_Y + 1.0, c, part=ACCENT, fit=b - a, finish="print")
     words = "GASOLINE - DIESEL - FUSION"
     c = _legend_cap(words, FX(0.92) - FX(0.08), 21.0)
     P.legend(words, FX(0.5), BOT_Y + 2.0, c, part=ACCENT, fit=FX(0.92) - FX(0.08), finish="print")
@@ -3212,7 +3461,7 @@ def plate_nuka(P):
     c = _legend_cap("ENJOY NUKA-COLA!", FX(0.86) - FX(0.14), 19.0)
     P.legend("ENJOY NUKA-COLA!", FX(0.5), BOT_Y + 2, c, part=BASE, fit=FX(0.86) - FX(0.14), finish="print")
     if PLATE_EMBLEMS == PLATE_EMBLEMS_COLOUR:                    # the bottle cap replaces the script line
-        _std_legends(P, NUKA_TOP, None, top_span=(FX(0.17), FX(0.94)))
+        _std_legends(P, NUKA_TOP, None, top_span=_top_span((FX(0.17), FX(0.94))))
         _plate_nuka_cap(P)
         return
     sd, w = script_sd(cv, "Nuka-Cola", FX(0.5), TOP_Y + 11.5, 15.5, 3.5)
@@ -3266,7 +3515,8 @@ def plate_bos(P):
     P.shade = np.where(P.face <= 0, 1.0 + 0.045 * brushed + 0.05 * hash_noise(cv, 60, 81), P.shade)
     P.raise_(0.004 * brushed)
     P.bead()
-    _std_legends(P, "BROTHERHOOD OF STEEL", "AD VICTORIAM", top_span=(FX(0.235), FX(0.94)), bot_span=(FX(0.2), FX(0.8)))
+    _std_legends(P, "BROTHERHOOD OF STEEL", "AD VICTORIAM", top_span=_top_span((FX(0.235), FX(0.94))),
+                 bot_span=(FX(0.2), FX(0.8)))
     if PLATE_EMBLEMS == PLATE_EMBLEMS_OLD:
         E = emblem_rec("bos", BASE, LEGEND, None, LEGEND)
         c = BADGE_C
@@ -3279,7 +3529,7 @@ def plate_bos(P):
 
 def plate_minutemen(P):
     P.bead()
-    _std_legends(P, "COMMONWEALTH MINUTEMEN", "AT A MINUTE'S NOTICE", top_span=(FX(0.16), FX(0.94)))
+    _std_legends(P, "COMMONWEALTH MINUTEMEN", "AT A MINUTE'S NOTICE", top_span=_top_span((FX(0.16), FX(0.94))))
     if PLATE_EMBLEMS == PLATE_EMBLEMS_OLD:
         E = emblem_rec("minutemen", BASE, LEGEND, None, LEGEND)
         c = BADGE_C
@@ -3440,7 +3690,7 @@ def draw_plate_designs(opts):
 def write_badges(out, look_options, through=None):
     """--badges: the atlas PNGs and badges.json (look_badges.py makes the DDS and the materials from them); `through` a
     build: the table as that build had it (--through 2026-11-08a: 2026-11-15b's 13 badges, its atlas byte for byte)."""
-    opts = look_through(json.loads(Path(look_options).read_text()), through)
+    opts = look_through(with_badges_21a(json.loads(Path(look_options).read_text())), through)
     out.mkdir(parents=True, exist_ok=True)
     d, n, s, meta = draw_badge_atlas(opts)
     write_png(out / "badges_d.png", d)
@@ -3499,6 +3749,9 @@ def write_plates(out, look_options):
             "designs": dinfo, "texts": tinfo}
     if PLATE_FIXED_GOLD in plate_fixed():                          # since 2026-11-17a: gold in the table's guard
         meta["fixed_top"] = PLATE_FIXED_TOP_GOLD
+    if PLATE_EMBLEMS == PLATE_EMBLEMS_COLOUR and PLATE_TOP == PLATE_TOP_CENTRED:   # since 2026-11-21a
+        meta["top_line"] = {"build": PLATE_TOP, "span_px": list(_top_span(None)),
+                            "what": "the colour-emblem designs' top line centred on the plate, fitted in this span"}
     (out / "plates.json").write_text(json.dumps(meta, indent=1) + "\n")
     print(f"wrote plates_d/_part/_h/_s.png {U.shape[1]}x{U.shape[0]} ({len(dinfo)} designs), plate_text_d/_h/_s.png "
           f"{TU.shape[1]}x{TU.shape[0]} ({len(tinfo)} texts) and plates.json to {out}")
@@ -3548,15 +3801,28 @@ def main():
     ap.add_argument("--bos-art", choices=(ART_17A, BADGE_ART_OLD["bos"]),
                     help="(--badges, since 2026-11-17a) the Brotherhood of Steel badge: 2026-11-17a the colour emblem, "
                          "2026-11-07a the gold winged sword over a cog (default as --gunskull-art's)")
-    ap.add_argument("--enclave-ground", choices=(ART_17A, BADGE_ART_OLD["hg_enclave"]),
-                    help="(--badges, since 2026-11-17a) the 3D Enclave helmet's ground: 2026-11-17a polished chrome, "
-                         "2026-11-16a black enamel (default as --gunskull-art's). The three old values (or --through "
-                         "2026-11-16a): 2026-11-16a's atlas byte for byte")
+    ap.add_argument("--enclave-ground", choices=(ART_21A, ART_17A, BADGE_ART_OLD["hg_enclave"]),
+                    help="(--badges, since 2026-11-17a) the 3D Enclave helmet's ground: 2026-11-21a (since then the "
+                         "default) the Enclave's flag, 13 stripes and a ring of 13 stars on the blue canton; 2026-11-17a "
+                         "polished chrome, 2026-11-16a black enamel (default: the latest drawn by --through's build). The "
+                         "three old values (or --through 2026-11-16a): 2026-11-16a's atlas byte for byte")
+    ap.add_argument("--bos-ground", choices=(ART_21A, ART_17A),
+                    help="(--badges, since 2026-11-21a) the 3D Brotherhood helmet's ground: 2026-11-21a (the default) the "
+                         "steel grey plate with a black cog from the Brotherhood's emblem each side of the helmet; "
+                         "2026-11-17a the plain steel grey plate (as 2026-11-16a drew it). With --enclave-ground "
+                         "2026-11-17a and --through 2026-11-17a (which leaves out the 2026-11-21a badges, Nuka-Cola and "
+                         "Red Rocket; --through 2026-11-17a alone does all three): 2026-11-17a's atlas byte for byte")
+    ap.add_argument("--plate-top", choices=(PLATE_TOP_CENTRED, PLATE_TOP_OLD), default=PLATE_TOP_CENTRED,
+                    help="(--plates, since 2026-11-21a) the top line of the four plates with a corner emblem in its own "
+                         "colours (Brotherhood of Steel, Minutemen, Nuka-Cola, Red Rocket; --plate-emblems 2026-11-17a): "
+                         "2026-11-21a (the default) centred on the plate and fitted between the emblem and its mirror "
+                         "image; 2026-11-17a right of the emblem as 2026-11-17a drew it (its plate textures byte for byte)")
     args = ap.parse_args()
-    global PLATE_FONT, PLATE_EMBLEMS
-    PLATE_FONT, PLATE_EMBLEMS = args.plate_font, args.plate_emblems
-    for key, flag in (("gunskull", args.gunskull_art), ("bos", args.bos_art), ("hg_enclave", args.enclave_ground)):
-        BADGE_ART[key] = flag or (BADGE_ART_OLD[key] if args.through and args.through < ART_17A else ART_17A)
+    global PLATE_FONT, PLATE_EMBLEMS, PLATE_TOP
+    PLATE_FONT, PLATE_EMBLEMS, PLATE_TOP = args.plate_font, args.plate_emblems, args.plate_top
+    for key, flag in (("gunskull", args.gunskull_art), ("bos", args.bos_art), ("hg_enclave", args.enclave_ground),
+                      ("hg_bos", args.bos_ground), ("nukacola", None), ("redrocket", None)):
+        BADGE_ART[key] = art_version(key, flag, args.through)
     if args.badges:
         return write_badges(args.out, args.look_options, args.through)
     if args.plates:

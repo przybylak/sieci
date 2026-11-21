@@ -31,6 +31,8 @@ lighting shader does, as far as is cheap:
   since 2026-11-16a (C3) the seat's colour (its entries with the option's V, SeatV), "Same as the left" through
   TankRightOf (the left's 17-19 are the right's 18-20), and the tank options before C3 with the four helmet
   identities their records gain (sources_c3); --look-build 2026-11-08a composes the table as 2026-11-15b's ESP has it;
+  since 2026-11-21a (C4) the Wear, FrontFender and Headlamp slots (plain swaps; `--sheet Wear` etc.), the Headlamp
+  choice's beam colour on the night preset's spot (beam.rgb, the light the controller places) and the views set `c4`;
 - shapes without Cast_Shadows cast none, single-sided ones are culled from behind;
 - day and night presets (night: the lamp on, its beam a spot light where the plugin puts the game's light).
 
@@ -165,6 +167,21 @@ VIEWS["helm_ride"] = dict(cam=(-90, -170, 115), at=(0, 30, 70), lens=50)
 VIEWS["night_helm_l"] = dict(cam=(-72.0, 26.5, 83.8), at=(-13.4, 37.5, 77.6), lens=85, preset=NIGHT)
 SETS["c3"] = ["helm_l", "helm_r", "helm_l_graze", "helm_kit", "helm_ride", "night_helm_l", "t49_tank_l", "t49_tank_r",
               "t49_seat_l", "t49_seat_r"]
+# since 2026-11-21a (C4, art build B): the front mudguard's top from ahead and above (the front fender badge's patch, read from
+# the front; worn frame: the front axle (0.38, 95.83, 29.86), the mudguard's crown about 27 over it), the headlamp's lens
+# square on (LampPoint, CMB_BikeParts.ini's (0.3, 76.3, 81.9)) by day and at night, the beam on the road ahead from over the
+# rider's right shoulder at night (its colour the Headlamp choice's beam.rgb), and the wear at riding distance from behind
+# and from the front left (the third-person camera's)
+VIEWS["fender_front"] = dict(cam=(0, 172, 122), at=(0.4, 90, 54), lens=55)
+VIEWS["fender_kit"] = dict(cam=(-70, 170, 105), at=(0.4, 98, 56), lens=50, parked=True)
+VIEWS["lamp_front"] = dict(cam=(30, 168, 92), at=(0.3, 76.3, 81.9), lens=85)
+VIEWS["lamp_kit"] = dict(cam=(30, 168, 92), at=(0.3, 76.3, 81.9), lens=85, parked=True)
+VIEWS["night_lamp_front"] = dict(cam=(30, 168, 92), at=(0.3, 76.3, 81.9), lens=85, preset=NIGHT)
+VIEWS["night_beam"] = dict(cam=(40, -60, 150), at=(0, 420, 0), lens=32, preset=NIGHT)
+VIEWS["wear_ride"] = dict(cam=(-90, -170, 115), at=(0, 30, 60), lens=50)
+VIEWS["wear_front_l"] = dict(cam=(-190, 250, 110), at=(0, 30, 50), lens=50)
+SETS["c4"] = ["fender_front", "fender_kit", "lamp_front", "lamp_kit", "night_lamp_front", "night_beam", "wear_ride",
+              "wear_front_l", "parked34", "rear34"]
 SHEETS = {"closeups": SETS["close"]}
 # the look sheets (--sheet all, since 2026-11-07a): every option of a slot on the parked bike, the worn one and the
 # bench's preview. The plates' centres and outward normals from the shipped static_badge (worn frame: the left plate
@@ -191,6 +208,11 @@ for _k in ("Plate", "PlateText", "PlateInk", "PlateBack"):
     LOOK_FRAMES[_k] = {"parked": dict(VIEWS["plate_kit"], parked=True), "worn": dict(VIEWS["plate_45"]), "preview": PREVIEW}
 # since 2026-11-16a (C3): the seat, parked from the left, worn from the right (test 49's seat views)
 LOOK_FRAMES["Seat"] = {"parked": dict(VIEWS["t49_seat_l"], parked=True), "worn": dict(VIEWS["t49_seat_r"]), "preview": PREVIEW}
+# since 2026-11-21a (C4): the wear on the parked bike and on the worn one from behind (riding distance); the front fender's
+# badge from ahead; the headlamp's lens parked and worn and its beam at night
+LOOK_FRAMES["Wear"] = {"parked": dict(VIEWS["parked34"]), "worn": dict(VIEWS["wear_ride"]), "preview": PREVIEW}
+LOOK_FRAMES["FrontFender"] = {"parked": dict(VIEWS["fender_kit"]), "worn": dict(VIEWS["fender_front"]), "preview": PREVIEW}
+LOOK_FRAMES["Headlamp"] = {"parked": dict(VIEWS["lamp_kit"]), "worn": dict(VIEWS["lamp_front"]), "night": dict(VIEWS["night_beam"])}
 # --sheet groups (since 2026-11-08a): rims, tyres, plates (the four plate slots), hue (Paint 45 "Free colour" at
 # HUE_STEPS hues x the 4 shades on one frame)
 SHEET_GROUPS = {"rims": ["Rims"], "tyres": ["Tyres"], "plates": ["Plate", "PlateText", "PlateInk", "PlateBack"]}
@@ -799,6 +821,20 @@ def compose_swaps(opts, choice, hue=None, shade=None, crude=1):
     return out
 
 
+LAMP_RGB = (1.0, 0.945, 0.878)   # the LIGH record's 255/241/224 (CMB_HeadlampLight)
+
+
+def beam_colour(opts, choice):
+    """The headlamp's beam colour for a Headlamp choice (since 2026-11-21a: its option's beam.rgb, the light the controller
+    places), else the shipped warm one (LAMP_RGB)."""
+    if not opts or "Headlamp" not in choice:
+        return LAMP_RGB
+    s = next((s for s in opts["slots"] if s["key"] == "Headlamp"), None)
+    o = next((o for o in (s or {}).get("options", []) if o["key"] == choice["Headlamp"]), None)
+    rgb = ((o or {}).get("beam") or {}).get("rgb")
+    return tuple(int(rgb[i:i + 2], 16) / 255.0 for i in (0, 2, 4)) if rgb else LAMP_RGB
+
+
 def rim_code(opts, choice):
     """The worn bike's rim style for a Rims choice (the plugin's speck by CMB_LookCode bits 3-6), else None."""
     if "Rims" not in choice:
@@ -1339,7 +1375,7 @@ class Scene:
         ld = bpy.data.lights.new("lamp", "SPOT")
         ld.spot_size = math.radians(78)
         ld.spot_blend = 0.6
-        ld.color = (1.0, 0.945, 0.878)                           # the LIGH record's 255/241/224
+        ld.color = LAMP_RGB                                     # the LIGH record's 255/241/224 (set_beam: a Headlamp choice's)
         ld.shadow_soft_size = 0.5
         self.lamp = bpy.data.objects.new("lamp", ld)
         sc.collection.objects.link(self.lamp)
@@ -1404,6 +1440,10 @@ class Scene:
         self.lamp.location = lp + ax * 28.0                        # [Lamp] Ahead: 28 out along the beam
         self.lamp.rotation_euler = (-beam).to_track_quat("Z", "Y").to_euler()
         self.lamp.data.energy = self.args.lamp_power if (night and lamp_on) else 0.0
+
+    def set_beam(self, rgb=None):
+        """The beam's colour (since 2026-11-21a: beam_colour's, the Headlamp choice's light; the shipped warm one by default)."""
+        self.lamp.data.color = rgb or LAMP_RGB
 
     def set_sun(self, toward=None):
         """The sun from this direction (toward it, worn frame; since 2026-11-16a a view's `sun`, e.g. helm_l_graze's low
@@ -1621,6 +1661,7 @@ def main():
     choice = parse_choice(args.swap)
     if choice and not look_slots:
         n = scene.apply_swaps(compose_swaps(opts, choice, args.hue, args.shade, args.crude), aliases)
+        scene.set_beam(beam_colour(opts, choice))   # since 2026-11-21a: the Headlamp choice's beam
         mc, rc = mirror_code(opts, choice), rim_code(opts, choice)
         if mc is not None:
             args.set = (args.set or []) + [f"mirrors={mc}"]
@@ -1688,6 +1729,7 @@ def look_sheets(args, scene, parts, opts, slot_keys, aliases, t0):
 
     def shot(choice, frames, d, stem, label, hue=None, shade=None):
         n = scene.apply_swaps(compose_swaps(opts, choice, hue, shade, args.crude), aliases)
+        scene.set_beam(beam_colour(opts, choice))   # since 2026-11-21a: the Headlamp choice's beam
         mc, rc = mirror_code(opts, choice), rim_code(opts, choice)
         out = []
         for fname, v in frames.items():

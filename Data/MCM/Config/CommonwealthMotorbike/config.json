@@ -647,10 +647,12 @@
           "Gunners skull",
           "Institute",
           "Minutemen",
+          "Nuka-Cola",
           "Pre-war army star",
           "Pre-war army star (game art)",
           "Raiders",
           "Railroad",
+          "Red Rocket",
           "Vault-Tec"
         ],
         "sourceType": "PropertyValueInt",
@@ -682,10 +684,12 @@
           "Gunners skull",
           "Institute",
           "Minutemen",
+          "Nuka-Cola",
           "Pre-war army star",
           "Pre-war army star (game art)",
           "Raiders",
           "Railroad",
+          "Red Rocket",
           "Vault-Tec"
         ],
         "sourceType": "PropertyValueInt",
@@ -715,16 +719,53 @@
           "Institute",
           "Minutemen",
           "Minutemen flag (game art)",
+          "Nuka-Cola",
           "Pre-war army star",
           "Pre-war army star (game art)",
           "Raiders",
           "Railroad",
+          "Red Rocket",
           "Vault-Tec"
         ],
         "sourceType": "PropertyValueInt",
         "sourceForm": "CommonwealthMotorbike.esp|80D",
         "scriptName": "CMB_ControllerScript",
         "propertyName": "UiFender"
+      }
+    },
+    {
+      "type": "dropdown",
+      "text": "Front fender badge",
+      "help": "A badge on the front mudguard\u0027s top, read from the front; it turns with the bars (None: as it came).",
+      "groupCondition": 1,
+      "valueOptions": {
+        "options": [
+          "None",
+          "Atom Cats",
+          "Brotherhood flag (game art)",
+          "Brotherhood helmet",
+          "Brotherhood of Steel",
+          "Children of Atom",
+          "Enclave",
+          "Enclave helmet",
+          "Gunners",
+          "Gunners (game art)",
+          "Gunners skull",
+          "Institute",
+          "Minutemen",
+          "Minutemen flag (game art)",
+          "Nuka-Cola",
+          "Pre-war army star",
+          "Pre-war army star (game art)",
+          "Raiders",
+          "Railroad",
+          "Red Rocket",
+          "Vault-Tec"
+        ],
+        "sourceType": "PropertyValueInt",
+        "sourceForm": "CommonwealthMotorbike.esp|80D",
+        "scriptName": "CMB_ControllerScript",
+        "propertyName": "UiFrontFender"
       }
     },
     {
@@ -817,6 +858,28 @@
       }
     },
     {
+      "type": "dropdown",
+      "text": "Wear",
+      "help": "Weathering over the paint, whatever its colour (As it came: none): sun-faded and chipped, dust, mud from the wheels, rust, blood, or two of them together (Wasteland, Raider).",
+      "groupCondition": 1,
+      "valueOptions": {
+        "options": [
+          "As it came",
+          "Bloody",
+          "Dusty",
+          "Muddy",
+          "Raider",
+          "Rusty",
+          "Wasteland",
+          "Weathered"
+        ],
+        "sourceType": "PropertyValueInt",
+        "sourceForm": "CommonwealthMotorbike.esp|80D",
+        "scriptName": "CMB_ControllerScript",
+        "propertyName": "UiWear"
+      }
+    },
+    {
       "type": "stepper",
       "text": "Mirrors",
       "help": "The stock mirrors, mirrors under the bars (egg or D), or none.",
@@ -830,6 +893,25 @@
         ],
         "sourceType": "GlobalValue",
         "sourceForm": "CommonwealthMotorbike.esp|8C0"
+      }
+    },
+    {
+      "type": "dropdown",
+      "text": "Headlamp",
+      "help": "The headlamp\u0027s colour, its lens and its beam (Warm: as it came). While you ride, Apply puts the new beam on at once.",
+      "groupCondition": 1,
+      "valueOptions": {
+        "options": [
+          "Warm (as it came)",
+          "Amber",
+          "Blue-white",
+          "Cool white",
+          "Selective yellow"
+        ],
+        "sourceType": "PropertyValueInt",
+        "sourceForm": "CommonwealthMotorbike.esp|80D",
+        "scriptName": "CMB_ControllerScript",
+        "propertyName": "UiHeadlamp"
       }
     },
     {
@@ -897,13 +979,16 @@
     {
       "type": "stepper",
       "text": "Tyres",
-      "help": "Black (as they came), whitewalls or a red line.",
+      "help": "Black (as they came), whitewalls or a red line, each clean or muddy.",
       "groupCondition": 1,
       "valueOptions": {
         "options": [
           "Black (as it came)",
           "Whitewall",
-          "Red line"
+          "Red line",
+          "Black, muddy",
+          "Whitewall, muddy",
+          "Red line, muddy"
         ],
         "sourceType": "GlobalValue",
         "sourceForm": "CommonwealthMotorbike.esp|A1C"

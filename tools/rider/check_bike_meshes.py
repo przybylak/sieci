@@ -108,6 +108,25 @@ What it checks (FAIL lines make the exit status 1; INFO lines are numbers for th
              riding clip (the package's CMB_Rider and Female: the leg bones through PyNifly's skeleton.nif, in the bike's
              frame by CMB_RiderSeat.json) against each helmet and, for comparison, its plate (an estimated LEG_RADIUS of
              flesh round the bones; no body mesh here); the budget TEX_BUDGET_C3
+  c4         (2026-11-21a, look_shells.py, art build B; found by the shapes in the worn nif, --look-c4 demands them) the
+             three shapes static_wear, fork_wear and fork_badgeFront last in every nif (54 parked, 57 worn and view: the
+             plugin's 58 of MAX_SKINS 64, the first-person bike's 57 of VIEW_SHAPES 64), each naming its own materials file,
+             skinned in the worn nifs only (one bone, its source's: the culling sphere's centre its source's and round its
+             vertices), shown by the node flag, an alpha property each, no shadow in any nif, the shells one-sided, the patch
+             two-sided as the rear patch; the plugin's roles by their names (g_roleTags: static_wear fixed, the two fork_
+             ones the lower fork: they turn with the bars and ride the suspension) and by their spheres (RolesByName=0),
+             no colour writer's tag at a name's end; the six own files invisible (alpha test 255, alpha 0, no shadow,
+             off_d, no cube; the shells' one-sided, the patch's the rear patch's bytes). Each shell, in every nif: every
+             vertex one of its source's (the record but the position: UV, normal, tangent, skin), the vertices at one
+             source position at one shell position (closed at the hard edges), its triangles its source's, every vertex
+             shell_pieces.SHELL_BAND over the source in full precision (parked, view) and C4_BAND_HALF in the worn half
+             floats, over its triangles never nearer the source than SHELL_FLOOR, no vertex inside another shape (the
+             winding number of every shape but the open sheets, in full precision and in the half floats). The front
+             patch: every vertex FRONT_PATCH_LIFT over fork_paint within C4_PATCH_VERTEX, over its triangles within
+             C4_PATCH_RANGE (no gap, no poke-through at the mudguard's curvature), every triangle facing out, on the
+             crown (C4_CROWN), its UVs the plate rectangle read from in front (u to the bike's left, v toward the
+             front); each badge patch (the front and the raised rear one) C4_OVER_WEAR over its wear shell everywhere;
+             the bar assembly turned within BarAngle C4_BARS clear of static_wear
 """
 
 import argparse
@@ -124,6 +143,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import harley_meshes as H  # noqa: E402
 import bar_cables as BC  # noqa: E402
 import emblem_pieces as EP  # noqa: E402
+import shell_pieces as SHP  # noqa: E402
+import look_emblems as LE  # noqa: E402
 from build_bike_meshes import _block_offsets  # noqa: E402
 from nearest import TriangleGrid  # noqa: E402
 
@@ -140,6 +161,9 @@ TEX_BUDGET_C2 = (124, 125.0)
 # 2026-11-16a (C3): 2026-11-15b's 123 files and 118.6 MB, the helmets' four (helms_d/_n/_s/_g, 1.3 MB: unit A) and the
 # seat's index map and palette (0.7 MB: unit C); the plates' and badges' atlases keep their sizes (unit B)
 TEX_BUDGET_C3 = (130, 125.0)
+# 2026-11-21a (art build B): the merged tree's 180 files and 142.1 MB: 2026-11-17a's, the Wear slot's 42 maps and the
+# muddy tyres' six diffuses (22.6 MB less the materials: look_wear.py) and the three tinted lenses (look_lamp.py)
+TEX_BUDGET_C4 = (182, 145.0)
 ART_WHEELS = ("rim", "cast", "wheelf_tyre_", "wheelr_tyre_", "paint_hue", "static_paint_hue", "fork_paint_hue", "paint_p")
 ART_PLATES = ("plate_", "text_", "plates_", "static_plate_d", "static_plate_n", "static_plate_s")
 LOOK_OPTIONS = Path(__file__).resolve().parent.parent / "esp-generator" / "look_options.json"
@@ -156,6 +180,20 @@ EMBLEM_BARS = 0.3         # the bar assembly turned within BarAngle at least thi
                           # the under-bar mirrors cross the right plate 1.3 over it at full lock; the right helmets' relief
                           # is made shallower there, emblem_pieces.MIRROR_CLEAR)
 MAX_SKINS = 64            # CMB_Slope.dll's bike shapes (the worn nif's and the main shape)
+VIEW_SHAPES = 64          # CMB_Slope.dll's first-person bike's shapes (its ViewRig)
+# 2026-11-21a (art build B, look_shells.py): the wear shells and the front fender's badge patch, after every other shape
+C4_SHELLS = (("static_wear", "static_paint"), ("fork_wear", "fork_paint"))
+C4_PATCH, C4_PATCH_ON = "fork_badgeFront", "fork_paint"
+C4_LABELS = tuple(lb for lb, _ in C4_SHELLS) + (C4_PATCH,)
+C4_BAND_HALF = (0.297, 0.343)   # the worn nifs' half floats: every shell vertex this far over its source (where their step,
+                                # 1/16 past 64 units, leaves no point within SHELL_BAND; the count outside SHELL_BAND reported)
+C4_PATCH_VERTEX = (0.02, 0.05)  # the front patch's vertices FRONT_PATCH_LIFT over fork_paint within this (full, half floats)
+C4_PATCH_RANGE = (0.40, 0.56)   # ... and over its triangles everywhere (the cast: no poke-through at the curvature, no gap)
+C4_OVER_WEAR = 0.08             # each badge patch (front and rear) over its wear shell everywhere, in the half floats too
+C4_CROWN = 0.7                  # the front patch on the crown: the mudguard's normal under it within acos(this) of the
+                                # direction from the front axle
+C4_BARS = 0.05                  # the bar assembly turned within BarAngle at least this clear of static_wear (front_black
+                                # passes 0.42 over the tank's paint at full lock: 0.10 over the shell)
 LEG_RADIUS = 5.0          # the knee's and the shin's flesh round the leg bones (an estimate: no body mesh here)
 # The option table's names are scanned for the brand words above (BRAND: Fallout's own factions and fictional brands
 # are fine; the scan keeps real-world names out of the menus)
@@ -332,7 +370,7 @@ def look_checks(rep, args, opts, labels, materials, textures, worn_geo, worn_nam
         if (worn_names.get(label) or "").lower() != mat(label + "_worn"):
             bad.append(f"{label} worn {worn_names.get(label)!r}")
     c2_rims, c2_plate = H.RIM_STYLE_LABELS[0][0] in labels, H.PLATE_TEXT in labels
-    rep.check(not bad and len([x for x in labels if x not in RIDDEN_ONLY + C3_LABELS]) == len(H.look_labels(c2_rims, c2_plate)),
+    rep.check(not bad and len([x for x in labels if x not in RIDDEN_ONLY + C3_LABELS + C4_LABELS]) == len(H.look_labels(c2_rims, c2_plate)),
               f"custom: {len(labels)} shapes; {', '.join(new)} in the worn, parked and view nifs (the view's names the worn's), "
               f"each its own materials file and the plugin's fixed role by name; the parked nif's under-bar mirrors "
               f"({', '.join(H.PARKED_OFF)}) not hidden, naming <label>_off.bgsm", "; ".join(bad))
@@ -434,11 +472,12 @@ def c2_checks(rep, args, labels, materials, worn_geo, worn_names, parked_geo, pa
     import bike_pieces as BP
     meshes = args.data / "Meshes" / "CMB"
     want = [lb for lb, _ in H.look_labels(True, True)]
-    built = [x for x in labels if x not in RIDDEN_ONLY + C3_LABELS]   # 2026-11-15b's front_cables (bar_cables.py) and
-    later = [x for x in labels if x in RIDDEN_ONLY + C3_LABELS]          # 2026-11-16a's helmets (look_emblems.py) aside
+    built = [x for x in labels if x not in RIDDEN_ONLY + C3_LABELS + C4_LABELS]   # 2026-11-15b's front_cables (bar_cables.py),
+    later = [x for x in labels if x in RIDDEN_ONLY + C3_LABELS + C4_LABELS]          # 2026-11-16a's helmets (look_emblems.py) and
+    # 2026-11-21a's shells and patch (look_shells.py) aside
     rep.check(built == want, f"c2: {len(built)} shapes in the worn and view nifs, {len([x for x in built if x not in H.WORN_ONLY])} "
                              f"in the parked (49 and 46: 2026-11-07a's 33 and 30, the plate's two, the 14 rim styles)"
-                             + (f"; and {', '.join(later)} (bar_cables.py, look_emblems.py)" if later else ""),
+                             + (f"; and {', '.join(later)} (bar_cables.py, look_emblems.py, look_shells.py)" if later else ""),
               "" if built == want else f"missing {sorted(set(want) - set(built))}, extra {sorted(set(built) - set(want))}")
     mat = lambda name: f"materials\\cmb\\bike\\{name}.bgsm".lower()   # noqa: E731
     # the new shapes' own materials files: named, the invisible ones invisible, static_plate's over its own textures
@@ -713,8 +752,10 @@ def c3_checks(rep, args, meshes, labels, materials, parts):
         shapes = [nif.name_of(k) for k in nif.shapes()]
         counts.append(f"{stem} {len(shapes)}")
         want = [f"{nm}_{label}" for label in C3_LABELS]
-        if shapes[-4:] != want:
-            bad.append(f"{stem}: its last shapes {shapes[-4:]}")
+        tail = shapes[-4 - len(C4_LABELS):-len(C4_LABELS)] if shapes[-len(C4_LABELS):] == [f"{nm}_{lb}" for lb in C4_LABELS] \
+            else shapes[-4:]   # 2026-11-21a: look_shells.py's three after them
+        if tail != want:
+            bad.append(f"{stem}: its last shapes {tail}")
         for label in C3_LABELS:
             k = nif.shape_named(f"{nm}_{label}")
             if k is None:
@@ -776,7 +817,7 @@ def c3_checks(rep, args, meshes, labels, materials, parts):
     others = {}
     for k in nif.shapes():
         name = nif.name_of(k)
-        if name.startswith("CMB_Bike_") and name[len("CMB_Bike_"):] not in C3_LABELS + ("static_paint",) \
+        if name.startswith("CMB_Bike_") and name[len("CMB_Bike_"):] not in C3_LABELS + C4_LABELS + ("static_paint",) \
                 and not name.endswith(("_static_badgeTankL", "_static_badgeTankR")):
             s = BC.TriShape(nif.blocks[k])
             others[name[len("CMB_Bike_"):]] = s.positions()[s.tris]
@@ -883,6 +924,308 @@ def c3_checks(rep, args, meshes, labels, materials, parts):
         knee_checks(rep, args.knees, meshes, args.pynifly)
     else:
         rep.info("c3 knees", "not measured (--knees <the riding clips' folder>): TESTING step 1, in game")
+
+
+ROLE_TAGS = (("_front_needle", True, "needle"), ("_front_glow", True, "glow"), ("_front_dialglow", True, "glow"),
+             ("_rear_tail", True, "tail"), ("_rear_brake", True, "brake"), ("_fork", False, "fork"), ("_wheelF", False, "wheel"),
+             ("_wheelR", False, "wheel"), ("_front_mirrorStock", True, "front"), ("_front_mirrorUnderEgg", True, "front"),
+             ("_front_mirrorUnderD", True, "front"), ("_front_", False, "front"), ("_static_", False, "fixed"))
+COLOUR_TAGS = ("_wheelF_rim", "_wheelR_rim", "_rimLaced", "_rimDisc", "_rimStar", "_rimTurbine", "_rimPrewar", "_rimAtomic",
+               "_rimScrap", "_static_paint", "_fork_paint", "_static_plate", "_static_plateText")   # CMB_Slope.c g_lookGroups
+
+
+def role_by_name(name):
+    """The plugin's role for a shape's name (CMB_Slope.c g_roleTags, the first tag that fits; case aside)."""
+    low = name.lower()
+    return next((role for tag, end, role in ROLE_TAGS if (low.endswith(tag.lower()) if end else tag.lower() in low)), None)
+
+
+def _records_map(new, src):
+    """Each of new's vertices' source vertex (a TriShape each): the source vertices whose record but the position is the
+    same bytes, the nearest of them. -1 where none."""
+    cut = 12 if src.full else 6
+    by = {}
+    for i, r in enumerate(src.records[:, cut:]):
+        by.setdefault(r.tobytes(), []).append(i)
+    sp, npos = src.positions(), new.positions()
+    out = np.full(len(new.records), -1, np.int64)
+    for i, r in enumerate(new.records[:, cut:]):
+        cand = by.get(r.tobytes())
+        if cand:
+            d = np.linalg.norm(sp[cand] - npos[i], axis=1)
+            out[i] = cand[int(np.argmin(d))]
+    return out
+
+
+def _bone_sphere(nif, s):
+    """(centre in the bike's space, radius, bone data bytes) of a skinned shape's one bone."""
+    inst = nif.blocks[s.skin]
+    data = nif.blocks[struct.unpack_from("<i", inst, 4)[0]]
+    rot = np.array(struct.unpack_from("<9f", data, 20)).reshape(3, 3)
+    trans = np.array(struct.unpack_from("<3f", data, 56))
+    cs = np.array(struct.unpack_from("<3f", data, 4))
+    return rot.T @ (cs - trans), struct.unpack_from("<f", data, 16)[0], data
+
+
+def c4_checks(rep, args, meshes, labels, materials, parts):
+    """2026-11-21a (art build B, look_shells.py): the wear shells (static_wear, fork_wear) and the front fender's badge
+    patch (fork_badgeFront): three shapes a nif, last, invisible on their own files until a look option's swap; the
+    shells over their sources, the patch's cast, their roles, the skin count."""
+    import bgsm as B
+    stems = (("CMB_BikeParked", "CMB_Bike", ""), ("CMB_BikeWorn", "CMB_BikeWorn", "_worn"),
+             ("CMB_BikeWornRider", "CMB_BikeWornRider", "_worn"), ("CMB_BikeWornRiderF", "CMB_BikeWornRiderF", "_worn"),
+             (VIEW, VIEW, "_worn"))
+    nifs = {stem: BC.Nif((meshes / f"{stem}.nif").read_bytes()) for stem, _, _ in stems if (meshes / f"{stem}.nif").exists()}
+    counts, bad, names = [], [], {}
+    front_min_y = float(parts.get("FrontMinY", "0"))
+    for stem, nm, w in stems:
+        nif = nifs.get(stem)
+        if nif is None:
+            continue
+        shapes = [nif.name_of(k) for k in nif.shapes()]
+        counts.append(f"{stem} {len(shapes)}")
+        if shapes[-3:] != [f"{nm}_{label}" for label in C4_LABELS]:
+            bad.append(f"{stem}: its last shapes {shapes[-3:]}")
+        for label in C4_LABELS:
+            k = nif.shape_named(f"{nm}_{label}")
+            if k is None:
+                continue
+            s = BC.TriShape(nif.blocks[k])
+            sh = nif.blocks[s.shader]
+            mat = nif.strings[struct.unpack_from("<i", sh, 4)[0]].decode()
+            f1, f2 = struct.unpack_from("<II", sh, 16)
+            names.setdefault(label + w, set()).add(mat.lower())
+            if mat.lower() != f"materials\\cmb\\bike\\{label}{w}.bgsm".lower():
+                bad.append(f"{stem}_{label}: materials file {mat}")
+            if (s.skin >= 0) != (stem in WORN) or struct.unpack_from("<I", s.head, 12)[0] & 1 or s.alpha < 0:
+                bad.append(f"{stem}_{label}: skinned {s.skin >= 0}, flags {struct.unpack_from('<I', s.head, 12)[0]}, alpha {s.alpha}")
+            if f1 & H.SF1_CAST_SHADOWS:
+                bad.append(f"{stem}_{label}: casts a shadow")
+            if bool(f2 & 0x10) != (label == C4_PATCH):
+                bad.append(f"{stem}_{label}: two-sided {bool(f2 & 0x10)}")
+            role = role_by_name(f"{nm}_{label}")
+            want = "fork" if label.startswith("fork_") else "fixed"
+            if role != want or any(f"{nm}_{label}".lower().endswith(t.lower()) for t in COLOUR_TAGS):
+                bad.append(f"{stem}_{label}: the plugin's role by its name {role} (want {want}), or a colour writer's tag")
+            if s.skin >= 0:   # its source's bone: the same bind and sphere centre, round its vertices; RolesByName=0's rule
+                src = dict(C4_SHELLS).get(label, C4_PATCH_ON)
+                ss = BC.TriShape(nif.blocks[nif.shape_named(f"{nm}_{src}")])
+                c, r, data = _bone_sphere(nif, s)
+                cs, rs, sdata = _bone_sphere(nif, ss)
+                if data[:16] != sdata[:16] or data[20:] != sdata[20:] or r < rs:
+                    bad.append(f"{stem}_{label}: its bone data isn't {src}'s (the bind, the sphere's centre, a radius as large)")
+                if np.linalg.norm(s.positions() - c, axis=1).max() > r + 1e-3:
+                    bad.append(f"{stem}_{label}: its culling sphere doesn't hold its vertices")
+                if want == "fixed" and c[1] > front_min_y:
+                    bad.append(f"{stem}_{label}: its sphere ahead of FrontMinY (RolesByName=0 would turn it with the bars)")
+    worn_n = next((int(c.split()[-1]) for c in counts if c.startswith("CMB_BikeWorn ")), 0)
+    view_n = next((int(c.split()[-1]) for c in counts if c.startswith(f"{VIEW} ")), 0)
+    rep.check(not bad and worn_n + 1 <= MAX_SKINS and view_n <= VIEW_SHAPES,
+              f"c4: the three shapes ({', '.join(C4_LABELS)}) last in every nif, each naming its own materials file, skinned "
+              f"in the worn nifs only (its source's bone and sphere centre, the sphere round it), shown, an alpha property each, "
+              f"no shadow, the shells one-sided and the patch two-sided; the plugin's roles by name (static_wear fixed, the "
+              f"fork_ two the lower fork: with the bars and the suspension) and by sphere, no colour writer's tag; the "
+              f"plugin's shapes {worn_n + 1} of MAX_SKINS {MAX_SKINS}, the first-person bike's {view_n} of VIEW_SHAPES {VIEW_SHAPES}",
+              "; ".join(counts + bad[:8]))
+    # the six own files: invisible (alpha test 255, alpha 0, no shadows, off's textures, no cube); the shells' one-sided,
+    # the patch's the rear patch's bytes
+    bad = []
+    for stem_w in sorted(names):
+        path = materials.get(f"cmb\\bike\\{stem_w}.bgsm".lower())
+        if path is None:
+            bad.append(f"{stem_w}.bgsm missing")
+            continue
+        m = B.read(path)
+        if not (m["alpha_test"] and m["alpha_test_ref"] == 255 and m["alpha"] == 0.0 and not m["cast_shadows"]
+                and m["textures"]["diffuse"].lower() == "cmb\\bike\\off_d.dds" and not m["environment_mapping"]):
+            bad.append(f"{stem_w}: alpha test {m['alpha_test']} ref {m['alpha_test_ref']} alpha {m['alpha']} shadows "
+                       f"{m['cast_shadows']} diffuse {m['textures']['diffuse']} env {m['environment_mapping']}")
+        if stem_w.startswith(C4_PATCH):
+            twin = materials.get(f"cmb\\bike\\{H.FENDER_BADGE}{stem_w[len(C4_PATCH):]}.bgsm".lower())
+            if twin is None or twin.read_bytes() != path.read_bytes():
+                bad.append(f"{stem_w}: not {H.FENDER_BADGE}{stem_w[len(C4_PATCH):]}.bgsm's bytes")
+        elif m["two_sided"]:
+            bad.append(f"{stem_w}: two-sided")
+    rep.check(len(names) == 6 and not bad, f"c4: the new shapes invisible until a swap: their {len(names)} own materials files "
+                                           f"alpha test 255, alpha 0, no shadow, off_d/_n/_s, no cube; the shells' one-sided, "
+                                           f"the patch's the rear patch's ({H.FENDER_BADGE}.bgsm) bytes", "; ".join(bad))
+    # the shells over their sources, nif by nif (full precision in the parked and view nifs, half floats in the worn ones)
+    lo_b, hi_b = SHP.SHELL_BAND
+    inside_done = set()
+    for label, src in C4_SHELLS:
+        lines, bad = [], []
+        for stem, nm, _ in stems:
+            nif = nifs.get(stem)
+            if nif is None or nif.shape_named(f"{nm}_{label}") is None:
+                continue
+            s = BC.TriShape(nif.blocks[nif.shape_named(f"{nm}_{label}")])
+            so = BC.TriShape(nif.blocks[nif.shape_named(f"{nm}_{src}")])
+            m = _records_map(s, so)
+            if (m < 0).any():
+                bad.append(f"{stem}: {int((m < 0).sum())} vertices not one of {src}'s (the record but the position)")
+                continue
+            sv, ov = s.positions(), so.positions()
+            # closed: every source position's vertices among the shell's at one shell position (the positions told by the
+            # full-precision source: the view nif's, vertex for vertex the worn nifs', where the half floats round two
+            # near places to one)
+            full_src = ov
+            if not so.full and VIEW in nifs and nifs[VIEW].shape_named(f"{VIEW}_{src}") is not None:
+                fv = BC.TriShape(nifs[VIEW].blocks[nifs[VIEW].shape_named(f"{VIEW}_{src}")]).positions()
+                if len(fv) == len(ov):
+                    full_src = fv
+            pos, _ = SHP.weld_positions(full_src, 65536.0)
+            spread = 0.0
+            order = np.argsort(pos[m], kind="stable")
+            pm, sp_ = pos[m][order], sv[order]
+            cuts = np.flatnonzero(np.diff(pm)) + 1
+            for grp in np.split(np.arange(len(pm)), cuts):
+                if len(grp) > 1:
+                    spread = max(spread, float(np.abs(sp_[grp] - sp_[grp[0]]).max()))
+            if spread > 0.0:
+                bad.append(f"{stem}: a source position's vertices {spread:.4f} apart in the shell (it opens at a hard edge)")
+            tri_src = {tuple(np.roll(t, -int(np.argmin(t)))) for t in so.tris}
+            mapped = m[s.tris]
+            wrong = sum(tuple(np.roll(t, -int(np.argmin(t)))) not in tri_src for t in mapped)
+            if wrong:
+                bad.append(f"{stem}: {wrong} triangles not {src}'s (with its winding)")
+            tris = ov[so.tris]
+            grid = TriangleGrid(tris, 1.0)
+            d = grid.closest(sv, reach=0.6)[2]
+            band = C4_BAND_HALF if not s.full else SHP.SHELL_BAND
+            if d.min() < band[0] - 1e-6 or d.max() > band[1] + 1e-6:
+                bad.append(f"{stem}: its vertices {d.min():.4f}-{d.max():.4f} over {src} (want {band[0]:g}-{band[1]:g})")
+            samples, _ = SHP.triangle_samples(sv, s.tris)
+            ds = grid.closest(samples.reshape(-1, 3), reach=0.6)[2].reshape(len(s.tris), -1)
+            if ds.min() < SHP.SHELL_FLOOR:
+                bad.append(f"{stem}: over its triangles {ds.min():.4f} from {src} (under {SHP.SHELL_FLOOR:g})")
+            area = np.linalg.norm(np.cross(sv[s.tris[:, 1]] - sv[s.tris[:, 0]], sv[s.tris[:, 2]] - sv[s.tris[:, 0]]), axis=1) / 2
+            share = float((area[:, None] * ((ds >= lo_b) & (ds <= hi_b))).sum() / (area.sum() * ds.shape[1]))
+            lines.append(f"{stem} {len(sv)} vertices {d.min():.4f}-{d.max():.4f} over {src}"
+                         + ("" if s.full else f" ({int(((d < lo_b) | (d > hi_b)).sum())} outside {lo_b:g}-{hi_b:g})")
+                         + f", its triangles {ds.min():.3f}-{ds.max():.3f} ({100 * share:.1f}% of the area {lo_b:g}-{hi_b:g})")
+            # inside another shape: the parked nif (full precision) and one worn nif (the half floats)
+            if stem in ("CMB_BikeParked", "CMB_BikeWorn"):
+                others = {}
+                for k in nif.shapes():
+                    name = nif.name_of(k)
+                    lb = name[len(nm) + 1:] if name.startswith(nm + "_") else None
+                    if lb is None or lb == label or lb in C4_LABELS or lb in H.BADGE_SPLIT + (H.FENDER_BADGE, H.PLATE_TEXT):
+                        continue
+                    g = BC.TriShape(nif.blocks[k])
+                    others[lb] = (g.positions(), g.tris)
+                hit = SHP.inside_shapes(sv, others)
+                n_in = int(sum(h is not None for h in hit))
+                inside_done.add(stem)
+                if n_in:
+                    which = sorted({h for h in hit if h is not None})
+                    bad.append(f"{stem}: {n_in} vertices inside {', '.join(which)}")
+                lines.append(f"{stem}: no vertex inside another shape (the winding number of each shape but the open sheets)"
+                             if not n_in else f"{stem}: {n_in} inside")
+        rep.check(not bad and lines, f"c4: {label} over {src}: every vertex one of {src}'s (UV, normal, tangent, skin), "
+                                     f"closed at the hard edges, its triangles {src}'s, every vertex {lo_b:g}-{hi_b:g} over it "
+                                     f"(the worn nifs' half floats {C4_BAND_HALF[0]:g}-{C4_BAND_HALF[1]:g}), over its triangles "
+                                     f"at least {SHP.SHELL_FLOOR:g}, no vertex inside another shape", "; ".join(bad[:8]))
+        for line in lines:
+            rep.info(f"c4 {label}", line)
+    # the front patch's cast, and both badge patches over the wear shells
+    axle_w = np.array([float(x) for x in parts.get("FrontAxle", "0,0,0").split(",")])
+    for stem, nm, _ in stems:
+        nif = nifs.get(stem)
+        if nif is None or stem not in ("CMB_BikeParked", "CMB_BikeWorn", VIEW):
+            continue
+        bad, lines = [], []
+        s = BC.TriShape(nif.blocks[nif.shape_named(f"{nm}_{C4_PATCH}")])
+        on = BC.TriShape(nif.blocks[nif.shape_named(f"{nm}_{C4_PATCH_ON}")])
+        wear = BC.TriShape(nif.blocks[nif.shape_named(f"{nm}_fork_wear")])
+        pv, on_v = s.positions(), on.positions()
+        tol = C4_PATCH_VERTEX[0] if s.full else C4_PATCH_VERTEX[1]
+        grid = TriangleGrid(on_v[on.tris], 1.0)
+        ti, bc, d = grid.closest(pv, reach=1.0)
+        if np.abs(d - SHP.FRONT_PATCH_LIFT).max() > tol:
+            bad.append(f"its vertices {d.min():.3f}-{d.max():.3f} over {C4_PATCH_ON} (want {SHP.FRONT_PATCH_LIFT:g} +-{tol:g})")
+        samples, _ = SHP.triangle_samples(pv, s.tris)
+        ds = grid.closest(samples.reshape(-1, 3), reach=1.0)[2]
+        if ds.min() < C4_PATCH_RANGE[0] or ds.max() > C4_PATCH_RANGE[1]:
+            bad.append(f"over its triangles {ds.min():.3f}-{ds.max():.3f} (want {C4_PATCH_RANGE[0]:g}-{C4_PATCH_RANGE[1]:g})")
+        dw = TriangleGrid(wear.positions()[wear.tris], 1.0).closest(samples.reshape(-1, 3), reach=1.0)[2]
+        if dw.min() < C4_OVER_WEAR:
+            bad.append(f"{dw.min():.3f} over fork_wear (under {C4_OVER_WEAR:g})")
+        # facing out, on the crown (the surface's normal under it from the axle), the winding
+        fn = SHP.unit(np.cross(pv[s.tris[:, 1]] - pv[s.tris[:, 0]], pv[s.tris[:, 2]] - pv[s.tris[:, 0]]))
+        t_on = on_v[on.tris]
+        sn = SHP.unit(np.cross(t_on[:, 1] - t_on[:, 0], t_on[:, 2] - t_on[:, 0]))
+        under = sn[ti]
+        axle = axle_w if stem != "CMB_BikeParked" else None
+        if axle is None:   # the parked frame: the view nif's static_paint fitted to the parked one's
+            vw_paint = BC.TriShape(nifs[VIEW].blocks[nifs[VIEW].shape_named(f"{VIEW}_static_paint")]).positions()
+            pk_paint = BC.TriShape(nif.blocks[nif.shape_named("CMB_Bike_static_paint")]).positions()
+            Rv, tv = LE.fit_rigid(pk_paint, vw_paint)
+            axle = (axle_w - tv) @ Rv
+        radial = pv - axle
+        radial[:, 0] = 0.0
+        radial = SHP.unit(radial)
+        crown = np.einsum("ij,ij->i", under, radial)
+        if crown.min() < C4_CROWN:
+            bad.append(f"the mudguard under it {np.degrees(np.arccos(crown.min())):.0f} degrees off the axle's direction (off the crown)")
+        facing = np.einsum("ij,ij->i", fn, SHP.unit((pv[s.tris].mean(axis=1) - axle) * np.array([0.0, 1.0, 1.0])))
+        if facing.min() <= 0.5:
+            bad.append(f"a triangle facing in or along ({facing.min():.2f})")
+        # the UVs: the plate rectangle, read from in front: u to the bike's left, v toward the front
+        uv = s.uvs()
+        u0, v0, u1, v1 = SHP.BADGE_PLATE_RECT
+        if uv[:, 0].min() < u0 - 1e-3 or uv[:, 0].max() > u1 + 1e-3 or uv[:, 1].min() < v0 - 1e-3 or uv[:, 1].max() > v1 + 1e-3:
+            bad.append(f"UVs u {uv[:, 0].min():.3f}-{uv[:, 0].max():.3f} v {uv[:, 1].min():.3f}-{uv[:, 1].max():.3f}")
+        left = np.array([1.0, 0.0, 0.0]) if stem == "CMB_BikeParked" else np.array([-1.0, 0.0, 0.0])
+        ahead = np.array([0.0, -1.0, 0.0]) if stem == "CMB_BikeParked" else np.array([0.0, 1.0, 0.0])
+        cu, cv = np.corrcoef(uv[:, 0], pv @ left)[0, 1], np.corrcoef(uv[:, 1], pv @ ahead)[0, 1]
+        if cu < 0.99 or cv < 0.9:
+            bad.append(f"its UVs not read from in front (u with the bike's left {cu:.2f}, v with ahead {cv:.2f})")
+        lines.append(f"{len(pv)} vertices {d.min():.3f}-{d.max():.3f} over {C4_PATCH_ON}, its triangles {ds.min():.3f}-"
+                     f"{ds.max():.3f}, {dw.min():.3f} or more over fork_wear; the crown under it within "
+                     f"{np.degrees(np.arccos(min(1.0, crown.min()))):.0f} degrees of the axle's direction; u with the bike's left "
+                     f"{cu:.3f}, v with ahead {cv:.3f}")
+        # the rear patch over static_wear
+        rear = BC.TriShape(nif.blocks[nif.shape_named(f"{nm}_{H.FENDER_BADGE}")])
+        sw = BC.TriShape(nif.blocks[nif.shape_named(f"{nm}_static_wear")])
+        paint = BC.TriShape(nif.blocks[nif.shape_named(f"{nm}_static_paint")])
+        rs, _ = SHP.triangle_samples(rear.positions(), rear.tris)
+        rs = rs.reshape(-1, 3)
+        sw_v = sw.positions()
+        near = np.all([(sw_v[:, i] > rs[:, i].min() - 3) & (sw_v[:, i] < rs[:, i].max() + 3) for i in range(3)], axis=0)
+        tsel = near[sw.tris].all(axis=1)
+        drw = TriangleGrid(sw_v[sw.tris[tsel]], 1.0).closest(rs, reach=1.0)[2] if tsel.any() else np.full(1, np.inf)
+        drp = TriangleGrid(paint.positions()[paint.tris], 1.0).closest(rs, reach=1.0)[2]
+        if drw.min() < C4_OVER_WEAR:
+            bad.append(f"the rear patch {drw.min():.3f} over static_wear (under {C4_OVER_WEAR:g})")
+        lines.append(f"the rear patch {H.FENDER_BADGE} {drp.min():.3f}-{drp.max():.3f} over static_paint over its triangles, "
+                     f"{drw.min():.3f} or more over static_wear")
+        rep.check(not bad, f"c4: {stem}: the front patch {C4_PATCH} cast on {C4_PATCH_ON}'s crown: every vertex "
+                           f"{SHP.FRONT_PATCH_LIFT:g} over it (+-{tol:g}), over its triangles {C4_PATCH_RANGE[0]:g}-"
+                           f"{C4_PATCH_RANGE[1]:g} (no gap, no poke-through at the curvature), facing out, on the crown, its UVs the "
+                           f"plate rectangle read from in front; it and the rear patch at least {C4_OVER_WEAR:g} over the wear shells",
+                  "; ".join(bad))
+        for line in lines:
+            rep.info(f"c4 {stem}", line)
+    # the bar assembly against static_wear (the view nif, full precision): the mirrors, the cables and the bars turned
+    view = nifs.get(VIEW)
+    if view is not None:
+        sp = np.array([float(x) for x in parts.get("SteerPoint", "0,0,0").split(",")])
+        ax = H.unit(np.array([float(x) for x in parts.get("SteerAxis", "0,0,1").split(",")]))
+        bar = float(parts.get("BarAngle", "20"))
+        sw = BC.TriShape(view.blocks[view.shape_named(f"{VIEW}_static_wear")])
+        tris = sw.positions()[sw.tris]
+        gaps = []
+        for k in view.shapes():
+            name = view.name_of(k)
+            if "_front_" not in name.lower():
+                continue
+            g = BC.TriShape(view.blocks[k]).positions()
+            gap, at = H.turning_clearance(g, tris, sp, ax, bar)
+            gaps.append((name[len(VIEW) + 1:], gap, at))
+        worst = min(gaps, key=lambda x: x[1])
+        rep.check(worst[1] >= C4_BARS, f"c4: the bar assembly (front_*: the mirrors and the cables among them) turned within "
+                                       f"BarAngle {bar:g} at least {C4_BARS:g} clear of static_wear ({VIEW}.nif)",
+                  "; ".join(f"{lb} {gp:.2f} (at {at:+.0f})" for lb, gp, at in sorted(gaps, key=lambda x: x[1])[:6]))
 
 
 def knee_checks(rep, clips: Path, meshes: Path, pyn: Path):
@@ -1050,6 +1393,9 @@ def main() -> int:
     ap.add_argument("--look-c3", action="store_true",
                     help="the nifs must have the C3 helmets (2026-11-16a, look_emblems.py); without it, its checks run when "
                          "the nifs have them")
+    ap.add_argument("--look-c4", action="store_true",
+                    help="the nifs must have art build B's shapes (2026-11-21a, look_shells.py: the wear shells and the "
+                         "front fender's badge patch); without it, its checks run when the nifs have them")
     ap.add_argument("--ground-field", type=Path,
                     help="unit B's badges.json: the helmets' grounds' enamel fields (default the outline recorded in "
                          "emblem_pieces.GROUND_FIELD_UV)")
@@ -1088,7 +1434,10 @@ def main() -> int:
             labels.append(BC.LABEL)
         if f"CMB_BikeWorn_{C3_LABELS[0]}".encode() in wb:   # 2026-11-16a: look_emblems.py's helmets, after those
             labels += list(C3_LABELS)
-    roles = dict(H.LABELS + H.LOOK_LABELS + H.C2_LABELS + ((BC.LABEL, "front"),) + tuple((x, "") for x in C3_LABELS))
+        if f"CMB_BikeWorn_{C4_LABELS[0]}".encode() in wb:   # 2026-11-21a: look_shells.py's shells and patch, after those
+            labels += list(C4_LABELS)
+    roles = dict(H.LABELS + H.LOOK_LABELS + H.C2_LABELS + ((BC.LABEL, "front"),) + tuple((x, "") for x in C3_LABELS)
+                 + (("static_wear", ""), ("fork_wear", "fork"), (C4_PATCH, "fork")))
     look = H.FENDER_BADGE in labels   # the customisation build's nifs (2026-11-07a, --look-slots 1)
     look_path = args.look_options or (LOOK_OPTIONS if look and LOOK_OPTIONS.exists() else None)
     look_opts = json.loads(look_path.read_text()) if look_path else None
@@ -1374,7 +1723,7 @@ def main() -> int:
     if bike_tex.exists():
         dds = list(bike_tex.rglob("*.dds"))
         total = sum(p.stat().st_size for p in dds)
-        budget = (TEX_BUDGET_C3 if all(lb in labels for lb in C3_LABELS) else TEX_BUDGET_C2 if any(lb in labels for lb, _ in H.C2_LABELS)
+        budget = (TEX_BUDGET_C4 if all(lb in labels for lb in C4_LABELS) else TEX_BUDGET_C3 if all(lb in labels for lb in C3_LABELS) else TEX_BUDGET_C2 if any(lb in labels for lb, _ in H.C2_LABELS)
                   else TEX_BUDGET_LOOK if look else TEX_BUDGET)
         rep.check(len(dds) <= budget[0] and total <= budget[1] * 1024 * 1024,
                   f"textures: Textures/CMB/Bike {len(dds)} files, {total / 1048576:.1f} MB of DDS (budget {budget[0]} "
@@ -1732,6 +2081,12 @@ def main() -> int:
         rep.check(c3, "c3: the 2026-11-16a helmets (look_emblems.py)", "" if c3 else f"{len(labels)} shapes, none of them")
     if c3:
         c3_checks(rep, args, meshes, labels, materials, parts)
+    c4 = all(x in labels for x in C4_LABELS)
+    if args.look_c4:
+        rep.check(c4, "c4: the 2026-11-21a wear shells and front fender patch (look_shells.py)",
+                  "" if c4 else f"{len(labels)} shapes, none of them")
+    if c4:
+        c4_checks(rep, args, meshes, labels, materials, parts)
 
     # --- brand ----------------------------------------------------------------------------------------------------
     hits = []

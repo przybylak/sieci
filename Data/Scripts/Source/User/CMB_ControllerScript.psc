@@ -762,12 +762,13 @@ Group Look_C3
 		EndFunction
 	EndProperty
 	int Property UiFactionSet
-	{MCM "Faction set" (CMB_LookFactionSet, group 12; None pinned).}
+	{MCM "Faction set" (CMB_LookFactionSet; None pinned). Its group is the last one (2026-11-21a: LookUiFactionGroup, 15 with the
+	C4 ESP, 12 with 2026-11-17a's).}
 		int Function Get()
-			return UiGet(12)
+			return UiGet(LookUiFactionGroup())
 		EndFunction
 		Function Set(int aiRank)
-			UiSet(12, aiRank)
+			UiSet(LookUiFactionGroup(), aiRank)
 		EndFunction
 	EndProperty
 EndGroup
@@ -790,6 +791,61 @@ Group Look_C3_UiFallback
 	GlobalVariable Property CMB_LookUi_PlateBack Auto Const
 	GlobalVariable Property CMB_LookUi_Seat Auto Const
 	GlobalVariable Property CMB_LookUi_FactionSet Auto Const
+EndGroup
+
+; 2026-11-21a (C4, art build B): the wear (slot 12), the front fender badge (13) and the headlamp's colour (14), the beams'
+; lights, and the three slots' dropdowns. None is Mandatory: an older ESP leaves them None, and then the look has 12 slots and
+; the headlamp the shipped warm beam (2026-11-17a). UiWear, UiFrontFender and UiHeadlamp are full properties as Look_C3's
+; Ui<slot> (the plugin fills none of them; the MCM's dropdowns are bound to them).
+Group Look_C4
+	GlobalVariable Property CMB_Look_Wear Auto Const
+	{0xC50: the wear, an index into CMB_LookOptions_Wear (0 = as it came: the two overlay shells invisible; 1-5 one wear look,
+	6 and 7 two together).}
+	GlobalVariable Property CMB_Look_FrontFender Auto Const
+	{0xC51: the front fender's badge (0 = none: its patch invisible; 1-18 the rear fender's badges in its order, 19 Nuka-Cola,
+	20 Red Rocket).}
+	GlobalVariable Property CMB_Look_Headlamp Auto Const
+	{0xC52: the headlamp's colour, its lens and its beam (0 = warm, as it came; 1 cool white, 2 amber, 3 selective yellow,
+	4 blue-white).}
+	FormList Property CMB_HeadlampLights Auto Const
+	{0xCE5: per Headlamp option its beam's light, index = option (0 CMB_HeadlampLight; the others its copies in their colour).}
+	FormList Property CMB_HeadlampLightsShadow Auto Const
+	{0xCE6: the same with shadows (0 CMB_HeadlampLightShadow): MCM "Headlamp casts shadows".}
+	int Property UiWear
+	{MCM "Wear" (CMB_Look_Wear, group 12).}
+		int Function Get()
+			return UiGet(12)
+		EndFunction
+		Function Set(int aiRank)
+			UiSet(12, aiRank)
+		EndFunction
+	EndProperty
+	int Property UiFrontFender
+	{MCM "Front fender badge" (CMB_Look_FrontFender, group 13).}
+		int Function Get()
+			return UiGet(13)
+		EndFunction
+		Function Set(int aiRank)
+			UiSet(13, aiRank)
+		EndFunction
+	EndProperty
+	int Property UiHeadlamp
+	{MCM "Headlamp" (CMB_Look_Headlamp, group 14).}
+		int Function Get()
+			return UiGet(14)
+		EndFunction
+		Function Set(int aiRank)
+			UiSet(14, aiRank)
+		EndFunction
+	EndProperty
+EndGroup
+
+; 2026-11-21a (C4): design 3.7's fallback (b) for the three new dropdowns, as Look_C3_UiFallback (not in this build's ESP:
+; None, nothing synced).
+Group Look_C4_UiFallback
+	GlobalVariable Property CMB_LookUi_Wear Auto Const
+	GlobalVariable Property CMB_LookUi_FrontFender Auto Const
+	GlobalVariable Property CMB_LookUi_Headlamp Auto Const
 EndGroup
 
 ; ---------------------------------------------------------------------------
@@ -1564,10 +1620,66 @@ EndFunction
 
 Light Function HeadlampForm()
 	Light lamp = CMB_HeadlampLight
-	if CMB_HeadlampLightShadow && CMB_HeadlampShadows && CMB_HeadlampShadows.GetValue() > 0.0
+	bool shadows = CMB_HeadlampLightShadow && CMB_HeadlampShadows && CMB_HeadlampShadows.GetValue() > 0.0
+	if shadows
 		lamp = CMB_HeadlampLightShadow
 	endif
+	; 2026-11-21a (C4): the colour the look was last put on with (lookHeadlampApplied): that option's copy of the light from
+	; CMB_HeadlampLights (or ...Shadow), index = option; 0, an older ESP (the lists None) or a missing entry: the shipped one.
+	if lookHeadlampApplied > 0
+		FormList beams = CMB_HeadlampLights
+		if shadows
+			beams = CMB_HeadlampLightsShadow
+		endif
+		if beams && lookHeadlampApplied < beams.GetSize()
+			Light chosen = beams.GetAt(lookHeadlampApplied) as Light
+			if chosen
+				lamp = chosen
+			endif
+		endif
+	endif
 	return lamp
+EndFunction
+
+; 2026-11-21a (C4, the headlamp's colour): the Headlamp option the look was last put on with (ApplyLook; 0 the warm beam, as
+; with Customise at the bike off, an older ESP or a save from before): the beam HeadlampForm places, so a dropdown moved
+; without Apply changes no light yet (as the lens, whose swap goes on at Apply).
+int lookHeadlampApplied = 0
+
+; ApplyLook: the Headlamp option the look is put on with remembered for HeadlampForm; riding, with a light placed, and the
+; colour changed: a fresh reference of the chosen light at the player now, the old one retired as at a handover (the plugin
+; keeps the old one lit at the lens until the new one's 3D is in: an ID change of CMB_HeadlampRefHi/Lo; FollowHeadlamp
+; deletes it 2.5 s on). Off the bike nothing more: the next PlaceHeadlamp places the chosen one. An older ESP (no
+; CMB_Look_Headlamp): always 0, nothing ever swapped (2026-11-17a).
+Function LookHeadlampFollow(string asFrom)
+	int was = lookHeadlampApplied
+	int now = 0
+	if LookIsOn() && CMB_Look_Headlamp
+		now = LookChoice(LookSlotHeadlamp, false)
+	endif
+	lookHeadlampApplied = now
+	if now != was && riding && headlampRef
+		SwapHeadlamp(asFrom)
+	endif
+EndFunction
+
+Function SwapHeadlamp(string asFrom)
+	Light lamp = HeadlampForm()
+	if !lamp || !headlampRef || headlampRef.GetBaseObject() == lamp
+		return
+	endif
+	bool lit = CMB_HeadlampLive && CMB_HeadlampLive.GetValue() > 0.0
+	ObjectReference fresh = PlayerRef.PlaceAtMe(lamp, 1, false, !lit, false)
+	if !fresh
+		Log("Look: the headlamp's beam (" + asFrom + "): " + LookName(LookSlotHeadlamp, lookHeadlampApplied) + "'s light could not be placed; the old one stays.")
+		return
+	endif
+	RetireOldHeadlamp()
+	headlampRefOld = headlampRef
+	headlampRef = fresh
+	TellPluginHeadlamp()
+	lampRetireAt = lampPlacedAt + 2.5
+	Log("Look: the headlamp's beam (" + asFrom + "): " + LookName(LookSlotHeadlamp, lookHeadlampApplied) + ", a fresh light (" + fresh.GetFormID() + ") handed over" + Ternary(lit, "", ", unlit till the lamp is"))
 EndFunction
 
 ; The plugin learns the current reference's form id from two globals (16 bits each), and
@@ -5535,11 +5647,12 @@ EndFunction
 
 string Property LookMenuName = "ExamineMenu" AutoReadOnly
 {The armour bench's menu (the field kit opens it).}
-int Property LookSlots = 12 AutoReadOnly
+int Property LookSlots = 15 AutoReadOnly
 {The slots, in CMB_LookCategories' order: 0 the left tank badge, 1 the right, 2 the rear fender badge,
 3 the paint, 4 the mirrors; since 2026-11-08a 5 the rims, 6 the tyres, 7 the plate, 8 the plate's text,
-9 its letters' colour, 10 its background colour; since 2026-11-16a 11 the seat (an older ESP has the first
-five or eleven only: the others' globals None, nothing done for them, the seat not even in LookState).}
+9 its letters' colour, 10 its background colour; since 2026-11-16a 11 the seat; since 2026-11-21a 12 the wear,
+13 the front fender badge, 14 the headlamp (an older ESP has the first five, eleven or twelve only: the others'
+globals None, nothing done for them, the seat and the later ones not even in LookState).}
 int Property LookSlotTankL = 0 AutoReadOnly
 int Property LookSlotTankR = 1 AutoReadOnly
 int Property LookSlotFender = 2 AutoReadOnly
@@ -5552,6 +5665,9 @@ int Property LookSlotPlateText = 8 AutoReadOnly
 int Property LookSlotPlateInk = 9 AutoReadOnly
 int Property LookSlotPlateBack = 10 AutoReadOnly
 int Property LookSlotSeat = 11 AutoReadOnly
+int Property LookSlotWear = 12 AutoReadOnly
+int Property LookSlotFrontFender = 13 AutoReadOnly
+int Property LookSlotHeadlamp = 14 AutoReadOnly
 int Property LookFollowLeft = 17 AutoReadOnly
 {The right tank's option "Same as the left" (its default): the left's choice, wherever a look is put on.}
 int Property LookPaintFree = 45 AutoReadOnly
@@ -5652,6 +5768,12 @@ GlobalVariable Function LookGlobal(int aiSlot)
 		return CMB_Look_PlateBack
 	elseif aiSlot == LookSlotSeat
 		return CMB_Look_Seat   ; 2026-11-16a: None with an older ESP
+	elseif aiSlot == LookSlotWear
+		return CMB_Look_Wear   ; 2026-11-21a: these three None with an older ESP
+	elseif aiSlot == LookSlotFrontFender
+		return CMB_Look_FrontFender
+	elseif aiSlot == LookSlotHeadlamp
+		return CMB_Look_Headlamp
 	endif
 	return None
 EndFunction
@@ -5827,11 +5949,17 @@ string Function LookSlotText(int aiSlot)
 		return "plate letters"
 	elseif aiSlot == LookSlotPlateBack
 		return "plate background"
+	elseif aiSlot == LookSlotWear
+		return "wear"
+	elseif aiSlot == LookSlotFrontFender
+		return "front fender"
+	elseif aiSlot == LookSlotHeadlamp
+		return "headlamp"
 	endif
 	return "seat"
 EndFunction
 
-; 2026-11-08a: a slot the ESP has (an older one: the first five only; 2026-11-15b's: eleven, no seat).
+; 2026-11-08a: a slot the ESP has (an older one: the first five only; 2026-11-15b's: eleven, no seat; 2026-11-17a's: twelve).
 bool Function LookSlotThere(int aiSlot)
 	return aiSlot < LookSlotRims || LookGlobal(aiSlot) != None
 EndFunction
@@ -6070,6 +6198,7 @@ Function ApplyLook(string asFrom)
 	LookHueRecord()   ; the review of 2026-11-09a (A4, A5; [Look] HueFree): the look as put on, for LookHueWanted
 	lookApplied = LookState()
 	LookUiPush()   ; 2026-11-16a (fallback b, none in this ESP): the dropdowns' fallback globals show the look as put on
+	LookHeadlampFollow(asFrom)   ; 2026-11-21a (C4): the beam's colour (riding: the chosen light handed over now)
 	bool active = LookActive()
 	float code = 0.0
 	lookRimCode = 0
@@ -7344,17 +7473,41 @@ EndFunction
 ; the option at the chosen rank into it. Only the presentation moves: the globals, the saves and the field kit keep the
 ; option index. 13 groups: the 12 slots in slot order (the steppers, Mirrors and Tyres, keep their own globals and index
 ; order), then the faction sets (12). Without the arrays (an older ESP) a rank is the index itself (2026-11-15b's lists).
+; 2026-11-21a (C4): 16 groups with the C4 ESP, the 15 slots in slot order (Wear, FrontFender, Headlamp at 12-14: a slot's group
+; is its slot index), then the faction sets (15). The faction sets' group is the last one the ESP's UiStart has (12 with
+; 2026-11-17a's, 15 with 2026-11-21a's; without UiStart the ESP's slot count, CMB_LookCategories' size).
 
-int Property LookUiGroups = 13 AutoReadOnly
-int Property LookUiFactionSet = 12 AutoReadOnly
-{The faction sets' group in the Ui arrays (its global CMB_LookFactionSet).}
+int Property LookUiGroupsMax = 16 AutoReadOnly
+{The most groups the Ui arrays may have (the fallback's pushed ranks are kept in an array this long).}
 
 bool lookUiGetSaid = false     ; the first Get of a session said in the log (the property route works)
 int[] lookUiPushed             ; fallback (b): per group the rank last written into its CMB_LookUi_ global (-1 none); None: none yet
 
-; Group aiGroup's global: a slot's (0-11) or the faction set's (12).
+; 2026-11-21a: the groups the ESP's Ui arrays have (UiStart's length; without it the slots and the faction sets: the ESP's slot
+; count + 1), at most LookUiGroupsMax.
+int Function LookUiGroupCount()
+	int n = 0
+	if UiStart
+		n = UiStart.Length
+	elseif CMB_LookCategories
+		n = CMB_LookCategories.GetSize() + 1
+	else
+		n = 13
+	endif
+	if n > LookUiGroupsMax
+		n = LookUiGroupsMax
+	endif
+	return n
+EndFunction
+
+; 2026-11-21a: the faction sets' group, the last one (12 with 2026-11-17a's ESP, 15 with 2026-11-21a's).
+int Function LookUiFactionGroup()
+	return LookUiGroupCount() - 1
+EndFunction
+
+; Group aiGroup's global: a slot's (0-14) or the faction set's (the last group).
 GlobalVariable Function UiGroupGlobal(int aiGroup)
-	if aiGroup == LookUiFactionSet
+	if aiGroup == LookUiFactionGroup()
 		return CMB_LookFactionSet
 	endif
 	return LookGlobal(aiGroup)
@@ -7394,14 +7547,14 @@ int Function UiIndexAt(int aiGroup, int aiRank)
 EndFunction
 
 string Function UiGroupText(int aiGroup)
-	if aiGroup == LookUiFactionSet
+	if aiGroup == LookUiFactionGroup()
 		return "faction set"
 	endif
 	return LookSlotText(aiGroup)
 EndFunction
 
 string Function UiOptionText(int aiGroup, int aiIndex)
-	if aiGroup == LookUiFactionSet
+	if aiGroup == LookUiFactionGroup()
 		return "set " + aiIndex
 	endif
 	return LookName(aiGroup, aiIndex)
@@ -7459,15 +7612,22 @@ GlobalVariable Function UiFallbackGlobal(int aiGroup)
 		return CMB_LookUi_PlateBack
 	elseif aiGroup == 11
 		return CMB_LookUi_Seat
-	elseif aiGroup == LookUiFactionSet
+	elseif aiGroup == LookUiFactionGroup()
 		return CMB_LookUi_FactionSet
+	elseif aiGroup == 12
+		return CMB_LookUi_Wear   ; 2026-11-21a: the three C4 dropdowns' (Look_C4_UiFallback)
+	elseif aiGroup == 13
+		return CMB_LookUi_FrontFender
+	elseif aiGroup == 14
+		return CMB_LookUi_Headlamp
 	endif
 	return None
 EndFunction
 
-; Fallback (b) in the ESP: any of the eleven globals filled (this build: none, so the hooks below do nothing, no call).
+; Fallback (b) in the ESP: any of the eleven (2026-11-21a: fourteen) globals filled (this build: none, so the hooks below do
+; nothing, no call).
 bool Function UiFallbackOn()
-	return CMB_LookUi_TankL || CMB_LookUi_TankR || CMB_LookUi_Fender || CMB_LookUi_Paint || CMB_LookUi_Rims || CMB_LookUi_Plate || CMB_LookUi_PlateText || CMB_LookUi_PlateInk || CMB_LookUi_PlateBack || CMB_LookUi_Seat || CMB_LookUi_FactionSet
+	return CMB_LookUi_TankL || CMB_LookUi_TankR || CMB_LookUi_Fender || CMB_LookUi_Paint || CMB_LookUi_Rims || CMB_LookUi_Plate || CMB_LookUi_PlateText || CMB_LookUi_PlateInk || CMB_LookUi_PlateBack || CMB_LookUi_Seat || CMB_LookUi_FactionSet || CMB_LookUi_Wear || CMB_LookUi_FrontFender || CMB_LookUi_Headlamp
 EndFunction
 
 ; Fallback (b), ApplyLook: each group's CMB_LookUi_ global set to the rank of its global's option (only on a difference), the
@@ -7476,17 +7636,18 @@ int Function LookUiPush()
 	if !UiFallbackOn()
 		return 0
 	endif
-	if !lookUiPushed || lookUiPushed.Length != LookUiGroups
-		lookUiPushed = new int[13]
+	if !lookUiPushed || lookUiPushed.Length != LookUiGroupsMax
+		lookUiPushed = new int[16]   ; LookUiGroupsMax (2026-11-21a: was 13, one a group of 2026-11-17a's; a longer array pushes afresh once)
 		int k = 0
 		while k < lookUiPushed.Length
 			lookUiPushed[k] = -1
 			k += 1
 		endwhile
 	endif
+	int groups = LookUiGroupCount()
 	int wrote = 0
 	int g = 0
-	while g < LookUiGroups
+	while g < groups
 		GlobalVariable ui = UiFallbackGlobal(g)
 		GlobalVariable slot = UiGroupGlobal(g)
 		if ui && slot
@@ -7510,14 +7671,15 @@ int Function LookUiPull(string asFrom)
 	if !UiFallbackOn()
 		return 0
 	endif
-	if !lookUiPushed || lookUiPushed.Length != LookUiGroups
+	if !lookUiPushed || lookUiPushed.Length != LookUiGroupsMax
 		LookUiPush()
 		Log("Look: the dropdowns' fallback globals given the look's ranks (" + asFrom + ", the first sync)")
 		return 0
 	endif
+	int groups = LookUiGroupCount()
 	int took = 0
 	int g = 0
-	while g < LookUiGroups
+	while g < groups
 		GlobalVariable ui = UiFallbackGlobal(g)
 		GlobalVariable slot = UiGroupGlobal(g)
 		if ui && slot
@@ -8745,6 +8907,10 @@ EndFunction
 ; is refused while riding, so no put-away comes to say why): a weapon equipped while riding in Handguns only that isn't a
 ; handgun and stays holstered gets the put-away's message, at most once in 2 s. Without the bit: nothing (2026-11-16b).
 Function HandgunHolsteredNote(Form akWeapon)
+	if RoomOption(8192)
+		HandgunHolsteredNoteSure(akWeapon)   ; 2026-11-21a (the plugin's GunNoteSure)
+		return
+	endif
 	if !RoomOption(2048) || WeaponsMode() != 1 || PlayerRef.IsWeaponDrawn() || HandgunEquipped()
 		return
 	endif
@@ -8755,6 +8921,76 @@ Function HandgunHolsteredNote(Form akWeapon)
 	handgunNoteAt = now
 	Debug.Notification("Only a handgun can be used on the motorbike.")
 	Log("Weapons: " + akWeapon + " equipped, not a handgun: it stays holstered while riding (the plugin's DrawHandgunOnly).")
+EndFunction
+
+; 2026-11-21a (test 57, 14:21:01 "[Form <10mm>] equipped, not a handgun" and 14:21:52 "[Weapon <FlareGun>] equipped, not a
+; handgun"; the plugin's [Tilt] GunNoteSure, CMB_RoomOptions bit 8192): fast cycling, a handgun's equip event was handled after
+; the next number key's rifle had come, and the judge (the weapon equipped now) named the event's handgun; at 14:21:02 the flare
+; gun's own judge read the rifle's keywords from the worn slot 41 not yet changed. The note only for the weapon the event names
+; while it is the one equipped, judged on its own data: GetEquippedWeapon() that weapon before and after the judge and, with F4SE,
+; the worn slot 41 holding it too (CMB_GearRestoreF4SE.WornGun); the slot still another's (a fresh equip): looked again 0.25 s
+; later, three looks at most, then no note (a line).
+Function HandgunHolsteredNoteSure(Form akWeapon)
+	if !RoomOption(2048) || WeaponsMode() != 1
+		return
+	endif
+	int verdict = -1
+	int looks = 0
+	while verdict < 0 && looks < 3 && riding
+		if looks > 0
+			Utility.Wait(0.25)
+		endif
+		looks += 1
+		Form held = PlayerRef.GetEquippedWeapon() as Form
+		if PlayerRef.IsWeaponDrawn()
+			return
+		elseif held != akWeapon
+			if held
+				Log("Weapons: " + akWeapon + "'s equip handled after " + held + " came: no note for it (the plugin's GunNoteSure).")
+			endif
+			return
+		endif
+		verdict = HandgunJudgeSure(akWeapon)
+	endwhile
+	if verdict != 0
+		if verdict < 0 && riding
+			Log("Weapons: " + akWeapon + " equipped: the worn weapon slot held another weapon at " + looks + " look(s): not judged, no note (the plugin's GunNoteSure).")
+		endif
+		return
+	endif
+	float t = Utility.GetCurrentRealTime()
+	if t - handgunNoteAt < 2.0
+		return
+	endif
+	handgunNoteAt = t
+	Debug.Notification("Only a handgun can be used on the motorbike.")
+	Log("Weapons: " + akWeapon + " equipped, not a handgun: it stays holstered while riding (the plugin's DrawHandgunOnly).")
+EndFunction
+
+; 2026-11-21a (GunNoteSure): HandgunEquipped() for akWeapon alone: 1 a handgun, 0 not, -1 not surely its own data (another weapon
+; equipped once the judge was over, or the worn slot 41 holding another before or after it: F4SE only).
+int Function HandgunJudgeSure(Form akWeapon)
+	ScriptObject gear = CastAs("CMB_GearRestoreF4SE")
+	if gear && WornGunOf(gear) != akWeapon
+		return -1
+	endif
+	bool yes = HandgunEquipped()
+	if (PlayerRef.GetEquippedWeapon() as Form) != akWeapon
+		return -1
+	endif
+	if gear && WornGunOf(gear) != akWeapon
+		return -1
+	endif
+	if yes
+		return 1
+	endif
+	return 0
+EndFunction
+
+Form Function WornGunOf(ScriptObject akGear)
+	Var[] params = new Var[1]
+	params[0] = PlayerRef
+	return akGear.CallFunction("WornGun", params) as Form
 EndFunction
 
 ; Away: the rule again (fighting off for a non-handgun). Still out after 1 s: the sheathe action; after 3 s: 2026-11-15a's

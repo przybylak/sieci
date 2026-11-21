@@ -6,6 +6,8 @@
         [--plate-nif <Data>/Meshes/CMB/CMB_BikeParked.nif --pynifly <io_scene_nifly>] [--base <an older tree>]
     <dds python> -I look_badges.py --sheet <out.png> --out <tree> [--plate-npz ... | --plate-nif ... --pynifly ...]
     (every mode: [--through <build>] reads the table as that build had it, as bike_art.py --badges --through)
+    (since 2026-11-21a the table's badges with bike_art.BADGES_21A, Nuka-Cola and Red Rocket, appended where it has no
+    entry of their key, as bike_art.py --badges reads it: --through 2026-11-17a leaves them out)
 
 Writes, under --out (a Data folder's layout):
 
@@ -587,7 +589,8 @@ def main():
                                                        "with a later \"since\" left out)")
     ap.add_argument("--sheet", type=Path, help="write a flat contact sheet of every badge on every slot here")
     args = ap.parse_args()
-    opts = through(json.loads(args.look_options.read_text()), args.through)
+    import bike_art                                       # since 2026-11-21a: the two new badges' entries when the
+    opts = through(bike_art.with_badges_21a(json.loads(args.look_options.read_text())), args.through)   # table lacks them
     if args.check:
         return check(args, opts)
     if args.sheet:

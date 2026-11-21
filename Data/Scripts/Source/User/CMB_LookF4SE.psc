@@ -89,6 +89,17 @@ Group Look_C3
 	stock seat: its own files, no palette, nothing written).}
 EndGroup
 
+; 2026-11-21a (C4, art build B): the wear (slot 12), the front fender badge (13) and the headlamp's lens (14). None (an older
+; ESP) = 12 slots (2026-11-17a). Plain swaps, no colour index: Compose takes their entries as the ESP has them.
+Group Look_C4
+	GlobalVariable Property CMB_Look_Wear Auto Const
+	{0xC50: the wear (0 = as it came: the overlay shells on their invisible own files).}
+	GlobalVariable Property CMB_Look_FrontFender Auto Const
+	{0xC51: the front fender's badge (0 = none).}
+	GlobalVariable Property CMB_Look_Headlamp Auto Const
+	{0xC52: the headlamp's colour (0 = warm: front_glow's own files); the beam is the controller's.}
+EndGroup
+
 ; The composed look: every slot's chosen swap's entries in slot order (the right tank's "Same as the
 ; left", 17, is the left's choice; with CMB_LookOn 0 every slot's option 0, the identities, which put
 ; a loaded bike back to stock), set into CMB_LookSwap. composedCount its entries, composedActive true
@@ -105,6 +116,8 @@ bool composedActive = false
 ; 2026-11-16a (C3): 11 Seat. CMB_LookSwapLists holds twelve, index = slot: 9 and 10 are empty placeholders (the plate's colour
 ; slots still have no swaps), 11 the Seat's (index = option). The right tank's swap list skips "Same as the left" (17), so
 ; its options 18-20 (the 3D helmets, the skull) are its entries 17-19. An older ESP: nine lists, no seat.
+; 2026-11-21a (C4): 12 Wear, 13 FrontFender, 14 Headlamp (CMB_LookSwapLists 15, index = slot; each index = option, plain
+; entries). The tank options 21-22 of the right (Nuka-Cola, Red Rocket) are its entries 20-21, the left's 20-21 its own.
 
 ; 2026-11-08a: the look's colour values (V, a palette row's centre: an entry's colorIndex, and the
 ; fixed globals CMB_Slope.dll copies into the worn bike's materials), set by Colours(); -1 = none. The
@@ -152,6 +165,12 @@ GlobalVariable Function SlotGlobal(int aiSlot)
 		return CMB_Look_PlateBack
 	elseif aiSlot == 11
 		return CMB_Look_Seat   ; 2026-11-16a: None with an older ESP (its slot then composes nothing)
+	elseif aiSlot == 12
+		return CMB_Look_Wear   ; 2026-11-21a: these three None with an older ESP (past CMB_LookSwapLists' 12 there anyway)
+	elseif aiSlot == 13
+		return CMB_Look_FrontFender
+	elseif aiSlot == 14
+		return CMB_Look_Headlamp
 	endif
 	return None
 EndFunction

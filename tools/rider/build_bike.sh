@@ -16,10 +16,15 @@
 #             added in place to all five nifs, each hidden on its own materials file until a tank option swaps it on;
 #             then emblem_art.py: their textures (helms_d/_n/_s/_g) and 10 materials files; a nif that has them already
 #             is left as it is; EMBLEMS=0 writes the nifs as they are (2026-11-15b's) and no art
+#   shells    look_shells.py (since 2026-11-21a, art build B): the two wear shells (static_wear over static_paint,
+#             fork_wear over fork_paint) and the front fender's badge patch (fork_badgeFront) added in place to all five
+#             nifs, each hidden on its own materials file until a look option swaps it on, and the rear fender patch
+#             raised over the wear; their six materials files; a nif that has them already is left as it is; SHELLS=0
+#             writes the nifs as they are (2026-11-17a's) and no materials file
 #   check     check_bike_meshes.py over the Data tree (and against $REFERENCE if given)
 #   fallback  harley_meshes.py --uvs none instead of export..build: palette textures, no materials files
 #             (27c's way; the emergency build), then check it with "check"
-# usage: [VAR=value ...] tools/rider/build_bike.sh [stage ...]     (default: export art textures build cables emblems check)
+# usage: [VAR=value ...] tools/rider/build_bike.sh [stage ...]     (default: export art textures build cables emblems shells check)
 # Inputs, from the environment:
 #   PYNIFLY     PyNifly's io_scene_nifly folder                                     (every stage but art)
 #   GLTF        the model's scene.gltf                                              (export, textures, build, fallback)
@@ -39,7 +44,9 @@
 #   CABLES      1 (the default since 2026-11-15b) or 0 (the nifs as harley_meshes.py wrote them): the cables stage
 #   EMBLEMS     1 (the default since 2026-11-16a) or 0 (the nifs as the cables stage left them, no helmet art): the
 #               emblems stage
-#   PYTHON      the Python for export, art, build, cables, emblems, fallback and check: 3.10+ with numpy and fast_simplification
+#   SHELLS      1 (the default since 2026-11-21a) or 0 (the nifs as the emblems stage left them, no materials file):
+#               the shells stage
+#   PYTHON      the Python for export, art, build, cables, emblems, shells, fallback and check: 3.10+ with numpy and fast_simplification
 #               (default python3; on Windows' Git Bash, where a python.org install has no python3, e.g. PYTHON=python
 #               or PYTHON="py -3"). It runs with -I, which leaves out the user's site-packages (pip install --user):
 #               install the two into that Python itself
@@ -57,7 +64,7 @@ MATERIALS="${MATERIALS:-$HERE/bike_materials.json}"
 materials=()
 [ -f "$MATERIALS" ] && materials=(--materials "$MATERIALS")
 stages=("$@")
-[ ${#stages[@]} -eq 0 ] && stages=(export art textures build cables emblems check)
+[ ${#stages[@]} -eq 0 ] && stages=(export art textures build cables emblems shells check)
 
 need() { for v in "$@"; do [ -n "${!v:-}" ] || { echo "build_bike.sh: $v is required for this stage" >&2; exit 2; }; done; }
 
@@ -103,6 +110,12 @@ for stage in "${stages[@]}"; do
                 need DDS_PY
                 "$DDS_PY" -I "$HERE/emblem_art.py" --data "$DATA" "${materials[@]}"
             fi ;;
+        shells)
+            need PYNIFLY
+            bgsm_out=()
+            [ "${SHELLS:-1}" != 0 ] && bgsm_out=(--bgsm-out "$DATA")
+            "${PY[@]}" -I "$HERE/look_shells.py" --data "$DATA" --out "$DATA/Meshes/CMB" --shells "${SHELLS:-1}" \
+                --pynifly "$PYNIFLY" "${materials[@]}" "${bgsm_out[@]}" ;;
         check)
             need PYNIFLY
             ref=()
@@ -111,7 +124,7 @@ for stage in "${stages[@]}"; do
             [ -f "$STAGE/manifest.json" ] && stage_arg=(--stage-dir "$STAGE")
             "${PY[@]}" -I "$HERE/check_bike_meshes.py" --pynifly "$PYNIFLY" --data "$DATA" "${ref[@]}" "${stage_arg[@]}" ;;
         *)
-            echo "build_bike.sh: unknown stage $stage (export art textures build cables emblems check fallback)" >&2
+            echo "build_bike.sh: unknown stage $stage (export art textures build cables emblems shells check fallback)" >&2
             exit 2 ;;
     esac
     echo "== $stage done in $(( $(date +%s) - started )) s"

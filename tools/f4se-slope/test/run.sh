@@ -168,6 +168,52 @@
 # pistol out, a newer key ends the window, no keyword read draws, UseQuickkeyItem's weapon looked at: W1-W4), room 157 (153 + 4: its
 # review's item 4, the field kit's bench asked about at its own place, CMB_RoomAskKind 5, and the ring's rays towards the bike not
 # cast: R5-R8), sound 146, launch 22, the rest as ddf7b1e's: 2110 checks.
+# 2026-11-21a, the kit unit (test 57's 1B and 1C, art build B's slots) adds: the field kit's view on every model the menu has (KitFollow:
+# after E on Plate text the menu's half-degree turn a half-degree turn, not 2026-11-17a's 119, and its six new models at the visit's view
+# and zoom two frames on; its own 5-degree turn of the shown model taken, a 40-degree jump of another written over; the models line), the
+# slot's read settled (KitSlotSettle: the highlight walking the list a row every other frame turns nothing, the slot it rests on once;
+# the counts), the wheel on the lists zooming and kept from the menu with the chain put back (KitMouse, KitWheelOwn), a drag begun beside
+# the lists turning and one on them not (KitListBox), art build B's Wear, Front fender and Headlamp by their attach points' editor IDs and
+# by their mods' names (KitNewSlots), and the off values (custom, 128 + 12: K37-K48). DEF62 rides every older mode at the new keys' off
+# values: 2122 checks with this unit alone.
+# The 2026-11-21a third unit (test 57's 1A: the bike, and sometimes you, not drawn in third person after your body) adds, with the fake
+# game's list keeping a worn shape that was a speck when it was made (BodyTests63, after BodyTests62Worn): 17a's loss and its return at
+# the game's own change (T1), BodyRedraw's mark after a showing (T2), after NearThird's stand-in (T3), after a showing ended in first
+# person by a weapon (T4), BodyRedrawHide's hidden frame where the game works bit 29 off only after one (T5) and BodyRedrawHide=0's mark
+# taken back (T6), and ThirdWhere's four lines with the list read before and after the mark (T7) (view, 283 + 7). DEF62 rides every
+# older mode at the new keys' off values: view 290, 2117 checks with this unit alone.
+# The 2026-11-21a weapons unit (test 57's 1D, weapons in third person) adds: CMB_RoomOptions bit 8192 (GunNoteSure) and the keys' line
+# (N1); the hand's weapon 3D (the biped's object 41 under RArm_Hand) a speck while holstered, drawn when drawn, its line, and GunHandHide=0
+# (H1); a holster mod's copy and a biped 3D hung off the hand drawn (H2, guards); a posed handgun put away in third person with the
+# clips standing on: the pose kept till they sit, and GunAwayKeep=0 (A1); kept GunAwayKeep at most (A2); the seat poses kept over the
+# worn bike's swap in first person with a handgun out, posed at once back in third person, and GunSeatKeep=0 (E1) (arms, 116 + 6 =
+# 122). DEF62 rides every older mode at the new keys' off values: 2116 checks with this unit alone.
+# 2026-11-21a, the drive unit (test 57: "rolling distance should be twice as much as is now, with gradual slow down"; the gears in even
+# steps, the user's pick) adds, in the fake's game as test 57's (its top 935, its pick-up 0.25 s behind the ask at 300 u/s^2 at most and
+# 110 under 80 u/s; the coast's wait on one clock, RunFramesUntil63): CoastDrag's settings line off (O0); test 57's pull and coast
+# reproduced at 2026-11-17a's values (the up-shifts at 12, 25, 43, 51 on the dial; 1203 u and 2.3 s from the key, 5-4 at 810, 4-3 631,
+# 3-2 398, 2-1 169) (O1, O2); the code's defaults: the up-shifts at 12, 24, 36, 46 on the dial, 1.47, 1.84, 2.00, 1.70 s apart, each
+# gear's rpm (O3, O4); the coast about twice as long and gradual ([Steer] CoastDrag 270,90), its line and trace word (O5, O6); its
+# down-shifts one gear at a time in the new bands ([Sound] DownBands 170,380,600,780) over the longer coast (O7); the brake's stop as
+# with CoastDrag= (O8); CoastDrag=450,450 = Coast 2, a value not understood (O9); from a cruise at 600 (O10); a lift at a steady 300
+# (O11) (sound, 146 + 12 = 158; the older sound checks that took the code's gear table write 2026-11-17a's: SndGears17a63). DEF62
+# rides every older mode at the new key's off value: 2122 checks with this unit alone.
+# 2026-11-21a, the look unit (test 57: the free look on the right mouse button, the game's aim blocked while riding, the look in
+# third person) adds: the round's keys line and the AttackBlockHandler's slots 1 and 8 wrapped (L1); the right button kept from the
+# game in first person with a pistol out (no aim, no slowing, the release line; the left click still fires: L2) and the look on it
+# (L3); AimBlock=0: the aim passed, the bike slowed by the fake's aim and the AimWatch line (L4); the look by the game's own button
+# events alone (L5); the four keys off: 2026-11-17a's (L6); in third person the camera's look column learned (T1), the bike held
+# while the mouse swings the camera (T2, T4), no state float learned: the bike's line kept till the camera is back (T3), ThirdPersonState
+# +0xF4 learned and eased back behind (T5), a target/current pair written together (T5b), the side keys the plugin's with no strafe
+# (T6), first person ending it at once (T7), an ease the camera doesn't follow: stopped and off (T8), LookThird=0 (T9) (view, 283 +
+# 16). DEF62 rides every older mode at the new keys' off values: view 299, the rest as 24b2368's: 2126 checks with this unit alone.
+# The merged 2026-11-21a (the third, look, kit, weapons and drive units, with the shells', wear's, art2d's and table's art and
+# records) expects view 308 (283 + 7 third + 16 look + 2 of its review's look fixes: a release with nothing to ease keeps the
+# bike's line till the camera is back within 20 deg (W1; T3 and T8 changed), the look column learned along the camera's line to
+# you (C1)), custom 141 (128 + 12 kit + 1 of its review's item 3: a frame of wheel events only kept from the menu in place, the
+# game's slot 0 still handed the chain: K49), arms 123 (116 + 6 weapons + 1 of its review's item 5: GunHandHide on a frame the
+# rider is otherwise idle writes the hand's weapon parts alone: H3), sound 158 (146 + 12 drive), the rest as 24b2368's: 2167
+# checks.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 WORK="$(mktemp -d)"
@@ -267,6 +313,22 @@ DEF60='View/CameraPlace=0 View/NearThird=0 View/ParentKeep=0 View/RollTurn=0 Vie
 # 2026-11-17a, test 56's first person (the cam unit's): [View] CameraEase and NearHandover at their off values (2026-11-16b, ddf7b1e), the same way
 # (after DEF54's to DEF60's). Neither name is used in any other section, INI or DEF line.
 DEF61='Sound/DownBands= Sound/HeardStop=300 Sound/HeardBrake=600 Tilt/GunCheckUnpaused=0 Tilt/GunCheckRecover=0 Tilt/DrawHandgunOnly=0 Tilt/QuickHolsterFirst=0 Tilt/GunJudgeWait=0 Tilt/NodelessOnce=0 Tilt/SkinArraysCheck=0 Diag/HeldWhere=0 View/BodyNodes=1 View/BodyArmsLook=0 Diag/BodyWornLine=0 View/BodyLeanMax=35 Look/KitHold=0 Look/KitSlotView=0 Look/KitRoom=0 View/CameraEase=0 View/NearHandover=0'
+# 2026-11-21a, the kit unit's (test 57's 1B and 1C, art build B's slots): the new keys at their off values (2026-11-17a, 24b2368).
+# Not in it: KitListBox, KitViewWear, KitViewFrontFender, KitViewHeadlamp (they act only with their switch on).
+# 2026-11-21a, test 57's 1A (the third unit's: the bike, and sometimes you, not drawn in third person after your body): [View]
+# BodyRedraw and BodyRedrawHide (your 3D marked changed once the bike is plain in third person after a showing or NearThird's stand-in,
+# and the game's own hide-and-show for a mark it leaves) and [Diag] ThirdWhere (the lines at each switch to third person) at their off
+# values (2026-11-17a, 24b2368), the same way (after DEF54's to DEF61's). No name is used in any other section, INI or DEF line.
+# 2026-11-21a, test 57's fixes (the drive unit's keys at their off values, 2026-11-17a, 24b2368), the same way (after DEF54's to DEF61's):
+# [Steer] CoastDrag (the throttle let go rolling off by the speed). The gear table's new defaults (HeardRiseGears, ShiftGapGears) and
+# DownBands' need no pin here: DEF54 and DEF61 already pin older values for every older check (the sound checks that took the code's
+# gear table write 2026-11-17a's: SndGears17a63). The name is used in no other section, INI or DEF line.
+# 2026-11-21a, test 57's look (the look unit's keys at their off values, 2026-11-17a, 24b2368), the same way (after DEF54's to DEF61's):
+# [View] LookButton (a second look key, the right mouse button), LookThird (the look key in third person) and [Steer] AimBlock (the
+# game's aim kept from it while riding), [Diag] AimWatch (the aim's handler watched, the aim lines); not LookThirdBack (it acts only
+# with LookThird). LookKey's default is unchanged (-1, the MCM's CMB_LookKey): nothing to pin. No name is used in any other section,
+# INI or DEF line.
+DEF62='Look/KitFollow=0 Look/KitSlotSettle=0 Look/KitMouse=0 Look/KitWheelOwn=0 Look/KitNewSlots=0 View/BodyRedraw=0 View/BodyRedrawHide=0 Diag/ThirdWhere=0 Tilt/GunHandHide=0 Tilt/GunAwayKeep=0 Tilt/GunSeatKeep=0 Tilt/GunNoteSure=0 Steer/CoastDrag= View/LookButton=0 View/LookThird=0 Steer/AimBlock=0 Diag/AimWatch=0'
 run() { # <name> <mode> <ini body>
   if [ -n "$ONLY" ] && [ "$ONLY" != "$1" ]; then return; fi
   mkdir -p "$WORK/$1"
@@ -281,7 +343,7 @@ run() { # <name> <mode> <ini body>
     esac
   done
   local sec key pre rest
-  for kv in $DEF54 $DEF55 $DEF56 $DEF57 $DEF58 $DEF59 $DEF60 $DEF61; do
+  for kv in $DEF54 $DEF55 $DEF56 $DEF57 $DEF58 $DEF59 $DEF60 $DEF61 $DEF62; do
     sec="[${kv%%/*}]\n" kv="${kv#*/}" key="${kv%%=*}"
     case "$ini" in "$key="*|*"\n$key="*) continue;; esac
     case "$ini" in *'\n') ;; *) ini="$ini\n";; esac
