@@ -330,8 +330,10 @@ are its steps: 1-8 the art corrections, 9-30 the fixes)
          Fender the rear fender, Rims and Tyres the wheels, Paint and Mirrors three-quarters; each
          turn gliding, the turn and zoom still yours? Screenshots of two. Send the "kit: slot: ..."
          line. A/B: [Look] KitSlotView=0.
-  57-11. Park along a wall, stand at the bike's end on the wall's side, Customise: not moved into the
-         wall, the toolbox next to you? In the open as before? A/B: [Look] KitRoom=0.
+  57-11. Park along a wall, stand at the bike's end on the wall's side, Customise with your usual
+         field kit (the armour bench, mode 3): not moved into the wall, the bench where you stand?
+         The same with the bench's side towards the wall. In the open as before? A/B: [Look]
+         KitRoom=0.
   57-12. From a stop hold forward to the top: a little quicker in the first second, 2nd at about 12
          on the dial, then as before? Right now, still slow, too quick? A/Bs: [Steer]
          LaunchFrom=0.1, 0.17.
@@ -398,7 +400,7 @@ QUESTIONS FOR YOU (docs\TESTING.md has them in full)
   T57-8. Saddle tan no longer too yellow, still apart from the others?
   T57-9. The kit's bike turned by the drag about its middle, zoomed by the wheel? The close line?
   T57-10. A view per slot, gliding? Which views would you change? The "kit: slot:" line?
-  T57-11. Along a wall: not moved into it? In the open as before?
+  T57-11. Along a wall, with the armour bench: not moved into it? In the open as before?
   T57-12. The take-off: right now?
   T57-13. Coasting to a stop: one gear at a time, natural? Late?
   T57-14. A hard brake: natural?

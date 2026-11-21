@@ -167,8 +167,10 @@ wall if there is not enough space")
       `KitViewFender`, `KitViewWheels` (heading, elevation, in degrees: README's table), `KitTurnTime` for the glide (0
       jumps). A/B: `[Look] KitSlotView=0` (one view; the turn and the zoom as in step 9).
 11. **The wall**: park the bike along a wall, a metre or less from it, stand at its front or back on the wall's side
-    and choose Customise: you shouldn't be moved into or through the wall; the toolbox comes out next to you instead (it
-    may overlap the bike or the wall to look at; you stay put). Then in the open: as before, the kit beside the bike.
+    and choose Customise with your usual field kit (test 56 used the armour bench, mode 3, every time): you shouldn't be
+    moved into or through the wall; the bench (or the toolbox, modes 1 and 2) comes out where you stand instead (it may
+    overlap the bike or the wall to look at; you stay put). Again with the bench's side of the bike towards the wall. Then
+    in the open: as before, the kit beside the bike.
     - `CMB_Slope.log`: `room: ask N at (x, y, z), heading H (the field kit's spot: KitRoom): room (...; 10 rays, none
       towards the bike)` in the open (with the armour bench, field kit modes 3 and 4: `(the field kit's bench: KitRoom)`,
       its own place 110 out), and by the wall `... none, no clear line from the player: ...` or `... none, something N
@@ -389,7 +391,8 @@ Send `CMB_Slope.log` and its `_prev` logs and `Papyrus.0.log` of each session, a
 - **T57-9 (step 9).** The kit's bike turned about its middle by the drag, never tipping? The wheel's zoom above the
   lists? What did the close line's "the mouse's buttons" and "E event(s)" say?
 - **T57-10 (step 10).** A view per slot, gliding? Which views would you change? What did the `kit: slot:` line say?
-- **T57-11 (step 11).** Along a wall: not moved into it, the toolbox beside you? In the open as before?
+- **T57-11 (step 11).** Along a wall, with the armour bench: not moved into it, the bench where you stand? In the open as
+  before?
 - **T57-12 (step 12).** The take-off: right now, still slow, or too quick? 2nd at about 12 on the dial?
 - **T57-13 (step 13).** Coasting to a stop: four one-gear down-shifts, one blip each, natural? Late (`StopAfter=0.15`)?
   From 30 and 20 on the dial?
