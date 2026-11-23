@@ -100,6 +100,14 @@ Group Look_C4
 	{0xC52: the headlamp's colour (0 = warm: front_glow's own files); the beam is the controller's.}
 EndGroup
 
+; 2026-11-22a (C5, after test 58): the paint's condition (slot 15). None (an older ESP) = 15 slots (2026-11-21a). Plain swaps
+; (the two paint shells' overlays), no colour index. Since this build the front fender badge's CMB_Look_FrontFender (13) is
+; left unfilled (retired): its slot composes its option 0 (the patch on its invisible own file).
+Group Look_C5
+	GlobalVariable Property CMB_Look_PaintWear Auto Const
+	{0xCE7: the paint's condition (0 = pristine: the paint shells on their invisible own files).}
+EndGroup
+
 ; The composed look: every slot's chosen swap's entries in slot order (the right tank's "Same as the
 ; left", 17, is the left's choice; with CMB_LookOn 0 every slot's option 0, the identities, which put
 ; a loaded bike back to stock), set into CMB_LookSwap. composedCount its entries, composedActive true
@@ -118,6 +126,7 @@ bool composedActive = false
 ; its options 18-20 (the 3D helmets, the skull) are its entries 17-19. An older ESP: nine lists, no seat.
 ; 2026-11-21a (C4): 12 Wear, 13 FrontFender, 14 Headlamp (CMB_LookSwapLists 15, index = slot; each index = option, plain
 ; entries). The tank options 21-22 of the right (Nuka-Cola, Red Rocket) are its entries 20-21, the left's 20-21 its own.
+; 2026-11-22a (C5): 15 PaintWear (CMB_LookSwapLists 16); the Headlamp's list index = option over its 11.
 
 ; 2026-11-08a: the look's colour values (V, a palette row's centre: an entry's colorIndex, and the
 ; fixed globals CMB_Slope.dll copies into the worn bike's materials), set by Colours(); -1 = none. The
@@ -171,6 +180,8 @@ GlobalVariable Function SlotGlobal(int aiSlot)
 		return CMB_Look_FrontFender
 	elseif aiSlot == 14
 		return CMB_Look_Headlamp
+	elseif aiSlot == 15
+		return CMB_Look_PaintWear   ; 2026-11-22a: None with an older ESP
 	endif
 	return None
 EndFunction
@@ -527,14 +538,18 @@ bool Function OwnEntry(MatSwap:RemapData akEntry)
 	return akEntry.target != akEntry.source && akEntry.target != "CMB\\Bike\\off.bgsm"
 EndFunction
 
+; The review of 2026-11-22a (finding 4): composedCount and composedActive are set once, at the end, from this call's own count (a
+; local while composing): two composes at once (an OnLoad's or the worn bike's runtime swap beside ApplyLook's, the MCM's Apply) no
+; longer reset each other's half-way (ApplyParked read false and kept no swap on the bike).
 MatSwap:RemapData[] Function Compose(bool abWorn = false)
-	composedCount = 0
-	composedActive = false
+	bool active = false
 	Colours()
 	if abWorn
 		WriteColours()   ; 2026-11-08a: the worn bike's look only (a mid-ride Apply's parked compose doesn't)
 	endif
 	if !CMB_LookSwap || !CMB_LookSwapLists
+		composedCount = 0
+		composedActive = false
 		return None
 	endif
 	MatSwap:RemapData[] all = new MatSwap:RemapData[0]
@@ -548,7 +563,7 @@ MatSwap:RemapData[] Function Compose(bool abWorn = false)
 		if swaps && swaps.GetSize() > 0   ; 2026-11-16a: the plate colours' empty placeholders (9, 10) compose nothing, as before
 			int i = Chosen(s)
 			if (s < 5 && i != 0) || (s >= 5 && Raw(s) != 0)
-				composedActive = true   ; (the plate text's "The plate's own" is stock even shown as "None")
+				active = true   ; (the plate text's "The plate's own" is stock even shown as "None")
 			endif
 			int at = SwapIndex(s, i)
 			MatSwap sw = None
@@ -603,6 +618,7 @@ MatSwap:RemapData[] Function Compose(bool abWorn = false)
 	endwhile
 	CMB_LookSwap.SetRemapData(all)
 	composedCount = all.Length
+	composedActive = active
 	return all
 EndFunction
 
@@ -649,8 +665,19 @@ int Function ApplyParked(string asFrom = "")
 		BikeRef.SetMaterialSwap(None)
 	endif
 	int applied = 0
+	string held = ""
 	if BikeRef.Is3DLoaded() && menuShut
-		applied = Applied(BikeRef.ApplyMaterialSwap(CMB_LookSwap, false))
+		; 2026-11-22a ([Look] ParkedSwapHold, CMB_LookOptions 262144; test 58's two crashes, a moment after this swap on the live 3D that
+		; ParkedReload then refused to load again, getting on): asked right before the swap, after the compose's two seconds. Kept on the
+		; bike for its 3D's next load instead while getting on or riding, or when ParkedReload loads it again now (-2 for it); else 21a's.
+		held = Controller.ParkedSwapHoldWhy()
+		if held == "" && LookOptionOn(262144) && UI.IsMenuOpen("ExamineMenu")
+			held = "customising"   ; the review of 2026-11-22a (finding 1): the bench menu opened again during the compose (test 54's crash)
+		endif
+		if held == ""
+			applied = Applied(BikeRef.ApplyMaterialSwap(CMB_LookSwap, false))
+			Controller.ParkedSwapLanded(asFrom, applied)
+		endif
 	elseif !menuShut
 		; review (2026-11-15a): the workbench menu still listed after ExamineClosed's 100 waits: the swap kept for the bike's
 		; next 3D load (SetMaterialSwap above), never put on its live 3D under the menu
@@ -660,7 +687,54 @@ int Function ApplyParked(string asFrom = "")
 	if !composedActive
 		kept = "; the stock look: none kept on the bike"
 	endif
+	if held != ""
+		Log("Look: the parked bike's swap holds " + composedCount + " entries, kept for its 3D's next load, none applied to the 3D it shows (" + asFrom + "; ParkedSwapHold: " + held + ")" + kept + ColoursText())
+		if held == "loaded again"
+			return -2   ; ParkedLookAfter's ParkedReload loads it again with the swap kept on it
+		endif
+		return 0
+	endif
 	Log("Look: the parked bike's swap holds " + composedCount + " entries, " + applied + " applied now (" + asFrom + ")" + kept + ColoursText())
+	return applied
+EndFunction
+
+; 2026-11-22a ([Look] OverlayParked, CMB_LookOptions 1048576 since the review of 2026-11-22a; test 58's 1C): the controller's ParkedLoaded3D,
+; the parked bike's 3D just loaded with the look kept on it (SetMaterialSwap): F4SE's runtime swap of the same composed look on the
+; fresh 3D as well (the load's own swap may leave the Wear's alpha-blended overlays undrawn). Composed afresh each time (as ApplyTo
+; does): CMB_LookSwap's entries live in memory only and may still be another save's look while a load's own put-on is under way.
+; The review of 2026-11-22a (finding 1): the controller's ParkedRuntimeRefusal asked before the compose and again right before the
+; swap (the compose's seconds: the kit opened again, a getting on begun, a ride): never under the workbench menu or a kit session,
+; never while getting on or riding. Returns the entries applied (0 none).
+; The controller's ParkedRuntimeRefusal, and the workbench menu (UI, F4SE's: the controller has no UI script).
+string Function ParkedRuntimeRefusal()
+	string why = Controller.ParkedRuntimeRefusal()
+	if why == "" && UI.IsMenuOpen("ExamineMenu")
+		why = "the workbench menu open"
+	endif
+	return why
+EndFunction
+
+int Function ApplyParkedLoaded(string asFrom = "")
+	if !BikeRef || BikeRef.IsDisabled() || !BikeRef.Is3DLoaded()
+		return 0
+	endif
+	string why = ParkedRuntimeRefusal()
+	if why != ""
+		Log("Look: the parked bike's 3D loaded (" + asFrom + "): no runtime swap on it, " + why + " (OverlayParked; at a later load)")
+		return 0
+	endif
+	MatSwap:RemapData[] all = Compose()
+	if !all || all.Length == 0 || !composedActive || BikeRef.IsDisabled() || !BikeRef.Is3DLoaded()
+		return 0   ; (the compose's seconds: the bike may have gone meanwhile)
+	endif
+	why = ParkedRuntimeRefusal()
+	if why != ""
+		Log("Look: the parked bike's 3D loaded (" + asFrom + "): no runtime swap on it after the compose, " + why + " (OverlayParked; at a later load)")
+		return 0
+	endif
+	int applied = Applied(BikeRef.ApplyMaterialSwap(CMB_LookSwap, false))
+	Controller.ParkedSwapLanded("OverlayParked at " + asFrom, applied)
+	Log("Look: the parked bike's fresh 3D (" + asFrom + "): the look's swap at runtime too, " + applied + " of " + composedCount + " entries applied (OverlayParked)" + ColoursText())
 	return applied
 EndFunction
 
@@ -717,6 +791,23 @@ int Function ApplyTo(ObjectReference akRef)
 	int applied = Applied(akRef.ApplyMaterialSwap(CMB_LookSwap, false))
 	Log("Look: the first-person bike: " + applied + " of " + composedCount + " entries applied" + ColoursText())
 	return applied
+EndFunction
+
+; The review of 2026-11-22a (finding 3): the controller's LookFollowUp, [Look] OverlayRuntime's runtime swap on the worn bike's new 3D:
+; ApplyWorn's compose, then the controller's WornOverlayRefusal asked again (the compose's seconds: got off, busy, the look moved on)
+; before the swap. -1 nothing composed; -3 refused after the compose (its line); else the entries applied.
+int Function ApplyWornOverlay()
+	Actor player = Game.GetPlayer()
+	MatSwap:RemapData[] all = Compose(true)
+	if !all || !player
+		return -1
+	endif
+	string why = Controller.WornOverlayRefusal()
+	if why != ""
+		Log("Look: the worn bike's runtime swap not put on after its compose: " + why + " (OverlayRuntime)")
+		return -3
+	endif
+	return Applied(player.ApplyMaterialSwap(CMB_LookSwap, false))
 EndFunction
 
 ; The worn bike, when AttachModToInventoryItem was refused: the swap on the player (its sources are

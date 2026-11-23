@@ -17,11 +17,13 @@ Textures\\CMB\\Bike\\front_glow_d.dds (2026-11-10a's package). Writes, under --o
                                                    tinted lens texture (a coloured bulb shows its colour unlit, so the
                                                    field kit's preview, which turns the parked bike, shows the choice);
                                                    --lens-glass clear: front_glow.bgsm byte for byte
-  Textures\\CMB\\Bike\\front_glow_<key>_d.dds         (--lens-glass tinted; not for coolwhite, a clear bulb) the stock lens
+  Textures\\CMB\\Bike\\front_glow_<key>_d.dds         (--lens-glass tinted; not for a clear bulb, CLEAR_BULBS) the stock lens
                                                    texture (BC1 256, 9 mips) times the bulb's glass: 0.25 + 0.75 x the
                                                    option's colour
 
-for the keys coolwhite, amber, selectiveyellow and bluewhite (SP/t63/contract.md's Headlamp slot). The colours (LAMPS):
+for the keys coolwhite, amber, selectiveyellow and bluewhite (SP/t63/contract.md's Headlamp slot) and, since the
+2026-11-22a build, halogen, daylight, iceblue, red, green and purple (SP/t64/contract.md 4; white bulbs, CLEAR_BULBS:
+coolwhite, halogen and daylight, have no tinted texture, their parked file front_glow.bgsm's bytes). The colours (LAMPS):
 each a chromaticity from the lamp standards' own boxes or the CIE daylight locus, turned into 8-bit sRGB (the brightest
 channel 255; a channel under 0 clipped). The same 8-bit RGB serves the beam's light record (the ESP's LIGH colour, as
 the warm 255/241/224 does today) and, over 255, the lens's emit colour, so the beam matches the lens.
@@ -53,7 +55,15 @@ LAMPS = {
                                                           "between y = 0.138 + 0.580x, y = 1.29x - 0.100, y = 0.966 - x "
                                                           "and y = 0.992 - x)"),
     "bluewhite": ("Blue-white", 0.2938, 0.3092, "a little blue: CIE daylight at 8000 K"),
+    # since 2026-11-22a (test 58: "colors themselves are fine, but larger selection is needed"; SP/t64/contract.md 4)
+    "halogen": ("Halogen", 0.4225, 0.3998, "a halogen bulb: the Planckian locus at 3200 K"),
+    "daylight": ("Daylight", 0.3457, 0.3585, "about 5000 K, neutral: CIE daylight at 5003 K (D50)"),
+    "iceblue": ("Ice blue", 0.245, 0.290, "a pale icy blue: between daylight and about 480 nm"),
+    "red": ("Red", 0.640, 0.330, "red as deep as the screen shows (the sRGB red; ECE's red box lies beyond it)"),
+    "green": ("Green", 0.200, 0.600, "a signal green, about 524 nm with a little white"),
+    "purple": ("Purple", 0.250, 0.120, "a black-light violet: violet with a little red"),
 }
+CLEAR_BULBS = ("coolwhite", "halogen", "daylight")     # white bulbs: the unlit lens is the stock one
 EMIT_MULT = 6.0                    # front_glow_worn.bgsm's, kept
 GLASS = (0.25, 0.75)               # the unlit lens: the stock texture x (0.25 + 0.75 x the option's colour)
 SRGB = np.array([[3.2406, -1.5372, -0.4986], [-0.9689, 1.8758, 0.0415], [0.0557, -0.2040, 1.0570]])
@@ -68,13 +78,25 @@ def rgb8(x, y):
     return tuple(int(v) for v in np.round(enc * 255))
 
 
+def luminance_vs_warm(key):
+    """The option's 8-bit colour's luminance against the shipped warm 255/241/224's (the beam's strength at one
+    FadeValue: the LIGH colour times FadeValue is what the game lights with)."""
+    def lin(c):
+        c = c / 255.0
+        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+    def lum(rgb):
+        return 0.2126 * lin(rgb[0]) + 0.7152 * lin(rgb[1]) + 0.0722 * lin(rgb[2])
+    return lum(rgb8(*LAMPS[key][1:3])) / lum((255, 241, 224))
+
+
 def emit_of(key):
     return [round(c / 255.0, 4) for c in rgb8(*LAMPS[key][1:3])]
 
 
 def glass_of(key):
     """The unlit bulb's filter over the stock lens texture, or None (a clear bulb)."""
-    if key == "coolwhite":
+    if key in CLEAR_BULBS:
         return None
     return np.array([GLASS[0] + GLASS[1] * c / 255.0 for c in rgb8(*LAMPS[key][1:3])])
 
@@ -193,9 +215,11 @@ def check(args):
 
 
 def table():
-    print("key              name               x       y      8-bit RGB (LIGH colour)   lens emit (x 6.0)          from")
+    print("key              name               x       y      8-bit RGB (LIGH colour)   lens emit (x 6.0)          "
+          "luminance/warm  from")
     for key, (name, x, y, what) in LAMPS.items():
-        print(f"{key:16s} {name:18s} {x:.4f}  {y:.4f}  {str(rgb8(x, y)):25s} {str(emit_of(key)):26s} {what}")
+        print(f"{key:16s} {name:18s} {x:.4f}  {y:.4f}  {str(rgb8(x, y)):25s} {str(emit_of(key)):26s} "
+              f"{luminance_vs_warm(key):.2f}            {what}")
     return 0
 
 

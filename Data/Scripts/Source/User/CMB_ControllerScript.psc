@@ -106,8 +106,8 @@ Group Optional
 	GlobalVariable Property CMB_MaxTilt Auto Const
 	{The most the bike and the rider pitch with the ground while riding, in degrees (needs
 	F4SE and the CMB_Slope.dll plugin; 45 follows any slope you can climb). The parked bike
-	pitches up to ParkMaxPitch and rolls up to ParkMaxRoll. 0 = always level, parked too.
-	Default 45.}
+	pitches up to ParkMaxPitch and rolls up to ParkMaxRoll. 0 = always level, parked too (the
+	parked bike leaning on its side stand by the stand's own lean, 8.6). Default 45.}
 	GlobalVariable Property CMB_TiltLive Auto Const
 	{What CMB_Slope.dll reads: CMB_MaxTilt while riding, 0 otherwise. Set by this script.}
 	GlobalVariable Property CMB_GroundNormalX Auto Const
@@ -201,7 +201,8 @@ Group Optional
 	(RoomAt), 0 included, so a 1 never carries over. 0: a spot, as before; 1: the navmesh point a
 	call's snap found, asked about as a navmesh point (a level line from the player, a drop off what
 	they stand on, no step test: the plugin's [Room] SnapSpot). Not Mandatory: an ESP from before
-	2026-11-01a leaves it None, and no navmesh point is asked about.}
+	2026-11-01a leaves it None, and no navmesh point is asked about. Since 2026-11-22a also 6: the
+	parked bike's fit at its own place (ParkFit, the plugin's [Room] ParkFit).}
 	GlobalVariable Property CMB_RiderPoseOff Auto Const
 	{2026-11-01a (test 47's floating rider), written by CMB_Slope.dll ([Tilt] PoseCheck): the raw
 	seconds the rider's clips have been off the seat, 0 while seated, and at a ride's start and end
@@ -848,6 +849,29 @@ Group Look_C4_UiFallback
 	GlobalVariable Property CMB_LookUi_Headlamp Auto Const
 EndGroup
 
+; 2026-11-22a (C5, after test 58): the Paint condition (slot 15: the paint's own wear under the Wear's grime) and its
+; dropdown. None (an older ESP) = 15 slots (2026-11-21a). Since this build the front fender badge (13) is retired: its global
+; is left unfilled (Look_C4's CMB_Look_FrontFender None), so the slot is not there for the scripts.
+Group Look_C5
+	GlobalVariable Property CMB_Look_PaintWear Auto Const
+	{0xCE7: the paint's condition, an index into CMB_LookOptions_PaintWear (0 = pristine, as it came: the two paint shells
+	invisible; 1 scratched, 2 chipped, 3 sun-faded, 4 worn: the three together, 5 primer patches).}
+	int Property UiPaintWear
+	{MCM "Paint condition" (CMB_Look_PaintWear, group 15).}
+		int Function Get()
+			return UiGet(15)
+		EndFunction
+		Function Set(int aiRank)
+			UiSet(15, aiRank)
+		EndFunction
+	EndProperty
+EndGroup
+
+; 2026-11-22a (C5): the fallback (b) for its dropdown, as Look_C4_UiFallback (not in this build's ESP).
+Group Look_C5_UiFallback
+	GlobalVariable Property CMB_LookUi_PaintWear Auto Const
+EndGroup
+
 ; ---------------------------------------------------------------------------
 ; Constants
 ; ---------------------------------------------------------------------------
@@ -919,6 +943,11 @@ float Property ProbeAcross = 35.0 AutoReadOnly
 {...and this far to each side (it's about 75 wide).}
 float Property ProbeTolerance = 50.0 AutoReadOnly
 {A probe the navmesh pulls further sideways than this says nothing about the ground there.}
+int Property StandUpSteps = 5 AutoReadOnly
+{2026-11-22a (the plugin's [Room] ParkFit with ParkStand): getting on, the bike leaning on its stand is stood up in this many
+turns of its roll (ParkStandUp, a thread of its own: getting on doesn't wait for it)...}
+float Property StandUpStep = 0.04 AutoReadOnly
+{...this long apart (0.2 s in all, while the screen fades).}
 int Property MaxShoreWaits = 10 AutoReadOnly
 {Still in water after this many ShoreDelays (30 s): bring the bike anyway.}
 float Property ShoreBikeDistance = 200.0 AutoReadOnly
@@ -1244,6 +1273,20 @@ float snapZ
 float spotPitch
 float spotRoll
 bool spotTiltKnown = false
+; 2026-11-22a (the plugin's [Room] ParkFit): the parked bike's last fit, for getting on (ParkStandUp): its pitch, the ground's
+; roll and its roll on the stand (the ground's less the lean); parkFitLeaned while it leans on its stand (kept in a save, so a
+; bike parked before a load is stood up too).
+bool parkFitLeaned = false
+float parkFitPitch
+float parkFitGroundRoll
+float parkFitRoll
+; The review of 2026-11-22a (8): where the bike stood when it was last leaned (fitted or by its stand's lean alone), so a park
+; there with no settle (a getting on undone, the bike put back where it stood, a call refused, the guard's hold let go), whose
+; angle may still hold the lean or part of the stand-up, leans it over parkFitPitch and parkFitGroundRoll instead (ParkLeanAsPlaced).
+bool parkFitSpotKnown = false
+float parkFitX
+float parkFitY
+float parkFitZ
 ; Test 46: the last RollBikeUp found no spot and brought nothing (a call refused: the plugin's
 ; [Room] LineFallback=0).
 bool rollRefused = false
@@ -2079,7 +2122,7 @@ int Function CallLookF4SE(string asFunction, ObjectReference akRef = None, strin
 		return -1
 	endif
 	Var[] params
-	if asFunction == "ApplyParked"
+	if asFunction == "ApplyParked" || asFunction == "ApplyParkedLoaded"   ; 2026-11-22a: ApplyParkedLoaded ([Look] OverlayRuntime)
 		params = new Var[1]
 		params[0] = asFrom
 	elseif asFunction == "ApplyTo" || asFunction == "InFurniture"
@@ -2312,7 +2355,18 @@ Function Mount()
 	int ticket = 0
 	if guarded
 		ParkedLookWait()
+		ParkedLookAtMount()   ; 2026-11-22a ([Look] ParkedSwapHold): its line, and a runtime swap on the parked bike thrown away first
 		ticket = MountWatchStart()
+	endif
+	; 2026-11-22a (test 58's wish; the plugin's [Room] ParkFit with ParkStand): the bike leaning on its side stand stood up as
+	; getting on starts, in a thread of its own (ParkStandUp), while the rest goes on: no jump to the upright worn bike. The review
+	; of 2026-11-22a (finding 5): started after ParkedLookWait and ParkedLookAtMount, so that one's reload (its Disable) never lands
+	; mid stand-up (a blink, the bike part-leaning into the fade); with no parked look work under way both return at once.
+	if parkFitLeaned
+		parkFitLeaned = false
+		if !BikeRef.IsDisabled()
+			CallFunctionNoWait("ParkStandUp", new Var[0])
+		endif
 	endif
 	mountStage = "the wait"
 	; 2026-11-10a (test 52: getting on 3-5 s; the plugin's [Look] MountEarly, CMB_LookOptions bit 512): the worn bike equipped
@@ -2478,6 +2532,11 @@ int mountGivenUp = 0           ; the attempt the watchdog gave up (0 none)
 string mountGivenUpAt = ""     ; ...at this stage
 int lookParkedWork = 0         ; parked look work under way (ApplyLook's ApplyParked and ParkedLookAfter, ParkedLookDueNow)
 bool parkedLookDue = false     ; (FastMount) a look put on while getting on or riding: the parked bike's at its enable
+; 2026-11-22a ([Look] ParkedSwapHold, CMB_LookOptions 262144; test 58's two crashes): a runtime swap (F4SE's ApplyMaterialSwap) on the
+; parked bike's current 3D, who put it on and when (real time); cleared when that 3D goes (a disable, a load of it).
+bool parkedRuntime = false
+float parkedRuntimeAt = -1.0
+string parkedRuntimeFrom = ""
 
 ; CMB_BikeActivatorScript, first: this activation's number, or 0 refused (logged). Checked and set with no call out
 ; between, so of two presses one passes: refused while another activation's menu or choice is under way (activationAt
@@ -2534,6 +2593,143 @@ Function ParkedLookWait()
 		Log("Getting on: waited " + waited + " s for the parked bike's look (still under way: getting on all the same)")
 	else
 		Log("Getting on: waited " + waited + " s for the parked bike's look")
+	endif
+EndFunction
+
+; 2026-11-22a ([Look] ParkedSwapHold, CMB_LookOptions 262144; test 58's 1A): Mount (MountGuard), after ParkedLookWait, before MountWatchStart
+; and the fade. Both of test 58's crashes (a null read in d3d11 from the world's deferred pre-pass, as test 54's two) came 0.1-1 s after
+; the fade's start, a moment after F4SE's runtime swap had gone on the parked bike's live 3D and ParkedReload had refused to load it again
+; ("getting on"); every runtime swap that 3D was thrown away right after (21a's put-on) never crashed. So a runtime swap still on the
+; parked bike's 3D here (21a's at a busy moment, OverlayRuntime's at its load, one that landed while this getting on waited) is thrown
+; away now: its 3D loaded again (the look kept on it, SetMaterialSwap, goes on with the load) and waited for, so the getting on draws no
+; runtime-swapped parked 3D and finds it where it stands. One line with the bit at every getting on (the checker's ask for test 59): the
+; parked bike's look as the getting on found it, the Headlamp option (its lens files front_glow_<key>(_worn).bgsm; the plugin's [Diag]
+; LensLine names the worn lens's 3D and material at the mount). Off: nothing (2026-11-21a).
+Function ParkedLookAtMount()
+	if !LookOption(262144)
+		return
+	endif
+	string work = "no parked look work under way"
+	if lookParkedWork > 0
+		work = lookParkedWork + " parked look work(s) still under way"
+	endif
+	string shown = "its 3D not loaded"
+	bool loaded = BikeRef && !BikeRef.IsDisabled() && BikeRef.Is3DLoaded()
+	if !BikeRef
+		shown = "no parked bike"
+	elseif BikeRef.IsDisabled()
+		shown = "disabled"
+	elseif loaded
+		shown = "shown, its 3D loaded"
+	endif
+	string swap = "its 3D with the load's own look (no runtime swap on it)"
+	if parkedRuntime
+		swap = "a runtime swap on its 3D (" + parkedRuntimeFrom + ", " + (Utility.GetCurrentRealTime() - parkedRuntimeAt) + " s ago)"
+	endif
+	string lamp = LookName(LookSlotHeadlamp, LookChoice(LookSlotHeadlamp, false))
+	if !CMB_Look_Headlamp
+		lamp = "none (an older ESP)"
+	endif
+	if parkedRuntime && loaded
+		BikeRef.Disable()
+		parkedRuntime = false
+		Utility.Wait(RoomPollInterval)
+		BikeRef.Enable(false)
+		BikeRef.WaitFor3DLoad()
+		swap += ": its 3D loaded again before the fade"
+	elseif parkedRuntime
+		parkedRuntime = false
+	endif
+	Log("Getting on: the parked bike's look at the mount (ParkedSwapHold): " + work + "; " + shown + "; " + swap + "; the Headlamp " + lamp + " (its lens front_glow_<key>(_worn).bgsm; the beam placed after the fade)")
+EndFunction
+
+; 2026-11-22a ([Look] ParkedSwapHold): CMB_LookF4SE.ApplyParked asks right before a runtime swap onto the parked bike's live 3D. "" = go
+; ahead (2026-11-21a's swap: the bit off; or a reload that can't come now: busy, customising; or ParkedReload off), else why the swap is
+; kept on the bike for its 3D's next load instead: "getting on" or "riding" (Mount or the ride puts the bike away: its next enable loads
+; it with the look), "loaded again" (ParkedLookAfter's ParkedReload loads it again now: ApplyParked returns -2 for it).
+string Function ParkedSwapHoldWhy()
+	if !LookOption(262144)
+		return ""
+	endif
+	if mounting
+		return "getting on"
+	elseif riding
+		return "riding"
+	elseif customising
+		return "customising"   ; the review of 2026-11-22a (finding 1): a kit session (the bench menu: CMB_LookF4SE asks UI itself): the session's end puts it on
+	elseif LookOption(4) && !busy && BikeRef && !BikeRef.IsDisabled() && BikeRef.Is3DLoaded()
+		return "loaded again"
+	endif
+	return ""
+EndFunction
+
+; The review of 2026-11-22a (finding 1): CMB_LookF4SE.ApplyParkedLoaded asks before its compose and again right before its runtime swap
+; on the parked bike's fresh 3D ([Look] OverlayParked): "" = go ahead, else why not (whatever ParkedSwapHold says: the swap is new in
+; 2026-11-22a, so its guards stand with that key off too): a getting on, a ride, a field kit session (the workbench menu open, test 54's
+; crash: CMB_LookF4SE asks UI.IsMenuOpen itself, F4SE's), the key off, the stock look.
+string Function ParkedRuntimeRefusal()
+	if mounting
+		return "getting on"
+	elseif riding
+		return "riding"
+	elseif customising
+		return "a field kit session"
+	elseif !LookOption(1048576)
+		return "OverlayParked off"
+	elseif !LookActive()
+		return "the stock look"
+	endif
+	return ""
+EndFunction
+
+; The review of 2026-11-22a (finding 3): CMB_LookF4SE.ApplyWornOverlay asks after its compose (LookFollowUp checked before it): "" = put
+; the runtime swap on the worn bike now, else why not: off the bike, busy (a getting off, a re-equip), the look moved on, the key off.
+string Function WornOverlayRefusal()
+	if !riding
+		return "not riding"
+	elseif busy
+		return "busy (" + BusyText() + ")"
+	elseif wornRefit
+		return "the worn bike to be put on afresh"
+	elseif !LookIsWorn()
+		return "the look moved on"
+	elseif !LookOption(524288)
+		return "OverlayRuntime off"
+	endif
+	return ""
+EndFunction
+
+; 2026-11-22a: CMB_LookF4SE, after a runtime swap on the parked bike's live 3D (aiApplied entries): noted for ParkedLookAtMount.
+Function ParkedSwapLanded(string asFrom, int aiApplied)
+	if aiApplied > 0
+		parkedRuntime = true
+		parkedRuntimeAt = Utility.GetCurrentRealTime()
+		parkedRuntimeFrom = asFrom
+	endif
+EndFunction
+
+; 2026-11-22a ([Look] OverlayParked, CMB_LookOptions 1048576; test 58's 1C): CMB_BikeActivatorScript's OnLoad, each time the parked bike's
+; 3D loads (an enable, ParkedReload, a cell's load, a save's). The load puts the look on by its own swap (SetMaterialSwap), which leaves
+; the Wear's alpha-blended overlays undrawn (test 58's video: the parked bike pale and dusty in the frames after the runtime swap, clean
+; after every load; the 3D helmets, mirrors and badges, opaque or alpha-tested, show at a load); F4SE's runtime swap (the first-person
+; bike's, 21a's put-on's for a moment) shows them. So the look's composed swap goes on the fresh 3D at runtime as well (CMB_LookF4SE's
+; ApplyParkedLoaded): any slot, any shell CMB_LookSwapLists composes. Not while getting on (the bike is put away and loaded again at its
+; next enable), not under the workbench menu (KitDefer's rule), not with the stock look. Counted as parked look work: Mount's
+; ParkedLookWait waits for one under way and ParkedLookAtMount throws it away before the fade. Off: the fresh 3D's mark only.
+; The review of 2026-11-22a: the parked half is [Look] OverlayParked (CMB_LookOptions 1048576, default 0) now (finding 3), and the
+; handler no longer clears parkedRuntime (finding 2: an earlier load's swap still in flight can land on this 3D before the handler
+; runs; the flag is cleared only where the script itself takes the 3D away: ParkedReload, ParkedLookAtMount, a game load).
+Function ParkedLoaded3D(ObjectReference akRef)
+	if !akRef || akRef != BikeRef
+		return
+	endif
+	if !LookOption(1048576) || mounting || riding || customising || !LookActive()
+		return
+	endif
+	lookParkedWork += 1
+	CallLookF4SE("ApplyParkedLoaded", None, "its 3D's load")
+	if lookParkedWork > 0
+		lookParkedWork -= 1
 	endif
 EndFunction
 
@@ -3457,7 +3653,8 @@ bool mounting = false
 ; After a parked look's apply (asFrom: who applied it, aiApplied: the entries applied): the kitpaint unit's (ParkedReload).
 ; [Look] ParkedReload (bit 4): the parked bike's 3D loaded again for its colours (ParkedReload, after KitTidy).
 Function ParkedLookAfter(string asFrom, int aiApplied)
-	if aiApplied > 0 && LookOption(4)
+	; 2026-11-22a ([Look] ParkedSwapHold): -2 from ApplyParked = no runtime swap, the look kept on the bike for this reload's load
+	if (aiApplied > 0 || aiApplied == -2) && LookOption(4)
 		ParkedReload(asFrom)
 	endif
 EndFunction
@@ -3591,7 +3788,8 @@ EndFunction
 ; Roll, lastRoomTilted; -1000 none: its ParkTilt off, or an older plugin or ESP). Test 47: asSpot
 ; names a spot that isn't one of the BikeSpots in its lines (ParkChecked's "The park spot (...)").
 ; 2026-11-01a: aiKind is CMB_RoomAskKind's value for the ask (1: a navmesh point, the plugin's [Room] SnapSpot; 2026-11-09a: 2
-; the parked bike's guard, ParkGuard; 3 the same without the player, the review of 2026-11-09a).
+; the parked bike's guard, ParkGuard; 3 the same without the player, the review of 2026-11-09a; 2026-11-22a: 6 the parked
+; bike's fit, ParkFit: with room, lastRoomClear is its lean and lastRoomGround its middle's height, and ParkFit logs it).
 int Function RoomAt(float afX, float afY, float afZ, int aiSpot, float afAngle, string asUnchecked = ".", string asSpot = "", int aiKind = 0)
 	string try = "Bike's spot " + (aiSpot + 1) + " (" + SpotText(aiSpot) + "): "
 	if asSpot != ""
@@ -3651,7 +3849,9 @@ int Function RoomAt(float afX, float afY, float afZ, int aiSpot, float afAngle, 
 				lastRoomAngle = CMB_RoomAskAngle.GetValue()
 			endif
 			string tilt = RoomTiltRead()
-			if clear < 0.0
+			if aiKind == 6
+				; 2026-11-22a (the plugin's [Room] ParkFit): Clear is the lean there; ParkFit's own line follows.
+			elseif clear < 0.0
 				Log(try + "room (the ground " + Whole(-clear) + " above" + tilt + ").")
 			else
 				Log(try + "room (the ground " + Whole(clear) + " below" + tilt + ").")
@@ -3674,6 +3874,10 @@ int Function RoomAt(float afX, float afY, float afZ, int aiSpot, float afAngle, 
 			if clear == -2.0
 				Log(try + "not checked (the plugin's rays aren't working here)" + asUnchecked)
 				return -2
+			elseif aiKind == 6
+				; 2026-11-22a (the plugin's [Room] ParkFit): not fitted (its line says why). The review of 2026-11-22a (8): Clear
+				; is the side stand's lean on the level (0 with its ParkStand empty), which ParkFit leans the bike by.
+				Log(try + "not fitted (the plugin's line says why).")
 			elseif clear == -3.0
 				; Test 44 (the plugin's [Room] Line): a fence or a wall between the player and the spot.
 				Log(try + "none (no clear line from the player to it).")
@@ -4855,7 +5059,7 @@ Function EnableParked(bool abFade, int aiSettle, float afAngle = 0.0, bool abPla
 	ParkGuardAfterSettle(aiSettle, kind)
 EndFunction
 
-; The settle that followed the enable (EnableParked's aiSettle).
+; The settle that followed the enable (EnableParked's aiSettle). 2026-11-22a: then the plugin's fit (ParkFit), whatever the settle.
 Function ParkSettle(int aiSettle, float afAngle)
 	if aiSettle == 1
 		SettleBike(true)
@@ -4866,6 +5070,145 @@ Function ParkSettle(int aiSettle, float afAngle)
 	elseif aiSettle == 4
 		TiltParkedBike(afAngle, "the track just ridden")
 	endif
+	ParkFit(aiSettle)
+EndFunction
+
+; 2026-11-22a (test 58: "it looks like bike started to 'not align' with ground it stays on when character is off of it, having one
+; tire in the ground; I was thinking that it would be cool if bike was leaning a bit on sidestand/kickstand"; the plugin's [Room]
+; ParkFit, CMB_RoomOptions bit 32768): the placement's settle done, the plugin is asked about the bike's own place (CMB_RoomAskKind
+; 6, its heading) and the bike set by its answer: on the ground under its two tyres (CMB_RoomGround its middle's height, the tyres'
+; mean), pitched by them (CMB_RoomPitch) and rolled by the ground across them (CMB_RoomRoll, held to the plugin's ParkRoll) less the
+; lean that puts its side stand's foot on the ground (CMB_RoomClear: 0 with the plugin's ParkStand empty). Test 58's parks on the
+; track left a tyre 1.5-2.5 into the ground (the track's height and pitch are the rider's feet's) and the navmesh's are coarser.
+; Not asked without the bit (2026-11-21a: upright, whatever the nif's stand) or with the bike hidden. The review of 2026-11-22a
+; (8): the parked nif's stand is always down, so with CMB_MaxTilt 0 (tilting turned off: level, as every park) or the bike away
+; from the player's worldspace (or cell, inside) or farther than 4096 (the rays are cast in the player's cell) the plugin is asked
+; without a heading, for the stand's lean alone (no rays), and a park it doesn't fit (a tyre's or both sides' rays found no ground,
+; the rays not working) comes with that lean too: the bike leans by it over the tilt its settle gave it (ParkLeanAsPlaced); with
+; ParkStand empty the lean is 0 and the bike stays as placed, upright. No answer: as placed. Busy is the caller's.
+Function ParkFit(int aiSettle)
+	parkFitLeaned = false
+	if !RoomOption(32768) || BikeRef.IsDisabled()
+		return
+	endif
+	float angle = BikeRef.GetAngleZ()
+	float heading = angle - ParkedModelYaw
+	if heading < 0.0
+		heading += 360.0
+	endif
+	string alone = ""
+	if CMB_MaxTilt && CMB_MaxTilt.GetValue() <= 0.0
+		alone = "tilting turned off: level, as every park"
+	else
+		WorldSpace world = PlayerRef.GetWorldSpace()
+		if BikeRef.GetWorldSpace() != world || (!world && BikeRef.GetParentCell() != PlayerRef.GetParentCell()) || PlayerRef.GetDistance(BikeRef) > 4096.0
+			alone = "the bike away from the player: the rays are cast where the player is"
+		endif
+	endif
+	if alone != ""
+		Log("The parked bike's fit: not asked for (" + alone + "): its side stand's lean alone asked for.")
+		heading = -1000.0   ; no heading: the plugin's answer is the stand's lean alone
+	endif
+	float x = BikeRef.GetPositionX()
+	float y = BikeRef.GetPositionY()
+	float z = BikeRef.GetPositionZ()
+	int got = RoomAt(x, y, z, -1, heading, ".", "The parked bike's fit", 6)
+	if got == -1
+		ParkLeanAsPlaced(lastRoomClear, aiSettle)
+		return
+	elseif got != 1 || !lastRoomTilted || alone != ""
+		return
+	endif
+	float lean = lastRoomClear
+	if lean < 0.0
+		lean = 0.0
+	endif
+	parkFitPitch = lastRoomPitch
+	parkFitGroundRoll = lastRoomRoll
+	parkFitRoll = lastRoomRoll - lean
+	BikeRef.SetPosition(x, y, lastRoomGround)
+	BikeRef.SetAngle(parkFitPitch, parkFitRoll, angle)
+	parkFitLeaned = lean > 0.0
+	ParkFitSpotKeep(x, y, lastRoomGround)
+	float moved = lastRoomGround - z
+	string how = "upright"
+	if parkFitLeaned
+		how = "leaning " + Tenths(lean) + " on its side stand"
+	endif
+	Log("Parked bike set on the ground under its tyres (the plugin's [Room] ParkFit, after the settle " + aiSettle + "): moved " + Tenths(Math.Abs(moved)) + Ternary(moved < 0.0, " down", " up") + ", pitch " + parkFitPitch + ", roll " + parkFitRoll + " (the ground's " + parkFitGroundRoll + ", " + how + ").")
+EndFunction
+
+; The review of 2026-11-22a (8): a park the plugin's fit doesn't set (ParkFit's -1 answer, or asked for the stand's lean alone)
+; leans by afLean (the plugin's: its ParkStand foot's angle on the level, 8.6 for the shipped nif) over the tilt its settle gave
+; it, about the tyres' line (the parked nif's origin), so on ground as the settle had it the foot meets it; ParkStandUp stands it
+; up again at getting on, as a fitted one. A park with no settle (aiSettle 0) where the bike was last leaned (parkFitX/Y/Z within 2)
+; leans over that park's own tilt (parkFitPitch, parkFitGroundRoll): its angle now may still hold that lean or part of the stand-up.
+; afLean 0 (ParkStand empty) or not a lean (an older plugin's -1): as placed, upright.
+Function ParkLeanAsPlaced(float afLean, int aiSettle)
+	if afLean <= 0.0 || afLean > 45.0
+		return
+	endif
+	float x = BikeRef.GetPositionX()
+	float y = BikeRef.GetPositionY()
+	float z = BikeRef.GetPositionZ()
+	float pitch
+	float roll
+	string base
+	if aiSettle == 0 && parkFitSpotKnown && Math.Abs(x - parkFitX) < 2.0 && Math.Abs(y - parkFitY) < 2.0 && Math.Abs(z - parkFitZ) < 2.0
+		pitch = parkFitPitch
+		roll = parkFitGroundRoll
+		base = "the tilt it had there before"
+	else
+		pitch = BikeRef.GetAngleX()
+		roll = BikeRef.GetAngleY()
+		if pitch > 180.0
+			pitch -= 360.0
+		endif
+		if roll > 180.0
+			roll -= 360.0
+		endif
+		base = "the tilt its settle " + aiSettle + " gave it"
+	endif
+	parkFitPitch = pitch
+	parkFitGroundRoll = roll
+	parkFitRoll = roll - afLean
+	BikeRef.SetAngle(parkFitPitch, parkFitRoll, BikeRef.GetAngleZ())
+	parkFitLeaned = true
+	ParkFitSpotKeep(x, y, z)
+	Log("Parked bike leaning " + Tenths(afLean) + " on its side stand over " + base + " (not fitted by the plugin's [Room] ParkFit): pitch " + parkFitPitch + ", roll " + parkFitRoll + " (" + parkFitGroundRoll + " less the lean).")
+EndFunction
+
+; Where the bike was just leaned (ParkLeanAsPlaced's test for a park with no settle).
+Function ParkFitSpotKeep(float afX, float afY, float afZ)
+	parkFitX = afX
+	parkFitY = afY
+	parkFitZ = afZ
+	parkFitSpotKnown = true
+EndFunction
+
+; 2026-11-22a (the plugin's [Room] ParkFit with ParkStand): getting on (Mount, past its refusals), the bike leaning on its stand is
+; stood up: its roll turned back to the ground's in StandUpSteps steps StandUpStep apart, in this thread of its own (Mount's
+; CallFunctionNoWait), so getting on and its fade don't wait for it: the bike rises as the screen darkens, and the worn bike that
+; follows is upright as always. Stops when the bike is hidden meanwhile (the disable under the fade). A getting on undone parks it
+; again (EnableParked: fitted and leaning again; the review of 2026-11-22a (8): a stand-up still going then stops, parkFitLeaned
+; set again by that park).
+Function ParkStandUp()
+	float pitch = parkFitPitch
+	float from = parkFitRoll
+	float to = parkFitGroundRoll
+	float angle = BikeRef.GetAngleZ()
+	int i = 1
+	while i <= StandUpSteps
+		if BikeRef.IsDisabled() || parkFitLeaned
+			return
+		endif
+		BikeRef.SetAngle(pitch, from + (to - from) * (i as float) / (StandUpSteps as float), angle)
+		if i < StandUpSteps
+			Utility.Wait(StandUpStep)
+		endif
+		i += 1
+	endwhile
+	Log("Getting on: the parked bike stood up off its side stand (roll " + from + " -> " + to + ", ParkStandUp).")
 EndFunction
 
 ; The plugin's word on the parked bike's place where it stands now: 1 no one, -1 someone, -2 not checked, 0 no answer. aiKind:
@@ -5331,6 +5674,7 @@ Function EquipBike(bool abPoseAhead = false)
 		elseif LookColoursOn() || lookColoursWorn
 			WornLookColours()   ; 2026-11-08a: the look's colours, or the last ones taken off (neither with a stock look: no call)
 		endif
+		WornOverlayPlan()   ; 2026-11-22a ([Look] OverlayRuntime): the look's swap at runtime too, after the fade
 	endif
 	RemoveArmor(other)
 EndFunction
@@ -5450,6 +5794,19 @@ Function EquipKept(Armor akArmor)
 		wornCountArmor = akArmor
 	endif
 	if wornCountDue || wornSwapDue
+		StartTimer(WornSwapAgain, TimerLook)
+	endif
+	WornOverlayPlan()   ; 2026-11-22a ([Look] OverlayRuntime): the look's swap at runtime too, after the fade
+EndFunction
+
+; 2026-11-22a ([Look] OverlayRuntime, CMB_LookOptions 524288; test 58's 1C: the Wear in the field kit and in first person, never on the
+; third-person bike): EquipKept and EquipBike, after the worn bike's equip, and LookAfterLoad riding. Its look goes on by its mods' swaps
+; at the 3D's build (the game's load-time swap: the Wear's alpha-blended overlays stay undrawn), so the look's composed swap goes on it at
+; runtime as well, as the first-person bike's (LookFollowUp, TimerLook after WornSwapAgain, outside busy: CMB_LookF4SE's ApplyWorn, the
+; refused mods' path of 2026-11-08a and tests 51-53's colour swap after every equip). Not with the stock look. Off: nothing (2026-11-21a).
+Function WornOverlayPlan()
+	if LookOption(524288) && LookActive()
+		wornOverlayDue = true
 		StartTimer(WornSwapAgain, TimerLook)
 	endif
 EndFunction
@@ -5647,12 +6004,13 @@ EndFunction
 
 string Property LookMenuName = "ExamineMenu" AutoReadOnly
 {The armour bench's menu (the field kit opens it).}
-int Property LookSlots = 15 AutoReadOnly
+int Property LookSlots = 16 AutoReadOnly
 {The slots, in CMB_LookCategories' order: 0 the left tank badge, 1 the right, 2 the rear fender badge,
 3 the paint, 4 the mirrors; since 2026-11-08a 5 the rims, 6 the tyres, 7 the plate, 8 the plate's text,
 9 its letters' colour, 10 its background colour; since 2026-11-16a 11 the seat; since 2026-11-21a 12 the wear,
-13 the front fender badge, 14 the headlamp (an older ESP has the first five, eleven or twelve only: the others'
-globals None, nothing done for them, the seat and the later ones not even in LookState).}
+13 the front fender badge, 14 the headlamp; since 2026-11-22a 15 the paint's condition (and 13 retired: its global
+unfilled) (an older ESP has the first five, eleven, twelve or fifteen only: the others' globals None, nothing done
+for them, the seat and the later ones not even in LookState).}
 int Property LookSlotTankL = 0 AutoReadOnly
 int Property LookSlotTankR = 1 AutoReadOnly
 int Property LookSlotFender = 2 AutoReadOnly
@@ -5668,6 +6026,7 @@ int Property LookSlotSeat = 11 AutoReadOnly
 int Property LookSlotWear = 12 AutoReadOnly
 int Property LookSlotFrontFender = 13 AutoReadOnly
 int Property LookSlotHeadlamp = 14 AutoReadOnly
+int Property LookSlotPaintWear = 15 AutoReadOnly
 int Property LookFollowLeft = 17 AutoReadOnly
 {The right tank's option "Same as the left" (its default): the left's choice, wherever a look is put on.}
 int Property LookPaintFree = 45 AutoReadOnly
@@ -5731,6 +6090,7 @@ bool lookWasActive = false     ; the bikes were last given a non-stock look (so 
 string lookApplied = ""        ; LookState() when ApplyLook last ran ("" not yet): LookSync's test
 bool lookViewDue = false       ; LookFollowUp: the look on the first-person bike
 bool wornSwapDue = false       ; LookFollowUp: the worn bike's F4SE swap again
+bool wornOverlayDue = false    ; 2026-11-22a ([Look] OverlayRuntime): LookFollowUp: the look's swap at runtime on the worn bike's new 3D
 bool wornRefused = false       ; the worn bike's mods were refused at its last equip (the F4SE swap instead)
 int lookCrudeSaid = -1         ; 2026-11-08a: the crude plate text last logged as shown as the plate's own (-1 none)
 int lookRimMods = 0            ; 2026-11-08a: the Rims option the worn bike's mods carry (AttachLook at its equip)
@@ -5774,6 +6134,8 @@ GlobalVariable Function LookGlobal(int aiSlot)
 		return CMB_Look_FrontFender
 	elseif aiSlot == LookSlotHeadlamp
 		return CMB_Look_Headlamp
+	elseif aiSlot == LookSlotPaintWear
+		return CMB_Look_PaintWear   ; 2026-11-22a: None with an older ESP
 	endif
 	return None
 EndFunction
@@ -5955,11 +6317,14 @@ string Function LookSlotText(int aiSlot)
 		return "front fender"
 	elseif aiSlot == LookSlotHeadlamp
 		return "headlamp"
+	elseif aiSlot == LookSlotPaintWear
+		return "paint condition"
 	endif
 	return "seat"
 EndFunction
 
-; 2026-11-08a: a slot the ESP has (an older one: the first five only; 2026-11-15b's: eleven, no seat; 2026-11-17a's: twelve).
+; 2026-11-08a: a slot the ESP has (an older one: the first five only; 2026-11-15b's: eleven, no seat; 2026-11-17a's: twelve;
+; 2026-11-21a's: fifteen; 2026-11-22a's: sixteen but the front fender badge, 13, retired: its global unfilled).
 bool Function LookSlotThere(int aiSlot)
 	return aiSlot < LookSlotRims || LookGlobal(aiSlot) != None
 EndFunction
@@ -6095,6 +6460,7 @@ Function LookFollowUp()
 		lookViewDue = false
 		wornSwapDue = false
 		wornCountDue = false
+		wornOverlayDue = false
 		return
 	endif
 	if busy
@@ -6110,6 +6476,7 @@ Function LookFollowUp()
 			wornSwapDue = false
 		endif
 	endif
+	bool swapped = false   ; 2026-11-22a: the whole composed look went on the worn bike here (OverlayRuntime's swap then not needed)
 	if wornSwapDue
 		wornSwapDue = false
 		string again = "ApplyWorn"
@@ -6120,6 +6487,7 @@ Function LookFollowUp()
 		; look's colour values don't fit its materials: they wait for its next equip)
 		if wornRefused || LookIsWorn()
 			int applied = CallLookF4SE(again)
+			swapped = applied >= 0
 			if wornFast
 				; 2026-11-09a (test 51, FastMount): the only swap (ApplyWornColours logs its own line)
 				if wornRefused
@@ -6130,6 +6498,17 @@ Function LookFollowUp()
 				endif
 			elseif applied >= 0
 				Log("Look: the worn bike's F4SE swap again: " + applied + " entries applied")
+			endif
+		endif
+	endif
+	; 2026-11-22a ([Look] OverlayRuntime): after an equip, the look's composed swap on the worn bike's new 3D at runtime too (the overlays),
+	; unless the swap above put it on already, the mods are to be put on afresh (wornRefit: its own equip plans it again) or the look moved on
+	if wornOverlayDue
+		wornOverlayDue = false
+		if !swapped && !wornRefit && LookIsWorn() && LookOption(524288)
+			int overlays = CallLookF4SE("ApplyWornOverlay")   ; the review of 2026-11-22a: WornOverlayRefusal asked again after its compose
+			if overlays >= 0
+				Log("Look: the worn bike's 3D: the look's swap at runtime too, " + overlays + " entries applied (OverlayRuntime)")
 			endif
 		endif
 	endif
@@ -6248,6 +6627,8 @@ Function LookAfterLoad()
 	lookUiGetSaid = false   ; 2026-11-16a: the MCM's first read through a dropdown's property, said again this session
 	lookViewDue = false
 	wornSwapDue = false
+	wornOverlayDue = false   ; 2026-11-22a
+	parkedRuntime = false    ; 2026-11-22a: the load gives the parked bike a new 3D
 	; 2026-11-09a (test 51): no count of parked look work, after-the-fade check or activation from before the load is true
 	; now (the load's own ApplyLook below counts afresh)
 	lookParkedWork = 0
@@ -6278,6 +6659,11 @@ Function LookAfterLoad()
 	; plugin writes them (bit 64: the save's colour values are the worn bike's); the swap, if any, once.
 	if riding && (wornRefused || (LookColoursOn() && lookWorn == lookApplied && !(wornFast && LookOption(64))))
 		wornSwapDue = true
+		StartTimer(ReloadPoseDelay, TimerLook)
+	endif
+	; 2026-11-22a ([Look] OverlayRuntime): a load into a ride builds the worn bike's 3D afresh (its mods' load-time swap): the overlays again
+	if riding && lookWorn == lookApplied && LookOption(524288) && LookActive()
+		wornOverlayDue = true
 		StartTimer(ReloadPoseDelay, TimerLook)
 	endif
 EndFunction
@@ -7339,6 +7725,7 @@ Function ParkedReload(string asFrom)
 		return
 	endif
 	BikeRef.Disable()
+	parkedRuntime = false   ; 2026-11-22a: its runtime-swapped 3D gone
 	; The wait EnableParked's room ask made (RoomPollInterval): behind the pause menu it returns at the menu's close, so the
 	; enable loads the 3D outside the menu as before.
 	Utility.Wait(RoomPollInterval)
@@ -7475,9 +7862,10 @@ EndFunction
 ; order), then the faction sets (12). Without the arrays (an older ESP) a rank is the index itself (2026-11-15b's lists).
 ; 2026-11-21a (C4): 16 groups with the C4 ESP, the 15 slots in slot order (Wear, FrontFender, Headlamp at 12-14: a slot's group
 ; is its slot index), then the faction sets (15). The faction sets' group is the last one the ESP's UiStart has (12 with
-; 2026-11-17a's, 15 with 2026-11-21a's; without UiStart the ESP's slot count, CMB_LookCategories' size).
+; 2026-11-17a's, 15 with 2026-11-21a's; without UiStart the ESP's slot count, CMB_LookCategories' size). 2026-11-22a (C5): 17
+; groups, PaintWear 15, the faction sets 16; FrontFender keeps its group 13 (no dropdown binds it since it is retired).
 
-int Property LookUiGroupsMax = 16 AutoReadOnly
+int Property LookUiGroupsMax = 20 AutoReadOnly
 {The most groups the Ui arrays may have (the fallback's pushed ranks are kept in an array this long).}
 
 bool lookUiGetSaid = false     ; the first Get of a session said in the log (the property route works)
@@ -7500,7 +7888,7 @@ int Function LookUiGroupCount()
 	return n
 EndFunction
 
-; 2026-11-21a: the faction sets' group, the last one (12 with 2026-11-17a's ESP, 15 with 2026-11-21a's).
+; 2026-11-21a: the faction sets' group, the last one (12 with 2026-11-17a's ESP, 15 with 2026-11-21a's, 16 with 2026-11-22a's).
 int Function LookUiFactionGroup()
 	return LookUiGroupCount() - 1
 EndFunction
@@ -7620,6 +8008,8 @@ GlobalVariable Function UiFallbackGlobal(int aiGroup)
 		return CMB_LookUi_FrontFender
 	elseif aiGroup == 14
 		return CMB_LookUi_Headlamp
+	elseif aiGroup == 15
+		return CMB_LookUi_PaintWear   ; 2026-11-22a (Look_C5_UiFallback)
 	endif
 	return None
 EndFunction
@@ -7627,7 +8017,7 @@ EndFunction
 ; Fallback (b) in the ESP: any of the eleven (2026-11-21a: fourteen) globals filled (this build: none, so the hooks below do
 ; nothing, no call).
 bool Function UiFallbackOn()
-	return CMB_LookUi_TankL || CMB_LookUi_TankR || CMB_LookUi_Fender || CMB_LookUi_Paint || CMB_LookUi_Rims || CMB_LookUi_Plate || CMB_LookUi_PlateText || CMB_LookUi_PlateInk || CMB_LookUi_PlateBack || CMB_LookUi_Seat || CMB_LookUi_FactionSet || CMB_LookUi_Wear || CMB_LookUi_FrontFender || CMB_LookUi_Headlamp
+	return CMB_LookUi_TankL || CMB_LookUi_TankR || CMB_LookUi_Fender || CMB_LookUi_Paint || CMB_LookUi_Rims || CMB_LookUi_Plate || CMB_LookUi_PlateText || CMB_LookUi_PlateInk || CMB_LookUi_PlateBack || CMB_LookUi_Seat || CMB_LookUi_FactionSet || CMB_LookUi_Wear || CMB_LookUi_FrontFender || CMB_LookUi_Headlamp || CMB_LookUi_PaintWear
 EndFunction
 
 ; Fallback (b), ApplyLook: each group's CMB_LookUi_ global set to the rank of its global's option (only on a difference), the
@@ -7637,7 +8027,7 @@ int Function LookUiPush()
 		return 0
 	endif
 	if !lookUiPushed || lookUiPushed.Length != LookUiGroupsMax
-		lookUiPushed = new int[16]   ; LookUiGroupsMax (2026-11-21a: was 13, one a group of 2026-11-17a's; a longer array pushes afresh once)
+		lookUiPushed = new int[20]   ; LookUiGroupsMax (2026-11-21a: was 13, one a group of 2026-11-17a's; 2026-11-22a: 16 -> 20, 17 groups; a longer array pushes afresh once)
 		int k = 0
 		while k < lookUiPushed.Length
 			lookUiPushed[k] = -1

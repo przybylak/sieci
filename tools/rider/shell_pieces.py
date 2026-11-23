@@ -28,6 +28,10 @@ tank plates and the rear patch), read true from in front of the bike: u to the v
 parked +x), v down toward the front of the bike. FRONT_PATCH_LIFT puts it over the wear shell (SHELL_LIFT) by more
 than the half floats' rounding, so a badge shows over the mud (FENDER_RAISE does the same for the rear patch).
 
+Since 2026-11-22a: the paint condition shells (PAINTWEAR_SHELLS, PAINTWEAR_LIFT over the paint), the wear shells on more
+parts (PART_SHELLS: the exhaust, the engine's outer covers by select_pieces, the fork lowers), and static_wear's lift
+per vertex over the badge sheets (badge_lifts, BADGE_SHEETS): shell_positions takes one lift or one a vertex.
+
 All in the parked frame (+x the bike's left, -y ahead, z up), full precision.
 """
 
@@ -89,42 +93,73 @@ def surface_distance(points, tris, reach=0.6):
     return TriangleGrid(tris, 1.0).closest(np.asarray(points, np.float64), reach=reach)[2]
 
 
-def shell_positions(v, f, n, worn=None, lift=SHELL_LIFT, log=None):
+def shell_positions(v, f, n, worn=None, lift=SHELL_LIFT, log=None, keep=SHELL_FIT_KEEP, reach=0.6, by_piece=False):
     """The shell's positions, one per source vertex (see the module's notes). v, f, n: the source in the parked frame
-    (full precision). worn: None, or (R, t, source_worn) the worn frame (x_worn = R x + t) and the worn nif's own
-    source positions (half floats), for the fit to the half floats (fit_half). Returns (positions (V, 3) in the parked
-    frame, the averaged normals (V, 3), numbers)."""
+    (full precision); f the triangles the shell lies over (all of the source's, or a part of them: its distances are
+    to those; a position no triangle of f uses is just lifted). lift: the distance over them, one value or one a source
+    vertex (2026-11-22a: static_wear's over the badges, badge_lifts; a position takes its first vertex's). worn: None,
+    or (R, t, source_worn) the worn frame (x_worn = R x + t) and the worn nif's own source positions (half floats), for
+    the fit to the half floats (fit_half, within `keep` of the lift in full precision). by_piece (2026-11-22a's part
+    shells): each connected piece of f measured against its own triangles only (the exhaust's pieces overlap: a
+    muffler runs inside its pipe's sleeve). Returns (positions (V, 3) in the parked frame, the averaged normals (V, 3),
+    numbers)."""
     v = np.asarray(v, np.float64)
     f = np.asarray(f, np.int64)
     pos, first = weld_positions(v)
     na = averaged_normals(n, pos)                 # per position
-    p = v[first]
-    tris = v[f]
-    grid = TriangleGrid(tris, 1.0)
-    dist = lambda d: grid.closest(p + d[:, None] * na, reach=0.6)[2]
-    d = np.full(len(p), float(lift))
-    d0 = dist(d)
-    concave = d0 < lift - 1e-4
-    for _ in range(4):   # a concave corner: lengthen till the nearest face is `lift` away (the distance about linear in d)
-        got = dist(d)
-        short = got < lift - 1e-5
-        if not short.any():
-            break
-        d[short] = np.minimum(d[short] * lift / np.maximum(got[short], 1e-6), SHELL_LIFT_MAX)
-    full = dist(d)
-    numbers = dict(positions=len(p), concave=int(concave.sum()), lift_max=float(d.max()),
-                   full_min=float(full.min()), full_max=float(full.max()))
-    q = p + d[:, None] * na
-    if worn is not None:
-        q = fit_half(q, grid, worn, f, lift, numbers)
+    P = v[first]
+    lift_all = np.full(len(P), float(lift)) if np.ndim(lift) == 0 else np.asarray(lift, np.float64)[first]
+    q_all = P + lift_all[:, None] * na
+    if by_piece:
+        tw = pos[f]
+        lab = BP.islands(len(P), tw)
+        groups = [(np.unique(tw[lab == k]), f[lab == k]) for k in range(int(lab.max()) + 1)]
+    else:
+        groups = [(np.unique(pos[f]), f)]
+    one = np.ndim(lift) == 0
+    agg = dict(positions=0, concave=0, lift_max=-np.inf, full_min=np.inf, full_max=-np.inf)
+    fits = []
+    for sel, fg in groups:
+        p, nas, lift_p = P[sel], na[sel], lift_all[sel]
+        grid = TriangleGrid(v[fg], 1.0)
+        dist = lambda d: grid.closest(p + d[:, None] * nas, reach=reach)[2]  # noqa: E731
+        cap = np.where(lift_p == SHELL_LIFT, SHELL_LIFT_MAX, lift_p * (SHELL_LIFT_MAX / SHELL_LIFT))
+        d = lift_p.copy()
+        d0 = dist(d)
+        concave = d0 < lift_p - 1e-4
+        for _ in range(4):   # a concave corner: lengthen till the nearest face is `lift` away (the distance about linear in d)
+            got = dist(d)
+            short = got < lift_p - 1e-5
+            if not short.any():
+                break
+            d[short] = np.minimum(d[short] * lift_p[short] / np.maximum(got[short], 1e-6), cap[short])
+        full = dist(d)
+        agg["positions"] += len(p)
+        agg["concave"] += int(concave.sum())
+        agg["lift_max"] = max(agg["lift_max"], float(d.max()))
+        agg["full_min"] = min(agg["full_min"], float(full.min() if one else (full - lift_p).min()))
+        agg["full_max"] = max(agg["full_max"], float(full.max() if one else (full - lift_p).max()))
+        q = p + d[:, None] * nas
+        if worn is not None:
+            num = {}
+            q = fit_half(q, grid, worn, fg, lift_p, num, keep=keep, reach_d=reach)
+            fits.append(num)
+        q_all[sel] = q
+    numbers = agg
+    if fits:
+        numbers.update(moved=sum(x["moved"] for x in fits),
+                       fit_full=(min(x["fit_full"][0] for x in fits), max(x["fit_full"][1] for x in fits)),
+                       fit_worn=(min(x["fit_worn"][0] for x in fits), max(x["fit_worn"][1] for x in fits)))
     if log:
-        log(f"    {numbers['positions']} positions, {numbers['concave']} at a concave corner (lifted up to "
+        what = "over the source" if one else "off its lift over the source"
+        log(f"    {numbers['positions']} positions" + (f" in {len(groups)} pieces" if by_piece else "")
+            + f", {numbers['concave']} at a concave corner (lifted up to "
             f"{numbers['lift_max']:.3f} along their averaged normal); every position {numbers['full_min']:.4f}-"
-            f"{numbers['full_max']:.4f} over the source"
+            f"{numbers['full_max']:.4f} {what}"
             + (f"; fitted to the worn nifs' half floats ({numbers['moved']} moved within their rounding cell): "
                f"{numbers['fit_full'][0]:.4f}-{numbers['fit_full'][1]:.4f} in full precision, {numbers['fit_worn'][0]:.4f}-"
-               f"{numbers['fit_worn'][1]:.4f} in the half floats" if worn is not None else ""))
-    return q[pos], na[pos], numbers
+               f"{numbers['fit_worn'][1]:.4f} in the half floats ({what})" if worn is not None else ""))
+    return q_all[pos], na[pos], numbers
 
 
 def _half_step(L, up):
@@ -134,7 +169,8 @@ def _half_step(L, up):
     return np.abs(nxt - h.astype(np.float64))
 
 
-def fit_half(q, grid, worn, f, lift=SHELL_LIFT, numbers=None, keep=SHELL_FIT_KEEP, margin=0.45, reach=SHELL_FIT_REACH):
+def fit_half(q, grid, worn, f, lift=SHELL_LIFT, numbers=None, keep=SHELL_FIT_KEEP, margin=0.45, reach=SHELL_FIT_REACH,
+             reach_d=0.6):
     """The shell's positions (P, 3, parked frame, full precision) moved within the worn nifs' half-float rounding so
     their worn copies lie as near `lift` over the worn nifs' own source as the half floats allow: per position the
     half-float points round the worn frame's target (the nearest and `reach` more either side in each coordinate), each taken
@@ -162,8 +198,8 @@ def fit_half(q, grid, worn, f, lift=SHELL_LIFT, numbers=None, keep=SHELL_FIT_KEE
         qw = L + np.clip(target - L, -margin * dl, margin * dh)   # the target clamped into L's rounding cell
         ok = np.all(half(qw.astype(np.float32)) == L, axis=1)
         qp = (qw - t) @ R                       # back to the parked frame (R orthonormal)
-        gf = grid.closest(qp, reach=0.6)[2]
-        gw = wgrid.closest(L, reach=0.6)[2]
+        gf = grid.closest(qp, reach=reach_d)[2]
+        gw = wgrid.closest(L, reach=reach_d)[2]
         ok &= np.abs(gf - lift) <= keep
         err = np.maximum(np.abs(gw - lift), np.abs(gf - lift)) + 1e-3 * (np.abs(gw - lift) + np.abs(gf - lift))
         better = ok & (err < best_err)
@@ -174,12 +210,17 @@ def fit_half(q, grid, worn, f, lift=SHELL_LIFT, numbers=None, keep=SHELL_FIT_KEE
     if np.isnan(best_worn).any():   # no candidate kept the full precision within `keep`: the target as it is
         miss = np.isnan(best_worn)
         best_q[miss] = q[miss]
-        best_full[miss] = grid.closest(q[miss], reach=0.6)[2]
-        best_worn[miss] = wgrid.closest(half(target[miss]), reach=0.6)[2]
+        best_full[miss] = grid.closest(q[miss], reach=reach_d)[2]
+        best_worn[miss] = wgrid.closest(half(target[miss]), reach=reach_d)[2]
     if numbers is not None:
-        numbers.update(moved=int((np.abs(best_q - q).max(axis=1) > 1e-9).sum()),
-                       fit_full=(float(best_full.min()), float(best_full.max())),
-                       fit_worn=(float(best_worn.min()), float(best_worn.max())))
+        if np.ndim(lift) == 0 or np.ptp(lift) == 0:   # the distances themselves (one lift)
+            numbers.update(moved=int((np.abs(best_q - q).max(axis=1) > 1e-9).sum()),
+                           fit_full=(float(best_full.min()), float(best_full.max())),
+                           fit_worn=(float(best_worn.min()), float(best_worn.max())))
+        else:                                          # the misses of each position's own lift
+            numbers.update(moved=int((np.abs(best_q - q).max(axis=1) > 1e-9).sum()),
+                           fit_full=(float((best_full - lift).min()), float((best_full - lift).max())),
+                           fit_worn=(float((best_worn - lift).min()), float((best_worn - lift).max())))
     return best_q
 
 
@@ -375,3 +416,98 @@ def front_badge_patch(mudguard, axle, size=FRONT_PATCH_SIZE, centre_deg=FRONT_PA
 def raise_patch(v, n, by=FENDER_RAISE):
     """The rear fender patch's vertices raised `by` along their own normals."""
     return np.asarray(v, np.float64) + by * unit(n)
+
+
+# --- 2026-11-22a (round t64, test 58's wishes): the paint condition shells, the wear on more parts, over the badges ------
+# The paint condition (the contract's slot 15, under the Wear slot's grime): static_paintwear and fork_paintwear, shells
+# of static_paint and fork_paint PAINTWEAR_LIFT over the paint (half static_wear's 0.32), made as the wear shells.
+PAINTWEAR_LIFT = 0.16
+PAINTWEAR_BAND = (0.14, 0.18)     # every paint condition vertex this far over the paint (full precision)
+PAINTWEAR_SHELLS = (("static_paintwear", "static_paint"), ("fork_paintwear", "fork_paint"))
+# The wear on more parts ("all 'wear' option should also be applied on exhaust pipes and other parts of the bike, not too
+# much but noticeable"): a shell SHELL_LIFT over each, (label, source, the source's pieces it covers: None = all).
+# static_engine's five outer covers by their (triangles, area) as measured on the built nifs' parked one (2026-11-10a's
+# model; select_pieces finds them again or fails): the crankcase, the primary cover (the bike's left), the cam cover
+# (right, low), the air cleaner's body and its face (right).
+ENGINE_COVERS = ((2099, 2664.9), (1263, 2035.2), (785, 691.8), (570, 1319.5), (583, 571.0))
+PART_SHELLS = (("static_exhaust_wear", "static_exhaust", None), ("static_engine_wear", "static_engine", ENGINE_COVERS),
+               ("fork_black_wear", "fork_black", None))
+PART_TRIS_MAX = 15000             # the brief's cap for the part shells together (before the inside cut)
+# static_wear over the badges (test 58: "badges on gas tank are not covered when they should e.g. bloody"): over each
+# badge sheet's footprint the shell rises to BADGE_OVER over the sheet (the sheet's own height over the paint there
+# plus BADGE_OVER), on BADGE_MARGIN round it (so no triangle of the shell dips under the sheet's edge), back to
+# SHELL_LIFT over BADGE_RAMP beyond; the sheets stay where they are. The 3D helmets stand above it.
+BADGE_SHEETS = ("static_badgeTankL", "static_badgeTankR", "static_badgeRear", "static_badgeFender")
+BADGE_OVER = 0.15                 # over the sheet: the half floats' rounding of both (+-0.03 each) and room to spare
+BADGE_OVER_MIN = 0.06             # check_bike_meshes.py: the shell at least this over every point of each sheet
+BADGE_MARGIN = 1.0
+BADGE_RAMP = 1.5
+
+
+def select_pieces(v, f, signatures, tol=0.01):
+    """The triangles of the source's pieces with these (triangles, area) signatures (area within tol of it): a mask
+    over f, and the pieces found [(triangles, area)]. Raises when one isn't found exactly once."""
+    v, f = np.asarray(v, np.float64), np.asarray(f, np.int64)
+    area = np.linalg.norm(np.cross(v[f[:, 1]] - v[f[:, 0]], v[f[:, 2]] - v[f[:, 0]]), axis=1) / 2
+    ps = pieces(v, f)
+    mask = np.zeros(len(f), bool)
+    found = []
+    for n, a in signatures:
+        hits = [ti for ti, _ in ps if len(ti) == n and abs(area[ti].sum() - a) <= tol * a]
+        if len(hits) != 1:
+            raise ValueError(f"select_pieces: {len(hits)} pieces of {n} triangles and area {a:g} (one expected)")
+        mask[hits[0]] = True
+        found.append((n, float(area[hits[0]].sum())))
+    return mask, found
+
+
+def badge_lifts(v, n, paint_tris, sheets, base=SHELL_LIFT, over=BADGE_OVER, margin=BADGE_MARGIN, ramp=BADGE_RAMP, f=None):
+    """static_wear's lift per source vertex (V,) over the badge sheets {label: (verts, tris)} (parked frame): base, or
+    over a sheet's footprint the sheet's height over the paint there and `over`, on `margin` round its edge, ramped
+    back to base over `ramp`. n: each vertex's averaged normal. With f (the paint's triangles, indices into v;
+    paint_tris = v[f]): every vertex of a paint triangle with a sheet over it at least the sheet's greatest height over
+    that triangle and `over` (the highest over any triangle round its position), so the shell's flat triangle stays
+    over a sheet that bulges between its corners (the tank plates curve with the tank). Returns (lift (V,), {label:
+    vertices lifted})."""
+    v, n = np.asarray(v, np.float64), unit(n)
+    lift = np.full(len(v), float(base))
+    paint = TriangleGrid(np.asarray(paint_tris, np.float64), 1.0)
+    count = {}
+    if f is not None:
+        f = np.asarray(f, np.int64)
+        pos, _ = weld_positions(v)
+        fn = unit(np.cross(v[f[:, 1]] - v[f[:, 0]], v[f[:, 2]] - v[f[:, 0]]))
+        for label, (sv, sf) in sheets.items():
+            tris = np.asarray(sv, np.float64)[np.asarray(sf, np.int64)]
+            smp, _ = triangle_samples(np.asarray(sv, np.float64), np.asarray(sf, np.int64), steps=6)
+            smp = smp.reshape(-1, 3)
+            ti, bc, d = paint.closest(smp, reach=2.0)
+            q = np.einsum("ij,ijk->ik", bc, np.asarray(paint_tris, np.float64)[ti])
+            over_it = np.einsum("ij,ij->i", smp - q, fn[ti]) > 0.5 * d     # the sheet's point over that paint triangle
+            tri_max = np.zeros(len(f))
+            np.maximum.at(tri_max, ti[over_it], d[over_it])
+            ring = np.zeros(int(pos.max()) + 1)
+            for k in range(3):
+                np.maximum.at(ring, pos[f[:, k]], tri_max)
+            want = np.where(ring[pos] > 0, ring[pos] + over, 0.0)
+            count[label + " (round)"] = int((want > lift + 1e-9).sum())
+            lift = np.maximum(lift, want)
+    for label, (sv, sf) in sheets.items():
+        tris = np.asarray(sv, np.float64)[np.asarray(sf, np.int64)]
+        reach = margin + ramp + 1.0
+        lo, hi = tris.min(axis=(0, 1)) - reach, tris.max(axis=(0, 1)) + reach
+        near = np.where(np.all((v >= lo) & (v <= hi), axis=1))[0]
+        if not len(near):
+            count[label] = 0
+            continue
+        ti, bc, d = TriangleGrid(tris, 1.0).closest(v[near], reach=reach)
+        q = np.einsum("ij,ijk->ik", bc, tris[ti])
+        along = np.einsum("ij,ij->i", q - v[near], n[near])          # the sheet's point's height over this paint point
+        lateral = np.sqrt(np.maximum(d * d - along * along, 0.0))   # how far beside the sheet (0 under it)
+        h = paint.closest(q, reach=1.0)[2]                         # the sheet's height over the paint there
+        w = np.clip(1.0 - (lateral - margin) / ramp, 0.0, 1.0)
+        w[(along <= 0) | (d > reach)] = 0.0                          # under the paint, or too far: not this sheet's
+        want = base + np.maximum(h + over - base, 0.0) * w
+        lift[near] = np.maximum(lift[near], want)
+        count[label] = int((want > base + 1e-9).sum())
+    return lift, count

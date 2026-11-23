@@ -60,6 +60,12 @@ sword over a cog) and --enclave-ground (the 3D Enclave helmet's ground in polish
 Unset, each follows --through: a build before 2026-11-17a draws the old art, so --through 2026-11-16a gives
 2026-11-16a's atlas byte for byte and --through 2026-11-08a still 2026-11-15b's. badges.json names a redrawn cell's
 "art" and "drawn" (and "ground": whether it has a plate ground, look_badges.py's coverage rule).
+Since 2026-11-21a (test 57) the 3D helmets' grounds are art versions too (--enclave-ground 2026-11-21a: the Enclave's
+flag; --bos-ground 2026-11-21a: a cog each side of the helmet) and two cells are new, Nuka-Cola (0, 4) and Red Rocket
+(1, 4) (BADGES_21A, "since" 2026-11-21a: --through 2026-11-17a leaves them out, 2026-11-17a's atlas byte for byte).
+Since 2026-11-22a (test 58) --bos-ground 2026-11-22a (the default) draws three meshing gears on metallic blue (a fine
+bright flake in _d and _s) and --nuka-script 2026-11-22a the Nuka-Cola badge's script as a pointed pen; --through
+2026-11-21a (or both flags at 2026-11-21a) gives 2026-11-21a's atlas byte for byte. The plate's cap keeps its script.
 
 Normal maps are tangent space in Fallout 4's (Direct3D) convention: red along +u, green along +v
 (down the image), blue out of the surface; written as they are (no green flip). Colours are 8-bit
@@ -1395,7 +1401,7 @@ NUKA21_C = (256.0, 120.0, 90.0, 18)         # the middle (cell px), the radius, 
 NUKA21_EDGE = 3.0                           # px: the dark edge
 
 
-def draw_nukacola(B, col):
+def draw_nukacola(B, col, script=ART_21A):
     cv = B.cv
     cx, cy, R, n = NUKA21_C
     red, edge_c, white = (np.array(hexrgb(NUKA21[k])) for k in ("red", "edge", "white"))
@@ -1412,18 +1418,22 @@ def draw_nukacola(B, col):
     _paint_map(B, coverage(r - (face_r + 0.03 * R)), np.broadcast_to(red * 0.72, (cv.h, cv.w, 3)), "enamel")
     dome = 1.10 + 0.10 * np.clip(-(dx * 0.57 + dy * 0.82) / face_r, -1, 1)
     _paint_map(B, coverage(r - face_r), red * dome[..., None], "enamel")
-    xh, thick = 0.200 * R, 0.068 * R
-    script = np.minimum.reduce([_script_word_sd(cv, NUKA_WORD, cx - 0.64 * R, cy - 0.02 * R, xh, thick),
+    if script == ART_21A:                                           # the 2026-11-17a script, as 21a drew it
+        xh, thick = 0.200 * R, 0.068 * R
+        sd = np.minimum.reduce([_script_word_sd(cv, NUKA_WORD, cx - 0.64 * R, cy - 0.02 * R, xh, thick),
                                 _script_word_sd(cv, COLA_WORD, cx - 0.40 * R, cy + 0.50 * R, xh, thick),
                                 _brush_sd(cv, [(cx + x * R, cy + y * R, w * thick) for x, y, w in NUKA_SWOOSH])])
-    on = B.fill(script, tuple(white), "enamel")
+    else:                                                           # since 2026-11-22a: the pointed-pen script
+        sd = nuka_cola22_sd(cv, cx, cy, R)
+    on = B.fill(sd, tuple(white), "enamel")
     t = np.clip(r / R, 0, 1)
     rel = np.where(r <= face_r, 0.55 + 0.22 * np.clip(1 - (r / face_r) ** 2, 0, 1),
                    0.45 + 0.12 * (1 - wave) * t)
     B.relief = np.where(cap <= 0, rel + 0.22 * on, B.relief)
-    return {"art": ART_21A, "ground": False,
+    return {"art": script, "ground": False,
             "drawn": "Nuka-Cola's bottle cap: 18 crimps, a red skirt and dome with a dark edge, Nuka / the swoosh / Cola "
-                     "in a white brush script of our own; domed and ridged in the relief (no plate ground)"}
+                     "in a white brush script of our own; domed and ridged in the relief (no plate ground)"
+                     + ("; the script as a pointed pen (2026-11-22a)" if script == ART_22A else "")}
 
 
 # Red Rocket's round sign as a tank badge (the plate's 2026-11-17a roundel, _plate_redrocket_sign, at 90 px): a black
@@ -1509,11 +1519,219 @@ def with_badges_21a(opts):
 def badge_drawer(key, col):
     """(draw function, bleed colour) of a badge's cell at its art version (BADGE_ART)."""
     ver = BADGE_ART.get(key)
+    if ver == ART_22A and key in BADGE_DRAW_22A:
+        return BADGE_DRAW_22A[key], BADGE_BLEED_22A[key]
     if ver == ART_21A and key in BADGE_DRAW_21A:
         return BADGE_DRAW_21A[key], BADGE_BLEED_21A[key]
     if ver == ART_17A and key in BADGE_DRAW_17A:
         return BADGE_DRAW_17A[key], BADGE_BLEED_17A[key]
     return BADGE_DRAW[key], (hexrgb(col["emblem"][0]) if col.get("ground") is None else CHROME)
+
+
+# --- since the 2026-11-22a build (test 58's wishes): the Brotherhood helmet's ground as three meshing gears on metallic
+# blue, and Nuka-Cola's script redrawn neater --------------------------------------------------------------------------
+# Art versions as above: --bos-ground 2026-11-22a (2026-11-21a: the two cogs on steel grey, byte for byte), --nuka-script
+# 2026-11-22a (2026-11-21a: the 2026-11-17a script, byte for byte; the plate's cap keeps the 17a script). Our
+# own drawings from written feature lists (the tester's pictures are looked at, never read by a tool).
+ART_22A = "2026-11-22a"
+BADGE_ART_VERSIONS.update({"hg_bos": (ART_17A, ART_21A, ART_22A), "nukacola": (ART_21A, ART_22A)})
+BADGE_ART.update({k: BADGE_ART_VERSIONS[k][-1] for k in ("hg_bos", "nukacola")})
+FINISH.update({"metallic": (0.55, 0.62, 0.35)})   # metallic paint: the cube's sheen at half strength, a soft gloss
+
+# The Brotherhood helmet's ground (test 58: "BoS cogs are showing but I had something different in mind": three
+# interlocking gears; "bos helmet background should be metallic blue"): a mid blue metallic paint with a fine bright
+# flake (one texel of the _s map in about twelve brighter and glossier, the colour lifted with it) and a soft sheen
+# (the cube at half strength, smoothness 0.62), inside the stock chrome bevel; three meshing gears in black enamel, each
+# with rounded teeth, a thin ring cut inside it and a round hole (the blue through both): the large one behind the
+# helmet, its teeth showing round it (the crown and the chin rows are narrow: the teeth frame its top and bottom), the
+# two smaller ones meshing with it left and right on the plate's flanks. One tooth pitch for all three (they mesh), a
+# hairline of the blue between meshing teeth. The helmets stand at x 183-329 (BoS 183-329, y 47-198) of the cell.
+BOS22_BLUE = "2b63a8"
+BOS22_GEAR = "121214"
+BOS22_LARGE = dict(c=(256.0, 121.0), n=12, phase=-15.0)     # the middle (cell px), teeth, the first tooth's angle
+BOS22_SMALL = dict(n=8, phase=0.0)                           # a tooth points at the large gear on both sides
+BOS22_PITCH_R = 70.0                                         # the large gear's pitch radius (px); the small ones' by n
+BOS22_ADD, BOS22_DED = 8.0, 9.5                              # a tooth's height over / its gap's depth under the pitch
+BOS22_BACKLASH = 5.0                                         # px added to the centre distance: the blue between teeth
+BOS22_RING = (0.63, 0.56, 0.42)                              # the ring cut (outer, inner) and the hole, x the tip radius
+BOS22_FLAKE = (2211, 0.085)                                  # the flake's seed and the share of bright texels
+
+
+def _smax(a, b, k):
+    """A smooth maximum (a rounded intersection of two signed distances), k px round."""
+    h = np.clip(k - np.abs(a - b), 0, None) / k
+    return np.maximum(a, b) + h * h * k / 4
+
+
+def _gear22_sd(cv, cx, cy, n, pitch_r, phase):
+    """A gear with rounded teeth: a disc at the tip radius less n gaps, each a radial slot with a round bottom on the
+    root circle whose walls open outward so the teeth keep one width from root to tip (a little narrower than the gap
+    at the pitch circle), the teeth's top corners rounded. Teeth centred at phase + k 360/n degrees (screen, clockwise
+    from +x). Returns (signed distance, tip radius)."""
+    tip, root = pitch_r + BOS22_ADD, pitch_r - BOS22_DED
+    pitch = 2 * math.pi * pitch_r / n
+    taper = math.pi / n                                        # the gap's half width grows this much a px outward
+    g = (0.2625 * pitch - BOS22_DED * taper) / (1 - taper)     # its bottom's radius: the gap 0.525 pitch at the pitch r
+    c1, c2 = root + g, tip + 6.0
+    g2 = g + (c2 - c1) * taper
+    dx, dy = cv.x - cx, cv.y - cy
+    gaps = np.full((cv.h, cv.w), np.inf)
+    for k in range(n):
+        a = math.radians(phase + (k + 0.5) * 360.0 / n)
+        ux, uy = math.cos(a), math.sin(a)
+        t = np.clip((dx * ux + dy * uy - c1) / (c2 - c1), 0.0, 1.0)
+        gaps = np.minimum(gaps, np.hypot(dx - (c1 + t * (c2 - c1)) * ux, dy - (c1 + t * (c2 - c1)) * uy) - (g + t * (g2 - g)))
+    disc = np.hypot(dx, dy) - tip
+    return _smax(disc, -gaps, 0.7 * BOS22_ADD), tip
+
+
+def bos22_gears():
+    """The three gears: [(centre, n, pitch radius, phase)], the large one first."""
+    L = BOS22_LARGE
+    module = BOS22_PITCH_R / L["n"]
+    rs = module * BOS22_SMALL["n"]
+    d = BOS22_PITCH_R + rs + BOS22_BACKLASH
+    (cx, cy) = L["c"]
+    return [((cx, cy), L["n"], BOS22_PITCH_R, L["phase"]),
+            ((cx - d, cy), BOS22_SMALL["n"], rs, BOS22_SMALL["phase"]),
+            ((cx + d, cy), BOS22_SMALL["n"], rs, BOS22_SMALL["phase"])]          # n even: a tooth at 0 and 180 deg
+
+
+def draw_ground_gears(B, col):
+    cv = B.cv
+    blue = np.array(hexrgb(BOS22_BLUE))
+    plate = plaque_sd(cv, GROUND_INSET, GROUND_R)
+    B.rimmed(plate, tuple(blue), GROUND_RIM, finish="metallic")
+    field = plate + GROUND_RIM
+    seed, share = BOS22_FLAKE
+    rng = np.random.default_rng(seed)
+    hb, wb = cv.h // 2, cv.w // 2                              # the flake on the _s map's texels (2 x 2 here)
+    u = rng.random((hb, wb))
+    flake = np.repeat(np.repeat((u < share).astype(np.float64), 2, 0), 2, 1)
+    jitter = np.repeat(np.repeat(rng.normal(0.0, 1.0, (hb, wb)), 2, 0), 2, 1)
+    inside = coverage(field)
+    shade = 1.0 + 0.025 * jitter + 0.10 * flake
+    B.rgb = np.where(inside[..., None] > 0, B.rgb * (1 - inside[..., None]) + np.clip(blue * shade[..., None], 0, 1)
+                     * inside[..., None], B.rgb)
+    spec, smooth, _ = FINISH["metallic"]
+    B.fin[..., 0] = np.where(inside > 0, B.fin[..., 0] * (1 - inside) + (spec + 0.03 * jitter + 0.32 * flake) * inside,
+                             B.fin[..., 0])
+    B.fin[..., 1] = np.where(inside > 0, B.fin[..., 1] * (1 - inside) + (smooth + 0.20 * flake) * inside, B.fin[..., 1])
+    B.fin = np.clip(B.fin, 0, 1)
+    gears, holes = [], []
+    for (gx, gy), n, pr, ph in bos22_gears():
+        sd, tip = _gear22_sd(cv, gx, gy, n, pr, ph)
+        gears.append(sd)
+        r = np.hypot(cv.x - gx, cv.y - gy) + 0 * cv.y
+        o, i, h = BOS22_RING
+        holes.append(np.minimum(np.maximum(r - o * tip, i * tip - r), r - h * tip))
+    on = B.fill(np.maximum(np.minimum.reduce(gears), field), hexrgb(BOS22_GEAR), "inlay")
+    cut = coverage(np.maximum(np.minimum.reduce(holes), np.minimum.reduce(gears))) * on
+    before = B.rgb.copy()
+    B.paint(cut, tuple(blue), "metallic")
+    B.rgb = before * (1 - cut[..., None]) + np.clip(blue * shade[..., None], 0, 1) * cut[..., None]
+    return dict(_ground_field(), art=ART_22A,
+                drawn="metallic blue paint with a fine bright flake inside the stock badge's chrome bevel; three meshing "
+                      "black gears with rounded teeth, a ring cut inside each and a round hole: the large one behind the "
+                      "helmet, the two smaller ones left and right of it")
+
+
+# Nuka-Cola's script, 2026-11-22a (test 58: "text looks a bit wonky, especially in Nuka part"): the same brush style
+# drawn as a pointed pen: every stroke a Catmull-Rom spline through its points (x-heights, y up from the baseline,
+# before the slant), its width from its direction (full going down the slant, a hairline going up or across, eased
+# along the stroke), so every letter has the same weight; one slant (0.22) and one baseline for each word, caps and
+# ascenders 1.9 x-heights, even gaps between the letters; the swoosh a tapered stroke between the words, clear of both
+# (21a's crossed the feet of "ka"). Our own letterforms: a tall N with an entry swash, a looped k, an open C, a looped l.
+NUKA22_SLANT = 0.22
+NUKA22_WORD = [
+    [(-0.10, 1.45), (0.02, 1.78), (0.22, 1.92), (0.36, 1.86)],                       # N: the entry swash
+    [(0.36, 1.86), (0.30, 1.20), (0.22, 0.50), (0.17, 0.00)],                          # N: the left stem
+    [(0.40, 1.90), (0.62, 1.20), (0.86, 0.45), (1.00, 0.00)],                          # N: the diagonal
+    [(1.00, 0.00), (1.08, 0.70), (1.18, 1.40), (1.30, 1.90), (1.42, 1.98)],            # N: the right stem, up
+    [(1.58, 1.00), (1.52, 0.50), (1.52, 0.14), (1.64, 0.00), (1.82, 0.08), (1.98, 0.48), (2.06, 1.00)],   # u: the first
+    [(2.06, 1.00), (2.02, 0.45), (2.04, 0.10), (2.14, 0.00), (2.30, 0.10)],           # u: the second stem, the exit
+    [(2.30, 0.10), (2.50, 0.80), (2.70, 1.55), (2.74, 1.88), (2.62, 1.90), (2.54, 1.40), (2.48, 0.70), (2.44, 0.00)],  # k
+    [(2.50, 0.45), (2.72, 0.82), (2.96, 1.00), (3.02, 0.82), (2.84, 0.62), (2.62, 0.55)],   # k: the arm's bowl
+    [(2.70, 0.55), (2.88, 0.36), (3.00, 0.12), (3.12, 0.00), (3.30, 0.12)],           # k: the leg, the exit
+    [(4.10, 0.86), (3.92, 1.00), (3.70, 0.92), (3.56, 0.60), (3.54, 0.24), (3.66, 0.00), (3.86, 0.08), (4.02, 0.45),
+     (4.12, 0.98)],                                                                    # a: the bowl
+    [(4.12, 1.00), (4.09, 0.45), (4.11, 0.10), (4.22, 0.00), (4.40, 0.12)],           # a: the stem, the exit
+]
+COLA22_WORD = [
+    [(1.30, 1.55), (1.18, 1.84), (0.92, 1.92), (0.60, 1.70), (0.36, 1.20), (0.28, 0.60), (0.40, 0.16), (0.68, 0.00),
+     (0.98, 0.10), (1.18, 0.38)],                                                       # C: the open curve
+    [(1.72, 0.90), (1.56, 1.00), (1.36, 0.88), (1.26, 0.52), (1.30, 0.14), (1.46, 0.00), (1.64, 0.10), (1.74, 0.46),
+     (1.72, 0.90)],                                                                     # o
+    [(1.72, 0.90), (1.86, 0.98)],                                                       # o: the tie to the l
+    [(1.86, 0.98), (2.06, 1.40), (2.20, 1.82), (2.14, 1.92), (2.04, 1.70), (1.98, 1.00), (1.96, 0.30), (2.04, 0.00),
+     (2.22, 0.10)],                                                                     # l: the loop up, the stem down
+    [(2.88, 0.86), (2.70, 1.00), (2.48, 0.92), (2.34, 0.60), (2.32, 0.24), (2.44, 0.00), (2.64, 0.08), (2.80, 0.45),
+     (2.90, 0.98)],                                                                     # a: the bowl
+    [(2.90, 1.00), (2.87, 0.45), (2.89, 0.10), (3.00, 0.00), (3.18, 0.12)],           # a: the stem, the exit
+]
+NUKA22_WIDTH, COLA22_WIDTH = 4.40, 3.18                       # each word's width (x-heights, before the slant)
+NUKA22_SWOOSH = [(-0.70, 0.17), (-0.40, 0.155), (-0.05, 0.135), (0.30, 0.11), (0.56, 0.085), (0.72, 0.06)]   # cap R
+NUKA22_SWOOSH_W = [0.15, 0.55, 0.95, 1.15, 1.0, 0.0]          # its width along it, x the script's full stroke
+NUKA22_LAYOUT = dict(xh=0.19, thick=0.078, thin=0.024, nuka=-0.03, cola=0.59, cola_dx=0.10)   # cap R; baselines
+
+
+def _spline22(pts, n=10):
+    p = np.asarray(pts, np.float64)
+    q = np.concatenate([[2 * p[0] - p[1]], p, [2 * p[-1] - p[-2]]])
+    out = []
+    for i in range(1, len(q) - 2):
+        a, b, c, d = q[i - 1], q[i], q[i + 1], q[i + 2]
+        for t in np.linspace(0, 1, n, endpoint=False):
+            out.append(0.5 * ((2 * b) + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t * t + (-a + 3 * b - 3 * c + d) * t ** 3))
+    out.append(p[-1])
+    return np.asarray(out)
+
+
+def _capsules_sd(cv, sp, widths, pad):
+    """The signed distance of a polyline of tapered capsules (each point's full width)."""
+    lo, hi = sp.min(0) - pad - 3, sp.max(0) + pad + 3
+    sl, x, y = cv.window(lo[0], lo[1], hi[0], hi[1])
+    dist = np.full((sl[0].stop - sl[0].start, sl[1].stop - sl[1].start), np.inf)
+    for (ax, ay), (bx, by), aw, bw in zip(sp[:-1], sp[1:], widths[:-1], widths[1:]):
+        dx, dy = bx - ax, by - ay
+        t = np.clip(((x - ax) * dx + (y - ay) * dy) / max(dx * dx + dy * dy, 1e-12), 0.0, 1.0)
+        dist = np.minimum(dist, np.hypot(x - ax - t * dx, y - ay - t * dy) - (aw + t * (bw - aw)) / 2)
+    full = np.full((cv.h, cv.w), 1e3)
+    full[sl] = dist
+    return full
+
+
+def _pen_stroke_sd(cv, pts, thin, thick, slant=NUKA22_SLANT):
+    """A pointed-pen stroke through pts (px, y down): full width going down the slant, a hairline up or across."""
+    sp = _spline22(pts)
+    d = np.diff(sp, axis=0)
+    L = np.maximum(np.hypot(d[:, 0], d[:, 1]), 1e-9)
+    down = np.array([-slant, 1.0]) / math.hypot(slant, 1.0)
+    w = thin + (thick - thin) * np.clip((d @ down) / L, 0, 1) ** 1.3
+    w = np.convolve(np.pad(w, 2, mode="edge"), np.ones(5) / 5, mode="valid")       # the pressure eased along it
+    return _capsules_sd(cv, sp, np.concatenate([[w[0]], (w[:-1] + w[1:]) / 2, [w[-1]]]), thick)
+
+
+def nuka_cola22_sd(cv, cx, cy, R, min_thin=0.0):
+    """The 2026-11-22a script on a cap of radius R at (cx, cy): "Nuka", the swoosh, "Cola" (min_thin: the hairline's
+    least width in px). On the badge only: at the plate's cap (R 33, an index map with no anti-aliasing) the pen's
+    weight fills the letters' counters, and the plate keeps the 2026-11-17a script."""
+    lay, s = NUKA22_LAYOUT, NUKA22_SLANT
+    xh, thick, thin = lay["xh"] * R, lay["thick"] * R, max(lay["thin"] * R, min_thin)
+    out = []
+    for word, width, base, dx in ((NUKA22_WORD, NUKA22_WIDTH, lay["nuka"], 0.0),
+                                  (COLA22_WORD, COLA22_WIDTH, lay["cola"], lay["cola_dx"])):
+        x0, bl = cx - 0.5 * width * xh - s * 0.95 * xh + dx * R, cy + base * R
+        for st in word:
+            out.append(_pen_stroke_sd(cv, [(x0 + (x + s * y) * xh, bl - y * xh) for x, y in st], thin, thick, s))
+    sp = _spline22([(cx + x * R, cy + y * R) for x, y in NUKA22_SWOOSH])
+    wk = np.interp(np.linspace(0, 1, len(sp)), np.linspace(0, 1, len(NUKA22_SWOOSH_W)), NUKA22_SWOOSH_W) * thick
+    out.append(_capsules_sd(cv, sp, wk, thick))
+    return np.minimum.reduce(out)
+
+
+BADGE_DRAW_22A = {"hg_bos": draw_ground_gears, "nukacola": lambda B, col: draw_nukacola(B, col, ART_22A)}
+BADGE_BLEED_22A = {"hg_bos": CHROME, "nukacola": hexrgb(NUKA21["edge"])}
 
 
 def look_through(node, through):
@@ -3806,12 +4024,18 @@ def main():
                          "default) the Enclave's flag, 13 stripes and a ring of 13 stars on the blue canton; 2026-11-17a "
                          "polished chrome, 2026-11-16a black enamel (default: the latest drawn by --through's build). The "
                          "three old values (or --through 2026-11-16a): 2026-11-16a's atlas byte for byte")
-    ap.add_argument("--bos-ground", choices=(ART_21A, ART_17A),
-                    help="(--badges, since 2026-11-21a) the 3D Brotherhood helmet's ground: 2026-11-21a (the default) the "
-                         "steel grey plate with a black cog from the Brotherhood's emblem each side of the helmet; "
-                         "2026-11-17a the plain steel grey plate (as 2026-11-16a drew it). With --enclave-ground "
-                         "2026-11-17a and --through 2026-11-17a (which leaves out the 2026-11-21a badges, Nuka-Cola and "
-                         "Red Rocket; --through 2026-11-17a alone does all three): 2026-11-17a's atlas byte for byte")
+    ap.add_argument("--bos-ground", choices=(ART_22A, ART_21A, ART_17A),
+                    help="(--badges, since 2026-11-21a) the 3D Brotherhood helmet's ground: 2026-11-22a (since then the "
+                         "default) three meshing black gears on metallic blue; 2026-11-21a the steel grey plate with a black "
+                         "cog from the Brotherhood's emblem each side of the helmet; 2026-11-17a the plain steel grey plate "
+                         "(as 2026-11-16a drew it). With --enclave-ground 2026-11-17a and --through 2026-11-17a (which "
+                         "leaves out the 2026-11-21a badges, Nuka-Cola and Red Rocket; --through 2026-11-17a alone does all "
+                         "three): 2026-11-17a's atlas byte for byte")
+    ap.add_argument("--nuka-script", choices=(ART_22A, ART_21A),
+                    help="(--badges, since 2026-11-22a) Nuka-Cola's badge's script: 2026-11-22a (the default) the neater "
+                         "pointed-pen script; 2026-11-21a the 2026-11-17a script (the plate's cap keeps it: at the plate's "
+                         "6-px x-height the pen's weight fills the letters). --bos-ground 2026-11-21a --nuka-script "
+                         "2026-11-21a (or --through 2026-11-21a): 2026-11-21a's atlas byte for byte")
     ap.add_argument("--plate-top", choices=(PLATE_TOP_CENTRED, PLATE_TOP_OLD), default=PLATE_TOP_CENTRED,
                     help="(--plates, since 2026-11-21a) the top line of the four plates with a corner emblem in its own "
                          "colours (Brotherhood of Steel, Minutemen, Nuka-Cola, Red Rocket; --plate-emblems 2026-11-17a): "
@@ -3821,7 +4045,7 @@ def main():
     global PLATE_FONT, PLATE_EMBLEMS, PLATE_TOP
     PLATE_FONT, PLATE_EMBLEMS, PLATE_TOP = args.plate_font, args.plate_emblems, args.plate_top
     for key, flag in (("gunskull", args.gunskull_art), ("bos", args.bos_art), ("hg_enclave", args.enclave_ground),
-                      ("hg_bos", args.bos_ground), ("nukacola", None), ("redrocket", None)):
+                      ("hg_bos", args.bos_ground), ("nukacola", args.nuka_script), ("redrocket", None)):
         BADGE_ART[key] = art_version(key, flag, args.through)
     if args.badges:
         return write_badges(args.out, args.look_options, args.through)

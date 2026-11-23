@@ -214,6 +214,53 @@
 # game's slot 0 still handed the chain: K49), arms 123 (116 + 6 weapons + 1 of its review's item 5: GunHandHide on a frame the
 # rider is otherwise idle writes the hand's weapon parts alone: H3), sound 158 (146 + 12 drive), the rest as 24b2368's: 2167
 # checks.
+# 2026-11-22a, the aim unit (test 58: the aim's handler a struct, .?AU..., never wrapped; "Z in 3rd person doesn't work") adds: the
+# fake's AttackBlockHandler and its bases now structs as 1.11.240's (L1, L2, L4 and L5 need the struct's name); the Pip-Boy key's
+# event passed while the aim's press is kept (P1); the plugin's own third-person orbit on the game's own riding camera (the mouse
+# turning you, the camera kept behind): the camera 120 deg round you and held with the bike on its line, its gain learned riding
+# (O1), eased back behind (O2), the look key (Left Alt) the same (O3), 60 deg with a weapon (O4), against a pull three times as
+# hard (O5), LookOrbit=0's 2026-11-21a (O6), a camera the writes never move: off for the session (O7); 2026-11-21a's third-person
+# checks (W1, C1, T1-T9) ride LookOrbit=0 (view, 308 + 8). DEF63 rides every older mode at the key's off value: view 316, the rest
+# as fbe9a7c's: 2175 checks with this unit alone.
+# 2026-11-22a, the kit unit (test 58's 1D, art build C's slots) adds: the bike the menu's renderer draws held alone (KitDrawn: test 58's
+# three bikes, the loaded one, the slot objects' one and the renderer's screen-attached one: the third at the view, the other two left;
+# a new drawn bike at the view two frames on, one under an identity root; the renderer's name field not the manager's: 21a's models and
+# why), the wheel's down notches of -1 zooming out (KitWheelDown), the wheel over the lists passed to them and zooming off them
+# (KitWheelLists), Paint condition's view by its attach point and its mods and the front fender no slot (KitSlots22), the visit's line,
+# and the off values (custom, 141 + 9: K50-K58). DEF63 rides every older mode at the new keys' off values: 2176 checks with this unit
+# alone.
+# 2026-11-22a, the drive unit (test 58: "overall it feels more sluggish"; the up-shifts at 11, 25, 32 and 43 on the dial; two coasts' lines
+# that counted a menu's time) adds, in the fake's game as test 58's cold starts (its pick-up 0.35 s behind the ask at 300 u/s^2 at most and
+# 110 under 120 u/s): UpBands' and MenuKeep's settings lines off (P0); test 58's pull from rest and its early shifts (a pull up a long climb)
+# reproduced at 2026-11-21a's values (P1, P2); [Sound] UpBands: the same climb's shifts at the bands (P3), from rest at 11, 24, 36, 46 on the
+# dial (P4), a pull begun rolling (P5), a steady speed's gears as before (P6); [Steer] MenuKeep: a menu in a pull, no cut at the close (P7),
+# in a coast, the coast's line on the riding time (P8) (sound, 158 + 9 = 167). DEF63 rides every older mode at the new keys' off values:
+# 2176 checks with this unit alone.
+# The 2026-11-22a apply unit (test 58's 1A, the crashes at getting on after a field kit change, and 1C, the Wear on the parked and the
+# worn bike) adds: CMB_LookOptions' 262144 [Look] ParkedSwapHold and 524288 OverlayRuntime, each alone and both, with the 2026-11-22a
+# look line once per change (AP1-AP4); [Diag] LensLine: the worn bike's lens at the mount (its 3D, its property's file, its diffuse
+# texture), a swap mid-ride's "changed" line, nothing more while nothing changes, the mount's line again at the next getting on, none
+# with LensLine=0 (AP5-AP8) (custom, 141 + 9). DEF63 rides every older mode at the new keys' off values: custom 150, the rest as
+# fbe9a7c's: 2176 checks with this unit alone.
+# 2026-11-22a, the parked unit (test 58: "having one tire in the ground"; "leaning a bit on sidestand/kickstand") adds: [Room] ParkFit's
+# and ParkStand's line and CMB_RoomOptions 32768 (P1); the controller's ask about the parked bike's own place (kind 6) answered from the
+# ground under its tyres, its sides, its middle and its stand's foot, the answer applied as the controller applies it and the tyres' and
+# the foot's contacts held to the fake's ground: flat ground (P2), test 58's 12:51:43 slope, pitch 5.4 and roll -12.4, the bike put 2
+# under it (P3), a crest under the bike (P4), a sharper one under its frame, the bike raised (P5), a curb under the foot (P6) and one
+# too high, the lean held to 3 (P7), no ground under the front tyre (P8), the bike's own 3D passed (P9), ParkStand= upright (P10),
+# ParkFit=0: 2026-11-21a (P11) (room, 157 + 11). DEF63 rides every older mode at the new keys' off values: room 168, the rest as
+# fbe9a7c's: 2178 checks with this unit alone.
+# The 2026-11-22a attach unit (test 58's 1E: what other mods hang off the rider's skeleton follows her body) on fbe9a7c expects arms 128
+# (123 + 5: a holster mod's deep copy of the posed hand's shape held from that shape's own transform (AU1), the keys' line (AN1), a
+# backpack's strap under a node named as the left hand moved as the body's skin at SPINE1 (AB1), [Diag] AttachWhere's lines (AW1),
+# AttachHide's specks (AH1)); DEF63 rides every older mode at the new keys' off values: the rest as fbe9a7c's: 2172 checks.
+# The merged 2026-11-22a (the apply, aim, kit, attach, drive and parked units, with the shells', wear's, art2d's and table's art
+# and records) expects view 317 (308 + 8 aim + 1 of its review's item 6: AimStruct=0 leaves the struct-named handler unwrapped:
+# A0), custom 160 (141 + 9 kit + 9 apply + 1 of its review's apply fixes: [Look] OverlayParked, the parked half of OverlayRuntime,
+# CMB_LookOptions 1048576, default 0 (AP9; AP1-AP4's words name the worn bike's half)), arms 128 (123 + 5 attach), sound 167 (158 + 9
+# drive), room 176 (157 + 11 parked + 8 of its review's items 7 and 8: a car's hood, a ledge, a crate, a drop and a shelf beside or over
+# the bike not read as its ground, an ask with no heading leaning by the stand: P12-P19; P8's Clear 8.59), the rest as fbe9a7c's: 2228
+# checks.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 WORK="$(mktemp -d)"
@@ -329,6 +376,29 @@ DEF61='Sound/DownBands= Sound/HeardStop=300 Sound/HeardBrake=600 Tilt/GunCheckUn
 # with LookThird). LookKey's default is unchanged (-1, the MCM's CMB_LookKey): nothing to pin. No name is used in any other section,
 # INI or DEF line.
 DEF62='Look/KitFollow=0 Look/KitSlotSettle=0 Look/KitMouse=0 Look/KitWheelOwn=0 Look/KitNewSlots=0 View/BodyRedraw=0 View/BodyRedrawHide=0 Diag/ThirdWhere=0 Tilt/GunHandHide=0 Tilt/GunAwayKeep=0 Tilt/GunSeatKeep=0 Tilt/GunNoteSure=0 Steer/CoastDrag= View/LookButton=0 View/LookThird=0 Steer/AimBlock=0 Diag/AimWatch=0'
+# 2026-11-22a, test 58's look (the aim unit's key at its off value, 2026-11-21a, fbe9a7c), the same way (after DEF54's to DEF62's):
+# [View] LookOrbit (the plugin's own third-person orbit); not LookOrbitGain (it acts only with LookOrbit). The aim's struct name
+# (.?AUAttackBlockHandler@@) by [Steer] AimStruct (the review of 2026-11-22a, item 6: with DEF62's AimBlock and AimWatch at their
+# shipped 1 the struct's name alone would wrap it where 2026-11-21a never found it). No name is used
+# in any other section, INI or DEF line.
+# 2026-11-22a, the kit unit's (test 58's 1D, art build C's slots): the new keys at their off values (2026-11-21a, fbe9a7c).
+# Not in it: KitViewPaintWear (it acts only with KitSlots22).
+# 2026-11-22a, test 58's fixes (the drive unit's keys at their off values, 2026-11-21a, fbe9a7c), the same way (after DEF54's to DEF62's):
+# [Steer] MenuKeep (the speed measure held while a menu pauses the game) and [Sound] UpBands (a pull's up-shifts held for the bike's bands).
+# Neither name is used in any other section, INI or DEF line.
+# 2026-11-22a, test 58's 1A and 1C (the apply unit's keys at their off values, 2026-11-21a, fbe9a7c), the same way (after DEF54's to
+# DEF62's): [Look] ParkedSwapHold, OverlayRuntime and (its review) OverlayParked (CMB_LookOptions 262144, 524288 and 1048576 for the
+# scripts; OverlayParked's default 0 is off, pinned all the same) and [Diag] LensLine (the lens
+# line at the mount). No name is used in any other section, INI or DEF line.
+# 2026-11-22a, test 58's parked bike (the parked unit's keys at their off values, 2026-11-21a, fbe9a7c), the same way (after DEF54's
+# to DEF62's): [Room] ParkFit (the parked bike set on the ground under its tyres after every placement, the controller's ask kind 6)
+# and ParkStand (the side stand's foot: the lean on it; empty = upright). No name is used in any other section, INI or DEF line.
+# 2026-11-22a, test 58's 1E (the attach unit's: the holster mod's pistol held off your body): [Tilt] AttachUnclone (a copy another
+# mod makes of a shape this plugin writes held from that shape's own transform), AttachBoneRole (a subtree under a body bone moved as
+# the body's skin there), AttachHide (the fallback: such subtrees shrunk while riding; its default is 0 already) and [Diag] AttachWhere
+# (the lines) at their off values (2026-11-21a, fbe9a7c), the same way (after DEF54's to DEF62's). Mode 13's AttachTests64 rewrites
+# each and back. No name is used in any other section, INI or DEF line.
+DEF63='View/LookOrbit=0 Steer/AimStruct=0 Look/KitDrawn=0 Look/KitWheelDown=0 Look/KitWheelLists=0 Look/KitSlots22=0 Steer/MenuKeep=0 Sound/UpBands= Look/ParkedSwapHold=0 Look/OverlayRuntime=0 Diag/LensLine=0 Room/ParkFit=0 Room/ParkStand= Tilt/AttachUnclone=0 Tilt/AttachBoneRole=0 Tilt/AttachHide=0 Diag/AttachWhere=0 Look/OverlayParked=0'
 run() { # <name> <mode> <ini body>
   if [ -n "$ONLY" ] && [ "$ONLY" != "$1" ]; then return; fi
   mkdir -p "$WORK/$1"
@@ -343,7 +413,7 @@ run() { # <name> <mode> <ini body>
     esac
   done
   local sec key pre rest
-  for kv in $DEF54 $DEF55 $DEF56 $DEF57 $DEF58 $DEF59 $DEF60 $DEF61 $DEF62; do
+  for kv in $DEF54 $DEF55 $DEF56 $DEF57 $DEF58 $DEF59 $DEF60 $DEF61 $DEF62 $DEF63; do
     sec="[${kv%%/*}]\n" kv="${kv#*/}" key="${kv%%=*}"
     case "$ini" in "$key="*|*"\n$key="*) continue;; esac
     case "$ini" in *'\n') ;; *) ini="$ini\n";; esac

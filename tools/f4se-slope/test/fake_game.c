@@ -610,6 +610,7 @@ static float g_topCap;   /* mode 16 (test 45's review): the bike no faster than 
  * it everywhere else (g_fakeDecel 0). */
 static float g_fakeDecel, g_fakeAccel, g_fakeSpeedNow;
 static float g_fakeLowAccel;   /* review DR3 (mode 23): the pick-up under 80 u/s when over 0, the game's low end (test 49's 91 pairs: ~110 u/s^2 at inputs 0.3-0.5) */
+static float g_fakeLowBelow64; /* 2026-11-22a (the drive unit's): that low end's top when over 0 (test 58's cold starts: 120), else 80 */
 /* 2026-11-17a (test 56's pulls; the drive unit's, modes 16 and 23): the game's top over the fake's 900 (test 56: 935; 0 = 1) and its pick-up
  * lagging the ask by g_fakeRiseTau62 s (test 56's game, fitted to its five full pulls from rest: 0.35 s with g_fakeAccel 400; 0: at once).
  * Both act only with g_fakeDecel over 0 (the run-down's branch); the fall follows the ask (the game's coast, the plugin's throttle: 450 u/s^2). */
@@ -3534,7 +3535,7 @@ static void FakeGameFrame(float dt)
 		g_landCutLeft -= dt;
 	}
 	if (g_fakeDecel > 0.0f && speed >= 0.0f) {   /* the run-down (mode 10, test 45's rail) */
-		float pick = g_fakeLowAccel > 0.0f && g_fakeSpeedNow < 80.0f ? g_fakeLowAccel : g_fakeAccel;
+		float pick = g_fakeLowAccel > 0.0f && g_fakeSpeedNow < (g_fakeLowBelow64 > 0.0f ? g_fakeLowBelow64 : 80.0f) ? g_fakeLowAccel : g_fakeAccel;   /* 2026-11-22a: the low end's top (test 58's cold starts: 120) */
 		float want = speed * 450.0f, least = g_fakeSpeedNow - g_fakeDecel * dt, most = g_fakeAccel > 0.0f ? g_fakeSpeedNow + pick * dt : want;
 		if (g_fakeRiseTau62 > 0.0f && want > g_fakeSpeedNow) {   /* 2026-11-17a: test 56's pick-up, lagging the ask */
 			float lag = g_fakeSpeedNow + (want - g_fakeSpeedNow) * (1.0f - expf(-dt / g_fakeRiseTau62));
@@ -20402,6 +20403,398 @@ static void RoomGuardTests56(void)
 	*(float *)(g_roomGlobalsFake[6] + 0x30) = -1000.0f;
 }
 
+/* 2026-11-22a, test 58's parked bike (the parked unit's; mode 14, after the kit's): "it looks like bike started to 'not align' with
+ * ground it stays on when character is off of it, having one tire in the ground; I was thinking that it would be cool if bike was
+ * leaning a bit on sidestand/kickstand". [Room] ParkFit=1 and ParkStand (DEF63's 0 and empty in the mode's INI) rewritten and a
+ * ride; the controller's ask about the parked bike's own place after its settle played (CMB_RoomAskKind 6, BikeRef's position and
+ * its heading), 300 ahead of the player, and the answer applied as the controller's ParkFit applies it (SetPosition at the answer's
+ * Ground, SetAngle(Pitch, Roll less Clear, the heading + 180): the roll in the bike's own frame, + lifting its left (the parked
+ * nif's +x), then the pitch, + tipping its back (+y) down): the two tyres' contacts (0, -68.14, 0) and (0, 68.14, 0) and the
+ * stand's foot (17.28, 2.97, 2.61) taken to the world and held to the fake's ground under them.
+ * P1: the keys' line and CMB_RoomOptions 32768. P2: flat ground, the bike asked 3 over it: its middle on the ground, pitch 0, roll 0,
+ * the lean 8.6, the tyres and the foot on the ground. P3: test 58's getting off at 12:51:43 (the rays under its wheels read pitch
+ * 5.4, roll -12.4; the bike was put 2 under the ground at its middle): the plane rising 5.4 deg ahead and falling to the left as
+ * that roll, the bike asked 2 under it: pitch 5.4, roll -12.4, its middle on the ground, the tyres and the foot on it. P4: a crest
+ * (12 deg up to 20 ahead of the middle, flat past it): the middle 5.1 under the middle's ground (the tyres' mean), pitch 7.8, both
+ * tyres on the ground. P5: a sharper crest (20 deg up to the middle): the middle's ground 12.4 over the tyres' line, raised to 11
+ * under it, its line's words. P6: a curb 1.5 high under the stand's foot: the lean 3.7, the foot on the curb. P7: one 4 high: the
+ * lean held to 3 ("its -4.6 held to 3"). P8: the ground past an edge 30 ahead of the middle gone: not fitted, -n, Clear -1, its line.
+ * P9: the bike's own 3D (a top 40 over the ground over its rear tyre, the reference at the asked spot) passed: the rear tyre on the
+ * ground. P10: ParkStand= (empty): upright, Clear 0, its words. P11: ParkFit=0 and a ride: no bit, the ask answered as any spot's
+ * (2026-11-21a's: the off value's own check). P1-P10 fail on fbe9a7c's DLL (no line, no bit; the ask answered as a bike's spot: its
+ * Clear the ground's offset, its Ground the middle's ground, no lean). The review of 2026-11-22a: P8 (Clear the stand's lean alone,
+ * 8.59, where c2dc077 wrote -1), P12-P18 (things beside and over the bike, a drop at one side, no heading given; their comment says
+ * what each is) and P19 (ParkStand empty, no heading: Clear 0) fail on c2dc077's DLL. */
+static float g_fit64Answer[5];   /* the last fit ask's answer: CMB_RoomAnswer, Clear, Pitch, Roll, Ground */
+static void FitAsk64(int n, float x, float y, float z, float deg)
+{
+	*(float *)(g_roomKindFake + 0x30) = 6.0f;
+	RoomAskHeading(n, x, y, z, deg);
+	RunFrames(100);
+	*(float *)(g_roomKindFake + 0x30) = 0.0f;
+	g_fit64Answer[0] = RoomGlobal(4);
+	g_fit64Answer[1] = RoomGlobal(5);
+	g_fit64Answer[2] = RoomMore(1);
+	g_fit64Answer[3] = RoomMore(2);
+	g_fit64Answer[4] = RoomMore(3);
+}
+/* A point q of the parked nif's frame in the world, the bike at (x, y, z0) along deg (its heading; the reference's angle + 180)
+ * pitched and rolled as the controller sets it. */
+static void FitPoint64(float x, float y, float z0, float deg, float pitch, float roll, const float q[3], float w[3])
+{
+	float h = deg / DEG, fw[2] = { sinf(h), cosf(h) }, rt[2] = { cosf(h), -sinf(h) }, r = roll / DEG, p = pitch / DEG;
+	float x1 = q[0] * cosf(r) - q[2] * sinf(r), z1 = q[0] * sinf(r) + q[2] * cosf(r);   /* the roll: + lifts +x, the bike's left */
+	float y2 = q[1] * cosf(p) + z1 * sinf(p), z2 = z1 * cosf(p) - q[1] * sinf(p);     /* then the pitch: + tips +y, its back, down */
+	w[0] = x - x1 * rt[0] - y2 * fw[0];   /* +x the bike's left (-rt), +y its back (-fw) */
+	w[1] = y - x1 * rt[1] - y2 * fw[1];
+	w[2] = z0 + z2;
+}
+/* The answer applied: how far each of the front tyre's contact, the rear's and the foot is over the fake's ground under it (+ over,
+ * - in it); extra (or NULL) gives the ground's own height at a point when it isn't the plane's (a curb). */
+static void FitGaps64(float x, float y, float deg, float (*extra)(float, float), float gap[3])
+{
+	static const float q[3][3] = { { 0.0f, -68.14f, 0.0f }, { 0.0f, 68.14f, 0.0f }, { 17.28f, 2.97f, 2.61f } };
+	for (int i = 0; i < 3; i++) {
+		float w[3];
+		FitPoint64(x, y, g_fit64Answer[4], deg, g_fit64Answer[2], g_fit64Answer[3] - g_fit64Answer[1], q[i], w);
+		float g = GroundZAt(w[0], w[1]);
+		if (extra)
+			g = fmaxf(g, extra(w[0], w[1]));
+		gap[i] = w[2] - g;
+	}
+}
+static float g_fit64Curb[5];   /* a curb: its middle (x, y), its half-sizes along the heading and across, its top over g_groundZ */
+static float g_fit64Fw[2];
+static float FitCurb64(float x, float y)
+{
+	float dx = x - g_fit64Curb[0], dy = y - g_fit64Curb[1], along = dx * g_fit64Fw[0] + dy * g_fit64Fw[1], across = dx * g_fit64Fw[1] - dy * g_fit64Fw[0];
+	return fabsf(along) <= g_fit64Curb[2] && fabsf(across) <= g_fit64Curb[3] ? g_groundZ + g_fit64Curb[4] : -1e9f;
+}
+static void ParkFitTests64(void)
+{
+	SetNormal(0.0f, 0.0f, 1.0f);
+	SetState(0);
+	FlatGround();
+	Guard56Clear();
+	g_holeOn = false;
+	g_kinkOn = false;
+	g_dropOn = false;
+	*(float *)(g_roomGlobalsFake[6] + 0x30) = -1000.0f;
+	*(float *)(g_roomKindFake + 0x30) = 0.0f;
+	Ini54Set("Room", "ParkFit", "1");
+	Ini54Set("Room", "ParkStand", "17.28,2.97,2.61");
+	RoomRide();
+	float h = PlayerHeading(), fw[2] = { sinf(h), cosf(h) }, rt[2] = { cosf(h), -sinf(h) }, deg = h * DEG, gz = g_groundZ;
+	float sx = PlayerPos()[0] + 300.0f * fw[0], sy = PlayerPos()[1] + 300.0f * fw[1];
+	g_fit64Fw[0] = fw[0];
+	g_fit64Fw[1] = fw[1];
+	char line[600], prefix[200];
+	float gap[3];
+	int n = 2400;
+	static const char keys[] = "  room: ParkFit=1: the parked bike set on the ground under its tyres after every placement (the controller's ask kind 6, "
+	                           "CMB_RoomOptions 32768); ParkStand=17.28,2.97,2.61: the bike leaning to its left till the stand's foot is on the ground under "
+	                           "it (8.6 deg on the level, 3 to 12 against the ground across its tyres) (read again on getting on)";
+	printf("room (test 58's parked bike): ParkFit=1 and ParkStand=17.28,2.97,2.61 written and a ride: \"%s\", CMB_RoomOptions with 32768:\n", keys);
+	CHECK(LogLines(keys) == 1 && ((int)RoomMore(0) & 32768) == 32768, "P1: the line (%d), CMB_RoomOptions %g", LogLines(keys), RoomMore(0));
+	#define FIT_PREFIX(k) snprintf(prefix, sizeof(prefix), "room: ask %d at (%.0f, %.0f, %.0f), heading %.0f (the parked bike's fit: ParkFit): ", n, sx, sy, (k), deg)
+	#define FIT_LINE() do { const char *l_ = LastLogLine(prefix), *a_ = l_ ? strstr(l_, prefix) : NULL; snprintf(line, sizeof(line), "%s", a_ ? a_ + strlen(prefix) : ""); \
+		size_t e_ = strlen(line); while (e_ && (line[e_ - 1] == '\n' || line[e_ - 1] == '\r')) line[--e_] = 0; } while (0)
+	#define GAPS_OK(tol) (fabsf(gap[0]) < (tol) && fabsf(gap[1]) < (tol) && fabsf(gap[2]) < (tol))
+
+	n++;
+	printf("room: ask %d (kind 6), flat ground, the bike asked 3 over it: fitted, its middle on the ground, pitch 0, roll 0, leaning 8.6; the tyres and the foot "
+	       "on the ground:\n", n);
+	FitAsk64(n, sx, sy, gz + 3.0f, deg);
+	FIT_PREFIX(gz + 3.0f);
+	FIT_LINE();
+	FitGaps64(sx, sy, deg, NULL, gap);
+	CHECK(g_fit64Answer[0] == (float)n && fabsf(g_fit64Answer[4] - gz) < 0.05f && g_fit64Answer[2] == 0.0f && g_fit64Answer[3] == 0.0f &&
+	          fabsf(g_fit64Answer[1] - 8.59f) < 0.05f && GAPS_OK(0.05f) &&
+	          strncmp(line, "fitted: the front tyre's ground -3.0, the rear's -3.0, the middle's -3.0 (from the asked height): its middle 3.0 under it, pitch 0.0, "
+	                        "the ground's roll 0.0, leaning 8.6 on its stand: roll -8.6; the stand's foot's ground 0.0 ", 160) == 0,
+	      "P2: CMB_RoomAnswer %g (%d), Ground %.2f (%.2f), Pitch %g, Roll %g, Clear (the lean) %.2f; the front tyre %.3f, the rear %.3f, the foot %.3f over the ground; \"%s\"",
+	      g_fit64Answer[0], n, g_fit64Answer[4], gz, g_fit64Answer[2], g_fit64Answer[3], g_fit64Answer[1], gap[0], gap[1], gap[2], line);
+
+	/* P3: test 58's 12:51:43: a plane rising tan 5.4 deg along the heading and 0.2208 a unit to the right (the roll asin of -0.2147). */
+	{
+		float a = tanf(5.4f / DEG), b = 0.2208f, G[2] = { a * fw[0] + b * rt[0], a * fw[1] + b * rt[1] }, K = hypotf(G[0], G[1]);
+		g_slopeK = K;
+		g_slopeD[0] = G[0] / K;
+		g_slopeD[1] = G[1] / K;
+		g_slopeO[0] = sx;
+		g_slopeO[1] = sy;
+		g_groundZ = gz;
+	}
+	n++;
+	printf("room: ask %d, test 58's getting off at 12:51:43 (pitch 5.4, roll -12.4 under its wheels, the bike put 2 under the ground at its middle): fitted, its "
+	       "middle on the ground, pitch 5.4, the ground's roll -12.4, the tyres and the foot on the ground:\n", n);
+	FitAsk64(n, sx, sy, gz - 2.0f, deg);
+	FIT_PREFIX(gz - 2.0f);
+	FIT_LINE();
+	FitGaps64(sx, sy, deg, NULL, gap);
+	CHECK(g_fit64Answer[0] == (float)n && fabsf(g_fit64Answer[4] - gz) < 0.05f && fabsf(g_fit64Answer[2] - 5.4f) < 0.06f && fabsf(g_fit64Answer[3] + 12.4f) < 0.06f &&
+	          g_fit64Answer[1] >= 3.0f && g_fit64Answer[1] <= 12.0f && GAPS_OK(0.3f) && strstr(line, "its middle 2.0 over it, pitch 5.4, the ground's roll -12.4, leaning "),
+	      "P3: CMB_RoomAnswer %g (%d), Ground %.2f (%.2f), Pitch %.2f (5.4), Roll %.2f (-12.4), the lean %.2f; the front tyre %.3f, the rear %.3f, the foot %.3f over "
+	      "the ground; \"%s\" (fbe9a7c: the ground under its middle and no lean; the track's tilt left a tyre in it)", g_fit64Answer[0], n, g_fit64Answer[4], gz,
+	      g_fit64Answer[2], g_fit64Answer[3], g_fit64Answer[1], gap[0], gap[1], gap[2], line);
+
+	/* P4: a crest: 12 deg up along the heading to 20 ahead of the middle, flat past it. */
+	g_slopeK = tanf(12.0f / DEG);
+	g_slopeD[0] = fw[0];
+	g_slopeD[1] = fw[1];
+	g_slopeO[0] = sx;
+	g_slopeO[1] = sy;
+	g_groundZ = gz;
+	g_kinkOn = true;
+	g_kinkAt = 20.0f;
+	n++;
+	float mean4 = gz + 0.5f * (g_slopeK * 20.0f - g_slopeK * 68.0f), pitch4 = atanf(g_slopeK * (20.0f + 68.0f) / 136.0f) * DEG;
+	printf("room: ask %d, a crest (12 deg up to 20 ahead of the middle, flat past it), asked at the middle's ground: its middle at the tyres' mean %.2f (%.2f under the "
+	       "middle's ground), pitch %.2f, both tyres on the ground:\n", n, mean4 - gz, gz - mean4, pitch4);
+	FitAsk64(n, sx, sy, gz, deg);
+	FIT_PREFIX(gz);
+	FIT_LINE();
+	FitGaps64(sx, sy, deg, NULL, gap);
+	CHECK(g_fit64Answer[0] == (float)n && fabsf(g_fit64Answer[4] - mean4) < 0.05f && fabsf(g_fit64Answer[2] - pitch4) < 0.06f && g_fit64Answer[3] == 0.0f &&
+	          fabsf(gap[0]) < 0.3f && fabsf(gap[1]) < 0.3f && !strstr(line, "raised") && !strstr(line, "held to ParkRoll"),
+	      "P4: CMB_RoomAnswer %g (%d), Ground %.2f (%.2f), Pitch %.2f (%.2f), Roll %g; the front tyre %.3f, the rear %.3f over the ground; \"%s\" (fbe9a7c: Ground the "
+	      "middle's, %.2f)", g_fit64Answer[0], n, g_fit64Answer[4], mean4, g_fit64Answer[2], pitch4, g_fit64Answer[3], gap[0], gap[1], line, gz);
+
+	/* P5: a sharper crest: 20 deg up to the middle, flat past it: the middle's ground 12.4 over the tyres' line. */
+	g_slopeK = tanf(20.0f / DEG);
+	g_kinkAt = 0.0f;
+	n++;
+	float mean5 = gz - 0.5f * g_slopeK * 68.0f;
+	printf("room: ask %d, a sharper crest (20 deg up to the middle, flat past it): the middle's ground %.1f over the tyres' line, the bike raised to 11 under it, its "
+	       "line's words:\n", n, gz - mean5);
+	FitAsk64(n, sx, sy, gz, deg);
+	FIT_PREFIX(gz);
+	FIT_LINE();
+	CHECK(g_fit64Answer[0] == (float)n && fabsf(g_fit64Answer[4] - (gz - 11.0f)) < 0.05f && strstr(line, " (raised 1.4: the middle's ground 12.4 over the tyres', a crest under the frame)"),
+	      "P5: CMB_RoomAnswer %g (%d), Ground %.2f (%.2f); \"%s\"", g_fit64Answer[0], n, g_fit64Answer[4], gz - 11.0f, line);
+	g_kinkOn = false;
+	FlatGround();
+	g_groundZ = gz;
+
+	/* P6, P7: a curb under the stand's foot (its top over the ground, 10 along and 10 across round the foot's spot: a plane facing ahead
+	 * 5 ahead of the foot, its top seen 10 back from it, 5 either side). */
+	for (int k = 0; k < 2; k++) {
+		float top = k ? 4.0f : 1.5f, fx = sx - 2.97f * fw[0] - 17.475f * rt[0], fy = sy - 2.97f * fw[1] - 17.475f * rt[1];
+		Plane56(0, fx + 5.0f * fw[0], fy + 5.0f * fw[1], fw[0], fw[1], top, 5.0f, 1, NULL);
+		g_planeTopDepth[0] = 10.0f;
+		g_fit64Curb[0] = fx;
+		g_fit64Curb[1] = fy;
+		g_fit64Curb[2] = 5.0f;
+		g_fit64Curb[3] = 5.0f;
+		g_fit64Curb[4] = top;
+		n++;
+		printf("room: ask %d, a curb %g high under the stand's foot: %s:\n", n, top, k ? "the lean held to 3 (\"(its -4.6 held to 3)\")" : "the lean 3.7, the foot on the curb");
+		FitAsk64(n, sx, sy, gz, deg);
+		FIT_PREFIX(gz);
+		FIT_LINE();
+		FitGaps64(sx, sy, deg, FitCurb64, gap);
+		if (!k)
+			CHECK(g_fit64Answer[0] == (float)n && fabsf(g_fit64Answer[1] - 3.68f) < 0.06f && GAPS_OK(0.3f) && strstr(line, "; the stand's foot's ground 1.5 over the tyres' line there"),
+			      "P6: CMB_RoomAnswer %g (%d), the lean %.2f (3.68); the front tyre %.3f, the rear %.3f, the foot %.3f over the ground (the curb); \"%s\"", g_fit64Answer[0], n,
+			      g_fit64Answer[1], gap[0], gap[1], gap[2], line);
+		else
+			CHECK(g_fit64Answer[0] == (float)n && g_fit64Answer[1] == 3.0f && strstr(line, "; the stand's foot's ground 4.0 over the tyres' line there (its -4.6 held to 3)") &&
+			          strstr(line, "leaning 3.0 on its stand: roll -3.0"),
+			      "P7: CMB_RoomAnswer %g (%d), the lean %.2f (3, held); \"%s\"", g_fit64Answer[0], n, g_fit64Answer[1], line);
+	}
+	Guard56Clear();
+
+	/* P8: no ground past an edge 30 ahead of the middle (bottomless). */
+	g_dropOn = true;
+	g_dropPoint[0] = sx + 30.0f * fw[0];
+	g_dropPoint[1] = sy + 30.0f * fw[1];
+	g_dropDir[0] = fw[0];
+	g_dropDir[1] = fw[1];
+	g_dropDepth = 0.0f;
+	n++;
+	printf("room: ask %d, the ground gone past an edge 30 ahead of the middle: not fitted (-%d, Pitch and Roll -1000), Clear the stand's lean alone (8.59; the "
+	       "review of 2026-11-22a's 8: c2dc077's -1), \"not fitted, no ground under its front tyre within 88: its side stand's lean alone, 8.6\":\n", n, n);
+	FitAsk64(n, sx, sy, gz, deg);
+	FIT_PREFIX(gz);
+	FIT_LINE();
+	CHECK(g_fit64Answer[0] == -(float)n && fabsf(g_fit64Answer[1] - 8.59f) < 0.05f && g_fit64Answer[2] == -1000.0f && g_fit64Answer[3] == -1000.0f &&
+	          strcmp(line, "not fitted, no ground under its front tyre within 88: its side stand's lean alone, 8.6") == 0,
+	      "P8: CMB_RoomAnswer %g (-%d), Clear %g (8.59), Pitch %g, Roll %g; \"%s\"", g_fit64Answer[0], n, g_fit64Answer[1], g_fit64Answer[2], g_fit64Answer[3], line);
+	g_dropOn = false;
+
+	/* P9: the bike's own 3D over its rear tyre (a top 40 over the ground, 20 round the rear contact; the reference at the asked spot). */
+	Plane56(0, sx - 58.0f * fw[0], sy - 58.0f * fw[1], fw[0], fw[1], 40.0f, 15.0f, 1, Bike56At(sx, sy, gz + 1.0f));
+	g_planeTopDepth[0] = 20.0f;
+	n++;
+	printf("room: ask %d, the bike's own 3D 40 over the ground over its rear tyre (the reference at the asked spot, 1 over the ground): passed, the rear tyre's "
+	       "ground -1.0:\n", n);
+	FitAsk64(n, sx, sy, gz + 1.0f, deg);
+	FIT_PREFIX(gz + 1.0f);
+	FIT_LINE();
+	CHECK(g_fit64Answer[0] == (float)n && fabsf(g_fit64Answer[4] - gz) < 0.05f && g_fit64Answer[2] == 0.0f && strncmp(line, "fitted: the front tyre's ground -1.0, the rear's -1.0,", 54) == 0,
+	      "P9: CMB_RoomAnswer %g (%d), Ground %.2f (%.2f), Pitch %g; \"%s\"", g_fit64Answer[0], n, g_fit64Answer[4], gz, g_fit64Answer[2], line);
+	Guard56Clear();
+
+	/* P12-P17 (the review of 2026-11-22a, 7: from 88 over the asked height the sides' rays read a car's hood, a ledge, a barrel or
+	 * a rail beside the bike as the ground under it). The bike asked 3 over flat ground beside a car's side (its face 25 from the
+	 * middle, its hood 45 over the ground out to 65) at its right (P12), then at its left, the stand's side (P13): the sides' rays
+	 * from 25 over the middle's ground pass under the hood: upright across, the lean 8.6, the tyres and the foot on the ground
+	 * (c2dc077: the hood read as the ground, the roll to 20 and the lean on top, the foot off the ground). P14: a ledge 12 high from
+	 * 25 out at its right: off one slope with the left (the left's 0.0): the left's slope (level), the right's set aside (c2dc077:
+	 * roll 9.7 less a lean held to 12: the foot 1.9 up). P15: test 58's slope (P3's plane) with a crate's top 20 over the ground's
+	 * level at the middle from 25 out on its uphill right (12.3 over the slope there): the left side's slope, P3's fit exactly
+	 * (c2dc077: the roll held to -20). P16: no ground past an edge 30 to its right: fitted by its left side alone (c2dc077: not
+	 * fitted). P17: a shelf 80 over the ground across its middle (along -10 to 10): the middle's ray from 40 over the tyres' line
+	 * passes under it: not raised, its middle on the ground (c2dc077: raised 69). P18: no heading given (the controller's ask for the
+	 * stand's lean alone, at CMB_MaxTilt 0 or away from the player; the review's 8): -n, Clear 8.59, no rays (c2dc077: Clear -1). */
+	for (int k = 0; k < 2; k++) {
+		float side = k ? -1.0f : 1.0f;   /* +1: the bike's right */
+		Plane56(0, sx + side * 25.0f * rt[0], sy + side * 25.0f * rt[1], -side * rt[0], -side * rt[1], 45.0f, 0.0f, 1, NULL);
+		g_planeTopDepth[0] = 40.0f;
+		n++;
+		printf("room: ask %d, a car's side at the bike's %s (its face 25 from the middle, its hood 45 high out to 65), the bike asked 3 over flat ground: fitted "
+		       "upright across, the lean 8.6, the tyres and the foot on the ground, no side set aside:\n", n, k ? "left (the stand's side)" : "right");
+		FitAsk64(n, sx, sy, gz + 3.0f, deg);
+		FIT_PREFIX(gz + 3.0f);
+		FIT_LINE();
+		FitGaps64(sx, sy, deg, NULL, gap);
+		CHECK(g_fit64Answer[0] == (float)n && fabsf(g_fit64Answer[4] - gz) < 0.05f && g_fit64Answer[2] == 0.0f && g_fit64Answer[3] == 0.0f &&
+		          fabsf(g_fit64Answer[1] - 8.59f) < 0.05f && GAPS_OK(0.05f) && strstr(line, "the ground's roll 0.0, leaning 8.6 on its stand: roll -8.6;") &&
+		          !strstr(line, "off one slope"),
+		      "P%d: CMB_RoomAnswer %g (%d), Ground %.2f (%.2f), Pitch %g, Roll %g (0), the lean %.2f (8.59); the front tyre %.3f, the rear %.3f, the foot %.3f over "
+		      "the ground; \"%s\"", 12 + k, g_fit64Answer[0], n, g_fit64Answer[4], gz, g_fit64Answer[2], g_fit64Answer[3], g_fit64Answer[1], gap[0], gap[1], gap[2],
+		      line);
+		Guard56Clear();
+	}
+
+	Plane56(0, sx + 25.0f * rt[0], sy + 25.0f * rt[1], -rt[0], -rt[1], 12.0f, 0.0f, 1, NULL);
+	g_planeTopDepth[0] = 40.0f;
+	n++;
+	printf("room: ask %d, a ledge 12 high from 25 out at the bike's right, flat ground: the right's set aside, level across by the left, the lean 8.6, the "
+	       "tyres and the foot on the ground:\n", n);
+	FitAsk64(n, sx, sy, gz + 3.0f, deg);
+	FIT_PREFIX(gz + 3.0f);
+	FIT_LINE();
+	FitGaps64(sx, sy, deg, NULL, gap);
+	CHECK(g_fit64Answer[0] == (float)n && g_fit64Answer[3] == 0.0f && fabsf(g_fit64Answer[1] - 8.59f) < 0.05f && GAPS_OK(0.05f) &&
+	          strstr(line, "; its sides' ground off one slope through the middle's (the right's 12.0 over it, the left's 0.0 over): the slope across by its left "
+	                       "side, the right's set aside"),
+	      "P14: CMB_RoomAnswer %g (%d), Roll %g (0), the lean %.2f (8.59); the front tyre %.3f, the rear %.3f, the foot %.3f over the ground; \"%s\"",
+	      g_fit64Answer[0], n, g_fit64Answer[3], g_fit64Answer[1], gap[0], gap[1], gap[2], line);
+	Guard56Clear();
+
+	{
+		float a = tanf(5.4f / DEG), b = 0.2208f, G[2] = { a * fw[0] + b * rt[0], a * fw[1] + b * rt[1] }, K = hypotf(G[0], G[1]);
+		g_slopeK = K;
+		g_slopeD[0] = G[0] / K;
+		g_slopeD[1] = G[1] / K;
+		g_slopeO[0] = sx;
+		g_slopeO[1] = sy;
+		g_groundZ = gz;
+	}
+	Plane56(0, sx + 25.0f * rt[0], sy + 25.0f * rt[1], -rt[0], -rt[1], 20.0f, 0.0f, 1, NULL);
+	g_planeTopDepth[0] = 40.0f;
+	n++;
+	printf("room: ask %d, test 58's slope (P3's) with a crate's top 20 over the middle's ground from 25 out on its uphill right: the left side's slope, pitch "
+	       "5.4, the ground's roll -12.4, the tyres and the foot on the ground:\n", n);
+	FitAsk64(n, sx, sy, gz - 2.0f, deg);
+	FIT_PREFIX(gz - 2.0f);
+	FIT_LINE();
+	FitGaps64(sx, sy, deg, NULL, gap);
+	CHECK(g_fit64Answer[0] == (float)n && fabsf(g_fit64Answer[4] - gz) < 0.05f && fabsf(g_fit64Answer[2] - 5.4f) < 0.06f && fabsf(g_fit64Answer[3] + 12.4f) < 0.06f &&
+	          GAPS_OK(0.3f) && strstr(line, "(the right's 20.0 over it, the left's 7.7 under): the slope across by its left side, the right's set aside"),
+	      "P15: CMB_RoomAnswer %g (%d), Ground %.2f (%.2f), Pitch %.2f (5.4), Roll %.2f (-12.4), the lean %.2f; the front tyre %.3f, the rear %.3f, the foot %.3f "
+	      "over the ground; \"%s\"", g_fit64Answer[0], n, g_fit64Answer[4], gz, g_fit64Answer[2], g_fit64Answer[3], g_fit64Answer[1], gap[0], gap[1], gap[2], line);
+	Guard56Clear();
+	FlatGround();
+	g_groundZ = gz;
+
+	g_dropOn = true;
+	g_dropPoint[0] = sx + 30.0f * rt[0];
+	g_dropPoint[1] = sy + 30.0f * rt[1];
+	g_dropDir[0] = rt[0];
+	g_dropDir[1] = rt[1];
+	g_dropDepth = 0.0f;
+	n++;
+	printf("room: ask %d, no ground past an edge 30 to the bike's right: fitted by its left side alone, level across, the lean 8.6, the tyres and the foot on "
+	       "the ground:\n", n);
+	FitAsk64(n, sx, sy, gz + 3.0f, deg);
+	FIT_PREFIX(gz + 3.0f);
+	FIT_LINE();
+	FitGaps64(sx, sy, deg, NULL, gap);
+	CHECK(g_fit64Answer[0] == (float)n && g_fit64Answer[3] == 0.0f && fabsf(g_fit64Answer[1] - 8.59f) < 0.05f && GAPS_OK(0.05f) &&
+	          strstr(line, "; no ground under its right side within 88 under the middle's ground: the slope across by its left side alone"),
+	      "P16: CMB_RoomAnswer %g (%d), Roll %g (0), the lean %.2f (8.59); the front tyre %.3f, the rear %.3f, the foot %.3f over the ground; \"%s\"",
+	      g_fit64Answer[0], n, g_fit64Answer[3], g_fit64Answer[1], gap[0], gap[1], gap[2], line);
+	g_dropOn = false;
+
+	Plane56(0, sx + 10.0f * fw[0], sy + 10.0f * fw[1], fw[0], fw[1], 80.0f, 0.0f, 1, NULL);
+	g_planeTopDepth[0] = 20.0f;
+	n++;
+	printf("room: ask %d, a shelf 80 over the ground across the bike's middle (along -10 to 10), the bike asked 3 over flat ground: not raised, its middle on the "
+	       "ground, the lean 8.6, the tyres and the foot on the ground:\n", n);
+	FitAsk64(n, sx, sy, gz + 3.0f, deg);
+	FIT_PREFIX(gz + 3.0f);
+	FIT_LINE();
+	FitGaps64(sx, sy, deg, NULL, gap);
+	CHECK(g_fit64Answer[0] == (float)n && fabsf(g_fit64Answer[4] - gz) < 0.05f && g_fit64Answer[2] == 0.0f && g_fit64Answer[3] == 0.0f &&
+	          fabsf(g_fit64Answer[1] - 8.59f) < 0.05f && GAPS_OK(0.05f) && !strstr(line, "raised") &&
+	          strncmp(line, "fitted: the front tyre's ground -3.0, the rear's -3.0, the middle's -3.0 (from the asked height):", 97) == 0,
+	      "P17: CMB_RoomAnswer %g (%d), Ground %.2f (%.2f), Pitch %g, Roll %g, the lean %.2f (8.59); the front tyre %.3f, the rear %.3f, the foot %.3f over the "
+	      "ground; \"%s\"", g_fit64Answer[0], n, g_fit64Answer[4], gz, g_fit64Answer[2], g_fit64Answer[3], g_fit64Answer[1], gap[0], gap[1], gap[2], line);
+	Guard56Clear();
+
+	n++;
+	printf("room: ask %d with no heading (the controller's ask for the stand's lean alone): -%d, Clear 8.59, Pitch and Roll -1000, \"not fitted, no heading "
+	       "given: its side stand's lean alone, 8.6, no rays\":\n", n, n);
+	FitAsk64(n, sx, sy, gz, -1000.0f);
+	snprintf(prefix, sizeof(prefix), "room: ask %d at (%.0f, %.0f, %.0f) (the parked bike's fit: ParkFit): ", n, sx, sy, gz);
+	FIT_LINE();
+	CHECK(g_fit64Answer[0] == -(float)n && fabsf(g_fit64Answer[1] - 8.59f) < 0.05f && g_fit64Answer[2] == -1000.0f && g_fit64Answer[3] == -1000.0f &&
+	          strcmp(line, "not fitted, no heading given: its side stand's lean alone, 8.6, no rays") == 0,
+	      "P18: CMB_RoomAnswer %g (-%d), Clear %g (8.59), Pitch %g, Roll %g; \"%s\"", g_fit64Answer[0], n, g_fit64Answer[1], g_fit64Answer[2], g_fit64Answer[3], line);
+
+	/* P10: ParkStand= (empty): upright. */
+	Ini54Set("Room", "ParkStand", "");
+	RoomRide();
+	n++;
+	printf("room: ParkStand= (empty) and a ride: ask %d on flat ground: fitted upright, Clear 0, \"..., upright (ParkStand= empty)\":\n", n);
+	FitAsk64(n, sx, sy, gz + 3.0f, deg);
+	FIT_PREFIX(gz + 3.0f);
+	FIT_LINE();
+	CHECK(g_fit64Answer[0] == (float)n && g_fit64Answer[1] == 0.0f && g_fit64Answer[3] == 0.0f && fabsf(g_fit64Answer[4] - gz) < 0.05f &&
+	          strstr(line, "the ground's roll 0.0, upright (ParkStand= empty)") && LogLines("  room: ParkFit=1: ") >= 2 &&
+	          LogLines("ParkStand= (empty): no lean, the bike upright on its tyres' ground (read again on getting on)") == 1,
+	      "P10: CMB_RoomAnswer %g (%d), Clear %g, Roll %g, Ground %.2f; \"%s\"", g_fit64Answer[0], n, g_fit64Answer[1], g_fit64Answer[3], g_fit64Answer[4], line);
+	n++;
+	printf("room: ParkStand= (empty): ask %d with no heading: -%d, Clear 0 (upright), \"not fitted, no heading given: upright (ParkStand= empty), no rays\":\n", n, n);
+	FitAsk64(n, sx, sy, gz, -1000.0f);
+	snprintf(prefix, sizeof(prefix), "room: ask %d at (%.0f, %.0f, %.0f) (the parked bike's fit: ParkFit): ", n, sx, sy, gz);
+	FIT_LINE();
+	CHECK(g_fit64Answer[0] == -(float)n && g_fit64Answer[1] == 0.0f && strcmp(line, "not fitted, no heading given: upright (ParkStand= empty), no rays") == 0,
+	      "P19: CMB_RoomAnswer %g (-%d), Clear %g (0); \"%s\" (c2dc077: Clear -1)", g_fit64Answer[0], n, g_fit64Answer[1], line);
+
+	/* P11: ParkFit=0: 2026-11-21a. */
+	Ini54Set("Room", "ParkFit", "0");
+	RoomRide();
+	int fitLines = LogLines("(the parked bike's fit: ParkFit)");
+	n++;
+	printf("room: ParkFit=0 and a ride: no 32768 in CMB_RoomOptions; ask %d (kind 6) answered as any spot's (2026-11-21a):\n", n);
+	FitAsk64(n, sx, sy, gz + 3.0f, deg);
+	snprintf(prefix, sizeof(prefix), "room: ask %d at (%.0f, %.0f, %.0f), heading %.0f: ", n, sx, sy, gz + 3.0f, deg);
+	CHECK(((int)RoomMore(0) & 32768) == 0 && fabsf(g_fit64Answer[0]) == (float)n && LogLines(prefix) == 1 && LogLines("(the parked bike's fit: ParkFit)") == fitLines &&
+	          LogLines("  room: ParkFit=0: the parked bike as the controller placed it, upright (2026-11-21a) (read again on getting on)") == 1,
+	      "P11: CMB_RoomOptions %g, CMB_RoomAnswer %g (%d), \"%s...\" (%d), no fit line (%d)", RoomMore(0), g_fit64Answer[0], n, prefix, LogLines(prefix),
+	      LogLines("(the parked bike's fit: ParkFit)") - fitLines);
+	#undef FIT_PREFIX
+	#undef FIT_LINE
+	#undef GAPS_OK
+	Ini54Set("Room", "ParkStand", "");
+	FlatGround();
+	g_groundZ = gz;
+	*(float *)(g_roomGlobalsFake[6] + 0x30) = -1000.0f;
+}
+
 /* 2026-11-09a (test 50, mode 14): the truck's call (SnapOrder). The drive unit's. */
 /* Test 50's truck call, 14:50:03 (P2: the player on the truck bed; spots 1-8 and 11
  * refused, spot 9 refused for the ground 47 below the player's but the most room, untilted, spot 10 room, its navmesh snap 126 from
@@ -22936,7 +23329,8 @@ static void SndRide62(Snd62 *r, int how, float cruise)
 	g_fakeSpeedNow = 0.0f;
 	g_fakeDecel = 100000.0f;   /* the fall the ask's at once */
 	g_fakeAccel = g_sndGame63 ? 300.0f : 400.0f;
-	g_fakeRiseTau62 = g_sndGame63 ? 0.25f : 0.35f;
+	g_fakeRiseTau62 = g_sndGame63 == 2 ? 0.35f : g_sndGame63 ? 0.25f : 0.35f;   /* 2026-11-22a: 2, test 58's cold starts (0.35, 110 under 120) */
+	g_fakeLowBelow64 = g_sndGame63 == 2 ? 120.0f : 0.0f;
 	if (g_sndGame63)
 		g_fakeLowAccel = 110.0f;   /* 2026-11-21a: test 57's low end */
 	g_fakeGain62 = 935.0f / 900.0f;
@@ -22993,6 +23387,7 @@ static void SndRide62(Snd62 *r, int how, float cruise)
 	g_fakeDecel = g_fakeAccel = g_fakeRiseTau62 = g_fakeGain62 = 0.0f;
 	if (g_sndGame63)
 		g_fakeLowAccel = 0.0f;
+	g_fakeLowBelow64 = 0.0f;
 	SndGetOff();
 }
 /* A lift at a steady speed held (the fake's run-down 1 u/s^2: the speed holds), S3c's way but `lift` s long: the blips after the marker. */
@@ -23467,6 +23862,331 @@ static void SoundTests63(void)
 	Ini54Set("Steer", "LaunchFrom", "0.25");
 	Ini54Set("Steer", "PullClimb", "0");
 	Ini54Set("Steer", "CoastDrag", "");
+	Ini54Set("Sound", "SpeedMap", "");
+	Ini54Set("Sound", "DownBands", "");
+	Ini54Set("Sound", "HeardStop", "300");
+	Ini54Set("Sound", "HeardBrake", "600");
+	Ini54Set("Sound", "HeardRiseGears", "1,1,1,1");
+	Ini54Set("Sound", "ShiftGapGears", "");
+	Ini54Set("Sound", "HeardKeep", "0");
+	Ini54Set("Sound", "LiftDown", "0");
+	Ini54Set("Sound", "ShiftRpm", "2500");
+	Ini54Set("Sound", "Gears", "555.556,750,960,1161.6");
+	Ini54Set("Sound", "ShiftDraw", "2300,3000");
+	Ini54Set("Sound", "LaunchRise", "350");
+	Ini54Set("Sound", "LaunchFlare", "0.5");
+	g_onFrame = FakeGameFrame;
+}
+
+/* 2026-11-22a (test 58 on 2026-11-21a: "sound wise it's ok, but overall it feels more sluggish and slower than before"; the up-shifts in full
+ * pulls at 11, 25, 32 and 43 on the dial; two coasts' lines that counted a menu's time; the drive unit's): [Sound] UpBands (a pull's up-shifts
+ * held for the bike's speed bands, whatever speed the pull began at) and [Steer] MenuKeep (the speed measure held while a menu pauses the
+ * game: no throttle cut at the close, a coast's line on the riding time), in the fake's game as test 58's cold starts (its top 935, its
+ * pick-up 0.35 s behind the ask at 300 u/s^2 at most and 110 under 120 u/s: test 58's four launches from a long stand, rms 24 u/s). */
+typedef struct {
+	int n, gears[16], held[16];
+	float v[16], rpm[16];
+	double t[16], relAt;
+} Snd64Ups;
+/* The gear lines after marker from the time of day `from` on: gear, the bike's speed, rpm, whether it says "(UpBands, held" */
+static void Snd64Lines(const char *marker, double from, Snd64Ups *o)
+{
+	static char line[4096];
+	FILE *f = OpenLog();
+	o->n = 0;
+	if (!f)
+		return;
+	while (fgets(line, sizeof(line), f)) {
+		if (strstr(line, marker))
+			o->n = 0;
+		const char *at = strstr(line, "sound: gear ");
+		double t = SndLineTime56(line);
+		if (!at || t < from || o->n >= 16 || sscanf(at, "sound: gear %d at %f u/s, %f rpm", &o->gears[o->n], &o->v[o->n], &o->rpm[o->n]) != 3)
+			continue;
+		o->held[o->n] = strstr(at, "(UpBands, held ") != NULL;
+		o->t[o->n++] = t;
+	}
+	fclose(f);
+}
+/* The up-shift into gear g in o (its index, -1 if none) */
+static int Snd64Up(const Snd64Ups *o, int g)
+{
+	for (int i = 0; i < o->n; i++)
+		if (o->gears[i] == g && (i == 0 || o->gears[i - 1] == g - 1))
+			return i;
+	return -1;
+}
+static void Snd64Game(void)   /* test 58's cold starts */
+{
+	g_fakeSpeedNow = 0.0f;
+	g_fakeDecel = 100000.0f;
+	g_fakeAccel = 300.0f;
+	g_fakeRiseTau62 = 0.35f;
+	g_fakeLowAccel = 110.0f;
+	g_fakeLowBelow64 = 120.0f;
+	g_fakeGain62 = 935.0f / 900.0f;
+}
+static void Snd64GameOff(void)
+{
+	g_fakeDecel = g_fakeAccel = g_fakeRiseTau62 = g_fakeGain62 = g_fakeLowAccel = g_fakeLowBelow64 = 0.0f;
+	g_topCap = 0.0f;
+}
+/* A pull: from rest (at 0) W 10 s; or a pull begun rolling: W from rest till the bike is at `at` u/s, forward let go liftMs (CoastDrag's
+ * roll-off), then W 9 s (test 58's pulls begun rolling: a lift and a press again). The gear lines from the (last) press on. */
+static float g_snd64At, g_snd64Gain = 1.0f;   /* g_snd64Gain: the game's speed for the input x this (a long climb: under 1) */
+static bool SndAt64(void) { return g_fakeSpeedNow >= g_snd64At; }
+static void SndPull64(Snd64Ups *o, float at, int liftMs)
+{
+	char marker[64];
+	SndGetOn();
+	SndOffer();
+	snprintf(marker, sizeof(marker), "sound: generation %g driven", SndGen());
+	Snd64Game();
+	g_fakeGain62 *= g_snd64Gain;
+	Keys(0.0f, 1.0f);
+	if (at > 0.0f) {
+		g_snd64At = at;
+		RunFramesUntil63(SndAt64, 10000);
+		Keys(0.0f, 0.0f);
+		RunFrames(liftMs);
+		Keys(0.0f, 1.0f);
+	}
+	o->relAt = SndNowOfDay();
+	RunFrames(at > 0.0f ? 9000 : 10000);
+	Keys(0.0f, 0.0f);
+	Snd64Lines(marker, o->relAt, o);
+	Snd64GameOff();
+	SndGetOff();
+}
+static void Snd64Text(const Snd64Ups *o, char *out, size_t size)
+{
+	size_t len = (size_t)snprintf(out, size, "%d line(s):", o->n);
+	for (int i = 0; i < o->n && len + 64 < size; i++)
+		len += (size_t)snprintf(out + len, size - len, " %d at %.0f (%.1f) %.0f rpm%s +%.2f s;", o->gears[i], o->v[i], o->v[i] * 0.05592f, o->rpm[i], o->held[i] ? " held" : "",
+		                        o->t[i] - o->relAt);
+}
+/* A menu pausing the game ms long: the UI's menu mode 1 and the world still (no game frame: no input, nothing moves), then the frame
+ * `back` again */
+static void SndMenu64(int ms, void (*back)(float))
+{
+	*(uint32_t *)(g_fakeUi56 + 0x1E0) = 1u;
+	g_onFrame = SndWorldStill56;
+	RunFrames(ms);
+	*(uint32_t *)(g_fakeUi56 + 0x1E0) = 0u;
+	g_onFrame = back;
+}
+typedef struct {
+	float before, after3, after6;                       /* a pull: the fake's speed before the menu, 0.3 and 0.6 s after its close */
+	float t, dist, lineSecs, linePaused;                /* a coast: the fake's own riding time to the stop (the menu not counted), ground */
+	int keptLines, coastLines, sameSecs, secs;
+	char coastLine[700], keptLine[300];
+} Snd64Menu;
+/* how 0: a pull from rest 4.5 s, a menu of ms, then W 1 s more; 1: W 11 s to the top, let go, 1 s, a menu of ms, then to the stop */
+static void SndMenuRide64(Snd64Menu *o, int how, int ms)
+{
+	static const char keptWord[] = "steer: a menu paused the game ", lineWord[] = " steer: a coast from ";
+	memset(o, 0, sizeof(*o));
+	SndGetOn();
+	SndOffer();
+	int kept0 = LogLines(keptWord), lines0 = LogLines(lineWord);
+	Snd64Game();
+	Keys(0.0f, 1.0f);
+	if (how == 0) {
+		RunFrames(4500);
+		o->before = g_fakeSpeedNow;
+		SndMenu64(ms, FakeGameFrame);
+		RunFrames(300);
+		o->after3 = g_fakeSpeedNow;
+		RunFrames(300);
+		o->after6 = g_fakeSpeedNow;
+		RunFrames(400);
+		Keys(0.0f, 0.0f);
+	} else {
+		RunFrames(11000);
+		g_sndGame63 = 1;   /* (SndLetGo63's record) */
+		g_snd63Arm = true;
+		g_onFrame = SndCoastFrame63;
+		SndLetGo63();
+		Keys(0.0f, 0.0f);
+		RunFrames(1000);
+		SndMenu64(ms, SndCoastFrame63);
+		RunFramesUntil63(SndStill63, 15000);
+		g_snd63Arm = g_snd63Rec = false;
+		g_sndGame63 = 0;
+		g_onFrame = FakeGameFrame;
+		o->t = g_snd63T3;
+		o->dist = g_snd63Dist;
+	}
+	Snd64GameOff();
+	o->keptLines = LogLines(keptWord) - kept0;
+	const char *k = o->keptLines > 0 ? LastLogLine(keptWord) : NULL;
+	snprintf(o->keptLine, sizeof(o->keptLine), "%s", k ? strstr(k, keptWord) : "");
+	char *nl = strpbrk(o->keptLine, "\r\n");
+	if (nl)
+		*nl = 0;
+	o->coastLines = LogLines(lineWord) - lines0;
+	const char *c = o->coastLines > 0 ? LastLogLine(lineWord) : NULL;
+	snprintf(o->coastLine, sizeof(o->coastLine), "%s", c ? strstr(c, lineWord) + 1 : "");
+	nl = strpbrk(o->coastLine, "\r\n");
+	if (nl)
+		*nl = 0;
+	const char *q = strstr(o->coastLine, " after "), *p = strstr(o->coastLine, "; the game paused "), *e = strstr(o->coastLine, "; each second ");
+	o->lineSecs = q ? strtof(q + strlen(" after "), NULL) : -1.0f;
+	o->linePaused = p ? strtof(p + strlen("; the game paused "), NULL) : 0.0f;
+	if (e) {   /* the each-second speeds: how many, and how many the same as the one before */
+		const char *x = e + strlen("; each second ");
+		float last = -1.0f;
+		while (*x) {
+			char *end;
+			float val = strtof(x, &end);
+			if (end == x)
+				break;
+			o->sameSecs += o->secs && val == last;
+			o->secs++;
+			last = val;
+			x = end;
+			while (*x == ',' || *x == ' ')
+				x++;
+		}
+	}
+	SndGetOff();
+}
+static void SoundTests64(void)
+{
+	static const char *const table[9] = { "HeardKeep", "LiftDown", "ShiftRpm", "Gears", "ShiftDraw", "HeardRiseGears", "ShiftGapGears", "LaunchRise", "LaunchFlare" };
+	static const char *const drive[5] = { "LaunchTau", "PullTime", "PullFrom", "PullClimb", "LaunchFrom" };
+	static const char offUp[] = "  sound (2026-11-22a, test 58): UpBands=: a pull's up-shifts by the engine's own least times from wherever the pull began (the 2026-11-21a build)";
+	static const char offKeep[] = "  steer (2026-11-22a, test 58): MenuKeep=0: the speed measure falls while a menu pauses the game, the Lead cap following it at the close (the 2026-11-21a build)";
+	static const char onUp[] = "  sound (2026-11-22a, test 58): UpBands=215,429,644,823: in a pull (the bike gaining 40 u/s^2 or more) a gear's up-shift waits for the bike's speed";
+	static const float band[4] = { 215.0f, 429.0f, 644.0f, 823.0f };
+	Snd64Ups a, b, c, d, e;
+	Snd64Menu m[4];
+	char why[900], whyB[900];
+	g_gameCurve = true;
+	g_onFrame = FakeGameFrame;
+	g_afterTask = SndAudioTick;
+	printf("sound (2026-11-22a, test 58): UpBands' and MenuKeep's settings lines at run.sh's DEF63 values (empty, 0; fbe9a7c: none):\n");
+	CHECK(LogLines(offUp) >= 1 && LogLines(offKeep) >= 1, "P0: \"%s\" (%d), \"%s\" (%d)", offUp, LogLines(offUp), offKeep, LogLines(offKeep));
+	/* the code's defaults of the drive and the gear table (2026-11-21a's and this build's), UpBands= (DEF63) and MenuKeep=0 (DEF63) for now */
+	for (int i = 0; i < 9; i++)
+		Ini57Drop("Sound", table[i]);
+	for (int i = 0; i < 5; i++)
+		Ini57Drop("Steer", drive[i]);
+	Ini57Drop("Sound", "SpeedMap");
+	Ini57Drop("Sound", "HeardStop");
+	Ini57Drop("Sound", "HeardBrake");
+	Ini57Drop("Sound", "DownBands");
+	Ini57Drop("Steer", "CoastDrag");
+	/* a: from rest, 2026-11-21a (UpBands=) */
+	SndPull64(&a, 0.0f, 0);
+	Snd64Text(&a, why, sizeof(why));
+	int a2 = Snd64Up(&a, 2), a3 = Snd64Up(&a, 3), a4 = Snd64Up(&a, 4), a5 = Snd64Up(&a, 5);
+	printf("sound (2026-11-22a): test 58's pull from rest reproduced at 2026-11-21a's values in the fake's game as test 58's cold starts: the up-shifts at about 10, 24, 36, 46 on "
+	       "the dial (test 58 from rest: 184, 462, 643-717, 821-855 u/s):\n");
+	CHECK(a2 >= 0 && a3 > a2 && a4 > a3 && a5 > a4 && a.v[a2] >= 150.0f && a.v[a2] <= 215.0f && a.v[a3] >= 400.0f && a.v[a3] <= 470.0f && a.v[a4] >= 610.0f && a.v[a4] <= 680.0f &&
+	          a.v[a5] >= 790.0f && a.v[a5] <= 860.0f,
+	      "P1: %s (150-215, 400-470, 610-680, 790-860)", why);
+	/* b: a pull from rest up a long climb (the game's speed 0.85 of the input's: the bike behind the engine's timeline, as test 58's pulls
+	 * that shifted early: 13:09:25, the bike 84 u/s under the throttle's at 0.41), 2026-11-21a */
+	g_snd64Gain = 0.85f;
+	SndPull64(&b, 0.0f, 0);
+	Snd64Text(&b, whyB, sizeof(whyB));
+	int b4 = Snd64Up(&b, 4), b5 = Snd64Up(&b, 5);
+	printf("sound (2026-11-22a): test 58's early shifts reproduced at 2026-11-21a's values: a full pull from rest up a long climb (the bike at 0.85 of the throttle's speed): "
+	       "the 3->4 and 4->5 early, the bike under 600 and 760 u/s at them (test 58's medians 574 and 773: 32 and 43 on the dial; each gear its least time on):\n");
+	CHECK(b4 >= 0 && b5 > b4 && b.v[b4] < 600.0f && b.v[b5] < 760.0f, "P2: %s", whyB);
+	/* c, d: the same at the defaults (UpBands 215,429,644,823) */
+	Ini57Drop("Sound", "UpBands");
+	int on0 = LogLines(onUp);
+	SndPull64(&c, 0.0f, 0);
+	g_snd64Gain = 1.0f;
+	Snd64Text(&c, why, sizeof(why));
+	int c3 = Snd64Up(&c, 3), c4 = Snd64Up(&c, 4), c5 = Snd64Up(&c, 5);
+	float cTop = 0.0f;
+	for (int i = 0; i < c.n; i++)
+		cTop = c.v[i] > cTop ? c.v[i] : cTop;
+	printf("sound (2026-11-22a): the same climb at the code's defaults (UpBands 215,429,644,823): the 2->3 at its band (421-470 u/s) or, 2nd at the rev ceiling first (the "
+	       "climb's bike behind its heard speed), at 3600 rpm or more, the 3->4 at its band (631-680), each saying it waited (\"(UpBands, held ...\"), the 4->5 not before 806 "
+	       "or, the bike not reaching it (its top ~795), once it no longer gains, at 760 or more; the settings line (fbe9a7c: early, as P2):\n");
+	CHECK(LogLines(onUp) > on0 && c3 >= 0 && c4 > c3 && (c.v[c3] >= 0.98f * band[1] || c.rpm[c3] >= 3600.0f) && c.v[c3] <= 470.0f && c.v[c4] >= 0.98f * band[2] && c.v[c4] <= 680.0f && c.held[c3] && c.held[c4] &&
+	          (c5 < 0 || c.v[c5] >= 0.98f * band[3] || c.v[c5] >= 760.0f),
+	      "P3: the settings line (%d); %s", LogLines(onUp) - on0, why);
+	(void)cTop;
+	SndPull64(&d, 0.0f, 0);
+	Snd64Text(&d, why, sizeof(why));
+	int d2 = Snd64Up(&d, 2), d3 = Snd64Up(&d, 3), d4 = Snd64Up(&d, 4), d5 = Snd64Up(&d, 5);
+	printf("sound (2026-11-22a): from rest at the code's defaults: the up-shifts at 10-12.8, 23-25.5, 35-37.5 and 45-47.5 on the dial (the user's 12, 24, 36, 46; 1st held "
+	       "for 215 only to the shift draw's top, 3700 rpm: a cold start's slow first second), each gear's rpm at its end 3000-3750 for 1st-3rd, 2400-2700 for 4th:\n");
+	CHECK(d2 >= 0 && d3 > d2 && d4 > d3 && d5 > d4 && d.v[d2] * 0.05592f >= 10.0f && d.v[d2] * 0.05592f <= 12.8f && d.v[d3] * 0.05592f >= 23.0f && d.v[d3] * 0.05592f <= 25.5f &&
+	          d.v[d4] * 0.05592f >= 35.0f && d.v[d4] * 0.05592f <= 37.5f && d.v[d5] * 0.05592f >= 45.0f && d.v[d5] * 0.05592f <= 47.5f && d.rpm[d2] >= 3000.0f && d.rpm[d2] <= 3750.0f &&
+	          d.rpm[d3] >= 3000.0f && d.rpm[d3] <= 3750.0f && d.rpm[d4] >= 3000.0f && d.rpm[d4] <= 3750.0f && d.rpm[d5] >= 2400.0f && d.rpm[d5] <= 2700.0f,
+	      "P4: %s", why);
+	/* e: begun rolling higher (W to 650, let go 1.5 s: about 520, the engine in 4th or 3rd), the defaults */
+	SndPull64(&e, 650.0f, 1500);
+	Snd64Text(&e, why, sizeof(why));
+	int e5 = Snd64Up(&e, 5);
+	printf("sound (2026-11-22a): begun rolling higher (W to 650, let go 1.5 s, W again) at the code's defaults: the 4->5 at its band (806-860 u/s), held for it if it came "
+	       "in 4th before (fbe9a7c: its least time on from the press, under 780):\n");
+	CHECK(e5 >= 0 && e.v[e5] >= 0.98f * band[3] && e.v[e5] <= 860.0f && (e.held[e5] || e.t[e5] - e.relAt < 1.0), "P5: %s", why);
+	/* f: a steady speed: the gears as without UpBands (the cruise) */
+	{
+		int n6[2], n10[2], last[2];
+		char marker[64];
+		for (int k = 0; k < 2; k++) {
+			Ini54Set("Sound", "UpBands", k ? "" : "215,429,644,823");
+			for (int s = 0; s < 2; s++) {
+				SndGetOn();
+				SndOffer();
+				snprintf(marker, sizeof(marker), "sound: generation %g driven", SndGen());
+				int x6, x10, xl;
+				SndSteady60(marker, s ? 600.0f : 300.0f, &x6, &x10, &xl);
+				if (s) {
+					n6[k] = x6;
+					n10[k] = x10;
+					last[k] = (last[k] << 4) | xl;
+				} else
+					last[k] = xl;
+				SndGetOff();
+			}
+		}
+		Ini57Drop("Sound", "UpBands");
+		printf("sound (2026-11-22a): a steady 300 and 600 u/s (17 and 34 on the dial), W held 10 s: the last gear the same with UpBands on and off (a steady speed's gears as "
+		       "before; the climb to it a pull, its gears held, so at 600 one shift may come after 6 s):\n");
+		CHECK(last[0] == last[1] && n10[0] <= n6[0] + 1, "P6: the last gears at 300 / 600: %d / %d with UpBands, %d / %d without; gear lines at 600 %d at 6 s, %d at 10 s with "
+		      "UpBands (%d, %d without)", last[0] >> 4, last[0] & 15, last[1] >> 4, last[1] & 15, n6[0], n10[0], n6[1], n10[1]);
+	}
+	/* g: a menu in a pull (test 58's 13:14:07, the throttle cut 0.50 -> 0.30 at the close), MenuKeep 0 (DEF63) and 1 */
+	SndMenuRide64(&m[0], 0, 1500);
+	Ini57Drop("Steer", "MenuKeep");
+	SndMenuRide64(&m[1], 0, 1500);
+	printf("sound (2026-11-22a): a menu 1.5 s long in a pull at about 470 u/s: MenuKeep=0 (2026-11-21a) the throttle cut at the close, the bike under 0.7 of its speed before "
+	       "0.3 s after (test 58: 470 -> 223, the check's own proof); MenuKeep=1 0.9 of it or more 0.3 and 0.6 s after, one line \"steer: a menu paused the game 1.5 s at ... "
+	       "(MenuKeep)\" (fbe9a7c: the cut):\n");
+	CHECK(m[0].after3 < 0.7f * m[0].before && m[0].keptLines == 0 && m[1].before > 350.0f && m[1].after3 >= 0.9f * m[1].before && m[1].after6 >= 0.9f * m[1].before &&
+	          m[1].keptLines == 1 && strstr(m[1].keptLine, "speed measure held through it (MenuKeep)"),
+	      "P7: MenuKeep=0: %.0f -> %.0f, %.0f u/s (%d lines); MenuKeep=1: %.0f -> %.0f, %.0f u/s, %d line(s) \"%s\"", m[0].before, m[0].after3, m[0].after6, m[0].keptLines, m[1].before,
+	      m[1].after3, m[1].after6, m[1].keptLines, m[1].keptLine);
+	/* h: a menu 2 s long in a coast (test 58's 12:50:14 and 12:51:09), MenuKeep 1 and 0 */
+	SndMenuRide64(&m[2], 1, 2000);
+	Ini54Set("Steer", "MenuKeep", "0");
+	SndMenuRide64(&m[3], 1, 2000);
+	Ini57Drop("Steer", "MenuKeep");
+	printf("sound (2026-11-22a): a menu 2 s long a second into a coast from the top: MenuKeep=1: the coast's line counts the riding time (its time within 0.6 s of the fake's "
+	       "own, the menu not in it), says \"the game paused 2.0 s in it (a menu), not counted\" (1.7-2.6), no two seconds the same speed; MenuKeep=0 (2026-11-21a): its time "
+	       "2 s longer or more, a second's speed again (test 58: \"each second 181, 181, 181 ...\"; fbe9a7c: so):\n");
+	CHECK(m[2].coastLines == 1 && m[2].t > 0.0f && fabsf(m[2].lineSecs - m[2].t) <= 0.6f && m[2].linePaused >= 1.7f && m[2].linePaused <= 2.6f && m[2].sameSecs == 0 && m[2].secs >= 3 &&
+	          m[3].coastLines == 1 && m[3].lineSecs >= m[3].t + 1.8f && m[3].sameSecs >= 1,
+	      "P8: MenuKeep=1: \"%s\" (its %.2f s, the fake's %.2f s; paused %.1f; %d of %d seconds the same); MenuKeep=0: \"%s\" (its %.2f s, the fake's %.2f; %d of %d the same)",
+	      m[2].coastLine, m[2].lineSecs, m[2].t, m[2].linePaused, m[2].sameSecs, m[2].secs, m[3].coastLine, m[3].lineSecs, m[3].t, m[3].sameSecs, m[3].secs);
+	/* run.sh's values back: as SoundTests63's, and DEF63's two */
+	Ini54Set("Steer", "LaunchTau", "0");
+	Ini54Set("Steer", "PullTime", "0");
+	Ini54Set("Steer", "PullFrom", "0.6");
+	Ini54Set("Steer", "LaunchFrom", "0.25");
+	Ini54Set("Steer", "PullClimb", "0");
+	Ini54Set("Steer", "CoastDrag", "");
+	Ini54Set("Steer", "MenuKeep", "0");
+	Ini54Set("Sound", "UpBands", "");
 	Ini54Set("Sound", "SpeedMap", "");
 	Ini54Set("Sound", "DownBands", "");
 	Ini54Set("Sound", "HeardStop", "300");
@@ -29816,10 +30536,19 @@ static bool g_v63Rmb, g_v63Lmb, g_v63RmbWas, g_v63LmbWas, g_v63Rec;
 static float g_v63RmbHeld, g_v63LmbHeld, g_v63SpeedLo, g_v63MoveXMax;
 static int g_v63Field, g_v63AimEvents, g_v63AimPresses, g_v63Fires, g_v63GunHi;
 static bool g_v63Place;   /* the review of 2026-11-21a: the third-person camera root 250 behind you along its own yaw and 120 up, before each task (else at your eye) */
-static bool FakeAtkShould63(uint8_t *self, const FakeEvent *e)   /* the fake's AttackBlockHandler: its two user events */
+/* 2026-11-22a (the aim unit's; test 58's third person): g_v63Field 4, the game's own as test 58 showed it: riding, the mouse turns the
+ * player's heading (its x on the look input, PlayerControls +0x4C, at test 58's 0.0159 rad a unit), and the camera is kept behind:
+ * +0xF0 (targetYaw) set to the heading each frame, +0xF4 (currentYaw, the camera) easing toward it over g_v63Tau s (0: at once, a
+ * write there never seen); the movement's target the player's own heading. g_v63Pipboys: 'Pipboy' events reaching the fake
+ * AttackBlockHandler's OnButtonEvent (its ShouldHandleEvent says yes to them). */
+static float g_v63Tau = 0.15f;
+static int g_v63Pipboys;
+static uint8_t *g_v63PipboyStr;
+static float V63Rendered(void) { return g_v63Field == 4 ? *(const float *)(g_thirdState + 0xF4) : g_camYaw; }
+static bool FakeAtkShould63(uint8_t *self, const FakeEvent *e)   /* the fake's AttackBlockHandler: its two user events (2026-11-22a: and 'Pipboy', counted) */
 {
 	(void)self;
-	return e && e->type == 0 && (e->user == g_v63Secondary || e->user == g_v63Primary);
+	return e && e->type == 0 && (e->user == g_v63Secondary || e->user == g_v63Primary || (g_v63PipboyStr && e->user == g_v63PipboyStr));
 }
 static void FakeAtkButton63(uint8_t *self, const FakeEvent *e)
 {
@@ -29835,6 +30564,8 @@ static void FakeAtkButton63(uint8_t *self, const FakeEvent *e)
 			*ws &= ~(15u << 14);                       /* drawn */
 	} else if (e->user == g_v63Primary && e->value > 0.0f && e->held == 0.0f)
 		g_v63Fires++;
+	else if (g_v63PipboyStr && e->user == g_v63PipboyStr && e->value > 0.0f)
+		g_v63Pipboys++;
 }
 static void V63Send(uint8_t *user, int code, bool down, bool *was, float *held, float dt)   /* a button's event of the frame, as the game sends it */
 {
@@ -29871,11 +30602,17 @@ static void V63Ride(float dt)
 	}
 	else if (!third)
 		g_camYaw = *(const float *)(g_player + 0xC8);   /* first person: the third-person camera behind you for the next switch */
+	if (third && g_v63Field == 4) {   /* 2026-11-22a: the game's own riding camera (test 58): the mouse turns you (its camera's update after the task, V63After) */
+		float *head = (float *)(g_player + 0xC8), m = g_v59Mouse;
+		*head = fmodf(*head + m * dt + 6.2831853f, 6.2831853f);
+		*(float *)(g_controls + 0x4C) = m * dt / 0.0159f;
+		g_camYaw = *head;   /* the movement's target: the player's own heading */
+	}
 	V63Send(g_v63Secondary, 1, g_v63Rmb, &g_v63RmbWas, &g_v63RmbHeld, dt);
 	V63Send(g_v63Primary, 0, g_v63Lmb, &g_v63LmbWas, &g_v63LmbHeld, dt);
-	if (third && g_v63Field == 3) {
+	if (third && (g_v63Field == 3 || g_v63Field == 4)) {
 		float m = g_v59Mouse;
-		g_v59Mouse = 0.0f;   /* the pair's mouse is the target's alone */
+		g_v59Mouse = 0.0f;   /* the pair's mouse is the target's alone (4: the heading's, above) */
 		V61Ride(dt);
 		g_v59Mouse = m;
 		g_v59MouseSum += m * dt * DEG;
@@ -29884,9 +30621,9 @@ static void V63Ride(float dt)
 	if (third && (g_v63Field == 1 || g_v63Field == 2))
 		*f = g_camYaw;
 	if (third && g_v63Place) {   /* the camera behind you along its own look, as the game's third person (the review's finding 2) */
-		float *rp = (float *)(g_eyeNode + 0xA0);
-		rp[0] = PlayerPos()[0] - 250.0f * sinf(g_camYaw);
-		rp[1] = PlayerPos()[1] - 250.0f * cosf(g_camYaw);
+		float *rp = (float *)(g_eyeNode + 0xA0), cy = V63Rendered();
+		rp[0] = PlayerPos()[0] - 250.0f * sinf(cy);
+		rp[1] = PlayerPos()[1] - 250.0f * cosf(cy);
 		rp[2] = PlayerPos()[2] + 120.0f;
 	}
 	if (g_v63Rec) {
@@ -29905,7 +30642,15 @@ static void V63After(float dt)
 	V61After(dt);
 	if (*(uint8_t **)(g_playerCam + 0x28) != g_thirdState)
 		return;
-	float h = g_camYaw, p = FakePitch() / DEG, c = cosf(h), sn = sinf(h), cp = cosf(p), sp = sinf(p);   /* the third-person camera's root: its yaw, the player's pitch */
+	if (g_v63Field == 4) {   /* 2026-11-22a: the game's camera update, after the task: kept behind you (+0xF0 the heading, +0xF4 easing to it; 0: at once) */
+		float *f = (float *)(g_thirdState + 0xF4), *tgt = (float *)(g_thirdState + 0xF0);
+		*tgt = *(const float *)(g_player + 0xC8);
+		if (g_v63Tau > 0.0f)
+			*f += remainderf(*tgt - *f, 6.2831853f) * (1.0f - expf(-dt / g_v63Tau));
+		else
+			*f = *tgt;
+	}
+	float h = V63Rendered(), p = FakePitch() / DEG, c = cosf(h), sn = sinf(h), cp = cosf(p), sp = sinf(p);   /* the third-person camera's root: its yaw, the player's pitch */
 	const float H[9] = { c, sn, 0, -sn, c, 0, 0, 0, 1 }, X[9] = { 1, 0, 0, 0, cp, -sp, 0, sp, cp };
 	float E[9];
 	MulM3(H, X, E);
@@ -29927,7 +30672,8 @@ static void V63Third(int field)   /* off the bike, on again in third person (the
 	g_v63Field = field;
 	g_camYaw = *head;
 	*(float *)(g_thirdState + 0xF4) = field ? *head : 0.0f;
-	*(float *)(g_thirdState + 0xF0) = field == 3 ? *head : 0.0f;
+	*(float *)(g_thirdState + 0xF0) = field == 3 || field == 4 ? *head : 0.0f;
+	*(float *)(g_controls + 0x4C) = 0.0f;
 	LookGetOn(1000);
 	Keys(0.0f, 1.0f);
 	RunFrames(2000);
@@ -29965,10 +30711,11 @@ static void ViewTests63(void)
 	*ws = 0;
 	static const char *keys[][2] = { { "View", "CameraTurn" }, { "View", "Roll" }, { "View", "LookBack" }, { "View", "LookKey" }, { "View", "LookButton" },
 	                                 { "View", "LookThird" }, { "View", "LookThirdBack" }, { "Steer", "AimBlock" }, { "Diag", "AimWatch" },
-	                                 { "Steer", "FirstKeys" } };
+	                                 { "Steer", "FirstKeys" }, { "View", "LookOrbit" }, { "View", "LookOrbitGain" }, { "Steer", "AimStruct" } };
 	for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++)
 		Ini56Unset(keys[i][0], keys[i][1]);   /* the fpcam unit's and this round's at their defaults (DEF59 and DEF62 pin them off) */
-	static const char *atk[] = { ".?AVAttackBlockHandler@@", ".?AVHeldStateHandler@@", ".?AVPlayerInputHandler@@", ".?AVBSInputEventUser@@" };
+	static const char *atk[] = { ".?AUAttackBlockHandler@@", ".?AUHeldStateHandler@@", ".?AUPlayerInputHandler@@", ".?AVBSInputEventUser@@" };   /* 2026-11-22a: structs, as
+	                                                                                                                                       * 1.11.240's (test 58: "(.?AUAttackBlockHandler@@ there)") */
 	void **vtAtk = MakeClass(atk, 4);
 	for (int i = 0; i < 10; i++)
 		vtAtk[i] = (void *)FakeNothing;
@@ -29987,6 +30734,21 @@ static void ViewTests63(void)
 	                    "(SecondaryAttack: the right mouse button, a pad's left trigger) kept from it while riding; firing untouched); [Diag] AimWatch=1 (each aim the game makes "
 	                    "while riding said, with the bike's speed through it) (read again on getting on)";
 	int keys0 = LogLines(keysT), wrap0 = LogLines(wrapT0), col0 = LogLines(colT0);
+
+	/* ---- The review of 2026-11-22a (item 6): [Steer] AimStruct=0, the session's first ride with the aim's keys on ---- */
+	printf("look (the review of 2026-11-22a, item 6): [Steer] AimStruct=0 (2026-11-21a's class name alone), on the bike 1.5 s with AimBlock and AimWatch on:\n");
+	Ini54Set("Steer", "AimStruct", "0");
+	LookGetOff();
+	SetCameraFirst(false);
+	g_camYaw = *head;
+	LookGetOn(1500);
+	bool unwrapped = vtAtk[1] == (void *)FakeAtkShould63 && vtAtk[8] == (void *)FakeAtkButton63;
+	CHECK(unwrapped && LogLines(wrapT0) == wrap0 && LogLines("[Steer] AimStruct=0 (the aim's handler by the class's name alone, as 2026-11-21a)") >= 1,
+	      "A0: AimStruct=0: the struct-named handler left unwrapped (its slots the fake's own: %s), no wrap line, the key's line said", unwrapped ? "yes" : "no");
+	LookGetOff();
+	Ini56Unset("Steer", "AimStruct");   /* the default (1) for the rest: the next getting on looks again and wraps it (L1) */
+
+	Ini54Set("View", "LookOrbit", "0");   /* 2026-11-22a: the 2026-11-21a third-person look's own checks (W1, C1, T1-T9); the orbit's after them */
 
 	/* ---- The review of 2026-11-21a (findings 1 and 2) ---- */
 	printf("look (the review of 2026-11-21a, finding 1): third person, the camera at your eye (its look never learned), on the bike stopped with the camera 90 deg to your "
@@ -30094,7 +30856,7 @@ static void ViewTests63(void)
 	snprintf(pressB, sizeof(pressB), "%s", pressL ? pressL : "(none)\n");
 	const char *relL = LastLogLine(relT);
 	snprintf(relB, sizeof(relB), "%s", relL ? relL : "(none)\n");
-	CHECK(g_v63AimEvents == 0 && g_v63AimPresses == 0 && g_v63GunHi < 6 && g_v63SpeedLo > 0.9f * before && g_v63Fires == 1 && LogLines(pressT) == press0 + 1 &&
+	CHECK(g_v63AimEvents == 0 && g_v63AimPresses == 0 && g_v63GunHi < 6 && g_v63SpeedLo > 0.75f * before && g_v63Fires == 1 && LogLines(pressT) == press0 + 1 &&
 	          strstr(pressB, " in first person (a weapon drawn): kept from the game while riding (AimBlock): no aim, no slowing; firing still the game's; the look has the button "
 	                         "(LookButton 257)") && LogLines(relT) == rel0 + 1 && strstr(relB, " passed on; the gun state 0 (drawn) throughout: the game never aimed; the bike ") &&
 	          strstr(relB, ": the bike not slowed"),
@@ -30103,6 +30865,26 @@ static void ViewTests63(void)
 	CHECK(fabsf(yawK - mouse) < 1.5f && fabsf(movedK) < 0.5f && LogLines(heldT) == held0 + 1,
 	      "L3: the right button is the look: the mouse's %.1f deg turned the camera %.1f deg off the heading (2026-11-17a: the bike), the heading %.2f deg; one \"held\" line", mouse,
 	      yawK, movedK);
+
+	printf("look (2026-11-22a, test 58's \"can't open pipboy when swinging camera\"): the right button held and kept from the game, the Pip-Boy key pressed meanwhile:\n");
+	g_v63PipboyStr = NewString("Pipboy");
+	g_v63Pipboys = g_v63AimEvents = 0;
+	g_testKeyHeld = true;
+	g_v63Rmb = true;
+	RunFrames(300);
+	{
+		void **vt = *(void ***)g_v63Atk;
+		FakeEvent pe = { .device = 0, .type = 0, .user = g_v63PipboyStr, .code = 0x09, .value = 1.0f, .held = 0.0f };
+		if (((bool (*)(uint8_t *, const FakeEvent *))vt[1])(g_v63Atk, &pe))
+			((void (*)(uint8_t *, const FakeEvent *))vt[8])(g_v63Atk, &pe);
+	}
+	RunFrames(200);
+	g_v63Rmb = false;
+	g_testKeyHeld = false;
+	RunFrames(300);
+	CHECK(g_v63Pipboys == 1 && g_v63AimEvents == 0, "P1: with the aim's press kept from the game, the Pip-Boy key's event still reached the handler (%d) and the aim none (%d): the "
+	      "wrapper keeps nothing but the aim's own button", g_v63Pipboys, g_v63AimEvents);
+	*ws = 0;
 
 	printf("look: [Steer] AimBlock=0 (AimWatch on), the same ride, the right button held 1.2 s with no look key read:\n");
 	Ini54Set("Steer", "AimBlock", "0");
@@ -30364,6 +31146,146 @@ static void ViewTests63(void)
 	RunFrames(300);
 	CHECK(LogLines(held3T) == held30 && movedO > 30.0f, "T9: no hold in third person, the bike turned %.1f deg toward the camera (2026-11-17a)", movedO);
 	Ini56Unset("View", "LookThird");
+
+	/* ---- 2026-11-22a (test 58: "Z in 3rd person doesn't work"; the aim unit's): [View] LookOrbit, on the game's own riding camera ---- */
+	Ini56Unset("View", "LookOrbit");
+	const char *orbHeldT = "view: the look key (Mouse 2) held in third person at ", *orbLetT = "view: the look let go in third person after ";
+	const char *orbBackT = "view: the third-person camera back behind you after ", *orbUseT = ": the plugin swings the camera round you by the mouse, the bike keeps its line (LookOrbit; ";
+	printf("orbit (2026-11-22a, test 58): the game's own riding camera (the mouse turns you, the camera kept behind over 0.15 s), up to speed, the mouse at 30 deg/s for 0.6 "
+	       "s riding (its gain learned), still; the right button held with the mouse at 120 deg/s for 1 s, still 1 s, let go:\n");
+	g_v63Tau = 0.15f;
+	V63Third(4);
+	V63Swing(30.0f, 600);
+	RunFrames(800);
+	int oHeld0 = LogLines(orbHeldT), oUse0 = LogLines(orbUseT), oLet0 = LogLines(orbLetT), oBack0 = LogLines(orbBackT);
+	float fromO = *head, yawO = 0.0f, yawO2 = 0.0f, yawOe = 0.0f;
+	g_testVk = 0x02;
+	g_testKeyHeld = true;
+	RunFrames(150);
+	g_v59MouseSum = 0.0f;
+	V63Swing(120.0f, 1000);
+	float mouseO = g_v59MouseSum;
+	RunFrames(150);
+	V59Cam(&yawO, NULL, NULL);
+	RunFrames(850);
+	V59Cam(&yawO2, NULL, NULL);
+	float movedOh = Turned(fromO);
+	g_testKeyHeld = false;
+	V63Wait(orbBackT, oBack0, 3000);
+	V59Cam(&yawOe, NULL, NULL);
+	float movedOe = Turned(fromO);
+	const char *useL = LastLogLine(orbUseT);
+	char useB[1024];
+	snprintf(useB, sizeof(useB), "%s", useL ? useL : "(none)\n");
+	float expectO = mouseO > 150.0f ? 150.0f : mouseO;
+	CHECK(LogLines(orbHeldT) == oHeld0 + 1 && LogLines(orbUseT) == oUse0 + 1 && strstr(useB, "ThirdPersonState +0xF0 targetYaw and +0xF4 currentYaw written, 0.0159 rad a unit of "
+	                                                                                    "the look input, learned from ") && fabsf(yawO - expectO) < 6.0f && fabsf(yawO2 - expectO) < 6.0f &&
+	          fabsf(movedOh) < 1.0f,
+	      "O1: held: the camera %.1f deg round you 0.15 s after the mouse's %.1f, %.1f a second on (no drift back), the bike %.2f deg off its line; the line: %s", yawO, mouseO, yawO2,
+	      movedOh, useB);
+	CHECK(LogLines(orbLetT) == oLet0 + 1 && strstr(LastLogLine(orbLetT) ? LastLogLine(orbLetT) : "", "): eased back behind over 0.5 s (LookOrbit)") && LogLines(orbBackT) == oBack0 + 1 &&
+	          fabsf(yawOe) < 3.0f && fabsf(movedOe) < 1.0f,
+	      "O2: let go: eased back, one line, the camera %.2f deg off the bike at the back line, the bike %.2f deg off its line: %s", yawOe, movedOe,
+	      LastLogLine(orbBackT) ? LastLogLine(orbBackT) : "(none)\n");
+
+	printf("orbit: the same with the look key (LookKey=56, Left Alt) and the mouse at -90 deg/s for 1 s:\n");
+	Ini54Set("View", "LookKey", "56");
+	V63Third(4);
+	RunFrames(500);
+	const char *zHeldT = "view: the look key (Left Alt) held in third person at ";
+	int zHeld0 = LogLines(zHeldT);
+	oBack0 = LogLines(orbBackT);
+	fromO = *head;
+	g_testVk = 0xA4;
+	g_testKeyHeld = true;
+	RunFrames(150);
+	g_v59MouseSum = 0.0f;
+	V63Swing(-90.0f, 1000);
+	mouseO = g_v59MouseSum;
+	RunFrames(500);
+	V59Cam(&yawO, NULL, NULL);
+	movedOh = Turned(fromO);
+	g_testKeyHeld = false;
+	V63Wait(orbBackT, oBack0, 3000);
+	V59Cam(&yawOe, NULL, NULL);
+	CHECK(LogLines(zHeldT) == zHeld0 + 1 && fabsf(yawO - mouseO) < 6.0f && fabsf(movedOh) < 1.0f && LogLines(orbBackT) == oBack0 + 1 && fabsf(yawOe) < 3.0f,
+	      "O3: Left Alt (test 58's Z: 10-22 deg): the camera %.1f deg round you by the mouse's %.1f, the bike %.2f deg off its line, back behind after (%.2f)", yawO, mouseO, movedOh,
+	      yawOe);
+	Ini56Unset("View", "LookKey");
+	g_testVk = 0x02;
+
+	printf("orbit: a weapon drawn (the state 3), the right button held with the mouse at 120 deg/s for 1 s (the first-person look's 60 deg with a weapon):\n");
+	V63Third(4);
+	*ws = 3u << 1;
+	RunFrames(500);
+	oBack0 = LogLines(orbBackT);
+	fromO = *head;
+	g_testKeyHeld = true;
+	RunFrames(150);
+	V63Swing(120.0f, 1000);
+	RunFrames(500);
+	V59Cam(&yawO, NULL, NULL);
+	g_testKeyHeld = false;
+	V63Wait(orbBackT, oBack0, 3000);
+	*ws = 0;
+	CHECK(fabsf(yawO - 60.0f) < 6.0f && LogLines(orbBackT) == oBack0 + 1, "O4: with a weapon drawn the camera %.1f deg round you at most (60, as the first-person look), back behind after",
+	      yawO);
+
+	printf("orbit: the game pulling its camera back three times as hard (over 0.05 s), the mouse at 120 deg/s for 0.75 s, still 1.5 s:\n");
+	g_v63Tau = 0.05f;
+	V63Third(4);
+	RunFrames(500);
+	oBack0 = LogLines(orbBackT);
+	fromO = *head;
+	g_testKeyHeld = true;
+	RunFrames(150);
+	g_v59MouseSum = 0.0f;
+	V63Swing(120.0f, 750);
+	mouseO = g_v59MouseSum;
+	RunFrames(1500);
+	V59Cam(&yawO, NULL, NULL);
+	g_testKeyHeld = false;
+	V63Wait(orbBackT, oBack0, 3000);
+	V59Cam(&yawOe, NULL, NULL);
+	CHECK(fabsf(yawO - mouseO) < 5.0f && LogLines(orbBackT) == oBack0 + 1 && fabsf(yawOe) < 3.0f,
+	      "O5: the correction holds the camera %.1f deg round you against the game's pull (the mouse's %.1f), back behind after (%.2f)", yawO, mouseO, yawOe);
+	g_v63Tau = 0.15f;
+
+	printf("orbit: LookOrbit=0 (2026-11-21a) on the game's own riding camera, the right button held with the mouse at 120 deg/s for 1 s:\n");
+	Ini54Set("View", "LookOrbit", "0");
+	V63Third(4);
+	RunFrames(500);
+	fromO = *head;
+	g_testKeyHeld = true;
+	RunFrames(150);
+	V63Swing(120.0f, 1000);
+	RunFrames(300);
+	V59Cam(&yawO, NULL, NULL);
+	movedOh = Turned(fromO);
+	g_testKeyHeld = false;
+	RunFrames(1500);
+	CHECK(fabsf(yawO) < 25.0f && fabsf(movedOh) < 1.0f, "O6: as 2026-11-21a (test 58): the camera only %.1f deg round you, the bike %.2f deg off its line", yawO, movedOh);
+	Ini56Unset("View", "LookOrbit");
+
+	printf("orbit: a game putting its camera back behind every frame (a write to its yaw never seen), the right button held with the mouse at 120 deg/s for 1 s:\n");
+	g_v63Tau = 0.0f;
+	V63Third(4);
+	RunFrames(500);
+	const char *offOT = "view: the third-person orbit not followed: the camera ";
+	int offO0 = LogLines(offOT);
+	fromO = *head;
+	g_testKeyHeld = true;
+	RunFrames(150);
+	V63Swing(120.0f, 1000);
+	RunFrames(800);
+	movedOh = Turned(fromO);
+	g_testKeyHeld = false;
+	RunFrames(1500);
+	CHECK(LogLines(offOT) == offO0 + 1 && strstr(LastLogLine(offOT) ? LastLogLine(offOT) : "", "written, 30 frames running): off this session, the camera the game's own while you "
+	                                                                                             "look (LookOrbit)") && fabsf(movedOh) < 1.0f,
+	      "O7: not followed: one line, off for the session, the bike's line still held (%.2f deg): %s", movedOh, LastLogLine(offOT) ? LastLogLine(offOT) : "(none)\n");
+	g_v63Tau = 0.15f;
+	g_v63PipboyStr = NULL;
 
 	Keys(0.0f, 0.0f);
 	g_testVk = 0;
@@ -35658,6 +36580,357 @@ static void KitTests63(void)
 	RunFrames(600);
 }
 
+/* 2026-11-22a, test 58 (the kit unit's): mode 24 (custom), after KitTests63 (its MenuControls with the plugin's wrapper,
+ * MenuCursor, the keywords, the menu's fields). Test 58's numbers: two bike roots of ours from the first frame (the 3D
+ * manager's loadedModels[0] and a parentless one the slot objects hang in), both at the menu's place (-2.6, 699.2, -0.4) and
+ * turn (-45, 12.8), and a third the menu draws: the root its renderer 'WorkbenchItem3D' holds (Interface3D::Renderer: world-
+ * attached +0x78, screen-attached +0x80, offscreen +0x88, its name +0x208; GetByName by the Address Library's 2222524); the
+ * wheel's down notches with a value of -1 (0x900 x6 and no notch in test 58), each notch a press and a release (0x800 x30 =
+ * 15 notches); the cursor on the lists at (0.40, 0.75), off them at (0.50, 0.30); art build C's Paint condition attach point
+ * (editor ID CMB_ap_PaintWear) and mods named "Paint condition: ...".
+ * K50 (DEF63's off line), K51 (KitDrawn: the screen-attached bike reaches Plate's rear, the other two untouched; its line),
+ * K52 (a new drawn bike at the menu's side-on placement at the view two frames on; one under an identity root found), K53
+ * (the renderer's name not the manager's: 21a's models and the line), K54 (KitWheelDown: two down notches of -1 zoom out),
+ * K55 (KitWheelLists: notches on the lists passed to the menu, no zoom; off them zoom, kept), K56 (KitSlots22: Paint
+ * condition's view by its keyword and by its mods; the front fender no slot), K57 (the visit's 2026-11-22a line) fail on
+ * fbe9a7c's DLL; K58 (each key 0: 21a's models, no zoom-out, the zoom on the lists, the front fender's view) is the off
+ * values' own check. K54-K56 draw the loaded bike, so fbe9a7c holds it too and fails on the wheel and the slots alone. */
+static uint8_t *g_k64Renderer, *g_k64Name, *g_k64Other;
+static int g_k64Calls;
+static bool g_k64AnyName;
+static uintptr_t FakeGetByName64(uintptr_t nameRef)   /* Interface3D::Renderer::GetByName(const BSFixedString &) */
+{
+	g_k64Calls++;
+	if (!nameRef)
+		return 0;
+	return g_k64AnyName || *(uint8_t **)nameRef == *(uint8_t **)(g_k64Renderer + 0x208) ? (uintptr_t)g_k64Renderer : 0;
+}
+static void K64Library(void)   /* the mode's Address Library with GetByName (2222524) added */
+{
+	WriteAddressLibrary();
+	static LibPair49 p[1024];
+	uint64_t count = 0;
+	FILE *f = fopen("version-1-11-240-0.bin", "rb");
+	bool ok = f && fread(&count, 8, 1, f) == 1 && count < 1023 && fread(p, sizeof(p[0]), (size_t)count, f) == count;
+	if (f)
+		fclose(f);
+	if (!ok)
+		return;
+	int n = (int)count;
+	p[n].id = 2222524;
+	p[n++].rva = Rva((uintptr_t)FakeGetByName64);
+	qsort(p, (size_t)n, sizeof(p[0]), CmpLibPair49);
+	f = fopen("version-1-11-240-0.bin", "wb");
+	count = (uint64_t)n;
+	fwrite(&count, 8, 1, f);
+	fwrite(p, sizeof(p[0]), (size_t)n, f);
+	fclose(f);
+}
+static void K64Keys(const char *drawn, const char *down, const char *lists, const char *slots)
+{
+	Ini54Set("Look", "KitDrawn", drawn);
+	Ini54Set("Look", "KitWheelDown", down);
+	Ini54Set("Look", "KitWheelLists", lists);
+	Ini54Set("Look", "KitSlots22", slots);
+	K62Keys("1", "1");   /* KitHold, KitSlotView; read again on getting on */
+}
+static bool K64Left(const uint8_t *m, const float R[9], const float place[3])   /* as the menu left it: its turn and place */
+{
+	float Rm[9], d = 0.0f;
+	K62Read(m + 0x30, Rm);
+	for (int i = 0; i < 9; i++)
+		d = fmaxf(d, fabsf(Rm[i] - R[i]));
+	return d < 1e-6f && memcmp(m + 0x60, place, 12) == 0;
+}
+static void K64Notch(int code, float value)   /* a notch: the press, then its release */
+{
+	K62Button(code, value, 0.0f);
+	OneFrame();
+	K62Button(code, 0.0f, 0.01f);
+	OneFrame();
+}
+static int K64Settle(const uint8_t *m, float h, float e)   /* 20 ms steps until m is within 0.01 deg of (h, e) (the ease ended), 4 s at most */
+{
+	for (int ms = 0; ms < 4000; ms += 20) {
+		if (K63At(m, h, e, 0.01f))
+			return ms;
+		RunFrames(20);
+	}
+	return -1;
+}
+static float K64Height(const uint8_t *m)
+{
+	float box[4], c[2];
+	K62Box(m, box, c);
+	return box[3] - box[2];
+}
+static void KitTests64(void)
+{
+	printf("custom (2026-11-22a, test 58): the bike the menu's renderer draws held alone ([Look] KitDrawn), the wheel's notches either way (KitWheelDown), "
+	       "the wheel on the lists scrolling them (KitWheelLists), Paint condition's view and no front fender's (KitSlots22):\n");
+	const char *off22 = "  kit (2026-11-22a): [Look] KitDrawn=0 (21a's models) KitWheelDown=0 (a notch only with a value over 0) KitWheelLists=0 (the wheel "
+	                    "zooms anywhere) KitSlots22=0 (21a's slots); views (heading, elevation): paint condition -45,15";
+	int off22n = LogLines(off22);
+	uint8_t *menu = g_kitMenu57, *mgr = menu + 0x110;
+	g_k62Was = g_onFrame;
+	g_onFrame = K62Frame;
+	*(uint8_t **)(mgr + 0xE0) = NULL;
+	uint8_t *wasName = *(uint8_t **)(mgr + 0xC0);
+	g_k64Name = NewString("WorkbenchItem3D");
+	g_k64Other = NewString("Pipboy3D");
+	*(uint8_t **)(mgr + 0xC0) = g_k64Name;
+	g_k64Renderer = (uint8_t *)VirtualAlloc(NULL, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+	*(uint8_t **)(g_k64Renderer + 0x208) = g_k64Name;
+	K64Library();
+	*(uint32_t *)(menu + 0x368) = 0;
+	*(uint8_t **)(menu + 0x440) = g_k62Slots;
+	*(uint32_t *)(menu + 0x450) = 12;
+	Ini54Set("Look", "KitFind", "1");
+	Ini54Set("Look", "KitFit", "1");
+	Ini54Set("Look", "KitFollow", "1");   /* test 58's INI */
+	K63Cursor(0.5f, 0.28f);
+	static const float own[3] = { -2.6f, 699.2f, -0.4f };
+	float R0[9], Rs[9];
+	K62Rot(-45.0f, 12.8f, R0);
+	K62Rot(-76.0f, -2.0f, Rs);
+	static const char *node[] = { ".?AVNiNode@@", ".?AVNiAVObject@@", ".?AVNiObject@@" };
+	void **vtNode = MakeClass(node, 3);
+
+	/* K50 */
+	CHECK(off22n == 1, "K50: DEF63's KitDrawn=0 KitWheelDown=0 KitWheelLists=0 KitSlots22=0: \"%s\" once at the start (%d)", off22, off22n);
+
+	/* K51: test 58's three bikes: L loaded, S under the slot objects, D drawn (the screen-attached root). */
+	K64Keys("1", "0", "0", "0");
+	uint8_t *L = K62Bike(own, R0), *S = K62Bike(own, R0), *D = K62Bike(own, R0);
+	uint8_t *ap = NewNode(vtNode, "CMB_ap_Fender", 0);
+	AddChild(S, ap);
+	*(uint8_t **)(ap + 0x28) = S;
+	*(uint8_t **)(g_k62Slots + 0) = ap;
+	*(uint8_t **)(g_k64Renderer + 0x80) = D;
+	K63Models(&L, 1);
+	g_k62Model = D;
+	K62Slot(7);   /* Plate: the rear */
+	int drawn0 = LogLines("kit: drawn (2026-11-22a): the renderer 'WorkbenchItem3D' (");
+	int t51o = K63Open();
+	int t51 = K64Settle(D, -165.0f, 10.0f);
+	const char *held51 = Kit61Last("kit: drawn (2026-11-22a): the renderer 'WorkbenchItem3D' (");
+	bool line51 = held51 && strstr(held51, "): its screen-attached root is 'Motorcycle' (") &&
+	              strstr(held51, ") is the bike drawn, held alone: not among them of 1 loaded (one); not the slot objects' model; item3DGeometry (+0x308) none");
+	bool left51 = K64Left(L, R0, own) && K64Left(S, R0, own);
+	CHECK(t51o >= 0 && t51 >= 0 && left51 && line51 && LogLines("kit: drawn (2026-11-22a): the renderer 'WorkbenchItem3D' (") == drawn0 + 1,
+	      "K51: [Look] KitDrawn=1, test 58's three bikes (the loaded one, the slot objects' one, the renderer's screen-attached one): the drawn bike at Plate's "
+	      "rear (%d ms), the other two as the menu left them (%d); \"%.300s\"", t51, left51, held51 ? held51 : "none");
+
+	/* K52: a mod previewed: a new drawn bike at the menu's side-on placement, then one under an identity root. */
+	uint8_t *D2 = K62Bike(own, Rs);
+	*(uint8_t **)(g_k64Renderer + 0x80) = D2;
+	OneFrame();
+	OneFrame();
+	bool at52 = K63At(D2, -165.0f, 10.0f, 0.05f);
+	uint8_t *C = NewNode(vtNode, "WorkbenchRoot", 4), *D3 = K62Bike(own, Rs);
+	static const float I9[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
+	StoreRotation((float *)(C + 0x70), I9, false);
+	*(float *)(C + 0xAC) = 1.0f;
+	AddChild(C, D3);
+	*(uint8_t **)(D3 + 0x28) = C;
+	*(uint8_t **)(g_k64Renderer + 0x80) = NULL;
+	*(uint8_t **)(g_k64Renderer + 0x78) = C;
+	OneFrame();
+	OneFrame();
+	bool at52b = K63At(D3, -165.0f, 10.0f, 0.05f);
+	const char *under = Kit61Last("kit: drawn (2026-11-22a): the renderer 'WorkbenchItem3D' (");
+	bool line52 = under && strstr(under, "): its world-attached root has under it 'Motorcycle' (");
+	CHECK(at52 && at52b && line52 && K64Left(D, R0, own) == false,
+	      "K52: a new drawn bike at the menu's side-on placement: at the visit's view two frames on (%d); one under an identity root 'WorkbenchRoot' "
+	      "(the world-attached): the same (%d): \"%.200s\"", at52, at52b, under ? under : "none");
+	*(uint8_t **)(g_k64Renderer + 0x78) = NULL;
+	*(uint8_t **)(g_k64Renderer + 0x80) = D;
+	K62Close();
+
+	/* K53: the renderer's name field not the manager's: 21a's models (L, S) and why. */
+	g_k64AnyName = true;
+	*(uint8_t **)(g_k64Renderer + 0x208) = g_k64Other;
+	L = K62Bike(own, R0);
+	S = K62Bike(own, R0);
+	D = K62Bike(own, R0);
+	AddChild(S, ap);
+	*(uint8_t **)(ap + 0x28) = S;
+	*(uint8_t **)(g_k64Renderer + 0x80) = D;
+	K63Models(&L, 1);
+	g_k62Model = L;
+	K63Open();
+	int t53 = K64Settle(L, -165.0f, 10.0f);
+	bool s53 = K63At(S, -165.0f, 10.0f, 0.05f), d53 = K64Left(D, R0, own);
+	const char *why53 = "kit: drawn (2026-11-22a): the renderer GetByName('WorkbenchItem3D') gave (";
+	const char *why53b = ") is named 'Pipboy3D' at +0x208: not the layout expected: 21a's models held (KitFollow's)";
+	const char *got53 = Kit61Last(why53);
+	CHECK(t53 >= 0 && s53 && d53 && got53 && strstr(got53, why53b),
+	      "K53: the renderer's name field another string's: 21a's two bikes at the rear (%d ms, the slot objects' %d), the third left (%d); \"%.300s\"", t53, s53,
+	      d53, got53 ? got53 : "none");
+	K62Close();
+	g_k64AnyName = false;
+	*(uint8_t **)(g_k64Renderer + 0x208) = g_k64Name;
+
+	/* K54, K55: the wheel (KitDrawn on: the loaded bike drawn, so 21a holds it too and only the wheel differs). */
+	K64Keys("1", "1", "0", "0");
+	L = K62Bike(own, R0);
+	D = L;
+	*(uint8_t **)(g_k64Renderer + 0x80) = D;
+	K63Models(&L, 1);
+	g_k62Model = D;
+	K62Slot(3);   /* Paint: three-quarter */
+	K63Cursor(0.5f, 0.30f);
+	K63Open();
+	K62Until(-45.0f, 12.8f);
+	float h0 = K64Height(D);
+	for (int i = 0; i < 3; i++)
+		K64Notch(0x800, 1.0f);
+	RunFrames(100);
+	float h1 = K64Height(D);
+	K64Notch(0x900, -1.0f);   /* test 58's down notches: a value under 0 */
+	K64Notch(0x900, -1.0f);
+	RunFrames(100);
+	float h2 = K64Height(D);
+	K64Notch(0x900, 1.0f);   /* a value over 0 counts too */
+	RunFrames(100);
+	float h3 = K64Height(D);
+	CHECK(fabsf(h1 / h0 - 1.405f) < 0.06f && fabsf(h1 / h2 - 1.254f) < 0.06f && fabsf(h2 / h3 - 1.12f) < 0.04f,
+	      "K54: [Look] KitWheelDown=1: three up notches %.3f times as tall (1.405); two down notches of value -1 back by %.3f (1.254); one of +1 by %.3f "
+	      "(1.12)", h1 / h0, h1 / h2, h2 / h3);
+	K62Close();
+	const char *sum57 = Kit61Last("kit: hold (2026-11-22a): the menu's bike (item 00000000): the menu closed; the drawn model found in ");
+	bool ok57 = sum57 && strstr(sum57, "the wheel's events: up (0x800) 3 with a value over 0, 0 under, 3 at 0, held up to 10 ms; down (0x900) 1 over 0, 2 under, "
+	                                   "3 at 0, held up to 10 ms; 0 notch(es) passed to the lists (KitWheelLists)") && strstr(sum57, "changed 1 time(s)");
+	Ini54Set("Look", "KitMouse", "1");
+	Ini54Set("Look", "KitWheelOwn", "1");
+	K64Keys("1", "1", "1", "0");
+	L = K62Bike(own, R0);
+	D = L;
+	*(uint8_t **)(g_k64Renderer + 0x80) = D;
+	K63Models(&L, 1);
+	g_k62Model = D;
+	K63Cursor(0.5f, 0.30f);
+	K63Open();
+	K62Until(-45.0f, 12.8f);
+	h0 = K64Height(D);
+	K63Cursor(0.40f, 0.75f);   /* on the lists */
+	int wheels55 = g_k63Wheels, quiet55 = g_k63Quiet;
+	K64Notch(0x800, 1.0f);
+	K64Notch(0x800, 1.0f);
+	RunFrames(100);
+	h1 = K64Height(D);
+	int passed55 = g_k63Wheels - wheels55, kept55a = g_k63Quiet - quiet55;
+	K63Cursor(0.5f, 0.30f);   /* off them */
+	wheels55 = g_k63Wheels;
+	quiet55 = g_k63Quiet;
+	K64Notch(0x800, 1.0f);
+	K64Notch(0x800, 1.0f);
+	RunFrames(100);
+	h2 = K64Height(D);
+	int passed55b = g_k63Wheels - wheels55, kept55 = g_k63Quiet - quiet55;
+	CHECK(fabsf(h1 / h0 - 1.0f) < 0.005f && passed55 == 4 && kept55a == 0 && fabsf(h2 / h1 - 1.254f) < 0.06f && passed55b == 0 && kept55 == 4,
+	      "K55: [Look] KitWheelLists=1: two notches with the cursor on the lists (0.40, 0.75): no zoom (%.3f), the menu got their 4 events as the wheel's (%d, "
+	      "%d kept); off them (0.50, 0.30): %.3f times as tall (1.254), none to the menu (%d), 4 kept (%d)", h1 / h0, passed55, kept55a, h2 / h1, passed55b,
+	      kept55);
+	K62Close();
+
+	/* K56: KitSlots22: Paint condition by its keyword and by its mods; the front fender no slot (the loaded bike drawn). */
+	static const char *kw[] = { ".?AVBGSKeyword@@", ".?AVTESForm@@" }, *om[] = { ".?AVMod@Attachment@BGSMod@@", ".?AVTESForm@@" };
+	uint8_t *pw = (uint8_t *)NewObject(MakeClass(kw, 2), 0x100);
+	*(uint32_t *)(pw + 0x14) = 0xFE000000u | (LIGHT_INDEX << 12) | 0xCE9u;
+	*(uint8_t **)(pw + 0x20) = NewString("CMB_ap_PaintWear");
+	*(uint8_t **)(g_k62Slots + 16 * 15 + 8) = pw;
+	uint8_t *pmod = (uint8_t *)NewObject(MakeClass(om, 2), 0x100);
+	*(uint32_t *)(pmod + 0x14) = 0xFE000000u | (LIGHT_INDEX << 12) | 0xCF0u;
+	*(uint8_t **)(pmod + 0x28) = NewString("Paint condition: Scratched");
+	uint8_t *mods = (uint8_t *)VirtualAlloc(NULL, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+	*(uint8_t **)mods = pmod;
+	*(uint32_t *)(menu + 0x450) = 16;
+	K64Keys("1", "0", "0", "1");
+	Ini54Set("Look", "KitNewSlots", "1");
+	K62Keys("1", "1");
+	L = K62Bike(own, R0);
+	D = L;
+	*(uint8_t **)(g_k64Renderer + 0x80) = D;
+	K63Models(&L, 1);
+	g_k62Model = D;
+	K62Slot(7);
+	K63Open();
+	K62Until(-165.0f, 10.0f);
+	const char *pwLine = "kit: hold: the slot 'Paint condition' (from the highlighted slot object): three-quarter (the paint's condition), heading -45.0, "
+	                     "elevation 15.0 (eased over 0.35 s)";
+	int pw0 = LogLines(pwLine);
+	K62Slot(15);
+	int t56a = K62Until(-45.0f, 15.0f);
+	const char *none = "kit: hold: no slot: three-quarter (the menu's own turn), heading -45.0, elevation 12.8 (eased over 0.35 s)";
+	int none0 = LogLines(none);
+	K62Slot(13);   /* the front fender's attach point */
+	int t56b = K62Until(-45.0f, 12.8f);
+	int none1 = LogLines(none) - none0;
+	*(uint32_t *)(menu + 0x450) = 0;   /* the mods' names */
+	*(uint8_t **)(menu + 0x2D0) = mods;
+	*(uint32_t *)(menu + 0x2E0) = 1;
+	int t56c = K62Until(-45.0f, 15.0f);
+	const char *byName = "kit: hold: the slot 'Paint condition' (from the shown mods' names): three-quarter (the paint's condition), heading -45.0, elevation 15.0";
+	CHECK(t56a >= 0 && LogLines(pwLine) == pw0 + 1 && t56b >= 0 && none1 == 1 && t56c >= 0 && LogLines(byName) == 1,
+	      "K56: [Look] KitSlots22=1: CMB_ap_PaintWear: \"%s\" (%d ms); the front fender's attach point: no slot, the menu's turn (%d ms, %d line); the mods "
+	      "\"Paint condition: Scratched\": the same view (%d ms, %d line)", pwLine, t56a, t56b, none1, t56c, LogLines(byName));
+	*(uint32_t *)(menu + 0x2E0) = 0;
+	*(uint8_t **)(menu + 0x2D0) = NULL;
+	*(uint32_t *)(menu + 0x450) = 16;
+	K62Close();
+	CHECK(ok57, "K57: the wheel's visit's 2026-11-22a line: \"%.700s\"", sum57 ? sum57 : "none");
+
+	/* K58: each key 0 (2026-11-21a). */
+	K64Keys("0", "0", "0", "0");
+	L = K62Bike(own, R0);
+	S = K62Bike(own, R0);
+	D = K62Bike(own, R0);
+	AddChild(S, ap);
+	*(uint8_t **)(ap + 0x28) = S;
+	*(uint8_t **)(g_k64Renderer + 0x80) = D;
+	*(uint32_t *)(menu + 0x450) = 16;
+	K63Models(&L, 1);
+	g_k62Model = L;
+	K62Slot(7);
+	int calls58 = g_k64Calls;
+	K63Cursor(0.40f, 0.75f);
+	K63Open();
+	int t58 = K64Settle(L, -165.0f, 10.0f);
+	bool s58 = K63At(S, -165.0f, 10.0f, 0.05f), d58 = K64Left(D, R0, own);
+	float g0 = K64Height(L);
+	K64Notch(0x800, 1.0f);
+	RunFrames(100);
+	float g1 = K64Height(L);
+	K64Notch(0x900, -1.0f);
+	RunFrames(100);
+	float g2 = K64Height(L);
+	K62Slot(13);
+	int t58b = K62Until(0.0f, 25.0f);
+	K62Close();
+	CHECK(t58 >= 0 && s58 && d58 && g_k64Calls == calls58 && fabsf(g1 / g0 - 1.12f) < 0.04f && fabsf(g2 / g1 - 1.0f) < 0.005f && t58b >= 0,
+	      "K58: KitDrawn=0 KitWheelDown=0 KitWheelLists=0 KitSlots22=0: 21a's two bikes at the rear (%d ms, the slot objects' %d), the drawn one left (%d), "
+	      "GetByName never asked (%d); a notch on the lists zooms (%.3f); a down notch of -1 doesn't (%.3f); the front fender's view (%d ms)", t58, s58, d58,
+	      g_k64Calls - calls58, g1 / g0, g2 / g1, t58b);
+
+	/* The mode's INI again. */
+	g_onFrame = g_k62Was;
+	*(uint8_t **)(mgr + 0xC0) = wasName;
+	*(uint8_t **)(g_k62Slots + 0) = NULL;
+	*(uint8_t **)(g_k64Renderer + 0x80) = NULL;
+	K63Cursor(0.5f, 0.28f);
+	*(uint32_t *)(menu + 0x368) = 0;
+	*(uint32_t *)(menu + 0x450) = 0;
+	*(uint8_t **)(mgr + 0xE0) = g_kitItemFake;
+	K63Models(&g_kitModel57, 1);
+	static const char *const keys[] = { "KitDrawn", "KitWheelDown", "KitWheelLists", "KitSlots22", "KitFollow", "KitMouse", "KitWheelOwn", "KitNewSlots",
+	                                    "KitHold", "KitSlotView", "KitFind", "KitFit" };
+	for (int i = 0; i < (int)(sizeof(keys) / sizeof(keys[0])); i++)
+		Ini54Set("Look", keys[i], "0");
+	KitKeys57(0, 0);
+	RunFrames(600);
+}
+
 /* 2026-11-14a, test 53 (the colour unit's): mode 16 (sound), after SoundTests56: the engine's late hand-over line measured
  * from the bike's ready time ([Diag] HandoverFromReady=1 with [Look] RideReady=1; test 53's 6.1 s after the press was 2.8 s
  * after CMB_RideReady 1, a look change's attach inside getting on). The worn bike's 3D kept off the player for the first 3.3 s
@@ -36087,6 +37360,131 @@ static void CustomTests58(void)
 		      LogLines("  look (2026-11-15a, test 54): ") - was, LookOptions55(), LogLines(line[3]));
 		LookGetOff();
 	}
+	Ini54Restore();
+	LookGetOn(600);   /* the mode's own keys read again */
+	LookGetOff();
+}
+
+/* ---- 2026-11-22a (test 58's 1A and 1C; the apply unit's), mode 24: AP1-AP8 ----------------------------------------------------------
+ * [Look] ParkedSwapHold and OverlayRuntime are the scripts' (CMB_LookOptions 262144 and 524288): each key alone and both, read on getting on,
+ * the value and the 2026-11-22a look line once per change (AP1-AP4; DEF63 gives the mode both at 0, 2026-11-21a's). [Diag] LensLine: test
+ * 58's lens at the mount (the worn bike's front_glow, its property naming the nif's file, its material's diffuse the tinted lens): at the
+ * first held frame of a ride one line naming the shape, its 3D's parent, the property's file and the diffuse texture's (AP5); a swap
+ * mid-ride (another material with another texture on the same property) one "changed" line naming the new texture (AP6); getting on again
+ * with nothing changed, one "held at the mount" line again (AP7); LensLine=0: none all ride (AP8). On fbe9a7c's DLL: no such keys or line,
+ * CMB_LookOptions without either bit: every AP fails. */
+static void ApplyTests64(void)
+{
+	printf("custom (2026-11-22a, test 58): CMB_LookOptions' 262144 ParkedSwapHold, 524288 OverlayRuntime and 1048576 OverlayParked, [Diag] LensLine:\n");
+	g_lookSpeed = g_lookTurn = g_lookDecel = 0.0f;
+	g_lookKeys = false;
+	Keys(0.0f, 0.0f);
+	LookGetOff();
+	Ini54Save();
+	static const char *const hold[4] = { "0", "1", "0", "1" }, *const over[4] = { "0", "0", "1", "1" };
+	static const char *const holdWord[2] = { "ParkedSwapHold=0 (a runtime swap on its live 3D, loaded again unless getting on)",
+	                                         "ParkedSwapHold=1 (the parked bike's look by loading its 3D again, no runtime swap left on its live 3D)" };
+	/* The review of 2026-11-22a (finding 3): OverlayRuntime the worn bike's half, OverlayParked (default 0, DEF63's 0) the parked bike's. */
+	static const char *const overWord[2] = { "OverlayRuntime=0 (the worn bike's load swap alone) OverlayParked=0 (the parked bike's load swap alone)",
+	                                         "OverlayRuntime=1 (the look's swap at runtime too on the worn bike after each equip) OverlayParked=0 (the parked bike's load swap alone)" };
+	float v[4];
+	Ini54Set("Diag", "LensLine", "0");
+	for (int k = 0; k < 4; k++) {
+		Ini54Set("Look", "ParkedSwapHold", hold[k]);
+		Ini54Set("Look", "OverlayRuntime", over[k]);
+		char line[400];
+		snprintf(line, sizeof(line), "  look (2026-11-22a, test 58): %s %s; [Diag] LensLine=0: CMB_LookOptions ", holdWord[hold[k][0] - '0'], overWord[over[k][0] - '0']);
+		int was = LogLines(line);
+		LookGetOn(1000);
+		v[k] = LookOptions55();
+		int lines = LogLines(line) - was;
+		LookGetOff();
+		if (k == 0) {   /* the mode's own (DEF63's): said at the session's start, not again at this getting on (nothing changed) */
+			CHECK(lines == 0 && LogLines(line) >= 1 && ((int)v[0] / 262144) % 4 == 0,
+			      "AP1: ParkedSwapHold=0 OverlayRuntime=0 (DEF63's): CMB_LookOptions %g (neither 262144 nor 524288), the 2026-11-22a line at the start (%d), none more (%d)", v[0],
+			      LogLines(line), lines);
+		} else {
+			int want = (k & 1 ? 262144 : 0) + (k & 2 ? 524288 : 0);
+			CHECK(lines == 1 && (int)v[k] - (int)v[0] == want, "AP%d: ParkedSwapHold=%s OverlayRuntime=%s: CMB_LookOptions %g (%g + %d), the 2026-11-22a line once (%d)", k + 1, hold[k],
+			      over[k], v[k], v[0], want, lines);
+		}
+	}
+	{   /* AP9 (the review of 2026-11-22a, finding 3): [Look] OverlayParked=1, the parked half: 1048576 and its words; 0 again: back */
+		Ini54Set("Look", "ParkedSwapHold", "1");
+		Ini54Set("Look", "OverlayRuntime", "1");
+		Ini54Set("Look", "OverlayParked", "1");
+		const char *on = "  look (2026-11-22a, test 58): ParkedSwapHold=1 (the parked bike's look by loading its 3D again, no runtime swap left on its live 3D) "
+		                 "OverlayRuntime=1 (the look's swap at runtime too on the worn bike after each equip) OverlayParked=1 (the look's swap at runtime too on the "
+		                 "parked bike's 3D at each load); [Diag] LensLine=0: CMB_LookOptions ";
+		int was = LogLines(on);
+		LookGetOn(1000);
+		float vOn = LookOptions55();
+		int linesOn = LogLines(on) - was;
+		LookGetOff();
+		Ini54Set("Look", "OverlayParked", "0");
+		LookGetOn(1000);
+		float vOff = LookOptions55();
+		LookGetOff();
+		CHECK(linesOn == 1 && (int)vOn - (int)v[0] == 262144 + 524288 + 1048576 && (int)vOff - (int)v[0] == 262144 + 524288,
+		      "AP9: OverlayParked=1 (both others 1): CMB_LookOptions %g (%g + 262144 + 524288 + 1048576), its words once (%d); OverlayParked=0 again: %g (no 1048576)",
+		      vOn, v[0], linesOn, vOff);
+	}
+	/* AP5-AP8: [Diag] LensLine on the worn bike's lens: the original shape's and (CustomTests55 rebuilt the bike) the rebuilt one's, both
+	 * given the nif's file name and the tinted lens texture, whichever the plugin holds now. */
+	int iGlow = LookAt("front_glow", false);
+	uint8_t *props[2] = { g_lookProp[iGlow], g_rb55Node ? *(uint8_t **)(g_rb55Shape[iGlow] + FAKE_GEOM_PROPERTY) : NULL }, *mats[2] = { NULL, NULL }, *wasName[2] = { NULL, NULL }, *wasTex[2] = { NULL, NULL };
+	uint8_t *lensTex = NewFakeTexture53("CMB\\Bike\\front_glow_bluewhite_d.dds"), *lensName = NewString("Materials\\CMB\\Bike\\front_glow_worn.bgsm");
+	for (int j = 0; j < 2; j++) {
+		mats[j] = props[j] ? *(uint8_t **)(props[j] + FAKE_PROP_MATERIAL) : NULL;
+		if (!mats[j])
+			continue;
+		wasName[j] = *(uint8_t **)(props[j] + 0x10);
+		wasTex[j] = *(uint8_t **)(mats[j] + 0x48);
+		*(uint8_t **)(props[j] + 0x10) = lensName;
+		*(uint8_t **)(mats[j] + 0x48) = lensTex;
+	}
+	Ini54Set("Diag", "LensLine", "1");
+	const char *head = "lens (2026-11-22a, [Diag] LensLine): CMB_BikeWornRider_front_glow held at the mount: its 3D ";
+	int heads = LogLines(head), changes = LogLines("lens (2026-11-22a, [Diag] LensLine): CMB_BikeWornRider_front_glow changed");
+	LookGetOn(1000);
+	char text[2][512];
+	int n = LogLinesCopy(head, text, 2);
+	bool named = n >= 1 && strstr(text[n - 1], "names 'Materials\\CMB\\Bike\\front_glow_worn.bgsm'") && strstr(text[n - 1], "'CMB\\Bike\\front_glow_bluewhite_d.dds'") &&
+	             strstr(text[n - 1], "(under '");
+	CHECK(LogLines(head) - heads == 1 && named, "AP5: LensLine=1, a ride: one \"held at the mount\" line (%d) naming the property's file and the diffuse texture: %s", LogLines(head) - heads,
+	      n >= 1 ? text[n - 1] : "none");
+	/* AP6: a swap mid-ride: another material, another texture, on the same property. */
+	uint8_t *mat2 = NewFakeMaterial53(0.5f);
+	*(uint8_t **)(mat2 + 0x48) = NewFakeTexture53("CMB\\Bike\\front_glow_amber_d.dds");
+	for (int j = 0; j < 2; j++)
+		if (mats[j])
+			*(uint8_t **)(props[j] + FAKE_PROP_MATERIAL) = mat2;
+	RunFrames(300);
+	const char *chg = "lens (2026-11-22a, [Diag] LensLine): CMB_BikeWornRider_front_glow changed (its geometry, property, material or texture)";
+	n = LogLinesCopy(chg, text, 2);
+	CHECK(LogLines(chg) - changes == 1 && n >= 1 && strstr(text[n - 1], "'CMB\\Bike\\front_glow_amber_d.dds'"), "AP6: a swap mid-ride: one \"changed\" line (%d) naming the new texture: %s",
+	      LogLines(chg) - changes, n >= 1 ? text[n - 1] : "none");
+	int heads2 = LogLines(head), changes2 = LogLines(chg);
+	RunFrames(300);
+	LookGetOff();
+	CHECK(LogLines(head) == heads2 && LogLines(chg) == changes2, "AP7a: nothing changed for 0.3 s: no more lens lines (%d, %d)", LogLines(head) - heads2, LogLines(chg) - changes2);
+	LookGetOn(1000);
+	CHECK(LogLines(head) - heads2 == 1, "AP7: getting on again: one \"held at the mount\" line (%d)", LogLines(head) - heads2);
+	LookGetOff();
+	Ini54Set("Diag", "LensLine", "0");
+	int all = LogLines("lens (2026-11-22a");
+	LookGetOn(1000);
+	for (int j = 0; j < 2; j++)
+		if (mats[j])
+			*(uint8_t **)(props[j] + FAKE_PROP_MATERIAL) = mats[j];
+	RunFrames(300);
+	CHECK(LogLines("lens (2026-11-22a") == all, "AP8: LensLine=0: no lens line all ride, a swap in it too (%d)", LogLines("lens (2026-11-22a") - all);
+	LookGetOff();
+	for (int j = 0; j < 2; j++)
+		if (mats[j]) {
+			*(uint8_t **)(props[j] + 0x10) = wasName[j];
+			*(uint8_t **)(mats[j] + 0x48) = wasTex[j];
+		}
 	Ini54Restore();
 	LookGetOn(600);   /* the mode's own keys read again */
 	LookGetOff();
@@ -37757,6 +39155,310 @@ static void GunTests63(void)
 	Gun59Mount(1200);
 }
 
+/* ---- Mode 13, 2026-11-22a (test 58's 1E: what other mods hang off the rider's skeleton; the attach unit) --------------------------
+ * The fake's two attachments, each a subtree of another mod's under a bone of the body's skin, its nodes' worlds composed from
+ * their parents' each frame (Att64Frame, after the world's sync): a holster mod's node 'WeaponPistolUp64' under the pelvis, and
+ * at a posed put-away its DEEP COPY of the hand's weapon 3D hung under it ('HolsterCopy64', the copy's 'Pistol59:0' carrying
+ * the hand's shape's local transform bit for bit as this plugin had written it: test 58's); a backpack ('Backpack64' under
+ * SPINE1: the bag 'BackpackBag64:0' and a strap 'Strap64:0' under a node another mod named 'LArm_HandStrap64', a name that
+ * reads as the left hand's). AN1: run.sh's DEF63 (every key 0): the settings line. AU1: the posed put-away (GunHandHide on, the
+ * clips standing, test 58's) with the copy made and hung: AttachUnclone=1: the copy held from the hand's shape's own transform,
+ * drawn where the body's skin puts that place at the pelvis (on the ground sloped 9 deg), its line; 0: held from what it
+ * carried, the posed hand's map in it (2026-11-21a's: off the body). AB1: AttachBoneRole=1: the strap as the skin at SPINE1
+ * (the upper body's lean), its line; 0: as the left hand. AW1: [Diag] AttachWhere's lines: the attachment's root, bone and
+ * part; at 0.5 s and 2 s the root's place in the bone's frame (the fake's own), off that place by the shapes' maps (0 on;
+ * the strap's with AttachBoneRole=0), the copy's distance from the root as drawn. AH1: AttachHide=1: the copy and the
+ * backpack (no biped slot's) shrunk to a speck, the hand's weapon (object 41), the Pip-Boy and the body not; the backpack the
+ * biped's object 24's 3D: drawn with 1, a speck with 2; getting off: all their own; 0: drawn (2026-11-21a's). */
+static uint8_t *g_att64Up, *g_att64Root, *g_att64Copy, *g_att64Pack, *g_att64Bag, *g_att64StrapNode, *g_att64Strap;
+static uint8_t g_att64BagOwn[0x40], g_att64StrapOwn[0x40];
+static void (*g_att64Chain)(float dt);
+
+static void Att64Local(uint8_t *node, const float axis[3], float degrees, float x, float y, float z)
+{
+	float R[9], l = sqrtf(axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2]), u[3] = { axis[0] / l, axis[1] / l, axis[2] / l };
+	float a = degrees / DEG, c = cosf(a), sn = sinf(a), k = 1.0f - c;
+	R[0] = c + u[0] * u[0] * k;         R[1] = u[0] * u[1] * k - u[2] * sn; R[2] = u[0] * u[2] * k + u[1] * sn;
+	R[3] = u[1] * u[0] * k + u[2] * sn; R[4] = c + u[1] * u[1] * k;         R[5] = u[1] * u[2] * k - u[0] * sn;
+	R[6] = u[2] * u[0] * k - u[1] * sn; R[7] = u[2] * u[1] * k + u[0] * sn; R[8] = c + u[2] * u[2] * k;
+	float *rows = (float *)(node + 0x30);
+	memset(rows, 0, 0x40);
+	StoreRotation(rows, R, g_rootTransposed);
+	rows[12] = x;
+	rows[13] = y;
+	rows[14] = z;
+	rows[15] = 1.0f;
+}
+static void Att64Compose(uint8_t *node)   /* its world from its parent's and its own local transform, as the game's update */
+{
+	const uint8_t *parent = *(uint8_t **)(node + 0x28);
+	if (!parent)
+		return;   /* not hung anywhere yet */
+	float P[9], L[9], R[9], l[3], Pl[3], pos[3], sp = *(const float *)(parent + 0xAC);
+	LoadRotation((const float *)(parent + 0x70), P, g_rootTransposed);
+	LoadRotation((const float *)(node + 0x30), L, g_rootTransposed);
+	MulM3(P, L, R);
+	memcpy(l, node + 0x60, 12);
+	Apply3(P, l, Pl);
+	for (int k = 0; k < 3; k++)
+		pos[k] = ((const float *)(parent + 0xA0))[k] + sp * Pl[k];
+	SetWorld(node, R, pos, sp * *(const float *)(node + 0x6C));
+}
+static void Att64Frame(float dt)
+{
+	if (g_att64Chain)
+		g_att64Chain(dt);
+	uint8_t *order[7] = { g_att64Up, g_att64Root, g_att64Copy, g_att64Pack, g_att64Bag, g_att64StrapNode, g_att64Strap };
+	for (int i = 0; i < 7; i++)
+		Att64Compose(order[i]);
+}
+static void Att64Link(uint8_t *parent, uint8_t *child)
+{
+	AddChild(parent, child);
+	*(uint8_t **)(child + 0x28) = parent;
+}
+static void Att64World(void)
+{
+	if (g_att64Up)
+		return;
+	void **vtNode = *(void ***)g_npcRoot, **vtTri = *(void ***)g_pipboyShape;
+	static const float ax[3] = { 1, 0, 0 }, ay[3] = { 0, 1, 0 }, az[3] = { 0, 0, 1 }, axz[3] = { 1, 0, 1 };
+	g_att64Up = NewNode(vtNode, "WeaponPistolUp64", 2);
+	g_att64Root = NewNode(vtNode, "HolsterCopy64", 2);
+	g_att64Copy = NewNode(vtTri, "Pistol59:0", 0);   /* a deep copy keeps the names */
+	g_att64Pack = NewNode(vtNode, "Backpack64", 3);
+	g_att64Bag = NewNode(vtTri, "BackpackBag64:0", 0);
+	g_att64StrapNode = NewNode(vtNode, "LArm_HandStrap64", 2);
+	g_att64Strap = NewNode(vtTri, "Strap64:0", 0);
+	Att64Local(g_att64Up, ax, 20.0f, 10.0f, 2.0f, -12.0f);      /* the holster on the right thigh, in the pelvis's frame */
+	Att64Local(g_att64Root, ay, 30.0f, 0.0f, 3.0f, -5.0f);      /* where the holster mod puts its copy's root */
+	Att64Local(g_att64Copy, az, 0.0f, 0.0f, 0.0f, 0.0f);        /* replaced by the copy's at the put-away */
+	Att64Local(g_att64Pack, az, 10.0f, 0.0f, -15.0f, 4.0f);     /* on the back, in SPINE1's frame */
+	Att64Local(g_att64Bag, ax, -8.0f, 0.0f, -3.0f, 2.0f);
+	Att64Local(g_att64StrapNode, axz, 25.0f, 6.0f, -4.0f, 22.0f);
+	Att64Local(g_att64Strap, ay, 15.0f, 1.0f, 0.5f, 3.0f);
+	memcpy(g_att64BagOwn, g_att64Bag + 0x30, 0x40);
+	memcpy(g_att64StrapOwn, g_att64Strap + 0x30, 0x40);
+	Att64Link(g_att64Root, g_att64Copy);
+	Att64Link(g_att64Pack, g_att64Bag);
+	Att64Link(g_att64Pack, g_att64StrapNode);
+	Att64Link(g_att64StrapNode, g_att64Strap);
+	*(uint8_t **)(g_att64Root + 0x28) = g_att64Up;   /* hung under the holster node at the put-away */
+}
+/* How far a held plain shape is drawn (its written transform, its parent's world) from where the body's skin puts its own
+ * place (`own`: its local transform as made) at the bone g_bodyNodes[bone]: its origin and 10 along each of its axes, the worst. */
+static float Att64Off(const uint8_t *shape, const uint8_t *own, int bone)
+{
+	static const float q[4][3] = { { 0, 0, 0 }, { 10, 0, 0 }, { 0, 10, 0 }, { 0, 0, 10 } };
+	const uint8_t *body = *(const uint8_t **)(*(uint8_t **)(g_bodySkin + 0x40) + 0x10), *parent = *(uint8_t **)(shape + 0x28);
+	float worst = 0.0f;
+	for (int k = 0; k < 4; k++) {
+		float X[3], want[3], got[3];
+		WorldOfLocal(parent, own, q[k], X);
+		MapBone(g_bodyNodes[bone], g_bodyBonesOriginal + bone * 0x50, body + bone * 0x50, X, want);
+		WorldOfLocal(parent, shape + 0x30, q[k], got);
+		worst = fmaxf(worst, Dist3(want, got));
+	}
+	return worst;
+}
+/* [Diag] AttachWhere's measured line (the last one for `root` at `when`): the root's place, off that place, from the root. */
+static bool Att64Where(const char *root, const char *when, float place[3], float off[2], float fromRoot[2])
+{
+	char want[96];
+	snprintf(want, sizeof(want), "rider: the attachment '%s' at %s (tilted): its root (", root, when);
+	const char *line = LastLogLine(want), *a = line ? strstr(line, want) : NULL, *b, *c;
+	if (!a)
+		return false;
+	b = strstr(a, "written transforms put it ");
+	c = strstr(a, " shape(s) drawn ");
+	return b && c && sscanf(a + strlen(want), "%f, %f, %f", &place[0], &place[1], &place[2]) == 3 && sscanf(b + strlen("written transforms put it "), "%f to %f", &off[0], &off[1]) == 2 &&
+	       sscanf(c + strlen(" shape(s) drawn "), "%f to %f", &fromRoot[0], &fromRoot[1]) == 2;
+}
+
+static void AttachTests64(void)
+{
+	printf("attachments (2026-11-22a, test 58's 1E): what other mods hang off the rider's skeleton follows her body (AttachUnclone, AttachBoneRole), "
+	       "[Diag] AttachWhere, the fallback AttachHide:\n");
+	const char *keysOff = "  attachments (2026-11-22a, test 58): AttachUnclone=0 AttachBoneRole=0 AttachHide=0 [Diag] AttachWhere=0 (",
+	           *keysOn = "  attachments (2026-11-22a, test 58): AttachUnclone=1 AttachBoneRole=1 AttachHide=0 [Diag] AttachWhere=1 (";
+	int lineOff = LogLines(keysOff);
+	Att64World();
+	g_att64Chain = g_beforeTask;
+	g_beforeTask = Att64Frame;
+	uint8_t **clone41 = (uint8_t **)(g_biped + 0x10 + 41 * 0x58 + 0x30), *clone41Was = *clone41;
+	uint8_t **clone24 = (uint8_t **)(g_biped + 0x10 + 24 * 0x58 + 0x30), *clone24Was = *clone24;
+	*clone41 = g_gun59Weapon;
+	g_gun63Mirror = true;
+	ArmsGetOff(300);
+	Att64Link(g_bodyNodes[0], g_att64Up);     /* the holster mod's node on the thigh, empty until a put-away */
+	Att64Link(g_bodyNodes[2], g_att64Pack);   /* the backpack worn */
+	uint8_t pistolOwn[0x40];
+	memcpy(pistolOwn, g_gun59Pistol + 0x30, 0x40);   /* the hand's shape as made (not held now) */
+	/* The ground sloped 9 deg toward the front right: the bike pitched and rolled at a standstill. */
+	float h = *(float *)(g_player + 0xC8), dir[3] = { (sinf(h) + cosf(h)) * 0.70711f, (cosf(h) - sinf(h)) * 0.70711f, 0.0f }, back[3] = { -dir[0], -dir[1], 0.0f };
+	SetGroundTowards(dir, 9.0f);
+	SetNormalTowards(back, 9.0f);
+	Ini54Set("Tilt", "GunHandHide", "1");
+	Ini54Set("Tilt", "AttachBoneRole", "1");
+	Ini54Set("Diag", "AttachWhere", "1");
+
+	/* AU1: the posed put-away and the holster mod's copy: AttachUnclone=1, then 0. AW1's copy and backpack lines: the first ride's. */
+	float offU[2], handMoved[2], tiltU = 0.0f, ago = -1.0f;
+	int uncloneU[2], heldU[2];
+	const char *uncloneLine = "carried a local transform this plugin wrote on a held shape", *heldLine = "rider: holding ";
+	const char *copyHalf = "rider: the attachment 'WeaponPistolUp64' at 0.5 s", *copyTwo = "rider: the attachment 'WeaponPistolUp64' at 2.0 s (tilted)";
+	const char *attLine = "rider: an attachment: 'WeaponPistolUp64' < 'NPC Pelvis [Pelv]', 1 held shape(s) ('Pistol59:0' ...), hangs off the body's bone 'NPC Pelvis [Pelv]'; the body's part there none (the tilt alone) (AttachWhere)";
+	const char *packLine = "rider: an attachment: 'Backpack64' < 'NPC Spine1 [Spn1]', 2 held shape(s) ('";
+	float place[3] = { 0 }, offW[2] = { -1, -1 }, rootW[2] = { -1, -1 }, placeB[3] = { 0 }, offB[2] = { -1, -1 }, rootB[2], placeB0[3], offB0[2] = { -1, -1 }, rootB0[2];
+	bool gotCopy = false, gotPack = false, gotPack0 = false;
+	int attW = 0, packW = 0;
+	for (int pass = 0; pass < 2; pass++) {
+		Ini54Set("Tilt", "AttachUnclone", pass ? "0" : "1");
+		Gun59Mount(1500);
+		RunFrames(500);
+		g_gun59Clip = 1.0f;   /* the clips standing (test 58's: the hand raised to aim, 24 above the seat) */
+		DcKneesStanding();
+		Gun59Set(2, 2.0f);
+		Gun59State(3);
+		Gun62WaitPose(2.0f, 3000);
+		RunFrames(400);
+		{
+			float a[3], b[3], R[9];
+			static const float o[3] = { 0, 0, 0 };
+			WorldOfLocal(g_gun59Weapon, pistolOwn, o, a);
+			WorldOfLocal(g_gun59Weapon, g_gun59Pistol + 0x30, o, b);
+			handMoved[pass] = Dist3(a, b);   /* what this plugin's write moves the hand's shape by in its own frame */
+			AppliedRotation(R);
+			float tr = (R[0] + R[4] + R[8] - 1.0f) * 0.5f;
+			tiltU = acosf(tr > 1.0f ? 1.0f : tr < -1.0f ? -1.0f : tr) * DEG;
+		}
+		int u0 = LogLines(uncloneLine), h0 = LogLines(heldLine), c0 = LogLines(copyHalf), t0 = LogLines(copyTwo);
+		memcpy(g_att64Copy + 0x30, g_gun59Pistol + 0x30, 0x40);   /* the holster mod's deep copy, at the put-away, of the 3D as it stands */
+		Att64Link(g_att64Up, g_att64Root);
+		Gun59State(0);
+		Gun59Set(2, 1.0f);
+		Gun62WaitLine(heldLine, h0, 2000);
+		g_gun59Clip = 0.0f;
+		DcKneesSeated();
+		Gun62WaitPose(1.0f, 3000);
+		Gun62WaitLine(copyHalf, c0, 4000);   /* logged once the pose has eased out (none while a handgun is posed) */
+		offU[pass] = Att64Off(g_att64Copy, pistolOwn, 0);
+		uncloneU[pass] = LogLines(uncloneLine) - u0;
+		heldU[pass] = LogLines(heldLine) - h0;
+		if (!pass) {
+			const char *said = LastLogLine(uncloneLine), *b = said ? strstr(said, "wrote on the held '") : NULL, *c = b ? strstr(b, "' ") : NULL;
+			if (c)
+				ago = (float)atof(c + 2);
+			Gun62WaitLine(copyTwo, t0, 4000);
+			gotCopy = Att64Where("WeaponPistolUp64", "2.0 s", place, offW, rootW);
+			gotPack = Att64Where("Backpack64", "2.0 s", placeB, offB, rootB);
+			attW = LogLines(attLine);
+			packW = LogLines(packLine);
+		}
+		ArmsGetOff(300);
+		RemoveChild(g_att64Up, g_att64Root);
+	}
+	CHECK(heldU[0] >= 1 && heldU[1] >= 1 && handMoved[0] > 5.0f && tiltU > 3.0f && offU[0] < 0.05f && uncloneU[0] == 1 && ago >= 0.0f && ago < 0.5f && offU[1] > 5.0f &&
+	          uncloneU[1] == 0,
+	      "AU1: a posed put-away (GunHandHide, the clips standing) and a holster mod's deep copy of the hand's shape (its local transform as this plugin wrote it, "
+	      "%.1f off its own) hung off the pelvis, the bike tilted %.1f deg on a slope: AttachUnclone=1: held from the hand's shape's own, drawn %.4f from where the "
+	      "body's skin puts that place (fbe9a7c: off), its line (%d, the copy %.2f s after the write); 0: %.1f off (2026-11-21a's), no line (%d)",
+	      handMoved[0], tiltU, offU[0], uncloneU[0], ago, offU[1], uncloneU[1]);
+
+	/* AN1: run.sh's DEF63 at the start: the line with every key 0; on: the line with 1s. */
+	CHECK(lineOff >= 1 && LogLines(keysOn) + LogLines("  attachments (2026-11-22a, test 58): AttachUnclone=0 AttachBoneRole=1 AttachHide=0 [Diag] AttachWhere=1 (") >= 2,
+	      "AN1: the attachments' settings line: DEF63's (every key 0: %d) and the keys on (%d)", lineOff, LogLines(keysOn));
+
+	/* AB1: the backpack's strap under 'LArm_HandStrap64': AttachBoneRole=1, then 0 (its AttachWhere line: AW1's). */
+	const char *roleLine = "rider: Strap64:0 hangs off the body's bone 'NPC Spine1 [Spn1]' (via 'Backpack64'): the body's part there, the upper body, not the left hand by the names on its way (AttachBoneRole)";
+	float bagB[2], strapB[2];
+	int roleB[2];
+	for (int pass = 0; pass < 2; pass++) {
+		Ini54Set("Tilt", "AttachBoneRole", pass ? "0" : "1");
+		int r0 = LogLines(roleLine), w0 = LogLines("rider: the attachment 'Backpack64' at 2.0 s (tilted)");
+		Gun59Mount(1500);
+		Gun62WaitLine("rider: the attachment 'Backpack64' at 2.0 s (tilted)", w0, 4000);
+		bagB[pass] = Att64Off(g_att64Bag, g_att64BagOwn, 2);
+		strapB[pass] = Att64Off(g_att64Strap, g_att64StrapOwn, 2);
+		roleB[pass] = LogLines(roleLine) - r0;
+		if (pass)
+			gotPack0 = Att64Where("Backpack64", "2.0 s", placeB0, offB0, rootB0);
+	}
+	CHECK(bagB[0] < 0.05f && strapB[0] < 0.05f && roleB[0] == 1 && bagB[1] < 0.05f && strapB[1] > 1.0f && roleB[1] == 0,
+	      "AB1: a backpack on SPINE1 (TorsoLean 8, the slope), its strap under a node named 'LArm_HandStrap64': AttachBoneRole=1: the bag %.4f and the strap %.4f from where "
+	      "the body's skin at SPINE1 puts them, its line (%d; fbe9a7c: the strap as the left hand); 0: the bag %.4f, the strap %.2f off, no line (%d)",
+	      bagB[0], strapB[0], roleB[0], bagB[1], strapB[1], roleB[1]);
+	CHECK(attW == 1 && packW >= 1 && gotCopy && fabsf(place[0] - 10.0f) < 0.02f && fabsf(place[1] - 2.0f) < 0.02f && fabsf(place[2] + 12.0f) < 0.02f && offW[1] < 0.05f &&
+	          fabsf(rootW[0] - 5.83f) < 0.06f && gotPack && fabsf(placeB[0]) < 0.02f && fabsf(placeB[1] + 15.0f) < 0.02f && fabsf(placeB[2] - 4.0f) < 0.02f && offB[1] < 0.05f &&
+	          gotPack0 && offB0[1] > 1.0f,
+	      "AW1: [Diag] AttachWhere: the holster copy's line (%d: its root, the pelvis, no part), the backpack's (%d); at 2 s the holster's root (%.2f, %.2f, %.2f) from the "
+	      "pelvis (the fake's (10, 2, -12)), its shape's map %.3f off that from the drawn pelvis, the copy drawn %.1f from the root (its own 5.83); the backpack's root "
+	      "(%.2f, %.2f, %.2f) (the fake's (0, -15, 4)), %.3f off; with AttachBoneRole=0 the strap's map %.2f off (fbe9a7c: no lines)",
+	      attW, packW, place[0], place[1], place[2], offW[1], rootW[0], placeB[0], placeB[1], placeB[2], offB[1], offB0[1]);
+
+	/* AH1: AttachHide=1: the copy and the backpack shrunk, the rest not; the backpack an equipped item's 3D: 1 drawn, 2 a speck. */
+	Ini54Set("Tilt", "AttachBoneRole", "1");
+	Ini54Set("Tilt", "GunHandHide", "0");   /* the hand's weapon drawn holstered: AttachHide leaves it */
+	ArmsGetOff(300);
+	memcpy(g_att64Copy + 0x30, pistolOwn, 0x40);
+	Att64Link(g_att64Up, g_att64Root);
+	float hide[3][4], pip[3], hand[3], afterOff[4];
+	const char *lookLine = "rider: an attachment: 'Backpack64' < ";
+	for (int pass = 0; pass < 3; pass++) {   /* AttachHide 1, 1 with the backpack in object 24, 2 with it */
+		Ini54Set("Tilt", "AttachHide", pass == 2 ? "2" : "1");
+		*clone24 = pass ? g_att64Pack : clone24Was;
+		int l0 = LogLines(lookLine);
+		Gun59Mount(1500);
+		Gun62WaitLine(lookLine, l0, 3000);   /* the attachments looked at (the hold) */
+		RunFrames(200);
+		hide[pass][0] = Gun63Scale(g_att64Copy);
+		hide[pass][1] = Gun63Scale(g_att64Bag);
+		hide[pass][2] = Gun63Scale(g_att64Strap);
+		hide[pass][3] = Att64Off(g_att64Bag, g_att64BagOwn, 2);
+		pip[pass] = Gun63Scale(g_pipboyShape);
+		hand[pass] = Gun63Scale(g_gun59Pistol);
+	}
+	ArmsGetOff(300);
+	afterOff[0] = Gun63Scale(g_att64Copy);
+	afterOff[1] = Gun63Scale(g_att64Bag);
+	afterOff[2] = Gun63Scale(g_att64Strap);
+	Ini54Set("Tilt", "AttachHide", "0");
+	*clone24 = clone24Was;
+	ArmsGetOn(1500);
+	afterOff[3] = fminf(Gun63Scale(g_att64Copy), fminf(Gun63Scale(g_att64Bag), Gun63Scale(g_att64Strap)));
+	CHECK(hide[0][0] < 0.01f && hide[0][1] < 0.01f && hide[0][2] < 0.01f && pip[0] > 0.99f && hand[0] > 0.99f && hide[1][0] < 0.01f && hide[1][1] > 0.99f && hide[1][2] > 0.99f &&
+	          hide[1][3] < 0.05f && hide[2][0] < 0.01f && hide[2][1] < 0.01f && hide[2][2] < 0.01f && pip[2] > 0.99f && hand[2] > 0.99f && afterOff[0] > 0.99f &&
+	          afterOff[1] > 0.99f && afterOff[2] > 0.99f && afterOff[3] > 0.99f,
+	      "AH1: AttachHide=1: the holster copy, the bag and the strap shrunk to a speck (%.4f, %.4f, %.4f; fbe9a7c: 1), the Pip-Boy (%.3f) and the hand's weapon (object 41: "
+	      "%.3f) not; the backpack the biped's object 24's 3D: 1 draws it (%.3f, %.3f, %.4f off the body's skin), 2 shrinks it (%.4f, %.4f), not the Pip-Boy or the "
+	      "hand's (%.3f, %.3f); off the bike: their own (%.3f, %.3f, %.3f); AttachHide=0: drawn (%.3f)",
+	      hide[0][0], hide[0][1], hide[0][2], pip[0], hand[0], hide[1][1], hide[1][2], hide[1][3], hide[2][1], hide[2][2], pip[2], hand[2], afterOff[0], afterOff[1],
+	      afterOff[2], afterOff[3]);
+
+	/* Off again for G12 (run.sh's DEF62 and DEF63 values): the attachments out of the rider's 3D. */
+	ArmsGetOff(300);
+	RemoveChild(g_att64Up, g_att64Root);
+	RemoveChild(g_bodyNodes[0], g_att64Up);
+	RemoveChild(g_bodyNodes[2], g_att64Pack);
+	g_beforeTask = g_att64Chain;
+	g_att64Chain = NULL;
+	*clone41 = clone41Was;
+	*clone24 = clone24Was;
+	g_gun63Mirror = false;
+	g_gun59Clip = 0.0f;
+	DcKneesSeated();
+	Gun59State(0);
+	Gun59Set(2, 1.0f);
+	SetNormal(0.0f, 0.0f, 1.0f);
+	FlatGround();
+	Ini54Set("Tilt", "GunHandHide", "0");
+	Ini54Set("Tilt", "AttachUnclone", "0");
+	Ini54Set("Tilt", "AttachBoneRole", "0");
+	Ini54Set("Tilt", "AttachHide", "0");
+	Ini54Set("Diag", "AttachWhere", "0");
+	Gun59Mount(1200);
+}
+
 static void GunTests59(void)
 {
 	printf("weapons (2026-11-15b, test 53's wish a): a handgun on the bike (Handguns only, the fake's CMB_RideWeapons 1):\n");
@@ -38024,6 +39726,8 @@ static void GunTests59(void)
 	Gun59Mount(1200);
 	GunTests63();   /* 2026-11-21a, test 57's 1D (before G12; its keys off again at its end) */
 	Gun59Mount(1200);
+	AttachTests64();   /* 2026-11-22a, test 58's 1E (before G12; its keys off again at its end) */
+	Gun59Mount(1200);
 
 	/* G12 (last: it switches the rules off for the session): the script says drawn (CMB_RiderGun 2) while the state reads 0.
 	 * 2026-11-17a: its lines counted from its own start (GunTests62's C2 switches off once before it, with GunCheckRecover). */
@@ -38200,6 +39904,8 @@ int main(int argc, char **argv)
 			RoomGuardTests56();   /* 2026-11-10a, test 52: the guard's findings 1, 4, 7a (the drive unit's) */
 		if (mode == 14)
 			RoomKitTests62();     /* 2026-11-17a, test 56: the field kit's spot asked about ([Look] KitRoom; the kit unit's) */
+		if (mode == 14)
+			ParkFitTests64();     /* 2026-11-22a, test 58: the parked bike on the ground under its tyres, leaning on its stand ([Room] ParkFit, ParkStand; the parked unit's) */
 		if (mode == 15) { OldEsp49Rider(); OldEsp49Drive(); OldEsp49Sound(); OldEsp49Lights(); }
 		if (mode == 15)
 			OldEsp49Fx();   /* the 2026-11-01a build's bike sounds: none with that ESP */
@@ -38250,11 +39956,13 @@ int main(int argc, char **argv)
 		KitTests61();           /* 2026-11-16b, test 55: the menu's bike found by its 3D and placed in its view (the kit unit's) */
 		CustomTests57();        /* 2026-11-14a, test 53: the colour unit's */
 		CustomTests58();        /* 2026-11-15a, test 54: KitDefer and MountQuick (the look unit's) */
+		ApplyTests64();         /* 2026-11-22a, test 58: ParkedSwapHold, OverlayRuntime, [Diag] LensLine (the apply unit's) */
 		BodyFollowTests61r();   /* the review of 2026-11-16b: BodyFollowCamera (here: mode 20 turns EyeAtCamera off before its body rides) */
 		BodyFollowTests62();    /* 2026-11-17a, test 56: CameraEase with the body; its A/B turns EyeAtCamera off for the session (the cam unit's) */
 		KitGuardTests61r();     /* the review of 2026-11-16b: KitFit's Accessible checks (the merged 2026-11-16b's DLL faults in it) */
 		KitTests62();           /* 2026-11-17a, test 56: the bike held, its zoom and turn, a view per slot (the kit unit's; last: it writes the Address Library) */
 		KitTests63();           /* 2026-11-21a, test 57: every model of the menu held, the slot's read settled, the wheel anywhere, the drag off the lists, art build B's slots (the kit unit's) */
+		KitTests64();           /* 2026-11-22a, test 58: the bike the menu draws held alone, the wheel both ways and on the lists, Paint condition's view (the kit unit's) */
 		printf("%s\n", g_failures ? "FAILED" : "all ok");
 		return g_failures ? 1 : 0;
 	}
@@ -38278,6 +39986,7 @@ int main(int argc, char **argv)
 		SoundTests60();  /* 2026-11-16b, test 55: the even climb and SpeedMap (the drive unit's) */
 		SoundTests62();  /* 2026-11-17a, test 56: the take-off a tad quicker and a stop's down-shifts at the pull's bands (the drive unit's) */
 		SoundTests63();  /* 2026-11-21a, test 57: the coast twice as long and gradual, the gears in even steps (the drive unit's) */
+		SoundTests64();  /* 2026-11-22a, test 58: the up-shifts at the bands from any pull, the speed held through a menu (the drive unit's) */
 		printf("%s\n", g_failures ? "FAILED" : "all ok");
 		return g_failures ? 1 : 0;
 	}

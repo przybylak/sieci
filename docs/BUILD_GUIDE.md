@@ -567,6 +567,78 @@ GunHandHide=0`, `GunAwayKeep=0`, `GunSeatKeep=0`, `GunNoteSure=0`, `[Steer] Coas
 the code's gear table now write 2026-11-17a's). The off values together with `HeardRiseGears=2,0.79,0.65,1,1`,
 `ShiftGapGears=0,2,3,1.5` and `DownBands=170,400,700,860` are 2026-11-17a's plugin.
 
+Since 2026-11-22a (test 58's fixes and the tester's wishes, art build C) the generator makes the look's fifth block, C5,
+right after C4's: 52 records at **0xCE7-0xD1A** in `BuildC5`'s order (`c5_ids` in look_options.json; 1 GLOB, 1 KYWD, 12
+MSWP, 12 OMOD, 12 COBJ, 2 FLST, 12 LIGH), the ESP's header **1337** records (no new group), its next ID **0xD1B** (485
+IDs left under the 0xF00 guard); `--look-ids` appends the 52 (look_ids.txt **1122** IDs; append-only). The twelve beams
+are copies of the two shipped headlamp lights with the colour set; `BuildC5` throws unless every record lands at its
+table ID and the next is `c5_ids`' next. The front fender badge's slot is `retired` in the table: its records stay, its
+badge swaps become identities, its attach point leaves the look item and the template (the riding armours keep it), its
+MCM dropdown goes and neither script's `CMB_Look_FrontFender` is filled. In `config.json` the Look section gets "Paint
+condition" after "Paint shade" and loses "Front fender badge" (25 controls, `PropertyValueInt` on `UiPaintWear`), and
+"Headlamp" lists eleven; `keybinds.json` doesn't change. `tools/build.sh` prints `checked cmb_controllerscript: 213
+properties`, `checked cmb_lookf4se: 39 properties`, `checked 340 look options in 16 slots: 304 swaps, 340 look recipes,
+... highest 000D1A; look_ids.txt 1122 IDs; ... C5 000CE7-000D1A (52): 1 slot, retired FrontFender; 20 beams; the MCM's
+Look section 25 controls` and "plugin and scripts agree". A record-by-record comparison with 2026-11-21a's plugin:
+`TES4: HEDR records 1285 -> 1337, next ID 0xCE7 -> 0xD1B`, `added 52 (000CE7-000D1A): 12 COBJ, 12 LIGH, 12 MSWP, 12
+OMOD, 2 FLST, 1 GLOB, 1 KYWD`, `removed 0`, `changed 39` (3 ARMO: the new attach point on both riding armours, the look
+item's attach points and template; the controller quest's VMAD; 6 FLST: `CMB_LookCategories` and `CMB_LookSwapLists` 16
+long, the Headlamp's option and swap lists and the two light lists 11; one COBJ priority; the Wear's 8 MSWPs 4 → 10
+entries, the part shells; the front fender's 20 badge MSWPs, their targets now their sources). The off switch:
+`--look-build 2026-11-21a` writes 2026-11-21a's ESP, `config.json` and `keybinds.json` byte for byte (fbe9a7c's;
+`2026-11-16a`, `2026-11-08a` and `2026-11-07a` still give 24b2368's, 2026-11-15b's and fdb5b3a's); `--kit-order table`
+and `--kit-names 0` still give A/B ESPs `check_plugin.py` passes with their own MCM. Three scripts change:
+`CMB_ControllerScript.psc` (the parked bike's look by its 3D's load and the runtime overlays, `ParkedLookAtMount`,
+`ParkedSwapHoldWhy`, `ParkedSwapLanded`, `ParkedLoaded3D`, `ParkedRuntimeRefusal`, `WornOverlayPlan`,
+`WornOverlayRefusal`, behind `CMB_LookOptions` 262144, 524288 and 1048576; the parked bike's fit and lean, `ParkFit`,
+`ParkLeanAsPlaced`, `ParkFitSpotKeep`, `ParkStandUp`, behind `CMB_RoomOptions` bit 32768 with `CMB_RoomAskKind` 6, its
+`StandUpSteps` and `StandUpStep` AutoReadOnly, no ESP property; slot 15's tables and the Look_C5 group),
+`CMB_LookF4SE.psc` (`ApplyParked`'s hold, `ApplyParkedLoaded` and `ApplyWornOverlay` with their refusals asked again
+after the compose, Compose's own count; `SlotGlobal(15)`) and `CMB_BikeActivatorScript.psc` (`OnLoad`, the parked bike's
+every 3D load told to the controller); `check.sh` 12 .pex with no warning. `CMB_Slope.dll` and `CMB_Slope.ini` change
+(the two INI copies identical); build the plugin with `bash tools/f4se-slope/build.sh` (`-Werror`) and commit the DLL
+before packaging. The art goes into four overlays laid after 2026-11-21a's three ([ASSETS.md](ASSETS.md), *Art build C's
+files*, has the whole commands):
+```
+<mesh python> -I tools/rider/look_shells.py --data <...> --out <overlay S>/Meshes/CMB --bgsm-out <overlay S> \
+    --pynifly <PyNifly>             # five nifs, 14 materials (PAINTWEAR=0 PART_SHELLS=0 BADGE_LIFT=0 OVERLAY_BLEND=0)
+<mesh python> -I tools/rider/look_stand.py --data <...> --data <overlay S> --out <overlay P>/Meshes/CMB \
+    --pynifly <PyNifly>                                        # the parked nif's stand down (STAND=0: as it came in)
+<DDS python> -I -B tools/rider/look_wear.py --data <overlay W> --base <...> --base <overlay S> --pynifly <PyNifly>
+                                                               # 243 files: 155 new, 52 changed by its three flags
+python3 -I tools/rider/bike_art.py --badges --out <art_b>     # the gears on metallic blue, Nuka-Cola's pen
+<DDS python> -I tools/rider/look_badges.py --art <art_b> --out <tree>      # badges_d/_n/_s.dds change
+<DDS python> -I tools/rider/look_lamp.py --base <2026-11-10a's Data> --out <tree>   # 12 lens materials, 4 textures
+```
+with their checks (`look_shells.py`'s own verify on every nif and `check_bike_meshes.py --look-c3 --look-c4 --look-c5`
+over 2026-11-21a's tree with the shells' overlay: 101 PASS; `look_stand.py`'s report and `--look-stand`; `look_wear.py
+--check`: 21 passed; `look_badges.py --check ... --base <2026-11-21a's tree> --base-build 2026-11-21a`: all passed;
+`look_lamp.py --check`: all passed). Over the whole merged tree (2026-11-10a's Data with all thirteen overlays)
+`check_bike_meshes.py --look-c3 --look-c4 --look-c5 --look-stand --look-targets all`: all checks passed (105), the
+texture budget TEX_BUDGET_C5 (280 files, 170 MB; 277 DDS, 165.3 MB). Each off flag gives 2026-11-21a's files byte for
+byte: the shells' four (the five nifs 76013b22..., bc5a512d..., 84408b72..., f01fc11b..., 8a50f0a4... and the six
+materials), `STAND=0` (the shells' parked nif 3dba1292... as it is), the wear's `--badge-grime`, `--overlay-depth` and
+`--tyre-mud 2026-11-21a` (on 2026-11-21a's own base), `--badges --through 2026-11-21a` or `--bos-ground 2026-11-21a
+--nuka-script 2026-11-21a` (dd4778e2..., e9a4c733..., 30662291...); the lens only adds files. Only the files that differ
+from 2026-11-21a's tree or are new go into the overlays. The package lays thirteen overlays over the asset base in order
+(the later winning), 2026-11-21a's nine and this build's four, the parked one last (its nif, f91d7abd..., the shells'
+parked nif with the stand down, wins over the shells'):
+```
+OVERLAY=<2026-11-15b's meshes>:<overlay A>:<overlay B>:<overlay C>:<17a's badges overlay>:<17a's plates overlay>:<21a's shells overlay>:<21a's wear overlay>:<21a's 2D art overlay>:<22a's shells overlay>:<22a's wear overlay>:<22a's 2D art overlay>:<22a's parked overlay>
+```
+64 files changed and 181 new against 2026-11-21a's package (84 materials files and 97 DDS new, so 608 and 277; the five
+nifs, 32 materials files and 27 DDS changed; `tools/package/builds/2026-11-22a.json` lists them with their sha256), and
+three compiled scripts. The engine model and its twin (`tools/sound/engine_model.py`) don't change: `[Sound] UpBands` is
+the plugin's input to the model (a gear's least time and the pull's shift point for a step), as SpeedMap and DownBands
+are. The harness (`tools/f4se-slope/test/run.sh`, 26 modes) expects **2228** checks: view 317, custom 160, arms 128,
+sound 167, room 176, the rest as 2026-11-21a's (2218 before the review of the merged build added A0, AP9 and P12-P19);
+`DEF63` rides every older mode at this build's off values (`[View] LookOrbit=0`, `[Steer] AimStruct=0`, `[Look]
+KitDrawn=0`, `KitWheelDown=0`, `KitWheelLists=0`, `KitSlots22=0`, `[Steer] MenuKeep=0`, `[Sound] UpBands=`, `[Look]
+ParkedSwapHold=0`, `OverlayRuntime=0`, `[Diag] LensLine=0`, `[Room] ParkFit=0`, `ParkStand=`, `[Tilt] AttachUnclone=0`,
+`AttachBoneRole=0`, `AttachHide=0`, `[Diag] AttachWhere=0`, `[Look] OverlayParked=0`, the last also its default); no
+default changes, so nothing else needs a pin. The off values together are 2026-11-21a's plugin (with `AimStruct=0` the
+aim's handler is looked for by its class name alone, which the game doesn't use, as in 2026-11-21a).
+
 The vanilla form IDs the plugins use (PlayerRef, XMarker, HumanRace, HumanRaceSubGraphData, SpeedMult, CarryWeight, FallingDamageMod, Health, Pip-Boy, AnimArchetypePlayer) were checked against Mutagen's FormKey list generated from the real `Fallout4.esm`. The record layouts were also compared field by field with xEdit's Fallout 4 definitions.
 
 ## For developers: packaging a build

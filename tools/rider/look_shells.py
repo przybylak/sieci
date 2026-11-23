@@ -28,8 +28,27 @@ And the rear fender patch (static_badgeFender, 2026-11-07a's) raised shell_piece
 (to 0.48 over the fender, as the front patch's FRONT_PATCH_LIFT), so a badge on it stays over the wear shell's 0.32 in
 the half floats (--fender-raise 0 leaves it as it is).
 
+Since 2026-11-22a (round t64, test 58's wishes), after those (a step of its own over 2026-11-21a's nifs, or straight
+after the first over older ones):
+- static_paintwear and fork_paintwear (--paintwear): the paint condition shells, made as the wear shells but
+  shell_pieces.PAINTWEAR_LIFT (0.16) over the paint, under static_wear;
+- static_exhaust_wear, static_engine_wear and fork_black_wear (--parts): the wear on more parts, shells
+  shell_pieces.SHELL_LIFT over the whole exhaust, the engine's five outer covers (shell_pieces.ENGINE_COVERS) and the
+  fork lowers (shell_pieces.PART_SHELLS);
+- static_wear rebuilt (--badge-lift): over the badge sheets' footprints (shell_pieces.BADGE_SHEETS: the tank plates, the
+  rear roundel, the rear patch) it rises to BADGE_OVER over the sheet (shell_pieces.badge_lifts), so the grime can be
+  drawn over the badges; the helmets (alternatives, invisible until chosen) no longer cut it out.
+- every overlay shell (static_wear, fork_wear and the five new) blends (--overlay-blend): its NiAlphaProperty the glass's
+  (blending on, test GREATER 0) and its own materials file blending at alpha 0 (blended_invisible), so the game's swap at
+  a 3D's load shows the wear (test 58: the wear showed only where F4SE swapped at runtime; the apply unit's finding).
+Each new one names its own invisible materials file (<label>.bgsm, <label>_worn.bgsm). The inside test leaves out the
+open sheets, the helmets and the shells. --paintwear 0 --parts 0 --badge-lift 0 --overlay-blend 0 give 2026-11-21a's
+nifs and materials files byte for byte.
+
   python look_shells.py --data <Data> [--data <overlay Data> ...] --out <Data>/Meshes/CMB --pynifly <io_scene_nifly>
-      [--shells 1|0] [--bgsm-out <Data>] [--fender-raise 0.16] [--materials bike_materials.json] [--report <json>]
+      [--shells 1|0] [--paintwear 1|0] [--parts 1|0] [--badge-lift 1|0] [--overlay-blend 1|0] [--bgsm-out <Data>]
+      [--fender-raise 0.16]
+      [--materials bike_materials.json] [--report <json>]
 
 --data: a built Data tree (Meshes/CMB: the five nifs and CMB_BikeParts.ini; Materials/CMB/Bike: the rim styles' and the
 rear patch's own files, the templates of the six new ones); given more than once, a later tree's file wins. The patched
@@ -54,7 +73,9 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import bar_cables as BC  # noqa: E402
 import bgsm as BG  # noqa: E402
+import bike_pieces as BP  # noqa: E402
 import harley_meshes as H  # noqa: E402
+import emblem_pieces as EP  # noqa: E402
 import look_emblems as LE  # noqa: E402
 import shell_pieces as SP  # noqa: E402
 
@@ -225,6 +246,50 @@ def skin_copy(nif, s, data_k, positions, stem, label):
     return [("BSSkin::Instance", bytes(inst)), ("BSSkin::BoneData", bytes(bone))], note
 
 
+def add_shell(nif, stem, nm, kind, label, src_label, x, R, t, parent, rim, alpha=None):
+    """A shell of src_label appended to the nif (in place): its source's vertex records with the positions x["q"] (parked
+    frame) through (R, t), x["f"] its triangles over x["used"] of them; its source's skin and bone data copied (the
+    sphere grown if it must), the rim styles' invisible shader block with its own materials file's name and
+    Double_Sided off, their texture set and alpha property copied (or `alpha`'s bytes: 2026-11-22a's blending one);
+    under `parent`. Returns the report line."""
+    k = nif.shape_named(f"{nm}_{src_label}")
+    s = BC.TriShape(nif.blocks[k])
+    if s.alpha >= 0 or nif.blocks[k][4:8] != b"\0\0\0\0":
+        raise ValueError(f"{stem}_{src_label}: an alpha property or extra data")
+    pos = x["q"] @ R.T + t
+    records = with_positions(s, s.records[x["used"]], pos)
+    shape_k = len(nif.blocks)
+    nxt = shape_k + 1
+    skin_k = data_k = -1
+    if s.skin >= 0:
+        skin_k, data_k = nxt, nxt + 1
+        nxt += 2
+    shader_k, tex_k, alpha_k = nxt, nxt + 1, nxt + 2
+    name_idx = LE.string_index(nif, f"{nm}_{label}".encode("ascii"))
+    head = struct.pack("<i", name_idx) + s.head[4:]
+    order = [("BSTriShape", s.pack(head=head, bound=BC.bound_of(pos), refs=(skin_k, shader_k, alpha_k),
+                                   records=records, tris=x["f"]))]
+    note = ""
+    if s.skin >= 0:
+        blocks, note = skin_copy(nif, s, data_k, pos, stem, src_label)
+        order += blocks
+    sh = bytearray(nif.blocks[rim.shader])
+    struct.pack_into("<i", sh, 4, LE.string_index(nif, material_name(label, kind).encode("ascii")))
+    struct.pack_into("<i", sh, 40, tex_k)
+    f2 = struct.unpack_from("<I", sh, 20)[0]
+    struct.pack_into("<I", sh, 20, f2 & ~SF2_DOUBLE_SIDED)   # one-sided
+    tex = struct.unpack_from("<i", nif.blocks[rim.shader], 40)[0]
+    order += [("BSLightingShaderProperty", bytes(sh)), ("BSShaderTextureSet", nif.blocks[tex]),
+              ("NiAlphaProperty", nif.blocks[rim.alpha] if alpha is None else alpha)]
+    for i, (tn, b) in enumerate(order):
+        if nif.add_block(tn, b) != shape_k + i:
+            raise AssertionError("block numbering")
+    nif.blocks[parent] = BC.with_child(nif.blocks[parent], shape_k)
+    return (f"{nm}_{label}: blocks {shape_k}-{shape_k + len(order) - 1}, {len(records)} of {src_label}'s "
+            f"{len(s.records)} vertices, {len(x['f'])} of its {len(s.tris)} triangles, materials file "
+            f"{material_name(label, kind)}, one-sided" + (f"; {note}" if note else ""))
+
+
 def patch_nif(src: bytes, stem: str, nm: str, kind: str, shapes, R, t, fender_v, donor: bytes):
     """The nif with the three new shapes (and the rear patch raised when fender_v is given): (bytes, report lines,
     the node that holds them)."""
@@ -243,43 +308,7 @@ def patch_nif(src: bytes, stem: str, nm: str, kind: str, shapes, R, t, fender_v,
     rim, fen = BC.TriShape(nif.blocks[kr]), BC.TriShape(nif.blocks[kf])
     lines = []
     for label, src_label in SHELLS:
-        x = shapes[label]
-        k = nif.shape_named(f"{nm}_{src_label}")
-        s = BC.TriShape(nif.blocks[k])
-        if s.alpha >= 0 or nif.blocks[k][4:8] != b"\0\0\0\0":
-            raise ValueError(f"{stem}_{src_label}: an alpha property or extra data")
-        pos = x["q"] @ R.T + t
-        records = with_positions(s, s.records[x["used"]], pos)
-        shape_k = len(nif.blocks)
-        nxt = shape_k + 1
-        skin_k = data_k = -1
-        if s.skin >= 0:
-            skin_k, data_k = nxt, nxt + 1
-            nxt += 2
-        shader_k, tex_k, alpha_k = nxt, nxt + 1, nxt + 2
-        name_idx = LE.string_index(nif, f"{nm}_{label}".encode("ascii"))
-        head = struct.pack("<i", name_idx) + s.head[4:]
-        order = [("BSTriShape", s.pack(head=head, bound=BC.bound_of(pos), refs=(skin_k, shader_k, alpha_k),
-                                       records=records, tris=x["f"]))]
-        note = ""
-        if s.skin >= 0:
-            blocks, note = skin_copy(nif, s, data_k, pos, stem, src_label)
-            order += blocks
-        sh = bytearray(nif.blocks[rim.shader])
-        struct.pack_into("<i", sh, 4, LE.string_index(nif, material_name(label, kind).encode("ascii")))
-        struct.pack_into("<i", sh, 40, tex_k)
-        f2 = struct.unpack_from("<I", sh, 20)[0]
-        struct.pack_into("<I", sh, 20, f2 & ~SF2_DOUBLE_SIDED)   # one-sided
-        tex = struct.unpack_from("<i", nif.blocks[rim.shader], 40)[0]
-        order += [("BSLightingShaderProperty", bytes(sh)), ("BSShaderTextureSet", nif.blocks[tex]),
-                  ("NiAlphaProperty", nif.blocks[rim.alpha])]
-        for i, (tn, b) in enumerate(order):
-            if nif.add_block(tn, b) != shape_k + i:
-                raise AssertionError("block numbering")
-        nif.blocks[parent] = BC.with_child(nif.blocks[parent], shape_k)
-        lines.append(f"{nm}_{label}: blocks {shape_k}-{shape_k + len(order) - 1}, {len(records)} of {src_label}'s "
-                     f"{len(s.records)} vertices, {len(x['f'])} of its {len(s.tris)} triangles, materials file "
-                     f"{material_name(label, kind)}, one-sided" + (f"; {note}" if note else ""))
+        lines.append(add_shell(nif, stem, nm, kind, label, src_label, shapes[label], R, t, parent, rim))
     # the front patch: the donor's shape block, fork_paint's skin copied, the rear patch's shader, texture set and alpha
     dn = BC.Nif(donor)
     kd = dn.shape_named(f"{nm}_{PATCH}")
@@ -468,9 +497,333 @@ def pynifly_check(path: Path, before: Path, nm: str, kind: str, shapes, R, t, py
     return bad
 
 
-def write_materials(datas, out: Path, log):
-    """The six own materials files: the shells' the rim styles' invisible wheelF_rimLaced.bgsm (parked and _worn, the
-    same bytes) with two_sided off, the front patch's the rear patch's static_badgeFender(_worn).bgsm byte for byte."""
+# --- 2026-11-22a (round t64): the paint condition shells, the wear on more parts, static_wear over the badges --------
+
+PAINTWEAR = SP.PAINTWEAR_SHELLS
+PARTS = SP.PART_SHELLS
+B_LABELS = tuple(lb for lb, _ in PAINTWEAR) + tuple(lb for lb, _, _ in PARTS)
+B_SOURCES = dict(list(PAINTWEAR) + [(lb, src) for lb, src, _ in PARTS])
+HELMETS = tuple(label for label, _, _ in EP.SHAPES)   # 2026-11-16a's 3D helmets: alternatives, shown only when chosen
+# the look's alternatives drawn only when chosen (invisible by default): the helmets, the rim styles, the under-bar
+# mirrors; a shell inside one is seen whenever it isn't chosen (and hidden inside it when it is), so not cut there
+ALTERNATIVES = HELMETS + tuple(lb for lb, _ in H.RIM_STYLE_LABELS) + H.PARKED_OFF
+
+
+def b_wanted(args):
+    """The 2026-11-22a labels the flags ask for, in their order."""
+    return tuple(lb for lb, _ in PAINTWEAR if args.paintwear) + tuple(lb for lb, _, _ in PARTS if args.parts)
+
+
+def build_shapes_b(data, fr, args, log):
+    """The 2026-11-22a geometry in the parked frame: {label: dict} for static_wear (rebuilt over the badges, with
+    --badge-lift) and each new shell the flags ask for."""
+    pk = BC.Nif(data["CMB_BikeParked"])
+    wn = BC.Nif(data["CMB_BikeWorn"])
+    R, t = fr["CMB_BikeWorn"][:2]
+    # the inside test: every shape but the open sheets, the alternatives (the helmets, the rim styles, the under-bar
+    # mirrors: grime under an unchosen one is seen) and the shells themselves
+    skip = ALTERNATIVES + LABELS + B_LABELS
+    pk_solids = solids(pk, "CMB_Bike", skip)
+    wn_solids = solids(wn, "CMB_BikeWorn", skip)
+    out = {}
+
+    def make(label, src, lift, keep, tri_mask=None, extra=None, by_piece=False):
+        v, f, n, _ = geometry(pk, f"CMB_Bike_{src}")
+        vw = geometry(wn, f"CMB_BikeWorn_{src}")[0]
+        for stem, nm, kind in NIFS:   # the three worn nifs' sources the same half floats
+            if kind == "worn" and not np.array_equal(geometry(BC.Nif(data[stem]), f"{nm}_{src}")[0], vw):
+                raise ValueError(f"{stem}_{src}: not CMB_BikeWorn's positions")
+        fs = f if tri_mask is None else f[tri_mask]
+        log(f"  {label}: a shell of {src} ({len(v)} vertices, {len(fs)} of its {len(f)} triangles), "
+            + (f"{lift:g} over it" if np.ndim(lift) == 0 else f"{SP.SHELL_LIFT:g} over it, up to {float(np.max(lift)):.3f} over the badges"))
+        q, na, num = SP.shell_positions(v, fs, n, worn=(R, t, vw), lift=lift, log=log, keep=SP.SHELL_FIT_KEEP,
+                                        by_piece=by_piece)
+        used_by = np.zeros(len(v), bool)
+        used_by[np.unique(fs)] = True
+        in_p = np.full(len(v), None, dtype=object)
+        in_w = np.full(len(v), None, dtype=object)
+        ub = np.where(used_by)[0]
+        in_p[ub] = SP.inside_shapes(q[ub], pk_solids)
+        in_w[ub] = SP.inside_shapes(SP.half(q[ub] @ R.T + t), wn_solids)
+        if by_piece:   # a piece's shell nearer another piece of the source than the band (overlapping pieces: a
+            # muffler inside its pipe's sleeve, a clamp round a pipe), or off the band over its own piece where the half
+            # floats' step leaves no point in it: out as well
+            qw = SP.half(q @ R.T + t)
+            dp = SP.surface_distance(q[ub], v[fs], reach=0.7)
+            dw = SP.surface_distance(qw[ub], vw[fs], reach=0.7)
+            near = (dp < SP.SHELL_BAND[0]) | (dw < SP.SHELL_BAND[0] - 0.003)
+            pos, _ = SP.weld_positions(v)
+            lab = BP.islands(int(pos.max()) + 1, pos[fs])
+            own_out = np.zeros(len(v), bool)
+            for k in range(int(lab.max()) + 1):
+                fk = fs[lab == k]
+                vk = np.unique(fk)
+                ok_ = SP.surface_distance(q[vk], v[fk], reach=0.7)
+                ow_ = SP.surface_distance(qw[vk], vw[fk], reach=0.7)
+                own_out[vk] = (ok_ > SP.SHELL_BAND[1]) | (ow_ > SP.SHELL_BAND[1] + 0.003)
+            for i in ub[near | own_out[ub]]:
+                if in_p[i] is None and in_w[i] is None:
+                    in_p[i] = f"{src} (off {SP.SHELL_BAND[0]:g}-{SP.SHELL_BAND[1]:g} from its surface)"
+        inside = (in_p != None) | (in_w != None)  # noqa: E711
+        keep_t, used, nf = SP.keep_outside(fs, inside)
+        dips = 0
+        if by_piece:   # a part shell's triangle whose inside comes under SHELL_FLOOR (and a little) of the source (a chord
+            # over a sharp fold of a thin part), in full precision or the half floats: out as well
+            smp, _ = SP.triangle_samples(q, fs)
+            ds = SP.surface_distance(smp.reshape(-1, 3), v[fs], reach=0.7).reshape(len(fs), -1).min(axis=1)
+            smw, _ = SP.triangle_samples(SP.half(q @ R.T + t), fs)
+            dw = SP.surface_distance(smw.reshape(-1, 3), vw[fs], reach=0.7).reshape(len(fs), -1).min(axis=1)
+            dip = (ds < SP.SHELL_FLOOR + 0.01) | (dw < SP.SHELL_FLOOR + 0.01)
+            dips = int((dip & keep_t).sum())
+            keep_t = keep_t & ~dip
+            used = np.unique(fs[keep_t])
+            remap = np.full(len(v), -1, np.int64)
+            remap[used] = np.arange(len(used))
+            nf = remap[fs[keep_t]]
+        why = {}
+        for h in set(np.where(inside & used_by)[0].tolist()):
+            lb = in_p[h] if in_p[h] is not None else in_w[h]
+            why[lb] = why.get(lb, 0) + 1
+        log(f"    {int((inside & used_by).sum())} of its vertices inside another shape "
+            f"({', '.join(f'{k} {c}' for k, c in sorted(why.items())) or 'none'})"
+            + (f", {dips} more triangles dipping under {SP.SHELL_FLOOR + 0.01:g} of it" if dips else "")
+            + f": {int((~keep_t).sum())} triangles left out, {int(keep_t.sum())} kept on {len(used)} vertices")
+        x = dict(src=src, used=used, f=nf, q=q[used], numbers=num, inside=why, dropped=int((~keep_t).sum()),
+                 vertices=len(used), triangles=int(keep_t.sum()))
+        if np.ndim(lift):
+            x["lift"] = np.asarray(lift)[used]
+        if extra:
+            x.update(extra)
+        out[label] = x
+
+    if args.badge_lift:   # static_wear rebuilt: over the badges' footprints, and the helmets no longer cut out
+        v, f, n, _ = geometry(pk, "CMB_Bike_static_paint")
+        pos, _ = SP.weld_positions(v)
+        na = SP.averaged_normals(n, pos)[pos]
+        sheets = {lb: geometry(pk, f"CMB_Bike_{lb}")[:2] for lb in SP.BADGE_SHEETS}
+        lift, count = SP.badge_lifts(v, na, v[f], sheets, f=f)
+        log(f"  static_wear over the badges: {', '.join(f'{k} {c}' for k, c in count.items())} vertices lifted (up to "
+            f"{lift.max():.3f} over the paint, {SP.BADGE_OVER:g} over each sheet on {SP.BADGE_MARGIN:g} round it, ramped "
+            f"back to {SP.SHELL_LIFT:g} over {SP.BADGE_RAMP:g})")
+        make("static_wear", "static_paint", lift, SP.SHELL_FIT_KEEP, extra=dict(badges=count))
+    for label, src in PAINTWEAR:
+        if args.paintwear:
+            make(label, src, SP.PAINTWEAR_LIFT, SP.SHELL_FIT_KEEP)
+    total = 0
+    for label, src, covers in PARTS:
+        if not args.parts:
+            continue
+        mask, found = None, None
+        if covers:
+            v, f, _, _ = geometry(pk, f"CMB_Bike_{src}")
+            mask, found = SP.select_pieces(v, f, covers)
+            log(f"  {label}: {src}'s pieces " + ", ".join(f"{n} triangles (area {a:.1f})" for n, a in found))
+        total += int(mask.sum()) if mask is not None else len(geometry(pk, f"CMB_Bike_{src}")[1])
+        make(label, src, SP.SHELL_LIFT, SP.SHELL_FIT_KEEP, tri_mask=mask, extra=dict(pieces=found), by_piece=True)
+    if args.parts and total > SP.PART_TRIS_MAX:
+        raise ValueError(f"the part shells cover {total} triangles, over PART_TRIS_MAX {SP.PART_TRIS_MAX}")
+    return out
+
+
+GLASS = "static_glass"    # its NiAlphaProperty blends (0x12ED, threshold 0): the overlay shells' since 2026-11-22a
+OVERLAYS_A = tuple(lb for lb, _ in SHELLS)   # 21a's two wear shells (fork_badgeFront is a badge patch, not an overlay)
+
+
+def blend_alpha(nif, nm):
+    """The bytes of the nif's glass's NiAlphaProperty (blending on, test GREATER 0: the apply unit's finding, test 58:
+    a material swap at the 3D's load turns blending on only where the shape's own property and file already blend)."""
+    kg = nif.shape_named(f"{nm}_{GLASS}")
+    g = BC.TriShape(nif.blocks[kg]) if kg is not None else None
+    if g is None or g.alpha < 0 or nif.type_of(g.alpha) != "NiAlphaProperty":
+        raise ValueError(f"{nm}: no {GLASS} with an alpha property to make the overlays' as")
+    b = nif.blocks[g.alpha]
+    flags, thr = struct.unpack_from("<HB", b, 12)
+    if not flags & 1 or thr != 0:
+        raise ValueError(f"{nm}_{GLASS}'s alpha property: flags {flags:#06x} threshold {thr} (blending on, threshold 0 expected)")
+    return b
+
+
+def patch_nif_b(src: bytes, stem: str, nm: str, kind: str, shapes, R, t, labels, blend=False):
+    """The nif (21a's shapes in it) with static_wear rebuilt (when shapes has it), the shells `labels` appended and, with
+    blend, every overlay shell's alpha property the glass's (21a's two rewritten in place): (bytes, report lines, the
+    node that holds them, the other blocks changed in place)."""
+    nif = BC.Nif(src)
+    if nif.write() != src:
+        raise ValueError(f"{stem}: the nif doesn't read back to its own bytes")
+    kp = nif.shape_named(f"{nm}_static_paint")
+    parents = [b for b in range(len(nif.blocks)) if nif.type_of(b) in ("NiNode", "BSFadeNode")
+               and kp in BC.node_children(nif.blocks[b])[1]]
+    if len(parents) != 1:
+        raise ValueError(f"{stem}: static_paint under {len(parents)} nodes")
+    parent = parents[0]
+    kr = nif.shape_named(f"{nm}_{RIM}")
+    if kr is None:
+        raise ValueError(f"{stem}: no {RIM} (the invisible shape the new ones are made as)")
+    rim = BC.TriShape(nif.blocks[kr])
+    lines, grown = [], None
+    if "static_wear" in shapes:
+        x = shapes["static_wear"]
+        kw = nif.shape_named(f"{nm}_static_wear")
+        if kw is None:
+            raise ValueError(f"{stem}: no static_wear to rebuild (2026-11-21a's shapes first: --shells 1)")
+        sw, sp_ = BC.TriShape(nif.blocks[kw]), BC.TriShape(nif.blocks[kp])
+        pos = x["q"] @ R.T + t
+        nif.blocks[kw] = sw.pack(bound=BC.bound_of(pos), records=with_positions(sp_, sp_.records[x["used"]], pos),
+                                 tris=x["f"])
+        note = ""
+        if sw.skin >= 0:
+            dref = struct.unpack_from("<i", nif.blocks[sw.skin], 4)[0]
+            bone = bytearray(nif.blocks[dref])
+            rot = np.array(struct.unpack_from("<9f", bone, 20), np.float64).reshape(3, 3)
+            centre = rot.T @ (np.array(struct.unpack_from("<3f", bone, 4)) - np.array(struct.unpack_from("<3f", bone, 56)))
+            rs = struct.unpack_from("<f", bone, 16)[0]
+            reach = float(np.linalg.norm(pos - centre, axis=1).max())
+            note = f"; its culling sphere holds it (r {rs:.2f}, to {reach:.2f})"
+            if reach > rs:
+                struct.pack_into("<f", bone, 16, float(np.float32(reach * (1 + 1e-6) + 1e-3)))
+                nif.blocks[dref] = bytes(bone)
+                grown = dref
+                note = f"; its culling sphere grown from r {rs:.2f} to {reach:.2f}"
+        lines.append(f"{nm}_static_wear rebuilt: {len(x['used'])} vertices, {len(x['f'])} triangles, over the badges"
+                     + note)
+    changed = set() if grown is None else {grown}
+    alpha = blend_alpha(nif, nm) if blend else None
+    if blend:
+        for label in OVERLAYS_A:
+            k = nif.shape_named(f"{nm}_{label}")
+            s_ = BC.TriShape(nif.blocks[k])
+            if s_.alpha < 0 or nif.type_of(s_.alpha) != "NiAlphaProperty":
+                raise ValueError(f"{stem}_{label}: no alpha property of its own")
+            if nif.blocks[s_.alpha] != alpha:
+                nif.blocks[s_.alpha] = alpha
+                changed.add(s_.alpha)
+            lines.append(f"{nm}_{label}: its alpha property blends (the glass's: {struct.unpack_from('<H', alpha, 12)[0]:#06x}, "
+                         f"threshold {alpha[14]})")
+    for label in labels:
+        lines.append(add_shell(nif, stem, nm, kind, label, B_SOURCES[label], shapes[label], R, t, parent, rim, alpha))
+    return nif.write(), lines, parent, changed
+
+
+def verify_b(before: bytes, after: bytes, stem: str, nm: str, kind: str, shapes, R, t, labels, grown, blend=False):
+    """Byte-level checks of a 2026-11-22a nif against its 2026-11-21a source (grown: the other blocks changed in place:
+    a grown culling sphere, 21a's shells' alpha properties). Returns (problems, the worst error)."""
+    bad = []
+    a, b = BC.Nif(before), BC.Nif(after)
+    if b.write() != after:
+        bad.append("the output doesn't read back to its own bytes")
+    names = [b.name_of(k) for k in b.shapes()]
+    want = [a.name_of(k) for k in a.shapes()] + [f"{nm}_{label}" for label in labels]
+    if names != want:
+        bad.append(f"shapes {names[len(a.shapes()):]}: not the source's and the new ones in order")
+    kw = a.shape_named(f"{nm}_static_wear")
+    changed = {kw} if "static_wear" in shapes else set()
+    changed |= set(grown or ())
+    if blend:   # every overlay shell's alpha property the glass's, 21a's two rewritten in place (and only those)
+        glass = blend_alpha(b, nm)
+        for label in OVERLAYS_A + tuple(labels):
+            s_ = BC.TriShape(b.blocks[b.shape_named(f"{nm}_{label}")])
+            if b.blocks[s_.alpha] != glass:
+                bad.append(f"{label}: its alpha property isn't the glass's (blending)")
+    allowed = {BC.TriShape(a.blocks[a.shape_named(f"{nm}_{lb}")]).alpha for lb in OVERLAYS_A} if blend else set()
+    sw_a = BC.TriShape(a.blocks[kw])
+    if sw_a.skin >= 0:
+        allowed.add(struct.unpack_from("<i", a.blocks[sw_a.skin], 4)[0])   # static_wear's bone data (its sphere)
+    if set(grown or ()) - allowed:
+        bad.append(f"blocks {sorted(set(grown) - allowed)} changed in place beyond static_wear's sphere and the two shells' "
+                   f"alpha properties")
+    parents = [p for p in range(len(a.blocks)) if a.type_of(p) in ("NiNode", "BSFadeNode")
+               and BC.node_children(a.blocks[p])[1] != BC.node_children(b.blocks[p])[1]]
+    if len(parents) != (1 if labels else 0):
+        return bad + [f"{len(parents)} nodes changed"], np.inf
+    for i in range(len(a.blocks)):
+        if a.type_of(i) != b.type_of(i):
+            bad.append(f"block {i}'s type changed")
+        if i in parents or i in changed:
+            continue
+        if a.blocks[i] != b.blocks[i]:
+            bad.append(f"block {i} ({a.type_of(i)}) changed")
+    if b.strings[:len(a.strings)] != a.strings:
+        bad.append("the string table: the source's strings not kept in place")
+    worst = 0.0
+    todo = (["static_wear"] if "static_wear" in shapes else []) + list(labels)
+    for label in todo:
+        x = shapes[label]
+        src = x["src"]
+        s = BC.TriShape(b.blocks[b.shape_named(f"{nm}_{label}")])
+        so = BC.TriShape(a.blocks[a.shape_named(f"{nm}_{src}")])
+        want_p = x["q"] @ R.T + t
+        got = s.positions()
+        d = float(np.abs(got - want_p).max())
+        worst = max(worst, d)
+        tol = 1e-4 + (0.0 if s.full else np.abs(want_p).max() * 2.0 ** -11)
+        if d > tol or (not s.full and not np.array_equal(got, SP.half(want_p))):
+            bad.append(f"{label}: its positions {d:.5f} off the fitted ones")
+        cut = 12 if s.full else 6
+        if s.desc != so.desc or not np.array_equal(s.records[:, cut:], so.records[x["used"], cut:]):
+            bad.append(f"{label}: its records aren't {src}'s but the positions")
+        if not np.array_equal(s.tris, x["f"]) or s.head[4:] != so.head[4:]:
+            bad.append(f"{label}: its triangles, flags or transform")
+        sh = b.blocks[s.shader]
+        if b.strings[struct.unpack_from("<i", sh, 4)[0]].decode() != material_name(label, kind) \
+                or struct.unpack_from("<I", sh, 20)[0] & SF2_DOUBLE_SIDED:
+            bad.append(f"{label}: its materials file or two-sidedness")
+        if kind == "worn":
+            ia, ib = a.blocks[so.skin], b.blocks[s.skin]
+            da, db = struct.unpack_from("<i", ia, 4)[0], struct.unpack_from("<i", ib, 4)[0]
+            if b.type_of(s.skin) != "BSSkin::Instance" or ia[:4] != ib[:4] or ia[8:] != ib[8:] or da == db \
+                    or a.blocks[da][20:] != b.blocks[db][20:] or a.blocks[da][:16] != b.blocks[db][:16]:
+                bad.append(f"{label}: its skin isn't its own copy of {src}'s (the same bone, bind and sphere's centre)")
+        elif s.skin != -1:
+            bad.append(f"{label}: skinned in an unskinned nif")
+    return bad, worst
+
+
+def pynifly_check_b(path: Path, before: Path, nm: str, kind: str, shapes, labels, pynifly: Path):
+    """Read a 2026-11-22a output back through PyNifly: the new shapes last, in order; each one's materials file, skin,
+    parent and UVs (its source vertices')."""
+    sys.path.insert(0, str(pynifly))
+    import logging
+    logging.disable(logging.WARNING)
+    from pyn.pynifly import NifFile
+    bad = []
+    a, b = NifFile(str(before)), NifFile(str(path))
+    na, nb = [s.name for s in a.shapes], [s.name for s in b.shapes]
+    if nb != na + [f"{nm}_{label}" for label in labels]:
+        bad.append(f"shapes {len(nb)}: not the source's {len(na)} and the new ones last")
+    by = {s.name: s for s in b.shapes}
+    for label in (["static_wear"] if "static_wear" in shapes else []) + list(labels):
+        x = shapes[label]
+        s, src = by.get(f"{nm}_{label}"), by.get(f"{nm}_{x['src']}")
+        if s is None or src is None:
+            bad.append(f"{label}: missing")
+            continue
+        if (s.shader.name or "") != material_name(label, kind):
+            bad.append(f"{label}: materials file {s.shader.name!r}")
+        if s.has_skin_instance != (kind == "worn") or (kind == "worn" and list(s.bone_names) != list(src.bone_names)):
+            bad.append(f"{label}: skinned {s.has_skin_instance}")
+        if (s.parent.name if s.parent else None) != (src.parent.name if src.parent else None):
+            bad.append(f"{label}: under {s.parent.name if s.parent else None}")
+        if len(s.verts) != len(x["q"]) or np.abs(np.asarray(s.uvs) - np.asarray(src.uvs)[x["used"]]).max() > 1e-6:
+            bad.append(f"{label}: its UVs aren't its source vertices'")
+    a.close()
+    b.close()
+    return bad
+
+
+def blended_invisible(m):
+    """An own materials file made to blend (2026-11-22a, --overlay-blend 1): alpha 0 (nothing drawn), blending on
+    (source alpha, inverse source alpha), the alpha test kept at reference 0 (an alpha-0 texel discarded), no depth
+    write: the blend state of the wear's own materials, so a swap at the 3D's load shows them."""
+    m = dict(m)
+    m.update(alpha=0.0, alpha_blend=1, alpha_blend_src=6, alpha_blend_dst=7, alpha_test=True, alpha_test_ref=0,
+             zbuffer_write=False, two_sided=False)
+    return m
+
+
+def write_materials(datas, out: Path, log, b_labels=(), blend=False):
+    """The own materials files: the shells' the rim styles' invisible wheelF_rimLaced.bgsm (parked and _worn, the
+    same bytes) with two_sided off (2026-11-22a's b_labels too; with blend, made to blend: blended_invisible), the front
+    patch's the rear patch's static_badgeFender(_worn).bgsm byte for byte."""
     def find(name):
         path = None
         for d in datas:
@@ -487,11 +840,15 @@ def write_materials(datas, out: Path, log):
         m = BG.read(find(f"{RIM}{w}.bgsm"))
         m["two_sided"] = False
         body = BG.dumps(m)
+        if blend:
+            body = BG.dumps(blended_invisible(m))
         if BG.dumps(BG.loads(find(f"{RIM}{w}.bgsm").read_bytes())) != find(f"{RIM}{w}.bgsm").read_bytes():
             raise ValueError(f"{RIM}{w}.bgsm doesn't read back to its own bytes")
         for label, _ in SHELLS:
             made[f"{label}{w}.bgsm"] = body
         made[f"{PATCH}{w}.bgsm"] = find(f"{FENDER}{w}.bgsm").read_bytes()
+        for label in b_labels:
+            made[f"{label}{w}.bgsm"] = body
     for name, body in made.items():
         BC.write_file(folder / name, body)
         log(f"  wrote {folder / name}: {len(body)} bytes, sha256 {BC.sha256(body)}")
@@ -505,10 +862,20 @@ def main() -> int:
     ap.add_argument("--out", type=Path, required=True, help="where the patched nifs go (a folder; may be Meshes/CMB itself)")
     ap.add_argument("--shells", type=int, choices=(0, 1), default=1,
                     help="1 (2026-11-21a): the wear shells and the front patch added, the rear patch raised; 0: the nifs "
-                         "as they are (2026-11-17a's) and no materials file")
+                         "as they are (2026-11-17a's) and no materials file (the 2026-11-22a flags then do nothing)")
     ap.add_argument("--fender-raise", type=float, default=SP.FENDER_RAISE,
                     help=f"how much the rear fender patch is raised along its normals (default {SP.FENDER_RAISE:g}; 0 leaves it)")
-    ap.add_argument("--bgsm-out", type=Path, help="a Data tree to write the six materials files into (Materials/CMB/Bike)")
+    ap.add_argument("--paintwear", type=int, choices=(0, 1), default=1,
+                    help="1 (2026-11-22a): the paint condition shells static_paintwear and fork_paintwear; 0: none (2026-11-21a)")
+    ap.add_argument("--parts", type=int, choices=(0, 1), default=1,
+                    help="1 (2026-11-22a): the wear shells on the exhaust, the engine's covers and the fork lowers; 0: none")
+    ap.add_argument("--badge-lift", type=int, choices=(0, 1), default=1,
+                    help="1 (2026-11-22a): static_wear rebuilt over the badges' footprints (and no longer cut out under the "
+                         "helmets); 0: 2026-11-21a's static_wear")
+    ap.add_argument("--overlay-blend", type=int, choices=(0, 1), default=1,
+                    help="1 (2026-11-22a): every overlay shell's alpha property blends (the glass's) and its own file blends "
+                         "at alpha 0, so a swap at the 3D's load shows the wear; 0: 2026-11-21a's (alpha test 255)")
+    ap.add_argument("--bgsm-out", type=Path, help="a Data tree to write the own materials files into (Materials/CMB/Bike)")
     ap.add_argument("--pynifly", type=Path, required=True, help="PyNifly's io_scene_nifly (the donor nif, the read-back)")
     ap.add_argument("--materials", type=Path, default=HERE / "bike_materials.json")
     ap.add_argument("--report", type=Path, help="write the numbers as JSON")
@@ -516,7 +883,9 @@ def main() -> int:
     sources = {stem: LE.resolve(args.data, stem) for stem, _, _ in NIFS}
     data = {stem: p.read_bytes() for stem, p in sources.items()}
     args.out.mkdir(parents=True, exist_ok=True)
-    report = dict(shells=args.shells, sources={stem: str(p) for stem, p in sources.items()}, nifs={})
+    report = dict(shells=args.shells, paintwear=args.paintwear, parts=args.parts, badge_lift=args.badge_lift,
+                  overlay_blend=args.overlay_blend,
+                  sources={stem: str(p) for stem, p in sources.items()}, nifs={})
     if not args.shells:
         for stem, _, _ in NIFS:
             BC.write_file(args.out / f"{stem}.nif", data[stem])
@@ -526,17 +895,25 @@ def main() -> int:
             args.report.write_text(json.dumps(report, indent=1) + "\n")
         return 0
     todo = [(stem, nm, kind) for stem, nm, kind in NIFS if BC.Nif(data[stem]).shape_named(f"{nm}_{LABELS[0]}") is None]
-    for stem, nm, kind in NIFS:
-        if (stem, nm, kind) not in todo:
+    if todo and len(todo) != len(NIFS):
+        print("some nifs have the shells and some don't: the five must be patched together", file=sys.stderr)
+        return 1
+    wanted = b_wanted(args)
+    have_b = {stem: [lb for lb in B_LABELS if BC.Nif(data[stem]).shape_named(f"{nm}_{lb}") is not None] for stem, nm, _ in NIFS}
+    if any(have_b.values()) and any(have_b[stem] != list(wanted) for stem in have_b):
+        print(f"the nifs have the 2026-11-22a shells {sorted(set(sum(have_b.values(), [])))}, the flags ask for "
+              f"{list(wanted)}: start from 2026-11-21a's nifs", file=sys.stderr)
+        return 1
+    do_b = bool(wanted or args.badge_lift or args.overlay_blend) and not any(have_b.values())
+    if not todo and not do_b:
+        for stem, nm, kind in NIFS:
             if args.out.resolve() != sources[stem].parent.resolve():
                 BC.write_file(args.out / f"{stem}.nif", data[stem])
             print(f"{stem}.nif: has the shells already: left as it is")
             report["nifs"][stem] = dict(sha256=BC.sha256(data[stem]), patched=False, note="has the shells already")
-    if todo and len(todo) != len(NIFS):
-        print("some nifs have the shells and some don't: the five must be patched together", file=sys.stderr)
-        return 1
     bad = []
-    if todo:
+    out_data = dict(data)
+    if todo or do_b:
         sys.path.insert(0, str(args.pynifly))
         import logging
         logging.disable(logging.WARNING)
@@ -560,20 +937,21 @@ def main() -> int:
             for line in bad:
                 print(f"FAIL {line}", file=sys.stderr)
             return 1
-        print("the new shapes (shell_pieces.py), in the parked frame:")
-        shapes = build_shapes(data, fr, print)
-        pk = BC.Nif(data["CMB_BikeParked"])
-        fender_v = raised_fender(pk, args.fender_raise) if args.fender_raise else None
-        report["shapes"] = {label: {k: x[k] for k in ("vertices", "triangles")} | dict(numbers=x["numbers"],
-                            **({"dropped": x["dropped"], "inside": x["inside"]} if label != PATCH else {}))
-                            for label, x in shapes.items()}
-        report["fender_raise"] = args.fender_raise
-        spec_all, _ = H.load_shaders(args.materials if args.materials and args.materials.exists() else None)
-        spec = spec_all[FENDER]
-        pkf = NifFile(str(sources["CMB_BikeParked"]))
-        base = H.Base(pkf.shapes[0])
-        base.props.flags = base.props.flags & ~1   # the master's shape, which the parked nif hides: ours are shown
-        with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory() as tmp:
+        if todo:   # 2026-11-21a's shapes
+            print("the new shapes (shell_pieces.py), in the parked frame:")
+            shapes = build_shapes(data, fr, print)
+            pk = BC.Nif(data["CMB_BikeParked"])
+            fender_v = raised_fender(pk, args.fender_raise) if args.fender_raise else None
+            report["shapes"] = {label: {k: x[k] for k in ("vertices", "triangles")} | dict(numbers=x["numbers"],
+                                **({"dropped": x["dropped"], "inside": x["inside"]} if label != PATCH else {}))
+                                for label, x in shapes.items()}
+            report["fender_raise"] = args.fender_raise
+            spec_all, _ = H.load_shaders(args.materials if args.materials and args.materials.exists() else None)
+            spec = spec_all[FENDER]
+            pkf = NifFile(str(sources["CMB_BikeParked"]))
+            base = H.Base(pkf.shapes[0])
+            base.props.flags = base.props.flags & ~1   # the master's shape, which the parked nif hides: ours are shown
             for stem, nm, kind in NIFS:
                 R, t = fr[stem][:2]
                 src = data[stem]
@@ -582,23 +960,56 @@ def main() -> int:
                 donor = donor_patch(Path(tmp) / f"{stem}_donor.nif", nm, kind, shapes[PATCH], R, t, base, spec, textures)
                 out, lines, parent = patch_nif(src, stem, nm, kind, shapes, R, t, fender_v, donor)
                 problems, worst = verify(src, out, stem, nm, kind, shapes, R, t, fender_v)
-                print(f"{stem}.nif:")
+                print(f"{stem}.nif (2026-11-21a's shapes):")
                 for line in lines:
                     print(f"  {line}")
                 print(f"  under block {parent}; the new positions at most {worst:.5f} off the fitted ones")
                 bad += [f"{stem}: {p}" for p in problems]
-                path = args.out / f"{stem}.nif"
-                BC.write_file(path, out)
-                print(f"  wrote {path}: {len(out)} bytes (was {len(src)}), {len(BC.Nif(out).shapes())} shapes, sha256 {BC.sha256(out)}")
+                path = Path(tmp) / f"{stem}_a.nif"
+                path.write_bytes(out)
                 before = Path(tmp) / f"{stem}.nif"
                 before.write_bytes(src)
                 problems = pynifly_check(path, before, nm, kind, shapes, R, t, args.pynifly)
                 bad += [f"{stem} (PyNifly): {p}" for p in problems]
                 print(f"  read back through PyNifly: {'as written' if not problems else '; '.join(problems)}")
-                report["nifs"][stem] = dict(sha256=BC.sha256(out), bytes=len(out), was=BC.sha256(src), patched=True,
-                                            shapes=len(BC.Nif(out).shapes()), R=R.tolist(), t=t.tolist(), worst=worst)
+                out_data[stem] = out
+        if do_b:   # 2026-11-22a's
+            data_a = {stem: out_data[stem] for stem, _, _ in NIFS}
+            data_a["parts"] = data["parts"]
+            print("2026-11-22a's shapes (shell_pieces.py), in the parked frame:")
+            shapes_b = build_shapes_b(data_a, fr, args, print)
+            report["shapes_b"] = {label: {k: x[k] for k in ("vertices", "triangles", "dropped", "inside")}
+                                  | dict(numbers=x["numbers"], **{k: x[k] for k in ("badges", "pieces") if k in x})
+                                  for label, x in shapes_b.items()}
+            for stem, nm, kind in NIFS:
+                R, t = fr[stem][:2]
+                src = data_a[stem]
+                out, lines, parent, grown = patch_nif_b(src, stem, nm, kind, shapes_b, R, t, wanted, args.overlay_blend)
+                problems, worst = verify_b(src, out, stem, nm, kind, shapes_b, R, t, wanted, grown, args.overlay_blend)
+                print(f"{stem}.nif (2026-11-22a's):")
+                for line in lines:
+                    print(f"  {line}")
+                print(f"  under block {parent}; the new positions at most {worst:.5f} off the fitted ones")
+                bad += [f"{stem}: {p}" for p in problems]
+                path = Path(tmp) / f"{stem}_b.nif"
+                path.write_bytes(out)
+                before = Path(tmp) / f"{stem}_b_src.nif"
+                before.write_bytes(src)
+                problems = pynifly_check_b(path, before, nm, kind, shapes_b, wanted, args.pynifly)
+                bad += [f"{stem} (PyNifly): {p}" for p in problems]
+                print(f"  read back through PyNifly: {'as written' if not problems else '; '.join(problems)}")
+                out_data[stem] = out
+    if todo or do_b:
+        for stem, nm, kind in NIFS:
+            out = out_data[stem]
+            path = args.out / f"{stem}.nif"
+            BC.write_file(path, out)
+            print(f"wrote {path}: {len(out)} bytes (was {len(data[stem])}), {len(BC.Nif(out).shapes())} shapes, "
+                  f"sha256 {BC.sha256(out)}")
+            report["nifs"][stem] = dict(sha256=BC.sha256(out), bytes=len(out), was=BC.sha256(data[stem]), patched=True,
+                                        shapes=len(BC.Nif(out).shapes()))
     if args.bgsm_out:
-        report["materials"] = write_materials(args.data, args.bgsm_out, print)
+        report["materials"] = write_materials(args.data, args.bgsm_out, print, wanted, bool(args.overlay_blend))
     if args.report:
         args.report.write_text(json.dumps(report, indent=1, default=float) + "\n")
     for line in bad:

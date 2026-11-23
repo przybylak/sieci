@@ -48,3 +48,10 @@ Event OnActivate(ObjectReference akActionRef)
 		Controller.ActivationEnd(ticket)
 	endif
 EndEvent
+
+; 2026-11-22a (test 58's 1C; the plugin's [Look] OverlayRuntime, CMB_LookOptions 524288): each time the parked bike's 3D loads, the
+; controller puts the look's swap on it at runtime too (ParkedLoaded3D: the load's own swap leaves the Wear's overlays undrawn), and
+; notes the fresh 3D for [Look] ParkedSwapHold. With both bits off it only notes the fresh 3D.
+Event OnLoad()
+	Controller.ParkedLoaded3D(self)
+EndEvent

@@ -20,11 +20,18 @@
 #             fork_wear over fork_paint) and the front fender's badge patch (fork_badgeFront) added in place to all five
 #             nifs, each hidden on its own materials file until a look option swaps it on, and the rear fender patch
 #             raised over the wear; their six materials files; a nif that has them already is left as it is; SHELLS=0
-#             writes the nifs as they are (2026-11-17a's) and no materials file
+#             writes the nifs as they are (2026-11-17a's) and no materials file. Since 2026-11-22a also the paint
+#             condition shells (static_paintwear, fork_paintwear), the wear shells on the exhaust, the engine's covers
+#             and the fork lowers, static_wear lifted over the badges, and every overlay shell's alpha property and own
+#             file blending (PAINTWEAR=0, PART_SHELLS=0, BADGE_LIFT=0, OVERLAY_BLEND=0 each leave its part out: all four 0
+#             give 2026-11-21a's nifs and materials files)
+#   stand     look_stand.py (since 2026-11-22a, test 58's wish): the model's side stand leg turned down about its pivot bolt
+#             in CMB_BikeParked.nif only (the ridden and view nifs keep it folded), so the parked bike leans on it; a nif
+#             whose stand is down already is left as it is; STAND=0 writes it as it is (the shells stage's)
 #   check     check_bike_meshes.py over the Data tree (and against $REFERENCE if given)
 #   fallback  harley_meshes.py --uvs none instead of export..build: palette textures, no materials files
 #             (27c's way; the emergency build), then check it with "check"
-# usage: [VAR=value ...] tools/rider/build_bike.sh [stage ...]     (default: export art textures build cables emblems shells check)
+# usage: [VAR=value ...] tools/rider/build_bike.sh [stage ...]     (default: export art textures build cables emblems shells stand check)
 # Inputs, from the environment:
 #   PYNIFLY     PyNifly's io_scene_nifly folder                                     (every stage but art)
 #   GLTF        the model's scene.gltf                                              (export, textures, build, fallback)
@@ -46,7 +53,12 @@
 #               emblems stage
 #   SHELLS      1 (the default since 2026-11-21a) or 0 (the nifs as the emblems stage left them, no materials file):
 #               the shells stage
-#   PYTHON      the Python for export, art, build, cables, emblems, shells, fallback and check: 3.10+ with numpy and fast_simplification
+#   PAINTWEAR, PART_SHELLS, BADGE_LIFT, OVERLAY_BLEND
+#               1 (the defaults since 2026-11-22a) or 0: the shells stage's paint condition shells, part shells,
+#               static_wear over the badges and the overlay shells' blending alpha property and own files
+#               (look_shells.py --paintwear, --parts, --badge-lift, --overlay-blend); all four 0: 2026-11-21a's nifs
+#   STAND       1 (the default since 2026-11-22a) or 0 (the parked nif as the shells stage left it): the stand stage
+#   PYTHON      the Python for export, art, build, cables, emblems, shells, stand, fallback and check: 3.10+ with numpy and fast_simplification
 #               (default python3; on Windows' Git Bash, where a python.org install has no python3, e.g. PYTHON=python
 #               or PYTHON="py -3"). It runs with -I, which leaves out the user's site-packages (pip install --user):
 #               install the two into that Python itself
@@ -64,7 +76,7 @@ MATERIALS="${MATERIALS:-$HERE/bike_materials.json}"
 materials=()
 [ -f "$MATERIALS" ] && materials=(--materials "$MATERIALS")
 stages=("$@")
-[ ${#stages[@]} -eq 0 ] && stages=(export art textures build cables emblems shells check)
+[ ${#stages[@]} -eq 0 ] && stages=(export art textures build cables emblems shells stand check)
 
 need() { for v in "$@"; do [ -n "${!v:-}" ] || { echo "build_bike.sh: $v is required for this stage" >&2; exit 2; }; done; }
 
@@ -115,7 +127,12 @@ for stage in "${stages[@]}"; do
             bgsm_out=()
             [ "${SHELLS:-1}" != 0 ] && bgsm_out=(--bgsm-out "$DATA")
             "${PY[@]}" -I "$HERE/look_shells.py" --data "$DATA" --out "$DATA/Meshes/CMB" --shells "${SHELLS:-1}" \
+                --paintwear "${PAINTWEAR:-1}" --parts "${PART_SHELLS:-1}" --badge-lift "${BADGE_LIFT:-1}" \
+                --overlay-blend "${OVERLAY_BLEND:-1}" \
                 --pynifly "$PYNIFLY" "${materials[@]}" "${bgsm_out[@]}" ;;
+        stand)
+            "${PY[@]}" -I "$HERE/look_stand.py" --data "$DATA" --out "$DATA/Meshes/CMB" --stand "${STAND:-1}" \
+                ${PYNIFLY:+--pynifly "$PYNIFLY"} ;;
         check)
             need PYNIFLY
             ref=()
@@ -124,7 +141,7 @@ for stage in "${stages[@]}"; do
             [ -f "$STAGE/manifest.json" ] && stage_arg=(--stage-dir "$STAGE")
             "${PY[@]}" -I "$HERE/check_bike_meshes.py" --pynifly "$PYNIFLY" --data "$DATA" "${ref[@]}" "${stage_arg[@]}" ;;
         *)
-            echo "build_bike.sh: unknown stage $stage (export art textures build cables emblems shells check fallback)" >&2
+            echo "build_bike.sh: unknown stage $stage (export art textures build cables emblems shells stand check fallback)" >&2
             exit 2 ;;
     esac
     echo "== $stage done in $(( $(date +%s) - started )) s"

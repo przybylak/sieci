@@ -441,6 +441,10 @@ public static class Program
         // 2026-11-21a (C4): three more dropdowns, each bound to its full property as C3's (UiWear, UiFrontFender, UiHeadlamp:
         // ui_order.c4); the Tyres' help names the muddy ones. `--look-build 2026-11-16a`: none (2026-11-17a's file).
         bool c4 = lookSlots.ContainsKey("Wear");
+        // 2026-11-22a (C5): the Paint condition dropdown (UiPaintWear) after "Paint shade", before "Wear"; the front fender
+        // badge's dropdown gone (the slot retired). `--look-build 2026-11-21a`: 2026-11-21a's file.
+        bool c5 = lookSlots.ContainsKey("PaintWear");
+        bool frontFender = c4 && !lookSlots["FrontFender"].Retired;
         var lookSets = LookRecords.ReadSets(lookTable);
         Dictionary<string, string>? uiProps = null;
         var uiNames = new Dictionary<string, string[]>();
@@ -495,7 +499,7 @@ public static class Program
             Pick("dropdown", "Tank badge, right", "The badge on the tank's right side. \"Same as the left\" follows the left one.", "TankR", "CMB_Look_TankR"),
             Pick("dropdown", "Rear fender badge", "A badge on the rear fender (None: as it came).", "Fender", "CMB_Look_Fender"),
         });
-        if (c4)
+        if (frontFender)
             lookSection.Add(Pick("dropdown", "Front fender badge", "A badge on the front mudguard's top, read from the front; it turns with the bars (None: as it came).",
                 "FrontFender", "CMB_Look_FrontFender"));
         lookSection.Add(Pick("dropdown", "Paint", "The tank's and fenders' paint and the coachline (Factory: the oxblood, as it came).", "Paint", "CMB_Look_Paint"));
@@ -510,6 +514,9 @@ public static class Program
                     lookTable.GetProperty("hue_palette").GetProperty("shades").EnumerateArray().Select(x => x[0].GetString()!).ToArray(), groupCondition: 1),
             });
         // 2026-11-21a (C4): the wear over the paint (after Paint's hue and shade), and the headlamp's colour after the mirrors.
+        if (c5)
+            lookSection.Add(Pick("dropdown", "Paint condition", "The paint's own wear, under any grime (Pristine: as it came): scratches through to the metal, chips at the edges and the knees, sun fading, all three together (Worn), or primer patches. Works with every paint and with the Wear below.",
+                "PaintWear", "CMB_Look_PaintWear"));
         if (c4)
             lookSection.Add(Pick("dropdown", "Wear", "Weathering over the paint, whatever its colour (As it came: none): sun-faded and chipped, dust, mud from the wheels, rust, blood, or two of them together (Wasteland, Raider).",
                 "Wear", "CMB_Look_Wear"));
@@ -1552,6 +1559,14 @@ public static class Program
         // display order and the recipes' priorities. `--look-build 2026-11-16a`: none of C4 (2026-11-17a's ESP byte for byte).
         if (look.HasC4)
             look.BuildC4(mod, lampLight, lampLightShadow);
+        // --- 2026-11-22a (C5, after test 58: the Paint condition slot, six more headlamp colours, the Wear's part shells, the
+        // front fender badge taken out): the fifth look block, 0xCE7 on (c5_ids), right after C4's: PaintWear's global and
+        // attach point, Headlamp 5-10, PaintWear's 6 options and lists, the new beams; in place the Headlamp's lists and the
+        // light lists, the lists of lists (16), the attach points and the template. The Wear's part entries and the retired
+        // front fender's identities are in their C4 MSWPs, and the look item lacks the front fender's attach point (BuildC4).
+        // `--look-build 2026-11-21a`: none of it (2026-11-21a's ESP byte for byte).
+        if (look.HasC5)
+            look.BuildC5(mod, lampLight, lampLightShadow);
         if (look.HasC3)
             look.BuildOrder();
 
@@ -1906,22 +1921,33 @@ public static class Program
         // two lists, index = the Headlamp option), and CMB_LookF4SE's 3 at its end (the three globals). The controller's
         // UiWear, UiFrontFender and UiHeadlamp are full properties the plugin doesn't fill. Not with `--look-build
         // 2026-11-16a` (None: 12 slots, the shipped warm beam).
+        // 2026-11-22a (C5): a retired slot's global (the front fender badge's) not filled in either script: the slot is then not
+        // there for them (nothing attached, composed as its option 0), as with an ESP before it.
         if (look.HasC4)
         {
-            controller.Properties.InsertRange(controller.Properties.FindIndex(p => p.Name == "UiStart") + 1, new ScriptProperty[]
+            bool frontOn = !look.SlotOf("FrontFender").Retired;
+            controller.Properties.InsertRange(controller.Properties.FindIndex(p => p.Name == "UiStart") + 1, new ScriptProperty?[]
             {
                 Obj("CMB_Look_Wear", look.SlotGlobal("Wear")),
-                Obj("CMB_Look_FrontFender", look.SlotGlobal("FrontFender")),
+                frontOn ? Obj("CMB_Look_FrontFender", look.SlotGlobal("FrontFender")) : null,
                 Obj("CMB_Look_Headlamp", look.SlotGlobal("Headlamp")),
                 Obj("CMB_HeadlampLights", look.HeadlampLightList!),
                 Obj("CMB_HeadlampLightsShadow", look.HeadlampLightListShadow!),
-            });
-            lookF4se.Properties.AddRange(new ScriptProperty[]
+            }.OfType<ScriptProperty>());
+            lookF4se.Properties.AddRange(new ScriptProperty?[]
             {
                 Obj("CMB_Look_Wear", look.SlotGlobal("Wear")),
-                Obj("CMB_Look_FrontFender", look.SlotGlobal("FrontFender")),
+                frontOn ? Obj("CMB_Look_FrontFender", look.SlotGlobal("FrontFender")) : null,
                 Obj("CMB_Look_Headlamp", look.SlotGlobal("Headlamp")),
-            });
+            }.OfType<ScriptProperty>());
+        }
+        // 2026-11-22a (C5): the controller's Look_C5 group, 1, after CMB_HeadlampLightsShadow (the Paint condition's global;
+        // UiPaintWear is a full property), and CMB_LookF4SE's 1 at its end. Not with `--look-build 2026-11-21a`.
+        if (look.HasC5)
+        {
+            controller.Properties.Insert(controller.Properties.FindIndex(p => p.Name == "CMB_HeadlampLightsShadow") + 1,
+                Obj("CMB_Look_PaintWear", look.SlotGlobal("PaintWear")));
+            lookF4se.Properties.Add(Obj("CMB_Look_PaintWear", look.SlotGlobal("PaintWear")));
         }
 
         quest.VirtualMachineAdapter = new QuestAdapter
@@ -2186,7 +2212,8 @@ public static class Program
         public sealed record Slot(string Key, string Ap, string Name, string Global, int Default, string List, string? Swaps,
                                   string ListId, string? SwapsId, string[] Sources, Option[] Options,
                                   string? Since, string? GlobalId, string? ApId, string? Label,
-                                  string[]? SourcesC3 = null, string? PlaceholderList = null, string? PlaceholderId = null);
+                                  string[]? SourcesC3 = null, string? PlaceholderList = null, string? PlaceholderId = null,
+                                  bool Retired = false);
         public sealed record Set(int Index, string Key, string Name, int? Paint, int? TankLeft, int? TankRight, int? Fender, int? Plate);
 
         // The first ID after 2026-11-06a's forms; CMB_LookCode is LookCodeId (0x8AF), the one below it.
@@ -2195,15 +2222,19 @@ public static class Program
         public const uint C3FirstId = 0xC08;
         // 2026-11-21a: C4's block (art build B) right after C3's (0xC08-0xC4F).
         public const uint C4FirstId = 0xC50;
+        // 2026-11-22a: C5's block right after C4's (0xC50-0xCE6).
+        public const uint C5FirstId = 0xCE7;
         // The builds the table knows: C1's entries carry no `since`, C2's "2026-11-08a". The generator's `--look-build <b>`
         // sets Through, and LoadTable drops every entry of a later build: `--look-build 2026-11-07a` makes 2026-11-07a's
         // ESP (and MCM) byte for byte, the off value of everything C2 adds. 2026-11-16a (C3): its entries carry "2026-11-16a"
         // and `--look-build 2026-11-08a` makes 2026-11-15b's ESP and MCM byte for byte (the off value of everything C3 adds).
         // 2026-11-21a (C4, art build B: wear, the front fender badge, the headlamp's colour, two badges, muddy tyres): its
         // entries carry "2026-11-21a" and `--look-build 2026-11-16a` makes 2026-11-17a's ESP and MCM byte for byte.
-        public const string C1Build = "2026-11-07a", C2Build = "2026-11-08a", C3Build = "2026-11-16a", C4Build = "2026-11-21a";
-        public static readonly string[] Builds = { C1Build, C2Build, C3Build, C4Build };
-        public static string Through = C4Build;
+        // 2026-11-22a (C5, after test 58: the Paint condition slot, the Wear on the part shells, six more headlamp colours,
+        // the front fender badge taken out): "2026-11-22a", and `--look-build 2026-11-21a` makes fbe9a7c's ESP and MCM.
+        public const string C1Build = "2026-11-07a", C2Build = "2026-11-08a", C3Build = "2026-11-16a", C4Build = "2026-11-21a", C5Build = "2026-11-22a";
+        public static readonly string[] Builds = { C1Build, C2Build, C3Build, C4Build, C5Build };
+        public static string Through = C5Build;
         // 2026-11-16a (C3): the lists' display order, alphabetical (ui_order) or `--kit-order table` (2026-11-15b's order: the
         // recipes' priority 0, the MCM on the globals, the Ui arrays the identity).
         public static bool KitOrderAlpha = true;
@@ -2255,6 +2286,8 @@ public static class Program
         public bool HasC3 => Slots.Any(s => s.Since == C3Build) || Slots.Any(s => s.Options.Any(o => o.Since == C3Build));
         // 2026-11-21a: C4's block (BuildC4, right after C3's) and its fills; false through 2026-11-16a.
         public bool HasC4 => Slots.Any(s => s.Since == C4Build) || Slots.Any(s => s.Options.Any(o => o.Since == C4Build));
+        // 2026-11-22a: C5's block (BuildC5, right after C4's) and its fills; false through 2026-11-21a.
+        public bool HasC5 => Slots.Any(s => s.Since == C5Build) || Slots.Any(s => s.Options.Any(o => o.Since == C5Build));
         // Per TankL option the TankR index with the same key ("Same as the left" resolves through it: 17 -> 18 ... since C3).
         public int[] TankRightOf => SlotOf("TankL").Options.Select(o => Array.FindIndex(SlotOf("TankR").Options, r => r.Key == o.Key)).ToArray();
         // Per Seat option its palette V ((row + 0.5) / 16, the swap's CNAM), -1 for the stock seat (no palette).
@@ -2337,9 +2370,14 @@ public static class Program
         // itself. A colour slot's `swaps_placeholder` names its empty swap list. 2026-11-21a: "an option of an earlier build"
         // is one from before C3 (C1's, C2's), as look_render.py's option_swap: a C4 tank option names all six itself too.
         // A Headlamp option's `beam` (C4): its light's colour and the two lights' IDs (none for option 0, the shipped two).
+        // 2026-11-22a (C5): a slot's `sources_c5` (the Wear's part shells) appends to its sources and each option's `swap_c5`
+        // to its swap (both dropped through 2026-11-21a); a `retired` slot (the front fender badge, C5) keeps its records but
+        // every option's swap is its sources' identities (nothing it names is ever drawn).
         static Slot ReadSlot(JsonElement s)
         {
             var add = Opt(s, "sources_c3")?.GetProperty("add").EnumerateArray().Select(x => x.GetString()!).ToArray();
+            var add5 = Opt(s, "sources_c5")?.GetProperty("add").EnumerateArray().Select(x => x.GetString()!).ToArray();
+            bool retired = Opt(s, "retired") != null;
             var placeholder = Opt(s, "swaps_placeholder");
             var options = s.GetProperty("options").EnumerateArray().Select(o => new Option(
                 o.GetProperty("index").GetInt32(), S(o, "key")!, S(o, "name")!, S(o, "kind")!,
@@ -2355,12 +2393,22 @@ public static class Program
                 Opt(o, "beam") is { } beam2 && Opt(beam2, "ids") is { } bids ? bids.EnumerateArray().Select(x => x.GetString()!).ToArray() : null))
                 .Select(o => add != null && o.Swap != null && !Later(o.Since, C2Build) ? o with { Swap = o.Swap.Concat(add.Select(x => (x, x))).ToArray() } : o)
                 .ToArray();
-            var sources = s.GetProperty("sources").EnumerateArray().Select(x => x.GetString()!).Concat(add ?? Array.Empty<string>()).ToArray();
+            var options5 = s.GetProperty("options").EnumerateArray()
+                .Select(o => Opt(o, "swap_c5")?.GetProperty("add").EnumerateArray().Select(e => (e[0].GetString()!, e[1].GetString()!)).ToArray()).ToArray();
+            for (int i = 0; i < options.Length; i++)
+            {
+                if (options5[i] is { } more && options[i].Swap != null)
+                    options[i] = options[i] with { Swap = options[i].Swap!.Concat(more).ToArray() };
+                if (retired && options[i].Swap != null)
+                    options[i] = options[i] with { Swap = options[i].Swap!.Select(e => (e.From, e.From)).ToArray() };
+            }
+            var sources = s.GetProperty("sources").EnumerateArray().Select(x => x.GetString()!).Concat(add ?? Array.Empty<string>())
+                .Concat(add5 ?? Array.Empty<string>()).ToArray();
             return new Slot(
                 S(s, "key")!, S(s, "ap")!, S(s, "name")!, S(s, "global")!, s.GetProperty("default").GetInt32(), S(s, "list")!, S(s, "swaps"),
                 S(s, "list_id")!, S(s, "swaps_id"), sources, options, Opt(s, "since")?.GetString(), Opt(s, "global_id")?.GetString(),
                 Opt(s, "ap_id")?.GetString(), Opt(s, "label")?.GetString(),
-                add, placeholder?.GetProperty("list").GetString(), placeholder?.GetProperty("id").GetString());
+                add, placeholder?.GetProperty("list").GetString(), placeholder?.GetProperty("id").GetString(), retired);
         }
 
         public static Set[] ReadSets(JsonElement root) => root.GetProperty("sets").EnumerateArray().Select(s => new Set(
@@ -2382,7 +2430,8 @@ public static class Program
             // object mod and a recipe, no swap). `follow` is TankR's last ("Same as the left") or PlateText's 0 (the plate's own).
             // 2026-11-16a's: emblem (a 3D helmet on its ground cell), seat (a seat_palette row, its V the swap's CNAM).
             // 2026-11-21a's: wear (a Wear option's overlays on the two shells), lamp (a Headlamp option's lens and beam).
-            var kinds = new[] { "identity", "off", "badge", "paint", "mirror", "follow", "hue", "rim", "tyre", "design", "text", "colour", "emblem", "seat", "wear", "lamp" };
+            // 2026-11-22a's: paintwear (a Paint condition option's overlays on the two paint shells).
+            var kinds = new[] { "identity", "off", "badge", "paint", "mirror", "follow", "hue", "rim", "tyre", "design", "text", "colour", "emblem", "seat", "wear", "lamp", "paintwear" };
             foreach (var s in slots)
             {
                 for (int i = 0; i < s.Options.Length; i++)
@@ -2439,6 +2488,8 @@ public static class Program
                 CheckTableC3(root, slots, sets, fail);
             if (slots.Any(s => s.Since == C4Build) || slots.Any(s => s.Options.Any(o => o.Since == C4Build)))
                 CheckTableC4(root, slots, fail);
+            if (slots.Any(s => s.Since == C5Build) || slots.Any(s => s.Options.Any(o => o.Since == C5Build)))
+                CheckTableC5(root, slots, fail);
             foreach (var s in slots)
                 foreach (var o in s.Options.Where(o => Later(o.Since, Through) || Later(s.Since, Through)))
                     fail.Add($"{s.Key}:{o.Key}: since {o.Since ?? s.Since}, later than the build {Through}");
@@ -2624,7 +2675,7 @@ public static class Program
                 foreach (var o in s.Options.Where(o => o.Since == C4Build))
                     ids.AddRange(o.Ids.Where(x => x != null).Select(x => ($"{s.Key}:{o.Key}", x)));
             foreach (var s in news)
-                foreach (var o in s.Options)
+                foreach (var o in s.Options.Where(o => !Later(o.Since, C4Build)))   // (2026-11-22a: a later build's in its block)
                     ids.AddRange(o.Ids.Where(x => x != null).Select(x => ($"{s.Key}:{o.Key}", x)));
             foreach (var s in news) ids.Add((s.List, s.ListId));
             foreach (var s in news.Where(s => s.SwapsId != null)) ids.Add((s.Swaps!, s.SwapsId));
@@ -2635,7 +2686,7 @@ public static class Program
             else
             {
                 lights = root.GetProperty("slots").EnumerateArray().First(x => S(x, "key") == "Headlamp").GetProperty("lights");
-                foreach (var o in lamp.Options.Skip(1))
+                foreach (var o in lamp.Options.Skip(1).Where(o => o.Since == C4Build))   // (2026-11-22a: C5's in CheckTableC5)
                 {
                     if (o.BeamIds is not { Length: 2 })
                     { fail.Add($"Headlamp:{o.Key}: its beam's ids aren't two (the plain light, the shadow one)"); continue; }
@@ -2667,13 +2718,14 @@ public static class Program
                         if (!offered || o.Badge != o.Key)
                             fail.Add($"{s.Key}:{o.Key}: its badge {o.Badge} (slots [{string.Join(", ", own)}]) isn't one this slot offers under its own key (the front fender: a rear fender badge, or one naming FrontFender)");
                         foreach (var (from, to) in o.Swap!)
-                            if (to != (s.Sources.Take(2).Contains(from) ? plate : from))
-                                fail.Add($"{s.Key}:{o.Key}: {from} -> {to}, expected {(s.Sources.Take(2).Contains(from) ? plate : from)}");
+                            if (to != (s.Sources.Take(2).Contains(from) && !s.Retired ? plate : from))   // (2026-11-22a: retired, identities)
+                                fail.Add($"{s.Key}:{o.Key}: {from} -> {to}, expected {(s.Sources.Take(2).Contains(from) && !s.Retired ? plate : from)}");
                     }
                     else if (o.Kind == "wear")
                     {
-                        var want = s.Sources.Select(x => (x, x.Replace("static_wear", $"wear_{o.Key}_static").Replace("fork_wear", $"wear_{o.Key}_fork"))).ToArray();
-                        if (s.Key != "Wear" || !o.Swap!.SequenceEqual(want))
+                        // (2026-11-22a: the four shells of 21a, C5's part shells after them in CheckTableC5)
+                        var want = s.Sources.Take(4).Select(x => (x, x.Replace("static_wear", $"wear_{o.Key}_static").Replace("fork_wear", $"wear_{o.Key}_fork"))).ToArray();
+                        if (s.Key != "Wear" || !o.Swap!.Take(4).SequenceEqual(want))
                             fail.Add($"{s.Key}:{o.Key}: a wear option's swap isn't the shells' to wear_{o.Key}_static and wear_{o.Key}_fork (and _worn)");
                     }
                     else if (o.Kind == "lamp")
@@ -2698,6 +2750,88 @@ public static class Program
                 fail.Add("Headlamp:warm: its beam isn't the shipped light's fff1e0 (Program.Headlamp's 255/241/224)");
         }
 
+        // 2026-11-22a (C5): the fifth block's IDs (every one once, from c5_ids' first, 0xCE7 right after C4's, contiguous, in
+        // BuildC5's order: the new slot's global, its attach point, the older slots' C5 options in slot order (Headlamp 5-10),
+        // the new slot's options, its option list, its swap list, the C5 Headlamp options' lights (plain, shadow)); the
+        // PaintWear options' four overlays, the new lamps' lens files and beams, the Wear options' part shells (option 0
+        // their identities, option k wear_<key>_<tag>), a retired slot's swaps all identities; no colour index on any.
+        static void CheckTableC5(JsonElement root, Slot[] slots, List<string> fail)
+        {
+            var c5 = root.GetProperty("c5_ids");
+            uint first = Id(c5.GetProperty("first").GetString()!), last = Id(c5.GetProperty("last").GetString()!);
+            var news = slots.Where(s => s.Since == C5Build).ToArray();
+            var ids = new List<(string What, string? Id)>();
+            foreach (var s in news) ids.Add((s.Global, s.GlobalId));
+            foreach (var s in news) ids.Add((s.Ap, s.ApId));
+            foreach (var s in slots.Where(s => s.Since != C5Build))
+                foreach (var o in s.Options.Where(o => o.Since == C5Build))
+                    ids.AddRange(o.Ids.Where(x => x != null).Select(x => ($"{s.Key}:{o.Key}", x)));
+            foreach (var s in news)
+                foreach (var o in s.Options)
+                    ids.AddRange(o.Ids.Where(x => x != null).Select(x => ($"{s.Key}:{o.Key}", x)));
+            foreach (var s in news) ids.Add((s.List, s.ListId));
+            foreach (var s in news.Where(s => s.SwapsId != null)) ids.Add((s.Swaps!, s.SwapsId));
+            var lamp = slots.First(s => s.Key == "Headlamp");
+            foreach (var o in lamp.Options.Where(o => o.Since == C5Build))
+            {
+                if (o.BeamIds is not { Length: 2 })
+                { fail.Add($"Headlamp:{o.Key}: its beam's ids aren't two (the plain light, the shadow one)"); continue; }
+                ids.Add(($"CMB_HeadlampLight_{o.Key}", o.BeamIds[0]));
+                ids.Add(($"CMB_HeadlampLightShadow_{o.Key}", o.BeamIds[1]));
+            }
+            for (int i = 0; i < ids.Count; i++)
+                if (ids[i].Id == null || Id(ids[i].Id!) != first + (uint)i)
+                    fail.Add($"{ids[i].What}: {ids[i].Id ?? "none"}, expected {first + (uint)i:X6} (C5's IDs from {first:X6} in the table's order, once each)");
+            if (ids.Count != c5.GetProperty("count").GetInt32() || first + (uint)ids.Count - 1 != last || Id(c5.GetProperty("next").GetString()!) != last + 1
+                || first != C5FirstId)
+                fail.Add($"c5_ids: {ids.Count} IDs from {first:X6}, the table says {c5.GetProperty("count").GetInt32()} to {last:X6} (C5 starts at 0xCE7, after C4's 0xCE6)");
+            foreach (var s in slots)
+                foreach (var o in s.Options.Where(o => o.Since == C5Build))
+                {
+                    if (o.Cnam != null) fail.Add($"{s.Key}:{o.Key}: a colour index (cnam) on a C5 option");
+                    if (o.Kind == "paintwear")
+                    {
+                        var want = s.Sources.Select(x => (x, x.Replace("static_paintwear", $"paintwear_{o.Key}_static").Replace("fork_paintwear", $"paintwear_{o.Key}_fork"))).ToArray();
+                        if (s.Key != "PaintWear" || !o.Swap!.SequenceEqual(want))
+                            fail.Add($"{s.Key}:{o.Key}: a paintwear option's swap isn't the paint shells' to paintwear_{o.Key}_static and paintwear_{o.Key}_fork (and _worn)");
+                    }
+                    else if (o.Kind == "lamp")
+                    {
+                        var want = s.Sources.Select(x => (x, x.Replace("front_glow", $"front_glow_{o.Key}"))).ToArray();
+                        if (s.Key != "Headlamp" || !o.Swap!.SequenceEqual(want) || o.BeamRgb is not { Length: 6 })
+                            fail.Add($"{s.Key}:{o.Key}: a lamp option's swap isn't front_glow_{o.Key}(_worn), or its beam has no rgb");
+                    }
+                    else if (o.Kind != "identity" || o.Index != 0)
+                        fail.Add($"{s.Key}:{o.Key}: kind {o.Kind}: a C5 option is a paintwear, a lamp or its new slot's identity");
+                }
+            // The Wear's part shells (sources_c5): after 21a's four, in pairs (the part's own file, its _worn twin); option 0
+            // their identities, option k wear_<key>_<tag>(_worn) with the same tag for both.
+            var wearJson = root.GetProperty("slots").EnumerateArray().FirstOrDefault(x => S(x, "key") == "Wear");
+            if (wearJson.ValueKind == JsonValueKind.Object && Opt(wearJson, "sources_c5") is { } more)
+            {
+                var wear = slots.First(s => s.Key == "Wear");
+                var parts = more.GetProperty("add").EnumerateArray().Select(x => x.GetString()!).ToArray();
+                if (parts.Length % 2 != 0 || !wear.Sources.Skip(4).SequenceEqual(parts)
+                    || parts.Where((x, i) => i % 2 == 1 && x != parts[i - 1].Replace(".bgsm", "_worn.bgsm")).Any())
+                    fail.Add("Wear: sources_c5 isn't pairs of a part shell's own file and its _worn twin, after 21a's four");
+                foreach (var o in wear.Options)
+                {
+                    var got = o.Swap!.Skip(4).ToArray();
+                    for (int i = 0; i + 1 < parts.Length && got.Length == parts.Length; i += 2)
+                    {
+                        bool ok = o.Index == 0 ? got[i] == (parts[i], parts[i]) && got[i + 1] == (parts[i + 1], parts[i + 1])
+                            : got[i].Item1 == parts[i] && got[i + 1].Item1 == parts[i + 1] && got[i].Item2.StartsWith($"CMB\\Bike\\wear_{o.Key}_")
+                              && got[i + 1].Item2 == got[i].Item2.Replace(".bgsm", "_worn.bgsm");
+                        if (!ok) fail.Add($"Wear:{o.Key}: its part entries {got[i]}, {got[i + 1]} (option 0 identities, the others wear_{o.Key}_<tag>.bgsm and _worn)");
+                    }
+                    if (got.Length != parts.Length) fail.Add($"Wear:{o.Key}: {got.Length} part entries, the slot has {parts.Length} part sources");
+                }
+            }
+            foreach (var s in slots.Where(s => s.Retired))
+                foreach (var o in s.Options.Where(o => o.Swap != null && o.Swap.Any(e => e.From != e.To)))
+                    fail.Add($"{s.Key}:{o.Key}: retired, but its swap isn't identities");
+        }
+
         // 2026-11-16a (C3): the display order's groups (ui_order.groups: the slots in slot order, then the faction sets), and per
         // group its option indices in display order. Alphabetical (alpha): a group's option 0 and its `off` and `follow`
         // options first in index order, the rest by name (ordinal over the names lower-cased, ties by index), ui_order's `last`
@@ -2709,8 +2843,8 @@ public static class Program
         {
             var ui = root.GetProperty("ui_order");
             var keys = ui.GetProperty("groups").EnumerateArray().Select(x => x.GetString()!).ToList();
-            if (Opt(ui, "c4") is { } c4)
-                keys.InsertRange(keys.IndexOf(S(c4, "before")!), c4.GetProperty("groups").EnumerateArray().Select(x => x.GetString()!));
+            foreach (var c in UiLater(ui))   // 2026-11-22a: c4's, then c5's (PaintWear), each before its `before`
+                keys.InsertRange(keys.IndexOf(S(c, "before")!), c.GetProperty("groups").EnumerateArray().Select(x => x.GetString()!));
             return keys.ToArray();
         }
 
@@ -2718,11 +2852,15 @@ public static class Program
         {
             var ui = root.GetProperty("ui_order");
             var d = ui.GetProperty("dropdowns").EnumerateObject().ToDictionary(p => p.Name, p => p.Value.GetString()!);
-            if (Opt(ui, "c4") is { } c4)
-                foreach (var p in c4.GetProperty("dropdowns").EnumerateObject())
+            foreach (var c in UiLater(ui))
+                foreach (var p in c.GetProperty("dropdowns").EnumerateObject())
                     d[p.Name] = p.Value.GetString()!;
             return d;
         }
+
+        // ui_order's later builds' members (c4, c5 ...: objects with `groups`), in the file's order.
+        static IEnumerable<JsonElement> UiLater(JsonElement ui) =>
+            new[] { "c4", "c5" }.Select(k => Opt(ui, k)).Where(x => x != null).Select(x => x!.Value);
 
         public static int[][] UiGroups(JsonElement root, Slot[] slots, Set[] sets, bool alpha)
         {
@@ -3152,7 +3290,7 @@ public static class Program
             {
                 st.Mods[s.Key] = new();
                 st.Swaps[s.Key] = new();
-                foreach (var o in s.Options)
+                foreach (var o in s.Options.Where(o => !Later(o.Since, C4Build)))   // (2026-11-22a: C5's Headlamp options in BuildC5)
                     MakeOption(mod, this, s, o, st.Aps[s.Key], st.Loose, st.Mods, st.Swaps, made);
             }
             foreach (var s in news)
@@ -3163,7 +3301,7 @@ public static class Program
             var lampSlot = SlotOf("Headlamp");
             var plain = new List<Light> { lamp };
             var shadow = new List<Light> { lampShadow };
-            foreach (var o in lampSlot.Options.Skip(1))
+            foreach (var o in lampSlot.Options.Skip(1).Where(o => o.Since == C4Build))   // (2026-11-22a: C5's in BuildC5)
             {
                 var rgb = Convert.ToInt32(o.BeamRgb!, 16);
                 var colour = System.Drawing.Color.FromArgb(0, (rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
@@ -3192,18 +3330,13 @@ public static class Program
                 foreach (var w in st.Swaps[s.Key].Skip(sl.Items.Count))
                     sl.Items.Add(Link(w));
             }
-            foreach (var s in Slots.Skip(Categories.Items.Count))
+            var upToC4 = Slots.Where(s => !Later(s.Since, C4Build)).ToArray();   // (2026-11-22a: C5's slot in BuildC5)
+            foreach (var s in upToC4.Skip(Categories.Items.Count))
                 Categories.Items.Add(Link(st.OptionLists.First(l => l.EditorID == s.List)));
-            foreach (var s in Slots.Skip(SwapLists.Items.Count))
+            foreach (var s in upToC4.Skip(SwapLists.Items.Count))
                 SwapLists.Items.Add(Link(s.Swaps != null ? st.SwapLists.First(l => l.EditorID == s.Swaps)
                     : throw new InvalidOperationException($"{s.Key}: a C4 slot without a swap list (CMB_LookSwapLists: index = slot)")));
-            foreach (var s in news)
-            {
-                st.Item.AttachParentSlots!.Add(st.Aps[s.Key]);
-                foreach (var a in st.Riding)
-                    a.AttachParentSlots!.Add(st.Aps[s.Key]);
-                st.Item.ObjectTemplates![0].Includes.Add(new ObjectTemplateInclude { Mod = st.Mods[s.Key][0].ToLink<IAObjectModificationGetter>(), AttachPointIndex = 0 });
-            }
+            AttachNew(st, news);
 
             var wrong = made.Where(x => x.Record.FormKey.ID != x.Id).ToArray();
             if (wrong.Length > 0)
@@ -3214,6 +3347,107 @@ public static class Program
                 throw new InvalidOperationException($"{count} C4 records made, {made.Count} at the table's IDs, c4_ids says {ids.GetProperty("count").GetInt32()}");
             if (mod.ModHeader.Stats.NextFormID != Id(ids.GetProperty("next").GetString()!))
                 throw new InvalidOperationException($"the next ID after C4's block is 0x{mod.ModHeader.Stats.NextFormID:X}, not c4_ids' next {ids.GetProperty("next").GetString()}");
+        }
+
+        // The new slots' attach points on the look item and both riding armours, the template each one's option 0. 2026-11-22a:
+        // a retired slot (C5's front fender badge) not on the item, nor in its template (the field kit offers none of its
+        // mods); the riding armours keep its attach point (a worn bike saved with one of its mods stays valid).
+        void AttachNew(C3State st, Slot[] news)
+        {
+            foreach (var s in news)
+            {
+                if (!s.Retired)
+                    st.Item.AttachParentSlots!.Add(st.Aps[s.Key]);
+                foreach (var a in st.Riding)
+                    a.AttachParentSlots!.Add(st.Aps[s.Key]);
+                if (!s.Retired)
+                    st.Item.ObjectTemplates![0].Includes.Add(new ObjectTemplateInclude { Mod = st.Mods[s.Key][0].ToLink<IAObjectModificationGetter>(), AttachPointIndex = 0 });
+            }
+        }
+
+        // 2026-11-22a (C5, after test 58): the fifth block, in the table's order (c5_ids, from 0xCE7, right after C4's; each
+        // record at its ID): the new slot's global (CMB_Look_PaintWear: 0, pristine) and attach point (CMB_ap_PaintWear "Paint
+        // condition"), the older slots' C5 options (Headlamp 5-10: a swap, an object mod and a recipe each), the new slot's
+        // options (PaintWear 0-5), its option list and swap list, then per new Headlamp option a copy of the bike's
+        // CMB_HeadlampLight and of CMB_HeadlampLightShadow in its colour. In place: the Headlamp's option and swap lists and
+        // the two light lists take the new options' (index = option); CMB_LookCategories and CMB_LookSwapLists take
+        // PaintWear's (16 each, index = slot); the look item and both riding armours its attach point, the template its
+        // option 0. (The Wear's part entries and the retired front fender's identities are in their MSWPs from the start:
+        // ReadSlot.) The display order and the priorities follow in BuildOrder.
+        public void BuildC5(Fallout4Mod mod, Light lamp, Light lampShadow)
+        {
+            var st = c3 ?? throw new InvalidOperationException("LookRecords.BuildC5 before Build");
+            var made = new List<(IMajorRecordGetter Record, uint Id)>();
+            T At<T>(T r, string id) where T : IMajorRecordGetter { made.Add((r, Id(id))); return r; }
+            var ids = st.Root.GetProperty("c5_ids");
+            var first = Id(ids.GetProperty("first").GetString()!);
+            if (first != C5FirstId || mod.ModHeader.Stats.NextFormID != first)
+                throw new InvalidOperationException($"C5's records start at 0x{first:X} (look_options.json's c5_ids), right after C4's block; the next ID is 0x{mod.ModHeader.Stats.NextFormID:X}");
+            if (HeadlampLightList == null || HeadlampLightListShadow == null)
+                throw new InvalidOperationException("BuildC5 before BuildC4 (the light lists)");
+            var before = mod.EnumerateMajorRecords().Count();
+            var news = Slots.Where(s => s.Since == C5Build).ToArray();
+            foreach (var s in news)
+                slotGlobals[s.Key] = At(Global(mod, s.Global, s.Default), s.GlobalId!);
+            foreach (var s in news)
+                st.Aps[s.Key] = At(Kw(mod, s.Ap, Keyword.TypeEnum.AttachPoint, s.Name), s.ApId!);
+            foreach (var s in Slots.Where(s => s.Since != C5Build))
+                foreach (var o in s.Options.Where(o => o.Since == C5Build))
+                    MakeOption(mod, this, s, o, st.Aps[s.Key], st.Loose, st.Mods, st.Swaps, made);
+            foreach (var s in news)
+            {
+                st.Mods[s.Key] = new();
+                st.Swaps[s.Key] = new();
+                foreach (var o in s.Options)
+                    MakeOption(mod, this, s, o, st.Aps[s.Key], st.Loose, st.Mods, st.Swaps, made);
+            }
+            foreach (var s in news)
+                st.OptionLists.Add(At(List(mod, s.List, st.Mods[s.Key].Select(m => m.FormKey)), s.ListId));
+            foreach (var s in news.Where(s => s.Swaps != null))
+                st.SwapLists.Add(At(List(mod, s.Swaps!, st.Swaps[s.Key].Select(m => m.FormKey)), s.SwapsId!));
+            // The new beams, as BuildC4's: copies of the two shipped lights, the colour changed; appended to the light lists.
+            static FormLink<IFallout4MajorRecordGetter> Link(IMajorRecordGetter r) => new(r.FormKey);
+            foreach (var o in SlotOf("Headlamp").Options.Where(o => o.Since == C5Build))
+            {
+                var rgb = Convert.ToInt32(o.BeamRgb!, 16);
+                var colour = System.Drawing.Color.FromArgb(0, (rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
+                foreach (var (src, list, edid, id) in new[] { (lamp, HeadlampLightList, $"CMB_HeadlampLight_{o.Key}", o.BeamIds![0]),
+                                                               (lampShadow, HeadlampLightListShadow, $"CMB_HeadlampLightShadow_{o.Key}", o.BeamIds![1]) })
+                {
+                    var copy = (Light)src.Duplicate(mod.GetNextFormKey());
+                    copy.EditorID = edid;
+                    copy.Color = colour;
+                    mod.Lights.Add(copy);
+                    list.Items.Add(Link(At(copy, id)));
+                }
+            }
+
+            // In place: the older slots' lists, index = option; the lists of lists (index = slot); the item and the armours.
+            foreach (var s in Slots.Where(s => s.Since != C5Build && s.Options.Any(o => o.Since == C5Build)))
+            {
+                var ol = st.OptionLists.First(l => l.EditorID == s.List);
+                foreach (var m in st.Mods[s.Key].Skip(ol.Items.Count))
+                    ol.Items.Add(Link(m));
+                var sl = st.SwapLists.First(l => l.EditorID == s.Swaps);
+                foreach (var w in st.Swaps[s.Key].Skip(sl.Items.Count))
+                    sl.Items.Add(Link(w));
+            }
+            foreach (var s in Slots.Skip(Categories.Items.Count))
+                Categories.Items.Add(Link(st.OptionLists.First(l => l.EditorID == s.List)));
+            foreach (var s in Slots.Skip(SwapLists.Items.Count))
+                SwapLists.Items.Add(Link(s.Swaps != null ? st.SwapLists.First(l => l.EditorID == s.Swaps)
+                    : throw new InvalidOperationException($"{s.Key}: a C5 slot without a swap list (CMB_LookSwapLists: index = slot)")));
+            AttachNew(st, news);
+
+            var wrong = made.Where(x => x.Record.FormKey.ID != x.Id).ToArray();
+            if (wrong.Length > 0)
+                throw new InvalidOperationException("C5's records off their IDs (look_options.json): " +
+                    string.Join(", ", wrong.Take(5).Select(x => $"{x.Record.EditorID} 0x{x.Record.FormKey.ID:X} (expected 0x{x.Id:X})")));
+            var count = mod.EnumerateMajorRecords().Count() - before;
+            if (count != made.Count || made.Select(x => x.Id).Distinct().Count() != made.Count || made.Count != ids.GetProperty("count").GetInt32())
+                throw new InvalidOperationException($"{count} C5 records made, {made.Count} at the table's IDs, c5_ids says {ids.GetProperty("count").GetInt32()}");
+            if (mod.ModHeader.Stats.NextFormID != Id(ids.GetProperty("next").GetString()!))
+                throw new InvalidOperationException($"the next ID after C5's block is 0x{mod.ModHeader.Stats.NextFormID:X}, not c5_ids' next {ids.GetProperty("next").GetString()}");
         }
 
         // 2026-11-16a (C3; split out of BuildC3 in 2026-11-21a so it runs once over every slot, C4's too): the display order

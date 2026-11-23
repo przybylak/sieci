@@ -17,6 +17,569 @@ The log goes to `Documents\My Games\Fallout4\Logs\Script\Papyrus.0.log`. Every m
 
 Without F4SE you'll see one or two harmless errors about the `F4SE` / `CMB_HotkeyF4SE` scripts not being found. That's the mod checking whether they're there. When something breaks, send the log, plus a screenshot or a short clip if it's visual.
 
+## Test 59: the 2026-11-22a build (test 58's fixes and your wishes, art build C)
+
+The 2026-11-22a build answers test 58 (run on 2026-11-21a): its fixes and every wish you made (your pick: "Everything"),
+in one build. Step 1 is test 58's crash, tried again first; steps 2-12 are the art, steps 13-15 the field kit, steps
+16-21 the parked bike, steps 22-25 the look and the aim, steps 26-29 the gears, steps 30-32 other mods' attachments,
+step 33 the frame rate and step 34 the A/Bs, with the questions T59-1 to T59-34 at the end and, after them, the open
+questions and the log lines that settle them. What test 58 liked (the plates, Red Rocket, the Enclave's flag, the bike
+after your body, the stops) is as it was.
+
+- **The crash:** the field kit's new look no longer goes onto the parked bike the game is showing while you get on (test
+  58's two crashes: a Headlamp colour picked, Ride pressed at once).
+- **The art (art build C, your wishes):** a Paint condition slot under the Wear (Scratched, Chipped, Sun-faded, Worn,
+  Primer patches: "scratched, chipped and weathered paint and then on top of that rusty/muddy"); the Wear on the exhaust
+  pipes and mufflers, the engine's outer covers and the front fork's lowers too, and over the tank and rear badges; the
+  Wear (and Paint condition) on the parked bike and the bike under you in third person, not only in the kit and in first
+  person; the muddy tyres' tread clean and black where it meets the road; three meshing black gears on metallic blue
+  behind the 3D Brotherhood helmet; the Nuka-Cola badge's script neater; six more headlamp colours (Halogen, Daylight,
+  Ice blue, Red, Green, Purple); and the front fender badge taken out ("I would drop front fender badge").
+- **The field kit:** the bike on screen turns to each slot (the plugin now holds the bike the menu really draws), the
+  wheel zooms out as well as in, and with the cursor over the list panel the wheel scrolls the lists as the game does
+  (your pick); anywhere else it zooms.
+- **The parked bike:** set on the ground under both its tyres wherever you park it, leaning a little to its left on its
+  own side stand, which is down now; getting on stands it up.
+- **The look and the aim:** the right button no longer aims or slows the bike (2026-11-21a's block never switched on:
+  the game names its handler otherwise), so the Pip-Boy should open while you look; in third person the plugin swings
+  the game's camera round you itself, with Z or the right button.
+- **The gears:** the up-shifts at about 12, 24, 36 and 46 on the dial in every pull, also one begun rolling or up a hill
+  (test 58: 4th at about 32 and 5th at about 43 in pulls begun rolling); a menu that pauses the game at speed (the
+  Pip-Boy) no longer cuts the throttle.
+- **Other mods' attachments:** your holster mod's pistol stays on your thigh while you ride (test 58: "holstered to
+  random places, often outside of the body"), and a backpack or anything else another mod hangs off your body follows
+  it.
+
+Four things to know first: the front fender badge is gone (not in the kit or the MCM, never drawn; a save that had one
+shows none); at the kit the wheel scrolls the lists with the cursor over the list panel and zooms the bike anywhere
+else; the parked bike leans on its side stand (on its left, under the footpeg); and Paint condition and Wear can be
+chosen together, the paint's damage under, the grime on top.
+
+Do this section's steps in one game session if you can, in this order (step 1 first, the art and the kit by the parked
+bike in one of your settlements, the headlamp at night, then the rides), and say which session each step was in. Every
+new behaviour of the plugin has a key whose off value gives the 2026-11-21a build back (README's table of this build's
+keys), so each A/B is one key away; every new look choice is opt-in, and the changed art's A/B is files (after step 12).
+Things only the game can settle: whether the crash is gone (step 1), whether the meshes' blending alone shows the Wear
+on the parked bike (steps 4-5), in which order the game draws two see-through layers (Paint condition under the Wear,
+step 3), which bike the armour menu draws and how the game sends the wheel's down notch (steps 13 and 15), which way the
+bike leans on its stand and what it does beside a car or a ledge (steps 16 and 18), whether the game keeps its
+third-person camera where the plugin puts it (step 24), and where the holster mod's copy sits against your thigh (step
+30).
+
+Before you start:
+- install as a Replace over 2026-11-21a. If you edited `CMB_Slope.ini`, put your values into the new one: `[Look]`,
+  `[View]`, `[Steer]`, `[Sound]`, `[Tilt]`, `[Room]` and `[Diag]` have new keys (`[Look] OverlayParked` off by default,
+  an A/B for step 5), no default changes, and `[Look] KitViewFrontFender` is gone (README's table). Otherwise use the
+  shipped file as it is;
+- load your usual save, and save again before step 1 (it repeats test 58's crash). The same load order as test 58: your
+  visible-holster mod on, and a backpack mod if you have one (step 31);
+- the ESP and the MCM change: the MCM's Look section still has 25 controls, with "Paint condition" after "Paint shade"
+  and no "Front fender badge", and "Headlamp" lists eleven colours. If it shows "Front fender badge", an older ESP or
+  MCM folder is loaded: stop and say so. Riding's "Weapons while riding" on "Handguns only";
+- the first time you get on after the update the look's mods go on afresh once (the look has a new slot):
+  `Papyrus.0.log` says `Look: put on (load)` once and the worn bike's mods attached afresh; a second getting on is as
+  quick as before. A 2026-11-21a save starts with Paint condition "Pristine (as it came)"; a front fender badge it had
+  is gone;
+- note your frame rate beside the parked bike on 2026-11-21a before you install, if you can (step 33; test 58 gave no
+  figures);
+- have the 10mm pistol and the hunting rifle on the favourites' number keys;
+- the headlamp's step wants night: wait for it, or in the console `set gamehour to 22`;
+- each A/B below: change one key in `CMB_Slope.ini`, save the file, get off and on (no restart), and put it back after.
+
+The log's first lines: `CMB_Slope.log` has seven settings lines more: `  look (2026-11-22a, test 58): ParkedSwapHold=1
+(...) OverlayRuntime=1 (the look's swap at runtime too on the worn bike after each equip) OverlayParked=0 (the parked
+bike's load swap alone); [Diag] LensLine=1: CMB_LookOptions 1048575 for the scripts`, `  look (2026-11-22a, test 58):
+[View] LookOrbit=1 (...) LookOrbitGain=0 (...); [Steer] AimStruct=1 (the aim's handler by its struct's name too,
+1.11.240's)`, `  kit (2026-11-22a): [Look] KitDrawn=1 (...) KitWheelDown=1 (...) KitWheelLists=1 (...) KitSlots22=1
+(...); views (heading, elevation): paint condition -45,15`, `  attachments (2026-11-22a, test 58): AttachUnclone=1
+AttachBoneRole=1 AttachHide=0 [Diag] AttachWhere=1 (...)`, `  sound (2026-11-22a, test 58): UpBands=215,429,644,823: in
+a pull (the bike gaining 40 u/s^2 or more) ...`, `  steer (2026-11-22a, test 58): MenuKeep=1: ...` and `  room:
+ParkFit=1: the parked bike set on the ground under its tyres after every placement (...); ParkStand=17.28,2.97,2.61:
+...`. No 2026-11-22a lines, or `UpBands=: ... (the 2026-11-21a build)` and `ParkFit=0: ... (2026-11-21a)` with an INI
+you didn't change, mean an older `CMB_Slope.dll` or `CMB_Slope.ini` is loaded: stop and say so.
+
+### Test 58's crash, again (2026-11-22a): step 1
+
+(test 58: "game crashed after selecting lamp color": both crashes came at a getting on right after a Headlamp colour was
+picked, the kit closed and Ride pressed within 4 s, while the kit's new look was still being put onto the parked bike;
+test 54's two crashes at the kit were the same kind)
+
+1. **A change at the kit, then Ride at once**: save first. At the field kit pick a Headlamp colour, close the kit and
+   press E on the bike straight away (Ride). Ride a few seconds, get off, and do it again, five times or more: with
+   different colours, twice with a Wear or a Paint condition changed in the same visit, once with nothing changed. The
+   game should not crash. If it does, send the crash log with both logs and say which try it was.
+   - `Papyrus.0.log`, when E comes while the kit's look is still being put together (test 58's case): `Look: the parked
+     bike's swap holds N entries, kept for its 3D's next load, none applied to the 3D it shows (the field kit;
+     ParkedSwapHold: getting on)`, then `Getting on: waited X s for the parked bike's look`. At every getting on:
+     `Getting on: the parked bike's look at the mount (ParkedSwapHold): ...; the Headlamp Headlamp:<colour> (...)`; with
+     the defaults it reads "its 3D with the load's own look (no runtime swap on it)", and "its 3D loaded again before
+     the fade" (with step 5's `OverlayParked=1`) means a runtime swap on the parked bike's 3D was thrown away before the
+     screen went black, as meant.
+   - `CMB_Slope.log`, a moment after each getting on: `lens (2026-11-22a, [Diag] LensLine):
+     CMB_BikeWornRiderF_front_glow held at the mount: its 3D ... its shader property ... names
+     'Materials\CMB\Bike\front_glow_worn.bgsm'; ...` and 1-3 s later `... changed (...)` with the colour's lens. Send
+     them with any crash: they say what both bikes carried in that second.
+   - Please don't try `[Look] ParkedSwapHold=0` unless asked: it is test 58's crash condition.
+
+### The art, build C (2026-11-22a): steps 2-12
+
+At the field kit choose each in turn and look at it in the kit's preview, then leave the kit and look at the parked bike
+close up (wait 3 s after the kit closes: the wear and the paint's condition go on a moment after the bike shows), then
+ride away and look at it from the riding camera (wait 3-4 s after the screen comes back), in third person from the side
+and from behind, and in first person where a step says. A screenshot of each, close and riding, please. Every new choice
+is opt-in (Paint condition starts "Pristine (as it came)"), and every other plate, badge and seat is as in test 58.
+
+**Paint condition** (steps 2-3; your wish: "there should be an option for paint to be weathered too, now it's always in
+pristine condition"; drawn by our own code on two new thin shells 0.16 units over the paint of the tank and rear fender
+and of the front mudguard, under the Wear's 0.32, invisible until you choose)
+
+2. **Five looks**: with Wear "As it came", set "Paint condition" to each in turn: Scratched, Chipped, Sun-faded, Worn,
+   Primer patches. Look at the parked bike from both sides and from behind, then riding, by day and at night. Does each
+   read as its name?
+   - Scratched: short fine scratches through the clear coat, a few deeper ones to grey primer and bright steel, scuffed
+     patches where things rub; most at the knee grips, on the tank top and on the fenders' tops.
+   - Chipped: flaked chips to primer (bare steel in the deep ones) at the rolled edges, the tight bends and the knee
+     grips; stone chips on what faces the front wheel and low by both wheels.
+   - Sun-faded: a pale, chalky fade, strongest on what faces the sky, mottled, the clear coat peeling in patches on the
+     tops.
+   - Worn: the three together.
+   - Primer patches: nine repair patches (three on the front mudguard) of grey filler primer, two of them red oxide,
+     with sprayed, feathered edges and a sanded halo round each.
+   - Over a tank badge or the rear badge no scratch, chip or primer (only the fade, at a plate's ends).
+   - `Papyrus.0.log`: `Customise: paint condition = PaintWear:scratched (1)` to `Customise: paint condition =
+     PaintWear:primer (5)`; at the kit the mods read "Paint condition: Scratched" and so on (Oil 1, Cloth 1).
+3. **Under the Wear**: Paint condition and Wear together: Worn with Muddy, Chipped with Rusty, Sun-faded with Dusty,
+   Scratched with Bloody, Primer patches with Wasteland. The mud, rust, dust and blood should lie on top of the damaged
+   paint, never the paint's damage over the mud. Look along the tank from the side at a low angle and move round it: any
+   flicker between the two layers, or a patch where the damage shows through the grime? Once over Gloss black and once
+   over Free colour too.
+
+**The Wear on every bike, on more parts and over the badges** (steps 4-7; test 58: "wear is not visible outside of field
+kit menu, sometimes only in 1st person"; "all 'wear' option should also be applied on exhaust pipes and other parts of
+the bike, not too much but noticeable"; "badges on gas tank are not covered when they should e.g. bloody")
+
+4. **All four bikes**: with Wear "Wasteland" look at the kit's preview, then at the parked bike after the kit closes
+   (wait 3 s), get on and look at the bike under you in third person (wait 3-4 s after the screen comes back), switch to
+   first person and look down at the tank, then get off and look at the parked bike again (wait 3 s). The wear should
+   show on all four (test 58: the parked bike and third person clean): on the parked bike from its meshes now (the
+   shells blend in them), on the bike under you through the plugin's swap a moment after the screen comes back. The same
+   with Rusty and with Bloody, and once with a Paint condition.
+   - `Papyrus.0.log`: after the kit `Look: the parked bike's 3D loaded again for its colours (the field kit,
+     ParkedReload)`; after each getting on, 2-4 s after the screen comes back, `Look: the worn bike's 3D: the look's
+     swap at runtime too, N entries applied (OverlayRuntime)` (or `Look: the worn bike's runtime swap not put on after
+     its compose: <why> (OverlayRuntime)` when you got off or the look changed meanwhile).
+5. **The Wear's A/Bs**: if the parked bike showed no wear in step 4, set `[Look] OverlayParked=1` (off by default: an
+   A/B for this test): the plugin then also puts the look on the parked bike's 3D at runtime each time it loads, as it
+   does on the bike under you. Close the kit or get off, wait 3 s and look again: does the wear show now? Then `[Look]
+   OverlayRuntime=0`: does the wear still show on the bike under you in third person, from the meshes alone? Put both
+   back after (`OverlayParked=0`, `OverlayRuntime=1`). If the parked bike's wear needed `OverlayParked=1`, also try step
+   1 once with it on.
+   - With `OverlayParked=1`: after the kit and after getting off `Look: the parked bike's fresh 3D (its 3D's load): the
+     look's swap at runtime too, N of M entries applied (OverlayParked), colours: ...`; never under the kit's menu,
+     while you get on or ride (re-asked right before the swap): `Look: the parked bike's 3D loaded (...): no runtime
+     swap on it, <why> (OverlayParked; at a later load)` or `... no runtime swap on it after the compose, a field kit
+     session (OverlayParked; at a later load)`; at the next getting on the mount line's `a runtime swap on its 3D (...):
+     its 3D loaded again before the fade` (the bike blinks once at the press).
+6. **The parts**: with each Wear in turn look at the exhaust pipes and mufflers (on the right), the engine's side covers
+   and air cleaner (both sides) and the front fork's lowers: they carry it too, not too much but noticeable. Weathered:
+   the metal dulled, heat colours (blue, purple, gold, straw) on the pipes near the cylinders, chips at the edges;
+   Dusty: a film of dust; Muddy: caked low down by the wheels (the fork's lowers by the axle), splashes on the mufflers'
+   bottoms and the crankcase's front; Rusty: rust heavy on the mufflers, the seams and the clamps, white corrosion spots
+   on the engine's covers; Bloody: drops where the blood reaches. Turn the bars and ride over bumps: the fork lowers'
+   grime moves with them. Parked and riding.
+   - `CMB_Slope.log` at each getting on: `tilt: CMB_BikeWornRiderF_static_exhaust_wear is a fixed part [none, by its
+     name] ...`, the same for `..._static_engine_wear` and `..._static_paintwear`, and `..._fork_black_wear is the lower
+     fork (with the bars and the front wheel's travel) [fork, by its name] ...` (and `..._fork_paintwear`); in first
+     person `view: the reference ...'s 3D ('CMB_BikeView', ...): 62 shape(s) under 'CMB_BikeView', 62 matched by label
+     to the worn bike's 62 held skin(s)` (test 58: 57). No `past the 64 this plugin holds` line.
+7. **Over the badges**: with Dusty, Muddy, Rusty and Bloody, a tank badge and a rear fender badge on, look closely at
+   the tank's badge plates from the side and at the rear badge: the grime lies over them now (mud and blood where they
+   land, dust along a plate's top edge, rust bleeding from under its bottom edge; Weathered only fades them). The 3D
+   helmets stand above it (their bases may take a little). No flicker between a badge and the grime at any distance? No
+   hard line or frame round a plate?
+
+**The tyres** (step 8; test 58: "tire part where it touches ground is too muddy - it doesn't stick like that irl - black
+parts are showing through")
+
+8. **The tread**: set "Tyres" to "Black, muddy", "Whitewall, muddy" and "Red line, muddy" in turn: the tread's faces
+   that meet the road black and clean, mud packed between the blocks and on the shoulders, the sidewalls as in test 58.
+   Parked close up (kneel by the front wheel) and riding. `Customise: tyres = Tyres:blackmud (3)`.
+
+**The badges** (steps 9-10; test 58: "BoS cogs are showing but I had something different in mind", three interlocking
+gears, and "bos helmet background should be metallic blue"; "nuka cola badges are ok, just text looks a bit wonky,
+especially in Nuka part")
+
+9. **The Brotherhood helmet's gears**: Tank L and Tank R "Brotherhood helmet (3D)": the plate behind the helmet metallic
+   blue with a fine sparkle (it glints as you move round it), and three black gears that mesh: a smaller gear left and
+   right of the helmet, each with a ring and a hole showing the blue, and the teeth of a big gear behind the helmet
+   showing round its top and bottom and where the small gears bite into it. Parked and riding, by day and at night.
+   Should the big gear show more? Is the blue too light or too dark? `Customise: tank left = TankL:boshelm3d (18)`.
+10. **Nuka-Cola's script**: Tank L, Tank R and the rear fender "Nuka-Cola": "Nuka" and "Cola" in one even script, the
+    same thickness, one slant, sitting on one line, the swoosh clear between the words, nothing touching. The Nuka-Cola
+    plate's small cap is as before. `Customise: tank left = TankL:nukacola (20)`.
+
+**The headlamp** (step 11; at night; test 58: "colors themselves are fine, but larger selection is needed")
+
+11. **Eleven colours**: at night, parked and riding, set "Headlamp" to each new one in turn: Halogen (a warm
+    yellow-white, like an old bulb), Daylight (a neutral cream white, a touch warmer than Warm), Ice blue (a pale icy
+    blue), Red, Green and Purple, then "Warm (as it came)" again. The light on the road takes the colour; Red and Purple
+    light the road dimly, as coloured lamps do: should they be brighter? Parked and unlit, Ice blue, Red, Green and
+    Purple show a tinted bulb behind the glass (Halogen and Daylight look as Warm). The 2026-11-21a five are as they
+    were. In the MCM "Headlamp" lists all eleven, Warm first, then alphabetical.
+    - `Papyrus.0.log`: `Customise: headlamp = Headlamp:halogen (5)`, `Headlamp:daylight (6)`, `Headlamp:iceblue (7)`,
+      `Headlamp:red (8)`, `Headlamp:green (9)`, `Headlamp:purple (10)` (at the kit Glass 1, Screws 1); `CMB_Slope.log`'s
+      lens line names `front_glow_<colour>_worn.bgsm`, and `front_glow_<colour>_d.dds` for Ice blue, Red, Green and
+      Purple.
+
+**As it came, and an old save** (step 12)
+
+12. **As it came, and the front fender badge gone**: set Paint condition to "Pristine (as it came)", Wear to "As it
+    came", Tyres to "Black (as it came)" and Headlamp to "Warm (as it came)": the bike should look exactly as in
+    2026-11-21a, parked, ridden, in first person and in the kit, with no new flicker on the tank, the fenders, the
+    exhaust, the engine or the fork's legs. The kit has a "Paint condition" row and no "Front fender badge" row; the
+    MCM's Look section "Paint condition" after "Paint shade" (Pristine (as it came), then Chipped, Primer patches,
+    Scratched, Sun-faded, Worn) and no "Front fender badge". If your 2026-11-21a save had a front fender badge: after
+    loading, nothing on the front mudguard, parked or ridden.
+    - `Papyrus.0.log` after loading such a save: `Look: put on (load)` once and, at the first getting on, the worn
+      bike's mods attached afresh.
+
+The changed art's A/B is files: the 2026-11-21a package's `Data\Meshes\CMB\` nifs (`CMB_BikeParked.nif`,
+`CMB_BikeWorn.nif`, `CMB_BikeWornRider.nif`, `CMB_BikeWornRiderF.nif`, `CMB_BikeView.nif`: no Paint condition or part
+shells, the wear shell kept off the badges, the shells not blending, the side stand folded; Paint condition and the
+parts' wear then have nothing to show on; with them set `[Room] ParkFit=0`, 2026-11-21a's parking, so the bike doesn't
+lean on a folded stand), `Data\Materials\CMB\Bike\` `static_wear.bgsm`, `static_wear_worn.bgsm`, `fork_wear.bgsm`,
+`fork_wear_worn.bgsm` and the 28 `wear_<look>_static` and `_fork` materials (no depth, no alpha test),
+`Data\Textures\CMB\Bike\` `badges_d.dds`, `badges_n.dds`, `badges_s.dds` (the cogs on grey, the old script), the Wear's
+18 static maps that changed (`wear_<look>_static_d/_n/_s.dds`: the grime kept off the badges) and the six muddy tyre
+diffuses (`wheelF_tyre_mud_d.dds`, `_ww_mud_d`, `_rl_mud_d` and the same `wheelR_`: the tread caked), in a small MO2 mod
+of their own ticked below this one (README's table of this build's art switches). For the frame rate, the five nifs
+alone say what the new shells cost.
+
+### The field kit (2026-11-22a): steps 13-15
+
+(test 58: "it zooms in on the bike, but doesn't zoom out, also scroll doesn't work on menu to look through items in
+field kit; arrows scroll list"; "no, bike doesn't spin to position to show what is being changed": the views were set on
+two bikes the menu wasn't showing, and the wheel's down notch was never counted)
+
+13. **The views on screen**: Customise, the Motorbike. Move through the slots with the arrow keys and stop on each:
+    Plate (the bike turns to its rear), Tank L (its left side), Tank R (its right side), Seat (from above), Fender (the
+    rear fender), Rims and Tyres (the wheels), Paint and Mirrors (three-quarters), Wear and Paint condition
+    (three-quarters from a little above), Headlamp (the front). The bike on screen should turn each time, gliding. Two
+    screenshots.
+    - At the first Customise of the session: `kit: drawn: Interface3D::Renderer::GetByName (Address Library 2222524) at
+      +0x...: the menu's renderer asked for once a visit, by the 3D manager's own name` (or why not).
+    - At each visit and each time the drawn bike changes: `kit: drawn (2026-11-22a): the renderer 'WorkbenchItem3D'
+      (...): its ... 'Motorcycle' (...) is the bike drawn, held alone: ...`. Send it: it says which bike the menu draws
+      (a loaded model, the slot objects' one or the menu's own item 3D), the question test 58 left. If instead `kit:
+      drawn (2026-11-22a): <why>: 21a's models held (KitFollow's)`, the why says what failed, and the bike turns as in
+      test 58.
+    - A/B: `[Look] KitDrawn=0` (2026-11-21a's way: the views not on screen).
+14. **In a slot's mods**: highlight Plate text (the bike turns to its rear) and press E: move up and down the mods (each
+    one previews on the bike): every preview keeps the rear and your zoom; zoom and turn it there too. Tab back to the
+    slots; the same on Paint and on Tank L.
+15. **The wheel and the drag**: with the cursor above the bike or beside the lists, roll the wheel both ways: the bike
+    zooms in and out. With the cursor over the list panel, roll the wheel: the list scrolls as the game's lists do and
+    the bike doesn't zoom (your pick). Hold the left button beside or above the lists and move the mouse: the bike
+    turns; on the lists the left button picks rows as before.
+    - At each close, before 2026-11-21a's close lines: `kit: hold (2026-11-22a): the menu's bike (item ...): the menu
+      closed; the drawn model ...; the wheel's events: up (0x800) a with a value over 0, b under, c at 0, held up to X
+      ms; down (0x900) d over 0, e under, f at 0, held up to Y ms; L notch(es) passed to the lists (KitWheelLists), the
+      zoom at the end Z`. Send it: the down row says how the game sends the wheel's down notch (test 58 suggests a value
+      under 0), and L above 0 with the list scrolling is your wish working.
+    - If the wheel zooms over the lists or scrolls them off them: `[Look] KitListBox` (0.22,0.46,0.78,0.97: the list
+      panel's left, top, right and bottom as fractions of the screen, measured on a 16:9 screen). A/Bs: `KitWheelDown=0`
+      (no zoom-out, test 58's), `KitWheelLists=0` (the wheel zooms anywhere, test 58's), `KitSlots22=0` (2026-11-21a's
+      slots: no view of its own for Paint condition).
+
+### The parked bike (2026-11-22a): steps 16-21
+
+(test 58: "it looks like bike started to 'not align' with ground it stays on when character is off of it, having one
+tire in the ground; I was thinking that it would be cool if bike was leaning a bit on sidestand/kickstand": the parks on
+the track you rode had a tyre 1.5-2.5 units in the ground or the bike 4-5 over it; the bike had a side stand all along,
+folded behind the left footpeg)
+
+16. **On flat ground**: get off on a road. The bike should lean a little to its left on its side stand (about 9
+    degrees), the stand's foot on the ground and both tyres on the ground. Walk round it: the stand is on the left,
+    under the footpeg. If it leans to its right instead (the stand in the air), say so: one sign in the script to turn
+    round.
+    - `CMB_Slope.log`: `room: ask N at (...), heading H (the parked bike's fit: ParkFit): fitted: the front tyre's
+      ground ..., the rear's ..., the middle's ...: its middle ... over/under it, pitch ..., the ground's roll ...,
+      leaning ... on its stand: roll ...; the stand's foot's ground ... over/under the tyres' line there`.
+    - `Papyrus.0.log`: `Parked bike set on the ground under its tyres (the plugin's [Room] ParkFit, after the settle N):
+      moved ... up, pitch ..., roll ... (the ground's ..., leaning 8.6 on its side stand).`
+17. **On slopes**: get off on a slope riding up it, then riding down it, then across it both ways (the stand uphill,
+    then downhill): both tyres sit on the ground, neither sinking in nor floating, and the stand's foot touches the
+    ground. With the stand downhill the bike leans the slope and up to 12 degrees more: does it look as if it would tip?
+18. **Beside a car, a ledge, a crate**: get off right beside a parked car, once with the car on the bike's right and
+    once on its left (the stand's side), beside a ledge or a step about a hand high, beside a crate or a barrel, and at
+    the edge of a drop. The bike stays on its own ground, both tyres on the ground and leaning on its stand, never
+    rolled onto the car's hood or the ledge (the review found the side rays reading those as the ground under it; they
+    now start just above the bike's own ground).
+    - `room: ask ... (the parked bike's fit: ParkFit): fitted: ...`, ending `; its sides' ground off one slope through
+      the middle's (the right's ... over it, the left's ... over): the slope across by its left side, the right's set
+      aside` (or the left's) when one side stood on something; with no ground on one side, that side set aside and the
+      other's slope used.
+19. **Rough ground, calls and a swim**: get off on rubble, at a kerb, with a bump between the wheels; call the bike
+    (keys → Call) to a few places; let it roll up after a swim. Each time: the tyres on the ground, the bike leaning on
+    its stand. Say if anything of it goes into the ground.
+    - Where the plugin can't fit it: `room: ask ... (the parked bike's fit: ParkFit): not fitted, no ground under its
+      <part> within 88: its side stand's lean alone, 8.6`, then `Parked bike leaning 8.6 on its side stand over the tilt
+      its settle N gave it (not fitted by the plugin's [Room] ParkFit): ...`: it still leans on its stand, on the ground
+      the game put it on.
+20. **Getting on, a load, the kit**: get on next to the leaning bike: it stands up as you get on, the screen fades and
+    you ride upright, no jump. Save next to the leaning bike and load: still leaning, on the ground; get on: it stands
+    up as before. Use the field kit and close it: the bike still leans (the kit's preview shows it upright, its stand
+    down).
+    - `Getting on: the parked bike stood up off its side stand (roll ... -> ..., ParkStandUp).`
+21. **The A/Bs**: `[Room] ParkStand=` (empty): the bike upright on its tyres' ground (its stand still down, the foot
+    just off the ground); `[Room] ParkFit=0`: 2026-11-21a's parking (upright, the old height and tilt; the stand still
+    down: 2026-11-21a's look is that with step 12's 2026-11-21a parked mesh). Back to the shipped values after. With the
+    MCM's tilt at 0 (`set CMB_MaxTilt to 0`: no tilt with the ground) the parked bike stands level and still leans on
+    its stand (`The parked bike's fit: not asked for (tilting turned off: level, as every park): its side stand's lean
+    alone asked for.`); put your value back (45 by default).
+
+### The look and the aim (2026-11-22a): steps 22-25
+
+(test 58: "with right-click we are aiming a gun and it's slowing bike down - same with 3rd person (but Z doesn't work)"
+and "can't open pipboy when swinging camera": 2026-11-21a's block never switched on, its handler's name not the game's;
+and riding, the game keeps its third-person camera behind you, so the held look moved it only 10-22 degrees)
+
+22. **No aim on the bike**: ride at full speed in first person with a pistol out and hold the right button a few
+    seconds: no iron sights, no zoom, the dial doesn't drop; the left button still fires. Then the same in third person.
+    - Once, at the first ride: `aim: AttackBlockHandler (PlayerControls+0x220, vtable +0x...): ShouldHandleEvent (slot
+      1, +0x...) wrapped and OnButtonEvent (slot 8, +0x...) wrapped: while riding the game's aim (SecondaryAttack) is
+      kept from it (AimBlock); ...` (test 58 had `aim: no AttackBlockHandler at PlayerControls+0x220
+      (.?AUAttackBlockHandler@@ there) ...` every session: the game names the handler as a struct, `[Steer] AimStruct`).
+    - Each press: `aim: the game's aim (SecondaryAttack, the mouse's button 2, the right) pressed at ... u/s ...: kept
+      from the game while riding (AimBlock): ...`, and at its release `aim: the aim's button let go after N s: ... the
+      game never aimed; the bike ... u/s at the press, ... at its least, ...`.
+23. **The Pip-Boy while you look**: hold the right button (looking round) and press Tab: does the Pip-Boy open? And
+    right after letting go? The same holding Z.
+24. **The look in third person, with Z and with the right button**: ride in third person at speed, hold Z and move the
+    mouse: the camera swings round you as far as you move it (to your side, in front of you, up to about 150 degrees),
+    stays there while you hold the mouse still, and the bike keeps going straight (A and D still steer). Let go: the
+    camera swings back behind you in half a second and the bike does not turn. Then the same with the right button. With
+    a pistol out it stops at about 60 degrees. Is the swing too fast, too slow or the wrong way for your mouse?
+    - Each hold: `view: the look key (Z) held in third person at 865 u/s: the plugin swings the camera round you by the
+      mouse, the bike keeps its line (LookOrbit; the camera 0 deg off the bike now; ThirdPersonState +0xF0 targetYaw and
+      +0xF4 currentYaw written, 0.0159 rad a unit of the look input, learned from N free frame(s))` (`(Mouse 2)` for the
+      right button).
+    - Each release: `view: the look let go in third person after 3.1 s (the orbit 120 deg off the bike at most, 118 now,
+      the camera read): eased back behind over 0.5 s (LookOrbit)`, then `view: the third-person camera back behind you
+      after 0.50 s (the camera 0.4 deg off the bike, the correction 2.1 deg) (LookOrbit)`. Send them all: "the
+      correction" says how hard the game pulls its camera back, "learned from N free frame(s)" whether the plugin reads
+      your mouse there (none in a session would say it doesn't).
+    - If the camera doesn't follow: `view: the third-person orbit not used for this hold: ... (LookOrbit)`, or `view:
+      the third-person orbit not followed: the camera N deg off the bike against the orbit's M (...): off this session,
+      ...` (the look is then 2026-11-21a's for the rest of the session), or `... not back within 20 deg: the bike keeps
+      its line till it is`.
+25. **The A/Bs**: `[Steer] AimBlock=0`: ride at full speed with a pistol out and hold the right button 3 s: the game
+    aims again (test 58's case); did the bike slow? `aim: the game aimed (the gun state 6, sighted) for N s while riding
+    ...: the aim slowed the bike (AimWatch)`, or `... didn't slow the bike`. Can you open the Pip-Boy while it aims? Put
+    `AimBlock=1` back. `[Steer] AimStruct=0`: the handler looked for by its class name alone, as in 2026-11-21a: the
+    first ride's line is test 58's `aim: no AttackBlockHandler at PlayerControls+0x220 (.?AUAttackBlockHandler@@ there)
+    ...` and the right button aims and slows the bike again; put it back to 1. `[View] LookOrbit=0` (2026-11-21a's
+    third-person look: the camera stays behind). If the swing's speed is wrong, `[View] LookOrbitGain` (0 learns it
+    while you ride; 0.0159 is test 58's; more swings faster, a minus sign the other way).
+
+### The gears (2026-11-22a): steps 26-29
+
+(test 58: "sound wise it's ok, but overall it feels more sluggish and slower than before": like for like the pulls were
+as quick as test 57's, but most began rolling, and those changed up into 4th at about 32 and into 5th at about 43 on the
+dial, the engine at 2300-2500 rpm from there; and after the Pip-Boy at speed the throttle was cut, 470 to 223 u/s)
+
+26. **From a stop and from a middle speed**: on a long flat road, from a stop hold forward to the top: the gears change
+    at about 12, 24, 36 and 46 on the dial (the first change a little under 12 when you have stood a while: the game's
+    own first second). Then ride at about 20 on the dial, let go a moment, and hold forward to the top: the gears should
+    still change at about 24, 36 and 46 (test 58: 32 and 43). Does the engine pull through each gear? Does the bike feel
+    as lively as in test 57?
+    - The gear lines: `sound: gear 4 at 644 u/s, ... rpm, heard ... u/s; the engine's speed ... (SpeedMap); at the band
+      644 (UpBands, held 1.20 s)` (`gear 3 at ~429`, `gear 5 at ~823`); "(UpBands, held" says the gear waited for its
+      band.
+27. **Up a hill, and steady**: up a long hill at full throttle the gears change at the same dial readings as on the
+    flat; if the bike can't reach 46 it stays in 4th until it stops gaining. At a steady 20 and 35 on the dial the gears
+    as in test 58 (no change meant there).
+28. **A menu at speed**: at full throttle at about 30 on the dial open the Pip-Boy (or the favourites) for a few seconds
+    and close it: the bike carries on at the speed it had (test 58: it dropped to about half and pulled again). The same
+    while coasting after letting go: the roll carries on.
+    - `steer: a menu paused the game 2.4 s at 548 u/s: the speed measure held through it (MenuKeep)`; a coast with a
+      menu in it: `steer: a coast from ...: stopped after 5.7 s at 5 u/s, 2280 u on; the game paused 2.4 s in it (a
+      menu), not counted; each second ...` (each second's speed its own, not test 58's "181, 181, 181").
+29. **The A/Bs**: `[Sound] UpBands=` (test 58's gears), `UpBands=215,429,620,800` (3rd and 4th a little shorter);
+    `[Steer] MenuKeep=0` (test 58's drop after a menu).
+
+### Other mods' attachments (2026-11-22a): steps 30-32
+
+(test 58: "in 3rd person gun is being holstered to random places, often outside of the body of character": your holster
+mod copies the pistol in your hand as you put it away, and the copy took over the place this plugin had given the hand's
+pistol, so it hung in the air beside the bike; your rule: "Our mod will need to work regardless of other mods
+installed", so whatever another mod hangs off your body now follows it)
+
+30. **The holstered pistol on your thigh**: your holster mod on, as in test 58. Get on holstered, ride, draw the 10mm in
+    third person and put it away while riding. Look at your right thigh in third person: the holstered pistol sits on it
+    and stays on it as the bike leans in turns and over bumps; then look in first person. A short video.
+    - At each put-away: `rider:   8 of them carried a local transform this plugin wrote on a held shape ('...' carried
+      what this plugin wrote on the held '...' 0.03 s before: a copy another mod made of it): held from that shape's own
+      and given it (AttachUnclone)`.
+    - `rider: an attachment: 'WeaponPistolUp' < 'RLeg_Thigh', N held shape(s) (...), hangs off the body's bone
+      'RLeg_Thigh'; the body's part there none (AttachWhere)`, then at 0.5 s and 2 s `rider: the attachment
+      'WeaponPistolUp' at 0.5 s (tilted): its root (x, y, z) from the bone 'RLeg_Thigh' in the bone's frame (d away);
+      its shapes' written transforms put it a to b off that place from the drawn bone; its N shape(s) drawn c to d from
+      the root, e to f from the drawn bone (AttachWhere)`. "Off that place" 0.000 says it follows your thigh exactly;
+      "from the root" reads a few units for a pistol (test 58's copies would read tens).
+31. **Again, a rifle, a backpack**: draw and holster three times, with the bike leaning and straight; then the hunting
+    rifle (its number key: it stays holstered while riding) on your back the same way. If you have a backpack mod, wear
+    one: it stays on your back through leans and bumps.
+32. **The A/Bs**: `[Tilt] AttachUnclone=0`: the holstered pistol back in the air beside the bike (test 58's);
+    `AttachBoneRole=0`: should look as with 1 for these two mods. The fallback: `AttachHide=1` hides the holstered
+    weapons (anything another mod hangs off you outside an equipped item) while riding, `AttachHide=2` the backpack too;
+    0 again after.
+
+### The frame rate (step 33)
+
+33. **Beside the parked bike**: stand 3-4 m from the parked bike at a fixed spot you can find again (by its side in
+    Sanctuary, facing it, for example), still for 20 s, and note your frame rate with your usual frame counter: with
+    every slot as it came; then with Wear "Wasteland" and Paint condition "Worn" at the same spot; and on 2026-11-21a
+    too if you noted it before installing (test 58 gave no figures). Every bike carries five more shells, invisible
+    until chosen: about 20,700 triangles and five draw calls more than 2026-11-21a. Then sit on the bike at that spot,
+    stopped, 20 s each way: `CMB_Slope.log`'s `time: the last 10 s: N frames a second (...), stopped` lines say it too.
+
+### The A/Bs (step 34)
+
+34. Any of this build's A/Bs you haven't tried yet, one at a time, a ride or two each (README's table of this build's
+    keys): `[Look] OverlayParked=1`, `OverlayRuntime=0`, `KitDrawn=0`, `KitWheelDown=0`, `KitWheelLists=0`,
+    `KitSlots22=0`; `[View] LookOrbit=0`; `[Steer] AimBlock=0`, `AimStruct=0`, `MenuKeep=0`; `[Sound] UpBands=` (and
+    `215,429,620,800`); `[Room] ParkStand=`, `ParkFit=0`; `[Tilt] AttachUnclone=0`, `AttachBoneRole=0`, `AttachHide=1`
+    and `2`. `[Diag] LensLine=0` and `AttachWhere=0` change only log lines; `[Look] ParkedSwapHold=0` only if asked
+    (test 58's crash). Anything better or worse?
+
+Send `CMB_Slope.log` and its `_prev` logs and `Papyrus.0.log` of each session, any crash log, the screenshots of steps
+2-13 (each paint condition and the combinations, the wear on the four bikes, the parts and the badges, the tread, the
+gears, the script, the headlamp's colours, close and riding; two of the kit's views) and of steps 16-19 (the parked bike
+on flat ground, on a slope both ways, beside a car or a ledge, on rough ground), and a short video of steps 15, 20, 24
+and 30 if you can.
+
+### Questions for you (test 59)
+
+- **T59-1 (step 1).** No crash in five or more tries of a change at the kit and Ride at once? Which "Getting on: the
+  parked bike's look at the mount" lines came?
+- **T59-2 (step 2).** Each paint condition: does it read as its name? Which would you change, and how?
+- **T59-3 (step 3).** Paint condition under the Wear: the grime always on top? Any flicker between the two?
+- **T59-4 (step 4).** The Wear on the kit's preview, the parked bike, third person and first person?
+- **T59-5 (step 5).** With `OverlayParked=1`: the wear on the parked bike when it had none? With `OverlayRuntime=0`:
+  still on the bike under you?
+- **T59-6 (step 6).** The Wear on the exhaust, the engine's covers and the fork's lowers: noticeable but not too much?
+  The heat colours, the rust on the mufflers?
+- **T59-7 (step 7).** The grime over the tank and rear badges: right? A flicker, a frame round a plate?
+- **T59-8 (step 8).** The muddy tread: clean where it meets the road, the mud between the blocks?
+- **T59-9 (step 9).** The Brotherhood helmet's three gears on metallic blue: the big gear enough? The blue right?
+- **T59-10 (step 10).** Nuka-Cola's script even now?
+- **T59-11 (step 11).** The six new colours on the road and in the lens? Red and Purple too dim?
+- **T59-12 (step 12).** As it came exactly as 2026-11-21a? The front fender badge gone, an old save's too?
+- **T59-13 (step 13).** The bike on screen turning to each slot? What did the "kit: drawn (2026-11-22a)" line say?
+- **T59-14 (step 14).** In a slot's mods every preview keeping the view and the zoom?
+- **T59-15 (step 15).** The wheel zooming in and out off the lists, scrolling them over the panel? The close line's
+  wheel counts?
+- **T59-16 (step 16).** On flat ground: leaning to its left on the stand, both tyres and the foot on the ground?
+- **T59-17 (step 17).** On slopes, up, down and across both ways: the tyres on the ground? Downhill, does it look about
+  to tip?
+- **T59-18 (step 18).** Beside a car, a ledge, a crate or a drop: the bike on its own ground, never rolled onto them?
+- **T59-19 (step 19).** Rough ground, calls and a swim: anything into the ground? Leaning on the stand where a "not
+  fitted" line came too?
+- **T59-20 (step 20).** Standing up as you get on, no jump? After a load and the kit still leaning?
+- **T59-21 (step 21).** `ParkStand=` and `ParkFit=0`: which do you like better than the default, if any?
+- **T59-22 (step 22).** No aim and no slowing with the right button, in first and third person? The "aim:
+  AttackBlockHandler ... wrapped" line?
+- **T59-23 (step 23).** The Pip-Boy while looking: does it open?
+- **T59-24 (step 24).** The third-person orbit with Z and with the right button: round you, held, back behind with no
+  turn? The speed right? The release lines' "the correction"?
+- **T59-25 (step 25).** With `AimBlock=0`: did the aim slow the bike? With `AimStruct=0` test 58's aim back?
+  `LookOrbit=0` against the orbit?
+- **T59-26 (step 26).** The gears at about 12, 24, 36 and 46 from a stop and from a middle speed? Lively again?
+- **T59-27 (step 27).** Up a hill and at a steady speed: right?
+- **T59-28 (step 28).** After the Pip-Boy at speed and in a coast: the speed kept?
+- **T59-29 (step 29).** Which `UpBands` felt best?
+- **T59-30 (step 30).** The holstered pistol on your thigh, through leans and bumps, in first person too? The "at 0.5 s"
+  line's "off that place"?
+- **T59-31 (step 31).** Three holsters, the rifle, a backpack: all on your body?
+- **T59-32 (step 32).** `AttachUnclone=0` back in the air? `AttachHide` needed at all?
+- **T59-33 (step 33).** The frame rate beside the parked bike, stock against Wasteland with Worn (and 2026-11-21a)?
+- **T59-34 (step 34).** Anything a 2026-11-22a A/B made better or worse?
+
+### The open questions and the lines that settle them (test 59)
+
+For your checker: what each part of this build couldn't settle offline, the log line that settles it and the A/B it
+suggests.
+
+- **The crash** (step 1): its engine reason is inferred from the logs, not read from the game: every crash of tests 54
+  and 58 came a moment after F4SE's swap had put a look on a parked bike's 3D that then stayed drawn (into a getting on,
+  under the kit's menu). If one comes again, the Papyrus mount line (`Getting on: the parked bike's look at the mount
+  (ParkedSwapHold): ...`) and the plugin's `lens (2026-11-22a, [Diag] LensLine): ...` lines of that second say what both
+  bikes carried. By default the parked bike carries no runtime swap at all now (`OverlayParked=0`), so the mount's
+  reload before the fade almost never runs; with `OverlayParked=1` (step 5) every runtime swap on it is re-asked right
+  before it goes on (none while getting on, riding or in a kit session), but a swapped bike still stands between rides
+  and is drawn under the bench's menu when the kit opens beside it: a crash there would make `OverlayParked=0` the
+  answer. With `[Look] MountGuard=0` (2026-11-09a's A/B) nothing is thrown away at the mount.
+- **The Wear at a 3D's load** (steps 4-5): that the game's own swap at a load turns blending on only where the shape's
+  own mesh and file already blend is a reading of test 58's video and logs; the shells blend now, and the parked bike's
+  Wear rests on that alone by default. Wear on the parked bike with `OverlayParked=0` says the meshes fixed it; none
+  until `OverlayParked=1` says they don't (then the next build turns it on). `OverlayRuntime=0` with the wear still on
+  the bike under you says the same for the worn bike.
+- **Two see-through layers** (step 3): both shells share their paint's bounds, so the game's sort can't order them; the
+  overlays write depth and test their alpha at 8 so the grime hides the paint's damage whichever is drawn first. If the
+  damage shows over the mud, the fallback is an alpha test alone for Paint condition (a material change).
+- **The grime over a badge** (step 7) doesn't know the badge's art (the plate is a clear rectangle round it), so the
+  dust keeps to the plate's top edge and the rust to its bottom edge; rust on the tank's sides keeps 2026-11-21a's band
+  round each plate, faintly rectangular close up.
+- **The art's taste** (steps 9 and 11): the big gear shows about 12 % round the helmet (a layout change in `bike_art.py`
+  if it should show more); Red and Purple light the road at 0.24 and 0.20 of Warm's brightness (FadeValue 6.0 and 7.2
+  would bring them to 0.6: a table change); Daylight (5000 K) is a little warmer than Warm (about 5500 K).
+- **The kit's drawn bike** (step 13): which bike the armour menu draws is asked of the game's own renderer through a
+  function the plugin hasn't called before (`kit: drawn: Interface3D::Renderer::GetByName ...`), its answer taken only
+  when its name field is the 3D manager's; a bike under a placed parent can't be held (21a's way then, the line says
+  so). A/B `[Look] KitDrawn=0`. The kit's preview shows the parked bike upright with its stand down (its look in the
+  menu is still open).
+- **The wheel** (step 15): the down notch's sign is inferred (test 58: never counted); the close line's down row counts
+  each code's events by sign. The cursor over the panel is read in the input hook from the last checked cursor: one
+  unknown counts as off the lists (the wheel zooms). A/Bs `KitWheelDown=0`, `KitWheelLists=0`, the box `KitListBox`.
+- **The parked bike's lean** (steps 16-21) uses the angle convention the script's tilt uses (test 7): leaning right with
+  the stand in the air would say the sign is wrong (one line in the script). With the stand downhill on a side slope the
+  total roll reaches about 21 degrees on a 12-degree slope; on a crest under the stand the foot can sit a few units in
+  the ground (the lean held at 3); the stand-up is five steps over 0.2 s (after the parked bike's reload, if a getting
+  on has one) and may look stepped on a slow frame. Beside things (step 18): the sides' and the foot's rays start 25
+  over the middle's ground and the middle's 40 over the tyres' line, so a car's hood, a ledge or a barrel is passed
+  under; two sides off one slope give the middle one of the two sides' slopes and level, so when something stands on a
+  true slope's low side the bike lies level across there (never past either side's slope); the tyres' rays still start
+  88 up, so something overhanging a tyre's contact lower than that would still read as its ground. A park the plugin
+  can't fit leans on its stand over the game's own tilt. Lines: `room: ask ... (the parked bike's fit: ParkFit): ...`
+  (with `its sides' ground off one slope ...` where one side was set aside), `Parked bike set on the ground under its
+  tyres ...`, `Parked bike leaning 8.6 on its side stand over ...`, `Getting on: the parked bike stood up ...`. A/Bs
+  `[Room] ParkStand=`, `ParkFit=0` (2026-11-21a's look needs `build_bike.sh`'s `STAND=0` mesh too).
+- **The aim's struct name** (step 22): `[Steer] AimStruct=1` takes the handler by the struct's name the game uses (test
+  58's line every session); the first ride's `aim: AttackBlockHandler ... wrapped ...` line settles it. A/B
+  `AimStruct=0` (2026-11-21a's, no block).
+- **The third-person orbit** (step 24): that the game keeps its camera where the plugin writes it while riding is read
+  from test 58's eases, not seen; "the correction" in the back line says how hard it pulls back (well over 20 degrees:
+  hard), "learned from N free frame(s)" whether the mouse reaches the game's look input in third person; "not followed"
+  switches the orbit off for the session. A pad's right stick is untried. A/Bs `[View] LookOrbit=0`, `LookOrbitGain`.
+- **The Pip-Boy** (step 23): the plugin keeps only the aim's event from the game, never the Pip-Boy's; test 58's shut
+  Pip-Boy looks like the game's own while it aimed. The Pip-Boy's own lines with the aim's press line say it.
+- **The gears** (steps 26-27): a pull from a long stand starts with the game's own first second (about 1.1 s to 100 u/s
+  against 0.5 rolling), so its first change comes at about 10.7 on the dial; up a long climb 2nd may reach its rev
+  ceiling before 24 on the dial (405 u/s in the harness's climb) and 4th is held while the bike still gains. The gear
+  lines' "(UpBands, held" say where each waited. A/Bs `[Sound] UpBands=`, `UpBands=215,429,620,800`.
+- **A menu at speed** (step 28): `MenuKeep` holds the speed measure for any pause the game's menu mode reports; a hitch
+  is not a menu. A/B `[Steer] MenuKeep=0`.
+- **Attachments** (steps 30-32): a copy made more than 0.5 s after the plugin last wrote its source (or past 64 writes)
+  is held from what it carries; a mod that sets its shapes' own places every frame would fight the plugin's writes (not
+  seen in test 58); between the copy and its hold (one update, 0.03 s in test 58) the copy shows where the other mod put
+  it; `AttachHide=2` would hide a hat's loose parts too. The `at 0.5 s` and `at 2.0 s` lines say where each attachment
+  is drawn. A/Bs `[Tilt] AttachUnclone=0`, `AttachBoneRole=0`, `AttachHide=1`, `2`.
+- **The cost** (step 33): every bike draws five more invisible shells (about 20,700 triangles, +6.5 %); the worn bike
+  holds 63 shapes of the plugin's 64.
+- **The MCM's dropdowns** through the controller's properties (open since test 56): "Paint condition" and the
+  eleven-colour "Headlamp" are read and set that way too; one always showing its first choice would say they don't.
+
 ## Test 58: the 2026-11-21a build (test 57's fixes, your wishes and art build B)
 
 The 2026-11-21a build answers test 57 (run on 2026-11-17a): its fixes, your wishes and the rest of build B, the second
@@ -2730,3 +3293,10 @@ Still seated after getting off? `player.caf` (ChangeAnimFlavor with no keyword) 
     three new views (step 16); the frame rates of step 12; and a short video of the field kit's wheel, drag and mods
     (steps 13-14), the look in third person (step 23), a holstered pistol, a holster and a first-person draw in third
     person (steps 25-27) and the switches back to third person after your body (steps 29-30)
+12. Since 2026-11-22a: any crash log with both logs (test 59's step 1), screenshots of each paint condition and its
+    combinations with the Wear, the wear on the parked and riding bikes (and with step 5's A/Bs), on the parts and over
+    the badges, the muddy tread, the Brotherhood helmet's gears, the Nuka-Cola script and the headlamp's new colours,
+    close and from riding distance (steps 2-11), two of the field kit's views (step 13) and the parked bike on flat
+    ground, a slope, beside a car or a ledge and on rough ground (steps 16-19); the frame rates of step 33; and a short
+    video of the field kit's wheel (step 15), getting on beside the leaning bike (step 20), the third-person orbit (step
+    24) and a holstered pistol on your thigh while riding (step 30)

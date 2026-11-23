@@ -33,6 +33,8 @@ lighting shader does, as far as is cheap:
   identities their records gain (sources_c3); --look-build 2026-11-08a composes the table as 2026-11-15b's ESP has it;
   since 2026-11-21a (C4) the Wear, FrontFender and Headlamp slots (plain swaps; `--sheet Wear` etc.), the Headlamp
   choice's beam colour on the night preset's spot (beam.rgb, the light the controller places) and the views set `c4`;
+  since 2026-11-22a (C5) the PaintWear slot (`--sheet PaintWear`), the Wear options' part shells (swap_c5) and the retired
+  front fender badge composed as its records hold it (identities: never drawn);
 - shapes without Cast_Shadows cast none, single-sided ones are culled from behind;
 - day and night presets (night: the lamp on, its beam a spot light where the plugin puts the game's light).
 
@@ -213,6 +215,8 @@ LOOK_FRAMES["Seat"] = {"parked": dict(VIEWS["t49_seat_l"], parked=True), "worn":
 LOOK_FRAMES["Wear"] = {"parked": dict(VIEWS["parked34"]), "worn": dict(VIEWS["wear_ride"]), "preview": PREVIEW}
 LOOK_FRAMES["FrontFender"] = {"parked": dict(VIEWS["fender_kit"]), "worn": dict(VIEWS["fender_front"]), "preview": PREVIEW}
 LOOK_FRAMES["Headlamp"] = {"parked": dict(VIEWS["lamp_kit"]), "worn": dict(VIEWS["lamp_front"]), "night": dict(VIEWS["night_beam"])}
+# since 2026-11-22a (C5): the paint's condition as the wear (the parked bike, the worn one from behind)
+LOOK_FRAMES["PaintWear"] = {"parked": dict(VIEWS["parked34"]), "worn": dict(VIEWS["wear_ride"]), "preview": PREVIEW}
 # --sheet groups (since 2026-11-08a): rims, tyres, plates (the four plate slots), hue (Paint 45 "Free colour" at
 # HUE_STEPS hues x the 4 shades on one frame)
 SHEET_GROUPS = {"rims": ["Rims"], "tyres": ["Tyres"], "plates": ["Plate", "PlateText", "PlateInk", "PlateBack"]}
@@ -712,6 +716,12 @@ def option_swap(slot, o):
     add = (slot.get("sources_c3") or {}).get("add") or []
     if sw and add and (not isinstance(o.get("since"), str) or o["since"] <= C2_BUILD):
         sw += [(a, a) for a in add]
+    # since 2026-11-22a (C5): the option's swap_c5 (the Wear's part shells) after them; a retired slot's (the front fender
+    # badge's) entries all identities, as its records hold them
+    if sw and o.get("swap_c5"):
+        sw += [tuple(e) for e in o["swap_c5"]["add"]]
+    if sw and slot.get("retired"):
+        sw = [(a, a) for a, _ in sw]
     return sw
 
 

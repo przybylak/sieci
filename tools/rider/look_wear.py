@@ -75,6 +75,48 @@ tree.
 
 --base: the asset base, read only, later folders over earlier ones (the package's Data, then a build's meshes over it).
 Nothing from the files read is executed.
+
+Since 2026-11-22a (build C5; test 58's wishes, the contract SP/t64/contract.md sections 1-3):
+
+  Paint condition    (slot 15) paintwear_<key>_static_d/_n/_s (1024 BC3, 512 BC5) and paintwear_<key>_fork (512, 256),
+                     materials paintwear_<key>_static/_fork(_worn).bgsm on the paintwear shells (0.16 over the paint,
+                     under the Wear's 0.32), keys scratched, chipped, faded, worn (the three stacked) and primer: the
+                     paint's own damage only (scratches through the clear coat, deep ones to primer and steel, scuffs
+                     where things rub; flaked and stone chips; sun fade with the clear coat peeling on the tops; repair
+                     patches of grey filler and red-oxide primer with feathered edges and a sanded halo), never grime;
+                     where its shell lies over a tank plate or the roundel (the plate under PC_SHELL over the paint: the
+                     plates' ends) only the sun haze (a clean patch there would show through the plate's clear parts);
+                     elsewhere under a plate the shell runs below it and the paint condition shows through the badge's
+                     clear parts. New files: no flag.
+  the Wear on parts  wear_<key>_<part>_d/_n/_s (512 BC3, 256 BC5) and wear_<key>_<part>(_worn).bgsm for the shells
+                     unit's part shells (PARTS: static_exhaust, static_engine, fork_black), each in its source shape's
+                     own UV space, its colour times that shape's own baked occlusion (its diffuse's luminance over its
+                     bright level): heat colouring on the pipes from each port and a dulled haze (Weathered), rust heavy
+                     on the mufflers' bottoms, seams and clamps, white corrosion on the engine's covers (Rusty), mud
+                     caked low down by the wheels and the road (Muddy), dust at PART_DUST of the paint's, blood where the
+                     rays reach (the paint and the parts cast together; the paint's own droplets keep the paint-only
+                     cast). New files: no flag.
+  --badge-grime      2026-11-22a (the default): the grime goes over the tank plates and the rear roundel (the shells
+                     unit lifts static_wear over them): dust caught along a plate's top edge, mud and blood as they fall,
+                     rust bleeding from under its bottom edge with streaks below (a plate is a clear rectangle round its
+                     badge's art: a ring all round showed as a frame); Weathered keeps only its sun haze there (a
+                     badge fades with the paint but takes no chip or scratch).
+                     2026-11-21a: every layer off them, 2026-11-21a's 42 wear maps byte for byte.
+  --overlay-depth    2026-11-22a (the default): every overlay's material writes depth and alpha-tests at OVERLAY_TEST
+                     besides the blend (two blended shells over the paint share their bounds, so the game can't sort
+                     them: a grime texel then hides the paint condition under it whichever is drawn first);
+                     2026-11-21a: no z write, no test (2026-11-21a's 28 wear materials byte for byte).
+  --tyre-mud         2026-11-22a (the default; test 58: "the tire part where it touches ground is too muddy"): the
+                     tread's faces that meet the road clean (a few specks), mud packed in the grooves and on the blocks'
+                     walls, clods on the shoulders, the sidewalls as 2026-11-21a's; 2026-11-21a: the tread caked, the six
+                     tyre diffuses byte for byte.
+  Every old value with 2026-11-21a's asset base (the nifs of assets16a/a) rebuilds 2026-11-21a's 88 files byte for byte.
+  On the 2026-11-22a base the parked nif comes from 2026-11-21a's shells unit, whose rear fender patch sits 0.16 higher:
+  Rusty's and Raider's static maps then differ near that patch (their rust ring is measured to it), nothing else.
+  --check holds the tree to the flags given and grows: the budget per group (BUDGETS), Paint condition's cover per
+  region and off the plates, Worn at least each of its parts, the grime over the plates (a rust ring, dust at the edges,
+  Weathered off), the parts (mud low down, dust, rust and weathering on each, the pipes' heat colour by their ports, the
+  mixes at least their parts), the tread's faces clean and its grooves muddy.
 """
 import argparse
 import math
@@ -108,9 +150,33 @@ FACTORY_BODY, FACTORY_COACH = "7a1118", "c8a860"      # 2026-11-06a's paint (loo
 COACH_U = 212                                         # the index map's coachline band starts at 216 (look_paint)
 MUD_REACH = {"F": (38.0, 12.0), "R": (46.0, 14.0)}  # the mud on a fender's outside: up to the axle's height + this; the
                                                     # gap from the tyre it falls off over (units)
+PC_SHELL = 0.16                                       # the paintwear shell's lift: Paint condition off a plate under it
 PLATE_CLEAR = 0.62                                    # wear kept off paint this near a tank plate or the roundel
 SCRATCHES = {"static": 1400, "fork": 260}            # fine scratches a shape
 KNEE_AHEAD, KNEE_UP, KNEE_R = 8.0, 9.0, (8.0, 6.0)   # the knees: ahead of the seat's front, over its low part; radii
+# (since 2026-11-22a) the Paint condition slot (slot 15, the contract SP/t64/contract.md): options 1-5 on the paintwear
+# shells, the paint's own damage only (the Wear slot keeps the grime over it)
+PC_KEYS = ("scratched", "chipped", "faded", "worn", "primer")
+PC_NAMES = {"scratched": "Scratched", "chipped": "Chipped", "faded": "Sun-faded", "worn": "Worn",
+            "primer": "Primer patches"}
+PC_STACKS = {"scratched": ("pc_scratch",), "chipped": ("pc_chip",), "faded": ("pc_fade",),
+             "worn": ("pc_fade", "pc_scratch", "pc_chip"), "primer": ("pc_primer",)}
+PC_SCRATCHES = {"static": 3200, "fork": 650}          # Scratched: scratches a shape
+PC_PATCHES = {"static": 9, "fork": 3}                 # Primer patches: patches a shape
+CLEARCOAT = "e6e1d6"     # the clear coat lifting and peeling: paler, chalky
+FILLER, FILLER_DARK, RED_OXIDE = "8d8b85", "6f6d68", "7a3a26"   # grey filler primer, its sanded darker grain, red oxide
+# (since 2026-11-22a) the Wear on more parts: the shells unit's part shells (SP/t64/units/shells/notes.md section 0), each
+# drawn in its source shape's own UV space; maps wear_<key>_<part>_d (BC3) and _n/_s (BC5) at these sizes
+PARTS = {"static_exhaust": dict(label="static_exhaust", size=512, aux=256, wheels=("R", "F")),
+         "static_engine": dict(label="static_engine", size=512, aux=256, wheels=("F",)),
+         "fork_black": dict(label="fork_black", size=512, aux=256, wheels=("F",))}
+HEAT = ("3c4f7e", "6a4a78", "b8913f", "cdb98a")       # a hot pipe's colours from the port: blue, purple, gold, straw
+DULL = "b4b0a6"                                       # a dulled, oxidised metal haze
+ALU_OXIDE = "cfcdc4"                                  # white corrosion on the engine's covers
+DEPTH_OLD, DEPTH_NEW = "2026-11-21a", "2026-11-22a"   # --overlay-depth: no z write (21a); z write + alpha test (22a)
+OVERLAY_TEST = 8                                      # 22a: the overlays' alpha test reference (with the blend)
+GRIME_OLD, GRIME_NEW = "2026-11-21a", "2026-11-22a"   # --badge-grime: the plates clear (21a), or under the grime (22a)
+TREAD_OLD, TREAD_NEW = "2026-11-21a", "2026-11-22a"   # --tyre-mud: the tread caked (21a), or clean faces (22a)
 BUDGET_WEAR, BUDGET_ALL = 20.0e6, 24.0e6              # bytes: the wear maps, and with the muddy tyres
 
 # colours (sRGB hex), our own palette
@@ -203,6 +269,20 @@ def load_shapes(pynifly, nif, labels):
     missing = [lab for lab in labels if lab not in out]
     if missing:
         raise SystemExit(f"{nif.name}: no shape {', '.join(missing)}")
+    return out
+
+
+def load_shapes_opt(pynifly, nif, labels):
+    """load_shapes for the shapes that are there: {label: shape}."""
+    sys.path.insert(0, str(pynifly))
+    from pyn import pynifly as P
+    f = P.NifFile(str(nif))
+    out = {}
+    for s in f.shapes:
+        for lab in labels:
+            if s.name.lower().endswith("_" + lab.lower()):
+                out[lab] = dict(v=np.asarray(s.verts, np.float64), uv=np.asarray(s.uvs, np.float64),
+                                tri=np.asarray(s.tris, np.int64), name=s.name)
     return out
 
 
@@ -385,7 +465,7 @@ class Scene:
 
     def __init__(self, pynifly, nif):
         labs = ("static_paint", "fork_paint", "wheelF_tyre", "wheelR_tyre", "static_seat", "static_plate",
-                "static_badgeTankL", "static_badgeTankR", "static_badgeRear", "static_badgeFender")
+                "static_badgeTankL", "static_badgeTankR", "static_badgeRear", "static_badgeFender") + tuple(PARTS)
         sh = load_shapes(pynifly, nif, labs)
         self.shapes = sh
         self.wheels = {}
@@ -402,6 +482,7 @@ class Scene:
                                                 "static_badgeFender")]
         self.plate = sh["static_plate"]["v"]
         self.plates = [(sh[k]["v"], sh[k]["tri"]) for k in ("static_badgeTankL", "static_badgeTankR", "static_badgeRear")]
+        self.plate_rims = [plate_rim(v, tri) for v, tri in self.plates]
         # the knees: the tank's sides just ahead of the seat, at the seat's height
         tv, tn = sh["static_paint"]["v"], sh["static_paint"]["n"]
         zseat = float(np.percentile(seat[:, 2], 30))
@@ -418,6 +499,19 @@ class Scene:
             T.append(sh[lab]["tri"] + off)
             off += len(sh[lab]["v"])
         self.V, self.T = np.concatenate(V), np.concatenate(T)
+        # (since 2026-11-22a) the paint and the parts together, for the parts' droplets: [(key, first triangle)]; the
+        # paint's own droplets keep 2026-11-21a's paint-only cast
+        Vp, Tp, self.part_ranges, off, nt = [self.V], [self.T], [], len(self.V), len(self.T)
+        for lab in PARTS:
+            Vp.append(sh[lab]["v"])
+            Tp.append(sh[lab]["tri"] + off)
+            self.part_ranges.append((lab, nt))
+            off += len(sh[lab]["v"])
+            nt += len(sh[lab]["tri"])
+        self.Vp, self.Tp = np.concatenate(Vp), np.concatenate(Tp)
+        # (since 2026-11-22a) each part shell as the nif has it (the shells unit's: the source's vertex records, only the
+        # triangles it kept), when it is there: the part art is drawn only where it lies
+        self.part_shells = load_shapes_opt(pynifly, nif, tuple(f"{lab}_wear" for lab in PARTS))
 
     def report(self):
         F, R = self.wheels["F"], self.wheels["R"]
@@ -468,9 +562,105 @@ class Ctx:
         self.badge_d = _nearest_dist(P, sc.badge_sets)
         # under the always-shown plates (the tank badges' and the rear roundel, 0.03-0.5 over the paint, the shell 0.32
         # partly under them): no wear there (the shells unit's finding), the rust ring starts at their edge
-        self.under_plate = ss(PLATE_CLEAR + 0.12, PLATE_CLEAR - 0.12, plate_footprint(P, sc.plates))
+        self.plate_h = plate_footprint(P, sc.plates)             # (since 2026-11-22a: kept) to the nearest plate
+        self.under_plate = ss(PLATE_CLEAR + 0.12, PLATE_CLEAR - 0.12, self.plate_h)
+        self.rim_d = _nearest_dist(P, sc.plate_rims, 3.0)       # (since 2026-11-22a) to a plate's outline
+        # (since 2026-11-22a) where along its plate's outline a texel lies: -1 the plate's bottom edge, +1 its top (the
+        # badge's art is the plate's middle; its clear rectangle has no edge to see, so the grime keeps to the top and
+        # bottom edges, where dust settles and rust bleeds from under it)
+        self.rim_v = np.zeros(g.n)
+        for (v, _), rim in zip(sc.plates, sc.plate_rims):
+            d = _nearest_dist(P, [rim], 3.0)
+            zc, hz = float(v[:, 2].mean()), max(float(np.ptp(v[:, 2])) / 2, 0.5)
+            self.rim_v = np.where(d <= self.rim_d + 1e-9, np.clip((P[:, 2] - zc) / hz, -1, 1), self.rim_v)
+        # (since 2026-11-22a) where a plate lies under the paintwear shell (0.16 over the paint; the plates sit 0.03-0.5 over
+        # it: the shell over a plate's ends, the shells unit's green): Paint condition kept off there only; elsewhere under
+        # a plate the shell runs below it and the paint condition shows through the badge's clear parts
+        self.plate_low = ss(PC_SHELL + 0.015, PC_SHELL, self.plate_h)
         self.plate_d = _nearest_dist(P, [sc.plate])
         self.splat = Splat(g)
+
+
+class PartCtx(Ctx):
+    """(since 2026-11-22a) One part shell's source shape's working grid with the features the part layers use (the paint
+    shape's that make no sense here are zero: no tank, knee or plate)."""
+
+    def __init__(self, sc, label, shp, shade_img, nrm_img):
+        meta = PARTS[label]
+        self.key, self.meta, self.sc = label, meta, sc
+        self.g = g = Grid(shp, meta["size"] * WORK)
+        P, N = g.P, g.N
+        self.shade = np.clip(g.flat(shade_img), 0.05, 1.05)
+        self.coach = np.zeros(g.n, bool)
+        self.kap, self.kap_s = g.kap, g.kap_s
+        self.pn = g.flat(nrm_img)
+        self.up = N[:, 2]
+        self.tank = self.rear = self.front = np.zeros(g.n, bool)
+        self.crease = np.clip((g.blur(self.shade, max(2, int(round(0.5 / np.median(g.texel))))) - self.shade) * 3.0, 0, 1)
+        self.knee = np.zeros(g.n)
+        self.wheel = {}
+        for w, wh in sc.wheels.items():
+            f, u = -(P[:, 1] - wh["c"][1]), P[:, 2] - wh["c"][2]
+            rho = np.hypot(f, u)
+            to_axis = unit(np.stack([-(P[:, 0] - wh["c"][0]) * 0.3, (wh["c"][1] - P[:, 1]), wh["c"][2] - P[:, 2]], -1))
+            self.wheel[w] = dict(gap=rho - wh["r"], th=np.degrees(np.arctan2(u, f)),
+                                 lat=np.maximum(np.abs(P[:, 0] - wh["c"][0]) - wh["half"], 0), facing=(N * to_axis).sum(1))
+        self.badge_d = np.full(g.n, 12.0)
+        self.under_plate = np.zeros(g.n)
+        self.plate_h = np.full(g.n, 2.0)
+        self.plate_low = np.zeros(g.n)
+        self.rim_d = np.full(g.n, 3.0)
+        self.rim_v = np.zeros(g.n)
+        self.plate_d = np.full(g.n, 12.0)
+        self.port_d = np.full(g.n, 99.0)
+        if label == "static_exhaust":          # each pipe's port: the top of each of its two long pieces
+            v, tri = shp["v"], shp["tri"]
+            for piece in _pieces(v, tri):
+                vs = v[np.unique(tri[piece])]
+                if np.ptp(vs[:, 2]) > 20.0:       # a pipe (the mufflers and clamps lie low)
+                    port = vs[vs[:, 2] > vs[:, 2].max() - 1.2].mean(0)
+                    self.port_d = np.minimum(self.port_d, np.linalg.norm(P - port, axis=1))
+        self.splat = Splat(g)
+        # where the part's shell lies (its triangles rasterised in the same UVs), a little grown so a filter at its edge
+        # keeps the colour; everywhere when the nif has no shell for it
+        shell = sc.part_shells.get(f"{label}_wear")
+        if shell is not None:
+            tid, _ = raster(shell["uv"][shell["tri"]], g.size, g.size)
+            on = (tid >= 0).astype(np.float64)
+            self.shell_cover = np.clip(g.flat(_box(on, 2)) * 3.0, 0, 1)
+        else:
+            self.shell_cover = np.ones(g.n)
+
+
+def _pieces(v, tri):
+    """The triangles of each welded connected piece of a shape: [index arrays]."""
+    _, pw, T, ek = welded(v, tri)
+    par = np.arange(len(pw))
+
+    def root(a):
+        while par[a] != a:
+            par[a] = par[par[a]]
+            a = par[a]
+        return a
+    for a, b in ek:
+        ra, rb = root(a), root(b)
+        if ra != rb:
+            par[rb] = ra
+    comp = np.array([root(i) for i in range(len(pw))])[T[:, 0]]
+    return [np.flatnonzero(comp == c) for c in np.unique(comp)]
+
+
+def part_inputs(bases, label, size):
+    """(the occlusion, the shape's tangent normal) at size x size from a part's shipped _d (its luminance over its own
+    bright level: the bake's occlusion in its colours) and _n."""
+    d = W.read_dds(need(bases, Path("Textures/CMB/Bike") / f"{label}_d.dds"))[1][0][0][..., :3]
+    nm = W.read_dds(need(bases, Path("Textures/CMB/Bike") / f"{label}_n.dds"))[1][0][0]
+    L = LP.lum(LP.lin(d / 255.0))
+    shade = L / max(float(np.percentile(L, 97)), 1e-4)
+    x = nm[..., 0] / 255.0 * 2 - 1
+    y = nm[..., 1] / 255.0 * 2 - 1
+    z = np.sqrt(np.clip(1 - x * x - y * y, 0, 1))
+    return _fit(shade, size), _fit(np.stack([x, y, z], -1), size)
 
 
 def _nearest_dist(P, sets, reach=12.0, chunk=16384):
@@ -485,6 +675,19 @@ def _nearest_dist(P, sets, reach=12.0, chunk=16384):
             d = np.sqrt(((P[i, None, :] - pts[None, :, :]) ** 2).sum(-1).min(1))
             out[i] = np.minimum(out[i], d)
     return out
+
+
+def plate_rim(v, tri, step=0.1):
+    """Points every `step` along a plate's outline (its welded mesh's boundary edges)."""
+    _, pw, T, _ = welded(v, tri)
+    e = np.sort(np.concatenate([T[:, [0, 1]], T[:, [1, 2]], T[:, [2, 0]]]), axis=1)
+    ek, cnt = np.unique(e, axis=0, return_counts=True)
+    out = []
+    for i, j in ek[cnt == 1]:
+        a, b = pw[i], pw[j]
+        k = max(1, int(np.ceil(np.linalg.norm(b - a) / step)))
+        out.append(a[None] + (b - a)[None] * (np.arange(k) / k)[:, None])
+    return np.concatenate(out)
 
 
 def plate_footprint(P, plates, chunk=4096):
@@ -717,6 +920,7 @@ def layer_weathered(ctx, rng):
     blot = ss(0.56, 0.70, fbm(P, 3.0, 2, 4)) * ss(0.3, 0.85, ctx.up)
     haze = np.clip(0.04 + 0.30 * expo * (0.5 + 1.6 * (mott - 0.5) + 0.5) + 0.18 * blot, 0, 0.46)
     L.paint(haze, HAZE, 0.16, 0.28)
+    L.haze = haze                       # (since 2026-11-22a) the sun's share alone: over the plates with --badge-grime
     # where chips come: the convex edges (the rolled lips and the tighter bends), the knees, the stones the front wheel
     # throws (what faces forward on the tank and the front fender)
     edge = np.maximum(ss(0.3, 1.2, ctx.kap), 0.75 * ss(0.12, 0.45, ctx.kap_s))
@@ -755,7 +959,7 @@ def layer_weathered(ctx, rng):
     return L
 
 
-def layer_dust(ctx, rng):
+def layer_dust(ctx, rng, grime=GRIME_OLD):
     g, P, N = ctx.g, ctx.g.P, ctx.g.N
     blot = fbm(P, 5.0, 12, 4)
     col = hexlin(DUST)[None, :] * (1 - ss(0.4, 0.7, blot))[:, None] + hexlin(DUST_DARK)[None, :] * ss(0.4, 0.7, blot)[:, None]
@@ -769,6 +973,9 @@ def layer_dust(ctx, rng):
     amt = amt * (1 - 0.65 * ctx.knee) * (1 - 0.55 * wash)
     a = np.clip(amt, 0, 0.9) * (0.78 + 0.44 * grain)
     L.paint(np.clip(a, 0, 0.92), col, 0.08, 0.15, h=0.01)
+    if grime == GRIME_NEW:          # (since 2026-11-22a) the dust caught along a plate's top edge, broken up
+        rim = ss(0.6, 0.1, ctx.rim_d) * ss(0.3, 0.75, ctx.rim_v) * soft(fbm(P, 0.8, 14, 3) - 0.45, 0.05)
+        L.paint(np.clip(rim * 0.5 * (0.7 + 0.6 * grain), 0, 0.6), col, 0.08, 0.15, h=0.01)
     return L
 
 
@@ -869,7 +1076,7 @@ def layer_mud(ctx, rng, hits):
     return L
 
 
-def layer_rust(ctx, rng):
+def layer_rust(ctx, rng, grime=GRIME_OLD):
     g, P, N = ctx.g, ctx.g.P, ctx.g.N
     v = fbm(P, 0.9, 31, 4)
     col = (hexlin(RUST_DARK)[None] * ss(0.6, 0.35, v)[:, None] + hexlin(RUST)[None] * (1 - np.abs(v - 0.5) * 2)[:, None]
@@ -898,6 +1105,18 @@ def layer_rust(ctx, rng):
     src = pick(ctx, core * steep * (b1 > 0.55), 260 if ctx.key == "static" else 90, rng)
     runs = [(P[i], N[i], float(rng.uniform(1.0, 5.0)), float(rng.uniform(0.08, 0.22))) for i in src]
     splat_runs(ctx, runs, L, RUST, 0.07, 0.12, 0.01, 0.55)
+    if grime == GRIME_NEW:
+        # (since 2026-11-22a) over a plate only a ring at its edge (rust creeping in from under it), broken up, and a few
+        # streaks running down from its lower edge
+        up = ctx.under_plate
+        L.a = L.a * (1.0 - up)
+        ring = (ss(0.9, 0.15, ctx.rim_d) * ss(-0.3, -0.75, ctx.rim_v)
+                * soft(fbm(P, 0.55, 35, 3) - 0.47, 0.04))     # along the bottom edge only, broken up
+        L.paint(np.clip(ring * np.maximum(up, ss(0.6, 0.1, ctx.rim_d)), 0, 1), col, 0.07, 0.12, h=0.02)
+        low = ring * up * (np.abs(ctx.up) < 0.75) * (N[:, 2] < 0.3)
+        src = pick(ctx, low, 24 if ctx.key == "static" else 0, rng)
+        runs = [(P[i], N[i], float(rng.uniform(1.0, 3.5)), float(rng.uniform(0.08, 0.18))) for i in src]
+        splat_runs(ctx, runs, L, RUST, 0.07, 0.12, 0.01, 0.5)
     return L
 
 
@@ -941,6 +1160,8 @@ def layer_blood(ctx, rng, hits):
         a, b = np.array(a), np.array(b)
         mid = 0.5 * (a + b)
         faces = np.flatnonzero((N @ unit(np.array(hint))) > 0.3)
+        if not len(faces) or ctx.key in PARTS:
+            continue                                    # smears are on the paint only
         j = int(faces[np.argmin(((P[faces] - mid) ** 2).sum(1))])
         if np.linalg.norm(P[j] - mid) > 4.0:
             continue                                    # not on this shape
@@ -999,6 +1220,256 @@ def droplets_from(sc, O, D, S, rng, kind):
     return out, int((tri >= 0).sum())
 
 
+# --- the Paint condition layers (since 2026-11-22a): the paint's own damage, no grime --------------------------------
+
+def _scratch_lines(ctx, rng, where, count, kinds):
+    """Short straight scratches: `count` drawn where `where` says, each of a kind (share, colour, width range, alpha
+    range, relief); returns per kind the cover (max over its lines)."""
+    g, P, N = ctx.g, ctx.g.P, ctx.g.N
+    tex = float(np.median(g.texel))
+    covs = [np.zeros(g.n) for _ in kinds]
+    shares = np.cumsum([k[0] for k in kinds])
+    for i in pick(ctx, where, count, rng):
+        c, n = P[i], N[i]
+        at_knee = ctx.knee[i] > 0.3
+        t = surface_dir(n, (0.0, 1.0, 0.0), rng.normal(0, 0.95 if at_knee else 0.4))
+        half = 0.5 * float(np.exp(rng.uniform(np.log(0.3), np.log(5.0))))
+        kind = int(np.searchsorted(shares, rng.random() * shares[-1], side="right"))
+        kind = min(kind, len(kinds) - 1)
+        _, _, (w0, w1), (a0, a1), _ = kinds[kind]
+        idx = near_same(ctx, c, n, half + 0.2, 0.4 + 0.1 * half)
+        if not len(idx):
+            continue
+        m = line_mask(P[idx], c, n, t, half, float(rng.uniform(w0, w1)), tex) * float(rng.uniform(a0, a1))
+        covs[kind][idx] = np.maximum(covs[kind][idx], m)
+    return covs
+
+
+def pc_scratch(ctx, rng):
+    """Scratched: fine scratches through the clear coat (pale), deeper ones to the primer and a few to bare steel, crowded
+    where things rub (the knees, the tank's top, the fenders' tops), and scuffed patches of very fine marks there."""
+    g, P = ctx.g, ctx.g.P
+    L = Layer(g.n, SCRATCH, 0.3, 0.42)
+    where = (0.08 + 1.8 * ctx.knee + 0.7 * ss(0.5, 0.95, ctx.up) * ctx.tank + 0.45 * ctx.front * ss(0.0, 0.8, ctx.up)
+             + 0.4 * ctx.rear * ss(0.3, 0.9, ctx.up))
+    # scuffs: a haze of fine marks along the bike where things rub
+    scuff = ss(0.45, 0.75, aniso(P, (0.1, 1.0, 0.05), 1.6, 0.05, 81)) * ss(0.55, 0.7, fbm(P, 2.5, 82, 3))
+    L.paint(np.clip(scuff * np.clip(where, 0, 1.2) * 0.45, 0, 0.45), SCRATCH, 0.26, 0.4, h=-0.004)
+    kinds = [(0.80, SCRATCH, (0.012, 0.035), (0.45, 0.95), -0.008),
+             (0.15, PRIMER, (0.03, 0.06), (0.8, 1.0), -0.025),
+             (0.05, STEEL, (0.025, 0.05), (0.85, 1.0), -0.03)]
+    covs = _scratch_lines(ctx, rng, where, PC_SCRATCHES[ctx.key], kinds)
+    for (_, colour, _, _, h), cv in zip(kinds, covs):
+        spec, gloss = (0.3, 0.42) if colour == SCRATCH else (0.14, 0.32) if colour == PRIMER else (0.6, 0.55)
+        if colour != SCRATCH:                        # a pale rim round a deep scratch (the paint's broken edge)
+            rim = np.clip(ctx.g.blur(cv, 1) * 1.6 - cv, 0, 1)
+            L.paint(rim * 0.6, SCRATCH, 0.3, 0.42)
+        L.paint(cv, colour, spec, gloss, h=h)
+    return L
+
+
+def pc_chip(ctx, rng):
+    """Chipped: flaked chips to the primer (bare steel in the deep ones, a pale broken edge round each) at the convex
+    edges and the knee grips; stone chips where the front wheel throws them and low down by both wheels."""
+    g, P, N = ctx.g, ctx.g.P, ctx.g.N
+    L = Layer(g.n, PRIMER, 0.14, 0.32)
+    edge = np.maximum(ss(0.3, 1.2, ctx.kap), 0.75 * ss(0.12, 0.45, ctx.kap_s))
+    fw = ctx.wheel["F"]
+    stone = ss(-0.1, -0.7, N[:, 1]) * np.exp(-np.maximum(fw["gap"], 0) / 40.0) * (ctx.tank | ctx.front)
+    low = np.zeros(g.n)
+    for w, wh in ctx.sc.wheels.items():
+        own = ctx.front if w == "F" else ctx.rear
+        low = np.maximum(low, own * np.exp(-np.maximum(ctx.wheel[w]["gap"], 0) / 14.0)
+                         * ss(wh["c"][2] + 18.0, wh["c"][2] + 4.0, P[:, 2]) * ss(0.2, -0.3, ctx.wheel[w]["facing"]))
+    field = 0.85 * edge + 1.15 * ctx.knee + 0.45 * stone + 0.35 * low + 0.04
+    if ctx.key == "fork":
+        field = field * 0.75             # the front mudguard's many rolled lips: fewer chips along them
+    big = fbm(P, 0.5, 91, 4)
+    fine = noise(P, 0.11, 92)
+    reach = big + 0.5 * np.minimum(field, 1.2)
+    chip_big = soft(reach - 0.9, 0.02)
+    chip_fine = soft(fine - (0.98 - 0.15 * np.minimum(field, 1.2)), 0.015) * ss(0.02, 0.25, field)
+    chip = np.maximum(chip_big, chip_fine)
+    steel = soft(reach - 1.0, 0.02)
+    rim = np.clip(soft(reach - 0.875, 0.02) - chip_big, 0, 1)
+    L.paint(rim * 0.55, SCRATCH, 0.3, 0.45)
+    L.paint(chip, PRIMER, 0.14, 0.32, h=-0.035)
+    L.paint(steel * chip, STEEL, 0.55, 0.5, h=-0.02)
+    return L
+
+
+def pc_fade(ctx, rng):
+    """Sun-faded: a pale chalky haze, strongest on what faces the sky in the open, mottled, with oxidised blotches; the
+    clear coat lifting in patches on the tops (paler still, matte, a crisp lighter edge)."""
+    g, P = ctx.g, ctx.g.P
+    L = Layer(g.n, HAZE, 0.16, 0.28)
+    expo = ss(-0.15, 0.95, ctx.up) ** 1.3 * (0.3 + 0.7 * ss(0.35, 0.95, ctx.shade))
+    mott = fbm(P, 7.0, 101, 4)
+    blot = ss(0.55, 0.70, fbm(P, 3.0, 102, 4)) * ss(0.3, 0.85, ctx.up)
+    haze = np.clip(0.05 + 0.36 * expo * (0.5 + 1.6 * (mott - 0.5) + 0.5) + 0.2 * blot, 0, 0.55)
+    L.paint(haze, HAZE, 0.14, 0.25)
+    L.haze = haze                       # its share over the plates (a badge fades with the paint)
+    peel_f = fbm(P, 2.0, 103, 4) + 0.4 * expo
+    peel = soft(peel_f - 1.0, 0.02) * ss(0.45, 0.8, expo)
+    edge = np.clip(soft(peel_f - 0.975, 0.015) * ss(0.45, 0.8, expo) - peel, 0, 1)
+    L.paint(edge * 0.85, "f2efe8", 0.1, 0.2, h=0.012)
+    L.paint(peel * 0.62, CLEARCOAT, 0.08, 0.15, h=-0.01)
+    return L
+
+
+def pc_primer(ctx, rng):
+    """Primer patches: repairs sanded back and primed, never top-coated: grey filler primer (a red-oxide one on the
+    static shape), feathered where it was sprayed thin, a dull scuffed halo of sanding round each."""
+    g, P, N = ctx.g, ctx.g.P, ctx.g.N
+    L = Layer(g.n, FILLER, 0.12, 0.25)
+    open_face = ss(0.35, 0.8, ctx.shade) * (1.0 - ctx.under_plate) * (np.abs(ctx.up) < 0.97)
+    k = PC_PATCHES[ctx.key]
+    centres = []
+    for i in pick(ctx, open_face * (0.6 + 0.4 * ctx.tank + 0.5 * ss(0.0, 0.8, ctx.up)), 60, rng):
+        if all(np.linalg.norm(P[i] - P[j]) > 9.0 for j in centres):
+            centres.append(i)
+        if len(centres) == k:
+            break
+    grain = noise(P, 0.25, 111)
+    for n_, i in enumerate(centres):
+        c, n = P[i], N[i]
+        r = float(rng.uniform(2.2, 5.5)) * (0.7 if ctx.key == "fork" else 1.0)
+        idx = near_same(ctx, c, n, r * 1.9, 3.0)
+        idx = idx[(N[idx] @ n) > 0.2]
+        if not len(idx):
+            continue
+        d = np.linalg.norm(P[idx] - c, axis=1)
+        wob = 1.0 + 0.32 * (fbm(P[idx], 1.6, 112 + n_, 3) - 0.5) * 2
+        re = r * wob
+        core = soft(re * 0.82 - d, 0.05)
+        feather = ss(re * 1.18, re * 0.82, d) * 0.55 * (0.7 + 0.6 * grain[idx])
+        halo = ss(re * 1.65, re * 1.18, d) * (1 - ss(re * 1.18, re * 0.82, d)) * 0.3
+        halo = halo * ss(0.4, 0.7, aniso(P[idx], (0.2, 1.0, 0.1), 0.8, 0.05, 113 + n_))
+        colour = RED_OXIDE if (ctx.key == "static" and n_ in (2, 6)) else FILLER
+        L.paint_at(idx, halo, SCRATCH, 0.2, 0.3, h=-0.004)
+        L.paint_at(idx, np.maximum(core, feather), colour, 0.1, 0.22, h=0.01)
+        L.paint_at(idx, core * ss(0.55, 0.85, grain[idx]) * 0.35, FILLER_DARK if colour == FILLER else "5e2a1b", 0.1, 0.2)
+    return L
+
+
+PC_LAYERS = {"pc_scratch": pc_scratch, "pc_chip": pc_chip, "pc_fade": pc_fade, "pc_primer": pc_primer}
+
+
+# --- the part shells' layers (since 2026-11-22a): the pipes, the engine's covers, the fork lowers ------------------------
+
+def part_weathered(ctx, rng):
+    """Weathered on a part: the metal dulled (a haze, heaviest on top), heat colouring on the pipes from each port (blue,
+    purple, gold, straw, fading out about 14 units down the pipe), chips to bare metal at the edges and stone chips low on
+    what faces forward."""
+    g, P, N = ctx.g, ctx.g.P, ctx.g.N
+    L = Layer(g.n, DULL, 0.2, 0.3)
+    expo = ss(-0.3, 0.9, ctx.up) * (0.4 + 0.6 * ss(0.3, 0.9, ctx.shade))
+    mott = fbm(P, 4.0, 131, 4)
+    L.paint(np.clip(0.08 + 0.3 * expo * (0.6 + 1.2 * (mott - 0.5)), 0, 0.45), DULL, 0.2, 0.3)
+    if ctx.key == "static_exhaust":
+        d = ctx.port_d + 1.2 * (fbm(P, 2.0, 132, 3) - 0.5)
+        stops = np.array([0.0, 4.0, 8.0, 12.0])
+        cols = np.array([hexlin(c) for c in HEAT])
+        t = np.clip(np.interp(d, stops, np.arange(4.0)), 0, 3)
+        i0 = np.floor(np.minimum(t, 2.999)).astype(int)
+        f = (t - i0)[:, None]
+        col = cols[i0] * (1 - f) + cols[i0 + 1] * f
+        L.paint(np.clip(0.8 * ss(16.0, 6.0, d), 0, 0.8), col, 0.5, 0.55)
+    edge = np.maximum(ss(0.4, 1.6, ctx.kap), 0.6 * ss(0.15, 0.5, ctx.kap_s))
+    stone = ss(-0.1, -0.7, N[:, 1]) * ss(50.0, 25.0, P[:, 2])
+    field = 0.7 * edge + 0.5 * stone + 0.04
+    reach = fbm(P, 0.45, 133, 4) + 0.45 * np.minimum(field, 1.2)
+    chip = np.maximum(soft(reach - 0.95, 0.02), soft(noise(P, 0.12, 134) - (0.985 - 0.12 * np.minimum(field, 1.2)), 0.015))
+    L.paint(chip * 0.9, STEEL, 0.5, 0.45, h=-0.02)
+    return L
+
+
+def part_rust(ctx, rng):
+    """Rusty on a part: rust blooms from the edges and low down, heavy on the mufflers' bottoms and seams and the clamps,
+    pitted, with streaks running down; on the engine's covers white corrosion spots and rust only at the edges."""
+    g, P, N = ctx.g, ctx.g.P, ctx.g.N
+    v = fbm(P, 0.9, 141, 4)
+    col = (hexlin(RUST_DARK)[None] * ss(0.6, 0.35, v)[:, None] + hexlin(RUST)[None] * (1 - np.abs(v - 0.5) * 2)[:, None]
+           + hexlin(RUST_LIGHT)[None] * ss(0.5, 0.75, v)[:, None])
+    col = col / np.maximum((ss(0.6, 0.35, v) + (1 - np.abs(v - 0.5) * 2) + ss(0.5, 0.75, v))[:, None], 1e-6)
+    L = Layer(g.n, col.copy(), 0.07, 0.12)
+    edge = np.clip(ss(0.3, 1.6, ctx.kap) * 0.8 + ss(0.1, 0.5, ctx.kap_s) * 0.7, 0, 1.2)
+    low = ss(40.0, 15.0, P[:, 2]) * ss(0.3, -0.6, ctx.up)
+    if ctx.key == "static_engine":
+        oxide = soft(fbm(P, 1.0, 142, 4) + 0.3 * ctx.crease + 0.2 * low - 0.82, 0.04)
+        L.paint(oxide * 0.75, ALU_OXIDE, 0.1, 0.15, h=0.01)
+        field = 0.6 * edge + 0.03
+    elif ctx.key == "static_exhaust":
+        heat = ss(14.0, 4.0, ctx.port_d)
+        field = 0.7 * edge + 0.9 * low + 0.5 * heat + 0.12
+    else:
+        field = 0.7 * edge + 0.7 * low + 0.1
+    b1 = fbm(P, 1.2, 143, 5)
+    core = soft(b1 + 0.45 * np.minimum(field, 1.3) - 0.98, 0.03)
+    halo = np.clip(soft(b1 + 0.45 * np.minimum(field, 1.3) - 0.88, 0.06) - core, 0, 1)
+    L.paint(halo * 0.4, RUST_STAIN, 0.1, 0.25, h=0.02)
+    L.paint(core, col, 0.07, 0.12, h=0.02 + 0.04 * noise(P, 0.12, 144))
+    steep = (np.abs(ctx.up) < 0.75).astype(float)
+    src = pick(ctx, core * steep * (b1 > 0.55), 80, rng)
+    runs = [(P[i], N[i], float(rng.uniform(0.8, 3.5)), float(rng.uniform(0.08, 0.2))) for i in src]
+    splat_runs(ctx, runs, L, RUST, 0.07, 0.12, 0.01, 0.5)
+    return L
+
+
+def part_mud(ctx, rng, hits):
+    """Muddy on a part: caked low down by the wheels it sits by (the fork lowers by the axle, the mufflers' bottoms, the
+    crankcase's front), a speckle where the spray thins, the droplets the wheels throw onto it."""
+    g, P, N = ctx.g, ctx.g.P, ctx.g.N
+    base = np.zeros(g.n)
+    wide = np.zeros(g.n)
+    for w in ctx.meta["wheels"]:
+        wh, q = ctx.sc.wheels[w], ctx.wheel[w]
+        gap = np.maximum(q["gap"], 0)
+        near = np.exp(-gap / 16.0) * np.exp(-q["lat"] / 10.0)
+        lowz = ss(wh["c"][2] + 6.0, wh["c"][2] - 14.0, P[:, 2])
+        base = np.maximum(base, near * (0.45 + 0.55 * lowz) * (0.6 + 0.4 * ss(-0.2, 0.5, q["facing"])))
+        wide = np.maximum(wide, np.exp(-gap / 26.0) * ss(wh["c"][2] + 20.0, wh["c"][2] - 10.0, P[:, 2]))
+    # the road's splash: low down on any part, most on what faces down or forward
+    road = ss(27.0, 12.0, P[:, 2]) * (0.45 + 0.55 * np.maximum(ss(0.2, -0.6, ctx.up), ss(-0.1, -0.7, N[:, 1])))
+    base = np.maximum(base, 0.6 * road)
+    wide = np.maximum(wide, ss(46.0, 18.0, P[:, 2]))
+    base = base * (0.75 + 0.25 * ss(0.4, -0.5, ctx.up))
+    blot = fbm(P, 1.8, 151, 4)
+    thick = np.clip(base * (0.6 + 1.2 * (blot - 0.5)) + 0.15 * base, 0, 1)
+    col, spec, gloss = _mud_colour(thick, P)
+    L = Layer(g.n, col.copy(), 0.1, 0.2)
+    L.paint(soft(thick - 0.22, 0.06) * 0.96, col, spec, gloss, h=0.05 + 0.12 * thick * fbm(P, 0.35, 152, 3))
+    dots = soft(noise(P, 0.11, 153) - (0.95 - 0.28 * np.clip(wide * 1.2, 0, 1)), 0.03) * ss(0.04, 0.25, wide)
+    dcol, dspec, dgloss = _mud_colour(np.full(g.n, 0.25), P)
+    L.paint(dots * 0.9, dcol, dspec, dgloss, h=0.03)
+
+    def mcol(r, rng_):
+        t = float(np.clip(0.15 + r * 1.1 + rng_.normal(0, 0.15), 0, 1))
+        return hexlin(MUD_DRY) * (1 - t) + hexlin(MUD_WET) * t, 0.08 + 0.2 * t, 0.15 + 0.3 * t, 0.05 + 0.08 * t
+    splat_drops(ctx, hits, mcol, L, rng)
+    return L
+
+
+def part_droplets(sc, O, D, S, rng, kind):
+    """The rays cast against the paint and the parts together; the hits on a part filed as droplets: {part: [drops]}
+    (the paint's own droplets come from the paint-only cast, as 2026-11-21a's)."""
+    t, tri, hp, fn = raycast(O, D, sc.Vp, sc.Tp)
+    out = {lab: [] for lab in PARTS}
+    starts = [(lab, s0) for lab, s0 in sc.part_ranges]
+    for i in np.flatnonzero(tri >= sc.part_ranges[0][1]):
+        lab = [l_ for l_, s0 in starts if tri[i] >= s0][-1]
+        n = fn[i] if fn[i] @ D[i] <= 0 else -fn[i]
+        el = float(np.clip(1.0 / max(abs(float(n @ D[i])), 0.22), 1.0, 4.5))
+        if kind == "mud":
+            r = float(np.exp(rng.uniform(np.log(0.05), np.log(0.45)))) * S[i]
+            tail = 0.0 if rng.random() < 0.6 else 0.5
+        else:
+            r = float(np.exp(rng.uniform(np.log(0.03), np.log(0.42)))) * S[i]
+            tail = float(np.clip((el - 1.0) * 0.9, 0.0, 2.2))
+        out[lab].append((hp[i], n, D[i], r, el, tail))
+    return out
+
+
 # --- the maps ------------------------------------------------------------------------------------------------------
 
 def bleed(img, cov, rounds=24):
@@ -1045,13 +1516,13 @@ def relief_normal(ctx, h, paint_n):
     return out
 
 
-def shape_maps(ctx, layer):
+def shape_maps(ctx, layer, clear_plates=True):
     """(_d RGBA uint8 at size, _n RGBA at aux, _s RGBA at aux, a report) of one layer stack on one shape."""
     g, meta = ctx.g, ctx.meta
     size, aux = meta["size"], meta["aux"]
     # the colour, shaded by the factory occlusion as the paint under it is
     rgb = layer.rgb * np.clip(ctx.shade, 0.12, 1.0)[:, None]
-    a = np.clip(layer.a, 0, 1) * (1.0 - ctx.under_plate)
+    a = np.clip(layer.a, 0, 1) * ((1.0 - ctx.under_plate) if clear_plates else 1.0)
     cov = g.cov.astype(np.float64)
     pa = g.image(a)
     prgb = g.image(rgb * (a[:, None] + 1e-3))
@@ -1091,8 +1562,11 @@ def write_tex(path, img, fmt, **kw):
 
 # --- the tyres -----------------------------------------------------------------------------------------------------
 
-def tyre_mud(sc, bases, w):
-    """The mud's cover and colour (linear) per texel of a tyre's 1024 map, and a report."""
+def tyre_mud(sc, bases, w, tread_mode=TREAD_NEW):
+    """The mud's cover and colour (linear) per texel of a tyre's 1024 map, and a report. tread_mode (--tyre-mud):
+    2026-11-21a caked the whole tread; 2026-11-22a (test 58: "the tire part where it touches ground is too muddy ... black
+    parts are showing through") packs the mud in the grooves and on the blocks' walls, clods on the shoulders, and leaves
+    the faces that meet the road clean; the sidewalls as 2026-11-21a's."""
     shp = sc.shapes[f"wheel{w}_tyre"]
     wh = sc.wheels[w]
     size = TYRE_SIZE * WORK
@@ -1117,6 +1591,19 @@ def tyre_mud(sc, bases, w):
     dots = soft(spk - (0.9 - 0.22 * side), 0.03) * ss(0.05, 0.4, side) * hub
     splash = soft(fbm(P, 1.3, 74, 4) - 0.6, 0.04) * ss(21.5, 23.0, r) * hub     # splashes anywhere on the sidewall
     a = np.clip(np.maximum(np.maximum(a, dots * 0.9), splash * 0.9), 0, 0.95)
+    if tread_mode == TREAD_NEW:
+        rad = np.stack([np.zeros(g.n), P[:, 1] - c[1], P[:, 2] - c[2]], -1) / np.maximum(r, 1e-9)[:, None]
+        nr = (N * rad).sum(1)                                  # 1 on a face turned out to the road, 0 on a wall
+        zone = ss(R - 3.6, R - 2.6, r)                         # the tread band, the shoulders to the crown
+        crown = ss(R - 1.0, R - 0.35, r) * ss(0.72, 0.9, nr)   # the blocks' faces that meet the road
+        wall = zone * ss(0.7, 0.4, nr)                         # the grooves' floors and walls, the blocks' sides
+        shoulder = zone * ss(R - 0.4, R - 1.6, r)              # the tread's flanks down to the sidewall
+        clod = fbm(P, 0.7, 75, 4)
+        amt_t = 0.95 * wall + 0.55 * shoulder + 0.4 * ss(0.95, 0.55, shade) * zone + 1.1 * (clod - 0.5)
+        a_t = soft(amt_t - 0.45, 0.08) * np.clip(0.5 + amt_t, 0, 1)
+        speck = soft(noise(P, 0.14, 76) - 0.9, 0.03) * 0.7     # a few specks left on the faces
+        a = a * (1 - zone) + a_t * zone
+        a = np.clip(a * (1 - crown) + crown * np.minimum(a, speck), 0, 0.95)
     t = np.clip(0.3 + 0.6 * tread + 0.3 * (fbm(P, 1.2, 73, 3) - 0.5) * 2, 0, 1)
     col = hexlin(TYRE_MUD_DRY)[None] * (1 - t)[:, None] + hexlin(TYRE_MUD_WET)[None] * t[:, None]
     col = col * np.clip(0.4 + 0.6 * shade, 0.3, 1.1)[:, None]
@@ -1140,16 +1627,24 @@ def tyre_diffuse(base_srgb, A, C):
 
 # --- the materials -------------------------------------------------------------------------------------------------
 
-def wear_material(template, key, shape):
+def wear_material(template, key, shape, prefix="wear", depth=DEPTH_OLD):
+    """An overlay's materials file (the Wear slot's, prefix wear; since 2026-11-22a Paint condition's, paintwear) on the
+    shell's source shape's shipped file."""
     m = dict(template)
     m["textures"] = dict(template["textures"])
-    m["textures"].update(diffuse=TEX + f"wear_{key}_{shape}_d.dds", normal=TEX + f"wear_{key}_{shape}_n.dds",
-                         smoothspec=TEX + f"wear_{key}_{shape}_s.dds", greyscale="", envmap="")
+    stem = f"{prefix}_{key}_{shape}"
+    m["textures"].update(diffuse=TEX + f"{stem}_d.dds", normal=TEX + f"{stem}_n.dds",
+                         smoothspec=TEX + f"{stem}_s.dds", greyscale="", envmap="")
     m.update(alpha=1.0, alpha_blend=1, alpha_blend_src=6, alpha_blend_dst=7, alpha_test=False, alpha_test_ref=128,
              zbuffer_write=False, zbuffer_test=True, decal=True, decal_no_fade=False, two_sided=False,
              environment_mapping=False, env_map_mask_scale=1.0, grayscale_to_palette_color=False,
              grayscale_to_palette_scale=1.0, cast_shadows=False, receive_shadows=True, specular_enabled=True,
              specular_mult=1.0, smoothness=1.0)
+    if depth == DEPTH_NEW:
+        # (since 2026-11-22a) two blended overlays over the paint (Paint condition's at 0.16, the Wear's at 0.32) share their
+        # source's bounds, so the game can't sort them: each writes its depth and discards its empty texels, so a grime
+        # texel hides the paint condition under it whichever is drawn first (the shells unit's advice)
+        m.update(zbuffer_write=True, alpha_test=True, alpha_test_ref=OVERLAY_TEST)
     m.pop("_raw_tex", None)
     m.pop("_raw_strings", None)
     return m
@@ -1175,6 +1670,22 @@ def plan():
             out[f"{t}_s.dds"] = ("s", "bc5", meta["aux"])
             for worn in ("", "_worn"):
                 out[f"Materials/CMB/Bike/wear_{key}_{sh}{worn}.bgsm"] = ("m", sh, worn)
+    for key in KEYS:
+        for sh, meta in PARTS.items():
+            t = f"Textures/CMB/Bike/wear_{key}_{sh}"
+            out[f"{t}_d.dds"] = ("d", "bc3", meta["size"])
+            out[f"{t}_n.dds"] = ("n", "bc5", meta["aux"])
+            out[f"{t}_s.dds"] = ("s", "bc5", meta["aux"])
+            for worn in ("", "_worn"):
+                out[f"Materials/CMB/Bike/wear_{key}_{sh}{worn}.bgsm"] = ("m", sh, worn)
+    for key in PC_KEYS:
+        for sh, meta in SHAPES.items():
+            t = f"Textures/CMB/Bike/paintwear_{key}_{sh}"
+            out[f"{t}_d.dds"] = ("d", "bc3", meta["size"])
+            out[f"{t}_n.dds"] = ("n", "bc5", meta["aux"])
+            out[f"{t}_s.dds"] = ("s", "bc5", meta["aux"])
+            for worn in ("", "_worn"):
+                out[f"Materials/CMB/Bike/paintwear_{key}_{sh}{worn}.bgsm"] = ("pm", sh, worn)
     for w in "FR":
         for src, suf in TYRES:
             out[f"Textures/CMB/Bike/wheel{w}_tyre{suf}_d.dds"] = ("t", "bc1", TYRE_SIZE)
@@ -1193,9 +1704,18 @@ class Report(list):
         super().append(line)
 
 
-def make_layers(sc, bases, keys_needed, report):
-    """{shape key: (ctx, {layer name: Layer})} for the layers the keys need."""
+PC_SEED = {"pc_scratch": 501, "pc_chip": 502, "pc_fade": 503, "pc_primer": 504}
+
+
+PART_DUST = 0.55                                      # a part's dust: the paint's layer at this share
+PART_SEED = {"weathered": 601, "dust": 602, "mud": 603, "rust": 604, "blood": 605}
+
+
+def make_layers(sc, bases, keys_needed, report, pc_needed=(), grime=GRIME_OLD, parts=()):
+    """{shape key: (ctx, {layer name: Layer})} for the layers the keys need (the Wear keys' and the Paint condition
+    keys')."""
     need_l = sorted({l for k in keys_needed for l in STACKS[k]})
+    need_pc = sorted({l for k in pc_needed for l in PC_STACKS[k]})
     ctxs = {}
     for key, meta in SHAPES.items():
         t0 = time.time()
@@ -1206,16 +1726,22 @@ def make_layers(sc, bases, keys_needed, report):
         report.append(f"{meta['label']}: {g.n} texels of {size}x{size}, {g.size and len(np.unique(g.island))} islands, "
                       f"texel {np.median(g.texel):.3f} units, occlusion p5/p50 {np.percentile(ctxs[key].shade, 5):.2f}/"
                       f"{np.percentile(ctxs[key].shade, 50):.2f} ({time.time() - t0:.1f} s)")
-    drops = {}
+    drops, pdrops = {}, {}
     if "mud" in need_l:
         O, D, S = spray_rays(sc, np.random.default_rng(101))
         drops["mud"], nh = droplets_from(sc, O, D, S, np.random.default_rng(102), "mud")
         report.append(f"mud rays {len(O)}: {nh} hits (static {len(drops['mud']['static'])}, fork {len(drops['mud']['fork'])})")
+        if parts:
+            pdrops["mud"] = part_droplets(sc, O, D, S, np.random.default_rng(103), "mud")
+            report.append("  on the parts: " + ", ".join(f"{k} {len(v)}" for k, v in pdrops["mud"].items()))
     if "blood" in need_l:
         O, D, S = blood_rays(sc, np.random.default_rng(201))
         drops["blood"], nh = droplets_from(sc, O, D, S, np.random.default_rng(202), "blood")
         report.append(f"blood rays {len(O)}: {nh} hits (static {len(drops['blood']['static'])}, fork "
                       f"{len(drops['blood']['fork'])})")
+        if parts:
+            pdrops["blood"] = part_droplets(sc, O, D, S, np.random.default_rng(203), "blood")
+            report.append("  on the parts: " + ", ".join(f"{k} {len(v)}" for k, v in pdrops["blood"].items()))
     out = {}
     for key, ctx in ctxs.items():
         layers = {}
@@ -1225,22 +1751,78 @@ def make_layers(sc, bases, keys_needed, report):
             if name == "weathered":
                 layers[name] = layer_weathered(ctx, rng)
             elif name == "dust":
-                layers[name] = layer_dust(ctx, rng)
+                layers[name] = layer_dust(ctx, rng, grime)
             elif name == "mud":
                 layers[name] = layer_mud(ctx, rng, drops["mud"][key])
             elif name == "rust":
-                layers[name] = layer_rust(ctx, rng)
+                layers[name] = layer_rust(ctx, rng, grime)
             elif name == "blood":
                 layers[name] = layer_blood(ctx, rng, drops["blood"][key])
             report.append(f"  {key} {name}: cover mean {layers[name].a.mean():.3f}, over 0.5 {(layers[name].a > 0.5).mean():.3f} "
                           f"({time.time() - t0:.1f} s)")
+        for name in need_pc:
+            t0 = time.time()
+            layers[name] = PC_LAYERS[name](ctx, np.random.default_rng(PC_SEED[name] + (0 if key == "static" else 50)))
+            report.append(f"  {key} {name}: cover mean {layers[name].a.mean():.3f}, over 0.5 {(layers[name].a > 0.5).mean():.3f} "
+                          f"({time.time() - t0:.1f} s)")
         out[key] = (ctx, layers)
+    for lab in parts:
+        t0 = time.time()
+        meta = PARTS[lab]
+        shade, nrm = part_inputs(bases, meta["label"], meta["size"] * WORK)
+        ctx = PartCtx(sc, lab, sc.shapes[meta["label"]], shade, nrm)
+        report.append(f"{lab}: {ctx.g.n} texels of {ctx.g.size}x{ctx.g.size}, texel {np.median(ctx.g.texel):.3f} units "
+                      f"({time.time() - t0:.1f} s)")
+        layers = {}
+        for name in need_l:
+            rng = np.random.default_rng(PART_SEED[name] + 10 * list(PARTS).index(lab))
+            if name == "weathered":
+                layers[name] = part_weathered(ctx, rng)
+            elif name == "dust":
+                layers[name] = layer_dust(ctx, rng)
+                layers[name].a = layers[name].a * PART_DUST     # a part's dust lighter: "not too much but noticeable"
+            elif name == "mud":
+                layers[name] = part_mud(ctx, rng, pdrops["mud"][lab])
+            elif name == "rust":
+                layers[name] = part_rust(ctx, rng)
+            elif name == "blood":
+                layers[name] = layer_blood(ctx, rng, pdrops["blood"][lab])
+            report.append(f"  {lab} {name}: cover mean {layers[name].a.mean():.3f}")
+        out[lab] = (ctx, layers)
+    return out
+
+
+def _label(sh):
+    """A shape key's source shape (the paint shapes' and the parts')."""
+    return SHAPES[sh]["label"] if sh in SHAPES else PARTS[sh]["label"]
+
+
+def _plate_haze(ctx, L, u=None):
+    """A copy of a layer with a sun haze (Weathered, Sun-faded) with only that haze over the tank plates and the roundel
+    (u, default their footprints: the grime's shell lies over them now; a badge fades with the paint, but its enamel takes
+    no chip, scratch or primer of the paint's); a layer without a haze kept off them."""
+    u = ctx.under_plate if u is None else u
+    if not hasattr(L, "haze"):
+        return _mask(L, u)
+    out = Layer(len(L.a), L.rgb * (1 - u)[:, None] + hexlin(HAZE)[None] * u[:, None], 0, 0)
+    out.a = L.a * (1 - u) + L.haze * u
+    out.h = L.h * (1 - u)
+    out.spec = L.spec * (1 - u) + 0.16 * u
+    out.gloss = L.gloss * (1 - u) + 0.28 * u
+    return out
+
+
+def _mask(L, m):
+    """A copy of a layer with its cover times (1 - m)."""
+    out = Layer(len(L.a), L.rgb, 0, 0)
+    out.a, out.h, out.spec, out.gloss = L.a * (1.0 - m), L.h, L.spec, L.gloss
     return out
 
 
 def build(args):
     t_all = time.time()
-    keys = args.only or list(KEYS)
+    keys = [k for k in (args.only or KEYS) if k in KEYS]
+    pc_keys = [k for k in (args.only or PC_KEYS) if k in PC_KEYS]
     mdir = args.data / "Materials" / "CMB" / "Bike"
     tdir = args.data / "Textures" / "CMB" / "Bike"
     mdir.mkdir(parents=True, exist_ok=True)
@@ -1251,13 +1833,23 @@ def build(args):
     report.append(f"parked nif {nif}")
     report.append(sc.report())
     report.append("options: " + ", ".join(f"{i} {k} \"{NAMES[k]}\" = {' + '.join(STACKS[k])}" for i, k in enumerate(KEYS, 1)))
+    report.append("Paint condition: " + ", ".join(f"{i} {k} \"{PC_NAMES[k]}\"" for i, k in enumerate(PC_KEYS, 1)))
+    report.append(f"--badge-grime {args.badge_grime}, --tyre-mud {args.tyre_mud}")
     total = 0
-    if keys:
-        shapes = make_layers(sc, args.base, keys, report)
+    if keys or pc_keys:
+        shapes = make_layers(sc, args.base, keys, report, pc_keys, args.badge_grime, tuple(PARTS) if keys else ())
         for key in keys:
             for sh, (ctx, layers) in shapes.items():
-                L = over([layers[n] for n in STACKS[key]])
-                d8, n8, s8 = shape_maps(ctx, L)
+                if sh in PARTS:
+                    d8, n8, s8 = shape_maps(ctx, _mask(over([layers[n] for n in STACKS[key]]), 1.0 - ctx.shell_cover))
+                elif args.badge_grime == GRIME_NEW:
+                    # the grime goes over the plates (the shells unit lifts static_wear over them); the weathered layer
+                    # (the paint's own damage) stays off them
+                    stack = [_plate_haze(ctx, layers[n]) if n == "weathered" and sh in SHAPES else layers[n]
+                             for n in STACKS[key]]
+                    d8, n8, s8 = shape_maps(ctx, over(stack), clear_plates=False)
+                else:
+                    d8, n8, s8 = shape_maps(ctx, over([layers[n] for n in STACKS[key]]))
                 stem = f"wear_{key}_{sh}"
                 total += write_tex(tdir / f"{stem}_d.dds", d8, "bc3", gamma_mips=True)
                 total += write_tex(tdir / f"{stem}_n.dds", n8, "bc5", normal=True)
@@ -1265,12 +1857,29 @@ def build(args):
                 a = d8[..., 3][_down(ctx.g.cov.astype(float), WORK) > 0] / 255.0
                 report.append(f"{stem}: cover mean {a.mean():.3f}, texels over 0.5 {(a > 0.5).mean():.3f}")
                 for worn in ("", "_worn"):
+                    tpl = B.read(need(args.base, Path("Materials/CMB/Bike") / f"{_label(sh)}{worn}.bgsm"))
+                    B.write(mdir / f"{stem}{worn}.bgsm", wear_material(tpl, key, sh, depth=args.overlay_depth))
+        for key in pc_keys:
+            for sh, (ctx, layers) in shapes.items():
+                if sh not in SHAPES:
+                    continue                             # Paint condition is the paint's only
+                # over a plate's ends (its shell above the plate) only the sun haze: a clean patch would show through the
+                # plate's clear parts; a scratch, chip or primer patch there would lie over the badge's art
+                stack = [_plate_haze(ctx, layers[n], ctx.plate_low) for n in PC_STACKS[key]]
+                d8, n8, s8 = shape_maps(ctx, over(stack), clear_plates=False)
+                stem = f"paintwear_{key}_{sh}"
+                total += write_tex(tdir / f"{stem}_d.dds", d8, "bc3", gamma_mips=True)
+                total += write_tex(tdir / f"{stem}_n.dds", n8, "bc5", normal=True)
+                total += write_tex(tdir / f"{stem}_s.dds", s8, "bc5")
+                a = d8[..., 3][_down(ctx.g.cov.astype(float), WORK) > 0] / 255.0
+                report.append(f"{stem}: cover mean {a.mean():.3f}, texels over 0.5 {(a > 0.5).mean():.3f}")
+                for worn in ("", "_worn"):
                     tpl = B.read(need(args.base, Path("Materials/CMB/Bike") / f"{SHAPES[sh]['label']}{worn}.bgsm"))
-                    B.write(mdir / f"{stem}{worn}.bgsm", wear_material(tpl, key, sh))
+                    B.write(mdir / f"{stem}{worn}.bgsm", wear_material(tpl, key, sh, "paintwear", args.overlay_depth))
     if not args.only or args.tyres:
         for w in "FR":
             t0 = time.time()
-            A, C, rr, covd = tyre_mud(sc, args.base, w)
+            A, C, rr, covd = tyre_mud(sc, args.base, w, args.tyre_mud)
             for src, suf in TYRES:
                 base = W.read_dds(need(args.base, Path("Textures/CMB/Bike") / f"wheel{w}_tyre{src}_d.dds"))[1][0][0][..., :3]
                 total += write_tex(tdir / f"wheel{w}_tyre{suf}_d.dds", tyre_diffuse(base, A, C), "bc1", gamma_mips=True)
@@ -1312,6 +1921,17 @@ class Regions:
             r["near_badge"] = _nearest_dist(P, sc.badge_sets, 6.0) < 2.0
             r["near_plate"] = rear & (_nearest_dist(P, [sc.plate], 12.0) < 8.0)
             r["on_plates"] = plate_footprint(P, sc.plates) < PLATE_CLEAR - 0.15
+            rim = _nearest_dist(P, sc.plate_rims, 3.0)
+            r["plate_low"] = plate_footprint(P, sc.plates) < PC_SHELL - 0.005
+            r["plate_rim"] = r["on_plates"] & (rim < 0.5)
+            r["plate_mid"] = r["on_plates"] & (rim > 1.5)
+            rim_v = np.zeros(g.n)
+            for (v, _), pr in zip(sc.plates, sc.plate_rims):
+                d = _nearest_dist(P, [pr], 3.0)
+                zc, hz = float(v[:, 2].mean()), max(float(np.ptp(v[:, 2])) / 2, 0.5)
+                rim_v = np.where(d <= rim + 1e-9, np.clip((P[:, 2] - zc) / hz, -1, 1), rim_v)
+            r["plate_rim_top"] = r["plate_rim"] & (rim_v > 0.75)
+            r["plate_rim_bottom"] = r["plate_rim"] & (rim_v < -0.75)
         pre = "rear" if key == "static" else "front"
         r[f"{pre}_in"] = fender & (facing > 0.3) & (gap < 10.0)
         r[f"{pre}_out"] = out
@@ -1338,6 +1958,28 @@ EXPECT = {
                ("tank_side", "<=", 0.35, 1), ("tank_under", "<=", 0.2, 1)],
 }
 PARTS_OF = {"wasteland": ("weathered", "dusty", "muddy"), "raider": ("rusty", "bloody")}
+PC_EXPECT = {   # (since 2026-11-22a) Paint condition's
+    "scratched": [("knee", ">", "tank_side", 1.5), ("tank_top", ">", "tank_under", 1.5), ("static_all", "<=", 0.15, 1),
+                  ("tank_side", ">=", 0.01, 1)],
+    "chipped": [("knee", ">", "tank_side", 2.0), ("front_out", ">=", 0.02, 1), ("static_all", "<=", 0.15, 1),
+                ("fork_all", "<=", 0.25, 1)],
+    "faded": [("tank_top", ">", "tank_side", 2.0), ("tank_top", ">=", 0.25, 1), ("tank_under", "<=", 0.1, 1)],
+    "primer": [("static_all", ">=", 0.02, 1), ("static_all", "<=", 0.2, 1), ("fork_all", ">=", 0.005, 1)],
+    "worn": [("tank_top", ">=", 0.25, 1), ("knee", ">=", 0.2, 1)],
+}
+BUDGETS = {"wear on the paint": 20.0e6, "wear on the parts": 12.0e6, "paint condition": 14.0e6, "tyres": 4.3e6,
+           "all": 48.0e6}            # (since 2026-11-22a) bytes of textures per group (BUDGET_WEAR, BUDGET_ALL before)
+
+
+def _group(rel):
+    name = Path(rel).name
+    if name.startswith("wheel"):
+        return "tyres"
+    if name.startswith("paintwear_"):
+        return "paint condition"
+    return "wear on the parts" if any(f"_{p}_" in name for p in PARTS) else "wear on the paint"
+
+
 PLATE_MAX = 0.01             # an option's mean cover over the plates' footprints
 COMBO_TOL = 20 / 255.0       # BC3's alpha (8 steps between a block's two ends, both maps' errors): a combination's texel
 COMBO_SHARE = 0.005          # may sit this under a part's on at most this share of the texels
@@ -1359,44 +2001,48 @@ def check(args):
             bad.append(what)
     todo = plan()
     # the files: there, the formats, sizes and mips; nothing else in the tree
-    total = wear_bytes = 0
+    groups = {}
     for rel, spec in sorted(todo.items()):
         p = args.data / rel
         if not p.exists():
             rep(False, rel, "missing")
             continue
-        total += p.stat().st_size
         if spec[0] in "dnst":
             info = W.read_dds(p)[0]
             want = (spec[1], spec[2], spec[2], _mip_count(spec[2], spec[2]))
             got = (info["format"], info["w"], info["h"], info["mips"])
             if got != want:
                 rep(False, rel, f"{got} not {want}")
-            if spec[0] != "t":
-                wear_bytes += p.stat().st_size
+            grp = _group(rel)
+            groups[grp] = groups.get(grp, 0) + p.stat().st_size
     others = [str(p.relative_to(args.data)) for p in args.data.rglob("*") if p.is_file()
               and str(p.relative_to(args.data)).replace("\\", "/") not in todo]
     rep(not others, f"{len(todo)} files: formats (BC3 _d, BC5 _n/_s, BC1 tyres), sizes and full mip chains; nothing else "
         f"in the tree", "; ".join(others[:6]))
-    rep(wear_bytes <= BUDGET_WEAR and total - sum((args.data / r).stat().st_size for r in todo if r.endswith(".bgsm")
-                                                  and (args.data / r).exists()) <= BUDGET_ALL,
-        f"the budget: wear maps {wear_bytes / 1e6:.2f} MB (at most {BUDGET_WEAR / 1e6:.0f}), with the tyres "
-        f"{(total - sum((args.data / r).stat().st_size for r in todo if r.endswith('.bgsm') and (args.data / r).exists())) / 1e6:.2f} MB "
-        f"(at most {BUDGET_ALL / 1e6:.0f})")
+    over_b = [g for g, b in groups.items() if b > BUDGETS[g]] + (["all"] if sum(groups.values()) > BUDGETS["all"] else [])
+    rep(not over_b, "the texture budget: " + ", ".join(f"{g} {b / 1e6:.2f} MB (at most {BUDGETS[g] / 1e6:.1f})"
+                                                       for g, b in groups.items())
+        + f"; all {sum(groups.values()) / 1e6:.2f} MB in {sum(1 for s_ in todo.values() if s_[0] in 'dnst')} textures (at most "
+        f"{BUDGETS['all'] / 1e6:.0f})", ", ".join(over_b))
     # the materials: the template's values but the textures and the overlay's flags; every texture they name present
-    flags = dict(alpha=1.0, alpha_blend=1, alpha_blend_src=6, alpha_blend_dst=7, alpha_test=False, zbuffer_write=False,
-                 zbuffer_test=True, decal=True, two_sided=False, environment_mapping=False, grayscale_to_palette_color=False,
-                 cast_shadows=False, receive_shadows=True, specular_enabled=True, specular_mult=1.0, smoothness=1.0)
+    new_depth = args.overlay_depth == DEPTH_NEW
+    flags = dict(alpha=1.0, alpha_blend=1, alpha_blend_src=6, alpha_blend_dst=7, alpha_test=new_depth,
+                 zbuffer_write=new_depth, zbuffer_test=True, decal=True, two_sided=False, environment_mapping=False,
+                 grayscale_to_palette_color=False, cast_shadows=False, receive_shadows=True, specular_enabled=True,
+                 specular_mult=1.0, smoothness=1.0)
+    if new_depth:
+        flags["alpha_test_ref"] = OVERLAY_TEST
     mbad, named = [], 0
     for rel, spec in sorted(todo.items()):
-        if spec[0] not in ("m", "tm") or not (args.data / rel).exists():
+        if spec[0] not in ("m", "pm", "tm") or not (args.data / rel).exists():
             continue
         m = B.read(args.data / rel)
         name = Path(rel).name
-        if spec[0] == "m":
-            key = name[len("wear_"):].rsplit("_" + spec[1], 1)[0]
-            tpl = B.read(need(args.base, Path("Materials/CMB/Bike") / f"{SHAPES[spec[1]]['label']}{spec[2]}.bgsm"))
-            want = wear_material(tpl, key, spec[1])
+        if spec[0] in ("m", "pm"):
+            prefix = "wear" if spec[0] == "m" else "paintwear"
+            key = name[len(prefix) + 1:].rsplit("_" + spec[1], 1)[0]
+            tpl = B.read(need(args.base, Path("Materials/CMB/Bike") / f"{_label(spec[1])}{spec[2]}.bgsm"))
+            want = wear_material(tpl, key, spec[1], prefix, args.overlay_depth)
             for k, v in flags.items():
                 if m[k] != v:
                     mbad.append(f"{name} {k} {m[k]}")
@@ -1416,9 +2062,10 @@ def check(args):
             rel_t = Path("Textures") / t.replace("\\", "/")
             if not (args.data / rel_t).exists() and find(args.base, rel_t) is None:
                 mbad.append(f"{name}: {slot} {t} missing")
-    rep(not mbad, f"{sum(1 for s in todo.values() if s[0] in ('m', 'tm'))} materials files: the shipped paint and tyre files "
-        f"but the textures and (the wear's) alpha blend, decal, no z write, one-sided, no shadows, no env map, no palette; "
-        f"all {named} of our textures they name present (the game's cube by path)", "; ".join(mbad[:6]))
+    rep(not mbad, f"{sum(1 for s in todo.values() if s[0] in ('m', 'pm', 'tm'))} materials files: the shipped paint, part and "
+        f"tyre files but the textures and (the overlays') alpha blend, decal, "
+        f"{'z write and an alpha test at %d' % OVERLAY_TEST if new_depth else 'no z write'}, one-sided, no shadows, no env "
+        f"map, no palette; all {named} of our textures they name present (the game's cube by path)", "; ".join(mbad[:6]))
     nif = need(args.base, Path("Meshes/CMB/CMB_BikeParked.nif"))
     sc = Scene(args.pynifly, nif)
     # one overlay serves every bike: the paint shapes' UVs and triangles alike in the five nifs
@@ -1428,12 +2075,14 @@ def check(args):
         if p is None:
             ubad.append(f"{nm} missing")
             continue
-        o = load_shapes(args.pynifly, p, ("static_paint", "fork_paint"))
-        for lab in ("static_paint", "fork_paint"):
+        labs = ("static_paint", "fork_paint") + tuple(PARTS)
+        o = load_shapes(args.pynifly, p, labs)
+        for lab in labs:
             a, b = sc.shapes[lab], o[lab]
             if a["uv"].shape != b["uv"].shape or not np.array_equal(a["tri"], b["tri"]) or np.abs(a["uv"] - b["uv"]).max() > 1e-6:
                 ubad.append(f"{nm} {lab}")
-    rep(not ubad, "the five nifs' static_paint and fork_paint: the parked nif's UVs and triangles", "; ".join(ubad))
+    rep(not ubad, "the five nifs' static_paint, fork_paint and the three parts: the parked nif's UVs and triangles",
+        "; ".join(ubad))
     # each option's cover per region
     regions = {k: Regions(sc, k) for k in SHAPES}
     cover = {}
@@ -1466,9 +2115,108 @@ def check(args):
             if not ok:
                 fails.append(f"{reg} {a:.3f} {op} {ref if not isinstance(ref, str) else f'{fac:g} x {ref} {b:.3f}'}")
         rep(not fails, f"{key}: cover where the design puts it ({len(exp)} expectations)", "; ".join(fails))
-    clear = [f"{k} {cover[k]['on_plates']:.3f}" for k in KEYS if cover.get(k) and not cover[k]["on_plates"] <= PLATE_MAX]
-    rep(not clear, f"no wear over the tank plates and the rear roundel (the shell runs partly over and partly under "
-        f"them): every option's mean cover there at most {PLATE_MAX}", "; ".join(clear))
+    if args.badge_grime == GRIME_OLD:
+        clear = [f"{k} {cover[k]['on_plates']:.3f}" for k in KEYS if cover.get(k) and not cover[k]["on_plates"] <= PLATE_MAX]
+        rep(not clear, f"no wear over the tank plates and the rear roundel (the shell runs partly over and partly under "
+            f"them): every option's mean cover there at most {PLATE_MAX}", "; ".join(clear))
+    else:
+        R = regions["static"]
+        g_bad = []
+        for k in KEYS:
+            if not cover.get(k):
+                continue
+            a = cover[k]["static"]
+            on, top, bot, mid = (float(a[R.masks[m_]].mean()) for m_ in ("on_plates", "plate_rim_top", "plate_rim_bottom",
+                                                                           "plate_mid"))
+            want = {"weathered": on <= 0.5 and mid <= 0.5, "dusty": top > 1.5 * mid and top > bot,
+                    "rusty": bot > 0.1 and bot > 3.0 * top and mid < 0.5 * bot,
+                    "bloody": on > 0.005}.get(k, on > 0.005)
+            g_bad += [] if want else [f"{k} on {on:.3f} top edge {top:.3f} bottom edge {bot:.3f} middle {mid:.3f}"]
+        rep(not g_bad, "the grime over the tank plates and the rear roundel (--badge-grime 2026-11-22a): Weathered's sun "
+            "haze only (no chip or scratch) on them, dust along their top edges and rust along their bottom edges (the "
+            "middles less), blood and the mixes on them", "; ".join(g_bad))
+    # Paint condition: its cover per region, off the plates, Worn at least each of its parts
+    pcov = {}
+    for key in PC_KEYS:
+        pcov[key] = {}
+        for sh, R in regions.items():
+            p = args.data / f"Textures/CMB/Bike/paintwear_{key}_{sh}_d.dds"
+            if p.exists():
+                a = W.read_dds(p)[1][0][0][..., 3] / 255.0
+                pcov[key][sh] = a
+                pcov[key].update({name: float(a[m].mean()) if m.any() else float("nan") for name, m in R.masks.items()})
+                pcov[key][sh + "_all"] = float(a[R.cov].mean())
+    print(f"  {'':<10}" + "".join(f"{n[:11]:>12}" for n in names + ["static_all", "fork_all"]))
+    for key in PC_KEYS:
+        if pcov[key]:
+            print(f"  {key:<10}" + "".join(f"{pcov[key].get(n, float('nan')):12.3f}" for n in names + ["static_all", "fork_all"]))
+    for key, exp in PC_EXPECT.items():
+        if not pcov.get(key):
+            continue
+        fails = []
+        for reg, op, ref, fac in exp:
+            a = pcov[key][reg]
+            b = pcov[key][ref] * fac if isinstance(ref, str) else ref
+            if not {">": a > b, ">=": a >= b, "<": a < b, "<=": a <= b}[op]:
+                fails.append(f"{reg} {a:.3f} {op} {ref if not isinstance(ref, str) else f'{fac:g} x {ref} {b:.3f}'}")
+        rep(not fails, f"Paint condition {key}: cover where the design puts it ({len(exp)} expectations)", "; ".join(fails))
+    pclear = [f"{k} {pcov[k]['plate_low']:.3f}" for k in PC_KEYS if pcov.get(k) and not
+              pcov[k]["plate_low"] <= (PLATE_MAX if k in ("scratched", "chipped", "primer") else 0.55)]
+    rep(not pclear, f"Paint condition where its shell lies over a tank plate or the roundel (the plate under {PC_SHELL} over "
+        f"the paint: the plates' ends): only the sun haze (Sun-faded, Worn), no scratch, chip or primer (at most "
+        f"{PLATE_MAX}); elsewhere under a plate it shows through the badge's clear parts", "; ".join(pclear))
+    if all(pcov.get(k) for k in ("worn", "scratched", "chipped", "faded")):
+        worst = []
+        for sh in SHAPES:
+            under = np.max([pcov[p_][sh] for p_ in ("scratched", "chipped", "faded")], axis=0) - pcov["worn"][sh]
+            m = regions[sh].cov
+            worst.append(f"{sh} {(under[m] > COMBO_TOL).mean() * 100:.2f} % under" +
+                         (" (too many)" if (under[m] > COMBO_TOL).mean() > COMBO_SHARE else ""))
+        rep(not any("too many" in x for x in worst), "Paint condition worn: at least each of scratched, chipped, faded",
+            "; ".join(worst))
+    # the parts: the Wear where it belongs on each
+    part_bad, part_info = [], []
+    for lab, meta in PARTS.items():
+        g = Grid(sc.shapes[meta["label"]], meta["size"])
+        shell = sc.part_shells.get(f"{lab}_wear")
+        if shell is not None:                      # measured where the part's shell lies (only there is it drawn)
+            tid, _ = raster(shell["uv"][shell["tri"]], g.size, g.size)
+            g.cov = g.cov & (tid >= 0)
+        Pz = g.image(g.P[:, 2], np.nan)
+        z0, z1 = np.nanpercentile(Pz[g.cov], [30, 70])
+        low, high = g.cov & (Pz < z0), g.cov & (Pz > z1)
+        cv = {}
+        for key in KEYS:
+            p = args.data / f"Textures/CMB/Bike/wear_{key}_{lab}_d.dds"
+            if p.exists():
+                a = W.read_dds(p)[1][0][0][..., 3] / 255.0
+                cv[key] = (float(a[g.cov].mean()), float(a[low].mean()), float(a[high].mean()), a)
+        if len(cv) < len(KEYS):
+            continue
+        part_info.append(f"{lab}: " + ", ".join(f"{k} {v[0]:.2f} (low {v[1]:.2f} high {v[2]:.2f})" for k, v in cv.items()))
+        if not (cv["muddy"][1] > 1.5 * cv["muddy"][2] and cv["muddy"][0] > 0.03):
+            part_bad.append(f"{lab} muddy not low")
+        if not (cv["dusty"][0] > 0.05 and cv["rusty"][0] > 0.03 and cv["weathered"][0] > 0.05):
+            part_bad.append(f"{lab} dusty/rusty/weathered too faint")
+        for combo, parts in PARTS_OF.items():
+            under = np.max([cv[p_][3] for p_ in parts], axis=0) - cv[combo][3]
+            if (under[g.cov] > COMBO_TOL).mean() > COMBO_SHARE:
+                part_bad.append(f"{lab} {combo} under its parts")
+        if lab == "static_exhaust":
+            port = np.full(g.n, 99.0)
+            for piece in _pieces(sc.shapes[lab]["v"], sc.shapes[lab]["tri"]):
+                vs = sc.shapes[lab]["v"][np.unique(sc.shapes[lab]["tri"][piece])]
+                if np.ptp(vs[:, 2]) > 20.0:
+                    port = np.minimum(port, np.linalg.norm(g.P - vs[vs[:, 2] > vs[:, 2].max() - 1.2].mean(0), axis=1))
+            hot = g.image(port, 99.0)
+            a = cv["weathered"][3]
+            near, far = g.cov & (hot < 6.0), g.cov & (hot > 25.0)
+            part_info.append(f"  the pipes' heat colour: weathered cover by the ports {a[near].mean():.2f}, far down {a[far].mean():.2f}")
+            if not a[near].mean() > 2.0 * a[far].mean():
+                part_bad.append("static_exhaust: no heat colour by the ports")
+    rep(not part_bad and bool(part_info), "the Wear on the parts: mud low down, dust, rust and weathering on each, the "
+        "pipes' heat colour by their ports, the mixes at least their parts", "; ".join(part_bad)
+        + ("\n    " + "\n    ".join(part_info) if part_info else ""))
     for key, parts in PARTS_OF.items():
         if not cover.get(key) or not all(cover.get(p) for p in parts):
             continue
@@ -1498,9 +2246,21 @@ def check(args):
         tread = g.cov & (r > R - 1.0)
         inner = g.cov & (r > 22.5) & (r < R - 6.0)
         ct, ci = changed[tread].mean(), changed[inner].mean()
-        tinfo.append(f"wheel{w}: texels muddied: tread {ct:.2f}, inner sidewall {ci:.2f}, lighter on average {dl[g.cov].mean():+.4f}")
-        if not (ct > 0.45 and ct > 1.5 * ci and dl[tread].mean() > 0):
-            tbad.append(f"wheel{w}")
+        if args.tyre_mud == TREAD_OLD:
+            tinfo.append(f"wheel{w}: texels muddied: tread {ct:.2f}, inner sidewall {ci:.2f}, lighter on average "
+                         f"{dl[g.cov].mean():+.4f}")
+            if not (ct > 0.45 and ct > 1.5 * ci and dl[tread].mean() > 0):
+                tbad.append(f"wheel{w}")
+        else:
+            rad = np.stack([np.zeros(g.n), g.P[:, 1] - wh["c"][1], g.P[:, 2] - wh["c"][2]], -1)
+            nr = g.image((g.N * unit(rad)).sum(1), 0.0)
+            crown = g.cov & (r > R - 0.5) & (nr > 0.9)
+            walls = g.cov & (r > R - 3.2) & (nr < 0.45)
+            cc, cw = changed[crown].mean(), changed[walls].mean()
+            tinfo.append(f"wheel{w}: texels muddied: the faces that meet the road {cc:.2f}, the grooves and walls {cw:.2f}, "
+                         f"the inner sidewall {ci:.2f}")
+            if not (cc < 0.25 and cw > 0.4 and cw > 2.0 * cc):
+                tbad.append(f"wheel{w}")
         for src, suf in TYRES[1:]:
             b2 = W.read_dds(need(args.base, Path("Textures/CMB/Bike") / f"wheel{w}_tyre{src}_d.dds"))[1][0][0][..., :3] / 255.0
             m2 = W.read_dds(args.data / f"Textures/CMB/Bike/wheel{w}_tyre{suf}_d.dds")[1][0][0][..., :3] / 255.0
@@ -1510,8 +2270,9 @@ def check(args):
             tinfo.append(f"  {suf}: its band {band.sum()} texels, {seen:.2f} of them clean; elsewhere {same_mud * 255:.1f}/255 from the black's")
             if not (band.any() and 0.15 < seen < 0.95 and same_mud < 3 / 255.0):
                 tbad.append(f"wheel{w}{suf}")
-    rep(not tbad, "the muddy tyres: the tread caked, the inner sidewall less, the bands partly clean, the same mud on each "
-        "variant", "; ".join(tbad) + ("\n    " + "\n    ".join(tinfo) if tinfo else ""))
+    rep(not tbad, ("the muddy tyres: the tread caked, the inner sidewall less" if args.tyre_mud == TREAD_OLD else
+                   "the muddy tyres: the tread's faces clean, the mud in its grooves and walls") +
+        ", the bands partly clean, the same mud on each variant", "; ".join(tbad) + ("\n    " + "\n    ".join(tinfo) if tinfo else ""))
     print(f"look_wear --check: {n_ok} passed, {len(bad)} failed" + (": " + ", ".join(bad) if bad else ""))
     return 1 if bad else 0
 
@@ -1523,12 +2284,28 @@ def main():
                     help="the asset base's Data (read only; repeat: later folders over earlier ones)")
     ap.add_argument("--pynifly", type=Path, required=True, help="PyNifly's io_scene_nifly (the parked nif's shapes)")
     ap.add_argument("--only", type=lambda s: [k for k in s.split(",") if k],
-                    help="build only these keys (a work aid: --check wants them all)")
+                    help="build only these keys, `tyres` for the muddy tyres (a work aid: --check wants them all)")
     ap.add_argument("--tyres", action="store_true", help="with --only: the muddy tyres too")
     ap.add_argument("--check", action="store_true", help="check a built tree (and nothing written)")
+    ap.add_argument("--badge-grime", choices=(GRIME_NEW, GRIME_OLD), default=GRIME_NEW,
+                    help="(since 2026-11-22a) the Wear's grime over the tank plates and the rear roundel: 2026-11-22a (the "
+                         "default) dust, mud, blood and a rust ring at the plate's edge over them (the shells unit lifts "
+                         "static_wear over the plates), the weathered layer kept off; 2026-11-21a every layer kept off "
+                         "(2026-11-21a's 42 wear maps byte for byte); --check holds the tree to the same")
+    ap.add_argument("--overlay-depth", choices=(DEPTH_NEW, DEPTH_OLD), default=DEPTH_NEW,
+                    help="(since 2026-11-22a) the overlays' depth: 2026-11-22a (the default) z write on and an alpha test at "
+                         f"{OVERLAY_TEST} besides the blend (two blended shells the game can't sort); 2026-11-21a no z write, no "
+                         "test (2026-11-21a's 28 wear materials byte for byte)")
+    ap.add_argument("--tyre-mud", choices=(TREAD_NEW, TREAD_OLD), default=TREAD_NEW,
+                    help="(since 2026-11-22a) the muddy tyres' tread: 2026-11-22a (the default) mud in the grooves and on "
+                         "the shoulders, the faces that meet the road clean; 2026-11-21a the whole tread caked (2026-11-21a's "
+                         "six tyre diffuses byte for byte); --check holds the tree to the same")
     args = ap.parse_args()
+    if args.only and "tyres" in args.only:
+        args.only = [k for k in args.only if k != "tyres"] or ["-"]
+        args.tyres = True
     if args.only:
-        bad = [k for k in args.only if k not in KEYS]
+        bad = [k for k in args.only if k not in KEYS + PC_KEYS and k != "-"]
         if bad:
             ap.error(f"--only: no key {', '.join(bad)} ({', '.join(KEYS)})")
     if any(args.data.resolve() == b.resolve() for b in args.base):

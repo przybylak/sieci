@@ -83,6 +83,16 @@ Reads the generator's --dump output on stdin and the .psc files, and fails if:
     rank over the 16 groups (the three slots before FactionSet: ui_order.c4); or the MCM's Look section hasn't "Front
     fender badge" after "Rear fender badge", "Wear" after "Paint shade" and "Headlamp" after "Mirrors" (25 controls),
     each bound to its Ui<slot> with its choices in display order.
+  - (2026-11-22a, C5, after test 58: the Paint condition slot, the Wear on the part shells, six more headlamp colours, the
+    front fender badge retired) the fifth block isn't c5_ids' 52 (0xCE7-0xD1A) at the table's IDs; a C5 option's entries,
+    or a Wear option's part-shell entries (its swap_c5: option 0 identities, the others wear_<key>_<part>), aren't the
+    table's; the retired slot's (the front fender badge's) swaps aren't all identities, its attach point is on the look
+    item or missing from a riding armour, its option 0 is in the template, or its global is filled in a script; the Paint
+    condition's global (0) and attach point ("Paint condition") aren't at their IDs, CMB_LookCategories and
+    CMB_LookSwapLists aren't 16 lists; a new beam isn't its twin's copy in its colour or the light lists aren't index =
+    option over 11; the controller's Look_C5 or CMB_LookF4SE's CMB_Look_PaintWear isn't filled; a recipe's priority isn't
+    its rank over the 17 groups; or the MCM's Look section has the front fender's dropdown or lacks "Paint condition"
+    after "Paint shade" (25 controls).
 
   dotnet run -c Release -- --dump CommonwealthMotorbike.esp | python3 check_plugin.py <Scripts/Source/User>
       [--kit-names 0] [--kit-order table] [--mcm <the Data folder an A/B plugin's MCM was written to>]
@@ -634,8 +644,8 @@ def slope_defines():
 # (LookRecords.Until): every array element and object member that is an object whose `since` is a later build is dropped.
 # look_ids.txt's lines in a dropped block's range (a `*_ids` section with a later `since`) whose ID the plugin doesn't hold
 # are that build's, not checked yet; a record the plugin does hold at such an ID is checked as every other.
-C2_BUILD, C3_BUILD, C4_BUILD = "2026-11-08a", "2026-11-16a", "2026-11-21a"
-LOOK_THROUGH = C4_BUILD
+C2_BUILD, C3_BUILD, C4_BUILD, C5_BUILD = "2026-11-08a", "2026-11-16a", "2026-11-21a", "2026-11-22a"
+LOOK_THROUGH = C5_BUILD
 # 2026-11-16a: `--kit-order table` (an A/B ESP): the recipes' priority 0, the MCM on the globals in table order, the Ui
 # arrays the identity; with `--mcm <Data>` the MCM files checked are that folder's (default: the scripts' Data).
 KIT_ORDER_ALPHA = True
@@ -661,6 +671,8 @@ def look_table():
     # identities after its own entries (the generator's LookRecords.ReadSlot): the 34 older tank swaps' helmet identities.
     # 2026-11-21a: "an earlier build" is one before C3 (C1's, C2's), as look_render.py's option_swap: a C4 tank option names
     # all six itself.
+    # 2026-11-22a (C5): a slot's sources_c5 appends its sources and each option's swap_c5 its swap (the Wear's part shells);
+    # a `retired` slot's options swap their sources to themselves (the front fender badge: never drawn).
     for s in table["slots"]:
         add = (s.get("sources_c3") or {}).get("add")
         if add:
@@ -668,7 +680,20 @@ def look_table():
             for o in s["options"]:
                 if o["swap"] is not None and o.get("since") in (None, C2_BUILD):
                     o["swap"] = o["swap"] + [[x, x] for x in add]
+        add5 = (s.get("sources_c5") or {}).get("add")
+        if add5:
+            s["sources"] = s["sources"] + add5
+        for o in s["options"]:
+            if o["swap"] is not None and o.get("swap_c5"):
+                o["swap"] = o["swap"] + o["swap_c5"]["add"]
+            if o["swap"] is not None and s.get("retired"):
+                o["swap"] = [[a, a] for a, _ in o["swap"]]
     return table, later
+
+
+def retired_globals(table):
+    """2026-11-22a: the retired slots' globals (the front fender badge's): kept in the plugin, never filled in a script."""
+    return {s["global"] for s in table["slots"] if s.get("retired")}
 
 
 def ui_group_keys(table):
@@ -676,17 +701,18 @@ def ui_group_keys(table):
     (FactionSet), as LookRecords.UiGroupKeys."""
     ui = table["ui_order"]
     keys = list(ui["groups"])
-    c4 = ui.get("c4")
-    if c4:
-        at = keys.index(c4["before"])
-        keys[at:at] = c4["groups"]
+    for k in ("c4", "c5"):   # 2026-11-22a: and c5's (PaintWear)
+        c = ui.get(k)
+        if c:
+            at = keys.index(c["before"])
+            keys[at:at] = c["groups"]
     return keys
 
 
 def ui_dropdowns(table):
     """ui_order's dropdowns, and (2026-11-21a) ui_order.c4's, as LookRecords.UiDropdowns."""
     ui = table["ui_order"]
-    return dict(ui["dropdowns"], **((ui.get("c4") or {}).get("dropdowns") or {}))
+    return dict(ui["dropdowns"], **((ui.get("c4") or {}).get("dropdowns") or {}), **((ui.get("c5") or {}).get("dropdowns") or {}))
 
 
 def ui_groups(table, alpha=None):
@@ -802,6 +828,8 @@ def check_look(lines, scripts_folder: Path):
     # --kit-order table).
     has_c3 = "ui_order" in table
     has_c4 = "c4_ids" in table   # 2026-11-21a (C4, art build B)
+    has_c5 = "c5_ids" in table   # 2026-11-22a (C5, after test 58)
+    retired = retired_globals(table)
     groups = ui_groups(table) if has_c3 else []
     ui_order, ui_rank, ui_start = ui_arrays(groups)
     priority = {}
@@ -914,15 +942,19 @@ def check_look(lines, scripts_folder: Path):
 
     # The look item and the riding armours: the keyword and every slot's attach point (every object mod's among them); the
     # item playable with one default template, each slot's option 0, one per attach point.
-    option0 = [f"{s['options'][0]['ids'][1]}{OURS}@0" for s in table["slots"]]
+    # 2026-11-22a: a retired slot's attach point not on the item (the field kit offers none of its mods) nor its option 0 in
+    # the template; the riding armours keep it (a worn bike saved with one of its mods stays valid).
+    option0 = [f"{s['options'][0]['ids'][1]}{OURS}@0" for s in table["slots"] if not s.get("retired")]
+    item_aps = [fk(s["ap"]) for s in table["slots"] if not s.get("retired")]
     template_name = None
     for name in ["CMB_BikeLook"] + RIDING_ARMOURS:
         r = rec(name, "Armor")
         if not r or not r.get("armor"):
             continue
         playable, keywords, appr, model, preview, _, _, _ = r["armor"][0]
-        if fk("CMB_ma_Bike") not in links(keywords) or links(appr) != aps:
-            problems.append(f"{name}: keywords [{keywords}] aps [{appr}], expected CMB_ma_Bike and the {len(aps)} attach points {aps}")
+        want_aps = item_aps if name == "CMB_BikeLook" else aps
+        if fk("CMB_ma_Bike") not in links(keywords) or links(appr) != want_aps:
+            problems.append(f"{name}: keywords [{keywords}] aps [{appr}], expected CMB_ma_Bike and the {len(want_aps)} attach points {want_aps}")
         templates = r.get("template", [])
         if name == "CMB_BikeLook":
             template_name = templates[0][3] if templates else None
@@ -1060,13 +1092,18 @@ def check_look(lines, scripts_folder: Path):
     for script, group, have in (("CMB_ControllerScript", "Look_C1", ctl), ("CMB_ControllerScript", "Look_C2", ctl),
                                 *((("CMB_ControllerScript", "Look_C3", ctl),) if has_c3 else ()),
                                 *((("CMB_ControllerScript", "Look_C4", ctl),) if has_c4 else ()),
+                                *((("CMB_ControllerScript", "Look_C5", ctl),) if has_c5 else ()),
                                 ("CMB_ControllerScript", "Fixes_55", ctl), ("CMB_ControllerScript", "Fixes_56", ctl),
                                 ("CMB_ControllerScript", "Fixes_57", ctl), ("CMB_ControllerScript", "Fixes_59", ctl),
                                 ("CMB_LookF4SE", None, f4se)):
         declared = look_group(scripts_folder, script, group)
-        missing = [p for p in declared if p not in have]
+        missing = [p for p in declared if p not in have and p not in retired]
         if missing:
             problems.append(f"{script}: {', '.join(missing)} not filled in the plugin")
+        # 2026-11-22a: a retired slot's global declared, and NOT filled (the scripts then leave the slot alone)
+        filled = [p for p in declared if p in retired and p in have]
+        if filled:
+            problems.append(f"{script}: {', '.join(filled)} filled in the plugin, but its slot is retired (look_options.json)")
         for p in declared:
             if p in by_edid and p in have and not have[p].startswith(f"{fk(p)} "):
                 problems.append(f"{script}.{p}: {have[p]}, expected {p} ({fk(p)})")
@@ -1134,7 +1171,7 @@ def check_look(lines, scripts_folder: Path):
         lights = (lamp or {}).get("lights") or {}
         c4_table = {s[k] for s in c4_slots for k in ("global_id", "ap_id", "list_id", "swaps_id") if s.get(k)} \
             | {i for s in table["slots"] for o in s["options"] if o.get("since") == C4_BUILD for i in o["ids"] if i} \
-            | {i for o in beams for i in (o.get("beam") or {}).get("ids") or []} \
+            | {i for o in beams if o.get("since") == C4_BUILD for i in (o.get("beam") or {}).get("ids") or []} \
             | {lights.get("list_id"), lights.get("shadow_list_id")}
         c4_plugin = {r["id"] for r in recs if f4 <= int(r["id"], 16) <= l4}
         if c4_plugin != c4_table or len(c4_table) != c4["count"] or l4 - f4 + 1 != c4["count"] or f4 != 0xC50:
@@ -1169,7 +1206,27 @@ def check_look(lines, scripts_folder: Path):
             r = by_id.get(lid or "")
             if not r or r["edid"] != name or r["type"] != "FormList" or r.get("item", []) != [(x, "Light") for x in want_lists[shadow]]:
                 problems.append(f"{name} at {lid}: {None if not r else (r['edid'], r.get('item'))}, expected the FormList {want_lists[shadow]} (index = Headlamp option)")
-        c3_line += f"; C4 {c4['first']}-{c4['last']} ({len(c4_plugin)}): {len(c4_slots)} slots, {2 * len(beams)} beams"
+        c3_line += f"; C4 {c4['first']}-{c4['last']} ({len(c4_plugin)}): {len(c4_slots)} slots"
+        # 2026-11-22a (C5): the fifth block, exactly c5_ids' (from 0xCE7): the Paint condition's global (0) and attach point,
+        # Headlamp 5-10, PaintWear's options and lists, the new beams (checked with C4's above: every option's two lights
+        # its twins' copies in its colour, both light lists index = option over all of them).
+        if has_c5:
+            c5 = table["c5_ids"]
+            f5, l5 = int(c5["first"], 16), int(c5["last"], 16)
+            c5_slots = [s for s in table["slots"] if s.get("since") == C5_BUILD]
+            c5_table = {s[k] for s in c5_slots for k in ("global_id", "ap_id", "list_id", "swaps_id") if s.get(k)} \
+                | {i for s in table["slots"] for o in s["options"] if o.get("since") == C5_BUILD for i in o["ids"] if i} \
+                | {i for o in beams if o.get("since") == C5_BUILD for i in (o.get("beam") or {}).get("ids") or []}
+            c5_plugin = {r["id"] for r in recs if f5 <= int(r["id"], 16) <= l5}
+            if c5_plugin != c5_table or len(c5_table) != c5["count"] or l5 - f5 + 1 != c5["count"] or f5 != 0xCE7:
+                problems.append(f"C5's block: {len(c5_plugin)} records in {c5['first']}-{c5['last']}, the table's {len(c5_table)} IDs "
+                                f"(c5_ids {c5['count']}, from 000CE7); not in the plugin {sorted(x for x in c5_table - c5_plugin if x)[:3]}, not in the table {sorted(c5_plugin - c5_table)[:3]}")
+            for s in c5_slots:
+                at(s["global"], s["global_id"], "the slot's global_id")
+                at(s["ap"], s["ap_id"], "the slot's ap_id")
+            gone = [s["key"] for s in table["slots"] if s.get("retired")]
+            c3_line += f"; C5 {c5['first']}-{c5['last']} ({len(c5_plugin)}): {len(c5_slots)} slot, retired {', '.join(gone) or 'none'}"
+        c3_line += f"; {2 * len(beams)} beams"
 
     n_options = sum(len(s["options"]) for s in table["slots"])
     line = (f"checked {n_options} look options in {len(table['slots'])} slots: {swaps_total} swaps, {recipes} look recipes, no BNAM (as the game's armour mod recipes), "
@@ -1208,6 +1265,9 @@ def check_mcm_look(scripts_folder: Path, lines):
     # 2026-11-21a (C4): "Front fender badge" after "Rear fender badge", "Wear" after "Paint shade", "Headlamp" after
     # "Mirrors", each a dropdown bound to its Ui<slot> (25 controls)
     has_c4 = "c4_ids" in table
+    # 2026-11-22a (C5): "Paint condition" after "Paint shade" (before "Wear"); "Front fender badge" gone (retired)
+    has_c5 = "c5_ids" in table
+    front = has_c4 and not next(s for s in table["slots"] if s["key"] == "FrontFender").get("retired")
     bound = {}   # the global -> (its property, the names in display order)
     if has_c3 and KIT_ORDER_ALPHA:
         glob_of = {s["key"]: s["global"] for s in table["slots"]} | {"FactionSet": "CMB_LookFactionSet"}
@@ -1226,10 +1286,11 @@ def check_mcm_look(scripts_folder: Path, lines):
             in_group("dropdown", "Tank badge, left", "CMB_Look_TankL"),
             in_group("dropdown", "Tank badge, right", "CMB_Look_TankR"),
             in_group("dropdown", "Rear fender badge", "CMB_Look_Fender"),
-            *((in_group("dropdown", "Front fender badge", "CMB_Look_FrontFender"),) if has_c4 else ()),
+            *((in_group("dropdown", "Front fender badge", "CMB_Look_FrontFender"),) if front else ()),
             in_group("dropdown", "Paint", "CMB_Look_Paint"),
             ("slider", "Paint hue", "CMB_LookHue", (0, 359, 1), "condition"),
             ("stepper", "Paint shade", "CMB_LookShade", shades, "condition"),
+            *((in_group("dropdown", "Paint condition", "CMB_Look_PaintWear"),) if has_c5 else ()),
             *((in_group("dropdown", "Wear", "CMB_Look_Wear"),) if has_c4 else ()),
             in_group("stepper", "Mirrors", "CMB_Look_Mirrors"),
             *((in_group("dropdown", "Headlamp", "CMB_Look_Headlamp"),) if has_c4 else ()),

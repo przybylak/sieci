@@ -735,41 +735,6 @@
     },
     {
       "type": "dropdown",
-      "text": "Front fender badge",
-      "help": "A badge on the front mudguard\u0027s top, read from the front; it turns with the bars (None: as it came).",
-      "groupCondition": 1,
-      "valueOptions": {
-        "options": [
-          "None",
-          "Atom Cats",
-          "Brotherhood flag (game art)",
-          "Brotherhood helmet",
-          "Brotherhood of Steel",
-          "Children of Atom",
-          "Enclave",
-          "Enclave helmet",
-          "Gunners",
-          "Gunners (game art)",
-          "Gunners skull",
-          "Institute",
-          "Minutemen",
-          "Minutemen flag (game art)",
-          "Nuka-Cola",
-          "Pre-war army star",
-          "Pre-war army star (game art)",
-          "Raiders",
-          "Railroad",
-          "Red Rocket",
-          "Vault-Tec"
-        ],
-        "sourceType": "PropertyValueInt",
-        "sourceForm": "CommonwealthMotorbike.esp|80D",
-        "scriptName": "CMB_ControllerScript",
-        "propertyName": "UiFrontFender"
-      }
-    },
-    {
-      "type": "dropdown",
       "text": "Paint",
       "help": "The tank\u0027s and fenders\u0027 paint and the coachline (Factory: the oxblood, as it came).",
       "groupCondition": 1,
@@ -859,6 +824,26 @@
     },
     {
       "type": "dropdown",
+      "text": "Paint condition",
+      "help": "The paint\u0027s own wear, under any grime (Pristine: as it came): scratches through to the metal, chips at the edges and the knees, sun fading, all three together (Worn), or primer patches. Works with every paint and with the Wear below.",
+      "groupCondition": 1,
+      "valueOptions": {
+        "options": [
+          "Pristine (as it came)",
+          "Chipped",
+          "Primer patches",
+          "Scratched",
+          "Sun-faded",
+          "Worn"
+        ],
+        "sourceType": "PropertyValueInt",
+        "sourceForm": "CommonwealthMotorbike.esp|80D",
+        "scriptName": "CMB_ControllerScript",
+        "propertyName": "UiPaintWear"
+      }
+    },
+    {
+      "type": "dropdown",
       "text": "Wear",
       "help": "Weathering over the paint, whatever its colour (As it came: none): sun-faded and chipped, dust, mud from the wheels, rust, blood, or two of them together (Wasteland, Raider).",
       "groupCondition": 1,
@@ -906,6 +891,12 @@
           "Amber",
           "Blue-white",
           "Cool white",
+          "Daylight",
+          "Green",
+          "Halogen",
+          "Ice blue",
+          "Purple",
+          "Red",
           "Selective yellow"
         ],
         "sourceType": "PropertyValueInt",
