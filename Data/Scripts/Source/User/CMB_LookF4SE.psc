@@ -1194,7 +1194,14 @@ EndFunction
 int Function ForgetWornIndexes()
 	wornIndexPasses += 1
 	wornIndexKey = ""
-	composedFor = ""   ; the review of 2026-11-23a (finding 5): the save's token, not this session's CMB_LookSwap (SwapCurrent)
+	return 0
+EndFunction
+
+; The second review of 2026-11-23a (finding B): the controller's LookAfterLoad, first thing: composedFor came back from the save, not with
+; this session's CMB_LookSwap (the review of 2026-11-23a, finding 5). Its own call, so LookAfterLoad's second ForgetWornIndexes (WornIndex
+; off, MountQuick on: after ApplyLook("load") has composed) no longer throws the load's own compose away. Returns 0.
+int Function ForgetComposed()
+	composedFor = ""
 	return 0
 EndFunction
 

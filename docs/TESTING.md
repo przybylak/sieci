@@ -17,18 +17,22 @@ The log goes to `Documents\My Games\Fallout4\Logs\Script\Papyrus.0.log`. Every m
 
 Without F4SE you'll see one or two harmless errors about the `F4SE` / `CMB_HotkeyF4SE` scripts not being found. That's the mod checking whether they're there. When something breaks, send the log, plus a screenshot or a short clip if it's visual.
 
-## Test 60: the 2026-11-23a build (test 59's fixes and your wishes)
+## Test 60: the 2026-11-23b build (test 59's fixes and your wishes; 2026-11-23a with its second review's fixes)
 
-The 2026-11-23a build answers test 59 (run on 2026-11-22a): its fixes and your wishes after it, in one build. Your
-picks: getting off parks the bike beside you, with the old spot back along the track as the fallback; no healing clip
-while riding in third person; the left hand on the bar with a pistol out, in first and third person; and a quicker
-take-off, 0.3 of the top in about 1.5 s and half in about 2.8 s, the gears still at about 12, 24, 36 and 46 on the dial.
-Steps 1-7 are getting off and on, steps 8-9 the take-off and the gears, steps 10-14 the art and the Wear on every bike,
-step 15 the field kit, steps 16-19 a pistol out, steps 20-21 the third-person look, steps 22-23 the holster on your
-thigh, steps 24-25 a stimpak in third person and step 26 the frame rate, with the questions T60-1 to T60-26 at the end
-and, after them, the open questions and the log lines that settle them. What test 59 liked (no crash, the muddy tread,
-Nuka-Cola's script, the headlamp's colours, the front fender badge gone, the kit's views and wheel, the third-person
-look with no weapon out, the gears at their bands) is as it was.
+The 2026-11-23a build answers test 59 (run on 2026-11-22a): its fixes and your wishes after it, in one build; the
+2026-11-23b build is 2026-11-23a with a second review's four fixes, so install 2026-11-23b, not 2026-11-23a: a stimpak
+from the Favourites menu right after the Pip-Boy keeps its heal (step 25), getting on hides a parked bike carrying the
+look's swap before the fade with any `[Look] MountGuard` and `ParkedSwapHold` (step 6), and two fixes in the look's
+scripts (a look timer while getting off, a load's compose with `WornIndex=0`). No key is new, and the ESP, the MCM,
+`CMB_Slope.ini` and the art are 2026-11-23a's. Your picks: getting off parks the bike beside you, with the old spot back
+along the track as the fallback; no healing clip while riding in third person; the left hand on the bar with a pistol
+out, in first and third person; and a quicker take-off, 0.3 of the top in about 1.5 s and half in about 2.8 s, the gears
+still at about 12, 24, 36 and 46 on the dial. Steps 1-7 are getting off and on, steps 8-9 the take-off and the gears,
+steps 10-14 the art and the Wear on every bike, step 15 the field kit, steps 16-19 a pistol out, steps 20-21 the
+third-person look, steps 22-23 the holster on your thigh, steps 24-25 a stimpak in third person and step 26 the frame
+rate, with the questions T60-1 to T60-26 at the end and, after them, the open questions and the log lines that settle
+them. What test 59 liked (no crash, the muddy tread, Nuka-Cola's script, the headlamp's colours, the front fender badge
+gone, the kit's views and wheel, the third-person look with no weapon out, the gears at their bands) is as it was.
 
 - **Getting off:** the bike is parked beside you, on your right (on your left when there's no room on your right), in
   view, where you got off; only with no room on either side does it go back along the track as before (test 59: "when
@@ -76,10 +80,10 @@ points (steps 16-18), which of two readings of test 59's third-person camera is 
 thing along your right forearm in test 59's holster picture was (step 22).
 
 Before you start:
-- install as a Replace over 2026-11-22a. If you edited `CMB_Slope.ini`, put your values into the new one: `[Look]`,
-  `[View]`, `[Steer]`, `[Tilt]`, `[Room]` and `[Diag]` have new keys, and three defaults change: `[Look] OverlayParked`
-  1 (test 59's A/B; 0 in 2026-11-22a), `[Steer] LaunchFrom` 0.25 (0.14) and `[Sound] HeardRiseGears` 2.1,1.35,1,1,1
-  (2,0.86,0.8,1,1) (README's table). Otherwise use the shipped file as it is;
+- install 2026-11-23b as a Replace over 2026-11-22a (skip 2026-11-23a). If you edited `CMB_Slope.ini`, put your values
+  into the new one: `[Look]`, `[View]`, `[Steer]`, `[Tilt]`, `[Room]` and `[Diag]` have new keys, and three defaults
+  change: `[Look] OverlayParked` 1 (test 59's A/B; 0 in 2026-11-22a), `[Steer] LaunchFrom` 0.25 (0.14) and `[Sound]
+  HeardRiseGears` 2.1,1.35,1,1,1 (2,0.86,0.8,1,1) (README's table). Otherwise use the shipped file as it is;
 - the ESP and the MCM are 2026-11-22a's, unchanged (the Look section's 25 controls); a 2026-11-22a save loads as it is
   and nothing is put on afresh;
 - the same load order as test 59: your visible-holster mod on;
@@ -372,17 +376,23 @@ played the game's own clip, the hands off the bars, and one from the Pip-Boy pla
 25. **From the Pip-Boy, and the Favourites menu**: riding in third person, use a stimpak from the Pip-Boy at full speed,
     then slowly, then standing on the bike: no clip after the Pip-Boy closes (its item is applied in the menu, so the
     clip is cut at its first frame), both hands on the bars, the health restored. Then from the Favourites menu (hold
-    the number key, or the d-pad's wheel), not within 4 s of closing the Pip-Boy: its clip may play a moment and is cut
-    when the item comes; the health must be restored every time. Then the same, by key, from the Pip-Boy and from the
-    Favourites menu, in first person: as in test 59 (the plugin leaves first person alone).
+    the number key, or the d-pad's wheel): its clip may play a moment and is cut when the item comes; the health must be
+    restored every time. Then the case 2026-11-23b fixes: open the Pip-Boy, close it with nothing used, and within a
+    second use a stimpak from the Favourites menu: a short clip may play, but the health must come back (in 2026-11-23a
+    it was cut as the Pip-Boy's and the heal was lost). Do it three times, at speed and slowly. Then the same, by key,
+    from the Pip-Boy and from the Favourites menu, in first person: as in test 59 (the plugin leaves first person
+    alone).
     - After the Pip-Boy: `rider: an item's use clip at N u/s (its props, Stimpack:0 < ... < AnimObjectL1, this frame;
       the Pip-Boy open N s before them, no other cause: its item applied in the menu, in third person no use clip
       (UseNoClip)): IdleStop sent to the graph (UseStop): taken; the clip over after 0.0x s`.
-    - From the Favourites menu: `... no item used yet (...): left to play until it is`, then `rider: an item's use clip
-      at N u/s (the item used N s into its clip, CMB_RiderItemUse N; ...): IdleStop sent ...`, at any speed.
+    - From the Favourites menu, also right after the Pip-Boy: `... no item used yet (...): left to play until it is`,
+      then `rider: an item's use clip at N u/s (the item used N s into its clip, CMB_RiderItemUse N; ...): IdleStop sent
+      ...`, at any speed; never `the Pip-Boy open N s before them ...` for a Favourites use (the Pip-Boy's window lasts
+      1.5 s after it was last open, and the Favourites menu ends it).
     - At the ride's end: `quick: this ride in third person: N item use clip(s) cut at their props after the Pip-Boy, N
       potion key(s) under QuickUseAbove handed to the script (UseNoClip)`.
     - A/B: `[Steer] UseNoClip=0` (the clip as in test 59, the hands off the bars meanwhile).
+
 ### The frame rate (step 26)
 
 26. **As in test 59**: ride as you usually do for a few minutes, in a town and in the open, and stand 3-4 m from the
@@ -433,8 +443,8 @@ pistol out in third and first person), and a short video of steps 1 and 6 (the b
 - **T60-22 (step 22).** The holstered pistols on your thigh through leans and bumps? Anything along your right forearm?
 - **T60-23 (step 23).** Right after a put-away: on your thigh from the first moment? `AttachSkeleton=0` worse?
 - **T60-24 (step 24).** A stimpak by its key in third person, fast, slow and standing: no clip, the health restored?
-- **T60-25 (step 25).** From the Pip-Boy in third person: no clip after it closes? From the Favourites menu: the health
-  every time? First person as before?
+- **T60-25 (step 25).** From the Pip-Boy in third person: no clip after it closes? From the Favourites menu, also right
+  after the Pip-Boy: the health every time? First person as before?
 - **T60-26 (step 26).** Any frame drops?
 
 ### The open questions and the lines that settle them (test 60)
@@ -453,12 +463,13 @@ suggests.
 - **The getting-off and getting-on times** (steps 1 and 6): the harness can't time Papyrus. Getting off makes one ask
   where 2026-11-22a made four (0.7-0.8 s of asks in test 59, each 0.20-0.28 s); getting on drops the stand-up's turn
   taking with the controller and the reload before the fade: a runtime-swapped parked bike (most getting-ons) is hidden
-  at once as E is pressed, before the fade, so it is never drawn into the getting on (test 58's crash guard), and one
-  without a swap 0.2 s into the fade; a failed or undone getting on brings it back where it stood (MountUndo). The rest
-  of test 59's 0.5 s (the heavier worn mesh's equip, ParkedSwapHold's mount line) is not touched. Lines: `Getting on:
-  the press 0.00, the fade ..., ... Mounted ... (real seconds)`, the mount line's `... its 3D hidden at once, before the
-  fade (MountHide: no reload; ...)`, `Getting on: the parked bike hidden under the fade before the equip (...)`. A/B
-  `[Room] MountHide=0`.
+  at once as E is pressed, before the fade, so it is never drawn into the getting on (test 58's crash guard; since
+  2026-11-23b with any `[Look] MountGuard` and `ParkedSwapHold`, 2026-11-23a skipping it with `MountGuard=1` and
+  `ParkedSwapHold=0`), and one without a swap 0.2 s into the fade; a failed or undone getting on brings it back where it
+  stood (MountUndo). The rest of test 59's 0.5 s (the heavier worn mesh's equip, ParkedSwapHold's mount line) is not
+  touched. Lines: `Getting on: the press 0.00, the fade ..., ... Mounted ... (real seconds)`, the mount line's `... its
+  3D hidden at once, before the fade (MountHide: no reload; ...)`, `Getting on: the parked bike hidden under the fade
+  before the equip (...)`. A/B `[Room] MountHide=0`.
 - **The lean** (step 5): a rigid bike whose foot is on its ground can't rest on its stand where the ground rises toward
   it, nor lean over 20 degrees without tipping, so the lean from upright is held to 5..20 and the foot goes a few units
   into the rise (3.7 in the harness at test 59's worst) or over the fall (3.0); on pavement that may show. A bike turned
@@ -519,11 +530,14 @@ suggests.
 - **No item clip in third person** (steps 24-25): a number key the plugin couldn't take is left to the game's own use
   (cut and handed to the script by QuickCut, or the game's clip waiting for its event, as before), and a clip is cut at
   its first frame only where the item is known to be applied or handed over (the plugin's own hand-over of a number key,
-  or props within 4 s after the Pip-Boy was open); any other (the Favourites menu, another mod's route) plays until its
-  item comes, the hands off the bars meanwhile as in 22a, and is cut then, so the heal is never lost. Open: a Favourites
-  use within 4 s of closing the Pip-Boy would be cut early, before its item. Lines: `rider: an item's use clip ... in
-  third person no use clip (... UseNoClip)): IdleStop sent ...`, the quick line's `(UseNoClip: under QuickUseAbove, in
-  third person)` and the ride's `quick: this ride in third person: ...` line. A/B `[Steer] UseNoClip=0`.
+  or props within 1.5 s after the Pip-Boy was last open, with no other menu since: since 2026-11-23b read from the UI's
+  own menu stack, 4 s and the script's `CMB_ViewMenu` in 2026-11-23a); any other (the Favourites menu, another mod's
+  route) plays until its item comes, the hands off the bars meanwhile as in 22a, and is cut then, so the heal is never
+  lost. The Favourites menu, or any other menu opened after the Pip-Boy, ends its window, so a Favourites use right
+  after the Pip-Boy keeps its heal (2026-11-23a's open edge, fixed in 2026-11-23b; harness UN8); with the UI unreadable
+  there is no window at all (the wait, the safe side). Lines: `rider: an item's use clip ... in third person no use clip
+  (... UseNoClip)): IdleStop sent ...`, the quick line's `(UseNoClip: under QuickUseAbove, in third person)` and the
+  ride's `quick: this ride in third person: ...` line. A/B `[Steer] UseNoClip=0`.
 - **The take-off** (steps 8-9): the game was fitted to test 59's 16 pulls from rest (its follow slower at small inputs,
   about 110 u/s^2 under 100 u/s from a stand; rms 5.6 u/s) and the fit reads about 0.1 s slower than test 59's own
   lines, so about 1.55 / 2.65 s from a stand and 1.3 / 2.65 warm in the game. The twin (`tools/sound/engine_model.py`)

@@ -1074,8 +1074,13 @@ static int g_quickProbe57 = 1;                /* [Diag] QuickProbe (0 = 2026-11-
  * animation mod's use idle refused at any speed; the hands stay on the grips. First person as before. 0 = 2026-11-22a. */
 static int g_useNoClip65 = 1;
 static int g_useNoClipCuts65, g_useNoClipKeys65;   /* this ride's: clips cut by it, keys taken by it under QuickUseAbove */
-static float g_useNoClipPipAt65 = -100.0f;          /* review finding 4: g_clock when the Pip-Boy (CMB_ViewMenu 1) was last seen open this ride */
-#define USE_NOCLIP_PIP65 4.0f                       /* s: a clip with no cause this soon after the Pip-Boy is that menu's (its item applied in it) */
+static float g_useNoClipPipAt65 = -100.0f;          /* review finding 4: g_clock when the Pip-Boy was last seen open this ride (-100: none, or another
+                                                     * menu since: 2026-11-23b, the second review) */
+/* s: a clip with no cause this soon after the Pip-Boy is that menu's (its item applied in it). 2026-11-23b (the second review): 1.5,
+ * not 4: test 59's one third-person Pip-Boy use had its clip's props 0.96 s after the world came back from the menu (20:22:36.1 ->
+ * 37.058), the script's signal 0.34 s after the props. */
+#define USE_NOCLIP_PIP65 1.5f
+static void UseNoClipMenu66(float now);             /* 2026-11-23b: the Pip-Boy on the UI's menu stack, or another menu since */
 static bool UseNoClipNow65(void);                  /* with FrameSteer's g_first59 */
 /* [Steer] and [Room] (ReadDriveFixes56, the drive unit's): SidestepCaution (0-100; 0: the rays at Caution's own reach),
  * SidestepMouse (deg, 0-30; 3 = 09a); GuardBodies, GuardFloor (0 = 09a); GuardPlayerZ (0-2000; 0: the player's height
@@ -37731,8 +37736,7 @@ static bool UseStopSend56(const char *cue, int how)
  * UseListen's ring read and its window's line. */
 static void UseStopFrame(float now)
 {
-	if (g_viewMenuGlobal && GlobalValue(g_viewMenuGlobal) >= 1.0f)
-		g_useNoClipPipAt65 = now;   /* review finding 4 (UseNoClip): the Pip-Boy open on the bike now */
+	UseNoClipMenu66(now);   /* review finding 4 (UseNoClip): the Pip-Boy open on the bike now; 23b: another menu since */
 	UseStopItemRead(now);
 	if (g_usWatch) {
 		bool on = g_seatOff;
@@ -37884,6 +37888,41 @@ static bool QuickMenuOpen57(void)
 		}
 	}
 	return open;
+}
+
+/* 2026-11-23b (the second review of 2026-11-23a): UseNoClip's Pip-Boy window from the UI's menu stack itself. The Pip-Boy
+ * (PipboyMenu) on it: the window from now. Any other menu since (the Favourites menu, whose item comes at its clip's own event;
+ * or any menu over this ride's least stack, the HUD's own): the window cancelled (-100), so that clip keeps rule 3's wait. Not
+ * CMB_ViewMenu: the script writes it for the Pip-Boy alone, late, and TipMenu reads it. The UI not readable: no window. */
+#define RTTI_PIPBOY_MENU66    ".?AVPipboyMenu@@"
+#define RTTI_FAVORITES_MENU66 ".?AVFavoritesMenu@@"
+static void UseNoClipMenu66(float now)
+{
+	if (!g_useNoClip65)
+		return;
+	uintptr_t ui = g_ui56;
+	if (!ui || !Accessible(ui + 0x190, 0x14, false)) {   /* UI::menuStack (OFF_UI_MENU_STACK, below): data, capacity, size at +0x10 */
+		g_useNoClipPipAt65 = -100.0f;
+		return;
+	}
+	uintptr_t data = ReadPtr(ui + 0x190);
+	uint32_t count = *(const uint32_t *)(ui + 0x190 + 0x10);
+	if (count == 0 || count > 64 || !data || !Accessible(data, 8u * count, false))
+		return;   /* nothing open (or unread): the window as it stands */
+	int pip = 0, fav = 0;
+	for (uint32_t i = 0; i < count; i++) {
+		uintptr_t m = *(const uintptr_t *)(data + 8u * i);
+		if (!m || (m & 7))
+			continue;
+		if (IsA(m, RTTI_PIPBOY_MENU66))
+			pip++;
+		else if (IsA(m, RTTI_FAVORITES_MENU66))
+			fav++;
+	}
+	if (pip)
+		g_useNoClipPipAt65 = now;
+	else if (fav || (g_qk57StackMin != 0xFFFFFFFFu && count > g_qk57StackMin))
+		g_useNoClipPipAt65 = -100.0f;   /* another menu since the Pip-Boy: its clip not the Pip-Boy's */
 }
 
 static void QuickVkName57(int vk, char *out, size_t size)
@@ -38485,8 +38524,7 @@ static void QuickKeyChecks57(bool all)
 /* QuickUseFrame56 each tick of a ride: the key-state checks, the verdict once the movement hook counted 30. */
 static void QuickRideFrame57(void)
 {
-	if (g_viewMenuGlobal && GlobalValue(g_viewMenuGlobal) >= 1.0f)
-		g_useNoClipPipAt65 = (float)g_clock;   /* review finding 4 (UseNoClip): the Pip-Boy open on the bike now (in a menu too) */
+	UseNoClipMenu66((float)g_clock);   /* review finding 4 (UseNoClip): the Pip-Boy open on the bike now (in a menu too); 23b: another menu since */
 	QuickKeyChecks57(false);
 	if (g_qp57Installed && g_quickProbe57 && !g_qp57VerdictSaid && g_qp57[QP57_MOVE] - g_qp57Base[QP57_MOVE] >= 30)
 		QuickVerdict57();

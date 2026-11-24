@@ -328,8 +328,12 @@
 # The merged 2026-11-23a (the kit, drive, look, grip, overlay, parked and attach units, with the wear's and art2d's art, and its
 # review's fixes: grip's GP9-GP10, parked's Q12-Q13, kit's K64, attach's UN7; overlay's fixes are the scripts' alone) expects view
 # 335 (317 + 7 look + 9 grip + 2 of its review's finding 2), custom 171 (160 + 5 kit + 5 overlay + 1 of its review's finding 3),
-# arms 144 (128 + 5 grip + 11 attach, its review's finding 4 among them), sound 173 (167 + 6 drive), launch 23 (22 + 1 drive), room
-# 189 (176 + 11 parked + 2 of its review's finding 7), the rest as 131f6b4's: 2293 checks.
+# arms 145 (128 + 5 grip + 11 attach, its review's finding 4 among them, + 1 of the second review's: UN8), sound 173 (167 + 6 drive),
+# launch 23 (22 + 1 drive), room 189 (176 + 11 parked + 2 of its review's finding 7), the rest as 131f6b4's: 2294 checks.
+# The second review of the shipped 2026-11-23a (7cf1cbf), for 2026-11-23b (the attach unit's UseNoClip): the Pip-Boy window read from
+# the UI's menu stack (the PipboyMenu on it), cancelled by the Favourites menu or any other menu since, and 1.5 s long, not 4: the
+# Pip-Boy closed with nothing used, the Favourites menu within the window, then a clip whose item comes at its own event 1.25 s in:
+# left to play and cut at the item (UN8; 7cf1cbf: cut at the props, the heal lost) (arms 144 -> 145).
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 WORK="$(mktemp -d)"

@@ -2360,11 +2360,10 @@ Function Mount()
 	if guarded
 		ParkedLookWait()
 		ParkedLookAtMount()   ; 2026-11-22a ([Look] ParkedSwapHold): its line, and a runtime swap on the parked bike thrown away first
+		MountHideIfSwapped()   ; the second review of 2026-11-23a: ParkedSwapHold off (ParkedLookAtMount returns at once)
 		ticket = MountWatchStart()
-	elseif mountHideOn && parkedRuntime && BikeRef && !BikeRef.IsDisabled() && BikeRef.Is3DLoaded()
-		; The review of 2026-11-23a (1), without MountGuard (no ParkedLookAtMount): the same as its MountHide branch.
-		MountHideSwapped()
-		Log("Getting on: the parked bike hidden at once, before the fade: a runtime swap on its 3D (" + parkedRuntimeFrom + "; the plugin's [Room] MountHide).")
+	else
+		MountHideIfSwapped()   ; the review of 2026-11-23a (1), without MountGuard (no ParkedLookAtMount)
 	endif
 	; 2026-11-22a (test 58's wish; the plugin's [Room] ParkFit with ParkStand): the bike leaning on its side stand stood up as
 	; getting on starts, in a thread of its own (ParkStandUp), while the rest goes on: no jump to the upright worn bike. The review
@@ -2927,6 +2926,17 @@ Function MountSpotRecord()
 		mountPlayerX = PlayerRef.GetPositionX()
 		mountPlayerY = PlayerRef.GetPositionY()
 		mountPlayerZ = PlayerRef.GetPositionZ()
+	endif
+EndFunction
+
+; The second review of 2026-11-23a (for 2026-11-23b): Mount, after ParkedLookAtMount (MountGuard) or in its place (no MountGuard),
+; before MountWatchStart, the fade and the stand-up: a runtime-swapped parked 3D still shown (ParkedLookAtMount didn't hide it: its
+; [Look] ParkedSwapHold off, where it returns at once, or no MountGuard, where it isn't called) is hidden here as its MountHide branch
+; hides it (MountHideSwapped). Nothing with MountHide off (2026-11-22a), or with the bike hidden already (mountHidEarly).
+Function MountHideIfSwapped()
+	if mountHideOn && !mountHidEarly && parkedRuntime && BikeRef && !BikeRef.IsDisabled() && BikeRef.Is3DLoaded()
+		MountHideSwapped()
+		Log("Getting on: the parked bike hidden at once, before the fade: a runtime swap on its 3D (" + parkedRuntimeFrom + "; the plugin's [Room] MountHide).")
 	endif
 EndFunction
 
@@ -6038,12 +6048,18 @@ float wornOverlayConfirmAt = 0.0  ; the review of 2026-11-23a (finding 8): the r
 ; The review of 2026-11-23a (finding 8): -1 when nothing is due (no timer: 2026-11-23a re-armed every 0.5 s through the whole getting on
 ; with nothing due); the worn overlay's confirming swap at its own time (WornOverlayConfirmAfter after the first that took: 23a's re-arm
 ; replaced its 1.0 s with 0.5 s), its quicker try under OverlayQuick while a getting on is under way, else LookRetryDelay for any due.
-float Function LookFollowUpAgain()
+; The second review of 2026-11-23a (finding A): abCanConfirm false where the confirming swap can't run now (busy outside a getting on,
+; or a getting on without OverlayQuick): no sooner than LookRetryDelay then (23a re-fired every 0.05 s while a getting off held busy
+; with the confirm overdue; 22a and ea423be waited 0.5 s there).
+float Function LookFollowUpAgain(bool abCanConfirm = true)
 	float next = -1.0
 	if wornOverlayDue && wornOverlayIsConfirm
 		next = wornOverlayConfirmAt - Utility.GetCurrentRealTime()
 		if next < 0.05
 			next = 0.05
+		endif
+		if !abCanConfirm && next < LookRetryDelay
+			next = LookRetryDelay
 		endif
 	elseif wornOverlayDue && mounting && LookOption(4194304)
 		next = WornOverlayRetry
@@ -6057,8 +6073,8 @@ float Function LookFollowUpAgain()
 EndFunction
 
 ; The review of 2026-11-23a (finding 8): TimerLook again only when LookFollowUpAgain says something is due.
-Function LookFollowUpRearm()
-	float next = LookFollowUpAgain()
+Function LookFollowUpRearm(bool abCanConfirm = true)
+	float next = LookFollowUpAgain(abCanConfirm)
 	if next > 0.0
 		StartTimer(next, TimerLook)
 	endif
@@ -6767,7 +6783,7 @@ Function LookFollowUp()
 			if WornOverlayDueNow() && LookOption(4194304)
 				WornOverlayNow(false)
 			endif
-			LookFollowUpRearm()   ; the review of 2026-11-23a (finding 8): only while something is due; the confirm at its own time
+			LookFollowUpRearm(LookOption(4194304))   ; the review of 2026-11-23a (finding 8; the second's A: the confirm runs here only with OverlayQuick)
 			return
 		endif
 		lookViewDue = false
@@ -6777,10 +6793,11 @@ Function LookFollowUp()
 		return
 	endif
 	if busy
-		if mounting && WornOverlayDueNow() && LookOption(2097152) && LookOption(4194304)
+		bool canConfirm = mounting && LookOption(2097152) && LookOption(4194304)
+		if canConfirm && WornOverlayDueNow()
 			WornOverlayNow(false)   ; 2026-11-23a: the ride started, Mount still busy till "Mounted.": the worn bike's fresh 3D now
 		endif
-		LookFollowUpRearm()   ; the review of 2026-11-23a (finding 8): only while something is due; the confirm at its own time
+		LookFollowUpRearm(canConfirm)   ; the review of 2026-11-23a (finding 8); the second's A: busy otherwise (a getting off): 0.5 s, not 0.05
 		return
 	endif
 	if wornCountDue
@@ -6937,6 +6954,7 @@ Function LookAfterLoad()
 	; review (2026-11-15a, MountQuick): the remembered colour-index pass belongs to the session before the load; forgotten
 	; before anything here can yield, so a getting on during the load's own compose never skips the pass on another save's key
 	CallLookF4SE("ForgetWornIndexes")
+	CallLookF4SE("ForgetComposed")   ; the second review of 2026-11-23a (finding B): the save's composedFor, here only (not at the second call below)
 	lookCrudeSaid = -1   ; 2026-11-08a: said again in this session's log
 	lookUiGetSaid = false   ; 2026-11-16a: the MCM's first read through a dropdown's property, said again this session
 	lookViewDue = false

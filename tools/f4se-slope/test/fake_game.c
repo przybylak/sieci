@@ -10742,11 +10742,29 @@ static int Q57Lines(const char *a, const char *b)   /* lines holding both texts 
  * play (2026-11-22a). UN6: the ride's line. UN7 (review finding 4): at about 100, no Pip-Boy, a clip whose item comes at its own
  * event 1.25 s after the props (test 59's 20:33:59, the Favourites' kind): not cut before it (the item applies), cut at it
  * (5b8322e: cut at the props, the heal lost; 131f6b4: never cut under UseBlockAbove). */
-static void Unc65Pipboy(void)   /* the Pip-Boy opened and closed on the bike (the script's CMB_ViewMenu) */
+/* 2026-11-23b (the second review): the UI's menu stack for these checks: the HUD's own entry, the Pip-Boy over it while open, the
+ * Favourites menu over it while open (UN8). */
+static uint8_t **g_unc66Stack, *g_unc66Hud, *g_unc66Pip, *g_unc66Fav;
+static void Unc66Stack(uint8_t *over)   /* the HUD alone, or the HUD and one menu over it */
+{
+	g_unc66Stack[0] = g_unc66Hud;
+	g_unc66Stack[1] = over;
+	*(uint32_t *)(g_fakeUi56 + 0x1A0) = over ? 2u : 1u;
+}
+static void Unc65Pipboy(void)   /* the Pip-Boy opened and closed on the bike (the script's CMB_ViewMenu; 23b: the UI's menu stack too) */
 {
 	*(float *)(g_viewMenuFake + 0x30) = 1.0f;
+	Unc66Stack(g_unc66Pip);
 	RunFrames(200);
 	*(float *)(g_viewMenuFake + 0x30) = 0.0f;
+	Unc66Stack(NULL);
+	RunFrames(100);
+}
+static void Unc66Favorites(void)   /* the Favourites menu opened and closed (no CMB_ViewMenu: the script writes it for the Pip-Boy alone) */
+{
+	Unc66Stack(g_unc66Fav);
+	RunFrames(200);
+	Unc66Stack(NULL);
 	RunFrames(100);
 }
 static void SetCameraFirst(bool first);
@@ -10754,6 +10772,17 @@ static uint8_t *g_firstState;   /* (a tentative definition: the view's, below) *
 static void UseNoClipTests65(void)
 {
 	printf("arms (2026-11-23a, test 59): no item's use clip in third person while riding (UseNoClip):\n");
+	uint8_t *stackWas = *(uint8_t **)(g_fakeUi56 + 0x190);
+	uint32_t countWas = *(uint32_t *)(g_fakeUi56 + 0x1A0);
+	if (!g_unc66Stack) {
+		static const char *hud[] = { ".?AVHUDMenu@@", ".?AVIMenu@@" }, *pip[] = { ".?AVPipboyMenu@@", ".?AVIMenu@@" }, *fav[] = { ".?AVFavoritesMenu@@", ".?AVIMenu@@" };
+		g_unc66Stack = (uint8_t **)VirtualAlloc(NULL, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+		g_unc66Hud = (uint8_t *)NewObject(MakeClass(hud, 2), 0x200);
+		g_unc66Pip = (uint8_t *)NewObject(MakeClass(pip, 2), 0x200);
+		g_unc66Fav = (uint8_t *)NewObject(MakeClass(fav, 2), 0x200);
+	}
+	*(uint8_t ***)(g_fakeUi56 + 0x190) = g_unc66Stack;
+	Unc66Stack(NULL);
 	RewriteIni("QuickCut=0\n", "QuickCut=1\n");
 	RewriteIni("QuickKeyState=0\n", "QuickKeyState=1\n");
 	Ini54Set("Steer", "UseNoClip", "1");
@@ -10832,6 +10861,24 @@ static void UseNoClipTests65(void)
 	      "UseNoClip UN7 (review finding 4): third person at about 100, no Pip-Boy, a clip whose item comes at its own event 1.25 s after the props: nothing sent before it (%d by "
 	      "1.2 s, 0: the item applies), left to play till then (%d), not cut as the Pip-Boy's (%d); cut at the item (%d, 1), \"...%sN s into its clip...\" (%d) (5b8322e: cut at the "
 	      "props, the heal lost; 131f6b4: nothing sent under UseBlockAbove)", g7[0], wait7, cut7, g7[1], intoWords, at7);
+	/* UN8 (the second review of 2026-11-23a): the Pip-Boy opened and closed with nothing used, then the Favourites menu within the
+	 * window, then a clip whose item comes at its own event 1.25 s after the props: that clip the Favourites', not the Pip-Boy's. */
+	Q56GetOn(100.0f, true);
+	int g8[2];
+	l0 = LogLines(leftToPlay);
+	l1 = Q57Lines(into, intoWords);
+	l2 = LogLines(noCause);
+	Unc65Pipboy();
+	Unc66Favorites();
+	Q57Clip(-1.0, false, 0.3, 2.0, 1.25, 1.2, NAN, 1.6, g8, NULL);
+	int wait8 = LogLines(leftToPlay) - l0, at8 = Q57Lines(into, intoWords) - l1, cut8 = LogLines(noCause) - l2;
+	Q57GetOff(0);
+	CHECK(g8[0] == 0 && wait8 == 1 && cut8 == 0 && g8[1] == 1 && at8 == 1,
+	      "UseNoClip UN8 (the second review): the Pip-Boy closed with nothing used, the Favourites menu within the window, then a clip whose item comes at its own event 1.25 s in: "
+	      "nothing sent before it (%d by 1.2 s, 0: the item applies), left to play (%d), not cut as the Pip-Boy's (%d); cut at the item (%d, 1; %d line) (7cf1cbf: cut at the props "
+	      "as the Pip-Boy's, the heal lost)", g8[0], wait8, cut8, g8[1], at8);
+	*(uint8_t **)(g_fakeUi56 + 0x190) = stackWas;
+	*(uint32_t *)(g_fakeUi56 + 0x1A0) = countWas;
 	Ini54Set("Steer", "UseNoClip", "0");
 	RewriteIni("QuickCut=1\n", "QuickCut=0\n");
 	RewriteIni("QuickKeyState=1\n", "QuickKeyState=0\n");

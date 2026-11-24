@@ -1,4 +1,4 @@
-COMMONWEALTH MOTORBIKE - READY-TO-INSTALL FILES (2026-11-23a, repository commit @COMMIT@)
+COMMONWEALTH MOTORBIKE - READY-TO-INSTALL FILES (2026-11-23b, repository commit @COMMIT@)
 
 The Data folder is the whole mod except the rider-pose plugin, which has to be built from
 your own load order:
@@ -12,14 +12,15 @@ your own load order:
                                       needed), twelve, as before: CMB_HotkeyF4SE,
                                       CMB_GearRestoreF4SE and CMB_LookF4SE (the customised look on
                                       the parked, ridden and first-person bikes and its colours)
-                                      need F4SE. Three change in this build: the controller (the
-                                      bike parked beside you when you get off, its lean from
-                                      upright, the parked bike hidden as you get on with no reload
-                                      first, the look's swap on the bike under you and on the
-                                      parked one at every getting on and off), CMB_LookF4SE (the
-                                      look's swap reused, no wait for it) and
+                                      need F4SE. Three change against 2026-11-22a, which you have:
+                                      the controller (the bike parked beside you when you get off,
+                                      its lean from upright, the parked bike hidden as you get on
+                                      with no reload first, the look's swap on the bike under you
+                                      and on the parked one at every getting on and off),
+                                      CMB_LookF4SE (the look's swap reused, no wait for it) and
                                       CMB_BikeActivatorScript (it stands the leaning bike up itself
-                                      as you get on); in 2026-11-22a the same three
+                                      as you get on); against 2026-11-23a two, the controller and
+                                      CMB_LookF4SE (the second review's fixes)
   Data\Scripts\Source\User\*.psc      their sources
   Data\MCM\                           Mod Configuration Menu page and hotkeys, 2026-11-22a's,
                                       unchanged (since 2026-11-22a Look has "Paint condition" after
@@ -71,8 +72,8 @@ your own load order:
                                       2026-11-22a's, unchanged (since 2026-11-22a five more thin
                                       shells, invisible until you choose, and the parked bike's side
                                       stand down); CMB_BikeParts.ini is 2026-11-10a's, unchanged
-  Data\Textures\CMB\Bike\             its textures, 277 DDS. 33 change in this build, the same
-                                      sizes: Rusty's and Raider's 30 Wear maps (lighter, see-through
+  Data\Textures\CMB\Bike\             its textures, 277 DDS. 33 changed in 2026-11-23a (none since), the
+                                      same sizes: Rusty's and Raider's 30 Wear maps (lighter, see-through
                                       rust, darker at its edges, nothing round the badge plates) and
                                       the badge atlas (badges_d/_n/_s.dds: three gears either side of
                                       the 3D Brotherhood helmet); the rest are 2026-11-22a's
@@ -87,22 +88,35 @@ your own load order:
 No optional folder, as 2026-11-14a. If the 2026-11-06a package's "Commonwealth Motorbike - 2026-11-02a look
 (A-B)" is still in MO2, keep it unticked (or remove it): it has the old badge and none of the new shapes.
 
-WHAT'S NEW IN 2026-11-23a
-  Test 59's fixes and your wishes after it, in one build, on top of 2026-11-22a. What test 59 liked
-  is as it was. Changed since 2026-11-22a: CMB_Slope.dll, CMB_Slope.ini, three scripts and 33
-  textures (Rusty's and Raider's Wear maps, the badge atlas); the ESP, the MCM, the meshes, the
-  material files, the sounds and the riding clips are 2026-11-22a's.
+WHAT'S NEW IN 2026-11-23b
+  2026-11-23a plus a second review's four fixes: install this one, not 2026-11-23a (test 60 runs on
+  it). 2026-11-23a is test 59's fixes and your wishes after it, in one build, on top of 2026-11-22a;
+  what test 59 liked is as it was. Changed since 2026-11-22a, which you have: CMB_Slope.dll,
+  CMB_Slope.ini, three scripts and 33 textures (Rusty's and Raider's Wear maps, the badge atlas);
+  the ESP, the MCM, the meshes, the material files, the sounds and the riding clips are
+  2026-11-22a's. Since 2026-11-23a only CMB_Slope.dll and two scripts change.
+
+  THE SECOND REVIEW'S FIXES (2026-11-23b; no new key, no art change):
+  - A stimpak from the Favourites menu right after the Pip-Boy keeps its heal: the plugin now reads
+    the Pip-Boy from the game's own open menus, its window is 1.5 s after the Pip-Boy was last open
+    (4 s in 2026-11-23a), and any other menu since, the Favourites menu among them, ends it, so that
+    clip plays until its item comes and is cut then ([Steer] UseNoClip).
+  - Getting on hides a parked bike carrying the look's swap before the fade with any [Look]
+    MountGuard and ParkedSwapHold (2026-11-23a skipped it with MountGuard=1 and ParkedSwapHold=0).
+  - Two fixes in the look's scripts: while getting off with a confirming swap overdue the look's
+    timer runs no oftener than every 0.5 s (it ran every 0.05 s), and with [Look] WornIndex=0 and
+    MountQuick=1 a load keeps its own compose.
 
   FOUR THINGS TO KNOW FIRST:
   - Getting off puts the bike beside you, on your right (on your left when there's no room on your
     right), in view, where you got off; only when neither side has room does it go back along the
     track as before ([Room] ParkBeside, your pick). Look to your side as the screen comes back.
   - The take-off is quicker: 0.3 of the top in about 1.5 s, half in about 2.8 s, the gears still at
-    about 12, 24, 36 and 46 on the dial ([Steer] LaunchFrom, [Sound] HeardRiseGears; your pick).  -
-    A stimpak used while riding in third person, by its number key or from the Pip-Boy, slow or at
+    about 12, 24, 36 and 46 on the dial ([Steer] LaunchFrom, [Sound] HeardRiseGears; your pick).
+  - A stimpak used while riding in third person, by its number key or from the Pip-Boy, slow or at
     speed, no longer plays a clip: the item works and your hands stay on the bars ([Steer]
-    UseNoClip; your pick). Used from the Favourites menu its clip plays until the health comes, then
-    it is cut. First person is as before.
+    UseNoClip; your pick). Used from the Favourites menu, also right after the Pip-Boy, its clip
+    plays until the health comes, then it is cut. First person is as before.
   - With a pistol out your left hand stays on the bar and the right holds the pistol alone: in third
     person it comes off its grip and points the pistol ahead, in first person your own body stays
     shown with its left hand on the grip ([Tilt] GunOneHand, [View] BodyGunGrip; your pick).
@@ -160,11 +174,11 @@ WHAT'S NEW IN 2026-11-23a
     BodyGunGrip).
   - "guns are still showing up in random places": your holster mod's copies on the thigh are found
     as hanging off the thigh itself, so they follow your thigh, also in the moment right after a
-    put-away ([Tilt] AttachSkeleton; [Diag] AttachFresh for the log's measures).  - "it would make
-    more sense to not have any healing animation in 3rd person": no item-use clip while riding in
-    third person after a number key or the Pip-Boy, the item still used, your hands on the bars; any
-    other use's clip plays until its item comes and is cut then, so the heal is never lost ([Steer]
-    UseNoClip).
+    put-away ([Tilt] AttachSkeleton; [Diag] AttachFresh for the log's measures).
+  - "it would make more sense to not have any healing animation in 3rd person": no item-use clip
+    while riding in third person after a number key or the Pip-Boy, the item still used, your hands
+    on the bars; any other use's clip plays until its item comes and is cut then, so the heal is
+    never lost ([Steer] UseNoClip).
   - "still feels a bit sluggish on take-off": the take-off quicker, the gears where they were
     ([Steer] LaunchFrom 0.25, [Sound] HeardRiseGears 2.1,1.35,1,1,1).
 
@@ -213,10 +227,11 @@ WHAT'S NEW IN 2026-11-23a
     GunHoldAt); in first person the game's right arm meets your body at the right shoulder, and a
     reload's left-hand clip plays with the game's left arm shrunk away.
   - The holster: what lay along your right forearm in test 59's picture may be another mod's arm
-    gear rather than the holster (60-22 asks).  - Items in third person: an item used another way
-    than its number key or the Pip-Boy (the Favourites menu, another mod) shows its clip, your hands
-    off the bars, until the item comes, then it is cut; a Favourites use within 4 s of closing the
-    Pip-Boy would be cut early (its heal lost).
+    gear rather than the holster (60-22 asks).
+  - Items in third person: an item used another way than its number key or the Pip-Boy (the
+    Favourites menu, another mod) shows its clip, your hands off the bars, until the item comes,
+    then it is cut, so the heal is never lost (2026-11-23a's early cut of a Favourites use right
+    after the Pip-Boy is fixed in 2026-11-23b).
   - Getting on: with the look's swap on it the parked bike vanishes as you press E, just before the
     screen goes black ([Room] MountHide=0 is test 59's reload: a blink, then the fade).
   - The art: Rusty is light at riding distance in our renders (if it is too faint, two numbers of
@@ -317,9 +332,9 @@ BORROWED BY PATH (the game's own files, resolved in its archives; none is in thi
 INSTALL / UPDATE (Mod Organizer 2)
   1. Get off the bike, save, quit. If you edited CMB_Slope.ini, keep a copy of it.
   2. Install this zip's Data under the old mod's name and choose Replace (not Merge), or remove the
-     old mod in MO2 and install this one fresh (over 2026-11-22a). By hand without MO2: copy Data
-     over and let everything overwrite. The separate "Commonwealth Motorbike - Rider Pose" mod from
-     make_rider_pose.bat stays as it is: no need to rerun it.
+     old mod in MO2 and install this one fresh (over 2026-11-22a; skip 2026-11-23a). By hand without
+     MO2: copy Data over and let everything overwrite. The separate "Commonwealth Motorbike - Rider
+     Pose" mod from make_rider_pose.bat stays as it is: no need to rerun it.
   3. If you had edited CMB_Slope.ini: put your values into the new one: [Look], [View], [Steer],
      [Tilt], [Room] and [Diag] have new keys, and three defaults change ([Look] OverlayParked 1,
      [Steer] LaunchFrom 0.25, [Sound] HeardRiseGears 2.1,1.35,1,1,1; README.md's key tables list
@@ -411,11 +426,13 @@ your thigh, 24-25 a stimpak in third person, 26 the frame rate)
          the holster on it from the first moment? Standing on the bike, slowly and fast, three times
          each. A/B: [Tilt] AttachSkeleton=0.
   60-24. Third person, a stimpak by its number key at full speed, slowly, standing on the bike: no
-         clip, both hands on the bars, the health restored?  60-25. Third person, a stimpak from the
-         Pip-Boy at full speed, slowly, standing: no clip after it closes, the health restored? Then
-         from the Favourites menu (not within 4 s of the Pip-Boy): the clip may play a moment, the
-         health restored every time? Then by key, the Pip-Boy and the Favourites menu in first
-         person: as before? A/B: [Steer] UseNoClip=0 (test 59's clip). Send the "UseNoClip" lines.
+         clip, both hands on the bars, the health restored?
+  60-25. Third person, a stimpak from the Pip-Boy at full speed, slowly, standing: no clip after it
+         closes, the health restored? Then from the Favourites menu: the clip may play a moment, the
+         health restored every time? Then open and close the Pip-Boy with nothing used and within a
+         second use a stimpak from the Favourites menu, three times: the health restored each time
+         (2026-11-23a lost it)? Then by key, the Pip-Boy and the Favourites menu in first person: as
+         before? A/B: [Steer] UseNoClip=0 (test 59's clip). Send the "UseNoClip" lines.
   60-26. Frame drops anywhere: riding in a town and in the open, beside the parked bike with Wear
          Wasteland and Paint condition Worn, at the kit's options, at a getting on, at a draw?
   Send CMB_Slope.log and its _prev logs and Papyrus.0.log of each session, the screenshots of 60-1
@@ -446,8 +463,9 @@ QUESTIONS FOR YOU (docs\TESTING.md has them in full)
   T60-21. A weapon drawn: round you up to a quarter turn, back behind?
   T60-22. The holstered pistols on your thigh through leans and bumps? Anything on your forearm?
   T60-23. Right after a put-away: on your thigh from the first moment?
-  T60-24. A stimpak by its key in third person: no clip, the health restored?  T60-25. From the
-          Pip-Boy in third person: no clip? The Favourites menu: the health every time?
+  T60-24. A stimpak by its key in third person: no clip, the health restored?
+  T60-25. From the Pip-Boy in third person: no clip? The Favourites menu, also right after the
+          Pip-Boy: the health every time?
   T60-26. Any frame drops?
 
 TIMING STAND-INS (optional, as before)

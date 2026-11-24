@@ -706,6 +706,22 @@ composed swap's marker, the look timers, MountHide's early hide, ParkBeside's ex
 only with their keys on, but for the look timer's empty re-arm (nothing due), which no longer runs, to no effect. The
 take-off's two have no DEF64 key: its A/B is by hand.
 
+Since 2026-11-23b (2026-11-23a with its second review's four fixes; install 2026-11-23b, not 2026-11-23a) nothing but the
+plugin and two scripts changes: the ESP, the MCM and `CMB_Slope.ini` are 2026-11-23a's byte for byte (`git diff 7cf1cbf
+<the build's commit> -- Data/CommonwealthMotorbike.esp Data/MCM Data/F4SE/Plugins/CMB_Slope.ini` is empty), no key is
+new and no asset changes (the same fifteen overlays as 2026-11-23a). `CMB_Slope.c`: `UseNoClipMenu66` reads UseNoClip's
+Pip-Boy window from the UI's menu stack (a `PipboyMenu` stamps it, a `FavoritesMenu` or any menu over the ride's least
+stack cancels it) instead of `CMB_ViewMenu`, and `USE_NOCLIP_PIP65` is 1.5 s (4 in 2026-11-23a); build it with `bash
+tools/f4se-slope/build.sh` and commit the DLL before packaging. `CMB_ControllerScript.psc`: `MountHideIfSwapped` (the
+early hide of a runtime-swapped parked bike with any `[Look] MountGuard` and `ParkedSwapHold`), `LookFollowUpAgain` and
+`LookFollowUpRearm` told whether the confirming swap can run now (else no sooner than `LookRetryDelay`), and
+`ForgetComposed` called once at LookAfterLoad's start; `CMB_LookF4SE.psc`: `ForgetComposed()` (ForgetWornIndexes no
+longer clears `composedFor`). `check.sh` 12 .pex with no warning; the cross-check still prints 213 and 39 properties and
+"plugin and scripts agree". The package lays the same fifteen overlays; against 2026-11-23a's package no asset differs
+and two compiled scripts do (`tools/package/builds/2026-11-23b.json`). The harness expects **2294** checks: arms 145
+(UN8: a Favourites use right after the Pip-Boy, its clip left to play and cut at its item), the rest as 2026-11-23a's;
+DEF64 is unchanged, and the off values give 2026-11-22a's plugin as 2026-11-23a's did.
+
 The vanilla form IDs the plugins use (PlayerRef, XMarker, HumanRace, HumanRaceSubGraphData, SpeedMult, CarryWeight, FallingDamageMod, Health, Pip-Boy, AnimArchetypePlayer) were checked against Mutagen's FormKey list generated from the real `Fallout4.esm`. The record layouts were also compared field by field with xEdit's Fallout 4 definitions.
 
 ## For developers: packaging a build

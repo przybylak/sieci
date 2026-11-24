@@ -19,12 +19,12 @@ A rideable motorbike for Fallout 4:
 - **its own sounds** (since the 2026-11-01a build; the game's own sound files, since the 2026-11-02a build under sound records of the mod's own, heard at the riding camera's distance: test 48 heard none of them): your character's own jump and landing sounds are muted while you ride; a tyre thump on every landing with a real fall, louder the higher the drop, a metal clunk on big ones and a splash into water; with F4SE a spray riding through shallow water, by speed and depth (the MCM's Sound section: "Bike sounds through the mod's own records", "Landing loudness range (dB)"); since the 2026-11-06a build landings sound like tyres and a dull thud, no metal, riding into water splashes, and riding through water is the mod's own wet-road swish, quieter when slow, louder at speed (MCM "Landing sounds without metal", "Water sound loop"); since the 2026-11-09a build a second, gentler wet-road loop from the same recording, with less hiss and more body, is the default ("Wet road, gentle"; "Wet road (the mod's own)" is the earlier one), since the 2026-11-10a build 3 dB louder (test 52's wish; `[Fx] WaterGentleDb=-3` is 2026-11-09a's level)
 - **MCM menu** for every setting (with MCM installed); with F4SE, gear in the bike's slot goes back on after a ride
 
-> **Status: in testing.** It has been tested in game round by round since the first build (test 59 the
-> latest), each round answered from the logs and videos sent back. Every round's changes are checked offline
-> before they ship: the plugin's structure, every script property and the vanilla form IDs, the scripts compiled
-> against stand-in versions of the Fallout 4 scripting API, and `CMB_Slope.dll` run against a fake game
-> (`tools/f4se-slope/test`). What changed since the last round hasn't run in the game until the next, so expect
-> fixes after each.
+> **Status: in testing.** It has been tested in game round by round since the first build (test 59 the latest; this
+> is the 2026-11-23b build, for test 60), each round answered from the logs and videos sent back. Every round's
+> changes are checked offline before they ship: the plugin's structure, every script property and the vanilla form
+> IDs, the scripts compiled against stand-in versions of the Fallout 4 scripting API, and `CMB_Slope.dll` run
+> against a fake game (`tools/f4se-slope/test`). What changed since the last round hasn't run in the game until the
+> next, so expect fixes after each.
 > [TESTING.md](docs/TESTING.md) says what to send back.
 >
 > **Test 50's crash** (there since 2026-11-06a): the game crashed once, a Havok stack overflow about half a
@@ -553,6 +553,17 @@ weapon, the holster, items in third person and the take-off have no MCM control 
 
 ## CMB_Slope.ini (F4SE plugin): this build's new keys
 
+**The 2026-11-23b build** is 2026-11-23a plus the second review's four fixes: install this one, not 2026-11-23a (test 60
+runs on it). No key is new and nothing of the art, the ESP, the MCM or `CMB_Slope.ini` changes; `CMB_Slope.dll` and two
+scripts do. A stimpak from the Favourites menu right after the Pip-Boy keeps its heal: `[Steer] UseNoClip`'s Pip-Boy
+window is now read from the game's own open menus, lasts 1.5 s after the Pip-Boy was last open (4 s in 2026-11-23a), and
+any other menu opened since, the Favourites menu among them, ends it, so that clip plays until its item comes and is cut
+then. Getting on hides a parked bike carrying the look's swap before the fade whatever `[Look] MountGuard` and
+`ParkedSwapHold` say (2026-11-23a left it to 0.2 s into the fade with `MountGuard=1` and `ParkedSwapHold=0`). And two
+fixes in the look's scripts: while a getting off holds the bike busy with a confirming swap overdue, the look's timer
+runs no sooner than every 0.5 s (`LookRetryDelay`; 2026-11-23a every 0.05 s), and with `[Look] WornIndex=0` and
+`MountQuick=1` a load keeps its own compose instead of composing again.
+
 `Data\F4SE\Plugins\CMB_Slope.ini` holds the plugin's settings, read again each time you get on; each section's comments
 say what every key does. The 2026-11-23a build answers test 59 (run on 2026-11-22a) with its fixes and your wishes after
 it: every new behaviour of the plugin has a key whose off value gives the 2026-11-22a build back, and a changed
@@ -692,14 +703,15 @@ What they do:
 - **UseNoClip** (your pick after test 59: "it would make more sense to not have any healing animation in 3rd person
   unless you can fix it"): riding in third person, a use clip is cut at its first frame, at any speed, whenever the item
   is known to be used already: a potion's number key, which the plugin now hands to the script at any speed (the item
-  works at once), or a clip within 4 s after the Pip-Boy was open (its item is applied in the menu). Any other clip (the
-  Favourites menu, another mod's way of using an item) plays until its item comes and is cut then, so the heal is never
-  lost; an animation mod's use clip is refused at any speed. Your hands stay on the bars (`rider: an item's use clip at
-  N u/s (...; the Pip-Boy open N s before them, no other cause: its item applied in the menu, in third person no use
-  clip (UseNoClip)): IdleStop sent to the graph (UseStop): taken ...`; another: `... left to play until it is`, then
-  `... (the item used N s into its clip, ...): IdleStop sent ...`; at the ride's end `quick: this ride in third person:
-  N item use clip(s) cut at their props after the Pip-Boy, N potion key(s) under QuickUseAbove handed to the script
-  (UseNoClip)`). First person as before.
+  works at once), or a clip within 1.5 s after the Pip-Boy was last open, with no other menu since (its item is applied
+  in the menu; since 2026-11-23b read from the game's own open menus, 4 s and the script's menu global in 2026-11-23a).
+  Any other clip (the Favourites menu, even right after the Pip-Boy, another mod's way of using an item) plays until its
+  item comes and is cut then, so the heal is never lost; an animation mod's use clip is refused at any speed. Your hands
+  stay on the bars (`rider: an item's use clip at N u/s (...; the Pip-Boy open N s before them, no other cause: its item
+  applied in the menu, in third person no use clip (UseNoClip)): IdleStop sent to the graph (UseStop): taken ...`;
+  another: `... left to play until it is`, then `... (the item used N s into its clip, ...): IdleStop sent ...`; at the
+  ride's end `quick: this ride in third person: N item use clip(s) cut at their props after the Pip-Boy, N potion key(s)
+  under QuickUseAbove handed to the script (UseNoClip)`). First person as before.
 - **LaunchFrom, HeardRiseGears** (test 59: "still feels a bit sluggish on take-off"; your pick: 0.3 of the top in about
   1.5 s, half in about 2.8): from rest the throttle starts at 0.25 of the top (was 0.14) and climbs evenly from there,
   the top 6.7 s after the press: 0.3 of the top after about 1.5 s, half after about 2.65 (test 59: 2.09 and 3.58, most
@@ -745,8 +757,8 @@ Known, left for now (test 60 asks about each):
   go, so it may be another mod's arm gear, not the holster (the video should tell).
 - Items in third person: a clip of an item used another way (the Favourites menu, another mod) plays until its item
   comes, with your hands off the bars meanwhile, as in 2026-11-22a: the cost of never losing a heal; a number key the
-  plugin couldn't take is left to the game's own use, as before; a use from the Favourites menu within 4 s of closing
-  the Pip-Boy would be cut early, before its item comes (its heal lost).
+  plugin couldn't take is left to the game's own use, as before. (In 2026-11-23a a use from the Favourites menu within 4
+  s of closing the Pip-Boy was cut early and lost its heal: fixed in 2026-11-23b.)
 - The take-off: the game was fitted to test 59's pulls and the fit reads about 0.1 s slow, so about 1.55 s to 0.3 of the
   top after a long stand and 1.3 within seconds of moving; the twin (`tools/sound/engine_model.py`) keeps its
   2026-11-17a defaults.
@@ -2565,7 +2577,7 @@ tools/package/                since 2026-11-14a: packages a build (its README.tx
 
 1. **Done, in testing in game:** ride / park / call / side bag / companions / fuel, worn and parked bike meshes,
    seated riding animations with lean, MCM menu, engine sound and gear restore.
-2. **In testing, the 2026-11-07a to 2026-11-23a builds:** customising at the bike (the badges, the paint, the mirrors at
+2. **In testing, the 2026-11-07a to 2026-11-23b builds:** customising at the bike (the badges, the paint, the mirrors at
    a field kit; then the rims, the tyres, a free paint colour and the licence plate), the 2026-11-09a build's fixes for
    tests 50 and 51 (the parked bike kept out of people, items at speed, Caution, the wheels, the bridge's posts, the
    truck, first person, the gears, the water, the field kit, getting on), the 2026-11-10a build's for test 52 (getting
@@ -2614,8 +2626,8 @@ tools/package/                since 2026-11-14a: packages a build (its README.tx
    under the fade; the Wear and Paint condition on every bike at once; no flash at the kit's options; the third-person
    look with a weapon drawn; a pistol held one-handed with the left hand on the bar, in third and first person; the
    holster on the thigh; no item clip in third person; a quicker take-off; Rusty lighter, three gears either side of the
-   3D Brotherhood helmet).
-   **Next:** test 60 on the 2026-11-23a build and its fixes; from 2026-11-15b's to 2026-11-23a's open ends, seated clips
+   3D Brotherhood helmet), and the 2026-11-23b build, 2026-11-23a with its second review's four fixes.
+   **Next:** test 60 on the 2026-11-23b build and its fixes; from 2026-11-15b's to 2026-11-23b's open ends, seated clips
    for a drawn pistol (from the rider-pose report), the right forearm aimed along the camera with a handgun out, the
    left hand to the pistol while reloading, first person's own pistol, an MCM switch for the body in first person and
    for the look button and the aim's block, the riding bike kept through a rifle's put-away and through a handgun drawn
