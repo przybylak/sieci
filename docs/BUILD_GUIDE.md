@@ -722,6 +722,21 @@ and two compiled scripts do (`tools/package/builds/2026-11-23b.json`). The harne
 (UN8: a Favourites use right after the Pip-Boy, its clip left to play and cut at its item), the rest as 2026-11-23a's;
 DEF64 is unchanged, and the off values give 2026-11-22a's plugin as 2026-11-23a's did.
 
+After 2026-11-23b, the harness alone (no build; the plugin, the scripts, the ESP, the INI and the package stay
+2026-11-23b's):
+
+- The checks that used to fail now and then on a loaded machine now give the same result every time. Under load the work
+  between two frames (getting on's INI read, a read of a log of several MB) took time the plugin's clock saw and the fake's
+  world didn't, so a ride's decisions landed a frame or two later.
+- `fake_game.c` now hooks the plugin's `QueryPerformanceCounter`, `GetTickCount` and `GetLocalTime`. Outside a fixed stretch
+  (`Fixed66`) they return the machine's clock plus the offset the last stretch left. Inside one the clock moves as an idle
+  machine's does under Wine: 1/192 s a frame, the tick in 16 ms steps, no time for a log read.
+- On that clock: sound, backing and caution whole, view's CE7/CE8 and ViewTests58, and wall's sidestep 9/9b and WallStopClimb.
+- Two checks changed instead: full's Ahead=28 is read once the remount has settled, with the same tolerances, and ram's
+  held-for-0.4 s check rides on to 0.6 s after the hit.
+- Every mode has the same checks, 2294 in all. Under four busy loops, 6 of 21 runs failed before and none of 24 after.
+- Still on the machine's clock: view's ViewCamTests61 EyeAt check, once seen at 7.97 against its 0.01.
+
 The vanilla form IDs the plugins use (PlayerRef, XMarker, HumanRace, HumanRaceSubGraphData, SpeedMult, CarryWeight, FallingDamageMod, Health, Pip-Boy, AnimArchetypePlayer) were checked against Mutagen's FormKey list generated from the real `Fallout4.esm`. The record layouts were also compared field by field with xEdit's Fallout 4 definitions.
 
 ## For developers: packaging a build

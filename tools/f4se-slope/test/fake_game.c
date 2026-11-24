@@ -472,18 +472,16 @@ static double g_recT[REC_MAX];
 static float g_physGame;
 static float FakeGroundAt(float x, float y);
 static float ProfileU(float x, float y);
+static double FakeNow66(void);   /* 2026-11-24: s by the plugin's clock (below, with the fake's fixed clock) */
 static void FakeSetPosition(uint8_t *self, const float *p, bool centre, bool warp)
 {
 	(void)self; (void)centre; (void)warp;
 	g_setPositions++;
 	bool rec = g_rec && g_recN < REC_MAX && (g_honour & 4);
 	if (rec) {
-		LARGE_INTEGER now, frequency;
-		QueryPerformanceCounter(&now);
-		QueryPerformanceFrequency(&frequency);
 		g_recDz[g_recN] = p[2] / HAVOK - PlayerPosition()[2];
 		g_recStep[g_recN] = hypotf(p[0] / HAVOK - PlayerPosition()[0], p[1] / HAVOK - PlayerPosition()[1]);
-		g_recT[g_recN] = (double)now.QuadPart / (double)frequency.QuadPart;
+		g_recT[g_recN] = FakeNow66();   /* 2026-11-24: by the plugin's clock (mode 12 rides the fake's fixed one) */
 	}
 	if (g_honour & 4)
 		for (int i = 0; i < 3; i++)
@@ -2638,8 +2636,177 @@ static bool g_taskTwice;              /* 2026-11-15a: the plugin's task run twic
 static double g_cappedSeconds;   /* the frames' times summed as the plugin caps them (0.05 s each): what a rate a second may have risen by */
 static float g_slopeMin = 1.0f;  /* the steepest climb limit (the smallest cosine) the controller held after any frame since this was last set (test 40's finding 8) */
 static int g_staleFrames;        /* mode 9: frames the 3D's world transforms stay behind the player's place after a load to another place (test 35: 0.26 s) */
+
+/* ---- 2026-11-24 (t66, the harness's load-sensitive checks): the plugin's clock in the fake's hands ----
+ * RunFrames counts the machine's milliseconds, the fake's world moves by the time its frame measured and the plugin times its own
+ * frames by QueryPerformanceCounter, read later in the frame. On a loaded machine the work between two frames (the plugin's getting
+ * on with its INI, a log read between two RunFrames) takes longer and a frame can take 50 ms or more: a ride rides fewer, longer
+ * frames (a shift's rpm past its point by a frame's rise, a step past an edge by a frame's way), the plugin's dt and the fake's
+ * differ by whatever the machine took between the two reads (a speed glitch the engine hears), a fixed wait rides less of the
+ * plugin's time (its steps capped at 0.05 s), and a loop of RunFrames(10) with a log read in it counts fewer steps in a handover.
+ * So the plugin's QueryPerformanceCounter, GetTickCount and GetLocalTime are hooked at load (HookImport) to the fake's clock.
+ * Outside a fixed stretch each is the machine's own plus the offset the last stretch left (0 before any: the plugin's clock never
+ * jumps). Inside one (Fixed66(true) .. Fixed66(false)) the clock is the fake's alone and moves only as an idle machine's does under
+ * Wine (measured here: Sleep(5) 5.11 ms, GetTickCount in steps of 16 ms, RunFrames(10/25/50/100/300) 16/32/65/113/307 ms a call,
+ * the time lines' 188-193 frames a second): each frame of RunFrames and RunFramesUntil63 is followed by FIXED_STEP66 (its Sleep(5)
+ * and the work; RunFramesUntil63's done() returns before it), OneFrame takes FIXED_WORK66 (no sleep), a FakeSleep66 its own ms,
+ * and nothing else counts (a log read takes no time); GetTickCount steps by FIXED_TICK66 and RunFrames(ms) ends on it as on the
+ * machine's (end = tick + ms); the world's dt is the clock between a call's frames, as RunFrames measures it (a call's first frame
+ * 0: its clock taken at the call). A loaded machine rides the stretch frame for frame as an idle one does, every time. The checks
+ * around a load-sensitive ride or wait run in a stretch; every other check rides the machine's clock, as before. */
+#define FIXED_STEP66 (1.0 / 192.0)   /* s: the idle harness's frame (RunFrames' Sleep(5), 5.11 ms, and the work) */
+#define FIXED_WORK66 0.0001          /* s: a frame's work with no sleep (OneFrame's, back to back) */
+#define FIXED_TICK66 16              /* ms: Wine's GetTickCount steps (13 in 208 ms here) */
+static bool g_clockHooked66;         /* the three imports hooked */
+static bool g_fixed66;               /* in a fixed stretch */
+static LONGLONG g_qpcFreq66 = 1;     /* the machine's counter's frequency (the plugin's too: QueryPerformanceFrequency isn't hooked) */
+static LONGLONG g_qpcOff66;          /* outside a stretch: the plugin's counter is the machine's + this, */
+static DWORD g_tickOff66;            /* its tick the machine's + this */
+static LONGLONG g_localOff66;        /* and its local time the machine's + this (FILETIME units) */
+static LONGLONG g_fixedQpc66;        /* inside one: the plugin's counter, */
+static double g_fixedFrac66;         /* a step's fraction of a count carried to the next, */
+static LONGLONG g_fixedFrom66;       /* the counter when the stretch began, */
+static DWORD g_fixedTick66;          /* the tick then */
+static ULONGLONG g_fixedLocal66;     /* and the local time then */
+static LONGLONG MachineQpc66(void)
+{
+	LARGE_INTEGER q;
+	QueryPerformanceCounter(&q);
+	return q.QuadPart;
+}
+static ULONGLONG MachineLocal66(void)
+{
+	SYSTEMTIME st;
+	FILETIME ft;
+	GetLocalTime(&st);
+	SystemTimeToFileTime(&st, &ft);
+	return ((ULONGLONG)ft.dwHighDateTime << 32) | ft.dwLowDateTime;
+}
+static LONGLONG PluginQpc66(void) { return g_fixed66 ? g_fixedQpc66 : MachineQpc66() + g_qpcOff66; }
+static DWORD PluginTick66(void)
+{
+	if (!g_fixed66)
+		return GetTickCount() + g_tickOff66;
+	LONGLONG ms = (g_fixedQpc66 - g_fixedFrom66) * 1000 / g_qpcFreq66;
+	return g_fixedTick66 + (DWORD)(ms / FIXED_TICK66 * FIXED_TICK66);
+}
+static ULONGLONG PluginLocal66(void)
+{
+	if (!g_fixed66)
+		return MachineLocal66() + (ULONGLONG)g_localOff66;
+	return g_fixedLocal66 + (ULONGLONG)((double)(g_fixedQpc66 - g_fixedFrom66) / (double)g_qpcFreq66 * 1e7);
+}
+static BOOL WINAPI PluginQueryPerformanceCounter66(LARGE_INTEGER *c)
+{
+	c->QuadPart = PluginQpc66();
+	return TRUE;
+}
+static DWORD WINAPI PluginGetTickCount66(void) { return PluginTick66(); }
+static void WINAPI PluginGetLocalTime66(SYSTEMTIME *st)
+{
+	ULONGLONG t = PluginLocal66();
+	FILETIME ft = { (DWORD)t, (DWORD)(t >> 32) };
+	FileTimeToSystemTime(&ft, st);
+}
+static void PluginLocalNow66(SYSTEMTIME *st)   /* the time of day the plugin's log lines carry now (the fake's reads of it) */
+{
+	if (g_clockHooked66)
+		PluginGetLocalTime66(st);
+	else
+		GetLocalTime(st);
+}
+static void PluginClockHook66(HMODULE dll)   /* at load, before F4SEPlugin_Load */
+{
+	LARGE_INTEGER f;
+	QueryPerformanceFrequency(&f);
+	g_qpcFreq66 = f.QuadPart > 0 ? f.QuadPart : 1;
+	bool q = HookImport(dll, "QueryPerformanceCounter", (void *)PluginQueryPerformanceCounter66);
+	bool t = HookImport(dll, "GetTickCount", (void *)PluginGetTickCount66);
+	bool l = HookImport(dll, "GetLocalTime", (void *)PluginGetLocalTime66);
+	g_clockHooked66 = q && t && l;
+	if (!g_clockHooked66)
+		printf("  (the plugin's clock not hooked: QueryPerformanceCounter %d, GetTickCount %d, GetLocalTime %d; its fixed stretches ride the machine's clock)\n", q, t, l);
+}
+static void Fixed66(bool on)   /* a fixed stretch begun (the plugin's clock where it is) or ended (the machine's from there) */
+{
+	if (!g_clockHooked66 || on == g_fixed66)
+		return;
+	if (on) {
+		g_fixedQpc66 = g_fixedFrom66 = PluginQpc66();
+		g_fixedTick66 = PluginTick66();
+		g_fixedLocal66 = PluginLocal66();
+		g_fixedFrac66 = 0.0;
+		g_fixed66 = true;
+	} else {
+		LONGLONG q = g_fixedQpc66;
+		DWORD t = PluginTick66();
+		ULONGLONG l = PluginLocal66();
+		g_fixed66 = false;
+		g_qpcOff66 = q - MachineQpc66();
+		g_tickOff66 = t - GetTickCount();
+		g_localOff66 = (LONGLONG)(l - MachineLocal66());
+	}
+}
+static float FixedAdvance66(double s)   /* the plugin's clock on by s (in a stretch) */
+{
+	double c = s * (double)g_qpcFreq66 + g_fixedFrac66;
+	LONGLONG n = (LONGLONG)c;
+	g_fixedFrac66 = c - (double)n;
+	g_fixedQpc66 += n;
+	return (float)s;
+}
+static void FakeSleep66(DWORD ms)   /* the machine's time passing with no frame (a frame that takes long, a window minimised): in a stretch the plugin's clock on by ms */
+{
+	if (g_fixed66)
+		FixedAdvance66(ms / 1000.0);
+	else
+		Sleep(ms);
+}
+static double FakeNow66(void)   /* s by the plugin's clock: the fake's own measures of a ride's times (outside a stretch the machine's, the differences the same) */
+{
+	return (double)(g_clockHooked66 ? PluginQpc66() : MachineQpc66()) / (double)g_qpcFreq66;
+}
+static DWORD FakeTick66(void) { return g_clockHooked66 ? PluginTick66() : GetTickCount(); }   /* ms by the plugin's clock, as its GetTickCount */
+/* RunFrames' frames in a stretch, as RunFrames runs them: until the tick passes the call's tick + ms, the same work in the same order,
+ * the clock on by a step after each (its Sleep(5)), but not after a done() that ends it (RunFramesUntil63 returns before its sleep) */
+static void FixedFrames66(bool (*done)(void), int ms)
+{
+	DWORD end = PluginTick66() + (DWORD)ms;
+	LONGLONG last = g_fixedQpc66;
+	while ((int32_t)(PluginTick66() - end) < 0) {
+		float dt = (float)((double)(g_fixedQpc66 - last) / (double)g_qpcFreq66);   /* the call's first frame 0, as RunFrames' */
+		last = g_fixedQpc66;
+		g_cappedSeconds += dt > 0.05f ? 0.05 : dt;
+		int queries = g_vqCalls;
+		if (g_onFrame)
+			g_onFrame(dt);
+		if (g_staleFrames > 0)
+			g_staleFrames--;
+		else
+			SyncFakeWorld();
+		if (g_beforeTask)
+			g_beforeTask(dt);
+		((void (*)(Task *))g_task->vtbl[1])(g_task);
+		if (g_taskTwice)
+			((void (*)(Task *))g_task->vtbl[1])(g_task);
+		if (g_afterTask)
+			g_afterTask(dt);
+		if (g_controller && *(float *)(g_controller + CTRL_SLOPE_OFFSET) < g_slopeMin)
+			g_slopeMin = *(float *)(g_controller + CTRL_SLOPE_OFFSET);
+		if (g_vqCalls - queries > g_vqFrameMax)
+			g_vqFrameMax = g_vqCalls - queries;
+		if (done && done())
+			return;
+		FixedAdvance66(FIXED_STEP66);
+	}
+}
+
 static void RunFrames(int ms)
 {
+	if (g_fixed66) {
+		FixedFrames66(NULL, ms);
+		return;
+	}
 	DWORD end = GetTickCount() + (DWORD)ms;
 	LARGE_INTEGER frequency, last, now;
 	QueryPerformanceFrequency(&frequency);
@@ -2677,6 +2844,10 @@ static void RunFrames(int ms)
  * a coast's down-shifts at speeds that low: 2026-11-17a's 5-4 at 745 in the harness, test 57's at 791-828). */
 static void RunFramesUntil63(bool (*done)(void), int ms)
 {
+	if (g_fixed66) {
+		FixedFrames66(done, ms);
+		return;
+	}
 	DWORD end = GetTickCount() + (DWORD)ms;
 	LARGE_INTEGER frequency, last, now;
 	QueryPerformanceFrequency(&frequency);
@@ -7291,6 +7462,24 @@ static void TiltTests(void)
 			SetTilt(30.0f);
 			RunFrames(400);
 			{
+				/* 2026-11-24: then until the remount has settled (the reference still to 0.01 over 0.1 s; 3 s
+				 * more at most), not read 400 ms in: the lens was still on its way back to its place then, by
+				 * how much of the plugin's time 400 ms of the machine's held (the getting on's INI read in
+				 * them): 3.13 off the line and 28.6 from the lens on the fake's fixed clock, 2.58 and 28.4 run
+				 * alone, 3.35-3.68 and 28.6-28.7 beside another mode (three halls' failures). */
+				float was[3];
+				memcpy(was, g_lampRefRoot + 0xA0, 12);
+				for (int t = 0; t < 3000; t += 100) {
+					RunFrames(100);
+					float now3[3];
+					memcpy(now3, g_lampRefRoot + 0xA0, 12);
+					bool still = Dist3(now3, was) < 0.01f;
+					memcpy(was, now3, 12);
+					if (still)
+						break;
+				}
+			}
+			{
 				/* 28 along the beam the root itself points (its +X, read back after the remount:
 				 * the bars may sit at another angle now), from the lens placed before. */
 				float ex2[3], rw2[3], rW2[9], axisNow[3];
@@ -7301,7 +7490,8 @@ static void TiltTests(void)
 					ex2[i] = e[i] + 28.0f * axisNow[i];
 				/* The ride restarted for the setting: its tilt and bars settle a little differently,
 				 * so the direction is checked loosely (within about 8 degrees: 400 ms into the remount
-				 * it has read up to 3.3 with another run loading the machine), the distance tightly. */
+				 * it has read up to 3.3 with another run loading the machine), the distance tightly.
+				 * (2026-11-24: read once settled, above; the tolerances as they were.) */
 				CHECK(Dist3(rw2, ex2) < 4.0f && fabsf(Dist3(rw2, e) - 28.0f) < 0.6f, "Ahead=28: the reference 28 along the beam from the lens (%.2f off the beam's line; %.1f from the lens)", Dist3(rw2, ex2), Dist3(rw2, e));
 			}
 			RewriteIni("Ahead=28", "Ahead=0");
@@ -11275,6 +11465,8 @@ static void ClimbFrame(float dt)
 /* One frame of the game and the plugin, no wait (a cut within a frame). */
 static void OneFrame(void)
 {
+	if (g_fixed66)
+		FixedAdvance66(FIXED_WORK66);   /* 2026-11-24: in a fixed stretch the plugin's clock on by a frame's work (no sleep here) */
 	if (g_onFrame)
 		g_onFrame(0.005f);
 	SyncFakeWorld();
@@ -13532,7 +13724,11 @@ static void SidestepTests49(void)
 		      "\"sidestep: let go after %.2f s%s...\" (%d; 0.05-0.3 s: 0.15 s after the watch began, the start within its first frames)", after, word, LogLines(letWord) - let0);
 		DoneRiding();
 	}
-	/* 9: the open side taken */
+	/* 9: the open side taken. 2026-11-24: 9 and 9b on the fake's fixed clock (Fixed66): which of the rays met the car and when is
+	 * decided by where the bike was at the frames the plugin cast them, which on the machine's clock moved with the frames' lengths
+	 * and the log read 0.4 s in (a frame's worth of time the plugin's speed saw and the world didn't): beside another mode both
+	 * failed, nones 1 and starts 1 with the other words, and passed alone */
+	Fixed66(true);
 	printf("Sidestep: the post dead ahead with a car's back (its own reference, 30 each side) 60 to the right of the line 500 past the front wheel: \"none for\" the right, then the left taken; cars both sides: \"none for\" twice, no sidestep:\n");
 	for (int k = 0; k < 2; k++) {
 		UpToSpeed(0.0f);
@@ -13575,6 +13771,7 @@ static void SidestepTests49(void)
 		      nones, starts, -g_ssLatAtPost);
 		DoneRiding();
 	}
+	Fixed66(false);
 	/* 10: an actor dead ahead */
 	printf("Sidestep: an actor's capsule (layer 30) dead ahead: never a sidestep:\n");
 	{
@@ -13844,7 +14041,12 @@ static void WallTests49(void)
 	      "the steer settings line: \"...; while the climb's boost is on, as without it, ... (WallStopClimb)\" and \"FaceLook's rays along the turn's arc too, as far as it turns 90 deg: ... (FaceArc)\"");
 	WallFaceArcTests();
 	WallFaceArcReviewTests();
+	/* 2026-11-24: WallStopClimb's rides on the fake's fixed clock (Fixed66): the rail is looked for in steps of RunFrames(10) with a
+	 * log read in each at 900 u/s, a hitch the size of the read that the plugin's speed measure and so its rays' reach saw (first
+	 * seen 650 past the front wheel idle and on the fixed clock, 356 in a loaded run: three of its checks failed) */
+	Fixed66(true);
 	WallStopClimbTests();
+	Fixed66(false);
 	WallLegsTests();
 	WallNarrowTests();   /* 2026-11-02a: test 48's mailboxes, the kerbs and the rail's stops */
 	SlideTests50();
@@ -16758,7 +16960,12 @@ static void RamTests(void)
 	      LogLines("rams: FF004D69 gone from the rays") >= 1 && LogLines(okLine) == 1,
 	      "the log: seen, may be knocked over, hit, gone");
 	/* Test 41's answer: the bike loses speed at the hit, the throttle held to 60% of the speed
-	 * at the hit for 0.4 s: the input the plugin writes for that (its curve), then up again. */
+	 * at the hit for 0.4 s: the input the plugin writes for that (its curve), then up again.
+	 * 2026-11-24: ridden on (W still held) until 0.6 s after the hit, 1 s more at most: the 1.9 s
+	 * ride ends about 0.45 s after it idle, so the release 0.43 s after it fell past the ride's end
+	 * on a loaded machine (-1.00: never seen, in a loaded run of mode 11). */
+	for (int t = 0; t < 1000 && g_ramHits && g_ramClock - g_ramSeenHits[0].clock < 0.6f; t += 10)
+		RunFrames(10);
 	float held = PluginInputFor(0.6f * h0->speed / 900.0f), heldMax = -1.0f, heldMin = 2.0f, freeAt = -1.0f;
 	for (int i = 0; i < g_ramSamples; i++) {
 		float t = g_ramSampleT[i], in = g_ramSampleIn[i];
@@ -17814,13 +18021,7 @@ static double g_bkPressAt, g_bkZeroAt, g_bkFrameMost;
 static float g_bkSpeed065, g_bkYLeast, g_bkYMostAfter = -10.0f;   /* g_bkYMostAfter: the input's largest y once g_bkAfter is set */
 static bool g_bkAfter;
 static bool g_bkWatch, g_bkAllZero;   /* g_bkAllZero: every watched frame's input (-0, -0) */
-static double BkNow(void)
-{
-	LARGE_INTEGER now, frequency;
-	QueryPerformanceCounter(&now);
-	QueryPerformanceFrequency(&frequency);
-	return (double)now.QuadPart / (double)frequency.QuadPart;
-}
+static double BkNow(void) { return FakeNow66(); }   /* 2026-11-24: by the plugin's clock (mode 12 rides the fake's fixed clock) */
 static void BrakeKeyFrame(float dt)
 {
 	double before = BkNow();
@@ -21668,7 +21869,7 @@ static int SndGearsAfter(const char *marker, int skip)
 static double SndNowOfDay(void)
 {
 	SYSTEMTIME t;
-	GetLocalTime(&t);
+	PluginLocalNow66(&t);   /* 2026-11-24: the plugin's time of day, which its log lines carry (its clock the fake's) */
 	return t.wHour * 3600.0 + t.wMinute * 60.0 + t.wSecond + t.wMilliseconds / 1000.0;
 }
 /* The fake's speed through the plugin's 0.2 s smoothing (its speed along), and when that last went under ClutchSpeed's 150. */
@@ -22829,7 +23030,7 @@ static void GearTests55(void)
  *   lines, a "(clutch in)" gear line in the menu's 2 s, no held or resumed line.
  * Then run.sh's DEF54 and DEF56 values back. */
 static void SndWorldStill56(float dt) { (void)dt; }   /* a pausing menu: no game frame (no input event, no movement update, nobody moves) */
-static void SndWorldSlow59(float dt) { (void)dt; Sleep(50); }   /* 2026-11-15b: the same, each frame 55 ms (with RunFrames' own 5) */
+static void SndWorldSlow59(float dt) { (void)dt; FakeSleep66(50); }   /* 2026-11-15b: the same, each frame 55 ms (with RunFrames' own 5; 2026-11-24: in a fixed stretch the plugin's clock on by the 50) */
 static float g_sndBackT56;
 static void SndWorldBack56(float dt)   /* the world on again: the game's frame, the bike back to its top (g_topCap, else 900) over 0.25 s and kept there */
 {
@@ -22987,7 +23188,7 @@ static void SoundTests56(void)
 	      "P1: driven (%g); %d \"game: the world paused\" line (1): %.2f s (2.5-3.2), the movement update %d times (under 20); the hand-over %.1f s after the ride's "
 	      "start (over 6), %.1f s of it paused or out of focus (2.5-3.3; %d such line)", SndDriven(), LogLines("game: the world paused ") - paused0, pausedFor, pausedCalls,
 	      handed, share, LogLines("s of it paused or out of focus") - late0);
-	Sleep(1500);   /* the frame task not run: the game's window minimised, say */
+	FakeSleep66(1500);   /* the frame task not run: the game's window minimised, say (2026-11-24: in a fixed stretch the plugin's clock on by 1.5 s) */
 	RunFrames(300);
 	float stall = LastLogNumber("game: the frame task didn't run for ");
 	CHECK(LogLines("game: the frame task didn't run for ") == stall0 + 1 && stall >= 1.3f && stall <= 2.5f,
@@ -23799,9 +24000,9 @@ static bool SndStill63(void)   /* the fake's own speed under 1 u/s for a second 
 	}
 	if (!g_snd63Still) {
 		g_snd63Still = true;
-		g_snd63StillAt = GetTickCount();
+		g_snd63StillAt = FakeTick66();   /* 2026-11-24: the plugin's second (the machine's outside a fixed stretch) */
 	}
-	return GetTickCount() - g_snd63StillAt >= 1000u;
+	return FakeTick66() - g_snd63StillAt >= 1000u;
 }
 /* No log is read from the press to the stop's end: a read takes a while with no frame, the plugin's own clock sees it as a hitch and its
  * speed measure dips (the fake's next frame short), which the Lead cap turns into a real slowing. The stop waits for the fake's own speed. */
@@ -29709,14 +29910,14 @@ static uint8_t *V58Mat(uint8_t *diffuse, float scale)   /* a fake BSLightingShad
 static int V58Hidden(int r, int ms, int *shownAt)   /* ms by the clock, in 10-ms runs: the runs the view bike r was hidden after; *shownAt the ms it was first shown at (-1 never) */
 {
 	int hidden = 0;
-	DWORD t0 = GetTickCount();
+	DWORD t0 = FakeTick66();   /* 2026-11-24: the plugin's clock (ViewTests58 rides the fake's fixed one) */
 	*shownAt = -1;
-	while ((int)(GetTickCount() - t0) < ms) {
+	while ((int)(FakeTick66() - t0) < ms) {
 		RunFrames(10);
 		if (!ViewShows(r))
 			hidden++;
 		else if (*shownAt < 0)
-			*shownAt = (int)(GetTickCount() - t0);
+			*shownAt = (int)(FakeTick66() - t0);
 	}
 	return hidden;
 }
@@ -29828,13 +30029,13 @@ static void ViewTests58(void)
 	}
 	*(uint8_t **)(prop[1] + FAKE_PROP_MATERIAL) = look[1];   /* the script's ApplyTo on the new one */
 	int newAt = -1, oldGoneAt = -1;
-	DWORD t0 = GetTickCount();
-	while ((int)(GetTickCount() - t0) < 400) {
+	DWORD t0 = FakeTick66();   /* 2026-11-24: the plugin's clock, as V58Hidden's */
+	while ((int)(FakeTick66() - t0) < 400) {
 		RunFrames(10);
 		if (newAt < 0 && ViewShows(1))
-			newAt = (int)(GetTickCount() - t0);
+			newAt = (int)(FakeTick66() - t0);
 		if (oldGoneAt < 0 && !ViewShows(0))
-			oldGoneAt = (int)(GetTickCount() - t0);
+			oldGoneAt = (int)(FakeTick66() - t0);
 	}
 	CHECK(oldShown == steps && newShown == 0 && newAt >= 0 && newAt <= 50 && oldGoneAt >= 0 && oldGoneAt <= 60 && LogLines(handT) == hand0 + 1,
 	      "the old one shown all %d steps of 1.5 s (%d), the new one none (%d; 2026-11-14a: both from its 3D, the old one hidden after HandoverTime's 1 s); after the swap the new one "
@@ -30605,7 +30806,7 @@ static void Cm62Handover(uint32_t to, const char *handT, int *steps, int *oldSho
 	*steps = *oldShown = *newShown = *neither = 0;
 	*oldAt = 0.0f;
 	SetViewRef(to);
-	for (DWORD t0 = GetTickCount(); (int)(GetTickCount() - t0) < 4000;) {
+	for (DWORD t0 = FakeTick66(); (int)(FakeTick66() - t0) < 4000;) {   /* 2026-11-24: 4 s of the plugin's clock (the fake's fixed one here) */
 		RunFrames(10);
 		if (LogLines(handT) != hand0)
 			break;
@@ -31007,7 +31208,9 @@ static void ViewTests61(void)
 	Ini56Unset("View", "NearThird");
 	CHECK(offHidden && offWorn < LOOK_NEW, "hidden in third person however near the camera (%s), the worn bike shown (%d of %d hidden: the look's own)", offHidden ? "yes" : "no", offWorn,
 	      LOOK_NEW);
+	Fixed66(true);   /* 2026-11-24: CE7 and CE8 on the fake's fixed clock: the handover's steps of 10 ms (with a log read in each) counted by the plugin's frames as idle, not fewer on a loaded machine */
 	ViewNearHandoverTests62();   /* 2026-11-17a, test 56's 56-16: a handover near the camera in third person (the cam unit's) */
+	Fixed66(false);
 	g_v61CamSet = false;
 	SetCameraFirst(true);
 	RunFrames(300);
@@ -32248,7 +32451,9 @@ static void ViewTests56(void)
 	ViewDiagTests56();
 	ViewThirdTests56();
 	ViewTests57();   /* 2026-11-14a: before ViewUpdateTests56 (it turns Update off for the session) */
+	Fixed66(true);   /* 2026-11-24: LookWait's shows and hand-over timed in ms of 10-ms runs (50 ms at most after a swap: one or two runs idle) on the fake's fixed clock, not the loaded machine's */
 	ViewTests58();   /* 2026-11-15a: LookWait, the round's keys */
+	Fixed66(false);
 	ViewTests59();   /* 2026-11-15b: the camera's turn, the look back, the look key, FirstKeys (the fpcam unit's) */
 	ViewTests61();   /* 2026-11-16b: NearThird, RollTurn, LookPitch, FirstKeys' default (the view unit's) */
 	ViewTests63();   /* 2026-11-21a: LookButton, AimBlock, AimWatch, LookThird (the look unit's) */
@@ -41574,6 +41779,7 @@ int main(int argc, char **argv)
 	HMODULE dll = LoadLibraryA(dllPath);
 	if (!dll) { printf("can't load %s\n", dllPath); return 2; }
 	g_vqHooked = HookImport(dll, "VirtualQuery", (void *)CountingVirtualQuery);   /* its memory queries counted (test 37) */
+	PluginClockHook66(dll);   /* 2026-11-24: its clock the fake's (the machine's outside a fixed stretch) */
 	const uint32_t *version = (const uint32_t *)GetProcAddress(dll, "F4SEPlugin_Version");
 	bool (*load)(const F4SEInterface *) = (bool (*)(const F4SEInterface *))GetProcAddress(dll, "F4SEPlugin_Load");
 	printf("version data and load function:\n");
@@ -41653,9 +41859,11 @@ int main(int argc, char **argv)
 		CHECK(LogLines("globals: the 2026-11-09a build's 2 found, CMB_Caution and CMB_ViewMenu (FE005BF1-FE005BF2)") == 1,
 		      "one \"the 2026-11-09a build's 2 found, CMB_Caution and CMB_ViewMenu (FE005BF1-FE005BF2)\" line (%d)",
 		      LogLines("globals: the 2026-11-09a build's 2 found"));
+		Fixed66(true);   /* 2026-11-24: the whole mode on the fake's fixed clock (its rails' and sidesteps' first sights by the frames' steps, whatever the load) */
 		DriveTests54();
 		CautionTests56();   /* 2026-11-10a, test 52: Caution 50's sidestep (the drive unit's) */
 		CautionWide59();    /* 2026-11-15b: the wide sidestep found by SidestepCaution's reach (the sidestep unit's) */
+		Fixed66(false);
 		printf("%s\n", g_failures ? "FAILED" : "all ok");
 		return g_failures ? 1 : 0;
 	}
@@ -41669,7 +41877,9 @@ int main(int argc, char **argv)
 	if (mode == 12) {
 		Send(10, 1);   /* GameDataReady */
 		RunFrames(300);
+		Fixed66(true);   /* 2026-11-24: the whole mode on the fake's fixed clock (the backing's steps, flips and hang-ups by the frame's step, whatever the load) */
 		BackingTests();
+		Fixed66(false);
 		printf("%s\n", g_failures ? "FAILED" : "all ok");
 		return g_failures ? 1 : 0;
 	}
@@ -41772,6 +41982,7 @@ int main(int argc, char **argv)
 	if (mode == 16) {   /* the engine sound (test 44's build): the Address Library written by the tests themselves */
 		Send(10, 1);   /* GameDataReady */
 		RunFrames(300);
+		Fixed66(true);   /* 2026-11-24: the whole mode on the fake's fixed clock (its pulls' shift points, gear lines and stops by the frame's step, whatever the load) */
 		SoundTests();
 		GearTests54();   /* 2026-11-09a: the sound unit's */
 		GearTests55();   /* 2026-11-09a, test 51: the skins unit's */
@@ -41784,6 +41995,7 @@ int main(int argc, char **argv)
 		SoundTests63();  /* 2026-11-21a, test 57: the coast twice as long and gradual, the gears in even steps (the drive unit's) */
 		SoundTests64();  /* 2026-11-22a, test 58: the up-shifts at the bands from any pull, the speed held through a menu (the drive unit's) */
 		SoundTests65();  /* 2026-11-23a, test 59: the quicker take-off, each gear's sound kept (the drive unit's) */
+		Fixed66(false);
 		printf("%s\n", g_failures ? "FAILED" : "all ok");
 		return g_failures ? 1 : 0;
 	}
