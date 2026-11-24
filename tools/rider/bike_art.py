@@ -66,6 +66,9 @@ flag; --bos-ground 2026-11-21a: a cog each side of the helmet) and two cells are
 Since 2026-11-22a (test 58) --bos-ground 2026-11-22a (the default) draws three meshing gears on metallic blue (a fine
 bright flake in _d and _s) and --nuka-script 2026-11-22a the Nuka-Cola badge's script as a pointed pen; --through
 2026-11-21a (or both flags at 2026-11-21a) gives 2026-11-21a's atlas byte for byte. The plate's cap keeps its script.
+Since 2026-11-23a (test 59) --bos-ground 2026-11-23a (the default) draws three meshing gears either side of the 3D helmet
+(none behind it) on 22a's metallic blue; --bos-ground 2026-11-22a or --through 2026-11-22a: 2026-11-22a's atlas byte for
+byte.
 
 Normal maps are tangent space in Fallout 4's (Direct3D) convention: red along +u, green along +v
 (down the image), blue out of the surface; written as they are (no green flip). Colours are 8-bit
@@ -1519,6 +1522,8 @@ def with_badges_21a(opts):
 def badge_drawer(key, col):
     """(draw function, bleed colour) of a badge's cell at its art version (BADGE_ART)."""
     ver = BADGE_ART.get(key)
+    if ver == ART_23A and key in BADGE_DRAW_23A:
+        return BADGE_DRAW_23A[key], BADGE_BLEED_23A[key]
     if ver == ART_22A and key in BADGE_DRAW_22A:
         return BADGE_DRAW_22A[key], BADGE_BLEED_22A[key]
     if ver == ART_21A and key in BADGE_DRAW_21A:
@@ -1563,15 +1568,16 @@ def _smax(a, b, k):
     return np.maximum(a, b) + h * h * k / 4
 
 
-def _gear22_sd(cv, cx, cy, n, pitch_r, phase):
+def _gear22_sd(cv, cx, cy, n, pitch_r, phase, add=BOS22_ADD, ded=BOS22_DED):
     """A gear with rounded teeth: a disc at the tip radius less n gaps, each a radial slot with a round bottom on the
     root circle whose walls open outward so the teeth keep one width from root to tip (a little narrower than the gap
     at the pitch circle), the teeth's top corners rounded. Teeth centred at phase + k 360/n degrees (screen, clockwise
-    from +x). Returns (signed distance, tip radius)."""
-    tip, root = pitch_r + BOS22_ADD, pitch_r - BOS22_DED
+    from +x); add, ded: the tooth's height over and the gap's depth under the pitch circle (since 2026-11-23a a
+    gear's own; 22a's BOS22_ADD, BOS22_DED by default). Returns (signed distance, tip radius)."""
+    tip, root = pitch_r + add, pitch_r - ded
     pitch = 2 * math.pi * pitch_r / n
     taper = math.pi / n                                        # the gap's half width grows this much a px outward
-    g = (0.2625 * pitch - BOS22_DED * taper) / (1 - taper)     # its bottom's radius: the gap 0.525 pitch at the pitch r
+    g = (0.2625 * pitch - ded * taper) / (1 - taper)           # its bottom's radius: the gap 0.525 pitch at the pitch r
     c1, c2 = root + g, tip + 6.0
     g2 = g + (c2 - c1) * taper
     dx, dy = cv.x - cx, cv.y - cy
@@ -1582,7 +1588,7 @@ def _gear22_sd(cv, cx, cy, n, pitch_r, phase):
         t = np.clip((dx * ux + dy * uy - c1) / (c2 - c1), 0.0, 1.0)
         gaps = np.minimum(gaps, np.hypot(dx - (c1 + t * (c2 - c1)) * ux, dy - (c1 + t * (c2 - c1)) * uy) - (g + t * (g2 - g)))
     disc = np.hypot(dx, dy) - tip
-    return _smax(disc, -gaps, 0.7 * BOS22_ADD), tip
+    return _smax(disc, -gaps, 0.7 * add), tip
 
 
 def bos22_gears():
@@ -1597,7 +1603,9 @@ def bos22_gears():
             ((cx + d, cy), BOS22_SMALL["n"], rs, BOS22_SMALL["phase"])]          # n even: a tooth at 0 and 180 deg
 
 
-def draw_ground_gears(B, col):
+def draw_ground_gears(B, col, gears=None, ring=None, art=ART_22A, drawn=None):
+    """The metallic blue ground and its gears: 2026-11-22a's three (bos22_gears) by default; since 2026-11-23a any
+    list [(centre, n, pitch radius, phase, add, ded)] with its own ring (outer, inner, hole: x the tip radius)."""
     cv = B.cv
     blue = np.array(hexrgb(BOS22_BLUE))
     plate = plaque_sd(cv, GROUND_INSET, GROUND_R)
@@ -1618,22 +1626,23 @@ def draw_ground_gears(B, col):
                              B.fin[..., 0])
     B.fin[..., 1] = np.where(inside > 0, B.fin[..., 1] * (1 - inside) + (smooth + 0.20 * flake) * inside, B.fin[..., 1])
     B.fin = np.clip(B.fin, 0, 1)
-    gears, holes = [], []
-    for (gx, gy), n, pr, ph in bos22_gears():
-        sd, tip = _gear22_sd(cv, gx, gy, n, pr, ph)
-        gears.append(sd)
+    sds, holes = [], []
+    for (gx, gy), n, pr, ph, *ad in (gears or bos22_gears()):
+        sd, tip = _gear22_sd(cv, gx, gy, n, pr, ph, *ad)
+        sds.append(sd)
         r = np.hypot(cv.x - gx, cv.y - gy) + 0 * cv.y
-        o, i, h = BOS22_RING
+        o, i, h = ring or BOS22_RING
         holes.append(np.minimum(np.maximum(r - o * tip, i * tip - r), r - h * tip))
+    gears = sds
     on = B.fill(np.maximum(np.minimum.reduce(gears), field), hexrgb(BOS22_GEAR), "inlay")
     cut = coverage(np.maximum(np.minimum.reduce(holes), np.minimum.reduce(gears))) * on
     before = B.rgb.copy()
     B.paint(cut, tuple(blue), "metallic")
     B.rgb = before * (1 - cut[..., None]) + np.clip(blue * shade[..., None], 0, 1) * cut[..., None]
-    return dict(_ground_field(), art=ART_22A,
-                drawn="metallic blue paint with a fine bright flake inside the stock badge's chrome bevel; three meshing "
-                      "black gears with rounded teeth, a ring cut inside each and a round hole: the large one behind the "
-                      "helmet, the two smaller ones left and right of it")
+    return dict(_ground_field(), art=art,
+                drawn=drawn or "metallic blue paint with a fine bright flake inside the stock badge's chrome bevel; three "
+                               "meshing black gears with rounded teeth, a ring cut inside each and a round hole: the large "
+                               "one behind the helmet, the two smaller ones left and right of it")
 
 
 # Nuka-Cola's script, 2026-11-22a (test 58: "text looks a bit wonky, especially in Nuka part"): the same brush style
@@ -1732,6 +1741,55 @@ def nuka_cola22_sd(cv, cx, cy, R, min_thin=0.0):
 
 BADGE_DRAW_22A = {"hg_bos": draw_ground_gears, "nukacola": lambda B, col: draw_nukacola(B, col, ART_22A)}
 BADGE_BLEED_22A = {"hg_bos": CHROME, "nukacola": hexrgb(NUKA21["edge"])}
+
+
+# --- since the 2026-11-23a build (test 59: "there is only 1 gear shown on each side, I was hoping to have 3 gears shown on
+# each side", with a layout: the helmet in the middle, three gears either side, "more or less in that position"; looked
+# at, never read by a tool) ----------------------------------------------------------------------------------------------
+# hg_bos 2026-11-23a (--bos-ground; 2026-11-22a's three gears, the large one behind the helmet, as they were): 22a's
+# metallic blue and flake, and three gears either side of the helmet, all in full view: on each side a large gear low
+# toward the plate's end, a smaller one above it toward the plate's end and a smaller one up toward the helmet, both
+# meshing with the large one (the reference's two small ones float; here they bite where they touch). 22a's gear style
+# (rounded teeth of one width, round-bottomed gaps, a ring cut and a hole) at a finer tooth pitch, 22a's proportions
+# (the tooth 0.218 and the gap 0.26 of the pitch). The left train was found by a search (the largest pitch with every gear
+# 6 px or more inside the field's edges and left of x 176, the helmet's widest at 183: SP/t65/units/art2d/tools/
+# layout.py); the right one is its mirror image about x 256 (the helmet's middle). No gear under the helmet.
+ART_23A = "2026-11-23a"
+BADGE_ART_VERSIONS.update({"hg_bos": (ART_17A, ART_21A, ART_22A, ART_23A)})
+BADGE_ART.update({"hg_bos": ART_23A})
+BOS23_PITCH = 17.2                                  # px: the tooth pitch of all six gears (they mesh)
+BOS23_TRAIN = dict(large=(98.0, 151.0), n=(12, 8, 8), toward_helmet=-25.0, top=-115.0)   # the left train (cell px, deg)
+BOS23_BACKLASH = 3.0                                # px added to a meshing pair's centre distance
+BOS23_RING = (0.64, 0.55, 0.40)                     # the ring cut (outer, inner) and the hole, x the tip radius
+
+
+def bos23_gears():
+    """The six gears [(centre, n, pitch radius, phase, add, ded)]: the left train (the large one; the one toward the
+    helmet; the one on top), then its mirror image about x 256. The large gear has a gap facing each small one, each small
+    one a tooth facing the large one."""
+    p = BOS23_PITCH
+    add, ded = 0.218 * p, 0.26 * p
+    (lx, ly), (nL, nM, nT), aM, aT = BOS23_TRAIN["large"], BOS23_TRAIN["n"], BOS23_TRAIN["toward_helmet"], BOS23_TRAIN["top"]
+    rL, rM, rT = (n * p / (2 * math.pi) for n in (nL, nM, nT))
+    left = [((lx, ly), nL, rL, aM - 180.0 / nL)]
+    for a, n, r in ((aM, nM, rM), (aT, nT, rT)):
+        d = rL + r + BOS23_BACKLASH
+        left.append(((lx + d * math.cos(math.radians(a)), ly + d * math.sin(math.radians(a))), n, r, a + 180.0))
+    out = [(c, n, r, ph, add, ded) for c, n, r, ph in left]
+    out += [((512.0 - c[0], c[1]), n, r, 180.0 - ph, add, ded) for c, n, r, ph in left]
+    return out
+
+
+def draw_ground_gears23(B, col):
+    return draw_ground_gears(B, col, gears=bos23_gears(), ring=BOS23_RING, art=ART_23A,
+                             drawn="metallic blue paint with a fine bright flake inside the stock badge's chrome bevel; "
+                                   "three meshing black gears either side of the helmet (a large one low toward the "
+                                   "plate's end, a smaller one above it and one toward the helmet), rounded teeth, a ring "
+                                   "cut inside each and a round hole")
+
+
+BADGE_DRAW_23A = {"hg_bos": draw_ground_gears23}
+BADGE_BLEED_23A = {"hg_bos": CHROME}
 
 
 def look_through(node, through):
@@ -4024,9 +4082,11 @@ def main():
                          "default) the Enclave's flag, 13 stripes and a ring of 13 stars on the blue canton; 2026-11-17a "
                          "polished chrome, 2026-11-16a black enamel (default: the latest drawn by --through's build). The "
                          "three old values (or --through 2026-11-16a): 2026-11-16a's atlas byte for byte")
-    ap.add_argument("--bos-ground", choices=(ART_22A, ART_21A, ART_17A),
-                    help="(--badges, since 2026-11-21a) the 3D Brotherhood helmet's ground: 2026-11-22a (since then the "
-                         "default) three meshing black gears on metallic blue; 2026-11-21a the steel grey plate with a black "
+    ap.add_argument("--bos-ground", choices=("2026-11-23a", ART_22A, ART_21A, ART_17A),
+                    help="(--badges, since 2026-11-21a) the 3D Brotherhood helmet's ground: 2026-11-23a (since then the "
+                         "default) three meshing black gears either side of the helmet on metallic blue; 2026-11-22a three "
+                         "meshing black gears on metallic blue, the large one behind the helmet (--through 2026-11-22a: "
+                         "2026-11-22a's atlas byte for byte); 2026-11-21a the steel grey plate with a black "
                          "cog from the Brotherhood's emblem each side of the helmet; 2026-11-17a the plain steel grey plate "
                          "(as 2026-11-16a drew it). With --enclave-ground 2026-11-17a and --through 2026-11-17a (which "
                          "leaves out the 2026-11-21a badges, Nuka-Cola and Red Rocket; --through 2026-11-17a alone does all "

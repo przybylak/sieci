@@ -948,6 +948,8 @@ int Property StandUpSteps = 5 AutoReadOnly
 turns of its roll (ParkStandUp, a thread of its own: getting on doesn't wait for it)...}
 float Property StandUpStep = 0.04 AutoReadOnly
 {...this long apart (0.2 s in all, while the screen fades).}
+float Property MountHideDelay = 0.2 AutoReadOnly
+{2026-11-23a (the plugin's [Room] MountHide): getting on hides the parked bike this long after the fade's start (MountHideParked).}
 int Property MaxShoreWaits = 10 AutoReadOnly
 {Still in water after this many ShoreDelays (30 s): bring the bike anyway.}
 float Property ShoreBikeDistance = 200.0 AutoReadOnly
@@ -2353,10 +2355,16 @@ Function Mount()
 	; the watchdog gave up is undone (MountUndo). Without the bit: none of it (2026-11-09a as of t54-merge).
 	bool guarded = LookOption(16)
 	int ticket = 0
+	mountHideOn = RoomOption(262144) && LookOption(512)   ; 2026-11-23a ([Room] MountHide): MountEarly hides the parked bike under the fade
+	mountHidEarly = false
 	if guarded
 		ParkedLookWait()
 		ParkedLookAtMount()   ; 2026-11-22a ([Look] ParkedSwapHold): its line, and a runtime swap on the parked bike thrown away first
 		ticket = MountWatchStart()
+	elseif mountHideOn && parkedRuntime && BikeRef && !BikeRef.IsDisabled() && BikeRef.Is3DLoaded()
+		; The review of 2026-11-23a (1), without MountGuard (no ParkedLookAtMount): the same as its MountHide branch.
+		MountHideSwapped()
+		Log("Getting on: the parked bike hidden at once, before the fade: a runtime swap on its 3D (" + parkedRuntimeFrom + "; the plugin's [Room] MountHide).")
 	endif
 	; 2026-11-22a (test 58's wish; the plugin's [Room] ParkFit with ParkStand): the bike leaning on its side stand stood up as
 	; getting on starts, in a thread of its own (ParkStandUp), while the rest goes on: no jump to the upright worn bike. The review
@@ -2365,7 +2373,11 @@ Function Mount()
 	if parkFitLeaned
 		parkFitLeaned = false
 		if !BikeRef.IsDisabled()
-			CallFunctionNoWait("ParkStandUp", new Var[0])
+			if RoomOption(262144) && ParkStandUpOwn()
+				; 2026-11-23a (the plugin's [Room] MountHide): by the bike's own script, its thread off this script's lock.
+			else
+				CallFunctionNoWait("ParkStandUp", new Var[0])
+			endif
 		endif
 	endif
 	mountStage = "the wait"
@@ -2535,6 +2547,8 @@ bool parkedLookDue = false     ; (FastMount) a look put on while getting on or r
 ; 2026-11-22a ([Look] ParkedSwapHold, CMB_LookOptions 262144; test 58's two crashes): a runtime swap (F4SE's ApplyMaterialSwap) on the
 ; parked bike's current 3D, who put it on and when (real time); cleared when that 3D goes (a disable, a load of it).
 bool parkedRuntime = false
+bool mountHideOn = false   ; 2026-11-23a ([Room] MountHide): this getting on hides the parked bike under the fade before the equip (MountEarly)
+bool mountHidEarly = false   ; the review of 2026-11-23a (1): ...hidden already, before the fade (a runtime swap on its 3D): MountHideParked leaves it
 float parkedRuntimeAt = -1.0
 string parkedRuntimeFrom = ""
 
@@ -2630,7 +2644,14 @@ Function ParkedLookAtMount()
 	if !CMB_Look_Headlamp
 		lamp = "none (an older ESP)"
 	endif
-	if parkedRuntime && loaded
+	if parkedRuntime && loaded && mountHideOn
+		; 2026-11-23a (the plugin's [Room] MountHide): no reload (its blink and 0.1-0.2 s before the fade). The review of 2026-11-23a
+		; (1): tests 54's and 58's crashes came 0.1-1 s after the fade's start with a runtime-swapped parked 3D drawn, so that 3D is
+		; hidden here, before MountWatchStart, the fade and the stand-up (which then doesn't run: the bike is disabled), and not shown
+		; again: the ride's end parks it, a getting on undone enables it where it stood (MountUndo); MountHideParked leaves it.
+		MountHideSwapped()
+		swap += ": its 3D hidden at once, before the fade (MountHide: no reload; the bike back at the ride's end, or where it stood if the getting on is undone)"
+	elseif parkedRuntime && loaded
 		BikeRef.Disable()
 		parkedRuntime = false
 		Utility.Wait(RoomPollInterval)
@@ -2685,9 +2706,10 @@ EndFunction
 ; The review of 2026-11-22a (finding 3): CMB_LookF4SE.ApplyWornOverlay asks after its compose (LookFollowUp checked before it): "" = put
 ; the runtime swap on the worn bike now, else why not: off the bike, busy (a getting off, a re-equip), the look moved on, the key off.
 string Function WornOverlayRefusal()
-	if !riding
+	bool mountOk = mounting && LookOption(4194304)   ; 2026-11-23a (OverlayQuick): the getting on's own busy, the ride about to start
+	if !riding && !mountOk
 		return "not riding"
-	elseif busy
+	elseif busy && !mountOk
 		return "busy (" + BusyText() + ")"
 	elseif wornRefit
 		return "the worn bike to be put on afresh"
@@ -2697,6 +2719,14 @@ string Function WornOverlayRefusal()
 		return "OverlayRuntime off"
 	endif
 	return ""
+EndFunction
+
+; 2026-11-23a ([Look] OverlayEvery): the most ParkedLoaded3D waits at a getting off for the ride's end (FinishRide) before its swap.
+float Property ParkedRideEndWait = 5.0 AutoReadOnly
+
+; 2026-11-23a ([Look] OverlayQuick): the look as put on (ApplyLook's), for CMB_LookF4SE's composedFor and SwapCurrent.
+string Function LookAppliedText()
+	return lookApplied
 EndFunction
 
 ; 2026-11-22a: CMB_LookF4SE, after a runtime swap on the parked bike's live 3D (aiApplied entries): noted for ParkedLookAtMount.
@@ -2722,6 +2752,18 @@ EndFunction
 Function ParkedLoaded3D(ObjectReference akRef)
 	if !akRef || akRef != BikeRef
 		return
+	endif
+	; 2026-11-23a ([Look] OverlayEvery, CMB_LookOptions 2097152; test 59: OverlayParked never ran at a getting off): Dismount puts the bike
+	; down (ParkBesidePlayer: its enable, this load) before FinishRide ends the ride, so the getting off's load met riding and was refused
+	; with no line. While a ride is ending under busy, its end is waited for (ParkedRideEndWait at most), then the refusals as before.
+	if LookOption(1048576) && LookOption(2097152) && riding && busy
+		float until = Utility.GetCurrentRealTime() + ParkedRideEndWait
+		while riding && Utility.GetCurrentRealTime() < until
+			Utility.Wait(0.1)
+		endwhile
+		if riding
+			Log("Look: the parked bike's 3D loaded while riding, and the ride not over " + ParkedRideEndWait + " s later: no runtime swap on it (OverlayEvery)")
+		endif
 	endif
 	if !LookOption(1048576) || mounting || riding || customising || !LookActive()
 		return
@@ -2871,6 +2913,56 @@ Function MountPressNow()
 EndFunction
 
 ; Mount with MountEarly (bit 512), from its fade on (its guards, ParkGuardEnd, ParkedLookWait and MountWatchStart done).
+; Test 47 (the plugin's [Room] ParkCheck): where the bike stands and the player is now, for ParkWhereItStood (MountEarly's,
+; before the parked bike's disable).
+Function MountSpotRecord()
+	mountSpotKnown = !BikeRef.IsDisabled() && BikeRef.Is3DLoaded()
+	if mountSpotKnown
+		mountBikeX = BikeRef.GetPositionX()
+		mountBikeY = BikeRef.GetPositionY()
+		mountBikeZ = BikeRef.GetPositionZ()
+		mountBikeAX = BikeRef.GetAngleX()
+		mountBikeAY = BikeRef.GetAngleY()
+		mountBikeAZ = BikeRef.GetAngleZ()
+		mountPlayerX = PlayerRef.GetPositionX()
+		mountPlayerY = PlayerRef.GetPositionY()
+		mountPlayerZ = PlayerRef.GetPositionZ()
+	endif
+EndFunction
+
+; The review of 2026-11-23a (1; the plugin's [Room] MountHide): a runtime swap on the parked bike's drawn 3D at a getting on (with
+; OverlayParked's swap at every load and getting off, almost every one): the spot recorded and the bike hidden at once, before
+; MountWatchStart and the fade (tests 54's and 58's crashes came 0.1-1 s after the fade's start with such a 3D drawn; 22a's
+; ParkedSwapHold loaded it again before the fade). Not shown again here: the ride's end parks it (ParkBesidePlayer), a getting on undone
+; enables it where it stood (MountUndo: disabled, not riding); MountHideParked then leaves it (mountHidEarly).
+Function MountHideSwapped()
+	MountSpotRecord()
+	BikeRef.Disable()
+	parkedRuntime = false   ; its runtime-swapped 3D gone
+	mountHidEarly = true
+EndFunction
+
+; 2026-11-23a (the plugin's [Room] MountHide, CMB_RoomOptions bit 262144; test 59: getting on 0.5 s slower than test 58's, the parked
+; bike's reload at the mount): MountEarly, right before the worn bike's equip: the spot recorded and the parked bike hidden once the
+; screen is black (MountHideDelay after the fade's start: SetCameraLive and the gear's call usually take that long already), not
+; after the equip, the wait and the camera; so no runtime-swapped parked 3D is drawn through the getting on's loads (ParkedLookAtMount
+; then needs no reload) and the stand-up (by the bike's own script) ends there at the latest.
+Function MountHideParked(float afFade)
+	if mountHidEarly
+		return   ; the review of 2026-11-23a (1): hidden before the fade (MountHideSwapped), its spot recorded then
+	endif
+	float left = MountHideDelay - (Utility.GetCurrentRealTime() - afFade)
+	if left > 0.0
+		Utility.Wait(left)
+	endif
+	MountSpotRecord()
+	mountStage = "the parked bike's disable"
+	bool runtime = parkedRuntime
+	BikeRef.Disable()
+	parkedRuntime = false   ; its runtime-swapped 3D gone (ParkedLookAtMount left it for this)
+	Log("Getting on: the parked bike hidden under the fade before the equip (the plugin's [Room] MountHide" + Ternary(runtime, ", a runtime swap on its 3D", "") + ").")
+EndFunction
+
 Function MountEarly(bool abGuarded, int aiTicket)
 	Game.FadeOutGame(true, true, 0.0, 0.25, true)
 	; The plugin moves the camera within a tenth of a second: the 0.3 s below cover it.
@@ -2886,6 +2978,13 @@ Function MountEarly(bool abGuarded, int aiTicket)
 	endif
 	mountStage = "the gear"
 	CallGearRestore("RememberSlot")
+	if mountHideOn
+		MountHideParked(tFade)
+		if abGuarded && MountStopped(aiTicket)
+			MountUndo(aiTicket)
+			return
+		endif
+	endif
 	; The look (an MCM change since it was last put on): EquipBike's own LookSync, first thing at the equip (Mount's own, right
 	; before it in 2026-11-09a, read the same 15-50 globals once more with nothing between).
 	mountStage = "the worn bike"
@@ -2911,24 +3010,15 @@ Function MountEarly(bool abGuarded, int aiTicket)
 		endif
 		Game.ForceThirdPerson()
 	endif
-	; Test 47 (the plugin's [Room] ParkCheck): where the bike stands and the player is now (ParkWhereItStood).
-	mountSpotKnown = !BikeRef.IsDisabled() && BikeRef.Is3DLoaded()
-	if mountSpotKnown
-		mountBikeX = BikeRef.GetPositionX()
-		mountBikeY = BikeRef.GetPositionY()
-		mountBikeZ = BikeRef.GetPositionZ()
-		mountBikeAX = BikeRef.GetAngleX()
-		mountBikeAY = BikeRef.GetAngleY()
-		mountBikeAZ = BikeRef.GetAngleZ()
-		mountPlayerX = PlayerRef.GetPositionX()
-		mountPlayerY = PlayerRef.GetPositionY()
-		mountPlayerZ = PlayerRef.GetPositionZ()
-	endif
-	mountStage = "the parked bike's disable"
-	BikeRef.Disable()
-	if abGuarded && MountStopped(aiTicket)
-		MountUndo(aiTicket)
-		return
+	if !mountHideOn
+		; Test 47 (the plugin's [Room] ParkCheck): where the bike stands and the player is now (ParkWhereItStood).
+		MountSpotRecord()
+		mountStage = "the parked bike's disable"
+		BikeRef.Disable()
+		if abGuarded && MountStopped(aiTicket)
+			MountUndo(aiTicket)
+			return
+		endif
 	endif
 	mountStage = "the pose"
 	ApplyRiderPose()
@@ -3849,8 +3939,9 @@ int Function RoomAt(float afX, float afY, float afZ, int aiSpot, float afAngle, 
 				lastRoomAngle = CMB_RoomAskAngle.GetValue()
 			endif
 			string tilt = RoomTiltRead()
-			if aiKind == 6
-				; 2026-11-22a (the plugin's [Room] ParkFit): Clear is the lean there; ParkFit's own line follows.
+			if aiKind == 6 || aiKind == 7
+				; 2026-11-22a (the plugin's [Room] ParkFit): Clear is the lean there; ParkFit's own line follows. 2026-11-23a (its
+				; [Room] ParkBeside, kind 7): the same, at the spot it found beside the player; ParkBesideNow's line follows.
 			elseif clear < 0.0
 				Log(try + "room (the ground " + Whole(-clear) + " above" + tilt + ").")
 			else
@@ -3878,6 +3969,9 @@ int Function RoomAt(float afX, float afY, float afZ, int aiSpot, float afAngle, 
 				; 2026-11-22a (the plugin's [Room] ParkFit): not fitted (its line says why). The review of 2026-11-22a (8): Clear
 				; is the side stand's lean on the level (0 with its ParkStand empty), which ParkFit leans the bike by.
 				Log(try + "not fitted (the plugin's line says why).")
+			elseif aiKind == 7
+				; 2026-11-23a (the plugin's [Room] ParkBeside): no room on either side of the player (its lines say why).
+				Log(try + "none on either side (the plugin's lines say why).")
 			elseif clear == -3.0
 				; Test 44 (the plugin's [Room] Line): a fence or a wall between the player and the spot.
 				Log(try + "none (no clear line from the player to it).")
@@ -4793,6 +4887,12 @@ bool Function LeaveBikeOutside(bool abAtDoor)
 EndFunction
 
 Function ParkBesidePlayer()
+	; 2026-11-23a (test 59: "when getting off I'm sometimes put far away from where I got off", the bike 145 back along the track,
+	; behind the camera; the user's pick: beside you, where you got off, in view; the plugin's [Room] ParkBeside, CMB_RoomOptions bit
+	; 65536): the bike beside the player in one ask (ParkBesideNow); no room on either side: the track's spot as before.
+	if riding && RoomOption(65536) && ParkBesideNow()
+		return
+	endif
 	; Test 47 (the plugin's [Room] ParkCheck, CMB_RoomOptions bit 4; test 46's getting off nosed into a
 	; house's window, the bike through it): a ride that went nowhere puts the bike back where it
 	; stood; else its spot is asked about as a call's, and moved or replaced where the plugin says.
@@ -4806,6 +4906,79 @@ Function ParkBesidePlayer()
 	endif
 	PlaceBike(0.0, ParkSideOffset)
 	EnableParked(false, 1, 0.0, true)   ; ParkSideOffset beside the player (the review of 2026-11-09a: the player not counted)
+EndFunction
+
+; 2026-11-23a (the plugin's [Room] ParkBeside, CMB_RoomOptions bit 65536, its ask kind 7; test 59's 1E and the user's pick): the
+; plugin is asked once at the player along their heading (the ride's): the bike's middle ParkBeside to their right (else their left)
+; and 28 ahead of them, along their heading, where the worn bike's middle was; it answers with the spot (CMB_RoomAskX/Y, the heading
+; in CMB_RoomAskAngle) only where there's room (its box, a clear line from the player) and no one in its place (its ParkGuard look,
+; the player not counted), fitted there as ParkFit fits (CMB_RoomGround its middle's height, CMB_RoomPitch, CMB_RoomRoll, CMB_RoomClear
+; the lean; the review of 2026-11-23a (7): a side the fit rejects is no room). So the bike is put there, at the spot the plugin
+; checked (the review's 6: SetPosition, not offsets from where the player stood at the ask), and shown at once: no settle, no ParkGuard
+; ask before or after it, no ParkFit ask (2026-11-22a's getting off asked four times: 0.7-0.8 s of the black). The plugin's ParkFit off:
+; the answer is a checked spot's (its ground, ParkTilt's tilt), settled there as 22a's checked park (PlaceOnSpot). False with none on
+; either side, no answer, or (an older plugin) not fitted: the caller parks as before (the track's spot, the fallback). The caller
+; holds busy; riding still true (FinishRide follows).
+bool Function ParkBesideNow()
+	float heading = PlayerRef.GetAngleZ()
+	if heading < 0.0
+		heading += 360.0
+	endif
+	float px = PlayerRef.GetPositionX()
+	float py = PlayerRef.GetPositionY()
+	float pz = PlayerRef.GetPositionZ()
+	if RoomAt(px, py, pz, -1, heading, ".", "The parked bike beside the player", 7) != 1
+		Log("The parked bike beside the player (the plugin's [Room] ParkBeside): no room on either side (the plugin's lines say why): the spot back along the track instead.")
+		return false
+	endif
+	float x = lastRoomX
+	float y = lastRoomY
+	float z = lastRoomGroundSeen
+	float angle = lastRoomAngle + ParkedModelYaw
+	float along = (x - px) * Math.Sin(heading) + (y - py) * Math.Cos(heading)
+	float across = (x - px) * Math.Cos(heading) - (y - py) * Math.Sin(heading)
+	string where = Whole(Math.Abs(across)) + Ternary(across >= 0.0, " to their right, ", " to their left, ") + Whole(along) + " ahead, along their heading"
+	if !RoomOption(32768)
+		; The review of 2026-11-23a (7): the plugin's ParkFit off: the checked spot (its ground, ParkTilt's tilt) settled as 22a's
+		; checked park (PlaceOnSpot: the navmesh snap measured against it, the guard's asks), not put down level unsettled.
+		spotX = x
+		spotY = y
+		spotAngle = lastRoomAngle
+		spotKnown = true
+		spotGround = z
+		spotGroundKnown = true
+		spotPitch = lastRoomPitch
+		spotRoll = lastRoomRoll
+		spotTiltKnown = lastRoomTilted
+		Log("Parked bike beside the player (the plugin's [Room] ParkBeside, ParkFit off): " + where + "; settled on that checked spot (PlaceOnSpot).")
+		PlaceOnSpot(-1)
+		return true
+	endif
+	if !lastRoomTilted
+		; The review's 7: with ParkFit the plugin answers room only where the bike fits; not fitted (an older plugin): not put there.
+		Log("The parked bike beside the player (the plugin's [Room] ParkBeside): " + where + " not fitted: the spot back along the track instead.")
+		return false
+	endif
+	; MoveTo first: the bike may be in another cell (it waits in the holding cell). The review of 2026-11-23a (6): then the checked
+	; spot itself (SetPosition), wherever the player has got to since the ask (a getting off while coasting moves them meanwhile).
+	BikeRef.MoveTo(PlayerRef, x - PlayerRef.GetPositionX(), y - PlayerRef.GetPositionY(), z - PlayerRef.GetPositionZ(), false)
+	BikeRef.SetPosition(x, y, z)
+	float lean = lastRoomClear
+	if lean < 0.0
+		lean = 0.0
+	endif
+	parkFitPitch = lastRoomPitch
+	parkFitGroundRoll = lastRoomRoll
+	parkFitRoll = lastRoomRoll - lean
+	BikeRef.SetAngle(parkFitPitch, parkFitRoll, angle)
+	parkFitLeaned = lean > 0.0
+	string how = "fitted: pitch " + parkFitPitch + ", roll " + parkFitRoll + Ternary(parkFitLeaned, ", leaning " + Tenths(lean) + " on its side stand", ", upright")
+	ParkedLookDueNow("the bike's enable")   ; as EnableParked: a look put on while riding, on it first
+	parkHeld = false
+	BikeRef.Enable(false)
+	ParkFitSpotKeep(x, y, z)
+	Log("Parked bike beside the player (the plugin's [Room] ParkBeside, one ask): " + where + "; " + how + ".")
+	return true
 EndFunction
 
 ; Test 47 (the plugin's [Room] ParkCheck): a ride that moved the player less than ParkBackWithin
@@ -5168,6 +5341,15 @@ Function ParkLeanAsPlaced(float afLean, int aiSettle)
 			roll -= 360.0
 		endif
 		base = "the tilt its settle " + aiSettle + " gave it"
+		if aiSettle < 0
+			base = "level beside the player"   ; 2026-11-23a: ParkBesideNow's, not fitted there
+		endif
+	endif
+	if RoomOption(131072)
+		; 2026-11-23a (the plugin's [Room] ParkLean, test 59: the lean against a settle's roll tipped the bike away from its stand on
+		; ground rising toward it): from upright, its settle's pitch kept; the stand-up ends upright.
+		roll = 0.0
+		base += ", from upright (ParkLean)"
 	endif
 	parkFitPitch = pitch
 	parkFitGroundRoll = roll
@@ -5209,6 +5391,25 @@ Function ParkStandUp()
 		i += 1
 	endwhile
 	Log("Getting on: the parked bike stood up off its side stand (roll " + from + " -> " + to + ", ParkStandUp).")
+EndFunction
+
+; 2026-11-23a (the plugin's [Room] MountHide, CMB_RoomOptions bit 262144; test 59's getting on 0.5 s slower than test 58's): the stand-up
+; as ParkStandUp's, run by the parked bike's own script (CMB_BikeActivatorScript.StandUp, a thread of that object): Papyrus runs one
+; thread at a time in a script object, so ParkStandUp's ten calls out and four waits in this script took turns with getting on's own
+; calls through the press, the fade and the equip. False without the bike's script (the caller then starts ParkStandUp).
+bool Function ParkStandUpOwn()
+	CMB_BikeActivatorScript bike = BikeRef as CMB_BikeActivatorScript
+	if !bike
+		return false
+	endif
+	Var[] args = new Var[5]
+	args[0] = parkFitPitch
+	args[1] = parkFitRoll
+	args[2] = parkFitGroundRoll
+	args[3] = StandUpSteps
+	args[4] = StandUpStep
+	bike.CallFunctionNoWait("StandUp", args)
+	return true
 EndFunction
 
 ; The plugin's word on the parked bike's place where it stands now: 1 no one, -1 someone, -2 not checked, 0 no answer. aiKind:
@@ -5807,7 +6008,109 @@ EndFunction
 Function WornOverlayPlan()
 	if LookOption(524288) && LookActive()
 		wornOverlayDue = true
-		StartTimer(WornSwapAgain, TimerLook)
+		wornOverlayTries = 0
+		wornOverlayConfirm = LookOption(4194304)
+		wornOverlayIsConfirm = false
+		wornOverlayAt = Utility.GetCurrentRealTime()
+		if LookOption(4194304)
+			StartTimer(WornOverlaySoon, TimerLook)   ; 2026-11-23a (OverlayQuick): 0.1 s after the equip, not 1 s
+		else
+			StartTimer(WornSwapAgain, TimerLook)
+		endif
+	endif
+EndFunction
+
+; 2026-11-23a ([Look] OverlayQuick): the worn overlay's first try after an equip, its tries again while it matches nothing (the 3D not
+; built yet) and how many, and the confirming swap's delay after the first that takes (a re-equip's first swap can land on the bike's
+; 3D being replaced: F4SE matches the same file names on either).
+float Property WornOverlaySoon = 0.1 AutoReadOnly
+float Property WornOverlayRetry = 0.2 AutoReadOnly
+int Property WornOverlayTriesMax = 10 AutoReadOnly
+float Property WornOverlayConfirmAfter = 1.0 AutoReadOnly
+int wornOverlayTries = 0
+bool wornOverlayConfirm = false   ; a confirming swap still to come after the first that takes
+bool wornOverlayIsConfirm = false ; the due one is that confirming swap
+float wornOverlayAt = 0.0         ; the equip's real time, for the line
+float wornOverlayConfirmAt = 0.0  ; the review of 2026-11-23a (finding 8): the real time the confirming swap is due
+
+; 2026-11-23a: LookFollowUp's next look while it waits (a getting on, busy): the worn overlay's quicker try again when one is due under
+; OverlayQuick (not its confirming swap), else 2026-11-22a's LookRetryDelay.
+; The review of 2026-11-23a (finding 8): -1 when nothing is due (no timer: 2026-11-23a re-armed every 0.5 s through the whole getting on
+; with nothing due); the worn overlay's confirming swap at its own time (WornOverlayConfirmAfter after the first that took: 23a's re-arm
+; replaced its 1.0 s with 0.5 s), its quicker try under OverlayQuick while a getting on is under way, else LookRetryDelay for any due.
+float Function LookFollowUpAgain()
+	float next = -1.0
+	if wornOverlayDue && wornOverlayIsConfirm
+		next = wornOverlayConfirmAt - Utility.GetCurrentRealTime()
+		if next < 0.05
+			next = 0.05
+		endif
+	elseif wornOverlayDue && mounting && LookOption(4194304)
+		next = WornOverlayRetry
+	elseif wornOverlayDue
+		next = LookRetryDelay
+	endif
+	if (lookViewDue || wornSwapDue || wornCountDue) && (next < 0.0 || next > LookRetryDelay)
+		next = LookRetryDelay
+	endif
+	return next
+EndFunction
+
+; The review of 2026-11-23a (finding 8): TimerLook again only when LookFollowUpAgain says something is due.
+Function LookFollowUpRearm()
+	float next = LookFollowUpAgain()
+	if next > 0.0
+		StartTimer(next, TimerLook)
+	endif
+EndFunction
+
+; The review of 2026-11-23a (finding 8): the worn overlay due now: a first try or a try again at once, its confirming swap only from its
+; own time on (TimerLook is shared: another caller's sooner timer, LookOnView's 0.1 s, can bring LookFollowUp before it).
+bool Function WornOverlayDueNow()
+	return wornOverlayDue && (!wornOverlayIsConfirm || Utility.GetCurrentRealTime() >= wornOverlayConfirmAt - 0.02)
+EndFunction
+
+; 2026-11-23a: LookFollowUp's worn overlay (22a's conditions: not after a whole-look swap there, not with a refit or another look
+; due, the key on), now in one place: one try; with OverlayQuick tried again while nothing matched, and confirmed once a second later.
+Function WornOverlayNow(bool abSwapped)
+	wornOverlayDue = false
+	if abSwapped || wornRefit || !LookIsWorn() || !LookOption(524288)
+		return
+	endif
+	bool confirm = wornOverlayIsConfirm
+	wornOverlayIsConfirm = false
+	int overlays = CallLookF4SE("ApplyWornOverlay")   ; the review of 2026-11-22a: WornOverlayRefusal asked again after its compose
+	if overlays < 0
+		return
+	endif
+	bool quick = LookOption(4194304)
+	if overlays == 0 && quick && wornOverlayTries < WornOverlayTriesMax
+		wornOverlayTries += 1
+		wornOverlayDue = true
+		wornOverlayIsConfirm = confirm
+		wornOverlayConfirmAt = Utility.GetCurrentRealTime() + WornOverlayRetry   ; (a confirm's try again: its time moved on)
+		StartTimer(WornOverlayRetry, TimerLook)   ; the worn bike's 3D not built yet: nothing matched
+		return
+	endif
+	string how = ""
+	if quick
+		how = ", " + LookF4SEText("OverlayHow") + ", " + (Utility.GetCurrentRealTime() - wornOverlayAt) + " s after its equip"
+		if confirm
+			how += ", the confirming swap"
+		elseif wornOverlayTries > 0
+			how += ", try " + (wornOverlayTries + 1)
+		endif
+		if mounting
+			how += ", under the getting on's fade"
+		endif
+	endif
+	Log("Look: the worn bike's 3D: the look's swap at runtime too, " + overlays + " entries applied (OverlayRuntime" + how + ")")
+	if quick && wornOverlayConfirm && overlays > 0 && !confirm
+		wornOverlayConfirm = false
+		wornOverlayDue = true
+		wornOverlayIsConfirm = true
+		wornOverlayConfirmAt = Utility.GetCurrentRealTime() + WornOverlayConfirmAfter   ; the review of 2026-11-23a (finding 8)
+		StartTimer(WornOverlayConfirmAfter, TimerLook)
 	endif
 EndFunction
 
@@ -6457,6 +6760,16 @@ EndFunction
 ; TimerLook: the first-person bike's look and the worn bike's F4SE swap, while riding and outside busy.
 Function LookFollowUp()
 	if !riding
+		; 2026-11-23a ([Look] OverlayEvery, CMB_LookOptions 2097152; test 59: the worn bike's overlay at 5 of 21 getting-ons): during
+		; MountEarly the equip's timer can come before `riding = true` (after the pose and the controls); 22a dropped every due here,
+		; with no line. A getting on under way keeps them, tried again; with OverlayQuick the worn overlay goes on now, under its fade.
+		if mounting && LookOption(2097152)
+			if WornOverlayDueNow() && LookOption(4194304)
+				WornOverlayNow(false)
+			endif
+			LookFollowUpRearm()   ; the review of 2026-11-23a (finding 8): only while something is due; the confirm at its own time
+			return
+		endif
 		lookViewDue = false
 		wornSwapDue = false
 		wornCountDue = false
@@ -6464,7 +6777,10 @@ Function LookFollowUp()
 		return
 	endif
 	if busy
-		StartTimer(LookRetryDelay, TimerLook)
+		if mounting && WornOverlayDueNow() && LookOption(2097152) && LookOption(4194304)
+			WornOverlayNow(false)   ; 2026-11-23a: the ride started, Mount still busy till "Mounted.": the worn bike's fresh 3D now
+		endif
+		LookFollowUpRearm()   ; the review of 2026-11-23a (finding 8): only while something is due; the confirm at its own time
 		return
 	endif
 	if wornCountDue
@@ -6504,12 +6820,10 @@ Function LookFollowUp()
 	; 2026-11-22a ([Look] OverlayRuntime): after an equip, the look's composed swap on the worn bike's new 3D at runtime too (the overlays),
 	; unless the swap above put it on already, the mods are to be put on afresh (wornRefit: its own equip plans it again) or the look moved on
 	if wornOverlayDue
-		wornOverlayDue = false
-		if !swapped && !wornRefit && LookIsWorn() && LookOption(524288)
-			int overlays = CallLookF4SE("ApplyWornOverlay")   ; the review of 2026-11-22a: WornOverlayRefusal asked again after its compose
-			if overlays >= 0
-				Log("Look: the worn bike's 3D: the look's swap at runtime too, " + overlays + " entries applied (OverlayRuntime)")
-			endif
+		if WornOverlayDueNow()
+			WornOverlayNow(swapped)   ; 2026-11-23a: 22a's try, with OverlayQuick's tries again and its confirming swap
+		else
+			LookFollowUpRearm()   ; the review of 2026-11-23a (finding 8): its confirming swap not due yet (another caller's timer came first)
 		endif
 	endif
 	if lookViewDue
@@ -6664,6 +6978,10 @@ Function LookAfterLoad()
 	; 2026-11-22a ([Look] OverlayRuntime): a load into a ride builds the worn bike's 3D afresh (its mods' load-time swap): the overlays again
 	if riding && lookWorn == lookApplied && LookOption(524288) && LookActive()
 		wornOverlayDue = true
+		wornOverlayTries = 0   ; 2026-11-23a (OverlayQuick): its tries and confirming swap afresh, as after an equip
+		wornOverlayConfirm = LookOption(4194304)
+		wornOverlayIsConfirm = false
+		wornOverlayAt = Utility.GetCurrentRealTime()
 		StartTimer(ReloadPoseDelay, TimerLook)
 	endif
 EndFunction

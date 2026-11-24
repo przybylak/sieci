@@ -17,6 +17,522 @@ The log goes to `Documents\My Games\Fallout4\Logs\Script\Papyrus.0.log`. Every m
 
 Without F4SE you'll see one or two harmless errors about the `F4SE` / `CMB_HotkeyF4SE` scripts not being found. That's the mod checking whether they're there. When something breaks, send the log, plus a screenshot or a short clip if it's visual.
 
+## Test 60: the 2026-11-23a build (test 59's fixes and your wishes)
+
+The 2026-11-23a build answers test 59 (run on 2026-11-22a): its fixes and your wishes after it, in one build. Your
+picks: getting off parks the bike beside you, with the old spot back along the track as the fallback; no healing clip
+while riding in third person; the left hand on the bar with a pistol out, in first and third person; and a quicker
+take-off, 0.3 of the top in about 1.5 s and half in about 2.8 s, the gears still at about 12, 24, 36 and 46 on the dial.
+Steps 1-7 are getting off and on, steps 8-9 the take-off and the gears, steps 10-14 the art and the Wear on every bike,
+step 15 the field kit, steps 16-19 a pistol out, steps 20-21 the third-person look, steps 22-23 the holster on your
+thigh, steps 24-25 a stimpak in third person and step 26 the frame rate, with the questions T60-1 to T60-26 at the end
+and, after them, the open questions and the log lines that settle them. What test 59 liked (no crash, the muddy tread,
+Nuka-Cola's script, the headlamp's colours, the front fender badge gone, the kit's views and wheel, the third-person
+look with no weapon out, the gears at their bands) is as it was.
+
+- **Getting off:** the bike is parked beside you, on your right (on your left when there's no room on your right), in
+  view, where you got off; only with no room on either side does it go back along the track as before (test 59: "when
+  getting off I'm sometimes put far away from where I got off": a bike length and a half back, behind the camera).
+- **The parked bike:** it leans on its stand between 5 and 20 degrees from upright, so it still rests on its stand on a
+  slope rising toward the stand and no longer lies over at 31 degrees after a swim; a tyre beside a wrecked car is set
+  on the ground under it, not on the car, and a wheel at a curb's edge sits on it.
+- **Getting on and off quicker:** getting off asks the plugin once instead of four times, and getting on no longer loads
+  the parked bike again first: it vanishes as you press E (as the screen goes dark when it carries no look swap), before
+  the bike under you goes on (test 59: "getting on and off wait time is longer than normal").
+- **The take-off:** quicker, your pick (test 59: "still feels a bit sluggish on take-off").
+- **The art:** Rusty (and Raider's rust) lighter, see-through and darker at its edges, with no rust frame round the
+  badge plates (your wish: "rust is too much, should be less intense, more transparent and in darker colors on edges";
+  "a rectangle around the frame"); three meshing gears on either side of the 3D Brotherhood helmet, after your layout
+  ("I was hoping to have 3 gears shown on each side"); and the Wear and Paint condition on all four bikes every time,
+  the parked bike and the bike under you in third person included, within a moment (test 59: "paint effects are not
+  visible on free standing bike"; "wears are showing correctly in the preview, but are not visible on the bike when
+  outside of field kit").
+- **The field kit:** no frame of the menu's own pose between options (test 59: "between every option bike gets into
+  default position for a moment").
+- **A pistol out:** your left hand stays on the left grip and your right hand holds the pistol alone, in third person
+  and in first (test 59: "the character isn't aiming, but she still holds the gun with both hands").
+- **The look in third person:** it works with a weapon drawn too, and it never switches itself off for the session (test
+  59: "right-click/Z for free camera doesn't work when gun is out in 3rd person camera").
+- **The holster:** your holster mod's pistol on your thigh is found as hanging off the thigh itself, so it follows your
+  thigh, also in the moment right after a put-away (test 59: "guns are still showing up in random places").
+- **A stimpak in third person:** no clip on the bike, by its number key or from the Pip-Boy, slow or at speed: the item
+  works and your hands stay on the bars (your pick; test 59: "it would make more sense to not have any healing animation
+  in 3rd person unless you can fix it"). First person is as before.
+
+Five things to know first: when you get off, the bike is beside you, on your right as a rule (look there as the screen
+comes back, not behind); the parked bike blinks once a couple of seconds after the field kit closes, and the Wear is on
+it right after that blink; getting on, the parked bike usually vanishes as you press E, just before the screen goes
+black; in third person a stimpak by its number key or from the Pip-Boy plays no clip at all, the health still comes; and
+with a pistol out in third person your right hand leaves the bar and holds the pistol over it.
+
+Do this section's steps in one game session if you can, in this order (getting off first, the art and the kit by the
+parked bike in one of your settlements, the night views after them, then the rides), and say which session each step was
+in. Every new behaviour of the plugin has a key whose off value gives the 2026-11-22a build back (README's table of this
+build's keys), so each A/B is one key away; the changed art's A/B is files (after step 14). Things only the game can
+settle: how much shorter the getting-off and getting-on blacks are (steps 1 and 6), whether a bike leaning 5 degrees on
+a slope rising toward its stand still looks as if it rests on it (step 5), when the armour menu puts a new bike in (step
+15), whether the game draws its first-person arms through the plugin's shrunk bone data and which way a pistol's barrel
+points (steps 16-18), which of two readings of test 59's third-person camera is the game's (step 20), and what the dark
+thing along your right forearm in test 59's holster picture was (step 22).
+
+Before you start:
+- install as a Replace over 2026-11-22a. If you edited `CMB_Slope.ini`, put your values into the new one: `[Look]`,
+  `[View]`, `[Steer]`, `[Tilt]`, `[Room]` and `[Diag]` have new keys, and three defaults change: `[Look] OverlayParked`
+  1 (test 59's A/B; 0 in 2026-11-22a), `[Steer] LaunchFrom` 0.25 (0.14) and `[Sound] HeardRiseGears` 2.1,1.35,1,1,1
+  (2,0.86,0.8,1,1) (README's table). Otherwise use the shipped file as it is;
+- the ESP and the MCM are 2026-11-22a's, unchanged (the Look section's 25 controls); a 2026-11-22a save loads as it is
+  and nothing is put on afresh;
+- the same load order as test 59: your visible-holster mod on;
+- have the 10mm, the .44 and the flare gun on the favourites' number keys, a stimpak on one too, and a few stimpaks;
+- the night views want night: wait for it, or in the console `set gamehour to 22`;
+- for the blacks (steps 1 and 6) a video is the best measure (30 fps or more); say where the recording skipped;
+- each A/B below: change one key in `CMB_Slope.ini`, save the file, get off and on (no restart), and put it back after.
+
+The log's first lines: `CMB_Slope.log` has six settings lines more: `  room (2026-11-23a, test 59): ParkBeside=65
+(getting off: the bike 65 to your right, else your left, 28 ahead, ...); ParkLean=5,20 (...); ParkTyres=1 (...);
+MountHide=1 (...): CMB_RoomOptions 65536 131072 262144 ...`, `  look (2026-11-23a, test 59): OverlayEvery=1 (...)
+OverlayQuick=1 (...): CMB_LookOptions 8388607 for the scripts`, `  kit (2026-11-23a): [Look] KitLate=1 (...)
+KitPrePlace=1 (...)`, `  grip (2026-11-23a, test 59): GunOneHand=1 GunHoldAt=-3,-2,9 [View] BodyGunGrip=1 (...)`, ` look
+(2026-11-23a, test 59): [View] LookOrbitGame=1 (...) LookRecover=1 (...)` and `  attachments and item use (2026-11-23a,
+test 59): AttachSkeleton=1 [Diag] AttachFresh=1 [Steer] UseNoClip=1 (...)`; and three older ones read differently: `
+steer (2026-11-16b, test 55): from rest the throttle starts at 0.25 (LaunchFrom) and climbs evenly from there, 0.112 of
+the top a second, the top 6.7 s after the press ...`, `  sound: HeardRiseGears=2.1,1.35,1,1,1 ShiftGapGears=0,1.8,2,1.7:
+...` and 2026-11-22a's look line, `... OverlayParked=1 (...)`. No 2026-11-23a lines, or `ParkBeside=0 (getting off at
+the track's spot: 2026-11-22a)` with an INI you didn't change, mean an older `CMB_Slope.dll` or `CMB_Slope.ini` is
+loaded: stop and say so.
+
+### Getting off and on (2026-11-23a): steps 1-7
+
+(test 59: "when getting off I'm sometimes put far away from where I got off": the plugin parked the bike a bike length
+and a half back along your track, 145 units on 13 of 19 get-offs, behind the camera; "it leans, but not always;
+sometimes one tyre is partially in the ground": on slopes rising toward the stand the bike tipped away from it, after a
+swim it lay 31 degrees over, beside a wrecked car the rear tyre's ray met the car; and "getting on and off wait time is
+longer than normal": getting on about 0.5 s slower than test 58's, the getting-off black 1.9-2.0 s against 1.7)
+
+1. **Getting off on flat ground**: ride a short way along a road in third person and get off. As the screen comes back
+   the bike should be right beside you on your right, its stand side towards you, in view (not behind the camera), its
+   middle about where the bike was under you. Do it five times or more, at a stop and right after riding, and once
+   getting off while the bike still rolls: it is set at the very spot the plugin checked, not shifted along. Time the
+   black on the video if you record: test 59's was 1.9-2.0 s, about 1.3 s is expected.
+   - `CMB_Slope.log`: `room: ask N: on the player's right at (x, y): room (...)`, the guard's `room: ask N at (...) ...
+     (the parked bike's place: ParkGuard, the player not counted): no one in it ...`, its fit's `room: ask N at (...)
+     (the parked bike's fit: ParkFit): fitted: ..., leaning 8.6 on its stand from upright: roll -8.6 ...`, and then
+     `room: ask N at (px, py, pz), heading H (the parked bike beside the player: ParkBeside): on their right, ...`.
+   - `Papyrus.0.log`: `Parked bike beside the player (the plugin's [Room] ParkBeside, one ask): 65 to their right, 28
+     ahead, along their heading; fitted: pitch ..., roll ..., leaning 8.6 on its side stand.` then `Dismounted.`; no
+     `The park spot (the track just ridden)` line and no `Parked bike set on the ground under its tyres` line at a
+     getting off: one ask where 2026-11-22a made four.
+2. **On slopes**: get off riding up a slope, riding down one, and across one both ways (the ground falling to your
+   right, then to your left). The bike is beside you each time, on your right as a rule, both tyres on the ground.
+3. **By a wall**: get off with a wall or a fence close on your right: the bike should be on your left instead. Then get
+   off with a ledge, a drop or a high kerb close on your right, where both tyres couldn't sit on the ground: the bike
+   should be on your left too (such a side counts as no room). Then get off in a narrow gap with no room either side
+   (between two walls, a car and a wall): it goes back along the track as in test 59.
+   - Left: `... (the parked bike beside the player: ParkBeside): on their left, ...` and `... 65 to their left, 28
+     ahead, ...`.
+   - Neither: `Papyrus.0.log` `... none on either side (the plugin's lines say why).`, then 2026-11-22a's lines (`The
+     park spot (the track just ridden) ...`).
+4. **By a car, a curb, a step**: get off with a wrecked car close on your right (the bike's wheels near the car's body),
+   at a curb, and with a step or a paving edge under a wheel. Both tyres should sit on the ground or on the curb's edge,
+   never on the car's body and never sunk into the step. Kneel by the wheels and look.
+   - A tyre whose ray met the car: the fit line ends `; the rear tyre's ray met something N over the line from the front
+     tyre through the middle's (<its name>): looked under it, its ground ...` (or the front tyre's).
+   - A wheel on an edge: `; the front tyre raised N onto the ground 8 ahead of its contact (its footprint)` (or 16, or
+     behind).
+5. **The lean on the stand**: on flat ground the bike leans about 9 degrees to its left on its stand. Across a slope
+   with the stand uphill it should still lean onto its stand a little (at least 5 degrees), not stand upright or tip
+   away from it; with the stand downhill it leans more, but no more than 20 degrees (test 59's spot after a swim leaned
+   31). Then let it come to you after a swim and call it (keys → Call) to a slope: the same. Does a bike at 5 or 20 look
+   right, or does the foot look buried or in the air?
+   - The fit line: `leaning X on its stand from upright: roll -X`; held: `(its -6.7 from upright held to 5: the foot 3.6
+     into its ground)` or `(its 31.0 from upright held to 20: the foot 3.0 over its ground)`.
+6. **Getting on**: get on next to the leaning bike several times, some right after the field kit. There is no reload
+   blink at the press any more. When the parked bike carries the plugin's look swap (most getting-ons now: step 13) it
+   vanishes as you press E, just before the screen goes black, without standing up first; otherwise it stands up and
+   vanishes 0.2 s into the fade. You ride upright, no jump. Time the black on the video and the press to riding (test
+   58: 2.5-3.1 s of black for a quick one, test 59 2.8-3.3; the press to Mounted 3.6 s in test 58, 4.1 in test 59): as
+   quick as test 58's or quicker? Does the bike vanishing at the press look wrong?
+   - `Papyrus.0.log`, with the look's swap on it: `Getting on: the parked bike's look at the mount (ParkedSwapHold):
+     ...; a runtime swap on its 3D (...): its 3D hidden at once, before the fade (MountHide: no reload; the bike back at
+     the ride's end, or where it stood if the getting on is undone); ...`. Without one: `Getting on: the parked bike
+     hidden under the fade before the equip (the plugin's [Room] MountHide).`, and the stand-up's `Getting on: the
+     parked bike stood up off its side stand (...)` only when it finished before the hide.
+   - Every getting on: `Getting on: the press 0.00, the fade ..., the equip ..., the pose ..., ready ... (CMB_RideReady
+     after ... s), the screen back ..., Mounted ... (real seconds)`: send them all; no `Getting on: waited X s for the
+     parked bike's look` after the kit (test 59: 1.1-2.1 s three times).
+   - If a getting on fails (a message, you stay on foot), the bike should be back where it stood, leaning.
+7. **The A/Bs**: `[Room] ParkBeside=0` (test 59's spot back along the track), `ParkLean=` (empty: 2026-11-22a's lean, 3
+   to 12 against the ground across), `ParkTyres=0` (one ray at each tyre's contact), `MountHide=0` (2026-11-22a's
+   getting on: the bike loaded again first, a blink, then the fade, and the hide after the equip). A few get-offs and
+   get-ons each, on the same ground; back to the shipped values after.
+
+### The take-off and the gears (2026-11-23a): steps 8-9
+
+(test 59: "still feels a bit sluggish on take-off": the plugin's take-off was 17a's, but most of test 59's starts were
+from a stand of 5 s or more and in third person, where the game's own first second is slow; from rest 0.3 of the top
+came after 2.09 s and half after 3.58; your pick: 0.3 of the top in about 1.5 s, half in about 2.8, the gears at about
+12, 24, 36 and 46 on the dial)
+
+8. **From a stand**: on a long flat road take off from a stop with W held to the top, about ten times: half after
+   standing still a while, half right after stopping, some in first person and some in third. The first second or two
+   should pull away briskly, not sluggishly, and without a jerk.
+   - Each take-off: `launch: from rest: 0.3 of the top after X s, half after Y s, 0.9 after Z s, the top (0.97) after W
+     s (the throttle from 0.25 closing on the top over 1.5 s, the cap's lead 0.45: LaunchTau); ...`: X about 1.5 (about
+     1.55 after standing, 1.3 when the bike moved a few seconds before), Y about 2.65, Z about 5.9.
+9. **The gears on the dial**: in the same pulls the gears should still change at about 12, 24, 36 and 46 on the dial,
+   each gear sounding as if it revs out before it changes (not changing up early or soft). Let go at the top a few times
+   and coast to a stop, and brake hard from the top once or twice: both as in test 59.
+   - The gear lines: `sound: gear 2 at ~215 u/s, ~3400 rpm ... (UpBands, held ...)`, then gear 3 at ~429, 4 at ~644, 5
+     at ~823; from a stand 1-2 and 2-3 at about 3400-3500 rpm, 3-4 about 3200, 4-5 about 2570 (when the bike was moving
+     just before, 1-2 about 2700 and 2-3 about 3250).
+   - A/B, by hand (the take-off has no key of its own): set `[Steer] LaunchFrom=0.14` and `[Sound]
+     HeardRiseGears=2,0.86,0.8,1,1` together (2026-11-22a's take-off), a few take-offs, then back to 0.25 and
+     2.1,1.35,1,1,1. Better or worse?
+
+### The art and the Wear on every bike (2026-11-23a): steps 10-14
+
+At the field kit choose each in turn and look at it in the kit's preview, then leave the kit and look at the parked bike
+close up (after its blink a couple of seconds after the kit closes), then ride away and look at it from the riding
+camera, in third person from the side and from behind, by day and at night. A screenshot of each, close and riding,
+please.
+
+10. **Rusty**: Wear "Rusty", the Brotherhood of Steel badge on one tank and "Brotherhood helmet (3D)" on the other. Look
+    close at the badges: no rust frame round a plate and no drips off its lower edge any more; the rust is scattered
+    brown stains, the paint showing through them, each darker at its edge, one or two of them by a plate at random
+    places. Then the whole bike parked and riding, by day and at night: lighter than in test 59 (less rust, less
+    orange), the mufflers brown rust rather than bright orange. Is it now too faint?
+    - `Papyrus.0.log`: `Customise: wear = Wear:rusty (4)`.
+11. **Raider, and every Wear at the badges**: Wear "Raider": the same lighter rust under the blood. Then Weathered,
+    Dusty, Muddy, Bloody and Wasteland in turn, close at both tank badges and the rear badge: no frame round any plate.
+    `Customise: wear = Wear:raider (7)`.
+12. **The gears beside the helmet**: Tank L and Tank R "Brotherhood helmet (3D)". On each tank the metallic blue plate
+    shows three black gears on each side of the helmet: a big one low toward the plate's end, a smaller one above it,
+    and a smaller one up beside the helmet, the small ones' teeth in the big one's gaps; no gear behind or under the
+    helmet, every gear whole, none cut by the plate's chrome edge. Parked and riding, by day and at night. Compare it
+    with your layout: should the gears be bigger, or placed differently? Everything else on the badges as in test 59.
+    - `Papyrus.0.log`: `Customise: tank left = TankL:boshelm3d (18)`, `... tank right = TankR:boshelm3d (19)`.
+13. **The Wear and Paint condition on all four bikes, and how quickly**: Wear "Wasteland" or "Rusty" with Paint
+    condition "Chipped". Look at the kit's preview; close the kit: the parked bike blinks once a couple of seconds later
+    and should show the wear and the chipped paint right after the blink. Get on at once and look at the bike as the
+    screen comes back in third person: the wear from the first moment, no clean bike first. Draw a pistol and put it
+    away a few times while riding in third person: the bike may flash clean for a split second at most (test 59: clean
+    for 2-4 s after each). Switch to first person: the bike under you as before. Get off and look at the parked bike
+    beside you: the wear within a second of the screen coming back. Five getting-ons, some straight after the kit and
+    some later. Then save beside the bike, change the Wear at the kit, and load that save: the parked bike (and the bike
+    under you after getting on) shows the save's Wear, not the newer one.
+    - `CMB_Slope.log` at the start: `  look (2026-11-23a, test 59): OverlayEvery=1 (...) OverlayQuick=1 (...):
+      CMB_LookOptions 8388607 for the scripts`.
+    - `Papyrus.0.log`, every getting on: `Look: the worn bike's 3D: the look's swap at runtime too, 39 entries applied
+      (OverlayRuntime, the compose reused, 0.3 s after its equip, under the getting on's fade)` (with `try 2` when the
+      first try came before the bike's 3D was built), then `... (OverlayRuntime, the compose reused, 1.3 s after its
+      equip, the confirming swap)`; every weapon draw and put-away the same two lines, about 0.2-0.4 s and 1.2-1.4 s
+      after the equip (test 59 had them at 5 of 21 getting-ons, 4-5 s after the draws).
+    - Every getting off, within about a second of `Dismounted.`: `Look: the parked bike's fresh 3D (its 3D's load): the
+      look's swap at runtime too, N of M entries applied (OverlayParked, the compose reused)` (test 59: never at a
+      getting off).
+    - After the kit: `Look: the parked bike's swap holds N entries, kept for its 3D's next load ... (ParkedSwapHold:
+      loaded again)`, `Look: the parked bike's 3D loaded again for its colours (the field kit, ParkedReload)` (the
+      blink) and right after it the `fresh 3D ... (OverlayParked, the compose reused)` line; in first person `Look: the
+      first-person bike: N of M entries applied, colours: ... (OverlayQuick: the compose reused)`.
+14. **The A/Bs**: one at a time, back to 1 after: `[Look] OverlayQuick=0` (the wear comes 2-4 s after each equip again),
+    `OverlayEvery=0` (the wear missing at most getting-ons and on the parked bike after getting off, as in test 59),
+    `OverlayParked=0` (test 59's parked bike: no Wear or Paint condition on it at all).
+
+The changed art's A/B is files: the 2026-11-22a package's `Data\Textures\CMB\Bike\` `badges_d.dds`, `badges_n.dds`,
+`badges_s.dds` (the big gear behind the helmet, one smaller either side) and the 30 `wear_rusty_*` and `wear_raider_*`
+maps (`_d`, `_n` and `_s` of `static`, `fork`, `static_engine`, `static_exhaust` and `fork_black`: 22a's rust), in a
+small MO2 mod of their own ticked below this one (README's table of this build's art switches).
+
+### The field kit (2026-11-23a): step 15
+
+(test 59: "between every option bike gets into default position for a moment": at each option the menu puts the new bike
+in at its own three-quarter pose in its own update of the frame, after the plugin's turn, so one frame was drawn so)
+
+15. **No flash between options**: Customise, the Motorbike, the Fender slot (the rear fender from above). Press E and
+    move up and down its mods one by one, slowly and then quickly: the bike should stay on the fender view at every
+    option, with no frame of the usual three-quarter pose in between. The same on Plate text (the rear) and Tank L (the
+    left side). If you record, a few seconds of it at 60 fps help.
+    - At the first Customise of the session: `kit: late: ExamineMenu's AdvanceMovie (+0x...) and PreDisplay (+0x...)
+      wrapped (vtable +0x..., slots 4 and 5, passed through): ...` (or `kit: late: ExamineMenu: <why>`).
+    - At each close, before 2026-11-22a's close line: `kit: hold (2026-11-23a): the menu's bike (item ...): the menu
+      closed; the new drawn bikes: A placed right after the menu's AdvanceMovie, P at its PreDisplay (KitLate: ...), O
+      first seen by the frame task already at the visit's view, M at the menu's own pose (drawn so a frame); the loaded
+      bikes not drawn placed ahead N time(s), K at most at once (KitPrePlace)`. M should be 0; send the line either way:
+      A, P and O say where the menu puts its new bike in, and its end, `the list's stride not found in N frame(s), an
+      unreferenced model skipped M time(s)`, how often the bikes not shown yet couldn't be turned.
+    - A flash still seen: `kit: late (2026-11-23a): a new drawn bike ... drawn so for a frame` lines, one each. A/Bs:
+      `[Look] KitLate=0`, then `KitPrePlace=0`: better or worse?
+
+### A pistol out: the left hand on the bar (2026-11-23a): steps 16-19
+
+(test 59: "the character isn't aiming, but she still holds the gun with both hands": in third person both hands were on
+the bars with the pistol in the right fist on its grip; in first person your body vanished at a draw and the game's own
+arms held the pistol in both hands; your pick: the left hand back on the left grip in both, the gun one-handed)
+
+16. **Third person, a draw**: ride in third person a few seconds with the pistol holstered, then draw the 10mm (its
+    number key) while riding. Your left hand should stay on the left grip, and your right hand should come off the right
+    grip and hold the pistol out over the bars, pointing ahead. Does the pistol look upright or on its side? Does the
+    right wrist or elbow look bent wrong? Then the .44 the same way. A screenshot from the side and from behind.
+    - Each draw: `gun: a handgun out (the weapon state 2, the gun state 0) at N u/s: the rider on the riding seat pose
+      read N s ago, the left hand on its grip, the right holding the pistol off the bar (GunOneHand) (GunPose)`, then
+      `gun: one-handed (GunOneHand): the right hand off its grip on the hold 9.7 from the seat pose's wrist (GunHoldAt
+      -3,-2,9), the arm at N% of its reach, the wrist turned N deg from the seat pose; the pistol's barrel (its 3D's +Y)
+      N deg off the bike's heading in the seat pose's fist, turned onto it; its up N deg from the bike's; the left hand
+      on its grip`. "Its up" 0 is upright, 90 on its side.
+    - If instead `gun: one-handed: the pistol's barrel (its 3D's +Y) N deg off the bike's heading ..., over 75: not
+      turned, the fist's own kept (GunOneHand)`, say which gun: its barrel isn't along its +Y.
+17. **Fire and put away, third person**: fire a few shots riding in third person: the shots go where they did in test
+    59. Put the pistol away while riding: the right hand goes back onto its grip, smoothly.
+18. **First person**: switch to first person and draw the pistol. You should still see your own body, legs and left arm,
+    the left hand on the left grip, and only one arm, the right, holding the pistol (test 59: the body gone, both hands
+    on the pistol). Fire a few shots, reload, then put it away: your right arm back on its grip.
+    - The draw: `body: first person, a handgun out (BodyGunGrip): your body shown, its left hand on the grip, its right
+      arm's N bone(s) shrunk at the shoulder; the game's first-person 3D's left arm shrunk to a speck: N bone(s) in M
+      skinned shape(s) (...), its right arm and pistol as the game has them` (test 59 had `body: first person: the
+      rider's body not shown: a weapon out`).
+    - The put-away: `body: the first-person 3D's left arm given back after N s (the weapon away): M shape(s) on their
+      own bone data again`.
+    - Is a second left hand or arm anywhere in view (the game's, not shrunk)? Does the right shoulder look joined?
+19. **Menus and edges with a pistol out**: with the pistol out in first person open the Pip-Boy and close it; look back
+    over your shoulder; switch to third person and back. Then get off with the pistol out in first person, and on foot
+    draw and put away the pistol in first person. Nothing should be left missing: on foot both of the game's arms as
+    normal, the Pip-Boy arm normal.
+    - Each time the body stops showing with the gun: the `... left arm given back after N s (<why>) ...` line; `(a new
+      first-person 3D)` as the why means the game replaced its first-person arms while the gun was out: say what you did
+      just before.
+    - A/Bs: `[Tilt] GunOneHand=0` (third person: both hands on the bars, test 59's), `[View] BodyGunGrip=0` (first
+      person: test 59's); if the hold's place is off, `[Tilt] GunHoldAt` (x out, y forward, z up from where the hand
+      sits on its grip; -3,-2,9 shipped).
+
+### The look in third person (2026-11-23a): steps 20-21
+
+(test 59: "right-click/Z for free camera doesn't work when gun is out in 3rd person camera", and with no gun out "yes,
+works correctly": with no weapon drawn the game's own free camera swung as well as the plugin's orbit, 95 degrees round
+against the orbit's 48, so the orbit switched itself off for the session on the first hold; with a weapon drawn the game
+keeps its camera behind you, and only the orbit could have swung it)
+
+20. **No weapon drawn**: ride in third person at speed, hold the right button (or Z) and move the mouse left and right:
+    the camera should swing round you smoothly, as far as you move it, the bike going straight on. Let go: the camera
+    comes back behind you. Do it again three or four times: it should work every time (in test 59 the orbit worked only
+    for its first half second, the game's own look after).
+    - Each release: `view: that hold: the game swung the camera itself on N frame(s), the plugin on M (a weapon away)
+      (LookOrbitGame)`, N much larger than M; `view: the third-person camera back behind you after T s (...)
+      (LookOrbit)`, `...; the game's own return, the ease's writes not followed (LookRecover)) (LookOrbit)` when the
+      game brought its camera back itself.
+    - No line says "off this session" any more. If a check fails: `... the camera the game's own for this hold, the
+      orbit tried again at the next (LookRecover)`.
+21. **A weapon drawn**: draw the 10mm, still in third person, riding. Hold the right button (or Z) and move the mouse:
+    the camera should swing round you too, up to about a quarter turn either side (60 degrees), and come back behind
+    when you let go; this is what didn't work in test 59. Put the weapon away and draw it again, a few holds each way.
+    - `view: that hold: the game swung the camera itself on 0 frame(s), the plugin on M (a weapon drawn)
+      (LookOrbitGame)`.
+    - A/Bs: `[View] LookOrbitGame=0` (2026-11-22a's orbit every frame, with no weapon too: test 59's 95 against 48, but
+      for that hold only), `LookRecover=0` (2026-11-22a's checks: the first that fails switches the orbit or the ease
+      off for the session).
+
+### The holster on your thigh (2026-11-23a): steps 22-23
+
+(test 59: "guns are still showing up in random places": your body's skins hang on helper bones beside the thigh's own
+bone, so the holster mod's copies under 'RLeg_Thigh' were never found as hanging off your body; in the moment right
+after a put-away, while the plugin still holds your seat pose, they were drawn where the game's standing clip has the
+thigh; and a dark thing lay along your right forearm in third person)
+
+22. **Riding holstered**: ride in third person and put the 10mm, the .44 and the flare gun away in turn while riding,
+    straight and leaning in turns, over a few bumps. Each holstered pistol should sit on your right thigh and stay there
+    through the leans and the bumps. Look at your right forearm too: is anything lying along it, and is it there before
+    any draw? A short video.
+    - At each put-away: `rider: an attachment: 'WeaponPistolUp' < 'RLeg_Thigh', N held shape(s) ('...' ...), hangs off
+      the skeleton's 'RLeg_Thigh' (no skin's bone: the body's skin there through '...' under it, AttachSkeleton); the
+      body's part there none (the tilt alone) (AttachWhere)` (", new shapes" at the next put-aways of a ride); the flare
+      gun's the same.
+    - At 0.5 s and 2 s: `rider: the attachment 'WeaponPistolUp' at 2.0 s (tilted): its root (...) from the bone
+      'RLeg_Thigh' in the bone's frame (...); its shapes' written transforms put it 0.00x to 0.0xx off that place from
+      the drawn bone; ...`: near 0, it follows the thigh. A copy not drawn as written yet: `...; left out: N not updated
+      by the game (...), N hidden (AttachFresh)`.
+23. **Right after a put-away (posed)**: draw a pistol and put it away while riding in third person, and watch your thigh
+    in the half second right after the put-away, when your arms go back to the bars: the holstered pistol should be on
+    your thigh from the first moment, not off to the side. Do it standing on the bike, slowly and at speed, three times
+    each.
+    - The seat pose's line counts more bones (`the seat pose read (still, N bones ...)`: the skeleton's nodes over your
+      skins' bones), and at the put-away the attachment line as in step 22.
+    - A/B: `[Tilt] AttachSkeleton=0` (2026-11-22a's: no `an attachment:` line for 'WeaponPistolUp', test 59's).
+
+### A stimpak in third person (2026-11-23a): steps 24-25
+
+(your pick after test 59: no healing clip on the bike in third person, the item still used: "it would make more sense to
+not have any healing animation in 3rd person unless you can fix it"; in test 59 a stimpak by its number key at a crawl
+played the game's own clip, the hands off the bars, and one from the Pip-Boy played its clip after the menu closed)
+
+24. **By its number key**: riding in third person, use a stimpak by its number key at full speed, then riding slowly,
+    then standing still on the bike. Each time: no injection clip, both hands on the bars, the health restored (the
+    plugin hands the item to the script, so any clip is cut where it starts).
+    - Slow or standing: `quick: key 0x.. (the slot N, the game's 'QuickkeyN') at N u/s: Stimpak (00023736, a potion)
+      handed to the script's watch, not the game's animated use (...): CMB_RiderQuickUse N (UseNoClip: under
+      QuickUseAbove, in third person)`; at speed the same line without the `(UseNoClip: ...)` (as before).
+25. **From the Pip-Boy, and the Favourites menu**: riding in third person, use a stimpak from the Pip-Boy at full speed,
+    then slowly, then standing on the bike: no clip after the Pip-Boy closes (its item is applied in the menu, so the
+    clip is cut at its first frame), both hands on the bars, the health restored. Then from the Favourites menu (hold
+    the number key, or the d-pad's wheel), not within 4 s of closing the Pip-Boy: its clip may play a moment and is cut
+    when the item comes; the health must be restored every time. Then the same, by key, from the Pip-Boy and from the
+    Favourites menu, in first person: as in test 59 (the plugin leaves first person alone).
+    - After the Pip-Boy: `rider: an item's use clip at N u/s (its props, Stimpack:0 < ... < AnimObjectL1, this frame;
+      the Pip-Boy open N s before them, no other cause: its item applied in the menu, in third person no use clip
+      (UseNoClip)): IdleStop sent to the graph (UseStop): taken; the clip over after 0.0x s`.
+    - From the Favourites menu: `... no item used yet (...): left to play until it is`, then `rider: an item's use clip
+      at N u/s (the item used N s into its clip, CMB_RiderItemUse N; ...): IdleStop sent ...`, at any speed.
+    - At the ride's end: `quick: this ride in third person: N item use clip(s) cut at their props after the Pip-Boy, N
+      potion key(s) under QuickUseAbove handed to the script (UseNoClip)`.
+    - A/B: `[Steer] UseNoClip=0` (the clip as in test 59, the hands off the bars meanwhile).
+### The frame rate (step 26)
+
+26. **As in test 59**: ride as you usually do for a few minutes, in a town and in the open, and stand 3-4 m from the
+    parked bike at a fixed spot for 20 s, with Wear "Wasteland" and Paint condition "Worn": any frame drops, at the
+    kit's options, at a getting on, at a weapon's draw? (test 59: "didn't notice any frame drops"). `CMB_Slope.log`'s
+    `time: the last 10 s: N frames a second (...)` lines say it too.
+
+Send `CMB_Slope.log` and its `_prev` logs and `Papyrus.0.log` of each session, the screenshots of steps 1-5 (the bike
+beside you on flat ground, on a slope, by a wall, by a car, leaning across a slope both ways), 10-13 (Rusty and Raider
+at the badges and riding, every Wear's badges, the gears beside the helmet, the four bikes with the wear) and 16-18 (a
+pistol out in third and first person), and a short video of steps 1 and 6 (the blacks), 15 (the kit's options), 20-21
+(the look), 22-23 (the holster) and 24-25 (a stimpak) if you can.
+
+### Questions for you (test 60)
+
+- **T60-1 (step 1).** Getting off on flat ground: the bike beside you on your right, in view? The black shorter than
+  test 59's?
+- **T60-2 (step 2).** On slopes, up, down and across both ways: still beside you, the tyres on the ground?
+- **T60-3 (step 3).** A wall on your right: the bike on your left? No room either side: back along the track?
+- **T60-4 (step 4).** By a car, a curb, a step: both tyres on the ground or the edge, never on the car or sunk in?
+- **T60-5 (step 5).** The lean: on its stand on flat ground, at least a little with the stand uphill, no more than 20
+  with it downhill, after a swim and a call? Does 5 or 20 look right?
+- **T60-6 (step 6).** Getting on: the bike gone at the press or under the fade, no blink? As quick as test 58's? The
+  vanishing at the press acceptable?
+- **T60-7 (step 7).** Which of `ParkBeside=0`, `ParkLean=`, `ParkTyres=0`, `MountHide=0` was better than the default, if
+  any?
+- **T60-8 (step 8).** The take-off brisk enough now (or too quick, or jerky), from a stand and right after stopping?
+- **T60-9 (step 9).** The gears still at about 12, 24, 36 and 46, each revving out before it changes? The coast and the
+  brake as before? 2026-11-22a's take-off better?
+- **T60-10 (step 10).** Rusty: no frame round the plates, lighter, see-through with dark edges? Too faint now?
+- **T60-11 (step 11).** Raider the same? A frame round a plate with any Wear?
+- **T60-12 (step 12).** The three gears either side of the helmet: as your layout? Bigger, smaller, moved?
+- **T60-13 (step 13).** The Wear and Paint condition on all four bikes, at once after the kit's blink, from the first
+  moment after getting on, within a second after getting off, at most a split-second clean at a draw?
+- **T60-14 (step 14).** `OverlayQuick=0`, `OverlayEvery=0`, `OverlayParked=0`: worse, as expected?
+- **T60-15 (step 15).** No frame of the menu's own pose between options? What did the `kit: hold (2026-11-23a)` lines
+  count?
+- **T60-16 (step 16).** Third person, a pistol drawn: the left hand on its grip, the right holding the pistol over the
+  bars, pointing ahead? Upright or on its side? The wrist and elbow right?
+- **T60-17 (step 17).** The shots as before? The right hand back on its grip at the put-away?
+- **T60-18 (step 18).** First person, a pistol drawn: your body and left hand on the grip, one arm on the pistol? A
+  second left hand anywhere? Firing and reloading right?
+- **T60-19 (step 19).** After the Pip-Boy, a look back, third person and getting off with the pistol out: nothing left
+  missing? `GunOneHand=0` or `BodyGunGrip=0` better?
+- **T60-20 (step 20).** No weapon: the camera round you every time, back behind when you let go?
+- **T60-21 (step 21).** A weapon drawn: the camera round you up to a quarter turn, back behind? `LookOrbitGame=0` or
+  `LookRecover=0` better?
+- **T60-22 (step 22).** The holstered pistols on your thigh through leans and bumps? Anything along your right forearm?
+- **T60-23 (step 23).** Right after a put-away: on your thigh from the first moment? `AttachSkeleton=0` worse?
+- **T60-24 (step 24).** A stimpak by its key in third person, fast, slow and standing: no clip, the health restored?
+- **T60-25 (step 25).** From the Pip-Boy in third person: no clip after it closes? From the Favourites menu: the health
+  every time? First person as before?
+- **T60-26 (step 26).** Any frame drops?
+
+### The open questions and the lines that settle them (test 60)
+
+For your checker: what each part of this build couldn't settle offline, the log line that settles it and the A/B it
+suggests.
+
+- **Getting off beside you** (steps 1-4): the spot is 65 to the player's right (else their left) and 28 ahead, where the
+  worn bike's middle was, along their heading; in first person it is beside you, not in front. With ParkFit on, a side
+  where both tyres won't sit on the ground (a ledge, a drop) counts as no room (`... not fitted there (its fit's line
+  says why): no room on this side`); with ParkFit=0 the beside spot is settled as 22a's checked spot (PlaceOnSpot). The
+  bike is set at the spot the plugin checked, the player's roll during the ask not added. Neither side free: the track's
+  spot, behind the camera, as before. Lines: `room: ask N ... (the parked bike beside the player: ParkBeside): ...` and
+  `Parked bike beside the player (the plugin's [Room] ParkBeside, one ask): ...`; none on either side: `... none on
+  either side (the plugin's lines say why).`. A/B `[Room] ParkBeside=0`.
+- **The getting-off and getting-on times** (steps 1 and 6): the harness can't time Papyrus. Getting off makes one ask
+  where 2026-11-22a made four (0.7-0.8 s of asks in test 59, each 0.20-0.28 s); getting on drops the stand-up's turn
+  taking with the controller and the reload before the fade: a runtime-swapped parked bike (most getting-ons) is hidden
+  at once as E is pressed, before the fade, so it is never drawn into the getting on (test 58's crash guard), and one
+  without a swap 0.2 s into the fade; a failed or undone getting on brings it back where it stood (MountUndo). The rest
+  of test 59's 0.5 s (the heavier worn mesh's equip, ParkedSwapHold's mount line) is not touched. Lines: `Getting on:
+  the press 0.00, the fade ..., ... Mounted ... (real seconds)`, the mount line's `... its 3D hidden at once, before the
+  fade (MountHide: no reload; ...)`, `Getting on: the parked bike hidden under the fade before the equip (...)`. A/B
+  `[Room] MountHide=0`.
+- **The lean** (step 5): a rigid bike whose foot is on its ground can't rest on its stand where the ground rises toward
+  it, nor lean over 20 degrees without tipping, so the lean from upright is held to 5..20 and the foot goes a few units
+  into the rise (3.7 in the harness at test 59's worst) or over the fall (3.0); on pavement that may show. A bike turned
+  to cut a steep cross slope would need the placements to choose the heading: not done. Lines: the fit line's `leaning X
+  on its stand from upright: roll -X` and `(its ... from upright held to 5: the foot ... into its ground)`. A/B `[Room]
+  ParkLean=` (2026-11-22a's), or other bounds (`ParkLean=<min>,<max>`, within 0 to 40).
+- **The tyres** (step 4): the tyres' rays still start 88 up; ParkTyres sets aside one tyre's ground more than 12 over
+  the line from the other tyre through the middle's (a thing over one contact), not both at once, and a real step higher
+  than 12 under one wheel is taken as a thing and looked under. Lines: `; the rear tyre's ray met something ... looked
+  under it, ...`, `; the front tyre raised ... (its footprint)`. A/B `[Room] ParkTyres=0`.
+- **The Wear on every bike** (step 13): F4SE's runtime swap alone draws the overlays (test 59), so every bike gets one:
+  the worn bike two per equip (the confirming one: a re-equip's first swap can land on the 3D it replaces), the parked
+  bike one per load, the kit's reload (the blink) kept because it gives the runtime swap a fresh 3D (every crash of
+  tests 54 and 58 came after a swap on a long-drawn parked 3D). The worn bike is clean for the frames between its 3D's
+  build and the swap (0.1-0.3 s, under the fade at a getting on); the parked bike blinks once at the kit's close. After
+  a save load the look is composed afresh (the reused swap carries a marker of its look, and a load forgets it). Lines:
+  the `Look: ... (OverlayRuntime, the compose reused, N s after its equip, ...)` and `(OverlayParked, the compose
+  reused)` lines. A/Bs `[Look] OverlayQuick=0`, `OverlayEvery=0`, `OverlayParked=0`.
+- **The rust's strength** (step 10): at riding distance the new rust is light in our renders; the game lit 22a's
+  brighter and more orange than the renders, so it should read, but if it is too faint the knobs are the blooms'
+  threshold and their body's alpha in `look_wear.py`'s `layer_rust_light` (behind the same flag). Raider's blood across
+  the left plate's art is Bloody's (unchanged since 22a), not an outline. The A/B is the 2026-11-22a package's 30 maps.
+- **The gears' layout** (step 12): three a side in a flank 146 px wide, the large ones' tips 36.6 px and the small ones'
+  25.6 (smaller than 22a's flank gears, 54.7), mirror images left and right (your sketch's right group sat a little
+  higher), meshing where your sketch's gears float apart. A layout change is in `bike_art.py` (`BOS23_TRAIN`); the A/B
+  is the 2026-11-22a package's atlas.
+- **The kit's flash** (step 15): that the menu puts its new bike in during its own update, after the plugin's turn of
+  the frame, is read from test 59's log and video, not seen. Which call of the menu does it isn't known: the late pass
+  runs after both AdvanceMovie and PreDisplay; later than both, or off the frame task's thread, and the flash stays.
+  Line: `kit: hold (2026-11-23a): ...` (M 0: gone; M over 0 with X over 0: another thread). KitPrePlace's list stride is
+  found from its live entries (0xA0 in test 59): while a model is still loading no stride fits and nothing is pre-placed
+  that frame (the line counts them). A/Bs `[Look] KitLate=0`, `KitPrePlace=0`.
+- **A pistol, third person** (steps 16-17): the barrel's axis is taken as the weapon 3D's +Y (the model's forward in the
+  game, not proven), the turn capped at 75 degrees; the hold's place (`GunHoldAt`) and the arm at about two thirds of
+  its reach are a first set. Lines: `gun: one-handed (GunOneHand): ... the pistol's barrel (its 3D's +Y) N deg off ...;
+  its up N deg from the bike's ...`. A/Bs `[Tilt] GunOneHand=0`, `GunHoldAt`.
+- **A pistol, first person** (steps 18-19): the game's first-person arms are drawn in a frame of their own, so their
+  left hand isn't put on the grip; the plugin shrinks their left arm through copies of its shapes' bone data and shows
+  your body's left arm instead. That the first-person pass draws through that bone data, that the game's right arm with
+  your body's torso reads as one rider, and how a reload's left-hand clip looks with that arm shrunk are the game's to
+  show. Lines: `body: first person, a handgun out (BodyGunGrip): ...` and `body: the first-person 3D's left arm given
+  back after ...` (`(a new first-person 3D)`: the game replaced it while held; the review's fix gives the old shapes
+  back first and holds 24 at most). A/B `[View] BodyGunGrip=0`.
+- **The third-person look** (steps 20-21): which of two readings of test 59's 95 against 48 is the game's (its free
+  camera swinging from its own state, the plugin's writes not shown; or its swing added on top of the writes) is for the
+  hold line to say: `view: that hold: the game swung the camera itself on N frame(s), the plugin on M (a weapon away)`;
+  M on most frames with the camera doubled would say the second, with the plugin's "ahead" rule acting. The 21a ease's
+  watch keeps the bike's line up to 1.5 s while the game brings its camera back. A/Bs `[View] LookOrbitGame=0`,
+  `LookRecover=0`.
+- **The holster** (steps 22-23): in the game the holster's copies already took no part of their own by their names, so
+  outside the pose they moved with the thigh in 22a too; what AttachSkeleton changes there is that they are found
+  (AttachBoneRole, AttachHide, AttachWhere act on them), and in the posed moment after a put-away (about 0.4 s in test
+  59) that they are carried with the thigh. The dark thing along the right forearm in test 59's picture was still there
+  after the .44's copies were let go, so it may not be the holster's: the right arm wears skinned gear another mod adds,
+  held with the upper arm (the `N with an upper arm; placed by the node they sit on` lines). Lines: `rider: an
+  attachment: 'WeaponPistolUp' < 'RLeg_Thigh', ...` and its `at 0.5 s` and `at 2.0 s` lines. A/B `[Tilt]
+  AttachSkeleton=0`; `[Diag] AttachFresh=0` changes only the measures.
+- **No item clip in third person** (steps 24-25): a number key the plugin couldn't take is left to the game's own use
+  (cut and handed to the script by QuickCut, or the game's clip waiting for its event, as before), and a clip is cut at
+  its first frame only where the item is known to be applied or handed over (the plugin's own hand-over of a number key,
+  or props within 4 s after the Pip-Boy was open); any other (the Favourites menu, another mod's route) plays until its
+  item comes, the hands off the bars meanwhile as in 22a, and is cut then, so the heal is never lost. Open: a Favourites
+  use within 4 s of closing the Pip-Boy would be cut early, before its item. Lines: `rider: an item's use clip ... in
+  third person no use clip (... UseNoClip)): IdleStop sent ...`, the quick line's `(UseNoClip: under QuickUseAbove, in
+  third person)` and the ride's `quick: this ride in third person: ...` line. A/B `[Steer] UseNoClip=0`.
+- **The take-off** (steps 8-9): the game was fitted to test 59's 16 pulls from rest (its follow slower at small inputs,
+  about 110 u/s^2 under 100 u/s from a stand; rms 5.6 u/s) and the fit reads about 0.1 s slower than test 59's own
+  lines, so about 1.55 / 2.65 s from a stand and 1.3 / 2.65 warm in the game. The twin (`tools/sound/engine_model.py`)
+  keeps its 2026-11-17a defaults. Lines: the `launch: from rest: ...` and gear lines. A/B by hand (no DEF64 key):
+  `[Steer] LaunchFrom=0.14` with `[Sound] HeardRiseGears=2,0.86,0.8,1,1`.
+- **The cost** (step 26): the kit's late pass and pre-placing run only in a held kit visit; the overlays add one or two
+  runtime swaps an equip and one a parked load; the look's swing test is a few reads a frame of a held look. No new
+  shape or texture.
+
 ## Test 59: the 2026-11-22a build (test 58's fixes and your wishes, art build C)
 
 The 2026-11-22a build answers test 58 (run on 2026-11-21a): its fixes and every wish you made (your pick: "Everything"),
@@ -3300,3 +3816,9 @@ Still seated after getting off? `player.caf` (ChangeAnimFlavor with no keyword) 
     ground, a slope, beside a car or a ledge and on rough ground (steps 16-19); the frame rates of step 33; and a short
     video of the field kit's wheel (step 15), getting on beside the leaning bike (step 20), the third-person orbit (step
     24) and a holstered pistol on your thigh while riding (step 30)
+13. Since 2026-11-23a: screenshots of the bike beside you after getting off on flat ground, on a slope, by a wall and by
+    a car, and leaning across a slope both ways (test 60's steps 1-5), of Rusty and Raider at the badges and riding, of
+    every Wear at the badges, of the gears beside the Brotherhood helmet and of the Wear on the four bikes (steps
+    10-13), and of a pistol out in third and first person (steps 16-18); and a short video of getting off and on (steps
+    1 and 6: the blacks), the field kit's options (step 15), the third-person look with and without a weapon (steps
+    20-21), the holster on your thigh (steps 22-23) and a stimpak in third person (steps 24-25)

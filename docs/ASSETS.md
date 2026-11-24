@@ -46,6 +46,8 @@ from your own copy of the game and the downloaded model:
 | `Materials\CMB\Bike\wear_<key>_static`, `wear_<key>_fork` (`.bgsm`, `_worn.bgsm`, changed); `Textures\CMB\Bike\wear_<key>_static_d.dds`, `_static_n.dds`, `_static_s.dds` (18 of the 21 changed); `Textures\CMB\Bike\wheelF_tyre_mud_d.dds`, `wheelF_tyre_ww_mud_d.dds`, `wheelF_tyre_rl_mud_d.dds` and the same three `wheelR_` (changed) | `look_wear.py` | since the 2026-11-22a build: the 28 Wear materials write depth and alpha-test at 8 besides the blend, so the grime hides Paint condition under it whichever is drawn first (`--overlay-depth 2026-11-22a`); the static maps take the grime over the tank plates and the rear roundel: mud and blood as they fall, dust along a plate's top edge, rust from under its bottom edge, Weathered its haze alone (`--badge-grime 2026-11-22a`; Bloody's `_d` and `_s`, Dusty's `_d` and `_n`, Muddy's `_d` and `_s`, and the three of Rusty, Raider, Wasteland and Weathered change); the six muddy tyre diffuses keep the tread's faces clean where they meet the road, the mud between the blocks and on the shoulders (`--tyre-mud 2026-11-22a`). The fork maps and the tyres' 12 materials are 2026-11-21a's. Each flag's old value, 2026-11-21a, rebuilds 2026-11-21a's 88 files byte for byte on its own base |
 | `Textures\CMB\Bike\badges_d.dds`, `badges_n.dds`, `badges_s.dds` (changed) | `bike_art.py --badges`, `look_badges.py` | since the 2026-11-22a build: two cells redrawn, the 3D Brotherhood helmet's ground as three meshing black gears on metallic blue with a fine flake (`--bos-ground 2026-11-22a`) and Nuka-Cola's script as a pointed pen of one weight, slant and baseline (`--nuka-script 2026-11-22a`), our own drawings from written feature lists (the tester's pictures looked at, never traced or sampled); the 16 older cells' blocks unchanged at mips 0-5, the sizes the same, the 22 badge materials 2026-11-21a's; the plate's Nuka-Cola cap keeps its script. `--through 2026-11-21a` (or both flags at 2026-11-21a) gives 2026-11-21a's atlas byte for byte (dd4778e2..., e9a4c733..., 30662291...) |
 | `Materials\CMB\Bike\front_glow_<key>.bgsm`, `front_glow_<key>_worn.bgsm` (key halogen, daylight, iceblue, red, green, purple); `Textures\CMB\Bike\front_glow_iceblue_d.dds`, `front_glow_red_d.dds`, `front_glow_green_d.dds`, `front_glow_purple_d.dds` | `look_lamp.py` | since the 2026-11-22a build: six more Headlamp colours, made as 2026-11-21a's four: the lit `_worn` copies the shipped `front_glow_worn.bgsm` with the colour's emit (x 6.0), the parked copies the shipped `front_glow.bgsm` pointed at a tinted lens texture (BC1 256, 43,832 bytes); halogen and daylight are clear bulbs, their parked copy `front_glow.bgsm` byte for byte. The 2026-11-21a keys' files unchanged. The beam's colours are the same numbers, in the ESP's twelve new lights |
+| `Textures\CMB\Bike\wear_rusty_<shape>_d.dds`, `_n.dds`, `_s.dds` and the same `wear_raider_` (shape static, fork, static_engine, static_exhaust, fork_black; changed) | `look_wear.py` (`--rust`) | since the 2026-11-23a build (test 59: "rust is too much, should be less intense, more transparent and in darker colors on edges"; "a rectangle around the frame"): Rusty's rust, and Raider's, which stacks it, lighter: fewer, smaller blooms from the edges, the tank's underside, inside the fenders, by the number plate and in random clumps, each see-through in its middle (alpha about 0.45) and darker and denser at its edge (alpha 0.7, a band about 0.4 units wide, `RUST_RIM` 2a150b), browner, with fewer and fainter streaks; nothing along a badge plate's outline (two or three blooms by each plate at random places), no ring or drips off a plate's bottom edge; on the mufflers brown rust rather than orange (`layer_rust_light`, `part_rust_light`, drawn by our own code, nothing sampled from a picture). The same 30 names, formats and sizes; the materials and the other 213 files of the overlay are 2026-11-22a's. `--rust 2026-11-22a` rebuilds 2026-11-22a's 243 files byte for byte |
+| `Textures\CMB\Bike\badges_d.dds`, `badges_n.dds`, `badges_s.dds` (changed) | `bike_art.py --badges` (`--bos-ground`), `look_badges.py` | since the 2026-11-23a build (test 59: "I was hoping to have 3 gears shown on each side"): the 3D Brotherhood helmet's ground keeps 2026-11-22a's metallic blue and flake and draws three meshing black gears either side of the helmet, none behind it (a 12-tooth gear low toward the plate's end, an 8-tooth one above it and one beside the helmet, the small ones biting into the large one; the right group the left's mirror image), our own drawing after the tester's layout sketch (looked at, never traced or sampled); the 17 other cells' blocks unchanged at mips 0-5, the sizes the same, the 22 badge materials 2026-11-22a's. `--bos-ground 2026-11-22a` or `--through 2026-11-22a` gives 2026-11-22a's atlas byte for byte (e65f381f..., 6d226ff6..., 41ec97fa...) |
 | `Meshes\Actors\Character\Animations\MT\CMB_Rider\*.hkx` and `...\CMB_Rider\Female\*.hkx` | `riding_anims.py` | seated riding versions of the holstered walk/run/turn/start/stop/idle clips (the arms' IK pole mostly down since test 39, (0.35, -0.3, -1.0) in the rig's root space, the left mirrored in x; before, (1, -0.6, -0.7), mostly sideways, which put the elbows out at shoulder height; the hand's frame from the forearm since test 40, its long axis along it seen along the grip, `HAND_PITCH` degrees above it, 0: before, a fixed frame, the wrists bent down 30 degrees in the cruise pose, test 39's "cat paw"), and of the jump/fall/land clips when those were extracted |
 | `...\CMB_Rider\CMB_RiderClips.json` (and `Female\`) | `riding_anims.py` | each clip's root motion and events, for the step below |
 | `...\CMB_Rider\CMB_RiderSeat.json` (and `Female\`) | `riding_anims.py` | where the seated rider's `COM` bone sits, for the bike that hangs off it |
@@ -389,6 +391,39 @@ overlay. Two runs of each tool give the same bytes, and each off flag gives 2026
 Their files and sha256 are `tools/package/builds/2026-11-22a.json`'s `vs_previous`. The texture budget of
 `check_bike_meshes.py` for a tree with build C's shapes is TEX_BUDGET_C5 (280 files, 170 MB): the whole tree holds 277
 DDS, 165.3 MB, and `--look-c3 --look-c4 --look-c5 --look-stand --look-targets all` over it passes every check (105).
+
+**The 2026-11-23a art's files.** Test 59's two art wishes, from the repository's own drawing code over 2026-11-22a's
+tree (the 2026-11-10a package's Data with the thirteen overlays through 2026-11-22a's), no stage and no bake, into one
+overlay a unit: the wear (the whole 243-file tree again, 30 of its files changed) and the 2D art (the badge atlas's three
+textures). Changed: `look_wear.py` (`--rust`: `layer_rust_light`, `part_rust_light`, `_rust_blooms`, `plate_blooms`, the
+palette `RUST_RIM`, `RUST_BODY`, `RUST_PALE`, `RUST_WASH`; `--check`'s outline check for every look and its lighter-rust
+check) and `bike_art.py` (`hg_bos` 2026-11-23a: `bos23_gears`, `draw_ground_gears23`, `BOS23_TRAIN`, `BOS23_PITCH`;
+`_gear22_sd` and `draw_ground_gears` take a gear's own tooth height and a gear list, their defaults 2026-11-22a's). From
+the repository's root:
+
+```
+<DDS python> -I -B tools/rider/look_wear.py --data <overlay W> --base <2026-11-10a's Data> --base <15b's meshes> \
+    --base <overlay A> --base <overlay B> --base <overlay C> --base <17a's badges> --base <17a's plates> \
+    --base <21a's shells> --base <21a's wear> --base <21a's 2D art> --base <22a's shells> --base <22a's wear> \
+    --base <22a's 2D art> --base <22a's parked> --pynifly <PyNifly>
+                     # 243 files, about 6 minutes; [--check]: 23 checks
+                     # [--rust 2026-11-22a] (22a's rust: its 243 files byte for byte)
+                     # [--badge-grime|--overlay-depth|--tyre-mud 2026-11-21a] as before
+python3 -I tools/rider/bike_art.py --badges --out <art_b>   # [--bos-ground 2026-11-22a] [--through 2026-11-22a]
+<DDS python> -I tools/rider/look_badges.py --art <art_b> --out <tree>       # badges_d/_n/_s.dds
+<DDS python> -I tools/rider/look_badges.py --check --art <art_b> --out <tree> --plate-nif <22a's parked nif> \
+    --pynifly <PyNifly> --base <2026-11-22a's tree> --base-build 2026-11-22a
+```
+
+The 2D tool writes into a fresh copy of 2026-11-22a's tree, and only the files that differ from it go into its overlay
+(three); the wear's overlay is its whole tree, 213 of its files 2026-11-22a's bytes, so it stands alone as 2026-11-22a's
+did. Two runs of each tool give the same bytes, and each old flag gives 2026-11-22a's files byte for byte. The overlays
+go after 2026-11-22a's four in this order: the wear's, then the 2D art's (they share no file). Their changed files and
+sha256 are `tools/package/builds/2026-11-23a.json`'s `vs_previous`. No file is added, so the texture budget
+TEX_BUDGET_C5 holds as before (277 DDS, 165.3 MB); `check_bike_meshes.py --look-c5` over the tree with the wear's
+overlay passes every check (102), `--look-c3 --look-targets all` with the new ground's field over the tree with the 2D
+art's (101), and over the whole tree (2026-11-10a's Data with every overlay through this build's two, the merged ESP,
+INI and MCM) all checks pass (105).
 
 **The front end's shadow (2026-11-10a, test 52's wish).** The riding bike's front end (`harley_meshes.FRONT_ROLES`: the
 bar assembly, the lower fork, the front wheel) casts as the parked bike's: `load_shaders` sets each such shape's worn
@@ -800,6 +835,15 @@ turned into 8-bit colours). Nothing new by path or FormID: the new materials nam
 already named, and the twelve new lights are copies of the bike's own. Other mods' attachments (a holster mod's copies,
 a backpack) are found at run time under the rider's skeleton, never named or shipped. The recipes use the components
 already named. The credits stay as they are.
+
+**The 2026-11-23a build borrows no new file either.** The lighter rust (its blooms, dark rims, see-through bodies,
+streaks and pits) and the three gears either side of the Brotherhood helmet are drawn by our own code (`look_wear.py`,
+`bike_art.py`: noise, blurs, discs and slots) from the model's geometry and our own earlier textures; the tester's
+Brotherhood layout sketch was looked at only, never traced, sampled or committed. Getting off beside you, the parked
+bike's lean and tyres, the Wear on every bike, the kit's flash, the third-person look, the pistol held one-handed, the
+thigh holster and no item clip in third person are plugin code, scripts and INI keys; a holster mod's copies and the
+game's first-person arms are found at run time on the player, never named or shipped. Nothing new by path or FormID, no
+new record. The credits stay as they are.
 
 ## Background: why custom clips
 

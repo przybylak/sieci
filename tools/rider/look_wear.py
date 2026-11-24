@@ -117,6 +117,24 @@ Since 2026-11-22a (build C5; test 58's wishes, the contract SP/t64/contract.md s
   region and off the plates, Worn at least each of its parts, the grime over the plates (a rust ring, dust at the edges,
   Weathered off), the parts (mud low down, dust, rust and weathering on each, the pipes' heat colour by their ports, the
   mixes at least their parts), the tread's faces clean and its grooves muddy.
+
+Since 2026-11-23a (test 59: "rust is too much, should be less intense, more transparent and in darker colors on edges";
+the rust round the Brotherhood plate and dripping off its lower edge read as "a rectangle around the frame"):
+
+  --rust             2026-11-23a (the default): Rusty's rust (Raider's too, which stacks it) lighter on the paint and the
+                     parts (layer_rust_light, part_rust_light): fewer, smaller blooms from the same places (the edges,
+                     under the tank, inside the fenders, by the number plate, the mufflers' bottoms) and some in random
+                     clumps, each see-through in its middle (the paint shows through a brown stain) and darker and denser
+                     at its edge (a band about RUST_RIM_W wide), browner (no bright orange), fainter and fewer streaks;
+                     nothing along a plate's outline (22a's band round the badges, the ring along a plate's bottom edge
+                     and its drips gone): two or three blooms by each tank plate and the roundel at random places on its
+                     outline (plate_blooms), and over a plate's face the rust as on the paint round it.
+                     2026-11-22a: 2026-11-22a's rust; with every other flag at its default the 2026-11-22a 243 files
+                     byte for byte (the 30 Rusty and Raider maps are the ones that change).
+  --check with --rust 2026-11-23a: no look draws a plate's outline (per plate, the share of its outline band with grime
+  over 0.3 at most OUTLINE_SHARE or OUTLINE_FACTOR x the share round it), Rusty lighter (hardly a texel near opaque, the
+  blooms' middles see-through, their edges darker than their middles), Rusty's cover expectations EXPECT_RUST_NEW (22a's
+  "more round the badges" gone), a part's rust at least 0.012 (0.03 with the old rust).
 """
 import argparse
 import math
@@ -177,6 +195,7 @@ DEPTH_OLD, DEPTH_NEW = "2026-11-21a", "2026-11-22a"   # --overlay-depth: no z wr
 OVERLAY_TEST = 8                                      # 22a: the overlays' alpha test reference (with the blend)
 GRIME_OLD, GRIME_NEW = "2026-11-21a", "2026-11-22a"   # --badge-grime: the plates clear (21a), or under the grime (22a)
 TREAD_OLD, TREAD_NEW = "2026-11-21a", "2026-11-22a"   # --tyre-mud: the tread caked (21a), or clean faces (22a)
+RUST_OLD, RUST_NEW = "2026-11-22a", "2026-11-23a"    # --rust: 22a's rust (opaque, round the plates), or lighter (23a)
 BUDGET_WEAR, BUDGET_ALL = 20.0e6, 24.0e6              # bytes: the wear maps, and with the muddy tyres
 
 # colours (sRGB hex), our own palette
@@ -187,6 +206,10 @@ SCRATCH = "c9c5bd"
 DUST, DUST_DARK = "bcab8b", "988769"
 MUD_WET, MUD_MID, MUD_DRY = "3a2e22", "5b4935", "8d7a5b"
 RUST_DARK, RUST, RUST_LIGHT, RUST_STAIN = "3b1f13", "8a461c", "b2702f", "6e3c1f"
+# (since 2026-11-23a, --rust) the lighter rust: a bloom's dark edge, its see-through body (two browns), the faint wash
+# round it
+RUST_RIM, RUST_BODY, RUST_PALE, RUST_WASH = "2a150b", "7a3e1c", "8e5229", "5a3820"
+RUST_RIM_W = 0.4                                      # (since 2026-11-23a) a bloom's dark edge: about this wide (units)
 BLOOD_THICK, BLOOD, BLOOD_THIN = "330404", "6a0c0a", "8a2a1a"
 TYRE_MUD_WET, TYRE_MUD_DRY = "3e3226", "6e5c44"
 
@@ -1120,6 +1143,81 @@ def layer_rust(ctx, rng, grime=GRIME_OLD):
     return L
 
 
+
+def plate_blooms(sc):
+    """(since 2026-11-23a, --rust) Two or three rust blooms by each tank plate and the roundel, at random places on its
+    outline, each pushed a little off it, in or out ((centre, radius) list, the same every build): rust that breaks out
+    by a plate here and there, never along its edges."""
+    if getattr(sc, "_blooms", None) is None:
+        sc._blooms = []
+        for i, ((v, _), rim) in enumerate(zip(sc.plates, sc.plate_rims)):
+            rng = np.random.default_rng(370 + i)
+            zc, hz = float(v[:, 2].mean()), max(float(np.ptp(v[:, 2])) / 2, 0.5)
+            w = 1.0 + 1.5 * np.clip((zc - rim[:, 2]) / hz, 0, 1)          # rather the lower half: water sits there
+            c0 = v.mean(0)
+            for k in rng.choice(len(rim), size=int(rng.integers(2, 4)), replace=False, p=w / w.sum()):
+                c = rim[k] + (c0 - rim[k]) / max(np.linalg.norm(c0 - rim[k]), 1e-6) * float(rng.uniform(-1.0, 1.2))
+                sc._blooms.append((c, float(rng.uniform(1.1, 2.3))))
+    return sc._blooms
+
+
+def _rust_blooms(L, g, s, thr, rim_a, body_a, pit, h0=0.015):
+    """(since 2026-11-23a, --rust) Rust blooms where s passes thr on layer L (its colour the body's): a faint wash round
+    each, a see-through body (the paint shows through, body_a, varied by pit) going darker and denser to the bloom's
+    edge (rim_a, a band about RUST_RIM_W wide) where the rust's front lifts the paint, dark pits in it; the bloom (0..1)
+    returned."""
+    P = g.P
+    core = soft(s - thr, 0.03)
+    r = max(1, int(round(RUST_RIM_W / 2.0 / np.median(g.texel))))
+    rim = core * (1.0 - ss(0.55, 0.95, g.blur(core, r)))   # 1 at a bloom's edge, 0 well inside it
+    halo = np.clip(soft(s - (thr - 0.05), 0.04) - core, 0, 1)
+    L.paint(halo * 0.1, RUST_WASH, 0.1, 0.25, h=0.01)
+    col = L.rgb * (1.0 - rim)[:, None] + hexlin(RUST_RIM)[None] * rim[:, None]
+    L.paint(core * (body_a * (0.75 + 0.5 * pit) * (1.0 - rim) + rim_a * rim), col, 0.07, 0.12,
+            h=h0 + 0.03 * pit * (1.0 - rim) + 0.015 * rim)
+    L.paint(soft(noise(P, 0.08, 34) - 0.82, 0.03) * core * 0.45, RUST_RIM, 0.06, 0.1)
+    return core
+
+
+def _rust_body(P, seed):
+    """(since 2026-11-23a, --rust) The lighter rust's body colour (linear): two browns by a slow noise."""
+    t = ss(0.3, 0.75, fbm(P, 0.9, seed, 4))
+    return hexlin(RUST_BODY)[None] * (1 - t)[:, None] + hexlin(RUST_PALE)[None] * t[:, None]
+
+
+def layer_rust_light(ctx, rng):
+    """(since 2026-11-23a, --rust; test 59: "rust is too much, should be less intense, more transparent and in darker
+    colors on edges", and the rust round the Brotherhood plate read as "a rectangle around the frame") Rusty, lighter:
+    fewer, smaller blooms from the same places (the edges, the tank's underside, inside the fenders, by the number
+    plate), each see-through in its middle and dark at its edge, browner, fewer and fainter streaks; nothing follows a
+    plate's outline (22a's band round the badges and ring along a plate's bottom edge gone): two or three blooms by each
+    plate at random places on its outline, and over a plate's face the rust as on the paint round it."""
+    g, P, N = ctx.g, ctx.g.P, ctx.g.N
+    L = Layer(g.n, _rust_body(P, 31), 0.07, 0.12)
+    edge = np.clip(ss(0.25, 1.6, ctx.kap) * 0.8 + ss(0.08, 0.5, ctx.kap_s) * 0.7, 0, 1.2)
+    plate = ss(9.0, 2.0, ctx.plate_d)
+    under = ctx.tank * ss(-0.15, -0.7, ctx.up)
+    inside = (ctx.front | ctx.rear) * ss(0.0, 0.5, np.maximum(ctx.wheel["F"]["facing"], ctx.wheel["R"]["facing"])) \
+        * np.exp(-np.maximum(np.minimum(ctx.wheel["F"]["gap"], ctx.wheel["R"]["gap"]), 0) / 10.0)
+    spots = np.zeros(g.n)
+    for j, (c, r) in enumerate(plate_blooms(ctx.sc)):
+        lo, hi = c - 2.0 * r, c + 2.0 * r
+        i = np.flatnonzero(np.all((P >= lo) & (P <= hi), axis=1))
+        if len(i):
+            d = np.linalg.norm(P[i] - c, axis=1) * (0.7 + 0.6 * fbm(P[i], 0.7, 36 + j, 3))
+            spots[i] = np.maximum(spots[i], ss(r, 0.3 * r, d))
+    clump = ss(0.42, 0.7, fbm(P, 6.0, 37, 3))                # where the paint gave way: random, in clumps
+    field = (0.75 * edge + 0.8 * plate + 0.95 * under + 0.5 * inside + (0.75 if ctx.key == "static" else 0.5) * clump
+             + 1.1 * spots + 0.05)
+    b1 = fbm(P, 1.4, 32, 5)
+    s = b1 + 0.45 * np.minimum(field, 1.3)
+    core = _rust_blooms(L, g, s, 0.96, 0.7, 0.45, noise(P, 0.12, 33))
+    steep = (np.abs(ctx.up) < 0.75).astype(float)
+    src = pick(ctx, core * steep * (b1 > 0.6), 110 if ctx.key == "static" else 35, rng)
+    runs = [(P[i], N[i], float(rng.uniform(1.0, 4.0)), float(rng.uniform(0.06, 0.16))) for i in src]
+    splat_runs(ctx, runs, L, RUST_BODY, 0.07, 0.12, 0.008, 0.28)
+    return L
+
 def blood_rays(sc, rng):
     """Blood rays: four sources (a hit at the front left, a burst at the right side, a fall from above the rear, a
     splash from behind on the right), each
@@ -1416,6 +1514,33 @@ def part_rust(ctx, rng):
     return L
 
 
+
+def part_rust_light(ctx, rng):
+    """(since 2026-11-23a, --rust) Rusty on a part, lighter (as layer_rust_light): fewer blooms from the same places
+    (the mufflers' bottoms and seams, the clamps, by the hot ports, the edges), see-through with dark edges, fewer and
+    fainter streaks; the engine covers' white corrosion as 2026-11-22a's."""
+    g, P, N = ctx.g, ctx.g.P, ctx.g.N
+    L = Layer(g.n, _rust_body(P, 141), 0.07, 0.12)
+    edge = np.clip(ss(0.3, 1.6, ctx.kap) * 0.8 + ss(0.1, 0.5, ctx.kap_s) * 0.7, 0, 1.2)
+    low = ss(40.0, 15.0, P[:, 2]) * ss(0.3, -0.6, ctx.up)
+    if ctx.key == "static_engine":
+        oxide = soft(fbm(P, 1.0, 142, 4) + 0.3 * ctx.crease + 0.2 * low - 0.82, 0.04)
+        L.paint(oxide * 0.75, ALU_OXIDE, 0.1, 0.15, h=0.01)
+        field = 0.6 * edge + 0.03
+    elif ctx.key == "static_exhaust":
+        heat = ss(14.0, 4.0, ctx.port_d)
+        field = 0.7 * edge + 0.8 * low + 0.45 * heat + 0.1
+    else:
+        field = 0.7 * edge + 0.7 * low + 0.1
+    b1 = fbm(P, 1.2, 143, 5)
+    s = b1 + 0.45 * np.minimum(field, 1.3)
+    core = _rust_blooms(L, g, s, 0.98, 0.7, 0.45, noise(P, 0.12, 144), h0=0.012)
+    steep = (np.abs(ctx.up) < 0.75).astype(float)
+    src = pick(ctx, core * steep * (b1 > 0.6), 45, rng)
+    runs = [(P[i], N[i], float(rng.uniform(0.8, 3.0)), float(rng.uniform(0.06, 0.16))) for i in src]
+    splat_runs(ctx, runs, L, RUST_BODY, 0.07, 0.12, 0.008, 0.28)
+    return L
+
 def part_mud(ctx, rng, hits):
     """Muddy on a part: caked low down by the wheels it sits by (the fork lowers by the axle, the mufflers' bottoms, the
     crankcase's front), a speckle where the spray thins, the droplets the wheels throw onto it."""
@@ -1552,6 +1677,19 @@ def shape_maps(ctx, layer, clear_plates=True):
     s8[..., :2] = np.clip(np.rint(S_ * 255), 0, 255).astype(np.uint8)
     s8[..., 3] = 255
     return d8, n8, s8
+
+
+def _erode(m, k):
+    """(since 2026-11-23a) A boolean image eroded k times by its four neighbours."""
+    out = m.copy()
+    for _ in range(k):
+        e = out.copy()
+        e[1:] &= out[:-1]
+        e[:-1] &= out[1:]
+        e[:, 1:] &= out[:, :-1]
+        e[:, :-1] &= out[:, 1:]
+        out = e
+    return out
 
 
 def write_tex(path, img, fmt, **kw):
@@ -1711,7 +1849,7 @@ PART_DUST = 0.55                                      # a part's dust: the paint
 PART_SEED = {"weathered": 601, "dust": 602, "mud": 603, "rust": 604, "blood": 605}
 
 
-def make_layers(sc, bases, keys_needed, report, pc_needed=(), grime=GRIME_OLD, parts=()):
+def make_layers(sc, bases, keys_needed, report, pc_needed=(), grime=GRIME_OLD, parts=(), rust=RUST_OLD):
     """{shape key: (ctx, {layer name: Layer})} for the layers the keys need (the Wear keys' and the Paint condition
     keys')."""
     need_l = sorted({l for k in keys_needed for l in STACKS[k]})
@@ -1755,7 +1893,7 @@ def make_layers(sc, bases, keys_needed, report, pc_needed=(), grime=GRIME_OLD, p
             elif name == "mud":
                 layers[name] = layer_mud(ctx, rng, drops["mud"][key])
             elif name == "rust":
-                layers[name] = layer_rust(ctx, rng, grime)
+                layers[name] = layer_rust(ctx, rng, grime) if rust == RUST_OLD else layer_rust_light(ctx, rng)
             elif name == "blood":
                 layers[name] = layer_blood(ctx, rng, drops["blood"][key])
             report.append(f"  {key} {name}: cover mean {layers[name].a.mean():.3f}, over 0.5 {(layers[name].a > 0.5).mean():.3f} "
@@ -1784,7 +1922,7 @@ def make_layers(sc, bases, keys_needed, report, pc_needed=(), grime=GRIME_OLD, p
             elif name == "mud":
                 layers[name] = part_mud(ctx, rng, pdrops["mud"][lab])
             elif name == "rust":
-                layers[name] = part_rust(ctx, rng)
+                layers[name] = part_rust(ctx, rng) if rust == RUST_OLD else part_rust_light(ctx, rng)
             elif name == "blood":
                 layers[name] = layer_blood(ctx, rng, pdrops["blood"][lab])
             report.append(f"  {lab} {name}: cover mean {layers[name].a.mean():.3f}")
@@ -1834,10 +1972,11 @@ def build(args):
     report.append(sc.report())
     report.append("options: " + ", ".join(f"{i} {k} \"{NAMES[k]}\" = {' + '.join(STACKS[k])}" for i, k in enumerate(KEYS, 1)))
     report.append("Paint condition: " + ", ".join(f"{i} {k} \"{PC_NAMES[k]}\"" for i, k in enumerate(PC_KEYS, 1)))
-    report.append(f"--badge-grime {args.badge_grime}, --tyre-mud {args.tyre_mud}")
+    report.append(f"--badge-grime {args.badge_grime}, --tyre-mud {args.tyre_mud}, --rust {args.rust}")
     total = 0
     if keys or pc_keys:
-        shapes = make_layers(sc, args.base, keys, report, pc_keys, args.badge_grime, tuple(PARTS) if keys else ())
+        shapes = make_layers(sc, args.base, keys, report, pc_keys, args.badge_grime, tuple(PARTS) if keys else (),
+                             args.rust)
         for key in keys:
             for sh, (ctx, layers) in shapes.items():
                 if sh in PARTS:
@@ -1920,9 +2059,20 @@ class Regions:
             r["knee"] = kn > 0.5
             r["near_badge"] = _nearest_dist(P, sc.badge_sets, 6.0) < 2.0
             r["near_plate"] = rear & (_nearest_dist(P, [sc.plate], 12.0) < 8.0)
-            r["on_plates"] = plate_footprint(P, sc.plates) < PLATE_CLEAR - 0.15
+            fps = [plate_footprint(P, [pl]) for pl in sc.plates]      # each plate's (their minimum: plate_footprint's)
+            fp = np.min(fps, axis=0)
+            r["on_plates"] = fp < PLATE_CLEAR - 0.15
             rim = _nearest_dist(P, sc.plate_rims, 3.0)
-            r["plate_low"] = plate_footprint(P, sc.plates) < PC_SHELL - 0.005
+            r["plate_low"] = fp < PC_SHELL - 0.005
+            # (since 2026-11-23a) per plate: the band along its outline (0.5 in on the plate, 0.8 out on the paint) and the
+            # reference round it (its face's middle, 1.5 in, and the paint 2.0-3.5 out): an outline shows as more grime
+            # in the band than in the reference
+            self.bands = []
+            for name, f_, pr in zip(("TankL", "TankR", "Rear"), fps, sc.plate_rims):
+                d = _nearest_dist(P, [pr], 4.0)
+                on = f_ < PLATE_CLEAR - 0.15
+                self.bands.append((name, g.image(((on & (d < 0.5)) | (~on & (d < 0.8))).astype(float)) > 0.5,
+                                   g.image(((on & (d > 1.5)) | (~on & (d > 2.0) & (d < 3.5))).astype(float)) > 0.5))
             r["plate_rim"] = r["on_plates"] & (rim < 0.5)
             r["plate_mid"] = r["on_plates"] & (rim > 1.5)
             rim_v = np.zeros(g.n)
@@ -1957,6 +2107,15 @@ EXPECT = {
     "bloody": [("tank_side", ">=", 0.02, 1), ("front_out", ">=", 0.02, 1), ("rear_out", ">=", 0.02, 1),
                ("tank_side", "<=", 0.35, 1), ("tank_under", "<=", 0.2, 1)],
 }
+# (since 2026-11-23a, --rust 2026-11-23a) Rusty's lighter rust: under the tank and by the number plate, little on the
+# tank's top, less than 22a's (no band round the badges: 22a's near_badge expectation gone)
+EXPECT_RUST_NEW = [("tank_under", ">", "tank_top", 2.0), ("near_plate", ">", "rear_out_high", 1.3),
+                   ("tank_under", ">=", 0.15, 1), ("tank_top", "<=", 0.25, 1), ("static_all", "<=", 0.13, 1)]
+RUST_OPAQUE = 0.02           # (since 2026-11-23a) Rusty: at most this share of its rust's texels near opaque (over 0.85)
+RUST_INNER_A = 0.6           # (since 2026-11-23a) Rusty: a bloom's middle (3 texels in) this see-through at most
+RUST_EDGE_DARK = 0.93        # (since 2026-11-23a) Rusty: a bloom's edge (its outer 2 texels) this dark at most of its middle
+OUTLINE_SHARE = 0.2          # (since 2026-11-23a) a plate's outline band: grime over 0.3 on at most this share of it, or
+OUTLINE_FACTOR = 1.5         # at most this times the share round it (the middle of its face, the paint further out)
 PARTS_OF = {"wasteland": ("weathered", "dusty", "muddy"), "raider": ("rusty", "bloody")}
 PC_EXPECT = {   # (since 2026-11-22a) Paint condition's
     "scratched": [("knee", ">", "tank_side", 1.5), ("tank_top", ">", "tank_under", 1.5), ("static_all", "<=", 0.15, 1),
@@ -2107,6 +2266,8 @@ def check(args):
     for key, exp in EXPECT.items():
         if not cover.get(key):
             continue
+        if key == "rusty" and args.rust == RUST_NEW:
+            exp = EXPECT_RUST_NEW
         fails = []
         for reg, op, ref, fac in exp:
             a = cover[key][reg]
@@ -2129,12 +2290,56 @@ def check(args):
             on, top, bot, mid = (float(a[R.masks[m_]].mean()) for m_ in ("on_plates", "plate_rim_top", "plate_rim_bottom",
                                                                            "plate_mid"))
             want = {"weathered": on <= 0.5 and mid <= 0.5, "dusty": top > 1.5 * mid and top > bot,
-                    "rusty": bot > 0.1 and bot > 3.0 * top and mid < 0.5 * bot,
+                    "rusty": (bot > 0.1 and bot > 3.0 * top and mid < 0.5 * bot) if args.rust == RUST_OLD else on > 0.005,
                     "bloody": on > 0.005}.get(k, on > 0.005)
             g_bad += [] if want else [f"{k} on {on:.3f} top edge {top:.3f} bottom edge {bot:.3f} middle {mid:.3f}"]
         rep(not g_bad, "the grime over the tank plates and the rear roundel (--badge-grime 2026-11-22a): Weathered's sun "
-            "haze only (no chip or scratch) on them, dust along their top edges and rust along their bottom edges (the "
-            "middles less), blood and the mixes on them", "; ".join(g_bad))
+            "haze only (no chip or scratch) on them, dust along their top edges, " +
+            ("rust along their bottom edges (the middles less)" if args.rust == RUST_OLD else
+             "rust breaking out by them here and there (--rust 2026-11-23a)") + ", blood and the mixes on them",
+            "; ".join(g_bad))
+    if args.rust == RUST_NEW:
+        # (since 2026-11-23a) no look draws a plate's outline (test 59: Rusty's rust round the Brotherhood plate read as
+        # "a rectangle around the frame"): per look and plate, the share of its outline band with grime over 0.3 at most
+        # OUTLINE_SHARE or OUTLINE_FACTOR times the share round it
+        R = regions["static"]
+        o_bad, o_info = [], []
+        for k in KEYS:
+            if not cover.get(k):
+                continue
+            a = cover[k]["static"]
+            row = []
+            for name, band, ref in R.bands:
+                so, sr = float((a[band] > 0.3).mean()), float((a[ref] > 0.3).mean())
+                row.append(f"{name} {so:.2f}/{sr:.2f}")
+                if so > max(OUTLINE_SHARE, OUTLINE_FACTOR * sr):
+                    o_bad.append(f"{k} {name} outline {so:.2f} round it {sr:.2f}")
+            o_info.append(f"  {k}: " + ", ".join(row))
+        rep(not o_bad and bool(o_info), f"no plate's outline drawn by any look: grime over 0.3 on at most {OUTLINE_SHARE} "
+            f"of a plate's outline band or {OUTLINE_FACTOR} x the share round it (outline/round per plate)",
+            "; ".join(o_bad) + ("\n" + "\n".join(o_info) if o_info else ""))
+        # (since 2026-11-23a) Rusty lighter: its blooms see-through (hardly a texel near opaque, the middles at most
+        # RUST_INNER_A) and darker at their edges than in their middles, on the paint and the mufflers
+        r_bad, r_info = [], []
+        for sh in ("static", "fork", "static_exhaust"):
+            p = args.data / f"Textures/CMB/Bike/wear_rusty_{sh}_d.dds"
+            if not p.exists():
+                continue
+            img = W.read_dds(p)[1][0][0].astype(np.float64) / 255.0
+            a = img[..., 3]
+            lum = img[..., :3] @ np.array([0.2126, 0.7152, 0.0722])
+            patch = a > 0.25
+            e2, e3 = _erode(patch, 2), _erode(patch, 3)
+            edge, mid = patch & ~e2, e3
+            opq = float((a > 0.85).sum() / max((a > 0.1).sum(), 1))
+            ratio = float(lum[edge].mean() / max(lum[mid].mean(), 1e-6)) if mid.any() else 0.0
+            am = float(a[mid].mean()) if mid.any() else 0.0
+            r_info.append(f"  {sh}: near opaque {opq:.3f}, middles' alpha {am:.2f}, edge / middle brightness {ratio:.2f}")
+            if not (opq <= RUST_OPAQUE and am <= RUST_INNER_A and ratio <= RUST_EDGE_DARK and edge.sum() > 1000):
+                r_bad.append(sh)
+        rep(not r_bad and bool(r_info), f"Rusty lighter (--rust 2026-11-23a): at most {RUST_OPAQUE} of its texels near opaque, "
+            f"its blooms' middles at most {RUST_INNER_A} and their edges at most {RUST_EDGE_DARK} x as bright",
+            "; ".join(r_bad) + ("\n" + "\n".join(r_info) if r_info else ""))
     # Paint condition: its cover per region, off the plates, Worn at least each of its parts
     pcov = {}
     for key in PC_KEYS:
@@ -2196,7 +2401,8 @@ def check(args):
         part_info.append(f"{lab}: " + ", ".join(f"{k} {v[0]:.2f} (low {v[1]:.2f} high {v[2]:.2f})" for k, v in cv.items()))
         if not (cv["muddy"][1] > 1.5 * cv["muddy"][2] and cv["muddy"][0] > 0.03):
             part_bad.append(f"{lab} muddy not low")
-        if not (cv["dusty"][0] > 0.05 and cv["rusty"][0] > 0.03 and cv["weathered"][0] > 0.05):
+        if not (cv["dusty"][0] > 0.05 and cv["rusty"][0] > (0.03 if args.rust == RUST_OLD else 0.012)
+                and cv["weathered"][0] > 0.05):
             part_bad.append(f"{lab} dusty/rusty/weathered too faint")
         for combo, parts in PARTS_OF.items():
             under = np.max([cv[p_][3] for p_ in parts], axis=0) - cv[combo][3]
@@ -2300,6 +2506,12 @@ def main():
                     help="(since 2026-11-22a) the muddy tyres' tread: 2026-11-22a (the default) mud in the grooves and on "
                          "the shoulders, the faces that meet the road clean; 2026-11-21a the whole tread caked (2026-11-21a's "
                          "six tyre diffuses byte for byte); --check holds the tree to the same")
+    ap.add_argument("--rust", choices=(RUST_NEW, RUST_OLD), default=RUST_NEW,
+                    help="(since 2026-11-23a) Rusty's rust (Raider's too) on the paint and the parts: 2026-11-23a (the "
+                         "default) lighter: fewer, smaller blooms, see-through in the middle and dark at the edge, browner, "
+                         "fainter streaks, nothing along a plate's outline (a few blooms by each plate at random places); "
+                         "2026-11-22a: 2026-11-22a's rust (with its band round the badges and ring along the plates' bottom "
+                         "edges) and the 2026-11-22a files byte for byte; --check holds the tree to the same")
     args = ap.parse_args()
     if args.only and "tyres" in args.only:
         args.only = [k for k in args.only if k != "tyres"] or ["-"]

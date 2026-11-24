@@ -261,6 +261,75 @@
 # drive), room 176 (157 + 11 parked + 8 of its review's items 7 and 8: a car's hood, a ledge, a crate, a drop and a shelf beside or over
 # the bike not read as its ground, an ask with no heading leaning by the stand: P12-P19; P8's Clear 8.59), the rest as fbe9a7c's: 2228
 # checks.
+# 2026-11-23a, the kit unit (test 59's 1F) adds, with the game's order modelled (the plugin's frame task, then the menu's own update
+# through ExamineMenu's vtable slots 4 and 5, then the draw sampled): five options, each a frame with no drawn bike and a frame the
+# menu attaches a new one at its own pose: none drawn off the view with KitLate (the late pass right after AdvanceMovie), none with
+# KitPrePlace (the new one in the loaded list a frame before it's attached), one an option with both 0 (test 59's flash), and the
+# visits' lines (custom, 160 + 5: K59-K63). DEF64 rides every older mode at the new keys' off values: 2233 checks with this unit alone.
+# The 2026-11-23a drive unit (test 59: "still feels a bit sluggish on take-off"; the user's pick: 0.3 of the top in about 1.5 s, half in
+# about 2.8, the gears at about 12, 24, 36, 46 on the dial) on 131f6b4 adds: [Steer] LaunchFrom's default 0.25 (22a 0.14) at the code's
+# defaults, the throttle 0.25 + 0.1125 a second, one launch line "(the throttle from 0.25 ...)" (launch, 22 + 1: L1); the fake's game as
+# test 59's (its follow slower at small inputs, FakeGameFrame's g_fakeTauLo65), test 59's take-off from a stand reproduced at 22a's values
+# (T1), this build's: the settings lines (T0), quicker from a stand (T2) and from a start within seconds of moving (T3) with the up-shifts
+# at the bands and their rpm ([Sound] HeardRiseGears' default 2.1,1.35,1,1,1, 22a 2,0.86,0.8,1,1), the coast and the brake as 22a's (T4,
+# T5) (sound, 167 + 6). No new key, no DEF64 entry: the two changed defaults are pinned for every older mode already (DEF60's
+# LaunchFrom=0.25 and DEF54's HeardRiseGears=1,1,1,1, mode 23 names its own LaunchFrom), and the older checks that took the code's
+# (LaunchTests62's R1, SoundTests62's N3-N8, SoundTests63's, SoundTests64's) write 22a's (SndDrive22a65, SndRise22a65): 2235 checks
+# with this unit alone.
+# 2026-11-23a, test 59's fixes, the look unit's: [View] LookOrbitGame (each frame of a held third-person look the game's own swing
+# of its camera told from the plugin's need: with no weapon drawn the camera left to the game, nothing written; with one, the
+# orbit) and LookRecover (no check of the look switches anything off for the session: a hold not followed ends that hold's orbit,
+# an ease not followed watches the game's own camera back, a camera behind already ends the ease at once), on test 59's riding
+# camera (the fake's g_v63Field 5: the game's own free rotation with no weapon drawn, twice the heading's rate a unit of the look
+# input, its writes never shown, back behind over 0.1 s once the mouse is still; with one drawn test 58's): the camera the game's
+# own swing, not followed never (LR1), the ease's writes not shown and the game's return watched to behind (LR1b), the plugin's
+# 60 deg with the 10mm drawn after a hold without (LR2), a camera behind already ending the orbit's ease at once (LR3), the
+# 2026-11-21a ease watching the game's faster return (LR4), a hold not followed ending that hold only (LR5), LookOrbitGame=0: test
+# 59's 95 against 48 (LR0) (view, 317 + 7). DEF64 rides every older mode at the new keys' off values: view 324, the rest as
+# 131f6b4's: 2235 checks with this unit alone.
+# The 2026-11-23a grip unit (test 59's 59-22: "she still holds the gun with both hands"; the user's pick, the left hand back on the
+# left grip with a pistol drawn, the gun held one-handed) on 131f6b4 expects arms 133 (128 + 5: the keys' line at DEF64 (OH0); [Tilt]
+# GunOneHand with GunBothBars=1: the right hand on the seat pose's wrist moved by GunHoldAt, the body and the left arm as the
+# holstered ride drew them (OH1), the pistol's +Y turned onto the bike's heading from a seated fist 30 deg off (OH2), back on its grip
+# at the put-away (OH3), GunOneHand=0: 2026-11-22a's both hands on the bars (OH4)) and view 326 (317 + 9: the keys' line (GP0);
+# [View] BodyGunGrip: a handgun drawn in first person, your body still shown, its line (GP1), its left hand where it was, its right
+# arm a speck (GP2), the first-person 3D's skin on a copy with its left-arm bones a speck, its right-arm bone and a right-arm-only
+# shape the game's (GP3), given back at the put-away (GP4), the Pip-Boy (GP5), a weapon that isn't a handgun (GP6), getting off
+# (GP7), BodyGunGrip=0 as 2026-11-22a (GP8)); DEF64 rides every older mode at the new keys' off values: the rest as 131f6b4's:
+# 2242 checks.
+# The 2026-11-23a overlay unit (test 59's 1A: the Wear and Paint condition only where F4SE's runtime swap went on; the worn bike's at 5 of
+# 21 getting-ons, the parked bike's never at a getting off) adds: CMB_LookOptions' 2097152 [Look] OverlayEvery and 4194304 OverlayQuick,
+# each alone and both, with the 2026-11-23a look line (AO1-AO4); OverlayParked's default 1 (AO5) (custom, 160 + 5). DEF64 rides every
+# older mode at the new keys' off values: custom 165, the rest as 131f6b4's: 2233 checks with this unit alone.
+# The 2026-11-23a parked unit (test 59's 1D and 1E: the bike beside you at a getting off, its lean from upright, its tyres, getting
+# on's hide) on 131f6b4 expects room 187 (176 + 11: Q1 the keys' line and bits, Q2-Q4 ParkLean (flat, test 59's 20:25:18 rise toward
+# the stand, its swim's fall), Q5-Q6 ParkTyres (a thing over the rear tyre's contact, a step under the front wheel's edge), Q7-Q10
+# ParkBeside's kind 7 (their right, a wall: their left, walls both sides: none, an actor: their left), Q11 the four off), the rest as
+# 131f6b4's: 2239 checks.
+# The review of the 2026-11-23a grip unit (finding 2: BodyGunGrip's list of first-person shapes could run past its 24 when the
+# first-person 3D was replaced while held, the old shapes left on our copies) adds GP9 (the first-person 3D replaced while held, a
+# new root with 25 skinned shapes: the old given back first, its line, 24 of the new held, one left as it is) and GP10 (the new
+# shapes all on their own data after getting off) (view + 2: the grip unit's 326 -> 328; with the look unit's 7, 333 -> 335).
+# The parked unit's review fixes (t65-fixp, on t65-merge ea423be): room 189 (187 + 2: Q12 a side with room that the fit rejects is no
+# room, the other side taken; Q13 ParkFit=0's kind 7 answers as a checked spot's, ParkTilt's tilt and the ground's offset, for the
+# controller's settle); every other mode as ea423be's.
+# The 2026-11-23a attach unit (test 59's 1C: the thigh holster's copies never attachments; the user's pick: no item's use clip in
+# third person) on 131f6b4 expects arms 139 (128 + 11): test 59's tree ('Pelvis' < 'RLeg_Thigh', the skin on 'RLeg_Thigh_skin', the
+# holster mod's 'WeaponPistolUp' on the thigh): the keys' line (AS0), the holster an attachment of 'RLeg_Thigh' (AS1), its copy
+# carried with the thigh while posed (AS2), AttachWhere through 'RLeg_Thigh_skin' (AS3), AttachFresh's stale shape (AS4); an
+# item's props right after the Pip-Boy (its item applied in the menu) cut at their frame in third person at speed (UN1) and slow
+# (UN2), a potion's key under QuickUseAbove handed to the script (UN3), the ride's line (UN6), first person and UseNoClip=0 as
+# before (UN4/UN5), and (its review's finding 4) a clip with no cause known whose item comes at its own event 1.25 s in, left to
+# play till then and cut at it (UN7). DEF64 rides every older mode at the new keys' off values: the rest as 131f6b4's: 2239 checks.
+# The review of 2026-11-23a, finding 3 (the kit unit's): KitPrePlace reads only the loaded list's live entries (their stride from
+# two fields an entry, the span readable first) and writes only models still referenced: the list 0x280 long before an unreadable
+# page, three live entries 0xA0 apart and a stale fourth past count: the one with no reference and the stale one left (K64) (custom
+# + 1: 170 -> 171 on the merged build).
+# The merged 2026-11-23a (the kit, drive, look, grip, overlay, parked and attach units, with the wear's and art2d's art, and its
+# review's fixes: grip's GP9-GP10, parked's Q12-Q13, kit's K64, attach's UN7; overlay's fixes are the scripts' alone) expects view
+# 335 (317 + 7 look + 9 grip + 2 of its review's finding 2), custom 171 (160 + 5 kit + 5 overlay + 1 of its review's finding 3),
+# arms 144 (128 + 5 grip + 11 attach, its review's finding 4 among them), sound 173 (167 + 6 drive), launch 23 (22 + 1 drive), room
+# 189 (176 + 11 parked + 2 of its review's finding 7), the rest as 131f6b4's: 2293 checks.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 WORK="$(mktemp -d)"
@@ -399,6 +468,26 @@ DEF62='Look/KitFollow=0 Look/KitSlotSettle=0 Look/KitMouse=0 Look/KitWheelOwn=0 
 # (the lines) at their off values (2026-11-21a, fbe9a7c), the same way (after DEF54's to DEF62's). Mode 13's AttachTests64 rewrites
 # each and back. No name is used in any other section, INI or DEF line.
 DEF63='View/LookOrbit=0 Steer/AimStruct=0 Look/KitDrawn=0 Look/KitWheelDown=0 Look/KitWheelLists=0 Look/KitSlots22=0 Steer/MenuKeep=0 Sound/UpBands= Look/ParkedSwapHold=0 Look/OverlayRuntime=0 Diag/LensLine=0 Room/ParkFit=0 Room/ParkStand= Tilt/AttachUnclone=0 Tilt/AttachBoneRole=0 Tilt/AttachHide=0 Diag/AttachWhere=0 Look/OverlayParked=0'
+# 2026-11-23a, the kit unit's (test 59's 1F): the new keys at their off values (2026-11-22a, 131f6b4).
+# 2026-11-23a, test 59's fixes: the round's new keys at their off values (2026-11-22a, 131f6b4), the same way (after DEF54's to
+# DEF63's). The look unit's: [View] LookOrbitGame and LookRecover.
+# 2026-11-23a, test 59's 59-22 (the grip unit's keys at their off values, 2026-11-22a, 131f6b4), the same way (after DEF54's to DEF63's):
+# [Tilt] GunOneHand (third person, a handgun posed with GunBothBars=1: the right hand off its grip holding it, the left on its grip),
+# GunHoldAt (where, from the seat pose's wrist; it acts only with GunOneHand: pinned at its default) and [View] BodyGunGrip (first
+# person, a handgun out: your body shown, its right arm hidden, the game's first-person left arm shrunk). Mode 13's GunTests65 and
+# mode 20's BodyTests65 rewrite each and back. No name is used in any other section, INI or DEF line.
+# 2026-11-23a, test 59's 1A (the overlay unit's keys at their off values, 2026-11-22a, 131f6b4), the same way (after DEF54's to DEF63's):
+# [Look] OverlayEvery and OverlayQuick (CMB_LookOptions 2097152 and 4194304 for the scripts). OverlayParked's changed default (1;
+# 22a's 0) needs nothing here: DEF63 already pins OverlayParked=0 for every older mode. No name is used in any other section, INI or DEF line.
+# 2026-11-23a, test 59's 1D and 1E (the parked unit's: the bike beside you at a getting off, its lean from upright, its tyres, getting
+# on's hide): [Room] ParkBeside, ParkLean, ParkTyres and MountHide at their off values (2026-11-22a, 131f6b4), the same way (after
+# DEF54's to DEF63's). Mode 14's ParkTests65 rewrites each and back. No name is used in any other section, INI or DEF line.
+# 2026-11-23a, test 59's 1C and the user's pick (the attach unit's): [Tilt] AttachSkeleton (an attachment may hang off a skeleton
+# node the skins reach through their helper bones: the thigh's holster; the seat pose reads them too), [Diag] AttachFresh
+# (AttachWhere leaves out shapes the game isn't drawing as written) and [Steer] UseNoClip (no item's use clip in third person
+# while riding) at their off values (2026-11-22a, 131f6b4), the same way (after DEF54's to DEF63's). Mode 13's AttachTests65 and
+# UseNoClipTests65 rewrite each and back. No name is used in any other section, INI or DEF line.
+DEF64='Look/KitLate=0 Look/KitPrePlace=0 View/LookOrbitGame=0 View/LookRecover=0 Tilt/GunOneHand=0 Tilt/GunHoldAt=-3,-2,9 View/BodyGunGrip=0 Look/OverlayEvery=0 Look/OverlayQuick=0 Room/ParkBeside=0 Room/ParkLean= Room/ParkTyres=0 Room/MountHide=0 Tilt/AttachSkeleton=0 Diag/AttachFresh=0 Steer/UseNoClip=0'
 run() { # <name> <mode> <ini body>
   if [ -n "$ONLY" ] && [ "$ONLY" != "$1" ]; then return; fi
   mkdir -p "$WORK/$1"
@@ -413,7 +502,7 @@ run() { # <name> <mode> <ini body>
     esac
   done
   local sec key pre rest
-  for kv in $DEF54 $DEF55 $DEF56 $DEF57 $DEF58 $DEF59 $DEF60 $DEF61 $DEF62 $DEF63; do
+  for kv in $DEF54 $DEF55 $DEF56 $DEF57 $DEF58 $DEF59 $DEF60 $DEF61 $DEF62 $DEF63 $DEF64; do
     sec="[${kv%%/*}]\n" kv="${kv#*/}" key="${kv%%=*}"
     case "$ini" in "$key="*|*"\n$key="*) continue;; esac
     case "$ini" in *'\n') ;; *) ini="$ini\n";; esac

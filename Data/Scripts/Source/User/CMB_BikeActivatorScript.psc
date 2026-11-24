@@ -55,3 +55,23 @@ EndEvent
 Event OnLoad()
 	Controller.ParkedLoaded3D(self)
 EndEvent
+
+; 2026-11-23a (the plugin's [Room] MountHide, CMB_RoomOptions bit 262144; the controller's ParkStandUpOwn): getting on, the bike leaning
+; on its side stand is stood up by its own script, in a thread of this object: the controller's ParkStandUp took turns with getting
+; on's own calls in the controller (one thread at a time runs in a script object). Its roll from afFrom to afTo in aiSteps turns afStep
+; apart, its pitch and heading kept. Stops when the bike is hidden meanwhile (getting on hides it under the fade).
+Function StandUp(float afPitch, float afFrom, float afTo, int aiSteps, float afStep)
+	float angle = GetAngleZ()
+	int i = 1
+	while i <= aiSteps
+		if IsDisabled()
+			return
+		endif
+		SetAngle(afPitch, afFrom + (afTo - afFrom) * (i as float) / (aiSteps as float), angle)
+		if i < aiSteps
+			Utility.Wait(afStep)
+		endif
+		i += 1
+	endwhile
+	Debug.Trace("[CMB] Getting on: the parked bike stood up off its side stand (roll " + afFrom + " -> " + afTo + ", by its own script: MountHide).")
+EndFunction

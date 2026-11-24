@@ -115,6 +115,11 @@ EndGroup
 ; bike's own mods may have put the target on already).
 int composedCount = 0
 bool composedActive = false
+; 2026-11-23a ([Look] OverlayQuick, CMB_LookOptions 4194304; test 59): the look CMB_LookSwap was last composed for (the controller's
+; lookApplied when that Compose began, set with the count at its end; "" none yet). While it is the look as put on now and the swap
+; holds entries, the runtime swaps reuse it (SwapCurrent) instead of composing again (about 2 s of Papyrus each time in test 59).
+string composedFor = ""
+string overlayHow = ""   ; how the last ApplyWornOverlay got its swap: "the compose reused" or "composed afresh" (the controller's line)
 
 ; 2026-11-08a: the slots by number (no constants here: check_plugin asks for every property filled):
 ; 0 TankL, 1 TankR, 2 Fender, 3 Paint, 4 Mirrors, 5 Rims, 6 Tyres, 7 Plate, 8 PlateText (CMB_LookSwapLists
@@ -543,6 +548,7 @@ EndFunction
 ; longer reset each other's half-way (ApplyParked read false and kept no swap on the bike).
 MatSwap:RemapData[] Function Compose(bool abWorn = false)
 	bool active = false
+	string forLook = Controller.LookAppliedText()   ; 2026-11-23a (OverlayQuick): the look this compose is of
 	Colours()
 	if abWorn
 		WriteColours()   ; 2026-11-08a: the worn bike's look only (a mid-ride Apply's parked compose doesn't)
@@ -616,10 +622,63 @@ MatSwap:RemapData[] Function Compose(bool abWorn = false)
 		endif
 		k += 1
 	endwhile
-	CMB_LookSwap.SetRemapData(all)
 	composedCount = all.Length
+	; The review of 2026-11-23a (finding 5): with OverlayQuick the swap carries its own look as a marker entry (a source no shape has:
+	; never matched, never loaded), so SwapCurrent checks the swap in memory itself: composedFor is a script variable and comes back
+	; from a save, CMB_LookSwap's entries don't (this session's last compose, maybe another look's).
+	if LookOptionOn(4194304)
+		all.Add(ComposedMarker(forLook))
+	endif
+	CMB_LookSwap.SetRemapData(all)
 	composedActive = active
+	composedFor = forLook
 	return all
+EndFunction
+
+; The review of 2026-11-23a (finding 5): the marker entry for a look (the controller's lookApplied as composed): its source and target
+; a path under CMB\Bike\composed\ that no shape's material has.
+MatSwap:RemapData Function ComposedMarker(string asLook)
+	MatSwap:RemapData e = new MatSwap:RemapData
+	e.source = ComposedMarkerName(asLook)
+	e.target = e.source
+	e.colorIndex = NoIndex()
+	return e
+EndFunction
+
+string Function ComposedMarkerName(string asLook)
+	return "CMB\\Bike\\composed\\" + asLook
+EndFunction
+
+; 2026-11-23a ([Look] OverlayQuick, CMB_LookOptions 4194304): CMB_LookSwap holds the look as put on now (composed for the controller's
+; lookApplied, with entries in memory: a game started since has none), so a runtime swap can go on without composing again. Never with
+; the bit off (2026-11-22a: a compose each time).
+bool Function SwapCurrent()
+	if !LookOptionOn(4194304) || !CMB_LookSwap || composedFor == "" || !composedActive
+		return false
+	endif
+	string look = Controller.LookAppliedText()
+	if composedFor != look
+		return false
+	endif
+	; the review of 2026-11-23a (finding 5): the swap in memory carries this look's marker (Compose), whatever a save brought back
+	MatSwap:RemapData[] have = CMB_LookSwap.GetRemapData()
+	if !have
+		return false
+	endif
+	string want = ComposedMarkerName(look)
+	int i = have.Length
+	while i > 0
+		i -= 1
+		if have[i].source == want
+			return true
+		endif
+	endwhile
+	return false
+EndFunction
+
+; 2026-11-23a: how the last ApplyWornOverlay got its swap, for the controller's line (LookF4SEText).
+string Function OverlayHow()
+	return overlayHow
 EndFunction
 
 ; 2026-11-14a ([Look] WornIndex): akEntry itself, or, when its target is one of RimBodyHueTargets (WriteWornIndexes renamed
@@ -723,8 +782,16 @@ int Function ApplyParkedLoaded(string asFrom = "")
 		Log("Look: the parked bike's 3D loaded (" + asFrom + "): no runtime swap on it, " + why + " (OverlayParked; at a later load)")
 		return 0
 	endif
-	MatSwap:RemapData[] all = Compose()
-	if !all || all.Length == 0 || !composedActive || BikeRef.IsDisabled() || !BikeRef.Is3DLoaded()
+	string reused = ""
+	if SwapCurrent()
+		reused = ", the compose reused"   ; 2026-11-23a (OverlayQuick): ApplyParked's compose before this load, or the last one's
+	else
+		MatSwap:RemapData[] all = Compose()
+		if !all || all.Length == 0
+			return 0
+		endif
+	endif
+	if !composedActive || BikeRef.IsDisabled() || !BikeRef.Is3DLoaded()
 		return 0   ; (the compose's seconds: the bike may have gone meanwhile)
 	endif
 	why = ParkedRuntimeRefusal()
@@ -734,7 +801,7 @@ int Function ApplyParkedLoaded(string asFrom = "")
 	endif
 	int applied = Applied(BikeRef.ApplyMaterialSwap(CMB_LookSwap, false))
 	Controller.ParkedSwapLanded("OverlayParked at " + asFrom, applied)
-	Log("Look: the parked bike's fresh 3D (" + asFrom + "): the look's swap at runtime too, " + applied + " of " + composedCount + " entries applied (OverlayParked)" + ColoursText())
+	Log("Look: the parked bike's fresh 3D (" + asFrom + "): the look's swap at runtime too, " + applied + " of " + composedCount + " entries applied (OverlayParked" + reused + ")" + ColoursText())
 	return applied
 EndFunction
 
@@ -783,13 +850,18 @@ int Function ApplyTo(ObjectReference akRef)
 	if !akRef
 		return 0
 	endif
-	MatSwap:RemapData[] all = Compose()
-	if !all
-		return 0
+	string reused = ""
+	if SwapCurrent()
+		reused = " (OverlayQuick: the compose reused)"   ; 2026-11-23a: no 2 s compose before the first-person bike's look
+	else
+		MatSwap:RemapData[] all = Compose()
+		if !all
+			return 0
+		endif
 	endif
 	akRef.WaitFor3DLoad()
 	int applied = Applied(akRef.ApplyMaterialSwap(CMB_LookSwap, false))
-	Log("Look: the first-person bike: " + applied + " of " + composedCount + " entries applied" + ColoursText())
+	Log("Look: the first-person bike: " + applied + " of " + composedCount + " entries applied" + ColoursText() + reused)
 	return applied
 EndFunction
 
@@ -798,9 +870,17 @@ EndFunction
 ; before the swap. -1 nothing composed; -3 refused after the compose (its line); else the entries applied.
 int Function ApplyWornOverlay()
 	Actor player = Game.GetPlayer()
-	MatSwap:RemapData[] all = Compose(true)
-	if !all || !player
+	if !player
 		return -1
+	endif
+	if SwapCurrent()
+		overlayHow = "the compose reused"   ; 2026-11-23a (OverlayQuick): the worn bike's colours went into the globals at its equip
+	else
+		overlayHow = "composed afresh"
+		MatSwap:RemapData[] all = Compose(true)
+		if !all
+			return -1
+		endif
 	endif
 	string why = Controller.WornOverlayRefusal()
 	if why != ""
@@ -1114,6 +1194,7 @@ EndFunction
 int Function ForgetWornIndexes()
 	wornIndexPasses += 1
 	wornIndexKey = ""
+	composedFor = ""   ; the review of 2026-11-23a (finding 5): the save's token, not this session's CMB_LookSwap (SwapCurrent)
 	return 0
 EndFunction
 

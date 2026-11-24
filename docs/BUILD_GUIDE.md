@@ -639,6 +639,73 @@ ParkedSwapHold=0`, `OverlayRuntime=0`, `[Diag] LensLine=0`, `[Room] ParkFit=0`, 
 default changes, so nothing else needs a pin. The off values together are 2026-11-21a's plugin (with `AimStruct=0` the
 aim's handler is looked for by its class name alone, which the game doesn't use, as in 2026-11-21a).
 
+Since 2026-11-23a (test 59's fixes and the tester's wishes) the ESP, the MCM's `config.json` and `keybinds.json` are
+2026-11-22a's byte for byte: no record is new or changed (the header **1337** records, next ID **0xD1B**; `git diff
+131f6b4 <the build's commit> -- Data/CommonwealthMotorbike.esp Data/MCM tools/esp-generator` is empty: the generator and
+its tables are 2026-11-22a's, so `--look-build 2026-11-21a`, `2026-11-16a`, `2026-11-08a` and `2026-11-07a` still give
+fbe9a7c's, 24b2368's, 2026-11-15b's and fdb5b3a's). The new behaviours need no form: the look's two new switches are
+bits of `CMB_LookOptions` (2097152 OverlayEvery, 4194304 OverlayQuick; 1048576 OverlayParked now set by default: 8388607
+at the defaults), the parked bike's three are bits of `CMB_RoomOptions` (65536 ParkBeside, 131072 ParkLean, 262144
+MountHide) with ask kind 7 of `CMB_RoomAskKind`, and the scripts' new values are AutoReadOnly properties; the
+cross-check (`check_plugin.py` over the ESP's dump) still prints `checked cmb_controllerscript: 213 properties`,
+`checked cmb_lookf4se: 39 properties` and "plugin and scripts agree". Three scripts change: `CMB_ControllerScript.psc`
+(getting off beside the player in one ask, `ParkBesideNow` and RoomAt's kind 7, the bike set at the checked spot itself
+(SetPosition) and, with ParkFit's bit off, settled by `PlaceOnSpot` as a checked spot, `ParkLeanAsPlaced` from upright
+with bit 131072; getting on with the parked bike hidden before the equip, a runtime-swapped one at once as E is pressed,
+before the fade (`MountHideSwapped`, `mountHidEarly`), one without a swap 0.2 s into the fade (`MountHideParked`),
+`MountSpotRecord`, the stand-up by the bike's own script, `ParkStandUpOwn`, and `ParkedLookAtMount` without its reload,
+behind bit 262144 with MountEarly's 512, `MountHideDelay` 0.2 AutoReadOnly; the worn bike's overlay kept through a
+getting on and put on 0.1 s after its equip, retried and confirmed, `WornOverlayNow`, `WornOverlayRefusal`,
+`LookFollowUpAgain` and `LookFollowUpRearm` (the look timer started again only while something is due, the confirming
+swap at its own 1.0 s, `wornOverlayConfirmAt`), and the parked bike's at a getting off after the ride's end,
+`ParkedLoaded3D`, `ParkedRideEndWait` 5, behind `CMB_LookOptions` 2097152 and 4194304), `CMB_LookF4SE.psc`
+(`composedFor`, `SwapCurrent()`, `OverlayHow()`: the composed swap reused while it is the look as put on, in
+`ApplyWornOverlay`, `ApplyTo` and `ApplyParkedLoaded`; with OverlayQuick the swap's marker entry
+`CMB\Bike\composed\<look>`, which matches no shape, and `composedFor` forgotten at a load, `ForgetWornIndexes`) and
+`CMB_BikeActivatorScript.psc` (`StandUp`, the stand-up in the bike object's own thread); `check.sh` 12 .pex with no
+warning. `CMB_Slope.dll` and `CMB_Slope.ini` change (the two INI copies identical); build the plugin with `bash
+tools/f4se-slope/build.sh` (`-Werror`) and commit the DLL before packaging. The art goes into two overlays laid after
+2026-11-22a's four ([ASSETS.md](ASSETS.md), *The 2026-11-23a art's files*, has the whole commands):
+```
+<DDS python> -I -B tools/rider/look_wear.py --data <overlay W> --base <...> --pynifly <PyNifly>
+                                       # 243 files, 30 changed by --rust (2026-11-22a: 22a's 243 byte for byte)
+python3 -I tools/rider/bike_art.py --badges --out <art_b>     # three gears either side of the 3D Brotherhood helmet
+                                       # [--bos-ground 2026-11-22a] or [--through 2026-11-22a]: 22a's atlas
+<DDS python> -I tools/rider/look_badges.py --art <art_b> --out <tree>      # badges_d/_n/_s.dds change
+```
+with their checks (`look_wear.py --check`: 23 passed; `--check --rust 2026-11-22a`: 21 passed; `look_badges.py --check
+... --base <2026-11-22a's tree> --base-build 2026-11-22a`: all passed). Each unit's tree with its own overlay passes
+`check_bike_meshes.py` (`--look-c5`: 102; `--look-c3 --look-targets all` with the new ground's field: 101), and over the
+whole tree (2026-11-10a's Data with every overlay through this build's two, the merged ESP, INI and MCM) all checks pass
+(105), the texture budget TEX_BUDGET_C5 as before (277 DDS, 165.3 MB). Each old flag gives 2026-11-22a's files byte for
+byte: `look_wear.py --rust 2026-11-22a` (the 243 files on the full asset base) and `bike_art.py --bos-ground
+2026-11-22a` or `--through 2026-11-22a` (e65f381f..., 6d226ff6..., 41ec97fa...). Only the files that differ from
+2026-11-22a's tree go into the package's change list; the wear overlay holds the whole 243-file tree (213 of them
+2026-11-22a's bytes), as 2026-11-22a's did, so it stands alone. The package lays fifteen overlays over the asset base in
+order (the later winning), 2026-11-22a's thirteen and this build's two:
+```
+OVERLAY=<2026-11-15b's meshes>:<overlay A>:<overlay B>:<overlay C>:<17a's badges overlay>:<17a's plates overlay>:<21a's shells overlay>:<21a's wear overlay>:<21a's 2D art overlay>:<22a's shells overlay>:<22a's wear overlay>:<22a's 2D art overlay>:<22a's parked overlay>:<23a's wear overlay>:<23a's 2D art overlay>
+```
+33 files changed and none new against 2026-11-22a's package (Rusty's and Raider's 30 Wear maps and the badge atlas, the
+same sizes; `tools/package/builds/2026-11-23a.json` lists them with their sha256), and three compiled scripts. The
+engine model and its twin (`tools/sound/engine_model.py`) don't change: `[Steer] LaunchFrom` and `[Sound]
+HeardRiseGears` are the plugin's inputs. The harness (`tools/f4se-slope/test/run.sh`, 26 modes) expects **2293** checks:
+view 335, custom 171, arms 144, sound 173, launch 23, room 189, the rest as 2026-11-22a's (2287 before the review's
+checks GP9-GP10, K64, UN7 and Q12-Q13); `DEF64` rides every older mode at this build's off values (`[Look] KitLate=0`,
+`KitPrePlace=0`, `[View] LookOrbitGame=0`, `LookRecover=0`, `[Tilt] GunOneHand=0`, `GunHoldAt=-3,-2,9` (its default: it
+acts only with `GunOneHand`), `[View] BodyGunGrip=0`, `[Look] OverlayEvery=0`, `OverlayQuick=0`, `[Room] ParkBeside=0`,
+`ParkLean=`, `ParkTyres=0`, `MountHide=0`, `[Tilt] AttachSkeleton=0`, `[Diag] AttachFresh=0`, `[Steer] UseNoClip=0`).
+Three defaults change, each pinned for every older mode by an older DEF line already: `[Look] OverlayParked` 1 (DEF63's
+0), `[Steer] LaunchFrom` 0.25 (DEF60's 0.25; the launch mode names its own) and `[Sound] HeardRiseGears` 2.1,1.35,1,1,1
+(DEF54's 1,1,1,1); the older checks that took the code's take-off defaults now write 2026-11-22a's values
+(`SndDrive22a65`, `SndRise22a65`). The off values together with `OverlayParked=0`, `LaunchFrom=0.14` and
+`HeardRiseGears=2,0.86,0.8,1,1` are 2026-11-22a's plugin, but for the fixes with no key: with `[Look] KitDrawn=1` and
+`KitFollow=0` 2026-11-22a read unset values, and 2026-11-23a's kit writes the drawn bike there as with `KitFollow=1` (an
+unkeyed crash fix); the review's fixes of 23a's own code (BodyGunGrip's list of 24, KitPrePlace's live entries, the
+composed swap's marker, the look timers, MountHide's early hide, ParkBeside's exact spot, UseNoClip's narrower cut) act
+only with their keys on, but for the look timer's empty re-arm (nothing due), which no longer runs, to no effect. The
+take-off's two have no DEF64 key: its A/B is by hand.
+
 The vanilla form IDs the plugins use (PlayerRef, XMarker, HumanRace, HumanRaceSubGraphData, SpeedMult, CarryWeight, FallingDamageMod, Health, Pip-Boy, AnimArchetypePlayer) were checked against Mutagen's FormKey list generated from the real `Fallout4.esm`. The record layouts were also compared field by field with xEdit's Fallout 4 definitions.
 
 ## For developers: packaging a build
