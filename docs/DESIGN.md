@@ -4731,6 +4731,46 @@ once, at LookAfterLoad's start (the marker check keeps the reuse right whatever 
 are Papyrus (desk traces and models); 12 .pex, no warnings, "plugin and scripts agree". The harness: 2294 checks in 26
 modes (arms 145 with UN8, the rest as 2026-11-23a's).
 
+## Test 60's fixes and the tester's wishes (2026-11-24a): the rider held still at a getting off, the parked bike kept solid, the stand's foot, every stimpak's heal, the seated pose through a use, the first-person aim, the second left hand
+
+Built as eight units on bca9231, each with its keys (off = 2026-11-23b, pinned by the harness's `DEF65`):
+
+- **ParkStop / ParkHold** (park). Under the getting off's fade the input handlers (`AfterInput`) go silent while
+  `HookOutput` keeps writing the frozen move, so test 60's rider rode on 0.7-0.8 s past the ask. A kind-7 room ask now
+  arms a hold: `AfterInput`'s early branch writes the zero; when it is silent the frame task runs the throttle down
+  itself; the answer (`RoomBesideAnswer65`) comes once the rider has stopped (two frames under 20 on the ground), or
+  `ParkStop` seconds after the ask, at the player's place then, with the asked heading. `ParkHold` zeroes the move after
+  the ride's end until the keys are let go.
+- **ParkSolid** (park). Every test 60 park that kept its collision had a SetPosition or SetAngle after its Enable; the two
+  that lost it had a bare Enable. `ParkBesideNow` now re-places after a bounded 3D wait. A kind-8 ask checks the bike's
+  own place with the guard's own-bike test, overhang-safe; "unknown" never repairs. A second look comes 2 s on; repair
+  is at most two tries (Disable + `EnableParked`, then a re-place that moves the bike). The 3D root is logged at each
+  enable and disable. The 2 s look claims `busy` before any call to another object.
+- **ParkLeanClear, ParkFootFix, ParkFallbackSearch, GuardStuckMove, SwimSpot** (park, fit). The lean is counted in the
+  room box; the stand's foot is measured on the ground (a pad, not a crack); a kind-9 ask refuses a candidate spot's fit
+  far off and the controller tries the spots around in turn (4 in 1 s with no black); an unmoving body in the bike's
+  place moves it on after 2 s; a swim's bring comes along the way out.
+- **UseItemFirst / UseSeatHold / BodyArmsUse** (use). A stimpak applies at its use clip's own event, about 1 s in,
+  whoever starts the clip, so a cut at the props loses it (test 60: 11 presses, 1 heal). Per-hand-over records replace
+  the counter; the cut waits for the item, and hand-overs are serialized. Through a third-person clip the rider is posed
+  on the stored seat pose with the hands solved on the grips and the props hidden; in first person the first-person
+  root is hidden (bit 0, interlocked) until the clip is over. `QuickApplyProbe` only logs the engine's routes.
+- **LookAim** (aim). The game aims shots by the actor's facing, so a camera-only look shot along the bike. The look's
+  yaw is applied to the actor's heading between the plugin's tasks only (unapplied first in each `Frame()`, applied
+  after the last step); the camera takes the rest; the forward drive and the worn bike are counter-rotated so the bike
+  keeps its line. The first room ask of a getting off has the aim taken out of its heading.
+- **BodyGunGripNodeless / BodyGunGripSpeck** (grip). FO4's first-person skins hold null node slots for the fingers, so
+  2026-11-23b shrank only the three named bones. Node-less bones are judged by their binds, and shrunk per shape to one
+  point at the left shoulder, or about their own joints when a shape keeps a bone with no side. A decal's skin clone is
+  given back at the let-go, and a copy with a game skin still on it is kept out of the pool.
+- **LookOrbitArmed** (orbit). It wraps ThirdPersonState's GetRotation and GetTranslation to turn the third-person camera
+  round the rider with a weapon drawn. It is unreviewed, so it ships at 0 with `LookOrbitLearn` 0.
+- **Smaller** (plog, sfix). `NearThirdOff` hysteresis and `NearDrawEvery`; "none" for non-finite prints; the water type
+  read at the ride's start; `KitGuard` between the task and the menu's own update thread (`KitLate` default 0);
+  `KitQuickExit`; `EquipLate`; `LandOnce`; `APWatch` default 0; `RoomWriteOptions` at PostLoadGame and NewGame.
+- **Known**: `ShadowPlayer` and `CatchUpFollowers` read the actor's heading, which carries the aim during a first-person
+  armed look.
+
 ## Knocking enemies over (F4SE plugin and `CMB_RamScript`)
 
 Test 40's wish; test 41's answers: on by default, the smaller robots count (protectrons, eyebots, Mr. Handy and Gutsy,

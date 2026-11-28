@@ -106,7 +106,10 @@ EndFunction
 ; clip's event, about a second in, and UseStop cut the clip before it). QuickUse: CMB_Slope.dll ([Steer] QuickUse) takes a
 ; potion's quickkey from the game while riding at speed and writes CMB_RiderQuickUse = count * 16 + slot (count 1-999, slot
 ; 1-12). While riding (the controller's RideWatchesOn and RideWatchesOff) this script looks at it every 0.1 s; on a change
-; it equips that slot's potion itself with Actor.EquipItem, the Pip-Boy's own path: applied at once, no engine clip. F4SE's
+; it equips that slot's potion itself with Actor.EquipItem. 2026-11-24a (test 60): that equip is not applied at once, as
+; 2026-11-10a took it to be (the Pip-Boy's path): outside a menu it is the game's own animated use, the item applied at the
+; clip's own event about 1 s in, as the game's own key does; the plugin leaves that clip to play to its item (UseItemFirst)
+; and keeps it off the screen (UseSeatHold, BodyArmsUse). Only the Pip-Boy applies an item at once, in its menu. F4SE's
 ; GetFavorites lists the 12 slots in order, None for an empty one (F4SE's PapyrusFavoritesManager.cpp pushes favorites[0]
 ; to [11], the array the plugin reads), so slot N is index N - 1. The controller is told first, without waiting (QuickUsed:
 ; its line and the mark its OnItemEquipped reads), then the potion is equipped; a slot emptied since, another kind of item
@@ -120,12 +123,19 @@ bool quickWatching = false
 int quickSeen = 0
 ; 2026-11-14a (test 53: a stimpak by number key at speed never healed). QuickCut: when the plugin could not take a potion's
 ; number key from the game (QuickUse off, the hook not reached), it cuts the game's use clip at its props before the item
-; came and, once the clip is seen over, writes -(count * 16 + slot): QuickCutUse equips that slot's potion as QuickUse does,
-; unless the game used that very potion itself (a chem is applied at its key and its signal can come after the cut), seen
+; came and, once the clip is seen over, writes -(count * 16 + slot): QuickCutUse equips that slot's potion as QuickUse does
+; (the game's animated use again, 2026-11-24a), unless the game used that very potion itself (a chem is applied at its key and its signal can come after the cut), seen
 ; by this script's own OnItemEquipped. The script's own equips are marked and never taken for the game's (the skeptic's
 ; finding 1). quickLastCount: the last write's count, so a write missed between two looks is said (finding 3); 0 after
 ; this script's own -1 (the plugin's next count is 1), -1 not known (a save of an older build, the watch off).
 int quickLastCount = -1
+; 2026-11-24a (test 60: whether a key use healed could only be told from OnItemEquipped): 2 s after each equip this script
+; made, one line with the stack's count and the health then and at the equip. Four at once (timers TimerQuickCheck to +3).
+int Property TimerQuickCheck = 6701 AutoReadOnly
+Form[] quickCheckItem
+int[] quickCheckCount
+float[] quickCheckHealth
+int quickCheckNext = 0
 Form quickOwnItem = None
 float quickOwnAt = -100.0
 Form lastPotion = None
@@ -153,6 +163,10 @@ Function QuickWatch(bool abOn)
 EndFunction
 
 Event OnTimer(int aiTimerID)
+	if aiTimerID >= TimerQuickCheck && aiTimerID < TimerQuickCheck + 4
+		QuickCheckNow(aiTimerID - TimerQuickCheck)   ; 2026-11-24a
+		return
+	endif
 	if aiTimerID != TimerQuickUse || !quickWatching
 		return
 	endif
@@ -193,6 +207,7 @@ Function QuickUse(int aiValue)
 	Controller.CallFunctionNoWait("QuickUsed", args)
 	if potion && count > 0
 		QuickEquip(potion)
+		QuickCheckLater(potion, count)   ; 2026-11-24a: the stack and the health 2 s on
 	endif
 EndFunction
 
@@ -256,6 +271,7 @@ Function QuickCutUse(int aiValue)
 	Controller.CallFunctionNoWait("QuickUsed", args)
 	if potion && count > 0
 		QuickEquip(potion)
+		QuickCheckLater(potion, count)   ; 2026-11-24a
 	endif
 EndFunction
 
@@ -264,6 +280,8 @@ bool Function QuickGameUsed(Potion akPotion, float afWithin)
 EndFunction
 
 ; The script's own equip (QuickUse, QuickCut), marked first so its OnItemEquipped isn't taken for the game's own use.
+; 2026-11-24a (test 60): outside a menu EquipItem of a stimpak plays the game's use animation, its item at the clip's event
+; (OnItemEquipped then, 0.9-1.4 s on); abSilent only hides the HUD message.
 Function QuickEquip(Potion akPotion)
 	quickOwnItem = akPotion
 	quickOwnAt = Utility.GetCurrentRealTime()
@@ -283,3 +301,29 @@ Event Actor.OnItemEquipped(Actor akSender, Form akBaseObject, ObjectReference ak
 	lastPotion = akBaseObject
 	lastPotionAt = now
 EndEvent
+
+; 2026-11-24a: the line 2 s after an equip (QuickUse, QuickCut): what the stack and the health say about the heal.
+Function QuickCheckLater(Potion akPotion, int aiCount)
+	if !quickCheckItem
+		quickCheckItem = new Form[4]
+		quickCheckCount = new int[4]
+		quickCheckHealth = new float[4]
+	endif
+	int k = quickCheckNext % 4
+	quickCheckNext += 1
+	quickCheckItem[k] = akPotion
+	quickCheckCount[k] = aiCount
+	quickCheckHealth[k] = Controller.PlayerRef.GetValuePercentage(Controller.Health) * 100.0
+	StartTimer(2.0, TimerQuickCheck + k)
+EndFunction
+
+Function QuickCheckNow(int aiK)
+	if !quickCheckItem || aiK < 0 || aiK > 3 || !quickCheckItem[aiK]
+		return
+	endif
+	Form item = quickCheckItem[aiK]
+	quickCheckItem[aiK] = None
+	int now = Controller.PlayerRef.GetItemCount(item)
+	float health = Controller.PlayerRef.GetValuePercentage(Controller.Health) * 100.0
+	Controller.Log("Hotkey use 2 s on: " + item + ": " + now + " in the stack now, " + quickCheckCount[aiK] + " at the equip; health " + (health as int) + "% now, " + (quickCheckHealth[aiK] as int) + "% at the equip.")
+EndFunction

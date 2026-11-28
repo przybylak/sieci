@@ -737,6 +737,19 @@ After 2026-11-23b, the harness alone (no build; the plugin, the scripts, the ESP
 - Every mode has the same checks, 2294 in all. Under four busy loops, 6 of 21 runs failed before and none of 24 after.
 - Still on the machine's clock: view's ViewCamTests61 EyeAt check, once seen at 7.97 against its 0.01.
 
+Since 2026-11-24a (test 60's fixes and wishes, built as eight units on bca9231 and merged) the plugin, `CMB_Slope.ini`, the
+controller and `CMB_HotkeyF4SE` change; the ESP, the MCM and the art are 2026-11-23b's. Build the DLL with `bash
+tools/f4se-slope/build.sh` and commit it before packaging; `check.sh` gives 12 .pex with no warning and the cross-check
+prints "plugin and scripts agree". The harness has 27 modes (`orbit`, mode 26, is new) and expects **2486** checks; `DEF65`
+pins every new key at its off value for the older checks, as `DEF54`-`DEF64` do. Two notes for whoever merges units next:
+
+- `run.sh` now builds the fake with `-fno-toplevel-reorder`. The game addresses the fake maps start at `RVA_LOOKUP_FORM`
+  (0x311B80), so `g_space` must start below it; GCC's own order put the merged units' new statics ahead of it (+0x32d600,
+  "image layout doesn't cover the game addresses"). In source order it sits at +0x1ba040 (bca9231's own order: +0x2de240).
+- Merge units in diff3 style (`git checkout --conflict=diff3`) before unioning hunks: two units adding test functions at
+  the same place share lines, and git's 2-way conflicts split on them, so a 2-way union interleaves the functions (or
+  drops a shared closing brace). With the base shown, a hunk with an empty base is a plain "both added".
+
 The vanilla form IDs the plugins use (PlayerRef, XMarker, HumanRace, HumanRaceSubGraphData, SpeedMult, CarryWeight, FallingDamageMod, Health, Pip-Boy, AnimArchetypePlayer) were checked against Mutagen's FormKey list generated from the real `Fallout4.esm`. The record layouts were also compared field by field with xEdit's Fallout 4 definitions.
 
 ## For developers: packaging a build

@@ -334,11 +334,149 @@
 # the UI's menu stack (the PipboyMenu on it), cancelled by the Favourites menu or any other menu since, and 1.5 s long, not 4: the
 # Pip-Boy closed with nothing used, the Favourites menu within the window, then a clip whose item comes at its own event 1.25 s in:
 # left to play and cut at the item (UN8; 7cf1cbf: cut at the props, the heal lost) (arms 144 -> 145).
+# The 2026-11-24a grip unit (test 60's 1C: a second left hand still on the pistol in first person, BodyGunGrip having shrunk only the
+# 3 bones whose node has a left-arm name) on bca9231 expects view 348 (335 + 13): the keys' line at DEF65 (GN0); test 60's
+# first-person 3D (a 36-bone NakedHands with only its two hands' nodes, sleeves, a left-only leather piece with no node at all, a
+# right band, a piece bound as the third-person body; a T-pose bind, test 60's two-handed grip 6.6 apart, the left fingers nearer the
+# right hand): every left bone with no node judged by its bind, the pieces whole, the band and the right bones the game's (GN1); the
+# hold's first 2 frames about each joint, then one point at the first-person left shoulder (GN2); GunGripBones' lines (GN3); a decal
+# cloned from a held skin: 3 s of the 0.5 s look again on the fixed clock with no give-back (GN4) and given back onto its shape's own
+# data at the put-away (GN5); a bind with the hands 8 apart: nothing of it judged (GN6); third person and back (GN7), a new
+# first-person 3D (GN8), getting off (GN9); the off values as 2026-11-23b (GN10), BodyGunGripSpeck=joint (GN11), Nodeless=0 with
+# the shoulder (GN12). DEF65 rides every older mode at the new keys' off values: the rest as bca9231's: 2307 checks.
+# Its review's fixes (view + 6: 348 -> 354): the point shape by shape (finding 1): a piece that keeps a bone with no side as the
+# game's (the hands too close in its bind: GN6; a bone the judge found no side for: GN13; with Nodeless=0 every piece with a bone
+# without a node: GN12) is shrunk about each bone's own joint, and a frame in which one shrunk bone's transform won't read puts its
+# whole piece about its joints (GN14): a vertex weighted half to a shrunk bone and half to the other lies within 5 of where the game
+# draws it or of the point, never half way to the shoulder (56834cd: a sliver from the pistol's grip to the shoulder); a node and a
+# slot at world scale 2 and a piece's entries at scale 1.5 (GN15); no 'LArm_UpperArm' node: the point a held bone (GN16); a decal
+# made and the pistol put away within 0.5 s, on the fixed clock: found at the give-back and put on its shape's own data, and a rider
+# hold that needs a copy of 36 bones then takes our copy free of it (GN17; finding 2); a decal, then a new first-person 3D: our copy
+# kept out of the pool while the decal is on it, the rider's hold given another, back in the pool once the decal goes (GN18): 2313.
+# The 2026-11-24a plog unit (test 60's small faults) on bca9231 expects view 345 (335 + 10: NearThird's off threshold NearThirdOff, on at
+# 53 from your eye, still at 67, over at 88 (NT1), the camera 57 and 67 from your eye a frame apart (NT2), NearThirdOff=0 (NT3); NearDrawEvery's draw
+# lines once a stand-in, four stand-ins in 2.8 s (ND1), one held 12 s (ND2), NearDrawEvery=0 (ND3); the keys' line (NT0); a lock line
+# with CameraEase not settled, "none" for its empty window's figures, no nan in the mode's camera and lock lines (LN1); the gun state 5
+# named as the game's table has it in the aim's release line (GN1) and the draw's trace (GN2); L2's and L4's lines read the new words),
+# fx 50 (48 + 2: the ride's start with the loaded data's surface -FLT_MAX and the controller's word -4.86e36 (FW1), into water (FW2)),
+# custom 176 (171 + 5: KitLate's default 0 and KitGuard's line (KG1), the menu's update on a thread of its own held inside its call: the
+# task's work, after its 500-us wait, skipped (KG2), the update stuck inside its call: the guard let go after 1 s of the fake's fixed clock
+# (KG3), KitGuard=0 KitLate=1 as 2026-11-23b with test 60's "0 placed ... 1 on another thread" (KG4), the update on the task's own thread
+# with KitPrePlace (KG5)), the rest as bca9231's: 2311 checks. Its review's fix: custom 177 (+ KG6: KG3's stuck update with the task's
+# own thread's AdvanceMovie and PreDisplay in and out every frame: the guard still lets go after 1 s): 2312 checks.
+# The 2026-11-24a sfix unit (test 60's small faults) on bca9231 expects riderinplace 20 (18 + 2: [Diag] APWatch=1 the watch and CMB_RoomOptions'
+# 4194304 clear (APW0), the key taken out, its new default 0: no watch line, its line, 4194304 set for the controller's AP lines (APW1)), look 72
+# (67 + 5: [Look] KitQuickExit's and EquipLate's line and bits (CMB_LookOptions 8388608, CMB_RoomOptions 8388608: SX0, SX1), test 60's slow
+# getting on (the camera alone 5.5 s, then the slope and the tilt together) with no "riding with CMB_TiltLive at 0" line (SX2), the slope live
+# and the tilt at 0 still said (SX3), EquipLate=0's false line (SX4)) and fx 55 (48 + 7: [Sound] LandOnce on test 60's cue 83 (the fall
+# 178 a second, level 0.38) and on hops at rest (level 0) with test 60's cues, SyncLeft at +0.076 s and JumpDown at +0.6 s: LandOnce=0 two
+# plays, both heard (LO0), the default 1 one play, CMB_FxAir 2 till the answer + 1, its words on the "played" line (LO1), a late first
+# JumpDown and CMB_FxAir back to 2 (LO2), at rest the level-0 line's words and a new hop within the hold its own flight (LO3), the key's line
+# (LO4), the script's JumpDown before the plugin's landing frame, on cue 83's hop (LO5) and at rest (LO6): LandTouch's two answers). DEF65
+# rides every older mode at the new keys' off values (APWatch at its old default 1): 2308 checks with this unit alone.
+# The 2026-11-24a park unit (test 60's 1B: a fast getting off left the bike 400-550 behind; 1A: drawn with no collision after quick
+# series on one spot; parkA2's lean note; CMB_RoomOptions not written at a load) on bca9231 expects room 218 (189 + 29). Mode 14's
+# ParkStopTests66 on the fake's fixed clock, the fake ridden by its keys and the getting off's fade played (g_fader66: the handlers'
+# slots silent, the movement update not): the keys' line and CMB_RoomOptions 1048576 (S1); at 900 a second under the fade the kind 7
+# ask held, answered once she has stopped (the game's own stop 0.1 s), beside where she stopped (S2), still till the ride's end with W
+# held (S3); ParkHold: still after it with W held, the keys back 0.2 s after W is let go (S4), or at its 0.6 s bound (S5); a run-on the
+# input can't stop answered at ParkStop's bound (S6); at rest at once (S7); a newer ask drops it (S8); the 5 s let-go (S9); a load
+# (S10); no fade (AutoDismount's, EmergencyReset's), W held: held by AfterInput's own branch, answered once stopped, "the input's
+# handlers running" (S12, its review's finding 2); both off: 2026-11-23b, test 60's 1B reproduced, 675 past the ask (S11);
+# CMB_RoomOptions written again at a load and a new game (L1, L2). ParkSolidTests66: kind 8 at the parked bike's own place: its 3D
+# there (K1), not there (K2: test 60's state), another reference's (K3), a roof over it looked under (K4, K5), an actor over it
+# passed (K6), the rays not working (K7), a repair played (K8), the reference watched (K9), ParkSolid=0 (K10). ParkLeanTests66: the
+# leaned outline's nearest (T1), test 60's 14:28:31 pitch: the lean less (T2), a slim actor at the leaned top past the guard's look:
+# the lean less (T3), no lean clears: 10 farther out (T4), ParkLeanClear=0 (T5). S11, K10 and T5 (the off values) pass on bca9231's
+# DLL; the other 26 fail there. DEF65 rides every older mode at the new keys' off values: the rest as bca9231's: 2323 checks with this
+# unit alone.
+# The 2026-11-24a fit unit (test 60's T60-5 "is the foot in the air?": seven fits held to 20 with the stand's foot 0.9-13 over its
+# ground, two on flat ground; its four getting offs by wrecked cars and rubble parked on the track's spot nose-up 26 or pitched -18;
+# its swim's bike held hidden 16 s by a body with no capsule) on bca9231 expects room 213 (189 + 24, FitTests67): F1 the keys' line
+# and CMB_RoomOptions 16384 and 524288; ParkFootFix: F2 test 60's 14:32:08 (ParkBeside, a crack 4 wide under the stand's foot, the
+# landscape 5.4 under the slab: 8.6 on the slab, its pad's words), F3 a weed lying 2 over the ground round the foot (on 0.5 past it,
+# not 4), F4 test 60's 14:58:21 (litter under the middle and the foot, the surface under it 7 down: the middle 0.0, 8.6), F5 the parked
+# bike's own low part passed, F6 ParkFootFix=0 gives 23b's 20 (the off value's own check); ParkFallbackSearch's kind 9: F7 flat,
+# fitted, F8 test 60's 14:28:31 as ask 838 had it (pitch 11.8, a ridge: the sides 19.6 and 11.2 under the middle, set aside, the
+# foot's ground 9.9 under the tyres' line, the ground falling toward it: refused, "the lean it wants, 41.5 ... the stand's foot 5.9
+# over its ground there (over 4)", the pad's right and left points not judged by a slope across set level; kind 6 there held to 20,
+# no pad words), F17 a uniform cross-slope of 28.4 (F8 till the unit's review: both sides on one slope, refused, 41.3 and 6.0), F16
+# test 60's 14:53:17 (ask 926: the front tyre's contact under a thing 13.2 high with no ground under it, raised 9.9 onto a step 8
+# behind it, the foot 1.3 over at 20: refused, "the front tyre's contact under something 13.2 over the line ... (on a thing)"; kind 6
+# fitted as 23b's ParkTyres), F9 the front tyre on a block 40 high: refused (over 24), F10 the two keys 0: neither bit, kind 9 a
+# spot's answer (the off values' own check), F15 the scope's case: a car on both sides (ParkBeside none), the controller's fallback
+# search played (ParkSearchPlayed67, as the script's ParkSearchSpots line for line): its first spot's (120 behind, across) fit
+# refused (the foot over a hole), spot 3 (150 ahead, 60 right) taken, the 4th asked; the controller's ParkChecked played
+# (ParkCheckedPlayed67) in a corridor (walls 45 either side, a short wall in the track spot's box): F18 the track's spot no room,
+# spot 11 (220 behind) room but its fit refused, no other spot with room: spot 11 taken as 23b took it (the unit's review; the search
+# before it: none, the track's spot inside the wall), F22 the same with no black (knocked off, a reset): the 4 AroundSpots only,
+# F23 the search's time played (0.35 s an ask: out of its 2 s before spot 11's fit, spot 11 the first with room; 0.7 s: out of it
+# after 3, the track's spot as before), F24 a spot not checked ends the search (after spot 11: spot 11; before it: as before), F19
+# the track's spot room as asked, its fit refused, the search: spot 11 fitted, F20 the same with spot 11 walled: none, the track's
+# spot as before, F21 Slide=1: the track's spot slid 40 forward, its fit there refused, the search none: the slid spot as before;
+# GuardStuckMove (the guard's
+# kind 2 every 0.75 s on the fixed clock): F11 test 60's swim, a body with no capsule: CMB_RoomGround 1 on the -n answer from 2 s on,
+# F12 an actor's capsule unmoving: the same, F13 the capsule moving 20 an ask, then standing: marked only 2 s after it stopped, F14
+# GuardStuckMove=0: never (the off value's own check). F1-F5, F7-F9, F11-F13, F15-F22 and F24 fail on bca9231's DLL (F23 is the
+# played search's own clock); F8 and F16 fail on the unit's first DLL (e3aa47e). DEF65 rides every older mode at the four keys' off
+# values: room 213, the rest as bca9231's: 2318 checks.
+# The 2026-11-24a use unit (test 60: 11 stimpaks by their key in third person gave one heal, and the clip showed in both views) on
+# bca9231 expects arms 185 (145 + 32 + 8 of its review), with the fake engine's item use (Eng67: the script's equip the game's animated use, its item 1.0
+# s after its clip's props unless a stop came first, a second equip restarting a clip): UseItemFirst's hand-over left to play to its
+# item and cut there (UI1), a chem applied at once cut at its props (UI2), three hand-overs with no clip then one (UI3), four presses
+# 0.5 s apart one at a time (UI4), the ride's tally (UI5), QuickCut's hand-over (UI6), UseItemFirst=0 (UI7), a first-person record
+# (UI8); the third review's N1 (UN10), N2 (UN9), N4 (UN11) and N5 (UN8b, UN8c: pass on bca9231 too); BodyArmsUse's key taken in first person (BA1), the
+# first-person 3D hidden to the item and its tail (BA2), given back at 2.5 s with no item (BA3), at a draw and the Pip-Boy (BA4/BA5),
+# the third-person flags line (BA6), BodyArmsUse=0 (BA7); QuickApplyProbe's three lines (QP1) and no call (QP2); UseSeatHold in
+# GunTests59's world: Handguns only (SH1), a handgun drawn mid-hold (SH9), two presses chained (SH10), None (SH2), a weapon drawn in Any weapon (SH3), a rifle out before the key (SH11), no seat pose yet (SH4), first person
+# (SH5), UseSeatHold=0 (SH6), the seat pose's read only near the seated mean (SH7), the weapon rules off (SH8). Its review: a handgun
+# posed before the key (SH12: the hold posed, the let-go off, ended at its props gone), UseMoveEvent=1 (SH13), the shipped
+# QuickKeyState=1 (UI1k, UI4k, BA2k, BA2r: the key's edge read before or after the hand-over, SH1k, SH10k), SH7 at GunSeatEvery 0.5 (a
+# read due inside its mid-blend stretch). DEF65 rides every older mode at the new keys' off values (BodyArmsUseTail, a tunable with no
+# off value, rides at its default): the rest as bca9231's: 2334 checks with this unit alone.
+# 2026-11-24a, the aim unit (test 60's 1C: "hand with pistol doesn't follow camera when looking around and shooting"; the user's pick:
+# the look turns your aim) adds, in the fake game's first person with the task twice a frame and its first-person arms following the
+# actor (PlayerCharacter+0xB78 turned by the heading and the pitch after the tasks, at the camera's update): the keys' line (LA0); a
+# weapon drawn, the look key held, the mouse at 90 deg/s 1 s: the heading 60 off the bike's line between the tasks, the camera and the
+# arms with it, the plugin's own camera turn 0 (LA1); the drive turned back, the bike on its line (LA2); the view bike's axes and place
+# kept (LA3); the heading the task reads the line (EyeAxes=1's view bike, LA4); the let-go's ease, aim and view together, and its line
+# (LA5); a put-away and a draw mid-look, never 2L (LA6); a menu, the menu stack over the HUD's, the Pip-Boy and third person (LA7);
+# a room ask while riding, the script's heading read with the aim in it (LA8b); D turning the line and the aim together, the view's
+# lean about the bike's forward (LA9); LookShots' line (LA10); AimSit's probe (LA11); LookAim=0's 2026-11-23b look (LA12); and after
+# the Parent tests (ViewLoadTests66: a load makes the plugin forget the cells' first-met spheres those tests match by, and LA13 turns
+# LookAim off for the session) PreSaveGame, PreLoadGame and PostLoadGame (LA8) and the move's self-check (LA13) (view, 335 + 15). The
+# camera's GetRotation slot is left as ViewTests59's rides left it (the plugin's wrapper). Its review adds: the game's target angle read
+# less the aim ([Tilt] Trace's "the game's:" line: no rays here, no sidestep; LA17); the movement handler on a third of the frames, the
+# drive turned by the aim of the moment through the sweep and the let-go (LA14); the getting off's second ask's heading kept (LA16);
+# the handler silent across the ask (the fade), the frozen drive back on the line (LA15); the game's own move passed (a light stick
+# push at a stop): no aim (LA18) (view + 5). DEF65 rides every older mode at the new keys' off values: view 355, the rest as
+# bca9231's: 2314 checks.
+# The 2026-11-24a orbit unit (test 60's 1D: "3rd person - still mostly bugged, right click and Z doesn't work to look around" with a
+# pistol out; the log's "40-60 deg" was the plugin's own asked look, ThirdPersonState +0xF0/+0xF4 the game's outputs rebuilt each
+# frame) on bca9231 adds a mode of its own, orbit (26: the view mode's keys and rig with the Address Library written, for
+# LookOrbitClear's rays; the view mode, which has none, stays at 335), expecting 28 (the 4 load checks + 24: ViewTests67), on test
+# 60's riding camera (the fake's g_v63Field 6: the camera root built from
+# ThirdPersonState's own GetRotation and GetTranslation answers, slots 0x0C/0x0D in the fake's image, +0xF0/+0xF4 rebuilt from the
+# heading after each task; your place at (-80000, 89000) as test 60's; a fixed stretch): the keys' line (OA0); slot 0xC outside the
+# game's image refused, the armed hold every frame the plugin's (OAR); the free-rotation flag's place off slot 0x12's code (OA2b);
+# both slots wrapped once (OA1); the probes settled, the calls a frame on and off the task's thread (OA2); test 60 on 2026-11-23b's
+# keys, the camera behind, the game's frames over the plugin's (OA18) and its account naming the ahead test (OA17); the armed turn
+# round you through a reversal, 60 either side, the camera on the circle, the bike on its line (OA3), a second thread's answers the
+# same (OA14), eased back and the answers the game's own (OA4), the hold's account (OA5); LookOrbitArmed=1's every frame the plugin's
+# (OA6); no weapon: the answers untouched (OA7); the weapon put away mid-hold (OA8); a wall: held at the last clear angle (OA9),
+# pulled in (OA9b), LookOrbitClear=0 through it (OA9c); a jittering answer: the yaw set absolutely (OA10); a game reading its
+# answers back (OA11); the translation not taken (OA12); every stop path disarming at once (OA15); the transpose and a world place
+# (OA19); a root never taking the answers: never settled, LookOrbitArmed=1's (OA13); LookOrbitLearn: nothing learned with no
+# weapon drawn (OA16). DEF65 rides every older mode at the new keys' off values: the rest as bca9231's: 2322 checks in 27 modes
+# with this unit alone.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
-x86_64-w64-mingw32-gcc -std=c11 -O1 -Wall -Wextra -o "$WORK/fake_game.exe" "$HERE/fake_game.c" -static-libgcc
+# -fno-toplevel-reorder (2026-11-24a): the statics laid out in source order, so g_space (defined near the top) starts low in the
+# image: the game addresses from RVA_LOOKUP_FORM (0x311B80) up must fall inside it. With GCC's own order the merged units' new
+# statics went first and put it at +0x32d600 (bca9231: +0x2de240); in source order it is at +0x1ba040.
+x86_64-w64-mingw32-gcc -std=c11 -O1 -fno-toplevel-reorder -Wall -Wextra -o "$WORK/fake_game.exe" "$HERE/fake_game.c" -static-libgcc
 WINE="${WINE:-$(command -v wine64 || echo /usr/lib/wine/wine64)}"
 export WINEDEBUG=-all WINEPREFIX="${WINEPREFIX:-$WORK/prefix}"
 status=0
@@ -492,6 +630,28 @@ DEF63='View/LookOrbit=0 Steer/AimStruct=0 Look/KitDrawn=0 Look/KitWheelDown=0 Lo
 # while riding) at their off values (2026-11-22a, 131f6b4), the same way (after DEF54's to DEF63's). Mode 13's AttachTests65 and
 # UseNoClipTests65 rewrite each and back. No name is used in any other section, INI or DEF line.
 DEF64='Look/KitLate=0 Look/KitPrePlace=0 View/LookOrbitGame=0 View/LookRecover=0 Tilt/GunOneHand=0 Tilt/GunHoldAt=-3,-2,9 View/BodyGunGrip=0 Look/OverlayEvery=0 Look/OverlayQuick=0 Room/ParkBeside=0 Room/ParkLean= Room/ParkTyres=0 Room/MountHide=0 Tilt/AttachSkeleton=0 Diag/AttachFresh=0 Steer/UseNoClip=0'
+# 2026-11-24a, test 60's 1C (the grip unit's keys at their off values, 2026-11-23b, bca9231), the same way (after DEF54's to DEF64's):
+# [View] BodyGunGripNodeless (the first-person left arm's bones with no node judged by their binds, a left-only piece whole),
+# BodyGunGripSpeck (joint: each shrunk bone about its own joint, not one point at the left shoulder) and [Diag] GunGripBones (the
+# judge's lines). Mode 20's BodyTests67 rewrites each and back. No name is used in any other section, INI or DEF line.
+# 2026-11-24a, test 60's small faults (the plog unit's keys at their off values, 2026-11-23b, bca9231), the same way (after DEF54's to DEF64's):
+# [View] NearThirdOff (NearThird's stand-in ends past NearThird), [Diag] NearDrawEvery (ViewDraw's lines at every task of a stand-in) and [Look]
+# KitGuard (the task's work on the kit's bike whenever it runs). KitLate's changed default (0; 2026-11-23b's 1) needs nothing here: DEF64
+# already pins KitLate=0 for every older mode (KitTests65 writes 1 for its own). No name is used in any other section, INI or DEF line.
+# 2026-11-24a, test 60's small faults (the sfix unit's): [Look] KitQuickExit (getting on let through as the field kit's menu closes:
+# CMB_LookOptions 8388608) and EquipLate (a getting on's colour-only work on the worn bike after the screen, and the tilt watch through its
+# black: CMB_RoomOptions 8388608), [Sound] LandOnce (CMB_FxAir held at 2 after the script's answer to a flight's cue) at their off values
+# (2026-11-23b, bca9231), and [Diag] APWatch at its old default 1 (0 since 2026-11-24a; 1 also leaves CMB_RoomOptions' 4194304 clear;
+# mode 7 names its own), the same way (after DEF54's to DEF64's). No name is used in any other section, INI or DEF line.
+# 2026-11-24a, test 60's 1A and 1B (the park unit's: the rider held still at a getting off and the keys after it, the parked bike's
+# collision checked and repaired, the leaned bars off the player's capsule): [Room] ParkStop, ParkHold, ParkSolid, ParkFresh (an A/B,
+# 0 by default: pinned all the same) and ParkLeanClear at their off values (2026-11-23b, bca9231), the same way (after DEF54's to
+# DEF64's). Mode 14's ParkStopTests66, ParkSolidTests66 and ParkLeanTests66 rewrite each and back. No name is used in any other section,
+# INI or DEF line.
+# 2026-11-24a, test 60's 1C and the user's pick (the aim unit's: the look turns your aim with a weapon drawn in first person): [View]
+# LookAim, AimSit (an A/B probe, off by default) and [Diag] LookShots at their off values (2026-11-23b, bca9231), the same way (after
+# DEF54's to DEF64's). Mode 20's ViewTests66 rewrites each and back. No name is used in any other section, INI or DEF line.
+DEF65='View/BodyGunGripNodeless=0 View/BodyGunGripSpeck=joint Diag/GunGripBones=0 View/NearThirdOff=0 Diag/NearDrawEvery=0 Look/KitGuard=0 Look/KitQuickExit=0 Look/EquipLate=0 Sound/LandOnce=0 Diag/APWatch=1 Room/ParkStop=0 Room/ParkHold=0 Room/ParkSolid=0 Room/ParkFresh=0 Room/ParkLeanClear=0 Room/ParkFootFix=0 Room/ParkFallbackSearch=0 Room/GuardStuckMove=0 Room/SwimSpot=0 Steer/UseItemFirst=0 Tilt/UseSeatHold=0 View/BodyArmsUse=0 Diag/QuickApplyProbe=0 Diag/UseMoveEvent=0 View/LookAim=0 View/AimSit=0 Diag/LookShots=0 View/LookOrbitArmed=0 View/LookOrbitClear=0 View/LookOrbitLearn=0 View/LookOrbitAbs=0 Diag/OrbitWhy=0 Diag/OrbitEachRide=0'
 run() { # <name> <mode> <ini body>
   if [ -n "$ONLY" ] && [ "$ONLY" != "$1" ]; then return; fi
   mkdir -p "$WORK/$1"
@@ -506,7 +666,7 @@ run() { # <name> <mode> <ini body>
     esac
   done
   local sec key pre rest
-  for kv in $DEF54 $DEF55 $DEF56 $DEF57 $DEF58 $DEF59 $DEF60 $DEF61 $DEF62 $DEF63 $DEF64; do
+  for kv in $DEF54 $DEF55 $DEF56 $DEF57 $DEF58 $DEF59 $DEF60 $DEF61 $DEF62 $DEF63 $DEF64 $DEF65; do
     sec="[${kv%%/*}]\n" kv="${kv#*/}" key="${kv%%=*}"
     case "$ini" in "$key="*|*"\n$key="*) continue;; esac
     case "$ini" in *'\n') ;; *) ini="$ini\n";; esac
@@ -568,6 +728,9 @@ LOOK='[Speedo]\nNeedle=1\nScale=1.75\nTau=0.3\nBacklight=1\n[Tail]\nGlow=1\nBrak
 run look 17 "$KNOWN[Tilt]\nTrace=1\nPivotHeight=74\nPivotForward=0\nTorsoLean=0\nBumpMax=0\nLiftRate=0\nSuspension=0\n$PARTSLOOK$LAMP$LOOK[Sound]\nDrive=0\n"
 VIEW49='[TailLight]\nEnabled=1\nBack=8\nPitch=30\nBrakeGain=3\nBrakeBy=colour\n[View]\nEnabled=1\nLead=0\nHandoverTime=1.0\nStale=1\nEye=0\nEyeSide=1\nEyeSmooth=0.05\nEyeSmoothZ=0.25\nEyeMax=150\nStaleLines=3\nTipTime=0.4\nFovTime=0.3\nFovOffset=auto\n'   # 2026-11-01a (mode 20 only): the tail lamp's light and the first-person bike, the keys a ride rewrites at their defaults (Lead 0 for exact numbers; a ride rewrites it to 1); [Look] Cull=1 goes in through LOOK's Mirrors line; 2026-11-02a: Eye=0 so the 2026-11-01a build's checks keep their numbers (the eye's rides rewrite it to 1), EyeSide, EyeSmooth, EyeSmoothZ, EyeMax and StaleLines at their defaults so rides can rewrite them; 2026-11-06a: TipTime, FovTime and FovOffset at their defaults, likewise
 run view 20 "$KNOWN[Tilt]\nTrace=1\nPivotHeight=74\nPivotForward=0\nTorsoLean=0\nBumpMax=0\nLiftRate=0\nSuspension=0\n$PARTSLOOK$LAMP${LOOK/Mirrors=1\\n/Mirrors=1\\nCull=1\\n}$VIEW49[Sound]\nDrive=0\n"
+# 2026-11-24a (the orbit unit's, mode 26 only): [View] LookOrbitArmed and its keys on test 60's riding camera (ViewTests67), with the
+# view mode's keys and rig but the Address Library written (LookOrbitClear's rays: mode 20 has none), so the view mode stays as it was.
+run orbit 26 "$KNOWN[Tilt]\nTrace=1\nPivotHeight=74\nPivotForward=0\nTorsoLean=0\nBumpMax=0\nLiftRate=0\nSuspension=0\n$PARTSLOOK$LAMP${LOOK/Mirrors=1\\n/Mirrors=1\\nCull=1\\n}$VIEW49[Sound]\nDrive=0\n"
 # 2026-11-07a, the customisation build (mode 24 only): the mirrors chosen at the bike (CMB_LookCode) and the split badges' and
 # the fender patch's shapes, on mode 17's look bike with its parts file, lamp and look keys, [Look] Mirrors=-1 (the new default,
 # "as chosen at the bike"). After the look and view runs: PARTSLOOK and LOOK are defined with them.

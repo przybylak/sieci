@@ -1341,6 +1341,7 @@ Function OnGameReloaded()
 	awayStep = 0
 	CancelTimer(TimerWeaponJudge)   ; 2026-11-17a: a second look of the save's is over too
 	judgeWaiting = false
+	parkLoadInApply = 0   ; 2026-11-24a ([Room] ParkSolid): a load's look being put on in the save is over (its thread is gone)
 	; The review of 2026-11-17a (finding 5): the save's stamp is of another launch's GetCurrentRealTime (it starts at 0 each
 	; launch), so a reload could hold the "Only a handgun" message back for as long as that session had run.
 	handgunNoteAt = -100.0
@@ -2357,6 +2358,13 @@ Function Mount()
 	int ticket = 0
 	mountHideOn = RoomOption(262144) && LookOption(512)   ; 2026-11-23a ([Room] MountHide): MountEarly hides the parked bike under the fade
 	mountHidEarly = false
+	; 2026-11-24a ([Look] EquipLate, CMB_RoomOptions 8388608): MountEarly holds the worn bike's colour-only work for the screen's return
+	mountLateOn = RoomOption(8388608) && LookOption(512)
+	mountScreenBack = false
+	wornColoursLate = false
+	wornLookAtScreen = false
+	equipParts = ""
+	mountLateText = ""
 	if guarded
 		ParkedLookWait()
 		ParkedLookAtMount()   ; 2026-11-22a ([Look] ParkedSwapHold): its line, and a runtime swap on the parked bike thrown away first
@@ -2668,6 +2676,12 @@ EndFunction
 ; kept on the bike for its 3D's next load instead: "getting on" or "riding" (Mount or the ride puts the bike away: its next enable loads
 ; it with the look), "loaded again" (ParkedLookAfter's ParkedReload loads it again now: ApplyParked returns -2 for it).
 string Function ParkedSwapHoldWhy()
+	if mounting && mountHideOn
+		; 2026-11-24a (the third review of 2026-11-23b, N6): with ParkedSwapHold off too, a runtime swap on the parked bike landing after
+		; MountHideIfSwapped (MountGuard off, or a compose longer than ParkedLookWait's) would be drawn under the fade until MountHide's
+		; hide: kept on the bike for its next load. MountHide off: as before.
+		return "getting on"
+	endif
 	if !LookOption(262144)
 		return ""
 	endif
@@ -2698,6 +2712,8 @@ string Function ParkedRuntimeRefusal()
 		return "OverlayParked off"
 	elseif !LookActive()
 		return "the stock look"
+	elseif parkLoadInApply != 0 && parkLoadInApply != parkLoads
+		return "its 3D loaded again since (the newer load's look only: ParkSolid)"   ; 2026-11-24a: set only with [Room] ParkSolid
 	endif
 	return ""
 EndFunction
@@ -2752,6 +2768,14 @@ Function ParkedLoaded3D(ObjectReference akRef)
 	if !akRef || akRef != BikeRef
 		return
 	endif
+	; 2026-11-24a (the plugin's [Room] ParkSolid, CMB_RoomOptions 1048576): this load numbered; only the newest load's thread puts the
+	; look on (below), one at a time.
+	bool solid = RoomOption(1048576)
+	int load = 0
+	if solid
+		parkLoads += 1
+		load = parkLoads
+	endif
 	; 2026-11-23a ([Look] OverlayEvery, CMB_LookOptions 2097152; test 59: OverlayParked never ran at a getting off): Dismount puts the bike
 	; down (ParkBesidePlayer: its enable, this load) before FinishRide ends the ride, so the getting off's load met riding and was refused
 	; with no line. While a ride is ending under busy, its end is waited for (ParkedRideEndWait at most), then the refusals as before.
@@ -2767,10 +2791,36 @@ Function ParkedLoaded3D(ObjectReference akRef)
 	if !LookOption(1048576) || mounting || riding || customising || !LookActive()
 		return
 	endif
+	if solid
+		; 2026-11-24a (ParkSolid): its 3D loaded again since this load (a repair's reload, a cell's): the newer load's thread puts the look
+		; on, not this one (two runtime swaps on one drawn 3D otherwise). An earlier load's look still being put on is waited for
+		; (ParkLoadWait at most; ParkedRuntimeRefusal stops its swap now that this load is newer); still under way: none from this one.
+		if load != parkLoads
+			Log("Look: the parked bike's 3D loaded again since this load: the look put on by the newer load's only (ParkSolid)")
+			return
+		endif
+		float until = Utility.GetCurrentRealTime() + ParkLoadWait
+		while parkLoadInApply != 0 && Utility.GetCurrentRealTime() < until
+			Utility.Wait(0.1)
+		endwhile
+		if load != parkLoads
+			Log("Look: the parked bike's 3D loaded again since this load: the look put on by the newer load's only (ParkSolid)")
+			return
+		elseif parkLoadInApply != 0
+			; still under way (or its thread gone): left to it, its swap on this 3D the one swap (no refusal once this is cleared)
+			parkLoadInApply = 0
+			Log("Look: the parked bike's 3D loaded again while an earlier load's look was being put on, still under way 3 s later: left to it, no runtime swap from this load (ParkSolid)")
+			return
+		endif
+		parkLoadInApply = load
+	endif
 	lookParkedWork += 1
 	CallLookF4SE("ApplyParkedLoaded", None, "its 3D's load")
 	if lookParkedWork > 0
 		lookParkedWork -= 1
+	endif
+	if solid && parkLoadInApply == load
+		parkLoadInApply = 0
 	endif
 EndFunction
 
@@ -2858,6 +2908,8 @@ Function MountUndo(int aiTicket)
 	string stage = mountGivenUpAt
 	mountStage = ""
 	mounting = false
+	wornColoursLate = false   ; 2026-11-24a ([Look] EquipLate): nothing held for a screen that won't be this getting on's
+	wornLookAtScreen = false
 	bool claimed = !busy
 	if claimed
 		busy = true
@@ -3053,6 +3105,7 @@ Function MountEarly(bool abGuarded, int aiTicket)
 	mountStage = ""   ; MountWatch ends: the screen is back
 	Game.FadeOutGame(false, true, 0.0, 0.35)
 	float tScreen = Utility.GetCurrentRealTime()
+	MountScreenIsBack()   ; 2026-11-24a: the worn overlay's line knows the screen is back; [Look] EquipLate: the held colour work now
 
 	ApplyFallDamageCut()
 	HandleFollowersOnMount()
@@ -3156,7 +3209,20 @@ Function MountStageLine(float afPress, float afFade, float afEquip, float afPose
 	elseif aiReadyHow == -2
 		how = "the wait cut short: real time went back"
 	endif
-	Log(text + ", the equip " + Hundredths(afEquip - t0) + ", the pose " + Hundredths(afPose - t0) + ", ready " + Hundredths(afReady - t0) + " (" + how + "), the screen back " + Hundredths(afScreen - t0) + ", Mounted " + Hundredths(afMounted - t0) + " (real seconds)")
+	; 2026-11-24a (test 60: the equip 2.5-2.8 s with a look, 1.0-1.5 stock, 5.1 after a kit visit): the equip's parts (EquipKept's, or
+	; EquipBike's with FastMount off), and with [Look] EquipLate what the screen's return did
+	string parts = ""
+	if equipParts != ""
+		parts = "; the equip's parts: " + equipParts
+	endif
+	if mountLateOn
+		if mountLateText != ""
+			parts += "; after the screen (EquipLate): " + mountLateText
+		else
+			parts += "; after the screen (EquipLate): nothing held"
+		endif
+	endif
+	Log(text + ", the equip " + Hundredths(afEquip - t0) + ", the pose " + Hundredths(afPose - t0) + ", ready " + Hundredths(afReady - t0) + " (" + how + "), the screen back " + Hundredths(afScreen - t0) + ", Mounted " + Hundredths(afMounted - t0) + " (real seconds)" + parts)
 EndFunction
 
 ; A CMB_LookF4SE function's text answer ("" without it: no F4SE).
@@ -3184,7 +3250,9 @@ Function Dismount()
 	Game.FadeOutGame(true, true, 0.0, 0.25, true)
 	Utility.Wait(0.3)
 
+	parkInBlack = true   ; 2026-11-24a (ParkFallbackSearch's search: 2 s of it in this black; knocked off or a reset, none: 4 spots, 1 s)
 	ParkBesidePlayer()
+	parkInBlack = false
 	FinishRide()
 	Log("Dismounted.")
 
@@ -3231,9 +3299,20 @@ Function CallBike()
 		return
 	endif
 	PlaySound(CMB_EngineStopSound)
+	; 2026-11-24a (the plugin's [Room] SwimSpot, the fit unit's review): a called bike the guard keeps hidden (someone in its place):
+	; "Your motorbike rolls up." when it is shown, as the bring after a swim's (set while busy: ParkGuardTick waits on it).
+	bool waits = RoomOption(524288) && parkHeld
+	if waits
+		swimRollsUpWaits = true
+		swimRollsUpWhat = "Bike called"
+	endif
 	busy = false
 	Log("Bike called to the player.")
-	Debug.Notification("Your motorbike rolls up.")
+	if waits
+		Log("Bike called, kept hidden by the guard: \"Your motorbike rolls up.\" when it is shown (the plugin's [Room] SwimSpot).")
+	else
+		Debug.Notification("Your motorbike rolls up.")
+	endif
 EndFunction
 
 ; In front of the player, a little to their right, on the ground: calling the bike, and
@@ -3347,7 +3426,9 @@ EndFunction
 ; 2026-11-06a: with the plugin's [Room] SnapBest (CMB_RoomOptions bit 32; test 49's calls from on
 ; top of a truck) a call with no spot with room does the same for the most room when its own snap
 ; goes past SpotSettleMax, before the most room is taken as before.
-int Function PickBikeSpot(bool abFromDoor, bool abPark = false)
+; 2026-11-24a (the plugin's [Room] SwimSpot): afHeading over -999, the spots along that heading, not the player's (the bring after a
+; swim: the way out of the water).
+int Function PickBikeSpot(bool abFromDoor, bool abPark = false, float afHeading = -1000.0)
 	spotKnown = false
 	spotGroundKnown = false
 	spotTiltKnown = false
@@ -3362,6 +3443,9 @@ int Function PickBikeSpot(bool abFromDoor, bool abPark = false)
 		who = "The parked bike's spot: "
 	endif
 	float angle = PlayerRef.GetAngleZ()
+	if afHeading > -999.0
+		angle = afHeading
+	endif
 	float px = PlayerRef.GetPositionX()
 	float py = PlayerRef.GetPositionY()
 	float pz = PlayerRef.GetPositionZ()
@@ -3414,7 +3498,9 @@ int Function PickBikeSpot(bool abFromDoor, bool abPark = false)
 				; the player is by then (the later spots too): the first answer said nothing about
 				; the old place.
 				Utility.Wait(RoomRaysWait)
-				angle = PlayerRef.GetAngleZ()
+				if afHeading <= -999.0
+					angle = PlayerRef.GetAngleZ()
+				endif
 				px = PlayerRef.GetPositionX()
 				py = PlayerRef.GetPositionY()
 				pz = PlayerRef.GetPositionZ()
@@ -3736,8 +3822,8 @@ EndFunction
 ; KitHeld, 4 ParkedReload, 8 PaletteIndex, 16 MountGuard, 32 HueFree; 64 the plugin writes the worn bike's colours; since
 ; 2026-11-10a 128 KitStash, 256 KitRetry, 512 MountEarly, 1024 WornColoursFirst, 2048 HueSwap; since 2026-11-14a 4096
 ; WornIndex, 8192 KeptMods, 16384 WornIndex was on this game session, so the options' swaps may hold its indexes; since
-; 2026-11-15a 32768 KitDefer, 65536 MountQuick); the ESP's 4031 without the plugin. false without the global (an older ESP:
-; 2026-11-09a as of t54-merge).
+; 2026-11-15a 32768 KitDefer, 65536 MountQuick; ... since 2026-11-24a 8388608 KitQuickExit, the last bit the global's float holds
+; exactly); the ESP's 4031 without the plugin. false without the global (an older ESP: 2026-11-09a as of t54-merge).
 bool Function LookOption(int aiBit)
 	if !CMB_LookOptions
 		return false
@@ -3889,7 +3975,8 @@ EndFunction
 ; names a spot that isn't one of the BikeSpots in its lines (ParkChecked's "The park spot (...)").
 ; 2026-11-01a: aiKind is CMB_RoomAskKind's value for the ask (1: a navmesh point, the plugin's [Room] SnapSpot; 2026-11-09a: 2
 ; the parked bike's guard, ParkGuard; 3 the same without the player, the review of 2026-11-09a; 2026-11-22a: 6 the parked
-; bike's fit, ParkFit: with room, lastRoomClear is its lean and lastRoomGround its middle's height, and ParkFit logs it).
+; bike's fit, ParkFit: with room, lastRoomClear is its lean and lastRoomGround its middle's height, and ParkFit logs it; 2026-11-24a:
+; 9 a park spot's fit asked before the bike is put there, ParkFallbackSearch: -1 refused or not fitted, its line says why).
 int Function RoomAt(float afX, float afY, float afZ, int aiSpot, float afAngle, string asUnchecked = ".", string asSpot = "", int aiKind = 0)
 	string try = "Bike's spot " + (aiSpot + 1) + " (" + SpotText(aiSpot) + "): "
 	if asSpot != ""
@@ -3949,9 +4036,11 @@ int Function RoomAt(float afX, float afY, float afZ, int aiSpot, float afAngle, 
 				lastRoomAngle = CMB_RoomAskAngle.GetValue()
 			endif
 			string tilt = RoomTiltRead()
-			if aiKind == 6 || aiKind == 7
+			if aiKind == 6 || aiKind == 7 || aiKind == 8 || aiKind == 9
 				; 2026-11-22a (the plugin's [Room] ParkFit): Clear is the lean there; ParkFit's own line follows. 2026-11-23a (its
-				; [Room] ParkBeside, kind 7): the same, at the spot it found beside the player; ParkBesideNow's line follows.
+				; [Room] ParkBeside, kind 7): the same, at the spot it found beside the player; ParkBesideNow's line follows. 2026-11-24a
+				; (its [Room] ParkSolid, kind 8): Clear its top over its place; ParkSolidCheck's line follows.
+				; 2026-11-24a (its [Room] ParkFallbackSearch, kind 9): a park spot's fit, the plugin's line says it.
 			elseif clear < 0.0
 				Log(try + "room (the ground " + Whole(-clear) + " above" + tilt + ").")
 			else
@@ -3982,6 +4071,12 @@ int Function RoomAt(float afX, float afY, float afZ, int aiSpot, float afAngle, 
 			elseif aiKind == 7
 				; 2026-11-23a (the plugin's [Room] ParkBeside): no room on either side of the player (its lines say why).
 				Log(try + "none on either side (the plugin's lines say why).")
+			elseif aiKind == 8
+				; 2026-11-24a (the plugin's [Room] ParkSolid): Clear -5 no collision at its place, -6 not told; ParkSolidCheck's line
+				; follows.
+			elseif aiKind == 9
+				; 2026-11-24a (the plugin's [Room] ParkFallbackSearch): the fit there refused, or not fitted (its line says why).
+				Log(try + "no (the plugin's line says why: [Room] ParkFallbackSearch).")
 			elseif clear == -3.0
 				; Test 44 (the plugin's [Room] Line): a fence or a wall between the player and the spot.
 				Log(try + "none (no clear line from the player to it).")
@@ -4319,6 +4414,8 @@ Event OnTimer(int aiTimerID)
 		PutAwayTimer()   ; 2026-11-15b: a weapon being put away on the bike (Handguns only)
 	elseif aiTimerID == TimerWeaponJudge
 		WeaponJudgeAgain()   ; 2026-11-17a: a drawn weapon judged again (none was equipped at the first look)
+	elseif aiTimerID == TimerParkSolid
+		ParkSolidTick()   ; 2026-11-24a: the parked bike's collision asked about again 2 s after the getting off (ParkSolid)
 	endif
 EndEvent
 
@@ -4969,6 +5066,14 @@ bool Function ParkBesideNow()
 		Log("The parked bike beside the player (the plugin's [Room] ParkBeside): " + where + " not fitted: the spot back along the track instead.")
 		return false
 	endif
+	; 2026-11-24a (the plugin's [Room] ParkFresh, CMB_RoomOptions 2097152; an A/B, off by default): a bike hidden at this ride's getting
+	; on in the cell the player is still in (test 60's two bad get-offs: shown again where it had been hidden 4-5 s before, the ride
+	; never out of that cell) taken through its holding cell first, as every solid re-enable in test 60 had come from far away.
+	string fresh = ""
+	if RoomOption(2097152) && mountSpotKnown && Math.Floor(mountBikeX / 4096.0) == Math.Floor(BikeRef.GetPositionX() / 4096.0) && Math.Floor(mountBikeY / 4096.0) == Math.Floor(BikeRef.GetPositionY() / 4096.0)
+		BikeRef.MoveTo(HoldingMarkerRef)
+		fresh = "; brought through its holding cell first (ParkFresh)"
+	endif
 	; MoveTo first: the bike may be in another cell (it waits in the holding cell). The review of 2026-11-23a (6): then the checked
 	; spot itself (SetPosition), wherever the player has got to since the ask (a getting off while coasting moves them meanwhile).
 	BikeRef.MoveTo(PlayerRef, x - PlayerRef.GetPositionX(), y - PlayerRef.GetPositionY(), z - PlayerRef.GetPositionZ(), false)
@@ -4987,8 +5092,220 @@ bool Function ParkBesideNow()
 	parkHeld = false
 	BikeRef.Enable(false)
 	ParkFitSpotKeep(x, y, z)
-	Log("Parked bike beside the player (the plugin's [Room] ParkBeside, one ask): " + where + "; " + how + ".")
+	; 2026-11-24a (the plugin's [Room] ParkSolid, CMB_RoomOptions 1048576): placed again on its live 3D (ParkSolidReplace), then its own
+	; place asked about (ParkSolidCheck, the plugin's kind 8) and repaired if the collision is clearly missing; asked again 2 s later.
+	bool solid = RoomOption(1048576)
+	string again = ""
+	if solid
+		again = ParkSolidReplace(x, y, z, angle)
+	endif
+	Log("Parked bike beside the player (the plugin's [Room] ParkBeside, one ask): " + where + "; " + how + fresh + again + ".")
+	if solid
+		ParkSolidCheck("the getting off")
+		StartTimer(ParkSolidAgain, TimerParkSolid)
+	endif
 	return true
+EndFunction
+
+; ---------------------------------------------------------------------------
+; 2026-11-24a (the plugin's [Room] ParkSolid, CMB_RoomOptions 1048576, its ask kind 8; test 60's 1A: after quick series of getting on
+; and off on one spot the parked bike stood beside the rider drawn but with no collision: she walked through it, no "E) USE", her E
+; reached the settler beside her; a call, from far off, put it right). Every park in test 60 that met its collision (18 of 18) had its
+; position or angle set after its enable; ParkBesideNow's bare Enable(false) with nothing after it is the only placement that failed
+; (14:31:03 and 14:32:08). So: (1) after that enable the bike is placed again on its live 3D, its 3D waited for ParkSolid3DWait at
+; most (ParkSolidReplace: SetPosition and SetAngle, EnableParked's and ParkFit's order); (2) the plugin is asked whether its own 3D is
+; at its place (rays down and across, overhangs looked under; ParkSolidCheck); only a clear "missing" repairs it, twice at most: try 1
+; hidden and shown again by EnableParked (its guard first: someone in its place keeps it hidden, ParkGuardHold; ParkFit after, which
+; sets it on the live bike), try 2 a re-place that moves it (its holding cell, then PlaceOnSpot at its place: the guard, the fade-in,
+; the settle, ParkFit), the way the two calls that put test 60's bikes right placed them; a word that isn't "missing" (not told, the
+; rays not working, no answer) is logged and nothing done (the ask is new: test 60's rays met only placed bikes); (3) asked again
+; ParkSolidAgain later (ParkSolidTick), not while riding, busy, getting on or customising. One line a step, with IsDisabled and
+; Is3DLoaded. The plugin logs the bike's 3D root at each enable and disable (a quick hide that gets its old 3D back shows in test
+; 61). And ParkedLoaded3D's threads, one per load of its 3D, put the look on for the newest load only (parkLoads): two OnLoads close
+; together (a repair's) gave two runtime swaps on one drawn 3D, the kind of moment tests 54 and 58 crashed in.
+; ---------------------------------------------------------------------------
+float Property ParkSolidAgain = 2.0 AutoReadOnly
+{ParkSolid: the parked bike's own place asked about again this long after the getting off's ask.}
+float Property ParkSolid3DWait = 0.5 AutoReadOnly
+{ParkSolid: a placement waits at most this long for the bike's 3D (Is3DLoaded polled every RoomPollInterval).}
+float Property ParkLoadWait = 3.0 AutoReadOnly
+{ParkSolid: a load of the parked bike's 3D waits at most this long for an earlier load's look to be put on before its own.}
+int Property TimerParkSolid = 6601 AutoReadOnly
+{ParkSolid's second look, ParkSolidAgain after the getting off (ParkSolidTick). 6601: the round's other units number theirs 66 on.}
+
+int parkLoads = 0          ; ParkSolid: the parked bike's 3D's loads (ParkedLoaded3D), counted
+int parkLoadInApply = 0    ; ParkSolid: the load whose look CMB_LookF4SE's ApplyParkedLoaded is putting on (0: none)
+
+; Is3DLoaded polled every RoomPollInterval, ParkSolid3DWait at most (no unbounded WaitFor3DLoad in a getting off: no watchdog covers
+; it, and BusyWatch would free busy mid-way). True once loaded.
+bool Function ParkSolid3D()
+	int polls = (ParkSolid3DWait / RoomPollInterval + 0.5) as int
+	int i = 0
+	while !BikeRef.Is3DLoaded() && !BikeRef.IsDisabled() && i < polls
+		Utility.Wait(RoomPollInterval)
+		i += 1
+	endwhile
+	return BikeRef.Is3DLoaded()
+EndFunction
+
+string Function ParkSolidState()
+	return "IsDisabled " + BikeRef.IsDisabled() + ", Is3DLoaded " + BikeRef.Is3DLoaded()
+EndFunction
+
+; ParkBesideNow's re-place: its 3D waited for, then its position and angle set again on the live bike. The words for its line.
+string Function ParkSolidReplace(float afX, float afY, float afZ, float afAngle)
+	bool loaded = ParkSolid3D()
+	BikeRef.SetPosition(afX, afY, afZ)
+	BikeRef.SetAngle(parkFitPitch, parkFitRoll, afAngle)
+	if loaded
+		return "; placed again on its live 3D (ParkSolid)"
+	endif
+	return "; placed again, its 3D not loaded 0.5 s after the enable (ParkSolid)"   ; the literal: Papyrus prints 0.500000
+EndFunction
+
+; The plugin's word on the parked bike's own place (kind 8, its heading): 1 its own 3D met (solid there), -1 missing (CMB_RoomClear -5:
+; a ray down reached the ground through its place, or a level one crossed it), -3 not told (-6: every look blocked by something else),
+; -2 the plugin's rays not working, 0 no answer.
+int Function ParkSolidAsk()
+	float heading = BikeRef.GetAngleZ() - ParkedModelYaw
+	if heading < 0.0
+		heading += 360.0
+	endif
+	int got = RoomAt(BikeRef.GetPositionX(), BikeRef.GetPositionY(), BikeRef.GetPositionZ(), -1, heading, ".", "The parked bike's own place", 8)
+	if got == -1 && lastRoomClear != -5.0
+		return -3
+	endif
+	return got
+EndFunction
+
+string Function ParkSolidWord(int aiGot)
+	if aiGot == 1
+		return "its collision there"
+	elseif aiGot == -1
+		return "no collision at its place"
+	elseif aiGot == -3
+		return "not told (every look of the plugin's stopped by something else)"
+	elseif aiGot == -2
+		return "not checked (the plugin's rays aren't working here)"
+	endif
+	return "no answer"
+EndFunction
+
+; The check and its repairs (asWhen for the lines; the caller holds busy). Returns the last word (ParkSolidAsk's; 0 not asked or
+; kept hidden by the guard). The review of 2026-11-24a (its finding 1), a second guard behind the callers' busy: never asked or repaired
+; while getting on (a busy watch's let-go could let Mount in): MountEarly's hide reads as "missing", and a repair's EnableParked would
+; show the bike, collision and all, beside the rider getting on (test 50's state).
+int Function ParkSolidCheck(string asWhen)
+	string head = "The parked bike's collision (" + asWhen + ", ParkSolid): "
+	if mounting
+		Log(head + "not asked, getting on (the bike is the ride's now).")
+		return 0
+	endif
+	if BikeRef.IsDisabled()
+		Log(head + "not asked, the bike hidden (" + ParkSolidState() + ").")
+		return 0
+	endif
+	WorldSpace world = PlayerRef.GetWorldSpace()
+	if BikeRef.GetWorldSpace() != world || (!world && BikeRef.GetParentCell() != PlayerRef.GetParentCell()) || PlayerRef.GetDistance(BikeRef) > 4096.0
+		Log(head + "not asked, the bike away from the player (the rays are cast where the player is).")
+		return 0
+	endif
+	int got = ParkSolidAsk()
+	bool keep = got != -1 || mounting
+	Log(head + ParkSolidWord(got) + " (" + ParkSolidState() + ")" + ParkSolidNext(got, keep, "try 1, hidden and shown again (EnableParked: its guard before, its fit after)."))
+	if keep
+		return got
+	endif
+	BikeRef.Disable()
+	EnableParked(false, 0, 0.0, true)
+	if parkHeld
+		Log(head + "try 1: someone in its place: kept hidden (ParkGuard; " + ParkSolidState() + ").")
+		return 0
+	endif
+	ParkSolid3D()
+	got = ParkSolidAsk()
+	keep = got != -1 || mounting
+	Log(head + "try 1: " + ParkSolidWord(got) + " (" + ParkSolidState() + ")" + ParkSolidNext(got, keep, "try 2, placed again through its holding cell as a call places it (PlaceOnSpot: its guard, the fade-in, the settle, its fit)."))
+	if keep
+		return got
+	endif
+	float x = BikeRef.GetPositionX()
+	float y = BikeRef.GetPositionY()
+	float z = BikeRef.GetPositionZ()
+	float heading = BikeRef.GetAngleZ() - ParkedModelYaw
+	if heading < 0.0
+		heading += 360.0
+	endif
+	BikeRef.Disable()
+	BikeRef.MoveTo(HoldingMarkerRef)
+	spotX = x
+	spotY = y
+	spotAngle = heading
+	spotKnown = true
+	spotGround = z
+	spotGroundKnown = true
+	spotPitch = parkFitPitch
+	spotRoll = parkFitGroundRoll
+	spotTiltKnown = true
+	PlaceOnSpot(-1)
+	if parkHeld
+		Log(head + "try 2: someone in its place: kept hidden (ParkGuard; " + ParkSolidState() + ").")
+		return 0
+	endif
+	ParkSolid3D()
+	got = ParkSolidAsk()
+	Log(head + "try 2: " + ParkSolidWord(got) + " (" + ParkSolidState() + ")" + Ternary(got == -1, ": still none after two tries (calling it with the hotkey places it afresh).", "."))
+	return got
+EndFunction
+
+; ParkSolidCheck's words after a word: the next try (asNext) unless kept as it is (abKeep: not missing, or getting on).
+string Function ParkSolidNext(int aiGot, bool abKeep, string asNext)
+	if !abKeep
+		return ": " + asNext
+	elseif aiGot == -1
+		return ": not repaired, getting on (the bike is the ride's now)."
+	endif
+	return "."
+EndFunction
+
+; ParkSolidAgain after a getting off's check: asked again, outside busy (claimed for it, as ParkGuardTick does); not while riding, busy,
+; getting on, customising, kept hidden by the guard or hidden. The review of 2026-11-24a (its finding 1): busy claimed right after the
+; flags are read, before anything is called on another object (as Mount, ParkGuardTick and ParkedReload do): the bike's IsDisabled let
+; the player's E (Mount) run in between, get on under the check (its kind 8 ask, a repair's Disable and EnableParked beside the rider)
+; and have its lock freed by the check's end. Now that E finds busy ("Getting on ignored: busy (the parked bike's collision, ...)":
+; the ask's tenth of a second), and the end frees busy only while the claim is still this one.
+Function ParkSolidTick()
+	if !RoomOption(1048576)
+		return
+	endif
+	string why = ""
+	if riding
+		why = "riding"
+	elseif busy
+		why = "busy (" + BusyText() + ")"
+	elseif mounting
+		why = "getting on"
+	elseif customising
+		why = "customising"
+	elseif parkHeld
+		why = "kept hidden (ParkGuard)"
+	endif
+	if why == ""
+		busy = true
+		NoteBusy("the parked bike's collision")
+		if BikeRef.IsDisabled()
+			busy = false
+			why = "the bike hidden"
+		endif
+	endif
+	if why != ""
+		Log("The parked bike's collision (2 s after the getting off, ParkSolid): not asked (" + why + ").")
+		return
+	endif
+	ParkSolidCheck("2 s after the getting off")
+	if busyBy == "the parked bike's collision"
+		busy = false   ; this claim's own (a busy watch's let-go and a newer claim since keep theirs)
+	endif
 EndFunction
 
 ; Test 47 (the plugin's [Room] ParkCheck): a ride that moved the player less than ParkBackWithin
@@ -5064,6 +5381,10 @@ bool Function ParkChecked()
 		heading += 360.0
 	endif
 	int room = RoomAt(x, y, z, -1, heading, ".", "The park spot (" + what + ")")
+	; 2026-11-24a (the plugin's [Room] ParkFallbackSearch, CMB_RoomOptions 16384; test 60's getting offs by wrecked cars and rubble,
+	; parked nose-up 26 on a sports car's body and pitched -18 on rubble): the spot's fit asked too (its ask kind 9) before it is taken;
+	; refused, or no room there, the 10 spots near the player (ParkSearchSpots) before the spot is taken as before.
+	bool search = RoomOption(16384)
 	if room == 1
 		float turned = lastRoomAngle - heading
 		while turned > 180.0
@@ -5074,6 +5395,13 @@ bool Function ParkChecked()
 		endwhile
 		float slid = Math.Sqrt((lastRoomX - x) * (lastRoomX - x) + (lastRoomY - y) * (lastRoomY - y))
 		if slid <= 0.5 && Math.Abs(turned) <= 0.05
+			if search && !ParkFitPasses(x, y, z - lastRoomClear, heading, "The park spot (" + what + ")")
+				if ParkSearchPlace(false)
+					return true
+				endif
+				Log("The parked bike's spot: " + what + ", as before (none of the spots near the player passes either: the plugin's [Room] ParkFallbackSearch).")
+				return false
+			endif
 			Log("The parked bike's spot: " + what + ", as before (room there).")
 			return false
 		endif
@@ -5087,6 +5415,13 @@ bool Function ParkChecked()
 		spotRoll = lastRoomRoll
 		spotTiltKnown = lastRoomTilted
 		Log("The parked bike's spot: " + what + ", heading " + Whole(spotAngle) + ", where the plugin found room (" + Whole(slid) + " from the asked spot, turned " + Whole(turned) + ").")
+		if search && !ParkFitPasses(spotX, spotY, spotGround, spotAngle, "The park spot (" + what + ", where the plugin found room)")
+			if ParkSearchPlace(false)
+				return true
+			endif
+			; ParkSearchSpots leaves the spot fields alone when none passes: this spot, as before.
+			Log("The parked bike's spot: " + what + ", where the plugin found room, as before (none of the spots near the player passes either: the plugin's [Room] ParkFallbackSearch).")
+		endif
 		PlaceOnSpot(-1)
 		return true
 	elseif room != -1
@@ -5094,12 +5429,206 @@ bool Function ParkChecked()
 		Log("The parked bike's spot: " + what + ", as before (not checked).")
 		return false
 	endif
+	if search
+		; The fit unit's review: no room here, so the first spot near the player with room is taken when none passes its fit, as
+		; 2026-11-23b's PickBikeSpot took it; the track's spot (no room) only when none has room.
+		return ParkSearchPlace(true)
+	endif
 	int spot = PickBikeSpot(false, true)
 	if spot < 0
 		return false
 	endif
 	PlaceOnSpot(spot)
 	return true
+EndFunction
+
+; 2026-11-24a (the plugin's [Room] ParkFallbackSearch): the bike at the spot ParkSearchSpots gives (abRoomFallback: see there), placed as a
+; checked spot (PlaceOnSpot); false with none.
+bool Function ParkSearchPlace(bool abRoomFallback)
+	int spot = ParkSearchSpots(abRoomFallback)
+	if spot < 0
+		return false
+	endif
+	PlaceOnSpot(spot)
+	return true
+EndFunction
+
+; 2026-11-24a (the plugin's [Room] ParkFallbackSearch): a park spot's fit asked before the bike is put there (the plugin's ask kind 9 at
+; the spot's ground, along afHeading): false only when refused or not fitted (-1: its line says why); not checked or no answer: true.
+bool Function ParkFitPasses(float afX, float afY, float afGround, float afHeading, string asLabel)
+	float heading = afHeading
+	while heading < 0.0
+		heading += 360.0
+	endwhile
+	while heading >= 360.0
+		heading -= 360.0
+	endwhile
+	return RoomAt(afX, afY, afGround, -1, heading, ".", asLabel + ", its fit", 9) != -1
+EndFunction
+
+; 2026-11-24a (the plugin's [Room] ParkFallbackSearch, CMB_RoomOptions 16384; test 60's four getting offs with no room beside the player,
+; by wrecked cars and rubble): the spots near the player, nearest first (ParkSearchOrder: a call's BikeSpots and the AroundSpots but
+; the one 100 ahead, whose bike's rear tyre would stand inside the player's capsule: test 50's suspected crash state), each
+; asked as a call asks it (RoomAt: its box, a clear line from the player, its ground; the plugin's Slide may move or turn it), its navmesh
+; snap within SpotSettleMax with the plugin's SnapNext, and then its fit (ParkFitPasses: refused when it needs more than ParkLean's max
+; with the stand's foot well off its ground, or a tyre stands on a thing). The first that passes: the spot fields set (spotX/Y/Angle,
+; spotGround, its tilt) and its index. The search ends early at a spot not checked (the plugin's rays not working, or no answer) and,
+; looked at before each spot and each fit ask, once out of its time: 2 s in the getting off's black (parkInBlack, Dismount's); without
+; it (knocked off, out of fuel, a weapon out, the emergency reset: the rider still on the bike, no black) the fit unit's review asks the
+; 4 AroundSpots only, as 2026-11-23b's PickBikeSpot did, in 1 s. None passes (or the search ended): abRoomFallback (ParkChecked: the
+; track's spot had no room) takes the first spot that had room as 23b's PickBikeSpot took it (walkable first, else the first whose snap
+; went too far; its fit refused or not asked), the fit unit's review (a wreck in the track's spot, the spots with room on rubble: 23b
+; took one of those, the track's spot inside the wreck is worse); else -1 (its line), the spot fields untouched, the caller parks as
+; before. The caller holds busy.
+int Function ParkSearchSpots(bool abRoomFallback)
+	float started = Utility.GetCurrentRealTime()
+	float angle = PlayerRef.GetAngleZ()
+	float px = PlayerRef.GetPositionX()
+	float py = PlayerRef.GetPositionY()
+	float pz = PlayerRef.GetPositionZ()
+	bool snapNext = RoomOption(8) && SpotSettleMax > 0.0
+	bool black = parkInBlack
+	int count = BikeSpots + AroundSpots - 1
+	float searchMax = 2.0   ; real seconds: the getting off's black waits on it (each spot an ask, a snap and a fit ask)
+	if !black
+		count = AroundSpots
+		searchMax = 1.0   ; no black: the rider waits on the bike (2026-11-23b's 4 asks took 0.3-0.8 s)
+	endif
+	; The first spot with room, walkable first (abRoomFallback's).
+	int keep = -1
+	bool keepWalkable = false
+	float keepX = 0.0
+	float keepY = 0.0
+	float keepAngle = 0.0
+	float keepGround = 0.0
+	float keepPitch = 0.0
+	float keepRoll = 0.0
+	bool keepTilted = false
+	string ended = ""
+	int i = 0
+	while i < count && ended == ""
+		if i > 0 && Utility.GetCurrentRealTime() - started > searchMax
+			ended = i + " asked, out of its " + Whole(searchMax) + " s"
+		else
+			int spot = ParkSearchOrder(i)
+			if !black
+				spot = ParkSearchAround(i)
+			endif
+			i += 1
+			float forward = SpotForward(spot)
+			float right = SpotRight(spot)
+			float heading = angle + SpotTurn(spot)
+			while heading >= 360.0
+				heading -= 360.0
+			endwhile
+			int room = RoomAt(px + OffsetX(angle, forward, right), py + OffsetY(angle, forward, right), pz, spot, heading)
+			if room == -2 || room == 0
+				ended = "spot " + (spot + 1) + " not checked, " + i + " asked"
+			elseif room > 0
+				float sx = lastRoomX
+				float sy = lastRoomY
+				float sa = lastRoomAngle
+				float ground = pz - lastRoomClear
+				float pitch = lastRoomPitch
+				float roll = lastRoomRoll
+				bool tilted = lastRoomTilted
+				float snap = -1.0
+				if snapNext
+					snap = SnapOff(sx, sy, ground, false)
+				endif
+				bool walkable = snap <= SpotSettleMax
+				if !walkable
+					Log("Bike's spot " + (spot + 1) + " (" + SpotText(spot) + "): its navmesh snap " + Whole(snap) + " from it, over " + Whole(SpotSettleMax) + ": not walkable (the plugin's [Room] ParkFallbackSearch).")
+				endif
+				if keep < 0 || (walkable && !keepWalkable)
+					keep = spot
+					keepWalkable = walkable
+					keepX = sx
+					keepY = sy
+					keepAngle = sa
+					keepGround = ground
+					keepPitch = pitch
+					keepRoll = roll
+					keepTilted = tilted
+				endif
+				if walkable
+					if Utility.GetCurrentRealTime() - started > searchMax
+						ended = i + " asked, out of its " + Whole(searchMax) + " s before spot " + (spot + 1) + "'s fit"
+					elseif ParkFitPasses(sx, sy, ground, sa, "Bike's spot " + (spot + 1) + " (" + SpotText(spot) + ")")
+						spotX = sx
+						spotY = sy
+						spotAngle = sa
+						spotKnown = true
+						spotGround = ground
+						spotGroundKnown = true
+						spotPitch = pitch
+						spotRoll = roll
+						spotTiltKnown = tilted
+						Log("The parked bike's spot: " + (spot + 1) + " (" + SpotText(spot) + "), heading " + Whole(sa) + ": room, walkable and fitted (" + i + " of the spots near the player asked, " + Tenths(Utility.GetCurrentRealTime() - started) + " s; the plugin's [Room] ParkFallbackSearch).")
+						return spot
+					endif
+				endif
+			endif
+		endif
+	endwhile
+	if ended == ""
+		ended = "none of the " + i + " has room, walkable and fitted"
+	endif
+	float took = Utility.GetCurrentRealTime() - started
+	if abRoomFallback && keep >= 0
+		spotX = keepX
+		spotY = keepY
+		spotAngle = keepAngle
+		spotKnown = true
+		spotGround = keepGround
+		spotGroundKnown = true
+		spotPitch = keepPitch
+		spotRoll = keepRoll
+		spotTiltKnown = keepTilted
+		Log("The parked bike's spot: " + (keep + 1) + " (" + SpotText(keep) + "), heading " + Whole(keepAngle) + ": the first near the player with room" + Ternary(keepWalkable, "", ", its navmesh snap too far") + ", taken as 2026-11-23b took it (" + ended + ", " + Tenths(took) + " s; the track's spot has no room: the plugin's [Room] ParkFallbackSearch).")
+		return keep
+	endif
+	Log("The parked bike's spot near the player: " + ended + ", in " + Tenths(took) + " s: as before (the plugin's [Room] ParkFallbackSearch).")
+	return -1
+EndFunction
+
+; 2026-11-24a (ParkSearchSpots): the spots near the player, nearest first: 120 behind across, 100 behind and 110 right, then left, 150
+; ahead and 60 right, then left, 220 behind, 220 ahead and 60 right, then left, 300 ahead and 60 right, then left. Not spot 7 (100 ahead,
+; on the player's line): its bike's middle 100 ahead puts its rear tyre's back 2 ahead of the player's middle, inside their capsule.
+int Function ParkSearchOrder(int aiAsked)
+	if aiAsked == 0
+		return 9
+	elseif aiAsked == 1
+		return 7
+	elseif aiAsked == 2
+		return 8
+	elseif aiAsked == 3
+		return 2
+	elseif aiAsked == 4
+		return 3
+	elseif aiAsked == 5
+		return 10
+	elseif aiAsked == 6
+		return 0
+	elseif aiAsked == 7
+		return 1
+	elseif aiAsked == 8
+		return 4
+	endif
+	return 5
+EndFunction
+
+; The fit unit's review (ParkSearchSpots without the getting off's black): the 4 AroundSpots in ParkSearchOrder's order: 120 behind
+; across, 100 behind and 110 right, then left, 220 behind.
+int Function ParkSearchAround(int aiAsked)
+	if aiAsked == 0
+		return 9
+	elseif aiAsked == 1
+		return 7
+	elseif aiAsked == 2
+		return 8
+	endif
+	return 10
 EndFunction
 
 ; With CMB_Slope.dll: on the ground just ridden, a bike length behind the player, facing
@@ -5220,6 +5749,10 @@ float parkHeldGZ = 0.0
 float parkHeldSince = 0.0
 bool parkHeldMoved = false
 bool parkGuardMoving = false   ; ParkGuardTick's new spot being placed: a hold there keeps the first one's time and its "once"
+bool parkStuckTried = false    ; 2026-11-24a (the plugin's [Room] GuardStuckMove): this hold's move for someone unmoving in its place tried
+bool swimRollsUpWaits = false  ; 2026-11-24a (the plugin's [Room] SwimSpot): "Your motorbike rolls up." held back till the bike is shown
+string swimRollsUpWhat = "Bike brought back after a swim"   ; ... whose (the fit unit's review: a call's too), for its lines
+bool parkInBlack = false       ; 2026-11-24a (the plugin's [Room] ParkFallbackSearch, the fit unit's review): Dismount's black holds ParkBesidePlayer
 
 Function EnableParked(bool abFade, int aiSettle, float afAngle = 0.0, bool abPlaced = false)
 	ParkedLookDueNow("the bike's enable")   ; 2026-11-09a (test 51, FastMount): a look put on while riding, on it first
@@ -5457,6 +5990,7 @@ Function ParkGuardHold(bool abFade, int aiSettle, float afAngle, string asWhy)
 	parkHeldGZ = groundZ
 	if !parkGuardMoving
 		parkHeldSince = Utility.GetCurrentRealTime()
+		parkStuckTried = false   ; 2026-11-24a (GuardStuckMove): a new hold, its move for someone unmoving not tried yet
 	endif
 	parkHeldMoved = parkGuardMoving
 	; The literals, not the floats: Papyrus prints 0.500000 (ParkGuardPoll, ParkGuardWait). The review of 2026-11-09a (A6): a
@@ -5477,6 +6011,28 @@ Function ParkGuardEnd(string asWhy)
 	parkHeld = false
 	CancelTimer(TimerParkGuard)
 	Log("The parked bike's guard ended after " + Whole(Utility.GetCurrentRealTime() - parkHeldSince) + " s: " + asWhy + " (ParkGuard).")
+	SwimRollsUpForget(asWhy)
+EndFunction
+
+; 2026-11-24a (the plugin's [Room] SwimSpot; test 60's swim: "Your motorbike rolls up." 16 s before the bike, which the guard held):
+; the bring after a swim's message (the fit unit's review: a call's too, swimRollsUpWhat), held back while the guard keeps the bike
+; hidden, shown once it is shown (asHow says how).
+Function SwimRollsUpShown(string asHow)
+	if !swimRollsUpWaits || parkHeld || BikeRef.IsDisabled()
+		return
+	endif
+	swimRollsUpWaits = false
+	Debug.Notification("Your motorbike rolls up.")
+	Log(swimRollsUpWhat + ": shown " + asHow + ": \"Your motorbike rolls up.\" (the plugin's [Room] SwimSpot).")
+EndFunction
+
+; ... and forgotten when the hold ends another way (asWhy): a call's or getting on's own, or the player gone elsewhere.
+Function SwimRollsUpForget(string asWhy)
+	if !swimRollsUpWaits
+		return
+	endif
+	swimRollsUpWaits = false
+	Log(swimRollsUpWhat + ": its message not shown (" + asWhy + ") (the plugin's [Room] SwimSpot).")
 EndFunction
 
 ; ParkGuardPoll: clear, shown with the kept settle (and asked again after it); still taken past ParkGuardMax, once a new spot
@@ -5499,6 +6055,7 @@ Function ParkGuardTick()
 		parkHeld = false
 		busy = false
 		Log("The parked bike kept hidden after " + Whole(held) + " s: the player went elsewhere: it waits there hidden; calling it brings it (ParkGuard).")
+		SwimRollsUpForget("the player went elsewhere")
 		return
 	endif
 	int answer = ParkGuardAsk(2)   ; the player counted (in its own box): they may have walked into its place since
@@ -5511,8 +6068,27 @@ Function ParkGuardTick()
 		ParkSettle(parkHeldSettle, parkHeldAngle)
 		Log("The parked bike shown after " + Whole(held) + " s: " + Ternary(answer == 1, "its place clear", "its place not checked") + " (ParkGuard).")
 		ParkGuardAfterSettle(parkHeldSettle, 2)
+		SwimRollsUpShown("by the guard after " + Whole(held) + " s")
 		busy = false
 		return
+	endif
+	; 2026-11-24a (the plugin's [Room] GuardStuckMove; test 60's swim: a body with no capsule kept it hidden 16 s, 22 answers alike):
+	; someone in its place who hasn't moved that long (the answer's CMB_RoomGround 1, the plugin's own judgement; 0 from an older
+	; plugin or with the key at 0): a new spot now, as ParkGuardMax's move below (which still follows later if this finds none).
+	if answer == -1 && lastRoomGroundSeen >= 0.5 && !parkHeldMoved && !parkStuckTried
+		parkStuckTried = true
+		int stuckSpot = PickBikeSpot(false, true)
+		if stuckSpot >= 0
+			parkHeld = false
+			Log("The parked bike kept hidden " + Whole(held) + " s by someone unmoving in its place (the plugin's [Room] GuardStuckMove): a spot beside or behind the player with room.")
+			parkGuardMoving = true
+			PlaceOnSpot(stuckSpot)
+			parkGuardMoving = false
+			SwimRollsUpShown("at the guard's new spot after " + Whole(held) + " s")
+			busy = false
+			return
+		endif
+		Log("The parked bike kept hidden " + Whole(held) + " s by someone unmoving in its place (the plugin's [Room] GuardStuckMove): no spot beside or behind the player has room; it waits (ParkGuardMax's move later).")
 	endif
 	if answer == -1 && held >= ParkGuardMax && !parkHeldMoved
 		parkHeldMoved = true
@@ -5523,6 +6099,7 @@ Function ParkGuardTick()
 			parkGuardMoving = true
 			PlaceOnSpot(spot)
 			parkGuardMoving = false
+			SwimRollsUpShown("at the guard's new spot after " + Whole(held) + " s")
 			busy = false
 			return
 		endif
@@ -5860,11 +6437,15 @@ Function EquipBike(bool abPoseAhead = false)
 		; 2026-11-08a: an MCM change since the look was last put on (free mode without Apply, or Customise
 		; at the bike switched) put on first, as at getting on, so a swap mid-ride (a weapon drawn, a hit)
 		; gives this armour mods of the look CMB_LookCode's rim style and the colour values are of.
+		float t0 = Utility.GetCurrentRealTime()   ; 2026-11-24a: the parts' seconds for the getting on's stage line (equipParts)
 		LookSync("the worn bike's equip")
+		float t1 = Utility.GetCurrentRealTime()
 		WornIndexRestore()   ; 2026-11-14a: WornIndex turned off this session: the options' swaps as the ESP has them first
+		float t2 = Utility.GetCurrentRealTime()
 		lookWorn = lookApplied
 		; 2026-11-07a: the chosen look's mods on it before it goes on (no call with a stock look).
 		int refused = AttachLook(wanted, true)
+		float t3 = Utility.GetCurrentRealTime()
 		; 2026-11-10a (test 52, Free colour blue on the first ride; the plugin's [Look] WornColoursFirst, bit 1024): the colour
 		; values written before the equip, so the plugin's first write into the new shapes is this look's (WornColoursWrite).
 		; 2026-11-14a ([Look] WornIndex, bit 4096): always before it (the indexes must be in the swaps when the game builds it).
@@ -5872,8 +6453,12 @@ Function EquipBike(bool abPoseAhead = false)
 		int written = -2
 		if first
 			written = WornColoursWrite()
+			WornIndexNoted(written)
 		endif
+		float t4 = Utility.GetCurrentRealTime()
 		PlayerRef.EquipItem(wanted, true, true)
+		float t5 = Utility.GetCurrentRealTime()
+		equipParts = "LookSync " + Hundredths(t1 - t0) + ", WornIndexRestore " + Hundredths(t2 - t1) + ", AttachLook " + Hundredths(t3 - t2) + ", WornColoursWrite " + Hundredths(t4 - t3) + ", EquipItem " + Hundredths(t5 - t4) + " (FastMount off)"
 		; Test 41: read right after the equip, the slot said nothing twice (16:00:13, 16:01:37) while
 		; the bike showed: the biped hadn't taken the armor yet. Read a tick later (RideTick).
 		wornSlotToLog = true
@@ -5941,8 +6526,13 @@ bool wornRefit = false         ; fewer mods found: the ride tick puts the worn b
 ; carries remembered. Then the colour values written once, and after the fade (TimerLook, outside busy): the F4SE swap if
 ; the mods were refused or (no bit 64) the look has colours, and the mods counted.
 Function EquipKept(Armor akArmor)
+	; 2026-11-24a (test 60: the look-on getting ons' equip 2.5-2.8 s, 1.0-1.5 stock; 5.1 s after a kit visit): each part's seconds
+	; for the getting on's stage line (equipParts)
+	float t0 = Utility.GetCurrentRealTime()
 	LookSync("the worn bike's equip")
+	float t1 = Utility.GetCurrentRealTime()
 	WornIndexRestore()   ; 2026-11-14a: WornIndex turned off this session: the options' swaps as the ESP has them first
+	float t2 = Utility.GetCurrentRealTime()
 	int count = PlayerRef.GetItemCount(akArmor)
 	int refused = 0
 	bool active = LookActive()   ; a stock look: no mods on it, none to count
@@ -5952,16 +6542,29 @@ Function EquipKept(Armor akArmor)
 	; before it (the indexes must be in the mods' swaps when the game builds the worn 3D).
 	bool first = LookOption(1024) || LookOption(4096)
 	int written = -2
+	; 2026-11-24a ([Look] EquipLate): at MountEarly's getting on, after the screen when this session's last pass put this look's indexes
+	; in the options' swaps already (the game builds the worn 3D with them; the write would only set the plugin's globals to the values
+	; they hold): MountScreenIsBack.
+	bool late = first && WornColoursLater()
+	wornColoursLate = late
+	float tAttach = -1.0
+	float tColours = 0.0
+	float tItem = 0.0
+	float tc = 0.0
 	; 2026-11-14a ([Look] KeptMods, bit 8192): kept when its mods are the look's (KeptKey); 2026-11-10a the whole look.
 	string kept = KeptKey()
 	if count == 1 && KeptLook(akArmor) == kept
 		lookWorn = lookApplied
 		lookRimMods = KeptRims(akArmor)
 		refused = KeptRefused(akArmor)
-		if first
+		if first && !late
+			tc = Utility.GetCurrentRealTime()
 			written = WornColoursWrite()
+			tColours = Utility.GetCurrentRealTime() - tc
 		endif
+		tc = Utility.GetCurrentRealTime()
 		PlayerRef.EquipItem(akArmor, true, true)
+		tItem = Utility.GetCurrentRealTime() - tc
 		if active
 			Log("Look: the worn bike's kept mods (the look unchanged): no attach")
 		endif
@@ -5971,12 +6574,18 @@ Function EquipKept(Armor akArmor)
 		endif
 		PlayerRef.AddItem(akArmor, 1, true)
 		lookWorn = lookApplied
+		tc = Utility.GetCurrentRealTime()
 		refused = AttachLook(akArmor, true)
+		tAttach = Utility.GetCurrentRealTime() - tc
 		KeptRemember(akArmor, kept, lookRimMods, refused)
-		if first
+		if first && !late
+			tc = Utility.GetCurrentRealTime()
 			written = WornColoursWrite()
+			tColours = Utility.GetCurrentRealTime() - tc
 		endif
+		tc = Utility.GetCurrentRealTime()
 		PlayerRef.EquipItem(akArmor, true, true)
+		tItem = Utility.GetCurrentRealTime() - tc
 	endif
 	; Test 41: the slot read a tick later (RideTick).
 	wornSlotToLog = true
@@ -5987,27 +6596,36 @@ Function EquipKept(Armor akArmor)
 	if !first
 		written = WornColoursWrite()
 	endif
-	if written != -2
-		lookColoursWorn = written == 1
-		; 2026-11-10a (the plugin's [Look] HueSwap, bit 2048): with the plugin writing the colours (bit 64), Free colour's
-		; F4SE swap once after the fade too (WornHueSwap).
-		if written == 1 && !wornRefused && (!LookOption(64) || WornHueSwap())
-			wornSwapDue = true   ; ApplyWornColours, once
-			if LookOption(64)
-				Log("Look: Free colour on the worn bike: the plugin writes it, and the F4SE swap once after the fade too (HueSwap)")
-			endif
-		elseif written == 1 && !wornRefused && LookOption(64) && LookOption(4096)
-			Log("Look: the worn bike's colours are in its mods' swaps before the equip (WornIndex): no F4SE swap after the fade")
-		endif
-	endif
+	WornIndexNoted(written)   ; 2026-11-24a (EquipLate): this look's indexes in the options' swaps from here
+	WornColoursAfter(written, false)
 	if active
 		wornCountDue = true
 		wornCountArmor = akArmor
 	endif
 	if wornCountDue || wornSwapDue
-		StartTimer(WornSwapAgain, TimerLook)
+		if WornLookHeld()
+			wornLookAtScreen = true   ; 2026-11-24a ([Look] EquipLate): TimerLook from the getting on's screen
+		else
+			StartTimer(WornSwapAgain, TimerLook)
+		endif
 	endif
 	WornOverlayPlan()   ; 2026-11-22a ([Look] OverlayRuntime): the look's swap at runtime too, after the fade
+	float tEnd = Utility.GetCurrentRealTime()
+	string attachText = "none (kept)"
+	if tAttach >= 0.0
+		attachText = Hundredths(tAttach)
+	endif
+	string coloursText = Hundredths(tColours)
+	if late
+		coloursText = "after the screen (EquipLate)"
+	elseif !first || written == -2
+		coloursText = "none before it"
+	endif
+	float rest = (tEnd - t0) - (t1 - t0) - (t2 - t1) - tColours - tItem
+	if tAttach > 0.0
+		rest -= tAttach
+	endif
+	equipParts = "LookSync " + Hundredths(t1 - t0) + ", WornIndexRestore " + Hundredths(t2 - t1) + ", AttachLook " + attachText + ", WornColoursWrite " + coloursText + ", EquipItem " + Hundredths(tItem) + ", the rest " + Hundredths(rest)
 EndFunction
 
 ; 2026-11-22a ([Look] OverlayRuntime, CMB_LookOptions 524288; test 58's 1C: the Wear in the field kit and in first person, never on the
@@ -6017,15 +6635,121 @@ EndFunction
 ; refused mods' path of 2026-11-08a and tests 51-53's colour swap after every equip). Not with the stock look. Off: nothing (2026-11-21a).
 Function WornOverlayPlan()
 	if LookOption(524288) && LookActive()
+		; 2026-11-24a (its review's finding 1): the option and the time read first, then the generation and the plan's state with no call
+		; between (a call lets another thread in: a WornOverlayNow that tested the generation there would plan its confirm over half a plan)
+		bool quick = LookOption(4194304)
+		float now = Utility.GetCurrentRealTime()
+		wornOverlayGen += 1   ; 2026-11-24a: a plan newer than any swap's call still under way
 		wornOverlayDue = true
 		wornOverlayTries = 0
-		wornOverlayConfirm = LookOption(4194304)
+		wornOverlayConfirm = quick
 		wornOverlayIsConfirm = false
-		wornOverlayAt = Utility.GetCurrentRealTime()
-		if LookOption(4194304)
-			StartTimer(WornOverlaySoon, TimerLook)   ; 2026-11-23a (OverlayQuick): 0.1 s after the equip, not 1 s
+		wornOverlayAt = now
+		float delay = WornSwapAgain
+		if quick
+			delay = WornOverlaySoon   ; 2026-11-23a (OverlayQuick): 0.1 s after the equip, not 1 s
+		endif
+		if WornLookHeld()
+			wornLookAtScreen = true   ; 2026-11-24a ([Look] EquipLate): its timer from the getting on's screen (MountScreenIsBack)
 		else
-			StartTimer(WornSwapAgain, TimerLook)
+			WornOverlayAskAt(delay, now)
+		endif
+	endif
+EndFunction
+
+; 2026-11-24a (test 60: every first swap 1.8-2.6 s after its equip, its timer asked for 0.1 s; one re-equip's extra swap at 02:44:48):
+; TimerLook asked for the worn overlay, its time and delay kept for the swap's line (LookFollowUp's start against them, the call's own
+; seconds). A sooner caller's timer (LookOnView's 0.1 s) or a later re-arm can stand in for it: the line gives what came.
+float wornOverlayAskedAt = 0.0    ; the real time the overlay's timer was last asked for
+float wornOverlayAsked = 0.0      ; ...and its delay
+float wornOverlayFiredAt = 0.0    ; LookFollowUp's latest start (TimerLook's fire)
+bool wornOverlayCalling = false   ; a WornOverlayNow's ApplyWornOverlay under way (one at a time)
+float wornOverlayCallAt = 0.0     ; ...since then (one older than WornOverlayCallStale, or from another session, is let go)
+int wornOverlayGen = 0            ; counted up by every plan, so a call a newer plan overtook leaves the newer one's state alone
+float Property WornOverlayCallStale = 10.0 AutoReadOnly
+
+Function WornOverlayAsk(float afDelay)
+	WornOverlayAskAt(afDelay, Utility.GetCurrentRealTime())
+EndFunction
+
+; The same with the real time already read (afNow): no call before its StartTimer, so a caller that has just tested the plan's generation
+; asks for its timer before any newer plan can ask for its own (TimerLook is one timer: the later StartTimer stands).
+Function WornOverlayAskAt(float afDelay, float afNow)
+	wornOverlayAskedAt = afNow
+	wornOverlayAsked = afDelay
+	StartTimer(afDelay, TimerLook)
+EndFunction
+
+; 2026-11-24a ([Look] EquipLate, CMB_RoomOptions 8388608; test 60: getting on with a look 5.5 s, stock 2.7): MountEarly's getting on holds
+; the work that only colours the worn bike (its overlay's swap, the mods' count, a colour swap; the colour values when this session's pass
+; already put this look's indexes in the options' swaps) till its screen is back (MountScreenIsBack): test 60's first swaps ran on this
+; script's lock beside MountEarly under the fade and landed after the screen all the same.
+bool mountLateOn = false          ; this getting on holds it (MountEarly with EquipLate)
+bool mountScreenBack = false      ; the getting on's screen is back (its fade-in begun)
+bool wornColoursLate = false      ; the colour values to write at the screen
+bool wornLookAtScreen = false     ; TimerLook to start at the screen
+string wornIndexFor = ""          ; the look (lookApplied) this session's last worn-bike pass put in the options' swaps ("" none: a load, a restore)
+string equipParts = ""            ; the getting on's equip: its parts' seconds, for the stage line ("" none)
+string mountLateText = ""         ; what the screen's return did (EquipLate), for the stage line
+
+bool Function WornLookHeld()
+	return mountLateOn && mounting && !mountScreenBack
+EndFunction
+
+; EquipKept: the colour values after the screen: EquipLate holding, WornIndex and MountQuick on, and this session's last pass this look's.
+bool Function WornColoursLater()
+	return WornLookHeld() && LookOption(4096) && LookOption(65536) && wornIndexFor != "" && wornIndexFor == lookApplied
+EndFunction
+
+; MountEarly, right after its fade-in begins: the screen is back; with EquipLate the held work now. (The old order's Mount needs no call:
+; its fade-in comes after `mounting = false`, so `mounting` alone means the screen is still black there, and mountLateOn is false.)
+Function MountScreenIsBack()
+	mountScreenBack = true
+	if !mountLateOn
+		return
+	endif
+	float t0 = Utility.GetCurrentRealTime()
+	string did = ""
+	if wornColoursLate
+		wornColoursLate = false
+		int written = WornColoursWrite()
+		WornIndexNoted(written)
+		WornColoursAfter(written, true)
+		did = "the worn bike's colour values " + Hundredths(Utility.GetCurrentRealTime() - t0) + " s"
+	endif
+	if wornLookAtScreen || wornOverlayDue || wornSwapDue || wornCountDue
+		wornLookAtScreen = false
+		WornOverlayAsk(WornOverlaySoon)   ; its overlay, the mods' count, a colour swap: 0.1 s on
+		did += Ternary(did == "", "", ", ") + "its look's follow-up asked for 0.1 s on"
+	endif
+	mountLateText = did
+EndFunction
+
+; After a worn colour write (aiWritten WornColoursWrite's): with WornIndex this look's indexes are in the options' swaps now.
+Function WornIndexNoted(int aiWritten)
+	if aiWritten >= 0 && LookOption(4096)
+		wornIndexFor = lookApplied
+	endif
+EndFunction
+
+; EquipKept after its colour write (the equip's, or EquipLate's at the screen: abLate): the colours worn, a colour swap due, its line.
+Function WornColoursAfter(int aiWritten, bool abLate)
+	if aiWritten == -2
+		return
+	endif
+	lookColoursWorn = aiWritten == 1
+	; 2026-11-10a (the plugin's [Look] HueSwap, bit 2048): with the plugin writing the colours (bit 64), Free colour's
+	; F4SE swap once after the fade too (WornHueSwap).
+	if aiWritten == 1 && !wornRefused && (!LookOption(64) || WornHueSwap())
+		wornSwapDue = true   ; ApplyWornColours, once
+		if LookOption(64)
+			Log("Look: Free colour on the worn bike: the plugin writes it, and the F4SE swap once after the fade too (HueSwap)")
+		endif
+	elseif aiWritten == 1 && !wornRefused && LookOption(64) && LookOption(4096)
+		if abLate
+			Log("Look: the worn bike's colours were in its mods' swaps from this session's pass (WornIndex): their values written after the screen (EquipLate), no F4SE swap")
+		else
+			Log("Look: the worn bike's colours are in its mods' swaps before the equip (WornIndex): no F4SE swap after the fade")
 		endif
 	endif
 EndFunction
@@ -6088,45 +6812,81 @@ EndFunction
 
 ; 2026-11-23a: LookFollowUp's worn overlay (22a's conditions: not after a whole-look swap there, not with a refit or another look
 ; due, the key on), now in one place: one try; with OverlayQuick tried again while nothing matched, and confirmed once a second later.
+; 2026-11-24a (test 60's 02:44:48: a re-equip's third swap that nothing planned, untagged, 1.05 s before its confirming swap): two
+; threads past LookFollowUp's WornOverlayDueNow on one plan (its GetCurrentRealTime lets another in) both swapped, the second reading the
+; confirm flag the first had just cleared. Now the due is claimed with no call between the check and the claim, one swap's call at a time
+; (a second due waits for it: tried again 0.2 s on), and a call that a newer plan (a re-equip) overtook leaves that plan's state alone. Its
+; line also gives LookFollowUp's start against the timer asked for it and the call's own seconds, and says "under the getting on's fade"
+; only while the screen is black (2026-11-23b: while getting on at all; test 60's came after the screen at every look-on getting on).
 Function WornOverlayNow(bool abSwapped)
+	if !wornOverlayDue
+		return   ; another thread claimed it since its check
+	elseif wornOverlayCalling
+		float t = Utility.GetCurrentRealTime()
+		float age = t - wornOverlayCallAt
+		if age >= 0.0 && age < WornOverlayCallStale
+			WornOverlayAskAt(WornOverlayRetry, t)   ; another thread's swap under way: this due after it
+			return
+		elseif !wornOverlayDue
+			return   ; (claimed by another thread during the read above)
+		endif
+	endif
 	wornOverlayDue = false
+	bool confirm = wornOverlayIsConfirm
+	wornOverlayIsConfirm = false
+	int gen = wornOverlayGen
 	if abSwapped || wornRefit || !LookIsWorn() || !LookOption(524288)
 		return
 	endif
-	bool confirm = wornOverlayIsConfirm
-	wornOverlayIsConfirm = false
+	wornOverlayCalling = true
+	float fired = wornOverlayFiredAt
+	float callAt = Utility.GetCurrentRealTime()
+	wornOverlayCallAt = callAt
 	int overlays = CallLookF4SE("ApplyWornOverlay")   ; the review of 2026-11-22a: WornOverlayRefusal asked again after its compose
+	float callEnd = Utility.GetCurrentRealTime()
+	wornOverlayCalling = false
 	if overlays < 0
 		return
 	endif
 	bool quick = LookOption(4194304)
-	if overlays == 0 && quick && wornOverlayTries < WornOverlayTriesMax
+	float now = Utility.GetCurrentRealTime()
+	bool newer = gen != wornOverlayGen   ; a plan made during the call (a re-equip): its own tries and confirm stand
+	if overlays == 0 && quick && wornOverlayTries < WornOverlayTriesMax && !newer   ; (no call from the test to the timer)
 		wornOverlayTries += 1
 		wornOverlayDue = true
 		wornOverlayIsConfirm = confirm
-		wornOverlayConfirmAt = Utility.GetCurrentRealTime() + WornOverlayRetry   ; (a confirm's try again: its time moved on)
-		StartTimer(WornOverlayRetry, TimerLook)   ; the worn bike's 3D not built yet: nothing matched
+		wornOverlayConfirmAt = now + WornOverlayRetry   ; (a confirm's try again: its time moved on)
+		WornOverlayAskAt(WornOverlayRetry, now)   ; the worn bike's 3D not built yet: nothing matched
 		return
 	endif
 	string how = ""
 	if quick
-		how = ", " + LookF4SEText("OverlayHow") + ", " + (Utility.GetCurrentRealTime() - wornOverlayAt) + " s after its equip"
+		how = ", " + LookF4SEText("OverlayHow") + ", " + (callEnd - wornOverlayAt) + " s after its equip"
 		if confirm
 			how += ", the confirming swap"
 		elseif wornOverlayTries > 0
 			how += ", try " + (wornOverlayTries + 1)
 		endif
-		if mounting
+		if mounting && !mountScreenBack
 			how += ", under the getting on's fade"
+		elseif mounting
+			how += ", the getting on's screen back already"
 		endif
+		if newer
+			how += ", a newer equip's plan made during it"
+		endif
+		how += "; LookFollowUp " + Hundredths(fired - wornOverlayAskedAt) + " s after its timer was asked for " + Hundredths(wornOverlayAsked) + " s, the call " + Hundredths(callEnd - callAt) + " s"
 	endif
 	Log("Look: the worn bike's 3D: the look's swap at runtime too, " + overlays + " entries applied (OverlayRuntime" + how + ")")
-	if quick && wornOverlayConfirm && overlays > 0 && !confirm
+	; 2026-11-24a (its review's finding 1): the generation tested again here, with no call from the test to the timer: OverlayHow and Log
+	; above call other objects, and a re-equip's plan made then (its 0.1 s first try, its confirm) stands, its timer not replaced by this 1 s
+	now = Utility.GetCurrentRealTime()
+	if quick && wornOverlayConfirm && overlays > 0 && !confirm && gen == wornOverlayGen
 		wornOverlayConfirm = false
 		wornOverlayDue = true
 		wornOverlayIsConfirm = true
-		wornOverlayConfirmAt = Utility.GetCurrentRealTime() + WornOverlayConfirmAfter   ; the review of 2026-11-23a (finding 8)
-		StartTimer(WornOverlayConfirmAfter, TimerLook)
+		wornOverlayConfirmAt = now + WornOverlayConfirmAfter   ; the review of 2026-11-23a (finding 8)
+		WornOverlayAskAt(WornOverlayConfirmAfter, now)
 	endif
 EndFunction
 
@@ -6151,6 +6911,7 @@ EndFunction
 ; were never edited), nor with either bit as the session began with WornIndex off (no call: 2026-11-10a).
 Function WornIndexRestore()
 	if !LookOption(4096) && LookOption(16384) && LookColoursOn()
+		wornIndexFor = ""   ; 2026-11-24a (EquipLate): the swaps the ESP's again
 		CallLookF4SE("RestoreWornIndexes")
 	endif
 EndFunction
@@ -6384,6 +7145,7 @@ float Property KitLeaveWait = 1.0 AutoReadOnly
 
 bool customising = false       ; a Customise session is on (BeginCustomise to EndCustomise)
 bool lookEnding = false        ; EndCustomise is running (it runs once)
+bool kitTidying = false        ; 2026-11-24a ([Look] KitQuickExit): EndCustomise putting the kit away, customising already cleared
 ObjectReference lookKit        ; the furniture the player uses: the toolbox (modes 1, 2) or the bench (3)
 ObjectReference lookBox        ; mode 3: the toolbox at the bench's foot
 int kitMode = 0                ; the kit mode of this attempt (1-3)
@@ -6775,11 +7537,15 @@ EndFunction
 
 ; TimerLook: the first-person bike's look and the worn bike's F4SE swap, while riding and outside busy.
 Function LookFollowUp()
+	wornOverlayFiredAt = Utility.GetCurrentRealTime()   ; 2026-11-24a: TimerLook's fire, for the worn overlay's line
 	if !riding
 		; 2026-11-23a ([Look] OverlayEvery, CMB_LookOptions 2097152; test 59: the worn bike's overlay at 5 of 21 getting-ons): during
 		; MountEarly the equip's timer can come before `riding = true` (after the pose and the controls); 22a dropped every due here,
 		; with no line. A getting on under way keeps them, tried again; with OverlayQuick the worn overlay goes on now, under its fade.
 		if mounting && LookOption(2097152)
+			if WornLookHeld()
+				return   ; 2026-11-24a ([Look] EquipLate): kept for the getting on's screen, which asks for TimerLook again (MountScreenIsBack)
+			endif
 			if WornOverlayDueNow() && LookOption(4194304)
 				WornOverlayNow(false)
 			endif
@@ -6793,6 +7559,9 @@ Function LookFollowUp()
 		return
 	endif
 	if busy
+		if WornLookHeld()
+			return   ; 2026-11-24a ([Look] EquipLate): riding already, the screen still black: as above
+		endif
 		bool canConfirm = mounting && LookOption(2097152) && LookOption(4194304)
 		if canConfirm && WornOverlayDueNow()
 			WornOverlayNow(false)   ; 2026-11-23a: the ride started, Mount still busy till "Mounted.": the worn bike's fresh 3D now
@@ -6953,6 +7722,7 @@ Function LookAfterLoad()
 	lookNoF4seSaid = false
 	; review (2026-11-15a, MountQuick): the remembered colour-index pass belongs to the session before the load; forgotten
 	; before anything here can yield, so a getting on during the load's own compose never skips the pass on another save's key
+	wornIndexFor = ""   ; 2026-11-24a (EquipLate): the save's look or another session's: the next equip writes before it
 	CallLookF4SE("ForgetWornIndexes")
 	CallLookF4SE("ForgetComposed")   ; the second review of 2026-11-23a (finding B): the save's composedFor, here only (not at the second call below)
 	lookCrudeSaid = -1   ; 2026-11-08a: said again in this session's log
@@ -6960,12 +7730,14 @@ Function LookAfterLoad()
 	lookViewDue = false
 	wornSwapDue = false
 	wornOverlayDue = false   ; 2026-11-22a
+	wornOverlayCalling = false   ; 2026-11-24a: no swap's call of this session under way
 	parkedRuntime = false    ; 2026-11-22a: the load gives the parked bike a new 3D
 	; 2026-11-09a (test 51): no count of parked look work, after-the-fade check or activation from before the load is true
 	; now (the load's own ApplyLook below counts afresh)
 	lookParkedWork = 0
 	wornCountDue = false
 	activationAt = -1.0
+	kitTidying = false   ; 2026-11-24a ([Look] KitQuickExit): a tidy the save caught never holds Customise off after it
 	if customising || lookKit || lookBox
 		customising = true
 		lookEnding = false
@@ -7075,6 +7847,11 @@ EndFunction
 Function BeginCustomise()
 	if riding || busy || customising
 		Log("Customise refused: " + Ternary(riding, "riding.", Ternary(customising, "customising already.", "busy (" + BusyText() + ").")))
+		return
+	elseif kitTidying
+		; 2026-11-24a ([Look] KitQuickExit): the last session's kit still being put away (its EndCustomise would end this one's too)
+		Debug.Notification("The field kit is still being packed away.")
+		Log("Customise refused: the last field kit still being put away (KitQuickExit).")
 		return
 	endif
 	; Claimed before calling anything: every call below lets another thread run.
@@ -7611,14 +8388,25 @@ Function EndCustomise(string asWhy, bool abApply = true)
 	CancelTimer(TimerKit)
 	UnregisterForMenuOpenCloseEvent(LookMenuName)
 	float lasted = Utility.GetCurrentRealTime() - lookSince
+	; 2026-11-24a ([Look] KitQuickExit, CMB_LookOptions 8388608; test 60: 12 presses refused as "customising" for 4-8 s after the
+	; menu's close, while KitTidy's latent fades put the kit and its box away): getting on and the parked bike's activation let through
+	; before the kit is put away; a new Customise waits for it (kitTidying, BeginCustomise). The look's ApplyLook after it as before
+	; (a getting on meanwhile: its own LookSync puts the look on, ApplyLook's parked compose waits for the enable). Off: 2026-11-23b's.
+	bool quickExit = LookOption(8388608)
 	TakeLookItem()
 	if kitBagLinked
 		kitBagLinked = false
 		int after = SideBagRef.GetItemCount()
 		Log("Customise: components from the bag: " + (bagBefore - after) + " (" + bagBefore + " -> " + after + " items)")
 	endif
+	if quickExit
+		kitTidying = true
+		customising = false
+		Log("Customise: " + asWhy + " after " + Tenths(lasted) + " s: getting on let through now, the kit put away after it (KitQuickExit)")
+	endif
 	KitTidy()
 	customising = false
+	kitTidying = false
 	kitGateWs = None
 	lookEnding = false
 	if lookMenuSeen && lookEvents == 0
@@ -8506,17 +9294,65 @@ Function BringBikeAfterSwim()
 	float dx = PlayerRef.GetPositionX() - swimExitX
 	float dy = PlayerRef.GetPositionY() - swimExitY
 	float away = Math.Sqrt(dx * dx + dy * dy)
-	if away > 50.0
-		BikeRef.MoveTo(PlayerRef, dx / away * ShoreBikeDistance, dy / away * ShoreBikeDistance, 0.0, false)
-		BikeRef.SetAngle(0.0, 0.0, PlayerRef.GetAngleZ() + ParkedModelYaw)
-	else
-		PlaceBike(CallAheadDistance, 60.0)
+	; 2026-11-24a (the plugin's [Room] SwimSpot, CMB_RoomOptions 524288; test 60's swim: put past the player into a body's place and
+	; held 16 s): the spots a call asks (PickBikeSpot's room asks: its box, a clear line, its ground, an actor in its place no room),
+	; along the way out of the water (the player's heading near where they came out), the first with room, or the most room as a call
+	; takes it; past the player as before only when no spot was checked or a call would be refused.
+	bool swimSpot = RoomOption(524288) && CMB_RoomAskKind
+	bool placed = false
+	if swimSpot
+		float along = PlayerRef.GetAngleZ()
+		if away > 50.0
+			along = HeadingOf(dx, dy)
+		endif
+		int spot = PickBikeSpot(false, false, along)
+		if spot >= 0 && spotKnown
+			PlaceOnSpot(spot)
+			placed = true
+			Log("Bike brought back after a swim to spot " + (spot + 1) + " (" + SpotText(spot) + ") along heading " + Whole(along) + ", the way out of the water (the plugin's [Room] SwimSpot).")
+		else
+			Log("Bike brought back after a swim: no spot a call would take (along heading " + Whole(along) + "): past the player as before (the plugin's [Room] SwimSpot).")
+		endif
 	endif
-	EnableParked(true, 3, 0.0, true)   ; ShoreBikeDistance or CallAheadDistance from the player (not counted)
+	if !placed
+		if away > 50.0
+			BikeRef.MoveTo(PlayerRef, dx / away * ShoreBikeDistance, dy / away * ShoreBikeDistance, 0.0, false)
+			BikeRef.SetAngle(0.0, 0.0, PlayerRef.GetAngleZ() + ParkedModelYaw)
+		else
+			PlaceBike(CallAheadDistance, 60.0)
+		endif
+		EnableParked(true, 3, 0.0, true)   ; ShoreBikeDistance or CallAheadDistance from the player (not counted)
+	endif
 	ForgetDoor()
+	bool waits = swimSpot && parkHeld
+	if waits
+		swimRollsUpWaits = true   ; set while busy (the fit unit's review): ParkGuardTick waits on it, so its show can't come first
+		swimRollsUpWhat = "Bike brought back after a swim"
+	endif
 	busy = false
 	Log("Bike brought back after a swim (" + away + " units from the deep water, in water: " + inWater + ").")
-	Debug.Notification("Your motorbike rolls up.")
+	if waits
+		Log("Bike brought back after a swim, kept hidden by the guard: \"Your motorbike rolls up.\" when it is shown (the plugin's [Room] SwimSpot).")
+	else
+		Debug.Notification("Your motorbike rolls up.")
+	endif
+EndFunction
+
+; 2026-11-24a (the plugin's [Room] SwimSpot): the heading of the way (afX, afY) in GetAngleZ's degrees (0 along +y, 90 along +x).
+float Function HeadingOf(float afX, float afY)
+	if Math.Abs(afY) < 0.001
+		if afX < 0.0
+			return 270.0
+		endif
+		return 90.0
+	endif
+	float a = Math.Atan(afX / afY)
+	if afY < 0.0
+		a += 180.0
+	elseif a < 0.0
+		a += 360.0
+	endif
+	return a
 EndFunction
 
 ; Hit events are one-shot: OnHit registers again for the next one. 2026-11-01a: also with
@@ -8991,8 +9827,10 @@ EndEvent
 
 ; 2026-11-10a (test 52, QuickUse): CMB_HotkeyF4SE's word on a potion's quickkey the plugin took from the game at speed
 ; (aiValue: CMB_RiderQuickUse = count * 16 + aiSlot, aiSlot 1-12 as F4SE's GetFavorites lists them), told before it equips
-; the item. aiCount: the stack as it stood; over 0: the script equips it now (the Pip-Boy's path: applied at once, no engine
-; clip), marked for OnItemEquipped; else nothing used, said why. Only CMB_HotkeyF4SE calls it.
+; the item. aiCount: the stack as it stood; over 0: the script equips it now, marked for OnItemEquipped; else nothing used,
+; said why. Only CMB_HotkeyF4SE calls it. 2026-11-24a (test 60): that equip is not applied at once (the Pip-Boy's path, as
+; 2026-11-10a took it): outside a menu it is the game's own animated use, the item applied (OnItemEquipped here) at the
+; clip's own event about 1 s in; the lines say the stack's count, and CMB_HotkeyF4SE says the stack and the health 2 s on.
 Form quickItem = None
 float quickAt = -100.0
 
@@ -9008,9 +9846,9 @@ Function QuickUsed(Form akItem, int aiSlot, int aiValue, int aiCount)
 		quickItem = akItem
 		quickAt = Utility.GetCurrentRealTime()
 		if aiValue < 0
-			Log("Used " + akItem + " by its hotkey at speed: its use clip was cut before the game used it: equipped by the script (QuickCut, slot " + aiSlot + ").")
+			Log("Used " + akItem + " by its hotkey at speed: its use clip was cut before the game used it: equipped by the script (QuickCut, slot " + aiSlot + ", " + aiCount + " in the stack).")
 		else
-			Log("Used " + akItem + " by its hotkey at speed: equipped by the script (QuickUse, slot " + aiSlot + ").")
+			Log("Used " + akItem + " by its hotkey at speed: equipped by the script (QuickUse, slot " + aiSlot + ", " + aiCount + " in the stack).")
 		endif
 	elseif akItem as Potion && aiCount == -2
 		Log("Not used: " + akItem + " by its hotkey at speed: the ride ended before the script could equip it, after its use clip was cut (QuickCut, slot " + aiSlot + ", CMB_RiderQuickUse " + aiValue + ").")
@@ -9996,8 +10834,10 @@ float apWatchFrom = 0.0
 string apWatchLast = ""   ; past APWatchTime, the last poll's line while AP was under its max
 int apWatchSame = 0       ; polls since a line was logged, past APWatchTime
 
+; 2026-11-24a (test 60: about 300 of the session's 1650 [CMB] lines): off with the plugin's [Diag] APWatch=0, its default now
+; (CMB_RoomOptions 4194304 set); with APWatch=1, an older plugin or none: on, as 2026-11-23b.
 bool Function APWatchReady()
-	return APWatchTime > 0.0 && ActionPoints && ActionPointsRate && ActionPointsRateMult
+	return APWatchTime > 0.0 && ActionPoints && ActionPointsRate && ActionPointsRateMult && !RoomOption(4194304)
 EndFunction
 
 string Function SignedTenths(float afValue)
@@ -10007,8 +10847,14 @@ string Function SignedTenths(float afValue)
 	return Tenths(afValue)
 EndFunction
 
+; 2026-11-24a (test 60: "AP: 72.0 of 70.0 (103% of its max)", AP full at 72): the number after "of" was the base, and the game's share
+; (GetValuePercentage) is of the base and the permanent modifiers, a temporary one past it; AP's max is the base plus every modifier,
+; which Papyrus can't read (the plugin's [Diag] APWatch line gives the modifiers). So the line names what it reads, and the poll's
+; "under" and "back" are the share's (with test 60's temporary +2, 70 of 72 read 100%). The max itself is printed by neither line (the
+; scope's "maths" item not done: the plugin would need a new call into the game for the base). Its review's finding 3: "a temporary one
+; over them" only with the share over 100.5% (a temporary modifier is what takes it over 100%), not on every line.
 string Function APText(float afShare)
-	return "AP: " + SignedTenths(PlayerRef.GetValue(ActionPoints)) + " of " + SignedTenths(PlayerRef.GetBaseValue(ActionPoints)) + " (" + Whole(afShare * 100.0) + "% of its max), rate " + SignedTenths(PlayerRef.GetValue(ActionPointsRate)) + " (base " + SignedTenths(PlayerRef.GetBaseValue(ActionPointsRate)) + "), mult " + SignedTenths(PlayerRef.GetValue(ActionPointsRateMult)) + " (base " + SignedTenths(PlayerRef.GetBaseValue(ActionPointsRateMult)) + "), sprinting " + Ternary(PlayerRef.IsSprinting(), "yes", "no")
+	return "AP: " + SignedTenths(PlayerRef.GetValue(ActionPoints)) + ", the base " + SignedTenths(PlayerRef.GetBaseValue(ActionPoints)) + " (the game's share " + Whole(afShare * 100.0) + "%: of the base and its permanent modifiers" + Ternary(afShare > 1.005, ", a temporary one over them", "") + "), rate " + SignedTenths(PlayerRef.GetValue(ActionPointsRate)) + " (base " + SignedTenths(PlayerRef.GetBaseValue(ActionPointsRate)) + "), mult " + SignedTenths(PlayerRef.GetValue(ActionPointsRateMult)) + " (base " + SignedTenths(PlayerRef.GetBaseValue(ActionPointsRateMult)) + "), sprinting " + Ternary(PlayerRef.IsSprinting(), "yes", "no")
 EndFunction
 
 ; Getting on (the end of Mount): the line once; the poll stops (off the bike only).
@@ -10044,14 +10890,14 @@ Function APWatchPoll()
 	elseif share < 0.995
 		string text = APText(share)
 		if text != apWatchLast || apWatchSame >= APWatchQuiet - 1
-			Log(text + "; " + Whole(since) + " s after getting off, under its max.")
+			Log(text + "; " + Whole(since) + " s after getting off, the share under 100%.")   ; 2026-11-24a: not "its max" (see APText)
 			apWatchSame = 0
 		else
 			apWatchSame += 1
 		endif
 		apWatchLast = text
 	elseif apWatchLast != ""
-		Log(APText(share) + "; " + Whole(since) + " s after getting off, back at its max.")
+		Log(APText(share) + "; " + Whole(since) + " s after getting off, the share back at 100% or over.")
 		apWatchLast = ""
 		apWatchSame = 0
 	endif

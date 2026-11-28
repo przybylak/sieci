@@ -17,6 +17,97 @@ The log goes to `Documents\My Games\Fallout4\Logs\Script\Papyrus.0.log`. Every m
 
 Without F4SE you'll see one or two harmless errors about the `F4SE` / `CMB_HotkeyF4SE` scripts not being found. That's the mod checking whether they're there. When something breaks, send the log, plus a screenshot or a short clip if it's visual.
 
+## Test 61: the 2026-11-24a build (test 60's fixes and your wishes)
+
+Install over 2026-11-23b (the package README says how). Have the 10mm and a stimpak on the favourites' number keys. For
+61-1 and 61-5 a video is the best measure. Send `CMB_Slope.log`, `Papyrus.0.log` and your `CMB_Slope.ini` if you changed
+it, and say which session each step was in. The new keys and their off values are in README.md's 2026-11-24a table; any
+step that misbehaves can be put back to 2026-11-23b by its key.
+
+At the start and at each getting on the log names this build's settings: `room (2026-11-24a, test 60): ParkStop=0.3 ...`,
+`room (2026-11-24a, test 60's fit): ParkFootFix=1 ...`, `item use (2026-11-24a, test 60): [Steer] UseItemFirst=1 ...`,
+`grip (2026-11-24a, test 60): ...`, `view (2026-11-24a, test 60): [View] LookAim=1 ...`, `look (2026-11-24a, test 60):
+KitQuickExit=1 ...`. A missing one means an older DLL or INI is loaded.
+
+### Getting off and where the bike parks: steps 1-4
+
+1. **A fast getting off** (test 60's 1B: the bike 400-550 behind). At full speed on open ground get off five times; once
+   keep W held through the black. Expected: the bike beside you every time, and you stay put with W held. Lines:
+   `room: ask N (ParkStop): the rider held still from here, at N a second (the input's handlers silent N ms: under the
+   fade) ...`, then `room: ask N (ParkStop): stopped N s after the ask, N on from where it was asked (...): answered where
+   they are now`; at the ride's end `park: getting off held (ParkStop): the rider N from where the answer was given ...`;
+   with W held `park: the move keys held through the getting off let go ... (ParkHold)` or `park: ParkHold's 0.60 s over`.
+2. **The parked bike solid** (test 60's 1A: twice walked through). Walk into the bike after each getting off before
+   pressing E, then get off and on five times in a row. Lines: `room: ask N ... (the parked bike's own place: ParkSolid):
+   its own 3D met by N of N rays ...: solid there` or `... no collision at its place (...)`, and if repaired the
+   controller's ParkSolid lines (try 1, try 2). The plugin also logs the parked bike's 3D root at each enable and disable
+   (`park: the parked bike enabled/disabled N s after ...`): send them whatever happens.
+3. **A getting off with no black**: run the tank dry, get knocked off, or draw a weapon at speed. Expected: as before, the
+   stop on screen about 0.7 s sooner. Line: `... the input's handlers running: no fade, the stop on screen`.
+4. **Where it parks**: by wrecked cars or rubble, on Sanctuary's slabs, with a wall behind you; then a swim. Lines: `...
+   the stand's foot raised N onto the ground 3 ahead of its point (its pad: ParkFootFix)`; Papyrus `The park spot (the
+   track just ridden), its fit: no ... ([Room] ParkFallbackSearch).` then `Bike's spot N ...` per spot tried; the guard's
+   `... unmoving there N s, N asks ...: the bike moved on (GuardStuckMove 2)`; after the swim `Bike brought back after a
+   swim to spot N (...) along heading H, the way out of the water (the plugin's [Room] SwimSpot).`
+
+### Stimpaks: steps 5-6
+
+5. **Third person at speed**: press the stimpak's key three times about half a second apart. Expected: each press heals
+   (the HP bar), you stay seated with your hands on the grips and no syringe shows; the bike slows for about a second
+   while each clip plays. Lines: `quick: the hand-over CMB_RiderQuickUse N (... third person): its clip's props N s after
+   the write, its item N s after them ...: the clip cut then (UseItemFirst)`, `rider: the seat pose held N s through an
+   item's use clip ...`, `rider: an item's use clip held at speed: N u/s at the hand-over, N at its lowest, N at the cut,
+   N 1 s after the cut (UseSeatHold)`, presses close together `quick: key 0x.. ...: held N s for the last hand-over's item:
+   its item came (UseItemFirst)`; Papyrus 2 s after each `[CMB] Hotkey use 2 s on: [Stimpak]: N in the stack now, N at the
+   equip; health N% now, N% at the equip`.
+6. **First person**: by its key, from the Pip-Boy and from the Favourites menu. Expected: the arms hidden while it plays,
+   back after, each one healing. Line: `body: an item's use in first person (...): the game's first-person 3D hidden N s
+   (...) (BodyArmsUse)`; once a ride `body: the first-person 3D in third person (once a ride): ...`. Three `quick:
+   QuickApplyProbe (log only, NOTHING called): ...` lines once a session: send them.
+
+### A pistol in first person: steps 7-8
+
+7. **The left hand** (test 60's 1C: a second left hand on the pistol): draw the 10mm in first person; take a hit while it
+   is out; put it away. Lines: `body: first person, a handgun out (BodyGunGrip): ... N bone(s) in M skinned shape(s) (...),
+   K of them without a node (BodyGunGripNodeless: ...); each frame sent to one point at the left shoulder ...`, the
+   `body: GunGripBones: ...` lines, and after a hit `body: '...' found on the copy held for the first-person shape '...'
+   (cloned from it: a decal) ...`.
+8. **The look with the pistol out**: hold the look key, look 45-60 degrees to one side and shoot at something. Expected:
+   the shots go to the crosshair and the bike keeps its line. Lines: `view: the look key (...) held at N u/s: the mouse
+   turns the head and your aim with it (LookAim), the bike keeps its line`; per shot `view: a shot in the look (...): the
+   look N deg off the bike's line, your aim N of it in the heading (LookAim) ...; along your eye (...): <what> ...; along
+   the camera's look (...): <what> ... (LookShots)`: both rays should name the same thing. A problem shows as `view:
+   LookAim: with your aim ... the bike moved up to ... toward it ...: off this session`.
+
+### The third-person look with a weapon (optional): step 9
+
+9. Not yet reviewed, so it ships off. In `CMB_Slope.ini` set `[View] LookOrbitArmed=2` and `LookOrbitLearn=1`, then in
+   third person with a weapon drawn hold the look key and move the mouse; try it near a wall. Expected: the camera turns
+   round you up to 60 degrees and eases back behind when you let go, and stays off walls. Set both back to 0 afterwards,
+   or at once if anything misbehaves. Lines: `camera: ThirdPersonState (vtable ...): GetRotation ... and GetTranslation
+   ... wrapped`, `camera: third person: the camera root's rotation is GetRotation's answer's matrix ...` (or `... not seen
+   taken in 5.0 s`), per hold `view: the look key (...) held in third person ... with a weapon drawn: the camera turned
+   round you ...`, and `view: the hold's account (OrbitWhy): ...`.
+
+### The smaller fixes: steps 10-12
+
+10. **The field kit**: close its menu and press E on the bike at once (test 60: refused for 4-8 s). Papyrus: `Customise:
+    its menu closed after N s: getting on let through now, the kit put away after it (KitQuickExit)`. With a customised
+    look, getting on (test 60: about 5.5 s): `Getting on: the press 0.00, ...; the equip's parts: LookSync a,
+    WornIndexRestore b, AttachLook c, WornColoursWrite d|after the screen (EquipLate), ...`.
+11. **Landing**: jump off something: one landing sound (test 60 played one twice).
+12. **The log**: its size after the session (test 60's `CMB_Slope.log` was about 14.6 MB, 40% of it `view: drawn?`
+    lines); now one set of those lines per near-camera showing, and no `nan` in `view: lock:` lines.
+
+### Questions for you (test 61)
+
+- Q61-1. Did the bike ever appear behind you, or did you walk through it, at any getting off?
+- Q61-2. Did every stimpak press heal? How did the seated pose look through the clip?
+- Q61-3. With the look in first person and the pistol out, did the shots go where you aimed?
+- Q61-4. If you tried step 9: did the camera turn round you, and did anything look wrong?
+
+Known: with a weapon drawn and the look held in first person, followers catching up may line up by your aim, not the bike.
+
 ## Test 60: the 2026-11-23b build (test 59's fixes and your wishes; 2026-11-23a with its second review's fixes)
 
 The 2026-11-23a build answers test 59 (run on 2026-11-22a): its fixes and your wishes after it, in one build; the

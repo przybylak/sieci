@@ -19,8 +19,8 @@ A rideable motorbike for Fallout 4:
 - **its own sounds** (since the 2026-11-01a build; the game's own sound files, since the 2026-11-02a build under sound records of the mod's own, heard at the riding camera's distance: test 48 heard none of them): your character's own jump and landing sounds are muted while you ride; a tyre thump on every landing with a real fall, louder the higher the drop, a metal clunk on big ones and a splash into water; with F4SE a spray riding through shallow water, by speed and depth (the MCM's Sound section: "Bike sounds through the mod's own records", "Landing loudness range (dB)"); since the 2026-11-06a build landings sound like tyres and a dull thud, no metal, riding into water splashes, and riding through water is the mod's own wet-road swish, quieter when slow, louder at speed (MCM "Landing sounds without metal", "Water sound loop"); since the 2026-11-09a build a second, gentler wet-road loop from the same recording, with less hiss and more body, is the default ("Wet road, gentle"; "Wet road (the mod's own)" is the earlier one), since the 2026-11-10a build 3 dB louder (test 52's wish; `[Fx] WaterGentleDb=-3` is 2026-11-09a's level)
 - **MCM menu** for every setting (with MCM installed); with F4SE, gear in the bike's slot goes back on after a ride
 
-> **Status: in testing.** It has been tested in game round by round since the first build (test 59 the latest; this
-> is the 2026-11-23b build, for test 60), each round answered from the logs and videos sent back. Every round's
+> **Status: in testing.** It has been tested in game round by round since the first build (test 60 the latest; this
+> is the 2026-11-24a build, for test 61), each round answered from the logs and videos sent back. Every round's
 > changes are checked offline before they ship: the plugin's structure, every script property and the vanilla form
 > IDs, the scripts compiled against stand-in versions of the Fallout 4 scripting API, and `CMB_Slope.dll` run
 > against a fake game (`tools/f4se-slope/test`). What changed since the last round hasn't run in the game until the
@@ -552,6 +552,40 @@ alphabetical. The third-person orbit, the kit's wheel, the parked bike's stand a
 weapon, the holster, items in third person and the take-off have no MCM control (`CMB_Slope.ini`).
 
 ## CMB_Slope.ini (F4SE plugin): this build's new keys
+
+**The 2026-11-24a build** answers test 60 (run on 2026-11-23b) with its fixes and your wishes after it. `CMB_Slope.dll`,
+`CMB_Slope.ini`, the controller and `CMB_HotkeyF4SE` change; the ESP, the MCM and the art are 2026-11-23b's. Every new
+behaviour has a key whose off value gives 2026-11-23b back (the harness's `DEF65` pins them for the older checks):
+
+| Key | Shipped | Off (2026-11-23b) | What it does |
+|---|---|---|---|
+| `[Room] ParkStop` | 0.3 | 0 | a getting off holds you still from its ask and parks the bike where you stopped (test 60: 400-550 behind) |
+| `[Room] ParkHold` | 0.6 | 0 | the move keys held through the black don't walk you on, for this long at most |
+| `[Room] ParkSolid` | 1 | 0 | the parked bike placed again after its enable, its collision checked at once and 2 s on, put back at most twice |
+| `[Room] ParkFresh` | 0 | 0 | A/B: a same-cell quick cycle's bike through the holding marker first |
+| `[Room] ParkLeanClear` | 1 | 0 | the room beside you counts the bike's lean |
+| `[Room] ParkFootFix` | 1 | 0 | the side stand's foot measured on the ground under it |
+| `[Room] ParkFallbackSearch` | 1 | 0 | nearby spots tried in turn when the ridden track has no room |
+| `[Room] GuardStuckMove` | 2 | 0 | someone unmoving in the bike's place this many seconds: the bike goes elsewhere at once |
+| `[Room] SwimSpot` | 1 | 0 | after a swim the bike comes back along your way out of the water |
+| `[Steer] UseItemFirst` | 1 | 0 | a use clip never cut before its item comes (test 60: 11 presses, 1 heal); presses wait their turn |
+| `[Tilt] UseSeatHold` | 1 | 0 | through a third-person use clip you stay seated, hands on the grips, its props hidden |
+| `[View] BodyArmsUse` | 1 | 0 | first person: the arms hidden while a use clip plays (`BodyArmsUseTail` 1.3 s after its item, 4 s at most) |
+| `[View] LookAim` | 1 | 0 | first person with a weapon drawn: the look turns your aim with it, the bike keeps its line |
+| `[View] AimSit` | 0 | 0 | A/B probe for the aim through the sit heading; off |
+| `[View] BodyGunGripNodeless`, `BodyGunGripSpeck` | 1, shoulder | 0, joint | the first-person left arm's node-less bones found by their binds and shrunk to one point at the shoulder |
+| `[View] NearThirdOff` | 70 | 0 | the near-camera stand-in ends only past this, no flicker at `NearThird` |
+| `[View] LookOrbitArmed`, `LookOrbitLearn` | **0**, **0** | 0, 0 | the third-person look with a weapon drawn turning the camera round you; new and not yet reviewed, so off: 2 and 1 to try it (test 61's step 9) |
+| `[View] LookOrbitClear`, `LookOrbitAbs` | 1, 1 | 0, 0 | with `LookOrbitArmed=2`: the camera kept off walls; the turn added to the game's own answer |
+| `[Look] KitQuickExit` | 1 | 0 | getting on let through as the field kit's menu closes (test 60: refused 4-8 s) |
+| `[Look] EquipLate` | 1 | 0 | the worn bike's colours written after the screen is back |
+| `[Look] KitGuard` | 1 | 0 | the frame task's work on the kit's bike kept apart from the menu's own update; `KitLate`'s default is now 0 |
+| `[Sound] LandOnce` | 1 | 0 | a flight's landing sound once |
+| `[Diag] LookShots`, `QuickApplyProbe`, `GunGripBones`, `NearDrawEvery`, `OrbitWhy` | 1 | 0 | log lines: where shots go, the engine's item routes (log only), the grip's bones, the stand-in's lines once a showing, the orbit's account |
+| `[Diag] UseMoveEvent`, `OrbitEachRide` | 0 | 0 | A/B and probe switches, off |
+| `[Diag] APWatch` | **0** | 1 | the AP watch off by default; its line no longer calls the base value its max |
+
+Known: with a weapon drawn and the look held in first person, followers catching up may line up by your aim, not the bike.
 
 **The 2026-11-23b build** is 2026-11-23a plus the second review's four fixes: install this one, not 2026-11-23a (test 60
 runs on it). No key is new and nothing of the art, the ESP, the MCM or `CMB_Slope.ini` changes; `CMB_Slope.dll` and two

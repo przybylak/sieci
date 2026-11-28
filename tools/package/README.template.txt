@@ -1,4 +1,4 @@
-COMMONWEALTH MOTORBIKE - READY-TO-INSTALL FILES (2026-11-23b, repository commit @COMMIT@)
+COMMONWEALTH MOTORBIKE - READY-TO-INSTALL FILES (2026-11-24a, repository commit @COMMIT@)
 
 The Data folder is the whole mod except the rider-pose plugin, which has to be built from
 your own load order:
@@ -20,7 +20,8 @@ your own load order:
                                       CMB_LookF4SE (the look's swap reused, no wait for it) and
                                       CMB_BikeActivatorScript (it stands the leaning bike up itself
                                       as you get on); against 2026-11-23a two, the controller and
-                                      CMB_LookF4SE (the second review's fixes)
+                                      CMB_LookF4SE (the second review's fixes); against 2026-11-23b two,
+                                      the controller and CMB_HotkeyF4SE (this build's)
   Data\Scripts\Source\User\*.psc      their sources
   Data\MCM\                           Mod Configuration Menu page and hotkeys, 2026-11-22a's,
                                       unchanged (since 2026-11-22a Look has "Paint condition" after
@@ -88,7 +89,69 @@ your own load order:
 No optional folder, as 2026-11-14a. If the 2026-11-06a package's "Commonwealth Motorbike - 2026-11-02a look
 (A-B)" is still in MO2, keep it unticked (or remove it): it has the old badge and none of the new shapes.
 
-WHAT'S NEW IN 2026-11-23b
+WHAT'S NEW IN 2026-11-24a
+  Test 60's fixes and your wishes after it, in one build, on top of 2026-11-23b. Changed since
+  2026-11-23b, which you have: CMB_Slope.dll, CMB_Slope.ini and two scripts (the controller and
+  CMB_HotkeyF4SE); the ESP, the MCM and all the art are 2026-11-23b's. Every new behaviour has a key
+  in CMB_Slope.ini whose off value gives 2026-11-23b's back (each key's comment says which).
+
+  GETTING OFF
+  - A fast getting off no longer leaves the bike 400-550 behind you: from the moment you ask to get
+    off you are held still under the black, and the bike is placed beside where you stopped ([Room]
+    ParkStop=0.3; 0 = off). W held through the black no longer walks you on ([Room] ParkHold=0.6).
+    A getting off with no black (out of fuel, knocked off, a weapon drawn) stops on screen about
+    0.7 s sooner.
+  - The parked bike stays solid: it is placed again after it appears (the two bikes you walked
+    through in test 60 were the only ones not placed after appearing), checked at its place right
+    away and again 2 s later, and put back at most twice if its collision is missing ([Room]
+    ParkSolid=1). The room beside you now counts the bike's lean ([Room] ParkLeanClear=1).
+  - Where it parks: the side stand's foot is measured on the ground under it, not in a crack
+    ([Room] ParkFootFix=1); when the track you rode has no room, nearby spots are tried in turn
+    ([Room] ParkFallbackSearch=1); someone standing still in the bike's place for 2 s sends the
+    bike to a spot beside or behind you at once, not after 15 s ([Room] GuardStuckMove=2); after a
+    swim the bike comes back along your way out of the water, and "Your motorbike rolls up." shows
+    only when it is shown ([Room] SwimSpot=1).
+  - The first getting on after a load runs this build's way (2026-11-23b ran the previous build's
+    until your first getting off).
+
+  STIMPAKS WHILE RIDING
+  - Third person: a use clip is never cut before its item comes, so every press heals ([Steer]
+    UseItemFirst=1; test 60 had 11 presses and 1 heal). Presses close together wait their turn.
+  - Third person: through the clip you stay posed seated, hands on the grips, the clip's props
+    hidden ([Tilt] UseSeatHold=1). At speed the bike slows for about a second while the clip plays:
+    the game's use animation drives the movement.
+  - First person: your arms are hidden while the clip plays, and given back when it is over (4 s at
+    most), or at once on a draw, a shot, the Pip-Boy, a camera change or getting off ([View]
+    BodyArmsUse=1).
+  - The log says, 2 s after each key use, how many are left and your health.
+
+  WEAPONS AND THE LOOK
+  - First person: the look with a weapon drawn turns your aim with it, so shots go where the
+    crosshair is, not along the bike; the bike keeps its line ([View] LookAim=1).
+  - First person: no second left hand on the pistol: the left arm's bones the game gives no name of
+    their own are found by their shape and shrunk away with the rest ([View] BodyGunGripNodeless=1,
+    BodyGunGripSpeck=shoulder; 0 and joint together give 2026-11-23b's).
+  - Third person: the look with a weapon drawn turning the camera round you is new and not yet
+    reviewed, so it ships off. To try it set [View] LookOrbitArmed=2 and LookOrbitLearn=1 (step
+    61-9), and set both back to 0 if it misbehaves.
+
+  SMALLER FIXES
+  - Getting on right after the field kit's menu closes works at once; it was refused for 4-8 s
+    ([Look] KitQuickExit=1).
+  - Getting on with a customised look is quicker: the worn bike's colours are written after the
+    screen is back ([Look] EquipLate=1).
+  - A landing's sound plays once ([Sound] LandOnce=1).
+  - The log: the near-camera stand-in's lines (40% of test 60's log) come once per showing, and it
+    no longer flickers on and off at 60 ([View] NearThirdOff=70, [Diag] NearDrawEvery=1); no "nan"
+    in the camera's lines; the water readings at a ride's start fixed; the gun state's names
+    corrected; the field kit's bike kept apart from the menu's own update ([Look] KitGuard=1, and
+    KitLate's default is now 0); the AP watch off by default, its line no longer calling the
+    base value its max ([Diag] APWatch=0).
+
+  KNOWN: with a weapon drawn and the look held in first person, followers catching up with you may
+  line up by your aim rather than the bike.
+
+WHAT WAS NEW IN 2026-11-23b
   2026-11-23a plus a second review's four fixes: install this one, not 2026-11-23a (test 60 runs on
   it). 2026-11-23a is test 59's fixes and your wishes after it, in one build, on top of 2026-11-22a;
   what test 59 liked is as it was. Changed since 2026-11-22a, which you have: CMB_Slope.dll,
@@ -332,141 +395,55 @@ BORROWED BY PATH (the game's own files, resolved in its archives; none is in thi
 INSTALL / UPDATE (Mod Organizer 2)
   1. Get off the bike, save, quit. If you edited CMB_Slope.ini, keep a copy of it.
   2. Install this zip's Data under the old mod's name and choose Replace (not Merge), or remove the
-     old mod in MO2 and install this one fresh (over 2026-11-22a; skip 2026-11-23a). By hand without
+     old mod in MO2 and install this one fresh (over 2026-11-23b). By hand without
      MO2: copy Data over and let everything overwrite. The separate "Commonwealth Motorbike - Rider
      Pose" mod from make_rider_pose.bat stays as it is: no need to rerun it.
   3. If you had edited CMB_Slope.ini: put your values into the new one: [Look], [View], [Steer],
-     [Tilt], [Room] and [Diag] have new keys, and three defaults change ([Look] OverlayParked 1,
-     [Steer] LaunchFrom 0.25, [Sound] HeardRiseGears 2.1,1.35,1,1,1; README.md's key tables list
-     them).
+     [Tilt], [Room], [Sound] and [Diag] have new keys, and two defaults change ([Look] KitLate 0,
+     [Diag] APWatch 0; README.md's key tables list them).
   4. Load your save: the ESP and the MCM are 2026-11-22a's, so nothing is put on afresh. Have the
-     10mm, the .44 and the flare gun and a stimpak on the favourites' number keys, and your holster
-     mod on as in test 59. For the blacks of 60-1 and 60-6 a video is the best measure. The plugin
-     keeps the logs of the three sessions before; say which session each step was in. Then WHAT TO
-     TEST below.
+     10mm and a stimpak on the favourites' number keys, as in test 60. For 61-1 and 61-5 a video is
+     the best measure. The plugin keeps the logs of the three sessions before; say which session
+     each step was in. Then WHAT TO TEST below.
   Updating mid-ride: get off first, save, then update.
 
-WHAT TO TEST, TEST 60 (docs\TESTING.md, "Test 60", has the details and the log lines; the numbers
-are its steps: 1-7 getting off and on, 8-9 the take-off and the gears, 10-14 the art and the Wear on
-every bike, 15 the field kit, 16-19 a pistol out, 20-21 the third-person look, 22-23 the holster on
-your thigh, 24-25 a stimpak in third person, 26 the frame rate)
-  60-1. Ride a short way on a road in third person and get off: the bike right beside you on your
-        right, its stand side towards you, in view (not behind the camera)? Five times or more. Time
-        the black on the video (test 59: 1.9-2.0 s; about 1.3 s expected). Once while still rolling:
-        the bike still right beside where you got off?
-  60-2. Get off riding up a slope, down one, and across one both ways: still beside you, both tyres
-        on the ground?
-  60-3. Get off with a wall close on your right: the bike on your left? A ledge or a drop on your
-        right: your left too? Then in a narrow gap with no room either side: back along the track as
-        before?
-  60-4. Get off with a wrecked car close on your right, at a curb, with a step under a wheel: both
-        tyres on the ground or the curb's edge, never on the car or sunk in? Kneel and look.
-  60-5. The lean: about 9 degrees on its stand on flat ground; across a slope with the stand uphill
-        still leaning onto it a little, with it downhill no more than 20 degrees; after a swim and a
-        call the same? Does 5 or 20 look right?
-  60-6. Get on next to the leaning bike several times, some right after the field kit: no reload
-        blink at the press any more: with the look's swap on it (most times now) the bike vanishes
-        as you press E, just before the screen goes black, otherwise as the screen goes dark; no
-        jump? Does the vanishing look wrong? Time the black (test 59: 2.8-3.3 s for a quick one;
-        test 58: 2.5-3.1). Send the "Getting on: the press ..." lines.
-  60-7. A/Bs: [Room] ParkBeside=0 (test 59's spot), ParkLean= (empty), ParkTyres=0, MountHide=0
-        (test 59's reload: a blink, then the fade); a few get-offs and get-ons each, then back.
-  60-8. From a stop with W held to the top, about ten times, half after standing a while, half right
-        after stopping, in first and third person: brisk now, no jump? Send the "launch: from rest:
-        ..." lines (about 1.5 s to 0.3 of the top, 2.65 to half).
-  60-9. In the same pulls: the gears still at about 12, 24, 36 and 46 on the dial, each revving out
-        before it changes? A coast from the top and a hard brake as before? A/B, by hand (no key of
-        its own): [Steer] LaunchFrom=0.14 and [Sound] HeardRiseGears=2,0.86,0.8,1,1 together (test
-        59's take-off), then back.
-  For 60-10 to 60-14: at the field kit choose each, look at it in the kit, then at the parked bike
-  close up after its blink, then riding, side and behind, day and night. A screenshot of each, close
-  and riding.
-  60-10. Wear "Rusty" with the Brotherhood badge and the 3D helmet: no rust frame round a plate, no
-         drips off its edge; scattered brown stains you see the paint through, darker at their
-         edges; lighter than test 59, the mufflers brown? Too faint now?
-  60-11. Wear "Raider": the same lighter rust under the blood? Weathered, Dusty, Muddy, Bloody,
-         Wasteland at the badges: no frame round any plate?
-  60-12. Tank L and R "Brotherhood helmet (3D)": three gears either side of the helmet, a big one
-         low toward the plate's end, a smaller above it, a smaller beside the helmet, none behind,
-         none cut by the plate's edge? Bigger, smaller, placed otherwise? As your layout?
-  60-13. Wear "Wasteland" (or "Rusty") with Paint condition "Chipped": the kit's preview; the parked
-         bike right after its blink when the kit closes; get on at once: on the bike under you in
-         third person from the first moment? Draw and put away a pistol: at most a split second
-         clean? First person; get off: on the parked bike within a second? Five getting-ons.
-  60-14. A/Bs, one at a time: [Look] OverlayQuick=0 (the wear 2-4 s late again), OverlayEvery=0
-         (missing at most getting-ons and after getting off), OverlayParked=0 (none on the parked
-         bike). The art's A/B for 60-10 to 60-12: the 2026-11-22a package's files (above) in an MO2
-         mod of their own, ticked below this one.
-  60-15. Customise, the Motorbike, Fender: E, then up and down the mods one by one, slowly and
-         quickly: the bike keeps the fender view at every option, no frame of the three-quarter pose
-         between? The same on Plate text and Tank L. Send the "kit: hold (2026-11-23a): ..." lines.
-         A/Bs: [Look] KitLate=0, then KitPrePlace=0.
-  60-16. Third person, riding, draw the 10mm (then the .44): the left hand stays on the left grip,
-         the right holds the pistol over the bars, pointing ahead? Upright or on its side? The wrist
-         and elbow right? Screenshots from the side and behind.
-  60-17. Fire a few shots in third person: as before? Put it away: the right hand back on its grip?
-  60-18. First person, draw the pistol: your body, legs and left arm still there, the left hand on
-         the grip, one arm (the right) on the pistol? A second left hand anywhere? Fire, reload, put
-         away.
-  60-19. With the pistol out in first person: the Pip-Boy, a look back, third person and back; then
-         get off with it out and draw and holster on foot: nothing left missing? A/Bs: [Tilt]
-         GunOneHand=0 (test 59's third person), [View] BodyGunGrip=0 (test 59's first person);
-         [Tilt] GunHoldAt if the hold's place is off.
-  60-20. Third person, no weapon, at speed: hold the right button (or Z) and move the mouse: the
-         camera round you, the bike straight on, back behind when you let go? Three or four times:
-         every time? Send the "view: that hold: ..." lines.
-  60-21. The same with the 10mm drawn: round you up to about a quarter turn, back behind when you
-         let go? Put it away and draw again, a few holds each way. A/Bs: [View] LookOrbitGame=0,
-         LookRecover=0.
-  60-22. Riding holstered in third person: put the 10mm, the .44 and the flare gun away in turn,
-         straight and leaning, over bumps: each on your right thigh, staying there? Anything lying
-         along your right forearm, and is it there before any draw? A short video. Send the "an
-         attachment: 'WeaponPistolUp' < 'RLeg_Thigh'" lines.
-  60-23. Draw and put away while riding, and watch your thigh in the half second after the put-away:
-         the holster on it from the first moment? Standing on the bike, slowly and fast, three times
-         each. A/B: [Tilt] AttachSkeleton=0.
-  60-24. Third person, a stimpak by its number key at full speed, slowly, standing on the bike: no
-         clip, both hands on the bars, the health restored?
-  60-25. Third person, a stimpak from the Pip-Boy at full speed, slowly, standing: no clip after it
-         closes, the health restored? Then from the Favourites menu: the clip may play a moment, the
-         health restored every time? Then open and close the Pip-Boy with nothing used and within a
-         second use a stimpak from the Favourites menu, three times: the health restored each time
-         (2026-11-23a lost it)? Then by key, the Pip-Boy and the Favourites menu in first person: as
-         before? A/B: [Steer] UseNoClip=0 (test 59's clip). Send the "UseNoClip" lines.
-  60-26. Frame drops anywhere: riding in a town and in the open, beside the parked bike with Wear
-         Wasteland and Paint condition Worn, at the kit's options, at a getting on, at a draw?
-  Send CMB_Slope.log and its _prev logs and Papyrus.0.log of each session, the screenshots of 60-1
-  to 60-5, 60-10 to 60-13 and 60-16 to 60-18, and a short video of 60-1 and 60-6 (the blacks),
-  60-15, 60-20 and 60-21, 60-22 and 60-23, and 60-24 and 60-25 if you can.
+WHAT TO TEST, TEST 61 (docs\TESTING.md, "Test 61", has the log lines for each step: 1-4 getting off
+and where the bike parks, 5-6 stimpaks, 7-8 a pistol in first person, 9 the third-person look with a
+weapon (optional), 10-12 the smaller fixes)
+  61-1. Getting off fast: at full speed on open ground, get off, five times. Is the bike right
+        beside you after the black every time (test 60: 400-550 behind)? Once, keep W held through
+        the black: do you stay where you are?
+  61-2. The parked bike solid: after each getting off, walk into the bike before pressing E. Do you
+        ever pass through it? Then a quick series: get off, get on, get off, five times in a row.
+  61-3. A getting off with no black: run the tank dry, or get knocked off, or draw a weapon at speed.
+        Does the bike stop and park beside you as before?
+  61-4. Where it parks: get off by wrecked cars or rubble, on Sanctuary's slabs, and with a wall
+        behind you. Is the stand's foot on the ground (not in the air), the bike on a spot with
+        room? Then swim and come out: does the bike come back by your way out, and does "Your
+        motorbike rolls up." show only when you can see it?
+  61-5. A stimpak in third person at speed: press its key three times about half a second apart. Does
+        each press heal (the HP bar)? Do you stay seated with your hands on the grips, no syringe
+        shown? The bike slowing for about a second is expected. A video helps here.
+  61-6. A stimpak in first person: by its key, then from the Pip-Boy, then from the Favourites menu.
+        Are your arms hidden while it plays and back after it, and did each heal?
+  61-7. The 10mm in first person: draw it. Is the second left hand on the pistol gone? Take a hit
+        while it is out, then put it away.
+  61-8. The look with the pistol out in first person: hold the look key, look 45-60 degrees to one
+        side and shoot at something. Do the shots go to the crosshair? Does the bike keep its line?
+  61-9. Optional, the third-person look with a weapon: in CMB_Slope.ini set [View] LookOrbitArmed=2
+        and LookOrbitLearn=1. In third person with a weapon drawn, hold the look key and move the
+        mouse. Does the camera turn round you (up to 60 degrees) and ease back when you let go? Try
+        it near a wall. Set both back to 0 afterwards, or at once if anything misbehaves.
+  61-10. The field kit: close its menu and press E on the bike straight away. Do you get on at once?
+        With a customised look, about how long does getting on take now (test 60: about 5.5 s)?
+  61-11. Jump off something and land: one landing sound, or two?
+  61-12. After the session: how big is CMB_Slope.log (test 60's was 14.6 MB)?
 
 QUESTIONS FOR YOU (docs\TESTING.md has them in full)
-  T60-1. Getting off on flat ground: the bike beside you on your right, in view? The black shorter?
-  T60-2. On slopes, up, down and across: still beside you, the tyres on the ground?
-  T60-3. A wall on your right: your left? No room either side: back along the track?
-  T60-4. By a car, a curb, a step: the tyres on the ground or the edge, never on the car?
-  T60-5. The lean: on its stand on flat ground, uphill a little, downhill no more than 20?  T60-6.
-         Getting on: gone at the press or under the fade, no blink? As quick as test 58's?
-  T60-7. Which parking A/B, if any, was better than the default?
-  T60-8. The take-off brisk enough now (or too quick, or jerky)?
-  T60-9. The gears at about 12, 24, 36 and 46, revving out? The coast and the brake as before?
-  T60-10. Rusty: no frame round the plates, lighter, see-through? Too faint?
-  T60-11. Raider the same? A frame round a plate with any Wear?
-  T60-12. The three gears either side of the helmet: as your layout?
-  T60-13. The Wear and Paint condition on all four bikes, at once?
-  T60-14. OverlayQuick=0, OverlayEvery=0, OverlayParked=0: worse, as expected?
-  T60-15. No frame of the menu's own pose between options? The "kit: hold (2026-11-23a)" counts?
-  T60-16. Third person, a pistol drawn: the left hand on its grip, the right on the pistol ahead?
-  T60-17. The shots as before? The right hand back on its grip at the put-away?
-  T60-18. First person, a pistol drawn: your body and left hand on the grip, one arm on the pistol?
-  T60-19. After the Pip-Boy, a look back, third person and getting off: nothing missing?
-  T60-20. No weapon: the camera round you every time, back behind?
-  T60-21. A weapon drawn: round you up to a quarter turn, back behind?
-  T60-22. The holstered pistols on your thigh through leans and bumps? Anything on your forearm?
-  T60-23. Right after a put-away: on your thigh from the first moment?
-  T60-24. A stimpak by its key in third person: no clip, the health restored?
-  T60-25. From the Pip-Boy in third person: no clip? The Favourites menu, also right after the
-          Pip-Boy: the health every time?
-  T60-26. Any frame drops?
+  Q61-1. Did the bike ever appear behind you, or did you walk through it, at any getting off?
+  Q61-2. Did every stimpak press heal? How did the seated pose look through it?
+  Q61-3. With the look in first person, did the shots go where you aimed?
+  Q61-4. If you tried 61-9: did the camera turn round you, and did anything look wrong?
 
 TIMING STAND-INS (optional, as before)
   38 clips use a stand-in vanilla clip for their timing because these weren't extracted:
